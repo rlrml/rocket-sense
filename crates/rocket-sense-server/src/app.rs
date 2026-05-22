@@ -1,17 +1,21 @@
-use crate::{api, settings::Settings};
+use crate::{api, settings};
 use anyhow::Result;
 use axum::Router;
-use rocket_sense_storage::LocalStorage;
+use rocket_sense_storage::{LocalStorage, ObjectStorage};
 use sqlx::PgPool;
+use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 #[derive(Clone)]
 pub struct AppState {
     pub db: Option<PgPool>,
-    pub storage: LocalStorage,
+    pub storage: Arc<dyn ObjectStorage>,
+    pub auth_mode: crate::settings::AuthMode,
+    pub app_jwt_secret: Arc<str>,
+    pub google_oauth: Option<Arc<settings::GoogleOAuthSettings>>,
 }
 
-pub async fn build(settings: Settings) -> Result<Router> {
+pub async fn build(settings: settings::Settings) -> Result<Router> {
     let db = if let Some(database_url) = &settings.database_url {
         let pool = rocket_sense_db::connect(database_url).await?;
         if settings.run_migrations {
@@ -25,7 +29,10 @@ pub async fn build(settings: Settings) -> Result<Router> {
 
     let state = AppState {
         db,
-        storage: LocalStorage::new(settings.storage_root),
+        storage: Arc::new(LocalStorage::new(settings.storage_root)),
+        auth_mode: settings.auth_mode,
+        app_jwt_secret: Arc::from(settings.app_jwt_secret),
+        google_oauth: settings.google_oauth.map(Arc::new),
     };
 
     Ok(api::router(state)

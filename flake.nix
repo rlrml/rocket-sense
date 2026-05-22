@@ -39,13 +39,14 @@
             pkgs.cargo-watch
             pkgs.curl
             pkgs.just
+            pkgs.kubectl
+            pkgs.opentofu
+            pkgs.skopeo
           ]
           ++ nativeBuildInputs
           ++ buildInputs;
-      in
-      {
-        packages.default = rustPlatform.buildRustPackage {
-          pname = "rocket-sense";
+        rocketSenseServer = rustPlatform.buildRustPackage {
+          pname = "rocket-sense-server";
           version = "0.1.0";
           src = ./.;
           cargoBuildFlags = [
@@ -55,7 +56,33 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
           };
+          RUST_MIN_STACK = "16777216";
           inherit nativeBuildInputs buildInputs;
+        };
+      in
+      {
+        packages = {
+          default = rocketSenseServer;
+          rocket-sense-server = rocketSenseServer;
+          rocket-sense-server-image = pkgs.dockerTools.buildLayeredImage {
+            name = "localhost:5279/rocket-sense-server";
+            tag = "dev";
+            contents = [
+              pkgs.cacert
+            ];
+            config = {
+              Cmd = [
+                "${rocketSenseServer}/bin/rocket-sense-server"
+              ];
+              Env = [
+                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                "ROCKET_SENSE_BIND_ADDR=0.0.0.0:8080"
+              ];
+              ExposedPorts = {
+                "8080/tcp" = {};
+              };
+            };
+          };
         };
 
         devShells.default = pkgs.mkShell {

@@ -6,11 +6,9 @@ use std::{
     str::FromStr,
 };
 use tokio::fs;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredObject {
-    pub backend: &'static str,
     pub key: String,
     pub content_type: Option<mime::Mime>,
     pub byte_size: u64,
@@ -101,7 +99,6 @@ impl ObjectStorage for LocalStorage {
             })?;
 
         Ok(StoredObject {
-            backend: "local",
             key: key.to_owned(),
             content_type,
             byte_size: bytes.len() as u64,
@@ -121,8 +118,8 @@ impl ObjectStorage for LocalStorage {
     }
 }
 
-pub fn raw_replay_key(replay_id: Uuid) -> String {
-    format!("replays/{replay_id}.replay")
+pub fn raw_replay_key(file_sha256: &str) -> String {
+    format!("replays/sha256/{file_sha256}.replay")
 }
 
 pub fn replay_mime_type() -> mime::Mime {
@@ -130,7 +127,7 @@ pub fn replay_mime_type() -> mime::Mime {
         .expect("static replay MIME type should parse")
 }
 
-fn sha256_hex(bytes: &[u8]) -> String {
+pub fn sha256_hex(bytes: &[u8]) -> String {
     hex::encode(Sha256::digest(bytes))
 }
 

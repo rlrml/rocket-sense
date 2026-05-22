@@ -11,7 +11,6 @@ pub fn router() -> Router<AppState> {
 pub struct HealthResponse {
     pub ok: bool,
     pub database_configured: bool,
-    pub storage_backend: &'static str,
 }
 
 #[utoipa::path(
@@ -26,6 +25,5 @@ pub async fn health(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         ok: true,
         database_configured: state.db.is_some(),
-        storage_backend: "local",
     })
 }
