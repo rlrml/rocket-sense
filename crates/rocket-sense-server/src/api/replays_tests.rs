@@ -47,3 +47,12 @@ fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
     assert!(wasm.bytes.len() > 1_000_000);
     assert!(subtr_actor_stats_static_asset("missing.js").is_none());
 }
+
+#[test]
+fn replay_list_page_uses_playlist_dropdown_values() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"<select name="playlist">"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<option value="ranked-duels">Ranked Duel</option>"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<option value="ranked-doubles">Ranked Doubles</option>"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<option value="private">Private</option>"#));
+    assert!(!REPLAY_LIST_PAGE.contains(r#"<input name="playlist""#));
+}

@@ -1241,7 +1241,32 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
       </label>
       <label>
         Playlist
-        <input name="playlist" placeholder="Ranked Doubles">
+        <select name="playlist">
+          <option value="">Any</option>
+          <option value="ranked-duels">Ranked Duel</option>
+          <option value="ranked-doubles">Ranked Doubles</option>
+          <option value="ranked-standard">Ranked Standard</option>
+          <option value="ranked-solo-standard">Ranked Solo Standard</option>
+          <option value="ranked-hoops">Ranked Hoops</option>
+          <option value="ranked-rumble">Ranked Rumble</option>
+          <option value="ranked-dropshot">Ranked Dropshot</option>
+          <option value="ranked-snowday">Ranked Snow Day</option>
+          <option value="unranked-duels">Casual Duel</option>
+          <option value="unranked-doubles">Casual Doubles</option>
+          <option value="unranked-standard">Casual Standard</option>
+          <option value="unranked-chaos">Casual Chaos</option>
+          <option value="private">Private</option>
+          <option value="season">Season</option>
+          <option value="offline">Offline</option>
+          <option value="tournament">Tournament</option>
+          <option value="hoops">Hoops</option>
+          <option value="rumble">Rumble</option>
+          <option value="dropshot">Dropshot</option>
+          <option value="snowday">Snow Day</option>
+          <option value="rocketlabs">Rocket Labs</option>
+          <option value="dropshot-rumble">Dropshot Rumble</option>
+          <option value="heatseeker">Heatseeker</option>
+        </select>
       </label>
       <label>
         Map
