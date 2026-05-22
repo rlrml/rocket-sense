@@ -1248,6 +1248,25 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
       color: #64748b;
     }
 
+    .replay-link {
+      color: #0f766e;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .replay-link:hover {
+      text-decoration: underline;
+    }
+
+    .replay-id-link {
+      display: block;
+      margin-top: 2px;
+      color: #64748b;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
     .status {
       display: inline-flex;
       align-items: center;
@@ -1499,11 +1518,15 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
         return;
       }
 
-      const rows = replays.map((replay) => `
+      const rows = replays.map((replay) => {
+        const name = replayName(replay);
+        const replayHref = viewerUrl(replay);
+
+        return `
         <tr>
-          <td class="name" title="${escapeHtml(replayName(replay))}">
-            ${escapeHtml(replayName(replay))}
-            <div class="muted">${escapeHtml(replay.id)}</div>
+          <td class="name" title="${escapeHtml(name)}">
+            <a class="replay-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>
+            <a class="replay-link replay-id-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(replay.id)}</a>
           </td>
           <td>${escapeHtml(formatDate(replay.replay_date || replay.created_at))}</td>
           <td>${escapeHtml(text(replay.playlist))}</td>
@@ -1515,7 +1538,8 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
             <a href="${statsUrl(replay)}" target="_blank" rel="noopener">Stats</a>
           </td>
         </tr>
-      `).join("");
+      `;
+      }).join("");
 
       content.innerHTML = `
         <div class="table-wrap">

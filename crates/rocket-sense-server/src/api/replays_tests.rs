@@ -58,6 +58,17 @@ fn replay_list_page_uses_playlist_dropdown_values() {
 }
 
 #[test]
+fn replay_list_page_links_replay_name_and_id_to_viewer() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"const replayHref = viewerUrl(replay);"#));
+    assert!(REPLAY_LIST_PAGE.contains(
+        r#"<a class="replay-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>"#
+    ));
+    assert!(REPLAY_LIST_PAGE.contains(
+        r#"<a class="replay-link replay-id-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(replay.id)}</a>"#
+    ));
+}
+
+#[test]
 fn normalize_sha256_hex_accepts_lower_and_uppercase_hashes() {
     let lowercase = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     let uppercase = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
