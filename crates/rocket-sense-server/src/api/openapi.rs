@@ -8,6 +8,7 @@ use utoipa::{
 #[openapi(
     paths(
         auth::create_dev_token,
+        auth::create_profile_token,
         health::health,
         replays::create_replay,
         replays::list_replays,

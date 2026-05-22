@@ -19,12 +19,15 @@ use uuid::Uuid;
 pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/login", get(login_page))
+        .route("/profile", get(profile_page))
         .route("/auth/google/start", get(start_google_login))
         .route("/auth/google/callback", get(finish_google_login))
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/auth/dev-token", post(create_dev_token))
+    Router::new()
+        .route("/auth/dev-token", post(create_dev_token))
+        .route("/auth/profile-token", post(create_profile_token))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -56,6 +59,26 @@ pub async fn create_dev_token(
     issue_dev_token(request.email, &state.app_jwt_secret).map(Json)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/profile-token",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Bearer token for the current browser session", body = AccessToken),
+        (status = 401, description = "Authentication required"),
+        (status = 500, description = "Token signing failed")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn create_profile_token(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<AccessToken>, AuthError> {
+    issue_access_token(&auth_user, &state.app_jwt_secret).map(Json)
+}
+
 async fn login_page(State(state): State<AppState>) -> Html<String> {
     Html(render_login_page(
         state.auth_mode,
@@ -63,11 +86,21 @@ async fn login_page(State(state): State<AppState>) -> Html<String> {
     ))
 }
 
+async fn profile_page(State(state): State<AppState>) -> Html<String> {
+    Html(render_profile_page(state.auth_mode))
+}
+
 fn render_login_page(auth_mode: AuthMode, google_oauth: Option<&GoogleOAuthSettings>) -> String {
     LOGIN_PAGE_TEMPLATE
         .replace("{{oauth_panel}}", &oauth_panel(google_oauth))
+        .replace("{{dev_link}}", dev_login_link(auth_mode))
+}
+
+fn render_profile_page(auth_mode: AuthMode) -> String {
+    PROFILE_PAGE_TEMPLATE
         .replace("{{dev_token_panel}}", dev_token_panel(auth_mode))
-        .replace("{{dev_token_script}}", dev_token_script(auth_mode))
+        .replace("{{session_token_panel}}", session_token_panel(auth_mode))
+        .replace("{{profile_token_script}}", profile_token_script(auth_mode))
 }
 
 fn oauth_panel(google_oauth: Option<&GoogleOAuthSettings>) -> String {
@@ -87,6 +120,13 @@ fn oauth_panel(google_oauth: Option<&GoogleOAuthSettings>) -> String {
     }
 }
 
+fn dev_login_link(auth_mode: AuthMode) -> &'static str {
+    match auth_mode {
+        AuthMode::Dev => r#"<a class="secondary" href="/profile">Use development profile</a>"#,
+        AuthMode::Google => "",
+    }
+}
+
 fn dev_token_panel(auth_mode: AuthMode) -> &'static str {
     match auth_mode {
         AuthMode::Dev => DEV_TOKEN_PANEL,
@@ -94,10 +134,17 @@ fn dev_token_panel(auth_mode: AuthMode) -> &'static str {
     }
 }
 
-fn dev_token_script(auth_mode: AuthMode) -> &'static str {
+fn session_token_panel(auth_mode: AuthMode) -> &'static str {
     match auth_mode {
-        AuthMode::Dev => DEV_TOKEN_SCRIPT,
-        AuthMode::Google => "",
+        AuthMode::Dev => "",
+        AuthMode::Google => SESSION_TOKEN_PANEL,
+    }
+}
+
+fn profile_token_script(auth_mode: AuthMode) -> &'static str {
+    match auth_mode {
+        AuthMode::Dev => DEV_PROFILE_SCRIPT,
+        AuthMode::Google => GOOGLE_PROFILE_SCRIPT,
     }
 }
 
@@ -169,14 +216,13 @@ async fn finish_google_login(
     let secure = google.public_base_url.starts_with("https://");
     let session_cookie = session_cookie(&token.access_token, token.expires_in_seconds, secure);
     let clear_state_cookie = clear_oauth_state_cookie(secure);
-    let body = render_login_success(&user, &token.access_token);
 
     Ok((
         [
             (SET_COOKIE, clear_state_cookie),
             (SET_COOKIE, session_cookie),
         ],
-        Html(body),
+        Redirect::temporary("/replays"),
     )
         .into_response())
 }
@@ -350,12 +396,6 @@ fn read_oauth_state_cookie(headers: &HeaderMap) -> Option<(String, String)> {
     Some((state.to_owned(), nonce.to_owned()))
 }
 
-fn render_login_success(user: &AuthUser, token: &str) -> String {
-    LOGIN_SUCCESS_TEMPLATE
-        .replace("{{email}}", &escape_html(&user.email))
-        .replace("{{token}}", &escape_html(token))
-}
-
 fn escape_cookie(value: &str) -> String {
     value.replace(';', "%3B").replace(',', "%2C")
 }
@@ -457,6 +497,12 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
       text-decoration: none;
     }
 
+    .secondary {
+      color: #165dff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
     button:disabled {
       opacity: 0.6;
       cursor: wait;
@@ -482,10 +528,150 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
   <main>
     {{oauth_panel}}
 
+    {{dev_link}}
+  </main>
+</body>
+</html>
+"##;
+
+const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rocket Sense Profile</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8fafc;
+      color: #172033;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    main {
+      width: min(100%, 640px);
+      display: grid;
+      gap: 18px;
+    }
+
+    form, section {
+      border: 1px solid #d6dbe5;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    h1 {
+      margin: 0 0 4px;
+      font-size: 28px;
+      line-height: 1.15;
+    }
+
+    p {
+      margin: 0;
+      color: #536179;
+      line-height: 1.5;
+    }
+
+    label {
+      display: grid;
+      gap: 8px;
+      font-weight: 650;
+      margin-top: 18px;
+    }
+
+    input, textarea, pre {
+      width: 100%;
+      box-sizing: border-box;
+      border: 1px solid #c7ceda;
+      border-radius: 6px;
+      padding: 10px 12px;
+      font: inherit;
+      background: #ffffff;
+      color: #172033;
+    }
+
+    textarea {
+      min-height: 120px;
+      resize: vertical;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    button, .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 16px;
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: #165dff;
+      color: white;
+      font-weight: 700;
+      cursor: pointer;
+      text-decoration: none;
+    }
+
+    .nav {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .nav a {
+      color: #165dff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: wait;
+    }
+
+    pre {
+      overflow-x: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .error {
+      color: #b42318;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section>
+      <h1>Profile</h1>
+      <p>Use this page for API upload tokens and replay upload commands.</p>
+      <div class="nav">
+        <a href="/replays">Replay list</a>
+        <a href="/login">Login</a>
+      </div>
+    </section>
+
     {{dev_token_panel}}
+
+    {{session_token_panel}}
   </main>
 
-  {{dev_token_script}}
+  {{profile_token_script}}
 </body>
 </html>
 "##;
@@ -508,7 +694,20 @@ const DEV_TOKEN_PANEL: &str = r##"<form id="login-form">
       <pre id="curl"></pre>
     </section>"##;
 
-const DEV_TOKEN_SCRIPT: &str = r##"<script>
+const SESSION_TOKEN_PANEL: &str = r##"<section>
+      <h1>Upload token</h1>
+      <p>Create a bearer token from your current browser session.</p>
+      <button id="session-token" type="button">Create session token</button>
+      <p id="session-error" class="error" role="alert"></p>
+      <div id="result" class="hidden">
+        <p>Bearer token</p>
+        <textarea id="token" readonly></textarea>
+        <p>Replay upload</p>
+        <pre id="curl"></pre>
+      </div>
+    </section>"##;
+
+const DEV_PROFILE_SCRIPT: &str = r##"<script>
     const form = document.querySelector("#login-form");
     const submit = document.querySelector("#submit");
     const error = document.querySelector("#error");
@@ -549,77 +748,40 @@ const DEV_TOKEN_SCRIPT: &str = r##"<script>
     }
   </script>"##;
 
-const LOGIN_SUCCESS_TEMPLATE: &str = r##"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Rocket Sense Login Complete</title>
-  <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f8fafc;
-      color: #172033;
+const GOOGLE_PROFILE_SCRIPT: &str = r##"<script>
+    const button = document.querySelector("#session-token");
+    const error = document.querySelector("#session-error");
+    const result = document.querySelector("#result");
+    const tokenOutput = document.querySelector("#token");
+    const curlOutput = document.querySelector("#curl");
+
+    async function createSessionToken() {
+      button.disabled = true;
+      error.textContent = "";
+
+      try {
+        const response = await fetch("/api/v1/auth/profile-token", {
+          method: "POST",
+          credentials: "same-origin"
+        });
+        const body = await response.json();
+
+        if (!response.ok) {
+          throw new Error(body.error || "Token request failed");
+        }
+
+        localStorage.setItem("rocket_sense_access_token", body.access_token);
+        tokenOutput.value = body.access_token;
+        curlOutput.textContent = `curl -X POST ${location.origin}/api/v1/replays \\
+  -H "Authorization: Bearer ${body.access_token}" \\
+  -F "file=@/path/to/replay.replay"`;
+        result.classList.remove("hidden");
+      } catch (err) {
+        error.textContent = err.message;
+      } finally {
+        button.disabled = false;
+      }
     }
 
-    main {
-      width: min(100%, 640px);
-      border: 1px solid #d6dbe5;
-      border-radius: 8px;
-      background: #ffffff;
-      padding: 20px;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
-    }
-
-    h1 {
-      margin: 0 0 8px;
-      font-size: 28px;
-    }
-
-    p {
-      color: #536179;
-      line-height: 1.5;
-    }
-
-    textarea, pre {
-      width: 100%;
-      box-sizing: border-box;
-      border: 1px solid #c7ceda;
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 13px;
-      color: #172033;
-      background: #ffffff;
-    }
-
-    textarea {
-      min-height: 120px;
-      resize: vertical;
-    }
-
-    pre {
-      overflow-x: auto;
-      white-space: pre-wrap;
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <h1>Logged in</h1>
-    <p>Signed in as {{email}}. A session cookie has been set for the browser.</p>
-    <p>Bearer token</p>
-    <textarea readonly>{{token}}</textarea>
-    <p>Replay upload</p>
-    <pre>curl -X POST https://rocket-sense.duckdns.org/api/v1/replays \
-  -H "Authorization: Bearer {{token}}" \
-  -F "file=@/path/to/replay.replay"</pre>
-  </main>
-</body>
-</html>
-"##;
+    button.addEventListener("click", createSessionToken);
+  </script>"##;

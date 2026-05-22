@@ -1101,7 +1101,7 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
   <header>
     <div class="header-inner">
       <h1>Rocket Sense Replays</h1>
-      <a class="button" href="/login">Login</a>
+      <a class="button" href="/profile">Profile</a>
     </div>
   </header>
   <main>
