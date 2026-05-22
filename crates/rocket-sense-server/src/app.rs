@@ -1,10 +1,12 @@
 use crate::{api, settings};
 use anyhow::Result;
-use axum::Router;
+use axum::{extract::DefaultBodyLimit, Router};
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
+
+const MAX_REPLAY_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,6 +40,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
     };
 
     Ok(api::router(state)
+        .layer(DefaultBodyLimit::max(MAX_REPLAY_UPLOAD_BYTES))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http()))
 }

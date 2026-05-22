@@ -18,6 +18,7 @@ use uuid::Uuid;
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
+        .route("/", get(login_page))
         .route("/login", get(login_page))
         .route("/profile", get(profile_page))
         .route("/auth/google/start", get(start_google_login))

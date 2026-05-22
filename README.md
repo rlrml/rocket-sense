@@ -60,7 +60,7 @@ ROCKET_SENSE_AUTH_MODE=dev
 just dev
 ```
 
-Open `/login` in the browser. In `ROCKET_SENSE_AUTH_MODE=google`, the page shows
+Open `/` or `/login` in the browser. In `ROCKET_SENSE_AUTH_MODE=google`, the page shows
 a Google login button that redirects through `/auth/google/start` and
 `/auth/google/callback`. In development mode, the same page offers a token form
 for local API upload testing.

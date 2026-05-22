@@ -11,7 +11,7 @@ use utoipa::OpenApi;
 
 pub fn router(state: AppState) -> Router {
     Router::new()
-        .route("/", get(root))
+        .route("/api", get(api_index))
         .merge(auth::public_router().with_state(state.clone()))
         .merge(replays::public_router().with_state(state.clone()))
         .nest("/api/v1", api_v1_router(state))
@@ -31,7 +31,7 @@ async fn openapi_json() -> Json<utoipa::openapi::OpenApi> {
 }
 
 #[derive(Debug, Serialize)]
-struct RootResponse {
+struct ApiIndexResponse {
     service: &'static str,
     api_base: &'static str,
     login_url: &'static str,
@@ -41,8 +41,8 @@ struct RootResponse {
     openapi_url: &'static str,
 }
 
-async fn root() -> Json<RootResponse> {
-    Json(RootResponse {
+async fn api_index() -> Json<ApiIndexResponse> {
+    Json(ApiIndexResponse {
         service: "rocket-sense",
         api_base: "/api/v1",
         login_url: "/login",
