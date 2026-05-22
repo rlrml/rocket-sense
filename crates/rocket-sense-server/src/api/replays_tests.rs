@@ -33,9 +33,9 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-CtsMvKJZ.js").unwrap();
-    let css = subtr_actor_stats_static_asset("index-C_JUMRgy.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-EyPRboYq.wasm").unwrap();
+    let javascript = subtr_actor_stats_static_asset("index-CBS_ASa4.js").unwrap();
+    let css = subtr_actor_stats_static_asset("index-PB1mR1-R.css").unwrap();
+    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-BMUMQ3Gy.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
