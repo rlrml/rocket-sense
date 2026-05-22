@@ -1,0 +1,6 @@
+/target/
+/.direnv/
+/.envrc.local
+/.pre-commit-config.yaml
+result
+*.replay

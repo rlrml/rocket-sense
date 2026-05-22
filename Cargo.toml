@@ -1,0 +1,11 @@
+[package]
+name = "rocket-sense"
+version = "0.1.0"
+authors = ["Ivan Malison <ivanmalison@gmail.com>"]
+license = "MIT"
+repository = "https://github.com/rlrml/rocket-sense"
+edition = "2021"
+description = "Rocket League replay analytics backend"
+
+[dependencies]
+subtr-actor = { git = "https://github.com/rlrml/subtr-actor" }
