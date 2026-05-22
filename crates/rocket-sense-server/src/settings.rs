@@ -37,7 +37,6 @@ impl GoogleOAuthSettings {
 pub struct Settings {
     pub bind_addr: SocketAddr,
     pub auth_mode: AuthMode,
-    pub public_base_url: String,
     pub app_jwt_secret: String,
     pub google_oauth: Option<GoogleOAuthSettings>,
     pub database_url: Option<String>,
@@ -96,7 +95,6 @@ impl Settings {
         Ok(Self {
             bind_addr,
             auth_mode,
-            public_base_url,
             app_jwt_secret,
             google_oauth,
             database_url,

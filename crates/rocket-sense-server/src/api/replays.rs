@@ -16,6 +16,10 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+#[cfg(test)]
+#[path = "replays_tests.rs"]
+mod tests;
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/replays", get(list_replays).post(create_replay))
@@ -26,7 +30,17 @@ pub fn router() -> Router<AppState> {
 pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/replays", get(replay_list_page))
+        .route("/replays/{replay_id}/stats", get(open_replay_stats))
         .route("/replays/{replay_id}", get(open_replay_viewer))
+        .route("/subtr-actor", get(subtr_actor_viewer))
+        .route("/subtr-actor/", get(subtr_actor_viewer))
+        .route("/subtr-actor/assets/{asset_path}", get(subtr_actor_asset))
+        .route("/subtr-actor/stats", get(subtr_actor_stats))
+        .route("/subtr-actor/stats/", get(subtr_actor_stats))
+        .route(
+            "/subtr-actor/stats/assets/{asset_path}",
+            get(subtr_actor_stats_asset),
+        )
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -354,11 +368,36 @@ async fn replay_list_page() -> Html<&'static str> {
     Html(REPLAY_LIST_PAGE)
 }
 
-async fn open_replay_viewer(
-    State(state): State<AppState>,
-    Path(replay_id): Path<Uuid>,
-) -> Redirect {
-    Redirect::temporary(&subtr_actor_viewer_url(&state, replay_id))
+async fn open_replay_viewer(Path(replay_id): Path<Uuid>) -> Redirect {
+    Redirect::temporary(&hosted_replay_app_url("/subtr-actor/", replay_id))
+}
+
+async fn open_replay_stats(Path(replay_id): Path<Uuid>) -> Redirect {
+    Redirect::temporary(&hosted_replay_app_url("/subtr-actor/stats/", replay_id))
+}
+
+async fn subtr_actor_viewer() -> Html<&'static str> {
+    Html(SUBTR_ACTOR_VIEWER_INDEX)
+}
+
+async fn subtr_actor_stats() -> Html<&'static str> {
+    Html(SUBTR_ACTOR_STATS_INDEX)
+}
+
+async fn subtr_actor_asset(
+    Path(asset_path): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let asset = subtr_actor_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+}
+
+async fn subtr_actor_stats_asset(
+    Path(asset_path): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let asset = subtr_actor_stats_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
 }
 
 #[derive(Debug)]
@@ -588,17 +627,81 @@ fn sanitize_file_name(value: &str) -> String {
         .collect()
 }
 
-fn subtr_actor_viewer_url(state: &AppState, replay_id: Uuid) -> String {
-    let replay_url = format!(
-        "{}/api/v1/replays/{replay_id}/file",
-        state.public_base_url.trim_end_matches('/')
-    );
-    let mut viewer_url = url::Url::parse("https://rlrml.github.io/subtr-actor/")
-        .expect("static subtr-actor viewer URL should parse");
-    viewer_url
-        .query_pairs_mut()
-        .append_pair("replayUrl", &replay_url);
-    viewer_url.into()
+fn hosted_replay_app_url(app_path: &str, replay_id: Uuid) -> String {
+    let replay_url = format!("/api/v1/replays/{replay_id}/file");
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("replayUrl", &replay_url);
+
+    format!("{app_path}?{}", query.finish())
+}
+
+struct StaticAsset {
+    content_type: &'static str,
+    bytes: &'static [u8],
+}
+
+fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
+    match path {
+        "index-sCJKH-RF.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/assets/index-sCJKH-RF.js"),
+        }),
+        "main-B47VKW7Z.css" => Some(StaticAsset {
+            content_type: "text/css; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/assets/main-B47VKW7Z.css"),
+        }),
+        "main-CrR9IRLq.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/assets/main-CrR9IRLq.js"),
+        }),
+        "replayLoader.worker-D2-XMRtw.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!(
+                "../../static/subtr-actor/assets/replayLoader.worker-D2-XMRtw.js"
+            ),
+        }),
+        "rl_replay_subtr_actor_bg-EyPRboYq.wasm" => Some(StaticAsset {
+            content_type: "application/wasm",
+            bytes: include_bytes!(
+                "../../static/subtr-actor/assets/rl_replay_subtr_actor_bg-EyPRboYq.wasm"
+            ),
+        }),
+        "wasm.worker-BUoxJonY.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/assets/wasm.worker-BUoxJonY.js"),
+        }),
+        _ => None,
+    }
+}
+
+fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
+    match path {
+        "index-B9-_cuHE.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-B9-_cuHE.js"),
+        }),
+        "index-C_JUMRgy.css" => Some(StaticAsset {
+            content_type: "text/css; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-C_JUMRgy.css"),
+        }),
+        "replayLoader.worker-D2-XMRtw.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!(
+                "../../static/subtr-actor/stats/assets/replayLoader.worker-D2-XMRtw.js"
+            ),
+        }),
+        "rl_replay_subtr_actor_bg-EyPRboYq.wasm" => Some(StaticAsset {
+            content_type: "application/wasm",
+            bytes: include_bytes!(
+                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-EyPRboYq.wasm"
+            ),
+        }),
+        "wasm.worker-BUoxJonY.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-BUoxJonY.js"),
+        }),
+        _ => None,
+    }
 }
 
 fn storage_read_error(error: StorageError) -> ApiError {
@@ -868,6 +971,9 @@ fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::E
     })
 }
 
+const SUBTR_ACTOR_VIEWER_INDEX: &str = include_str!("../../static/subtr-actor/index.html");
+const SUBTR_ACTOR_STATS_INDEX: &str = include_str!("../../static/subtr-actor/stats/index.html");
+
 const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
 <html lang="en">
 <head>
@@ -1040,8 +1146,14 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
     }
 
     .actions {
-      width: 150px;
+      width: 160px;
       text-align: right;
+    }
+
+    td.actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
     }
 
     .actions a {
@@ -1208,14 +1320,12 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
       return token ? { Authorization: `Bearer ${token}` } : {};
     }
 
-    function replayFileUrl(replay) {
-      return new URL(`/api/v1/replays/${replay.id}/file`, location.origin).href;
+    function viewerUrl(replay) {
+      return `/replays/${encodeURIComponent(replay.id)}`;
     }
 
-    function viewerUrl(replay) {
-      const url = new URL("https://rlrml.github.io/subtr-actor/");
-      url.searchParams.set("replayUrl", replayFileUrl(replay));
-      return url.href;
+    function statsUrl(replay) {
+      return `/replays/${encodeURIComponent(replay.id)}/stats`;
     }
 
     function replayName(replay) {
@@ -1260,7 +1370,10 @@ const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
           <td>${escapeHtml(text(replay.map_code))}</td>
           <td><span class="status">${escapeHtml(replay.status)}</span></td>
           <td>${escapeHtml(formatBytes(replay.byte_size))}</td>
-          <td class="actions"><a href="${viewerUrl(replay)}" target="_blank" rel="noopener">Open viewer</a></td>
+          <td class="actions">
+            <a href="${viewerUrl(replay)}" target="_blank" rel="noopener">Viewer</a>
+            <a href="${statsUrl(replay)}" target="_blank" rel="noopener">Stats</a>
+          </td>
         </tr>
       `).join("");
 
