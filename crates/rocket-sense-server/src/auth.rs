@@ -40,14 +40,21 @@ impl AuthUser {
         })
     }
 
-    pub fn from_google_identity(subject: &str, email: String) -> Result<Self, AuthError> {
+    pub fn from_provider_identity(
+        provider: &str,
+        subject: &str,
+        email: String,
+    ) -> Result<Self, AuthError> {
         let normalized_email = email.trim().to_lowercase();
         if normalized_email.is_empty() {
-            return Err(AuthError::unauthorized("Google account has no email"));
+            return Err(AuthError::unauthorized(format!(
+                "{} account has no email",
+                provider
+            )));
         }
 
         Ok(Self {
-            id: stable_user_id("google", subject),
+            id: stable_user_id(provider, subject),
             email: normalized_email,
         })
     }
@@ -138,7 +145,7 @@ impl FromRequestParts<AppState> for AuthUser {
                     "missing bearer token or {DEV_USER_HEADER} header in dev auth mode"
                 )))
             }
-            AuthMode::Google => Err(AuthError::unauthorized("missing bearer token")),
+            AuthMode::OAuth => Err(AuthError::unauthorized("missing bearer token")),
         }
     }
 }

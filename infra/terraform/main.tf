@@ -255,6 +255,50 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name = "GITHUB_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "GITHUB_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "GITHUB_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "GITHUB_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "DISCORD_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "DISCORD_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "DISCORD_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "DISCORD_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
             name = "DATABASE_URL"
             value_from {
               secret_key_ref {

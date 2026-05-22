@@ -23,6 +23,10 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/replays", get(list_replays).post(create_replay))
+        .route(
+            "/replays/by-sha256/{file_sha256}",
+            get(get_replay_by_sha256),
+        )
         .route("/replays/{replay_id}/file", get(download_replay_file))
         .route("/replays/{replay_id}", get(get_replay))
 }
@@ -46,6 +50,8 @@ pub fn public_router() -> Router<AppState> {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CreateReplayResponse {
     pub replay: ReplayResponse,
+    pub created: bool,
+    pub deduplicated: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -163,6 +169,7 @@ struct ErrorResponse {
     request_body(content_type = "multipart/form-data"),
     responses(
         (status = 201, description = "Replay accepted", body = CreateReplayResponse),
+        (status = 200, description = "Replay already existed", body = CreateReplayResponse),
         (status = 401, description = "Authentication required"),
         (status = 400, description = "Replay file was missing or invalid"),
         (status = 500, description = "Replay could not be stored"),
@@ -199,6 +206,24 @@ pub async fn create_replay(
         replay_bytes.ok_or_else(|| ApiError::bad_request("missing multipart field `file`"))?;
     let replay_id = Uuid::now_v7();
     let file_sha256 = sha256_hex(&bytes);
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+
+    if let Some(replay) = find_replay_by_sha256(db, &file_sha256)
+        .await
+        .map_err(ApiError::internal)?
+    {
+        return Ok((
+            StatusCode::OK,
+            Json(CreateReplayResponse {
+                replay,
+                created: false,
+                deduplicated: true,
+            }),
+        ));
+    }
+
     let stored = state
         .storage
         .put(
@@ -208,10 +233,7 @@ pub async fn create_replay(
         )
         .await
         .map_err(ApiError::internal)?;
-    upsert_user(db, &auth_user)
-        .await
-        .map_err(ApiError::internal)?;
-    let replay = insert_replay_metadata(
+    let insert_result = insert_replay_metadata(
         db,
         replay_id,
         &file_sha256,
@@ -222,20 +244,25 @@ pub async fn create_replay(
     )
     .await
     .map_err(ApiError::internal)?;
+    let replay = insert_result.replay;
 
-    if state.process_replays_in_background
-        && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
-    {
-        spawn_replay_processing(
-            db.clone(),
-            state.storage.clone(),
-            replay.id,
-            replay.file_sha256.clone(),
-            replay.storage_key.clone(),
-        );
+    if insert_result.created {
+        maybe_spawn_replay_processing(&state, db, &replay);
     }
 
-    Ok((StatusCode::CREATED, Json(CreateReplayResponse { replay })))
+    let status = if insert_result.created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((
+        status,
+        Json(CreateReplayResponse {
+            replay,
+            created: insert_result.created,
+            deduplicated: !insert_result.created,
+        }),
+    ))
 }
 
 #[utoipa::path(
@@ -310,6 +337,39 @@ pub async fn get_replay(
         .map_err(ApiError::internal)?
         .map(replay_from_row)
         .transpose()
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    Ok(Json(replay))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/replays/by-sha256/{file_sha256}",
+    tag = "replays",
+    params(
+        ("file_sha256" = String, Path, description = "Lower- or uppercase SHA-256 digest of the replay file bytes")
+    ),
+    responses(
+        (status = 200, description = "Replay metadata", body = ReplayResponse),
+        (status = 400, description = "SHA-256 digest was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Replay was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn get_replay_by_sha256(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(file_sha256): Path<String>,
+) -> Result<Json<ReplayResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let file_sha256 = normalize_sha256_hex(&file_sha256)?;
+    let replay = find_replay_by_sha256(db, &file_sha256)
+        .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
 
@@ -513,6 +573,11 @@ struct ReplayFileRecord {
     original_file_name: Option<String>,
 }
 
+struct InsertReplayMetadataResult {
+    replay: ReplayResponse,
+    created: bool,
+}
+
 enum SortBy {
     UploadDate,
     ReplayDate,
@@ -627,6 +692,17 @@ fn sanitize_file_name(value: &str) -> String {
         .collect()
 }
 
+fn normalize_sha256_hex(value: &str) -> Result<String, ApiError> {
+    let value = value.trim();
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(ApiError::bad_request(
+            "file_sha256 must be a 64-character hexadecimal SHA-256 digest",
+        ));
+    }
+
+    Ok(value.to_ascii_lowercase())
+}
+
 fn hosted_replay_app_url(app_path: &str, replay_id: Uuid) -> String {
     let replay_url = format!("/api/v1/replays/{replay_id}/file");
     let mut query = url::form_urlencoded::Serializer::new(String::new());
@@ -676,9 +752,9 @@ fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
 
 fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-B9-_cuHE.js" => Some(StaticAsset {
+        "index-CtsMvKJZ.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-B9-_cuHE.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-CtsMvKJZ.js"),
         }),
         "index-C_JUMRgy.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
@@ -755,6 +831,33 @@ async fn get_replay_file_record(
     .transpose()
 }
 
+async fn find_replay_by_sha256(
+    pool: &PgPool,
+    file_sha256: &str,
+) -> Result<Option<ReplayResponse>, sqlx::Error> {
+    let sql = replay_select_sql("WHERE file_sha256 = $1");
+    sqlx::query(sql.as_str())
+        .bind(file_sha256)
+        .fetch_optional(pool)
+        .await?
+        .map(replay_from_row)
+        .transpose()
+}
+
+fn maybe_spawn_replay_processing(state: &AppState, db: &PgPool, replay: &ReplayResponse) {
+    if state.process_replays_in_background
+        && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
+    {
+        spawn_replay_processing(
+            db.clone(),
+            state.storage.clone(),
+            replay.id,
+            replay.file_sha256.clone(),
+            replay.storage_key.clone(),
+        );
+    }
+}
+
 async fn insert_replay_metadata(
     pool: &PgPool,
     replay_id: Uuid,
@@ -763,21 +866,30 @@ async fn insert_replay_metadata(
     byte_size: u64,
     storage_key: &str,
     uploaded_by_user_id: Uuid,
-) -> Result<ReplayResponse, sqlx::Error> {
+) -> Result<InsertReplayMetadataResult, sqlx::Error> {
     let row = sqlx::query(
         r#"
-        INSERT INTO replays (
+        WITH inserted AS (
+            INSERT INTO replays (
                 id,
                 uploaded_by_user_id,
                 file_sha256,
                 original_file_name,
                 byte_size,
                 storage_key
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (file_sha256) DO NOTHING
+            RETURNING id, TRUE AS created
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (file_sha256) DO UPDATE
-        SET file_sha256 = replays.file_sha256
-        RETURNING id
+        SELECT id, created
+        FROM inserted
+        UNION ALL
+        SELECT id, FALSE AS created
+        FROM replays
+        WHERE file_sha256 = $3
+          AND NOT EXISTS (SELECT 1 FROM inserted)
+        LIMIT 1
         "#,
     )
     .bind(replay_id)
@@ -789,13 +901,16 @@ async fn insert_replay_metadata(
     .fetch_one(pool)
     .await?;
     let stored_replay_id: Uuid = row.try_get("id")?;
+    let created: bool = row.try_get("created")?;
 
     let sql = replay_select_sql("WHERE id = $1");
-    sqlx::query(sql.as_str())
+    let replay = sqlx::query(sql.as_str())
         .bind(stored_replay_id)
         .fetch_one(pool)
         .await
-        .and_then(replay_from_row)
+        .and_then(replay_from_row)?;
+
+    Ok(InsertReplayMetadataResult { replay, created })
 }
 
 async fn count_replays(pool: &PgPool, filters: &ReplayFilters) -> Result<u64, sqlx::Error> {

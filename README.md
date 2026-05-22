@@ -49,9 +49,9 @@ that behavior.
 ## Auth direction
 
 Rocket Sense treats authentication and Rocket League platform identity as
-separate concepts. The deployed app uses Google OpenID Connect login. The API
-validates Rocket Sense bearer/session JWTs issued after Google ID-token
-verification and maps provider identity to internal `users` rows.
+separate concepts. The deployed app uses OAuth login providers. The API
+validates Rocket Sense bearer/session JWTs issued after provider verification
+and maps provider identity to internal `users` rows.
 
 The initial implementation has explicit development auth only:
 
@@ -60,9 +60,9 @@ ROCKET_SENSE_AUTH_MODE=dev
 just dev
 ```
 
-Open `/` or `/login` in the browser. In `ROCKET_SENSE_AUTH_MODE=google`, the page shows
-a Google login button that redirects through `/auth/google/start` and
-`/auth/google/callback`. In development mode, the same page offers a token form
+Open `/` or `/login` in the browser. In `ROCKET_SENSE_AUTH_MODE=oauth` or the
+legacy-compatible `ROCKET_SENSE_AUTH_MODE=google`, the page shows configured
+OAuth provider buttons. In development mode, the same page offers a token form
 for local API upload testing.
 
 You can request a 24-hour development token from the API:
@@ -80,15 +80,38 @@ curl -X POST http://127.0.0.1:8080/api/v1/replays \
   -F "file=@/path/to/replay.replay"
 ```
 
-Set `ROCKET_SENSE_APP_JWT_SECRET` to change the app token signing secret. Google
-login requires:
+To avoid uploading bytes that Rocket Sense already has, compute the replay
+SHA-256 locally and check it first:
 
 ```sh
-ROCKET_SENSE_AUTH_MODE=google
+SHA256=$(sha256sum /path/to/replay.replay | awk '{print $1}')
+
+curl -s http://127.0.0.1:8080/api/v1/replays/by-sha256/$SHA256 \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+If the digest exists, the lookup returns the replay metadata. Duplicate `POST
+/api/v1/replays` requests also return the existing replay with HTTP 200 and
+`"deduplicated": true`; new uploads return HTTP 201 and `"created": true`.
+
+Set `ROCKET_SENSE_APP_JWT_SECRET` to change the app token signing secret. OAuth
+login requires `ROCKET_SENSE_PUBLIC_BASE_URL` plus at least one configured
+provider:
+
+```sh
+ROCKET_SENSE_AUTH_MODE=oauth
 ROCKET_SENSE_PUBLIC_BASE_URL=https://rocket-sense.duckdns.org
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
+GITHUB_OAUTH_CLIENT_ID=...
+GITHUB_OAUTH_CLIENT_SECRET=...
+DISCORD_OAUTH_CLIENT_ID=...
+DISCORD_OAUTH_CLIENT_SECRET=...
 ```
 
-The Google OAuth client must allow redirect URI
-`https://rocket-sense.duckdns.org/auth/google/callback`.
+Each provider only appears when both its client id and client secret are set.
+Provider redirect URIs are:
+
+- Google: `https://rocket-sense.duckdns.org/auth/google/callback`
+- GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
+- Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`

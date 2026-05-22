@@ -14,7 +14,7 @@ pub struct AppState {
     pub storage: Arc<dyn ObjectStorage>,
     pub auth_mode: crate::settings::AuthMode,
     pub app_jwt_secret: Arc<str>,
-    pub google_oauth: Option<Arc<settings::GoogleOAuthSettings>>,
+    pub oauth_providers: Arc<[settings::OAuthProviderSettings]>,
     pub process_replays_in_background: bool,
 }
 
@@ -35,7 +35,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         storage: Arc::new(LocalStorage::new(settings.storage_root)),
         auth_mode: settings.auth_mode,
         app_jwt_secret: Arc::from(settings.app_jwt_secret),
-        google_oauth: settings.google_oauth.map(Arc::new),
+        oauth_providers: Arc::from(settings.oauth_providers),
         process_replays_in_background: settings.process_replays_in_background,
     };
 

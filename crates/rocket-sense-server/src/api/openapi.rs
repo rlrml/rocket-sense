@@ -12,6 +12,7 @@ use utoipa::{
         health::health,
         replays::create_replay,
         replays::list_replays,
+        replays::get_replay_by_sha256,
         replays::download_replay_file,
         replays::get_replay,
     ),

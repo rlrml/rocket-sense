@@ -39,6 +39,10 @@ at least these keys:
 - `ROCKET_SENSE_APP_JWT_SECRET`
 - `GOOGLE_OAUTH_CLIENT_ID`
 - `GOOGLE_OAUTH_CLIENT_SECRET`
+- `GITHUB_OAUTH_CLIENT_ID`
+- `GITHUB_OAUTH_CLIENT_SECRET`
+- `DISCORD_OAUTH_CLIENT_ID`
+- `DISCORD_OAUTH_CLIENT_SECRET`
 
 Terraform references that Secret by name but never reads or stores the values.
 
@@ -86,8 +90,10 @@ For now:
 - Kubernetes resources are deployed by Terraform.
 - The server container is built by Nix via `.#rocket-sense-server-image`.
 - Host nginx should proxy `rbsf.tplinkdns.com` to `http://127.0.0.1:30080`.
-- Google OAuth should use redirect URI
-  `https://rocket-sense.duckdns.org/auth/google/callback`.
+- OAuth providers should use these redirect URIs:
+  - Google: `https://rocket-sense.duckdns.org/auth/google/callback`
+  - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
+  - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
 
 This leaves room to move edge routing into Kubernetes later by adding an ingress
 controller and Terraform-managed Ingress resources.

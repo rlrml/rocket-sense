@@ -33,7 +33,7 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-B9-_cuHE.js").unwrap();
+    let javascript = subtr_actor_stats_static_asset("index-CtsMvKJZ.js").unwrap();
     let css = subtr_actor_stats_static_asset("index-C_JUMRgy.css").unwrap();
     let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-EyPRboYq.wasm").unwrap();
 
@@ -55,4 +55,22 @@ fn replay_list_page_uses_playlist_dropdown_values() {
     assert!(REPLAY_LIST_PAGE.contains(r#"<option value="ranked-doubles">Ranked Doubles</option>"#));
     assert!(REPLAY_LIST_PAGE.contains(r#"<option value="private">Private</option>"#));
     assert!(!REPLAY_LIST_PAGE.contains(r#"<input name="playlist""#));
+}
+
+#[test]
+fn normalize_sha256_hex_accepts_lower_and_uppercase_hashes() {
+    let lowercase = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    let uppercase = "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF";
+
+    assert_eq!(normalize_sha256_hex(lowercase).unwrap(), lowercase);
+    assert_eq!(normalize_sha256_hex(uppercase).unwrap(), lowercase);
+}
+
+#[test]
+fn normalize_sha256_hex_rejects_non_sha256_values() {
+    assert!(normalize_sha256_hex("abc").is_err());
+    assert!(normalize_sha256_hex(
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg"
+    )
+    .is_err());
 }
