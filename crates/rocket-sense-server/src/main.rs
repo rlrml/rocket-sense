@@ -1,6 +1,7 @@
 mod api;
 mod app;
 mod auth;
+mod processing;
 mod settings;
 
 use anyhow::Context;

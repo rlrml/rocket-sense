@@ -1,4 +1,4 @@
-use crate::{app::AppState, auth::AuthUser};
+use crate::{app::AppState, auth::AuthUser, processing::spawn_replay_processing};
 use axum::{
     extract::{Multipart, Path, Query, State},
     http::{
@@ -208,6 +208,18 @@ pub async fn create_replay(
     )
     .await
     .map_err(ApiError::internal)?;
+
+    if state.process_replays_in_background
+        && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
+    {
+        spawn_replay_processing(
+            db.clone(),
+            state.storage.clone(),
+            replay.id,
+            replay.file_sha256.clone(),
+            replay.storage_key.clone(),
+        );
+    }
 
     Ok((StatusCode::CREATED, Json(CreateReplayResponse { replay })))
 }

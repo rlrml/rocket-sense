@@ -14,6 +14,7 @@ pub struct AppState {
     pub public_base_url: Arc<str>,
     pub app_jwt_secret: Arc<str>,
     pub google_oauth: Option<Arc<settings::GoogleOAuthSettings>>,
+    pub process_replays_in_background: bool,
 }
 
 pub async fn build(settings: settings::Settings) -> Result<Router> {
@@ -35,6 +36,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         public_base_url: Arc::from(settings.public_base_url),
         app_jwt_secret: Arc::from(settings.app_jwt_secret),
         google_oauth: settings.google_oauth.map(Arc::new),
+        process_replays_in_background: settings.process_replays_in_background,
     };
 
     Ok(api::router(state)

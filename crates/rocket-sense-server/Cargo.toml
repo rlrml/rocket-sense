@@ -10,6 +10,7 @@ edition.workspace = true
 [dependencies]
 anyhow.workspace = true
 axum.workspace = true
+boxcars.workspace = true
 chrono.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
@@ -18,6 +19,7 @@ rocket-sense-storage.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sqlx.workspace = true
+subtr-actor.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tracing.workspace = true

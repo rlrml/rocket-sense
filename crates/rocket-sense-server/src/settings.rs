@@ -43,6 +43,7 @@ pub struct Settings {
     pub database_url: Option<String>,
     pub run_migrations: bool,
     pub storage_root: PathBuf,
+    pub process_replays_in_background: bool,
 }
 
 impl Settings {
@@ -88,6 +89,9 @@ impl Settings {
         let storage_root = env::var_os("ROCKET_SENSE_STORAGE_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("data/storage"));
+        let process_replays_in_background = env::var("ROCKET_SENSE_PROCESS_REPLAYS_IN_BACKGROUND")
+            .map(|value| value != "0" && value.to_lowercase() != "false")
+            .unwrap_or(true);
 
         Ok(Self {
             bind_addr,
@@ -98,6 +102,7 @@ impl Settings {
             database_url,
             run_migrations,
             storage_root,
+            process_replays_in_background,
         })
     }
 }
