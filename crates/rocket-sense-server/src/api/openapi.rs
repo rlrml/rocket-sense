@@ -11,6 +11,7 @@ use utoipa::{
         health::health,
         replays::create_replay,
         replays::list_replays,
+        replays::download_replay_file,
         replays::get_replay,
     ),
     components(

@@ -1,13 +1,16 @@
 use crate::{app::AppState, auth::AuthUser};
 use axum::{
     extract::{Multipart, Path, Query, State},
-    http::StatusCode,
-    response::{IntoResponse, Response},
+    http::{
+        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
+        StatusCode,
+    },
+    response::{Html, IntoResponse, Redirect, Response},
     routing::get,
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use rocket_sense_storage::{raw_replay_key, replay_mime_type, sha256_hex};
+use rocket_sense_storage::{raw_replay_key, replay_mime_type, sha256_hex, StorageError};
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
@@ -16,7 +19,14 @@ use uuid::Uuid;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/replays", get(list_replays).post(create_replay))
+        .route("/replays/{replay_id}/file", get(download_replay_file))
         .route("/replays/{replay_id}", get(get_replay))
+}
+
+pub fn public_router() -> Router<AppState> {
+    Router::new()
+        .route("/replays", get(replay_list_page))
+        .route("/replays/{replay_id}", get(open_replay_viewer))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -280,6 +290,65 @@ pub async fn get_replay(
     Ok(Json(replay))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/replays/{replay_id}/file",
+    tag = "replays",
+    params(
+        ("replay_id" = Uuid, Path, description = "Rocket Sense replay id")
+    ),
+    responses(
+        (status = 200, description = "Raw replay file"),
+        (status = 404, description = "Replay or replay file was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn download_replay_file(
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<Response, ApiError> {
+    let db = require_db(&state)?;
+    let file = get_replay_file_record(db, replay_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+    let bytes = state
+        .storage
+        .get(&file.storage_key)
+        .await
+        .map_err(storage_read_error)?;
+    let file_name = file
+        .original_file_name
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or_else(|| format!("{replay_id}.replay"));
+
+    Ok((
+        [
+            (CONTENT_TYPE, replay_mime_type().as_ref().to_owned()),
+            (
+                CONTENT_DISPOSITION,
+                format!(
+                    "attachment; filename=\"{}\"",
+                    sanitize_file_name(&file_name)
+                ),
+            ),
+        ],
+        bytes,
+    )
+        .into_response())
+}
+
+async fn replay_list_page() -> Html<&'static str> {
+    Html(REPLAY_LIST_PAGE)
+}
+
+async fn open_replay_viewer(
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Redirect {
+    Redirect::temporary(&subtr_actor_viewer_url(&state, replay_id))
+}
+
 #[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
@@ -388,6 +457,11 @@ struct PlayerIdFilter {
     player_id: String,
 }
 
+struct ReplayFileRecord {
+    storage_key: String,
+    original_file_name: Option<String>,
+}
+
 enum SortBy {
     UploadDate,
     ReplayDate,
@@ -492,6 +566,38 @@ fn escape_like_term(term: &str) -> String {
         .replace('_', "\\_")
 }
 
+fn sanitize_file_name(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| match character {
+            '"' | '\\' | '/' | '\0'..='\u{1f}' => '_',
+            _ => character,
+        })
+        .collect()
+}
+
+fn subtr_actor_viewer_url(state: &AppState, replay_id: Uuid) -> String {
+    let replay_url = format!(
+        "{}/api/v1/replays/{replay_id}/file",
+        state.public_base_url.trim_end_matches('/')
+    );
+    let mut viewer_url = url::Url::parse("https://rlrml.github.io/subtr-actor/")
+        .expect("static subtr-actor viewer URL should parse");
+    viewer_url
+        .query_pairs_mut()
+        .append_pair("replayUrl", &replay_url);
+    viewer_url.into()
+}
+
+fn storage_read_error(error: StorageError) -> ApiError {
+    match &error {
+        StorageError::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
+            ApiError::new(StatusCode::NOT_FOUND, "replay file not found")
+        }
+        _ => ApiError::internal(error),
+    }
+}
+
 async fn upsert_user(pool: &PgPool, user: &AuthUser) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
@@ -509,6 +615,29 @@ async fn upsert_user(pool: &PgPool, user: &AuthUser) -> Result<(), sqlx::Error> 
     .await?;
 
     Ok(())
+}
+
+async fn get_replay_file_record(
+    pool: &PgPool,
+    replay_id: Uuid,
+) -> Result<Option<ReplayFileRecord>, sqlx::Error> {
+    sqlx::query(
+        r#"
+        SELECT storage_key, original_file_name
+        FROM replays
+        WHERE id = $1
+        "#,
+    )
+    .bind(replay_id)
+    .fetch_optional(pool)
+    .await?
+    .map(|row| {
+        Ok(ReplayFileRecord {
+            storage_key: row.try_get("storage_key")?,
+            original_file_name: row.try_get("original_file_name")?,
+        })
+    })
+    .transpose()
 }
 
 async fn insert_replay_metadata(
@@ -725,3 +854,483 @@ fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::E
         updated_at: row.try_get("updated_at")?,
     })
 }
+
+const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Rocket Sense Replays</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #18202f;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #f6f7f9;
+    }
+
+    header {
+      border-bottom: 1px solid #d8dee8;
+      background: #ffffff;
+    }
+
+    .header-inner, main {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+    }
+
+    main {
+      padding: 18px 0 32px;
+      display: grid;
+      gap: 14px;
+    }
+
+    form {
+      display: grid;
+      grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(120px, 1fr)) auto;
+      gap: 10px;
+      align-items: end;
+      padding: 14px 0;
+      border-bottom: 1px solid #d8dee8;
+    }
+
+    label {
+      display: grid;
+      gap: 5px;
+      color: #536176;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    input, select, button {
+      height: 36px;
+      box-sizing: border-box;
+      border: 1px solid #c6cfda;
+      border-radius: 6px;
+      padding: 0 10px;
+      font: inherit;
+      background: #ffffff;
+      color: #18202f;
+    }
+
+    button, .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 36px;
+      border: 1px solid #0f766e;
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #0f766e;
+      color: #ffffff;
+      font-weight: 750;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .toolbar {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      color: #536176;
+      font-size: 13px;
+    }
+
+    .token {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .token input {
+      width: min(420px, 48vw);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th, td {
+      padding: 11px 12px;
+      border-bottom: 1px solid #e7ebf0;
+      text-align: left;
+      vertical-align: middle;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    th {
+      color: #536176;
+      font-size: 12px;
+      font-weight: 750;
+      background: #fbfcfd;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .name {
+      width: 34%;
+      font-weight: 720;
+    }
+
+    .muted {
+      color: #64748b;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 24px;
+      padding: 0 8px;
+      border-radius: 999px;
+      background: #eef2f7;
+      color: #344256;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    .actions {
+      width: 150px;
+      text-align: right;
+    }
+
+    .actions a {
+      color: #0f766e;
+      font-weight: 750;
+      text-decoration: none;
+    }
+
+    .empty, .error {
+      padding: 24px;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #536176;
+    }
+
+    .error {
+      border-color: #f3b4ad;
+      color: #b42318;
+    }
+
+    .pager {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .pager button {
+      background: #ffffff;
+      color: #18202f;
+      border-color: #c6cfda;
+      font-weight: 650;
+    }
+
+    .pager button:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    @media (max-width: 860px) {
+      .header-inner, main {
+        width: min(100% - 20px, 1180px);
+      }
+
+      .header-inner, .toolbar {
+        align-items: flex-start;
+        flex-direction: column;
+        justify-content: flex-start;
+      }
+
+      form {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      form button {
+        grid-column: 1 / -1;
+      }
+
+      .token {
+        width: 100%;
+      }
+
+      .token input {
+        width: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <h1>Rocket Sense Replays</h1>
+      <a class="button" href="/login">Login</a>
+    </div>
+  </header>
+  <main>
+    <form id="filters">
+      <label>
+        Search
+        <input name="q" placeholder="Filename, player, id">
+      </label>
+      <label>
+        Player
+        <input name="player-name" placeholder="Display name">
+      </label>
+      <label>
+        Playlist
+        <input name="playlist" placeholder="Ranked Doubles">
+      </label>
+      <label>
+        Map
+        <input name="map" placeholder="stadium_p">
+      </label>
+      <label>
+        Status
+        <select name="status">
+          <option value="">Any</option>
+          <option value="pending">Pending</option>
+          <option value="parsing">Parsing</option>
+          <option value="parsed">Parsed</option>
+          <option value="failed">Failed</option>
+        </select>
+      </label>
+      <button type="submit">Search</button>
+    </form>
+
+    <div class="toolbar">
+      <div id="summary">Loading replays...</div>
+      <label class="token">
+        API token
+        <input id="token" type="password" autocomplete="off" placeholder="Optional bearer token">
+      </label>
+    </div>
+
+    <div id="content"></div>
+    <div class="pager">
+      <button id="previous" type="button">Previous</button>
+      <button id="next" type="button">Next</button>
+    </div>
+  </main>
+
+  <script>
+    const form = document.querySelector("#filters");
+    const content = document.querySelector("#content");
+    const summary = document.querySelector("#summary");
+    const tokenInput = document.querySelector("#token");
+    const previousButton = document.querySelector("#previous");
+    const nextButton = document.querySelector("#next");
+    const pageSize = 50;
+    let offset = Number(new URLSearchParams(location.search).get("offset") || 0);
+    let nextOffset = null;
+
+    tokenInput.value = localStorage.getItem("rocket_sense_access_token") || "";
+    tokenInput.addEventListener("change", () => {
+      localStorage.setItem("rocket_sense_access_token", tokenInput.value.trim());
+      offset = 0;
+      loadReplays();
+    });
+
+    function restoreFilters() {
+      const params = new URLSearchParams(location.search);
+      for (const element of form.elements) {
+        if (!element.name || element.type === "submit") continue;
+        element.value = params.get(element.name) || "";
+      }
+    }
+
+    function buildParams() {
+      const params = new URLSearchParams();
+      const data = new FormData(form);
+      for (const [key, value] of data.entries()) {
+        const text = String(value).trim();
+        if (text) params.append(key, text);
+      }
+      params.set("count", String(pageSize));
+      params.set("offset", String(offset));
+      params.set("sort-by", "upload-date");
+      params.set("sort-dir", "desc");
+      return params;
+    }
+
+    function headers() {
+      const token = tokenInput.value.trim();
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
+    function replayFileUrl(replay) {
+      return new URL(`/api/v1/replays/${replay.id}/file`, location.origin).href;
+    }
+
+    function viewerUrl(replay) {
+      const url = new URL("https://rlrml.github.io/subtr-actor/");
+      url.searchParams.set("replayUrl", replayFileUrl(replay));
+      return url.href;
+    }
+
+    function replayName(replay) {
+      return replay.original_file_name || replay.external_replay_id || replay.id;
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(new Date(value));
+    }
+
+    function formatBytes(value) {
+      if (!Number.isFinite(value)) return "";
+      return new Intl.NumberFormat(undefined, {
+        style: "unit",
+        unit: "byte",
+        notation: "compact"
+      }).format(value);
+    }
+
+    function text(value) {
+      return value == null || value === "" ? "-" : String(value);
+    }
+
+    function render(replays) {
+      if (replays.length === 0) {
+        content.innerHTML = `<div class="empty">No replays match these filters.</div>`;
+        return;
+      }
+
+      const rows = replays.map((replay) => `
+        <tr>
+          <td class="name" title="${escapeHtml(replayName(replay))}">
+            ${escapeHtml(replayName(replay))}
+            <div class="muted">${escapeHtml(replay.id)}</div>
+          </td>
+          <td>${escapeHtml(formatDate(replay.replay_date || replay.created_at))}</td>
+          <td>${escapeHtml(text(replay.playlist))}</td>
+          <td>${escapeHtml(text(replay.map_code))}</td>
+          <td><span class="status">${escapeHtml(replay.status)}</span></td>
+          <td>${escapeHtml(formatBytes(replay.byte_size))}</td>
+          <td class="actions"><a href="${viewerUrl(replay)}" target="_blank" rel="noopener">Open viewer</a></td>
+        </tr>
+      `).join("");
+
+      content.innerHTML = `
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th class="name">Replay</th>
+                <th>Date</th>
+                <th>Playlist</th>
+                <th>Map</th>
+                <th>Status</th>
+                <th>Size</th>
+                <th class="actions">Action</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    async function loadReplays() {
+      const params = buildParams();
+      history.replaceState(null, "", `/replays?${params.toString()}`);
+      summary.textContent = "Loading replays...";
+      content.innerHTML = "";
+      previousButton.disabled = offset === 0;
+      nextButton.disabled = true;
+
+      try {
+        const response = await fetch(`/api/v1/replays?${params.toString()}`, {
+          headers: headers(),
+          credentials: "same-origin"
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.error || "Replay search failed");
+        }
+
+        nextOffset = body.next_offset;
+        summary.textContent = `${body.total} total replays`;
+        previousButton.disabled = offset === 0;
+        nextButton.disabled = nextOffset == null;
+        render(body.replays);
+      } catch (error) {
+        summary.textContent = "Replay search failed";
+        content.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      offset = 0;
+      loadReplays();
+    });
+
+    previousButton.addEventListener("click", () => {
+      offset = Math.max(0, offset - pageSize);
+      loadReplays();
+    });
+
+    nextButton.addEventListener("click", () => {
+      if (nextOffset != null) {
+        offset = nextOffset;
+        loadReplays();
+      }
+    });
+
+    restoreFilters();
+    loadReplays();
+  </script>
+</body>
+</html>
+"##;

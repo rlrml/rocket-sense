@@ -1,7 +1,7 @@
 use crate::{
     app::AppState,
     auth::{issue_access_token, issue_dev_token, AccessToken, AuthError, AuthUser, SESSION_COOKIE},
-    settings::GoogleOAuthSettings,
+    settings::{AuthMode, GoogleOAuthSettings},
 };
 use axum::{
     extract::{Query, State},
@@ -47,15 +47,27 @@ pub async fn create_dev_token(
     State(state): State<AppState>,
     Json(request): Json<CreateDevTokenRequest>,
 ) -> Result<Json<AccessToken>, AuthError> {
+    if state.auth_mode != AuthMode::Dev {
+        return Err(AuthError::unauthorized(
+            "development token endpoint is disabled",
+        ));
+    }
+
     issue_dev_token(request.email, &state.app_jwt_secret).map(Json)
 }
 
 async fn login_page(State(state): State<AppState>) -> Html<String> {
-    Html(render_login_page(state.google_oauth.as_deref()))
+    Html(render_login_page(
+        state.auth_mode,
+        state.google_oauth.as_deref(),
+    ))
 }
 
-fn render_login_page(google_oauth: Option<&GoogleOAuthSettings>) -> String {
-    LOGIN_PAGE_TEMPLATE.replace("{{oauth_panel}}", &oauth_panel(google_oauth))
+fn render_login_page(auth_mode: AuthMode, google_oauth: Option<&GoogleOAuthSettings>) -> String {
+    LOGIN_PAGE_TEMPLATE
+        .replace("{{oauth_panel}}", &oauth_panel(google_oauth))
+        .replace("{{dev_token_panel}}", dev_token_panel(auth_mode))
+        .replace("{{dev_token_script}}", dev_token_script(auth_mode))
 }
 
 fn oauth_panel(google_oauth: Option<&GoogleOAuthSettings>) -> String {
@@ -72,6 +84,20 @@ fn oauth_panel(google_oauth: Option<&GoogleOAuthSettings>) -> String {
       <button type="button" disabled>Continue with Google</button>
     </section>"#
             .to_owned(),
+    }
+}
+
+fn dev_token_panel(auth_mode: AuthMode) -> &'static str {
+    match auth_mode {
+        AuthMode::Dev => DEV_TOKEN_PANEL,
+        AuthMode::Google => "",
+    }
+}
+
+fn dev_token_script(auth_mode: AuthMode) -> &'static str {
+    match auth_mode {
+        AuthMode::Dev => DEV_TOKEN_SCRIPT,
+        AuthMode::Google => "",
     }
 }
 
@@ -456,7 +482,15 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
   <main>
     {{oauth_panel}}
 
-    <form id="login-form">
+    {{dev_token_panel}}
+  </main>
+
+  {{dev_token_script}}
+</body>
+</html>
+"##;
+
+const DEV_TOKEN_PANEL: &str = r##"<form id="login-form">
       <h1>Development token</h1>
       <p>Create a local bearer token for replay upload testing.</p>
       <label>
@@ -472,10 +506,9 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
       <textarea id="token" readonly></textarea>
       <p>Replay upload</p>
       <pre id="curl"></pre>
-    </section>
-  </main>
+    </section>"##;
 
-  <script>
+const DEV_TOKEN_SCRIPT: &str = r##"<script>
     const form = document.querySelector("#login-form");
     const submit = document.querySelector("#submit");
     const error = document.querySelector("#error");
@@ -483,38 +516,38 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
     const tokenOutput = document.querySelector("#token");
     const curlOutput = document.querySelector("#curl");
 
-    form.addEventListener("submit", async (event) => {
-      event.preventDefault();
-      submit.disabled = true;
-      error.textContent = "";
+    if (form) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        submit.disabled = true;
+        error.textContent = "";
 
-      try {
-        const response = await fetch("/api/v1/auth/dev-token", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email: form.email.value })
-        });
-        const body = await response.json();
+        try {
+          const response = await fetch("/api/v1/auth/dev-token", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ email: form.email.value })
+          });
+          const body = await response.json();
 
-        if (!response.ok) {
-          throw new Error(body.error || "Token request failed");
-        }
+          if (!response.ok) {
+            throw new Error(body.error || "Token request failed");
+          }
 
-        tokenOutput.value = body.access_token;
-        curlOutput.textContent = `curl -X POST http://127.0.0.1:8080/api/v1/replays \\
+          localStorage.setItem("rocket_sense_access_token", body.access_token);
+          tokenOutput.value = body.access_token;
+          curlOutput.textContent = `curl -X POST http://127.0.0.1:8080/api/v1/replays \\
   -H "Authorization: Bearer ${body.access_token}" \\
   -F "file=@/path/to/replay.replay"`;
-        result.classList.remove("hidden");
-      } catch (err) {
-        error.textContent = err.message;
-      } finally {
-        submit.disabled = false;
-      }
-    });
-  </script>
-</body>
-</html>
-"##;
+          result.classList.remove("hidden");
+        } catch (err) {
+          error.textContent = err.message;
+        } finally {
+          submit.disabled = false;
+        }
+      });
+    }
+  </script>"##;
 
 const LOGIN_SUCCESS_TEMPLATE: &str = r##"<!doctype html>
 <html lang="en">

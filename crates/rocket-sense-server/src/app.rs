@@ -11,6 +11,7 @@ pub struct AppState {
     pub db: Option<PgPool>,
     pub storage: Arc<dyn ObjectStorage>,
     pub auth_mode: crate::settings::AuthMode,
+    pub public_base_url: Arc<str>,
     pub app_jwt_secret: Arc<str>,
     pub google_oauth: Option<Arc<settings::GoogleOAuthSettings>>,
 }
@@ -31,6 +32,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         db,
         storage: Arc::new(LocalStorage::new(settings.storage_root)),
         auth_mode: settings.auth_mode,
+        public_base_url: Arc::from(settings.public_base_url),
         app_jwt_secret: Arc::from(settings.app_jwt_secret),
         google_oauth: settings.google_oauth.map(Arc::new),
     };

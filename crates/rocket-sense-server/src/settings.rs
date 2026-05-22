@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::{env, net::SocketAddr, path::PathBuf};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AuthMode {
     Dev,
     Google,
@@ -37,6 +37,7 @@ impl GoogleOAuthSettings {
 pub struct Settings {
     pub bind_addr: SocketAddr,
     pub auth_mode: AuthMode,
+    pub public_base_url: String,
     pub app_jwt_secret: String,
     pub google_oauth: Option<GoogleOAuthSettings>,
     pub database_url: Option<String>,
@@ -53,6 +54,12 @@ impl Settings {
         let auth_mode = AuthMode::from_env_value(
             &env::var("ROCKET_SENSE_AUTH_MODE").unwrap_or_else(|_| "dev".to_owned()),
         )?;
+        let public_base_url = match auth_mode {
+            AuthMode::Google => env::var("ROCKET_SENSE_PUBLIC_BASE_URL")
+                .context("ROCKET_SENSE_PUBLIC_BASE_URL is required in google auth mode")?,
+            AuthMode::Dev => env::var("ROCKET_SENSE_PUBLIC_BASE_URL")
+                .unwrap_or_else(|_| format!("http://{bind_addr}")),
+        };
         let app_jwt_secret = env::var("ROCKET_SENSE_APP_JWT_SECRET")
             .or_else(|_| env::var("ROCKET_SENSE_DEV_JWT_SECRET"))
             .unwrap_or_else(|_| "rocket-sense-local-dev-secret".to_owned());
@@ -62,8 +69,7 @@ impl Settings {
                     .context("GOOGLE_OAUTH_CLIENT_ID is required in google auth mode")?,
                 client_secret: env::var("GOOGLE_OAUTH_CLIENT_SECRET")
                     .context("GOOGLE_OAUTH_CLIENT_SECRET is required in google auth mode")?,
-                public_base_url: env::var("ROCKET_SENSE_PUBLIC_BASE_URL")
-                    .context("ROCKET_SENSE_PUBLIC_BASE_URL is required in google auth mode")?,
+                public_base_url: public_base_url.clone(),
             }),
             AuthMode::Dev => {
                 env::var("GOOGLE_OAUTH_CLIENT_ID")
@@ -71,8 +77,7 @@ impl Settings {
                     .map(|client_id| GoogleOAuthSettings {
                         client_id,
                         client_secret: env::var("GOOGLE_OAUTH_CLIENT_SECRET").unwrap_or_default(),
-                        public_base_url: env::var("ROCKET_SENSE_PUBLIC_BASE_URL")
-                            .unwrap_or_else(|_| "http://127.0.0.1:8080".to_owned()),
+                        public_base_url: public_base_url.clone(),
                     })
             }
         };
@@ -87,6 +92,7 @@ impl Settings {
         Ok(Self {
             bind_addr,
             auth_mode,
+            public_base_url,
             app_jwt_secret,
             google_oauth,
             database_url,
