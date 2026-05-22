@@ -661,34 +661,35 @@ async fn insert_replay_metadata(
     storage_key: &str,
     uploaded_by_user_id: Uuid,
 ) -> Result<ReplayResponse, sqlx::Error> {
-    let sql = format!(
+    let row = sqlx::query(
         r#"
-        WITH inserted_replay AS (
-            INSERT INTO replays (
-                    id,
-                    uploaded_by_user_id,
-                    file_sha256,
-                    original_file_name,
-                    byte_size,
-                    storage_key
-            )
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (file_sha256) DO UPDATE
-            SET file_sha256 = replays.file_sha256
-            RETURNING id
+        INSERT INTO replays (
+                id,
+                uploaded_by_user_id,
+                file_sha256,
+                original_file_name,
+                byte_size,
+                storage_key
         )
-        {}
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (file_sha256) DO UPDATE
+        SET file_sha256 = replays.file_sha256
+        RETURNING id
         "#,
-        replay_select_sql("WHERE id = (SELECT id FROM inserted_replay)")
-    );
+    )
+    .bind(replay_id)
+    .bind(uploaded_by_user_id)
+    .bind(file_sha256)
+    .bind(original_file_name)
+    .bind(byte_size as i64)
+    .bind(storage_key)
+    .fetch_one(pool)
+    .await?;
+    let stored_replay_id: Uuid = row.try_get("id")?;
 
+    let sql = replay_select_sql("WHERE id = $1");
     sqlx::query(sql.as_str())
-        .bind(replay_id)
-        .bind(uploaded_by_user_id)
-        .bind(file_sha256)
-        .bind(original_file_name)
-        .bind(byte_size as i64)
-        .bind(storage_key)
+        .bind(stored_replay_id)
         .fetch_one(pool)
         .await
         .and_then(replay_from_row)
