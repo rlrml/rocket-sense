@@ -1,11 +1,40 @@
-[package]
-name = "rocket-sense"
+[workspace]
+resolver = "2"
+members = [
+    "crates/rocket-sense-db",
+    "crates/rocket-sense-server",
+    "crates/rocket-sense-storage",
+]
+default-members = ["crates/rocket-sense-server"]
+
+[workspace.package]
 version = "0.1.0"
 authors = ["Ivan Malison <ivanmalison@gmail.com>"]
 license = "MIT"
 repository = "https://github.com/rlrml/rocket-sense"
 edition = "2021"
-description = "Rocket League replay analytics backend"
 
-[dependencies]
+[workspace.dependencies]
+anyhow = "1"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["multipart"] }
+bytes = "1"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+mime = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate"] }
 subtr-actor = { git = "https://github.com/rlrml/subtr-actor" }
+thiserror = "2"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "io-util", "net"] }
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+uuid = { version = "1", features = ["serde", "v7"] }
+
+rocket-sense-db = { path = "crates/rocket-sense-db" }
+rocket-sense-storage = { path = "crates/rocket-sense-storage" }

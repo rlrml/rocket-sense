@@ -48,11 +48,12 @@
           pname = "rocket-sense";
           version = "0.1.0";
           src = ./.;
+          cargoBuildFlags = [
+            "-p"
+            "rocket-sense-server"
+          ];
           cargoLock = {
             lockFile = ./Cargo.lock;
-            outputHashes = {
-              "subtr-actor-0.6.6" = "sha256-nxUZ3vf4yJ7OdDIf/VAtgh8a7rH3hxn7u4c+QQ3iIG0=";
-            };
           };
           inherit nativeBuildInputs buildInputs;
         };

@@ -1,0 +1,12 @@
+[package]
+name = "rocket-sense-db"
+description = "Database access and migrations for Rocket Sense"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+sqlx.workspace = true
+thiserror.workspace = true

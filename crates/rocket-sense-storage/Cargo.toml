@@ -1,0 +1,18 @@
+[package]
+name = "rocket-sense-storage"
+description = "Replay and artifact object storage for Rocket Sense"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+hex.workspace = true
+mime.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+uuid.workspace = true
