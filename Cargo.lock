@@ -2166,8 +2166,8 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "subtr-actor"
-version = "0.7.4"
-source = "git+https://github.com/rlrml/subtr-actor#0a6da24106ce347177af47ebf9d066d9f63515a6"
+version = "0.7.5"
+source = "git+https://github.com/rlrml/subtr-actor#53d5844a1356951be65a5c159be309f63c7bab9a"
 dependencies = [
  "anyhow",
  "boxcars",
@@ -2800,7 +2800,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
