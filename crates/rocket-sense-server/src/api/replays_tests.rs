@@ -33,10 +33,15 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-CBS_ASa4.js").unwrap();
-    let css = subtr_actor_stats_static_asset("index-PB1mR1-R.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-BMUMQ3Gy.wasm").unwrap();
+    let bootstrap = subtr_actor_stats_static_asset("index-ArPNw1cK.js").unwrap();
+    let javascript = subtr_actor_stats_static_asset("main-Kbbjc0Ny.js").unwrap();
+    let css = subtr_actor_stats_static_asset("main-CXzJ96Q-.css").unwrap();
+    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-ByvsmF_E.wasm").unwrap();
 
+    assert_eq!(
+        bootstrap.content_type,
+        "application/javascript; charset=utf-8"
+    );
     assert_eq!(
         javascript.content_type,
         "application/javascript; charset=utf-8"
@@ -50,22 +55,108 @@ fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn replay_list_page_uses_playlist_dropdown_values() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"<select name="playlist">"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<option value="ranked-duels">Ranked Duel</option>"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<option value="ranked-doubles">Ranked Doubles</option>"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<option value="private">Private</option>"#));
-    assert!(!REPLAY_LIST_PAGE.contains(r#"<input name="playlist""#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="filter-group-title">Ranked</div>"#));
+    assert!(REPLAY_LIST_PAGE
+        .contains(r#"<input type="checkbox" name="playlist" value="ranked-duels"> Ranked Duels"#));
+    assert!(REPLAY_LIST_PAGE.contains(
+        r#"<input type="checkbox" name="playlist" value="ranked-doubles"> Ranked Doubles"#
+    ));
+    assert!(REPLAY_LIST_PAGE
+        .contains(r#"<input type="checkbox" name="playlist" value="private"> Private"#));
 }
 
 #[test]
-fn replay_list_page_links_replay_name_and_id_to_viewer() {
+fn replay_list_page_links_replay_name_to_viewer() {
     assert!(REPLAY_LIST_PAGE.contains(r#"const replayHref = viewerUrl(replay);"#));
     assert!(REPLAY_LIST_PAGE.contains(
-        r#"<a class="replay-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>"#
+        r#"<a href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>"#
     ));
-    assert!(REPLAY_LIST_PAGE.contains(
-        r#"<a class="replay-link replay-id-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(replay.id)}</a>"#
-    ));
+}
+
+#[test]
+fn replay_list_page_uses_ballchasing_style_replay_rows() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"<ol class="replay-list">${rows}</ol>"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="score-side blue">"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="score-side orange">"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"sortButton("Replay Date", "replay-date")"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"content.addEventListener("click", (event) => {"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="keyboard-hint">"#));
+    assert!(REPLAY_LIST_PAGE.contains("function iconDownload()"));
+    assert!(REPLAY_LIST_PAGE.contains("function platformIcon(player)"));
+    assert!(REPLAY_LIST_PAGE.contains("function renderTeam(players, teamClass)"));
+    assert!(REPLAY_LIST_PAGE.contains("function updateSelectedReplay"));
+    assert!(REPLAY_LIST_PAGE.contains(r#"document.addEventListener("keydown", (event) => {"#));
+    assert!(REPLAY_LIST_PAGE.contains("function openRandomReplay"));
+    assert!(
+        REPLAY_LIST_PAGE.contains(r#"randomButton.addEventListener("click", openRandomReplay);"#)
+    );
+}
+
+#[test]
+fn replay_list_page_links_indexed_players_to_profiles() {
+    assert!(REPLAY_LIST_PAGE.contains("function playerProfileUrl(player)"));
+    assert!(REPLAY_LIST_PAGE
+        .contains("`/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platform_player_id)}`"));
+    assert!(REPLAY_LIST_PAGE.contains("href ? `<a href=\"${href}\">${label}</a>` : label"));
+}
+
+#[test]
+fn replay_list_page_shows_uploader_metadata_line() {
+    assert!(REPLAY_LIST_PAGE.contains("function uploaderName(replay)"));
+    assert!(REPLAY_LIST_PAGE.contains("Uploaded by"));
+    assert!(REPLAY_LIST_PAGE.contains(r#"class="uploader-avatar""#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"title="${escapeHtml(uploader)}""#));
+}
+
+#[test]
+fn replay_select_includes_uploader_profile() {
+    let sql = replay_select_sql("WHERE r.id = $1");
+
+    assert!(sql.contains("LEFT JOIN users uploader ON uploader.id = r.uploaded_by_user_id"));
+    assert!(sql.contains("uploader.primary_email AS uploader_primary_email"));
+    assert!(sql.contains("uploader.display_name AS uploader_display_name"));
+}
+
+#[test]
+fn replay_select_includes_players_and_latest_stats() {
+    let sql = replay_select_sql("WHERE r.id = $1");
+
+    assert!(sql.contains("jsonb_build_object"));
+    assert!(sql.contains("FROM replay_players player"));
+    assert!(sql.contains("JOIN replay_stat_blobs blob"));
+    assert!(sql.contains("latest_stats.stats AS latest_stats"));
+}
+
+#[test]
+fn replay_metadata_falls_back_to_latest_stats_headers() {
+    let stats = serde_json::json!({
+        "replay_meta": {
+            "all_headers": [
+                ["Playlist", { "Int": 11 }],
+                ["MapName", { "Name": "Stadium_P" }],
+                ["Date", { "Str": "2026-05-23 05-50-00" }],
+                ["Season", { "Int": 21 }],
+                ["OvertimeSeconds", { "Float": 28.4 }]
+            ]
+        }
+    });
+
+    assert_eq!(
+        replay_playlist_from_stats(Some(&stats)).as_deref(),
+        Some("ranked-doubles")
+    );
+    assert_eq!(
+        replay_map_code_from_stats(Some(&stats)).as_deref(),
+        Some("Stadium_P")
+    );
+    assert_eq!(
+        replay_date_from_stats(Some(&stats))
+            .map(|date| date.to_rfc3339())
+            .as_deref(),
+        Some("2026-05-23T05:50:00+00:00")
+    );
+    assert_eq!(season_from_stats(&stats).as_deref(), Some("Season 21"));
+    assert_eq!(overtime_seconds_from_stats(&stats), Some(28));
 }
 
 #[test]

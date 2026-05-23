@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Rocket Sense Player</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: BlinkMacSystemFont, -apple-system, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: #ffffff;
+      color: #4a4a4a;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: #ffffff;
+      color: #4a4a4a;
+      font-size: 16px;
+      line-height: 24px;
+    }
+
+    header {
+      border-bottom: 1px solid #f5f5f5;
+      background: #ffffff;
+    }
+
+    .header-inner, main {
+      width: min(1152px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .nav-left, .nav-links {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-height: 56px;
+    }
+
+    .brand-mark {
+      width: 64px;
+      display: flex;
+      align-items: center;
+      color: #00d1b2;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .nav-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 12px;
+      color: #363636;
+      font-size: 16px;
+      line-height: 56px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .nav-item.active {
+      background: #f5f5f5;
+    }
+
+    main {
+      padding: 22px 0 36px;
+      display: grid;
+      gap: 20px;
+    }
+
+    a {
+      color: #485fc7;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    input, button, .button {
+      height: 36px;
+      box-sizing: border-box;
+      border: 1px solid #dbdbdb;
+      border-radius: 4px;
+      padding: 0 11px;
+      font: inherit;
+      background: #ffffff;
+      color: #363636;
+    }
+
+    button, .button {
+      display: inline-flex;
+      min-height: 36px;
+      align-items: center;
+      justify-content: center;
+      border-color: #00d1b2;
+      background: #00d1b2;
+      color: #ffffff;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .profile-header {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      padding-bottom: 18px;
+      border-bottom: 1px solid #eeeeee;
+    }
+
+    .kicker {
+      color: #999999;
+      font-size: 12px;
+      font-weight: 650;
+      letter-spacing: 0;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 2px 0 0;
+      color: #363636;
+      font-size: 34px;
+      line-height: 42px;
+      letter-spacing: 0;
+    }
+
+    .identity {
+      color: #536176;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      line-height: 20px;
+      overflow-wrap: anywhere;
+    }
+
+    .token {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: #536176;
+      font-size: 12px;
+      font-weight: 650;
+    }
+
+    .token input {
+      width: min(420px, 42vw);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(130px, 1fr));
+      gap: 1px;
+      border: 1px solid #dbdbdb;
+      background: #dbdbdb;
+    }
+
+    .stat {
+      min-height: 82px;
+      display: grid;
+      align-content: center;
+      gap: 4px;
+      padding: 12px;
+      background: #ffffff;
+    }
+
+    .stat span {
+      color: #999999;
+      font-size: 12px;
+      line-height: 16px;
+    }
+
+    .stat strong {
+      color: #363636;
+      font-size: 22px;
+      line-height: 28px;
+    }
+
+    .section-title {
+      margin: 0;
+      color: #363636;
+      font-size: 18px;
+      line-height: 28px;
+    }
+
+    .name-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .name-list li {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 32px;
+      padding: 0 10px;
+      border: 1px solid #dbdbdb;
+      border-radius: 4px;
+      background: #ffffff;
+      color: #363636;
+      font-size: 13px;
+    }
+
+    .name-list strong {
+      font-size: 12px;
+      color: #00b89c;
+    }
+
+    .replay-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      border-top: 1px solid #dbdbdb;
+      border-left: 1px solid #dbdbdb;
+      border-right: 1px solid #dbdbdb;
+      background: #ffffff;
+    }
+
+    .replay-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      min-height: 70px;
+      padding: 8px 12px;
+      border-bottom: 1px solid #dbdbdb;
+      background: #ffffff;
+    }
+
+    .replay-title {
+      min-width: 0;
+      overflow: hidden;
+      color: #485fc7;
+      font-weight: 700;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .meta-line {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 18px;
+      color: #536176;
+      font-size: 12px;
+      line-height: 18px;
+    }
+
+    .score {
+      display: flex;
+      overflow: hidden;
+      border-radius: 4px;
+      border: 1px solid #dbdbdb;
+      font-weight: 700;
+      line-height: 34px;
+      text-align: center;
+    }
+
+    .score span {
+      width: 42px;
+      display: inline-block;
+    }
+
+    .score .blue {
+      color: #209cee;
+      background: #fafdff;
+    }
+
+    .score .orange {
+      color: #ee6f58;
+      background: #fffbfa;
+    }
+
+    .empty, .error {
+      padding: 24px;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #536176;
+    }
+
+    .error {
+      border-color: #f3b4ad;
+      color: #b42318;
+    }
+
+    @media (max-width: 760px) {
+      .header-inner, main {
+        width: min(100% - 20px, 1152px);
+      }
+
+      .header-inner,
+      .profile-header,
+      .token {
+        align-items: flex-start;
+        grid-template-columns: 1fr;
+        flex-direction: column;
+      }
+
+      .nav-left, .nav-links {
+        min-height: 0;
+        flex-wrap: wrap;
+      }
+
+      .nav-item {
+        line-height: 40px;
+      }
+
+      .stats {
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .token input {
+        width: 100%;
+      }
+
+      .replay-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-inner">
+      <div class="nav-left">
+        <div class="brand-mark" aria-hidden="true">RS</div>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-item" href="/replays">Replays</a>
+          <span class="nav-item active">Players</span>
+          <a class="nav-item" href="/profile">Profile</a>
+        </nav>
+      </div>
+      <a class="button" href="/profile">Login</a>
+    </div>
+  </header>
+  <main>
+    <section class="profile-header">
+      <div>
+        <div class="kicker">Player profile</div>
+        <h1 id="display-name">Loading player...</h1>
+        <div id="identity" class="identity"></div>
+      </div>
+      <label class="token">
+        API token
+        <input id="token" type="password" autocomplete="off" placeholder="Optional bearer token">
+      </label>
+    </section>
+
+    <section id="content">
+      <div class="empty">Loading player profile...</div>
+    </section>
+  </main>
+
+  <script>
+    const tokenInput = document.querySelector("#token");
+    const displayName = document.querySelector("#display-name");
+    const identityLine = document.querySelector("#identity");
+    const content = document.querySelector("#content");
+    const pathParts = location.pathname.split("/").filter(Boolean);
+    const platform = decodeURIComponent(pathParts[1] || "");
+    const platformPlayerId = decodeURIComponent(pathParts[2] || "");
+
+    tokenInput.value = localStorage.getItem("rocket_sense_access_token") || "";
+    tokenInput.addEventListener("change", () => {
+      localStorage.setItem("rocket_sense_access_token", tokenInput.value.trim());
+      loadProfile();
+    });
+
+    function headers() {
+      const token = tokenInput.value.trim();
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    }
+
+    function replayName(replay) {
+      return replay.original_file_name || replay.external_replay_id || replay.id;
+    }
+
+    function replayUrl(replay) {
+      return `/replays/${encodeURIComponent(replay.id)}`;
+    }
+
+    function formatDate(value) {
+      if (!value) return "";
+      const date = new Date(value);
+      if (!Number.isFinite(date.getTime())) return "";
+      return new Intl.DateTimeFormat(undefined, {
+        year: "numeric",
+        month: "short",
+        day: "2-digit"
+      }).format(date);
+    }
+
+    function formatDuration(seconds) {
+      if (!Number.isFinite(seconds)) return "";
+      const total = Math.max(0, Math.round(seconds));
+      const minutes = Math.floor(total / 60);
+      const remaining = total % 60;
+      return `${minutes}:${String(remaining).padStart(2, "0")}`;
+    }
+
+    function playlistLabel(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+      return raw.replace(/[-_]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+
+    function score(replay, team) {
+      const scores = replay.summary?.team_scores || {};
+      const value = scores[team];
+      return value == null ? "-" : value;
+    }
+
+    function render(profile) {
+      const name = profile.display_name || profile.platform_player_id;
+      displayName.textContent = name;
+      document.title = `${name} - Rocket Sense`;
+      identityLine.textContent = `${profile.platform}:${profile.platform_player_id}`;
+
+      const names = Array.isArray(profile.names) ? profile.names : [];
+      const replays = Array.isArray(profile.latest_replays) ? profile.latest_replays : [];
+
+      content.innerHTML = `
+        <div class="stats">
+          <div class="stat"><span>Indexed replays</span><strong>${escapeHtml(profile.replay_count)}</strong></div>
+          <div class="stat"><span>First seen</span><strong>${escapeHtml(formatDate(profile.first_seen_at) || "-")}</strong></div>
+          <div class="stat"><span>Last seen</span><strong>${escapeHtml(formatDate(profile.last_seen_at) || "-")}</strong></div>
+          <div class="stat"><span>Pro flag</span><strong>${profile.is_pro ? "Yes" : "No"}</strong></div>
+        </div>
+
+        <section>
+          <h2 class="section-title">Names</h2>
+          ${names.length === 0 ? `<div class="empty">No display names indexed for this player.</div>` : `
+            <ol class="name-list">
+              ${names.map((entry) => `<li title="Latest seen ${escapeHtml(formatDate(entry.latest_seen_at) || "-")}"><span>${escapeHtml(entry.name)}</span><strong>${escapeHtml(entry.replay_count)}</strong></li>`).join("")}
+            </ol>
+          `}
+        </section>
+
+        <section>
+          <h2 class="section-title">Latest replays</h2>
+          ${replays.length === 0 ? `<div class="empty">No replay history indexed for this player.</div>` : `
+            <ol class="replay-list">
+              ${replays.map(renderReplay).join("")}
+            </ol>
+          `}
+        </section>
+      `;
+    }
+
+    function renderReplay(replay) {
+      const summary = replay.summary || {};
+      const metadata = [
+        playlistLabel(replay.playlist),
+        formatDuration(summary.duration_seconds),
+        formatDate(replay.replay_date),
+        replay.status === "parsed" ? "" : replay.status
+      ].filter(Boolean);
+
+      return `
+        <li class="replay-row">
+          <div>
+            <div class="replay-title"><a href="${replayUrl(replay)}" target="_blank" rel="noopener">${escapeHtml(replayName(replay))}</a></div>
+            <div class="meta-line">${metadata.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</div>
+          </div>
+          <div class="score" aria-label="Score">
+            <span class="blue">${escapeHtml(score(replay, "blue"))}</span>
+            <span class="orange">${escapeHtml(score(replay, "orange"))}</span>
+          </div>
+        </li>
+      `;
+    }
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, (character) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;"
+      }[character]));
+    }
+
+    async function loadProfile() {
+      displayName.textContent = "Loading player...";
+      identityLine.textContent = platform && platformPlayerId ? `${platform}:${platformPlayerId}` : "";
+      content.innerHTML = `<div class="empty">Loading player profile...</div>`;
+
+      if (!platform || !platformPlayerId) {
+        content.innerHTML = `<div class="error">Player profile URL must include platform and player id.</div>`;
+        return;
+      }
+
+      try {
+        const response = await fetch(`/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`, {
+          headers: headers(),
+          credentials: "same-origin"
+        });
+        const body = await response.json();
+        if (!response.ok) {
+          throw new Error(body.error || "Player profile failed to load");
+        }
+        render(body);
+      } catch (error) {
+        displayName.textContent = "Player unavailable";
+        content.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+      }
+    }
+
+    loadProfile();
+  </script>
+</body>
+</html>

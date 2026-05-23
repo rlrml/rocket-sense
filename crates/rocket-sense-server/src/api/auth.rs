@@ -15,6 +15,8 @@ use serde::Deserialize;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+const SESSION_COOKIE_MAX_AGE_SECONDS: i64 = 400 * 24 * 60 * 60;
+
 pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/", get(login_page))
@@ -259,7 +261,7 @@ async fn finish_oauth_login(
         AuthUser::from_provider_identity(provider.kind.id(), &profile.subject, profile.email)?;
     let token = issue_access_token(&user, &state.app_jwt_secret)?;
     let secure = provider.public_base_url.starts_with("https://");
-    let session_cookie = session_cookie(&token.access_token, token.expires_in_seconds, secure);
+    let session_cookie = session_cookie(&token.access_token, secure);
     let clear_state_cookie = clear_oauth_state_cookie(secure);
 
     Ok((
@@ -596,8 +598,15 @@ fn clear_oauth_state_cookie(secure: bool) -> String {
     cookie("rocket_sense_oauth_state", "", 0, secure, "/auth", true)
 }
 
-fn session_cookie(token: &str, max_age_seconds: i64, secure: bool) -> String {
-    cookie(SESSION_COOKIE, token, max_age_seconds, secure, "/", true)
+fn session_cookie(token: &str, secure: bool) -> String {
+    cookie(
+        SESSION_COOKIE,
+        token,
+        SESSION_COOKIE_MAX_AGE_SECONDS,
+        secure,
+        "/",
+        true,
+    )
 }
 
 fn cookie(
@@ -1053,7 +1062,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
         <dd id="account-provider">-</dd>
         <dt>Connected account id</dt>
         <dd id="account-subject">-</dd>
-        <dt>Token expires</dt>
+        <dt>Token expiration</dt>
         <dd id="account-expires">-</dd>
       </dl>
     </section>
@@ -1086,7 +1095,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
         accountUserId.textContent = text(claims.sub);
         accountProvider.textContent = text(claims.provider_name);
         accountSubject.textContent = text(claims.provider_subject);
-        accountExpires.textContent = claims.exp ? formatDate(new Date(claims.exp * 1000)) : "-";
+        accountExpires.textContent = claims.exp ? formatDate(new Date(claims.exp * 1000)) : "Never";
         accountStatus.textContent = claims.provider_name && claims.provider_subject
           ? `Connected through ${providerLabel(claims.provider_name)} account ${claims.provider_subject}.`
           : "This profile is tied to the current Rocket Sense token.";

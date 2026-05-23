@@ -9,7 +9,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -17,7 +17,6 @@ use uuid::Uuid;
 const DEV_USER_HEADER: &str = "x-dev-user";
 pub const SESSION_COOKIE: &str = "rocket_sense_session";
 const TOKEN_ISSUER: &str = "rocket-sense";
-const TOKEN_TTL_HOURS: i64 = 24;
 
 #[derive(Debug, Clone)]
 pub struct AuthUser {
@@ -67,6 +66,7 @@ impl AuthUser {
 
     fn from_access_token(token: &str, secret: &str) -> Result<Self, AuthError> {
         let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_required_spec_claims(&["iss"]);
         validation.set_issuer(&[TOKEN_ISSUER]);
 
         let token = decode::<AccessTokenClaims>(
@@ -103,14 +103,15 @@ struct AccessTokenClaims {
     #[serde(default)]
     provider_subject: Option<String>,
     iat: usize,
-    exp: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    exp: Option<usize>,
 }
 
 #[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
 pub struct AccessToken {
     pub access_token: String,
     pub token_type: &'static str,
-    pub expires_in_seconds: i64,
+    pub expires_in_seconds: Option<i64>,
 }
 
 pub fn issue_dev_token(email: String, secret: &str) -> Result<AccessToken, AuthError> {
@@ -120,7 +121,6 @@ pub fn issue_dev_token(email: String, secret: &str) -> Result<AccessToken, AuthE
 
 pub fn issue_access_token(user: &AuthUser, secret: &str) -> Result<AccessToken, AuthError> {
     let issued_at = Utc::now();
-    let expires_at = issued_at + Duration::hours(TOKEN_TTL_HOURS);
     let claims = AccessTokenClaims {
         iss: TOKEN_ISSUER.to_owned(),
         sub: user.id.to_string(),
@@ -128,7 +128,7 @@ pub fn issue_access_token(user: &AuthUser, secret: &str) -> Result<AccessToken, 
         provider_name: Some(user.provider_name.clone()),
         provider_subject: Some(user.provider_subject.clone()),
         iat: issued_at.timestamp() as usize,
-        exp: expires_at.timestamp() as usize,
+        exp: None,
     };
     let access_token = encode(
         &Header::new(Algorithm::HS256),
@@ -140,7 +140,7 @@ pub fn issue_access_token(user: &AuthUser, secret: &str) -> Result<AccessToken, 
     Ok(AccessToken {
         access_token,
         token_type: "Bearer",
-        expires_in_seconds: Duration::hours(TOKEN_TTL_HOURS).num_seconds(),
+        expires_in_seconds: None,
     })
 }
 
@@ -269,5 +269,48 @@ mod tests {
         assert_eq!(user.provider_name, "dev");
         assert_eq!(user.provider_subject, "smoke@test.example");
         assert_eq!(user.id, stable_user_id("dev", "smoke@test.example"));
+        assert_eq!(token.expires_in_seconds, None);
+    }
+
+    #[test]
+    fn issued_tokens_do_not_include_expiration() {
+        let token = issue_dev_token("smoke@test.example".to_owned(), "test-secret")
+            .expect("dev token should be issued");
+        let mut validation = Validation::new(Algorithm::HS256);
+        validation.set_required_spec_claims(&["iss"]);
+        validation.set_issuer(&[TOKEN_ISSUER]);
+
+        let decoded = decode::<AccessTokenClaims>(
+            &token.access_token,
+            &DecodingKey::from_secret("test-secret".as_bytes()),
+            &validation,
+        )
+        .expect("token should decode");
+
+        assert_eq!(decoded.claims.exp, None);
+    }
+
+    #[test]
+    fn expired_legacy_tokens_are_rejected() {
+        let user = AuthUser::from_dev_email("smoke@test.example".to_owned())
+            .expect("dev user should be valid");
+        let issued_at = Utc::now() - chrono::Duration::hours(2);
+        let claims = AccessTokenClaims {
+            iss: TOKEN_ISSUER.to_owned(),
+            sub: user.id.to_string(),
+            email: user.email,
+            provider_name: Some(user.provider_name),
+            provider_subject: Some(user.provider_subject),
+            iat: issued_at.timestamp() as usize,
+            exp: Some((issued_at + chrono::Duration::hours(1)).timestamp() as usize),
+        };
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret("test-secret".as_bytes()),
+        )
+        .expect("legacy token should encode");
+
+        assert!(AuthUser::from_access_token(&token, "test-secret").is_err());
     }
 }

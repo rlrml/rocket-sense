@@ -9,9 +9,11 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket_sense_storage::{raw_replay_key, replay_mime_type, sha256_hex, StorageError};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use sqlx::types::Json as SqlxJson;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -45,6 +47,8 @@ pub fn public_router() -> Router<AppState> {
             "/subtr-actor/stats/assets/{asset_path}",
             get(subtr_actor_stats_asset),
         )
+        .route("/subtr-actor/review", get(subtr_actor_review))
+        .route("/subtr-actor/review/", get(subtr_actor_review))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -61,6 +65,7 @@ pub struct ReplayResponse {
     pub byte_size: u64,
     pub project_id: Option<Uuid>,
     pub uploaded_by_user_id: Option<Uuid>,
+    pub uploaded_by: Option<ReplayUploaderResponse>,
     pub storage_key: String,
     pub original_file_name: Option<String>,
     pub external_replay_id: Option<String>,
@@ -68,9 +73,42 @@ pub struct ReplayResponse {
     pub map_code: Option<String>,
     pub replay_date: Option<DateTime<Utc>>,
     pub has_pro_player: bool,
+    pub players: Vec<ReplayPlayerResponse>,
+    pub summary: ReplaySummaryResponse,
     pub status: ReplayStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayUploaderResponse {
+    pub id: Uuid,
+    pub primary_email: Option<String>,
+    pub display_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct ReplayPlayerResponse {
+    pub name: Option<String>,
+    pub platform: Option<String>,
+    pub platform_player_id: Option<String>,
+    pub team: Option<i32>,
+    pub is_pro: bool,
+}
+
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct ReplaySummaryResponse {
+    pub team_scores: ReplayTeamScoresResponse,
+    pub duration_seconds: Option<u32>,
+    pub overtime_seconds: Option<u32>,
+    pub match_guid: Option<String>,
+    pub season: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct ReplayTeamScoresResponse {
+    pub blue: Option<i32>,
+    pub orange: Option<i32>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -329,7 +367,7 @@ pub async fn get_replay(
     Path(replay_id): Path<Uuid>,
 ) -> Result<Json<ReplayResponse>, ApiError> {
     let db = require_db(&state)?;
-    let sql = replay_select_sql("WHERE id = $1");
+    let sql = replay_select_sql("WHERE r.id = $1");
     let replay = sqlx::query(sql.as_str())
         .bind(replay_id)
         .fetch_optional(db)
@@ -444,6 +482,44 @@ async fn subtr_actor_stats() -> Html<&'static str> {
     Html(SUBTR_ACTOR_STATS_INDEX)
 }
 
+#[derive(Debug, Default, Deserialize)]
+struct SubtrActorReviewQuery {
+    playlist: Option<String>,
+    #[serde(rename = "playlistUrl")]
+    playlist_url: Option<String>,
+    #[serde(rename = "reviewPlaylist")]
+    review_playlist: Option<String>,
+    review: Option<String>,
+    token: Option<String>,
+    #[serde(rename = "reviewToken")]
+    review_token: Option<String>,
+}
+
+async fn subtr_actor_review(Query(query): Query<SubtrActorReviewQuery>) -> Redirect {
+    let playlist = query
+        .review_playlist
+        .or(query.review)
+        .or(query.playlist)
+        .or(query.playlist_url);
+    let review_token = query.review_token.or(query.token);
+
+    let mut target = String::from("/subtr-actor/stats/");
+    let mut params = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(playlist) = playlist {
+        params.append_pair("reviewPlaylist", &playlist);
+    }
+    if let Some(review_token) = review_token {
+        params.append_pair("reviewToken", &review_token);
+    }
+    let query_string = params.finish();
+    if !query_string.is_empty() {
+        target.push('?');
+        target.push_str(&query_string);
+    }
+
+    Redirect::temporary(&target)
+}
+
 async fn subtr_actor_asset(
     Path(asset_path): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
@@ -461,24 +537,24 @@ async fn subtr_actor_stats_asset(
 }
 
 #[derive(Debug)]
-pub struct ApiError {
+pub(super) struct ApiError {
     status: StatusCode,
     message: String,
 }
 
 impl ApiError {
-    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+    pub(super) fn new(status: StatusCode, message: impl Into<String>) -> Self {
         Self {
             status,
             message: message.into(),
         }
     }
 
-    fn bad_request(error: impl std::fmt::Display) -> Self {
+    pub(super) fn bad_request(error: impl std::fmt::Display) -> Self {
         Self::new(StatusCode::BAD_REQUEST, error.to_string())
     }
 
-    fn internal(error: impl std::fmt::Display) -> Self {
+    pub(super) fn internal(error: impl std::fmt::Display) -> Self {
         tracing::error!(error = %error, "request failed");
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
     }
@@ -596,8 +672,8 @@ impl SortBy {
 
     fn sql(&self) -> &'static str {
         match self {
-            Self::UploadDate => "created_at",
-            Self::ReplayDate => "replay_date",
+            Self::UploadDate => "r.created_at",
+            Self::ReplayDate => "r.replay_date",
         }
     }
 }
@@ -626,7 +702,7 @@ impl SortDir {
     }
 }
 
-fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
+pub(super) fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
     state.db.as_ref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -752,29 +828,33 @@ fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
 
 fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-CBS_ASa4.js" => Some(StaticAsset {
+        "index-ArPNw1cK.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-CBS_ASa4.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-ArPNw1cK.js"),
         }),
-        "index-PB1mR1-R.css" => Some(StaticAsset {
+        "main-CXzJ96Q-.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-PB1mR1-R.css"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/main-CXzJ96Q-.css"),
         }),
-        "replayLoader.worker-DIgIq4nG.js" => Some(StaticAsset {
+        "main-Kbbjc0Ny.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/main-Kbbjc0Ny.js"),
+        }),
+        "replayLoader.worker-KUNEui1c.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
             bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/replayLoader.worker-DIgIq4nG.js"
+                "../../static/subtr-actor/stats/assets/replayLoader.worker-KUNEui1c.js"
             ),
         }),
-        "rl_replay_subtr_actor_bg-BMUMQ3Gy.wasm" => Some(StaticAsset {
+        "rl_replay_subtr_actor_bg-ByvsmF_E.wasm" => Some(StaticAsset {
             content_type: "application/wasm",
             bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-BMUMQ3Gy.wasm"
+                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-ByvsmF_E.wasm"
             ),
         }),
-        "wasm.worker-NsphfXJ3.js" => Some(StaticAsset {
+        "wasm.worker-lnagt0HF.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-NsphfXJ3.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-lnagt0HF.js"),
         }),
         _ => None,
     }
@@ -835,7 +915,7 @@ async fn find_replay_by_sha256(
     pool: &PgPool,
     file_sha256: &str,
 ) -> Result<Option<ReplayResponse>, sqlx::Error> {
-    let sql = replay_select_sql("WHERE file_sha256 = $1");
+    let sql = replay_select_sql("WHERE r.file_sha256 = $1");
     sqlx::query(sql.as_str())
         .bind(file_sha256)
         .fetch_optional(pool)
@@ -903,7 +983,7 @@ async fn insert_replay_metadata(
     let stored_replay_id: Uuid = row.try_get("id")?;
     let created: bool = row.try_get("created")?;
 
-    let sql = replay_select_sql("WHERE id = $1");
+    let sql = replay_select_sql("WHERE r.id = $1");
     let replay = sqlx::query(sql.as_str())
         .bind(stored_replay_id)
         .fetch_one(pool)
@@ -914,7 +994,7 @@ async fn insert_replay_metadata(
 }
 
 async fn count_replays(pool: &PgPool, filters: &ReplayFilters) -> Result<u64, sqlx::Error> {
-    let mut builder = QueryBuilder::<Postgres>::new("SELECT count(*) AS total FROM replays");
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT count(*) AS total FROM replays r");
     append_replay_filters(&mut builder, filters);
     let row = builder.build().fetch_one(pool).await?;
     let total: i64 = row.try_get("total")?;
@@ -935,7 +1015,7 @@ async fn find_replays(
         .push(" ")
         .push(filters.sort_dir.sql())
         .push(" NULLS LAST")
-        .push(", id ")
+        .push(", r.id ")
         .push(filters.sort_dir.sql())
         .push(" LIMIT ")
         .push_bind(filters.count as i64)
@@ -954,25 +1034,25 @@ fn append_replay_filters<'args>(
 
     if let Some(pattern) = &filters.search_pattern {
         builder
-            .push(" AND (original_file_name ILIKE ")
+            .push(" AND (r.original_file_name ILIKE ")
             .push_bind(pattern)
-            .push(" ESCAPE '\\' OR file_sha256 ILIKE ")
+            .push(" ESCAPE '\\' OR r.file_sha256 ILIKE ")
             .push_bind(pattern)
-            .push(" ESCAPE '\\' OR external_replay_id ILIKE ")
+            .push(" ESCAPE '\\' OR r.external_replay_id ILIKE ")
             .push_bind(pattern)
             .push(" ESCAPE '\\')");
     }
 
     for pattern in &filters.player_name_patterns {
         builder
-            .push(" AND EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = replays.id AND replay_players.name ILIKE ")
+            .push(" AND EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = r.id AND replay_players.name ILIKE ")
             .push_bind(pattern)
             .push(" ESCAPE '\\')");
     }
 
     for player_id in &filters.player_ids {
         builder
-            .push(" AND EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = replays.id AND replay_players.platform = ")
+            .push(" AND EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = r.id AND replay_players.platform = ")
             .push_bind(&player_id.platform)
             .push(" AND replay_players.platform_player_id = ")
             .push_bind(&player_id.player_id)
@@ -981,91 +1061,144 @@ fn append_replay_filters<'args>(
 
     if !filters.playlists.is_empty() {
         builder
-            .push(" AND playlist = ANY(")
+            .push(" AND r.playlist = ANY(")
             .push_bind(&filters.playlists)
             .push(")");
     }
 
     if !filters.maps.is_empty() {
         builder
-            .push(" AND map_code = ANY(")
+            .push(" AND r.map_code = ANY(")
             .push_bind(&filters.maps)
             .push(")");
     }
 
     if let Some(pro) = filters.pro {
         if pro {
-            builder.push(" AND has_pro_player");
+            builder.push(" AND r.has_pro_player");
         } else {
-            builder.push(" AND NOT has_pro_player");
+            builder.push(" AND NOT r.has_pro_player");
         }
     }
 
     if let Some(uploader_user_id) = filters.uploader_user_id {
         builder
-            .push(" AND uploaded_by_user_id = ")
+            .push(" AND r.uploaded_by_user_id = ")
             .push_bind(uploader_user_id);
     }
 
     if let Some(project_id) = filters.project_id {
-        builder.push(" AND project_id = ").push_bind(project_id);
+        builder.push(" AND r.project_id = ").push_bind(project_id);
     }
 
     if let Some(status) = &filters.status {
-        builder.push(" AND parse_status = ").push_bind(status);
+        builder.push(" AND r.parse_status = ").push_bind(status);
     }
 
     if let Some(created_after) = filters.created_after {
-        builder.push(" AND created_at >= ").push_bind(created_after);
+        builder
+            .push(" AND r.created_at >= ")
+            .push_bind(created_after);
     }
 
     if let Some(created_before) = filters.created_before {
         builder
-            .push(" AND created_at <= ")
+            .push(" AND r.created_at <= ")
             .push_bind(created_before);
     }
 
     if let Some(replay_date_after) = filters.replay_date_after {
         builder
-            .push(" AND replay_date >= ")
+            .push(" AND r.replay_date >= ")
             .push_bind(replay_date_after);
     }
 
     if let Some(replay_date_before) = filters.replay_date_before {
         builder
-            .push(" AND replay_date <= ")
+            .push(" AND r.replay_date <= ")
             .push_bind(replay_date_before);
     }
 }
 
-fn replay_select_sql(where_clause: &str) -> String {
+pub(super) fn replay_select_sql(where_clause: &str) -> String {
     format!(
         r#"
         SELECT
-            id,
-            file_sha256,
-            original_file_name,
-            byte_size,
-            project_id,
-            uploaded_by_user_id,
-            storage_key,
-            external_replay_id,
-            playlist,
-            map_code,
-            replay_date,
-            has_pro_player,
-            parse_status,
-            created_at,
-            updated_at
-        FROM replays
+            r.id,
+            r.file_sha256,
+            r.original_file_name,
+            r.byte_size,
+            r.project_id,
+            r.uploaded_by_user_id,
+            uploader.id AS uploader_id,
+            uploader.primary_email AS uploader_primary_email,
+            uploader.display_name AS uploader_display_name,
+            r.storage_key,
+            r.external_replay_id,
+            r.playlist,
+            r.map_code,
+            r.replay_date,
+            r.has_pro_player,
+            COALESCE(players.players, '[]'::jsonb) AS players,
+            latest_stats.stats AS latest_stats,
+            r.parse_status,
+            r.created_at,
+            r.updated_at
+        FROM replays r
+        LEFT JOIN users uploader ON uploader.id = r.uploaded_by_user_id
+        LEFT JOIN LATERAL (
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'name', player.name,
+                    'platform', player.platform,
+                    'platform_player_id', player.platform_player_id,
+                    'team', player.team,
+                    'is_pro', player.is_pro
+                )
+                ORDER BY player.team NULLS LAST, player.name NULLS LAST
+            ) AS players
+            FROM replay_players player
+            WHERE player.replay_id = r.id
+        ) players ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT blob.stats
+            FROM replay_analysis_states state
+            JOIN replay_stat_blobs blob
+              ON blob.analysis_run_id = state.active_analysis_run_id
+            WHERE state.replay_id = r.id
+            ORDER BY blob.created_at DESC
+            LIMIT 1
+        ) latest_stats ON TRUE
         {where_clause}
         "#
     )
 }
 
-fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::Error> {
+pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::Error> {
     let byte_size: i64 = row.try_get("byte_size")?;
     let parse_status: String = row.try_get("parse_status")?;
+    let latest_stats: Option<Value> = row.try_get("latest_stats")?;
+    let players = replay_players_from_row(&row, latest_stats.as_ref())?;
+    let summary = replay_summary_from_stats(latest_stats.as_ref());
+    let playlist = row
+        .try_get::<Option<String>, _>("playlist")?
+        .or_else(|| replay_playlist_from_stats(latest_stats.as_ref()));
+    let map_code = row
+        .try_get::<Option<String>, _>("map_code")?
+        .or_else(|| replay_map_code_from_stats(latest_stats.as_ref()));
+    let replay_date = row
+        .try_get::<Option<DateTime<Utc>>, _>("replay_date")?
+        .or_else(|| replay_date_from_stats(latest_stats.as_ref()));
+    let uploaded_by = row
+        .try_get::<Option<Uuid>, _>("uploader_id")?
+        .map(|id| -> Result<ReplayUploaderResponse, sqlx::Error> {
+            Ok(ReplayUploaderResponse {
+                id,
+                primary_email: row.try_get("uploader_primary_email")?,
+                display_name: row.try_get("uploader_display_name")?,
+            })
+        })
+        .transpose()?;
 
     Ok(ReplayResponse {
         id: row.try_get("id")?,
@@ -1074,553 +1207,344 @@ fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::E
         byte_size: byte_size.max(0) as u64,
         project_id: row.try_get("project_id")?,
         uploaded_by_user_id: row.try_get("uploaded_by_user_id")?,
+        uploaded_by,
         storage_key: row.try_get("storage_key")?,
         external_replay_id: row.try_get("external_replay_id")?,
-        playlist: row.try_get("playlist")?,
-        map_code: row.try_get("map_code")?,
-        replay_date: row.try_get("replay_date")?,
+        playlist,
+        map_code,
+        replay_date,
         has_pro_player: row.try_get("has_pro_player")?,
+        players,
+        summary,
         status: ReplayStatus::from_db(parse_status),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
 }
 
+fn replay_players_from_row(
+    row: &sqlx::postgres::PgRow,
+    latest_stats: Option<&Value>,
+) -> Result<Vec<ReplayPlayerResponse>, sqlx::Error> {
+    let SqlxJson(mut players): SqlxJson<Vec<ReplayPlayerResponse>> = row.try_get("players")?;
+    if players.is_empty() {
+        players = replay_players_from_stats(latest_stats);
+    }
+
+    Ok(players)
+}
+
+fn replay_players_from_stats(latest_stats: Option<&Value>) -> Vec<ReplayPlayerResponse> {
+    let Some(stats) = latest_stats else {
+        return Vec::new();
+    };
+
+    let mut players = Vec::new();
+    for (team_key, team) in [("team_zero", 0_i32), ("team_one", 1_i32)] {
+        let Some(team_players) = stats
+            .pointer(&format!("/replay_meta/{team_key}"))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+
+        players.extend(team_players.iter().map(|player| {
+            ReplayPlayerResponse {
+                name: player
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .map(str::to_owned),
+                platform: None,
+                platform_player_id: player
+                    .get("remote_id")
+                    .and_then(remote_id_text)
+                    .map(str::to_owned),
+                team: Some(team),
+                is_pro: false,
+            }
+        }));
+    }
+
+    players
+}
+
+fn replay_summary_from_stats(latest_stats: Option<&Value>) -> ReplaySummaryResponse {
+    let Some(stats) = latest_stats else {
+        return ReplaySummaryResponse::default();
+    };
+
+    ReplaySummaryResponse {
+        team_scores: ReplayTeamScoresResponse {
+            blue: int_at(stats, "/modules/core/team_zero/goals"),
+            orange: int_at(stats, "/modules/core/team_one/goals"),
+        },
+        duration_seconds: duration_seconds_from_stats(stats),
+        overtime_seconds: overtime_seconds_from_stats(stats),
+        match_guid: match_guid_from_stats(stats),
+        season: season_from_stats(stats),
+    }
+}
+
+fn replay_playlist_from_stats(latest_stats: Option<&Value>) -> Option<String> {
+    replay_header_text(
+        latest_stats?,
+        &["Playlist", "PlaylistName", "GamePlaylist", "MatchType"],
+    )
+    .map(normalize_playlist_value)
+}
+
+fn replay_map_code_from_stats(latest_stats: Option<&Value>) -> Option<String> {
+    replay_header_text(latest_stats?, &["MapName", "Map", "LevelName"])
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn replay_date_from_stats(latest_stats: Option<&Value>) -> Option<DateTime<Utc>> {
+    replay_header_text(latest_stats?, &["Date", "ReplayDate", "RecordDate"])
+        .and_then(|value| parse_replay_date_text(&value))
+}
+
+fn season_from_stats(stats: &Value) -> Option<String> {
+    replay_header_text(
+        stats,
+        &[
+            "SeasonLabel",
+            "SeasonName",
+            "Season",
+            "CompetitiveSeason",
+            "RocketLeagueSeason",
+        ],
+    )
+    .map(normalize_season_value)
+    .filter(|value| !value.is_empty())
+}
+
+fn replay_header_text(stats: &Value, preferred_keys: &[&str]) -> Option<String> {
+    let headers = stats
+        .pointer("/replay_meta/all_headers")
+        .and_then(Value::as_array)?;
+
+    preferred_keys.iter().find_map(|preferred_key| {
+        headers.iter().find_map(|header| {
+            let entries = header.as_array()?;
+            let key = entries.first()?.as_str()?;
+            if !key.eq_ignore_ascii_case(preferred_key) {
+                return None;
+            }
+
+            header_prop_value_text(entries.get(1)?)
+        })
+    })
+}
+
+fn header_prop_value_text(value: &Value) -> Option<String> {
+    if let Some(text) = value.as_str() {
+        return Some(text.to_owned());
+    }
+
+    if let Some(number) = value.as_i64() {
+        return Some(number.to_string());
+    }
+
+    if let Some(number) = value.as_u64() {
+        return Some(number.to_string());
+    }
+
+    if let Some(number) = value.as_f64() {
+        return Some(number.to_string());
+    }
+
+    if let Some(boolean) = value.as_bool() {
+        return Some(boolean.to_string());
+    }
+
+    if let Some(array) = value.as_array() {
+        return array.iter().find_map(header_prop_value_text);
+    }
+
+    if let Some(object) = value.as_object() {
+        return object.values().find_map(header_prop_value_text);
+    }
+
+    None
+}
+
+fn normalize_playlist_value(value: String) -> String {
+    let trimmed = value.trim();
+    let key = trimmed
+        .to_ascii_lowercase()
+        .replace(['_', '-'], " ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    match key.as_str() {
+        "1" | "duel" | "duels" | "casual duel" | "casual duels" | "unranked duel"
+        | "unranked duels" => "unranked-duels".to_owned(),
+        "2" | "doubles" | "casual doubles" | "unranked doubles" => "unranked-doubles".to_owned(),
+        "3" | "standard" | "casual standard" | "unranked standard" => {
+            "unranked-standard".to_owned()
+        }
+        "4" | "chaos" | "casual chaos" | "unranked chaos" => "unranked-chaos".to_owned(),
+        "10" | "ranked duel" | "ranked duels" => "ranked-duels".to_owned(),
+        "11" | "ranked doubles" => "ranked-doubles".to_owned(),
+        "12" | "ranked solo standard" => "ranked-solo-standard".to_owned(),
+        "13" | "ranked standard" => "ranked-standard".to_owned(),
+        "27" | "hoops" | "ranked hoops" => "ranked-hoops".to_owned(),
+        "28" | "rumble" | "ranked rumble" => "ranked-rumble".to_owned(),
+        "29" | "dropshot" | "ranked dropshot" => "ranked-dropshot".to_owned(),
+        "30" | "snowday" | "snow day" | "ranked snowday" | "ranked snow day" => {
+            "ranked-snowday".to_owned()
+        }
+        "private" => "private".to_owned(),
+        "season" => "season".to_owned(),
+        "offline" => "offline".to_owned(),
+        "tournament" => "tournament".to_owned(),
+        "rocket labs" | "rocketlabs" => "rocketlabs".to_owned(),
+        "dropshot rumble" => "dropshot-rumble".to_owned(),
+        "heatseeker" => "heatseeker".to_owned(),
+        _ => trimmed.to_owned(),
+    }
+}
+
+fn normalize_season_value(value: String) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if trimmed.to_ascii_lowercase().starts_with("season") {
+        trimmed.to_owned()
+    } else {
+        format!("Season {trimmed}")
+    }
+}
+
+fn parse_replay_date_text(value: &str) -> Option<DateTime<Utc>> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    DateTime::parse_from_rfc3339(trimmed)
+        .map(|date| date.with_timezone(&Utc))
+        .ok()
+        .or_else(|| {
+            DateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S %z")
+                .map(|date| date.with_timezone(&Utc))
+                .ok()
+        })
+        .or_else(|| {
+            [
+                "%Y-%m-%d %H-%M-%S",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y.%m.%d %H.%M.%S",
+                "%m/%d/%Y %H:%M:%S",
+            ]
+            .iter()
+            .find_map(|format| {
+                NaiveDateTime::parse_from_str(trimmed, format)
+                    .map(|date| DateTime::from_naive_utc_and_offset(date, Utc))
+                    .ok()
+            })
+        })
+}
+
+fn int_at(value: &Value, pointer: &str) -> Option<i32> {
+    value
+        .pointer(pointer)
+        .and_then(Value::as_i64)
+        .and_then(|number| i32::try_from(number).ok())
+}
+
+fn duration_seconds_from_stats(stats: &Value) -> Option<u32> {
+    let timeline = stats
+        .pointer("/modules/core/timeline")
+        .and_then(Value::as_array)?;
+    let duration = timeline
+        .iter()
+        .filter_map(|event| event.get("time").and_then(Value::as_f64))
+        .filter(|time| time.is_finite() && *time >= 0.0)
+        .fold(None, |max_time: Option<f64>, time| {
+            Some(max_time.map_or(time, |current| current.max(time)))
+        })?;
+
+    Some(duration.round() as u32)
+}
+
+fn overtime_seconds_from_stats(stats: &Value) -> Option<u32> {
+    replay_header_text(
+        stats,
+        &[
+            "OvertimeSeconds",
+            "OvertimeTime",
+            "Overtime",
+            "OvertimeLength",
+            "OTSeconds",
+        ],
+    )
+    .and_then(|value| parse_positive_seconds(&value))
+}
+
+fn parse_positive_seconds(value: &str) -> Option<u32> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let seconds = trimmed.parse::<f64>().ok().or_else(|| {
+        let (minutes, seconds) = trimmed.split_once(':')?;
+        Some(minutes.trim().parse::<f64>().ok()? * 60.0 + seconds.trim().parse::<f64>().ok()?)
+    })?;
+
+    (seconds.is_finite() && seconds > 0.0).then_some(seconds.round() as u32)
+}
+
+fn match_guid_from_stats(stats: &Value) -> Option<String> {
+    let headers = stats
+        .pointer("/replay_meta/all_headers")
+        .and_then(Value::as_array)?;
+    let preferred_keys = ["Id", "MatchGUID", "MatchGuid", "MatchId", "GameEvent"];
+
+    preferred_keys.iter().find_map(|preferred_key| {
+        headers.iter().find_map(|header| {
+            let entries = header.as_array()?;
+            let key = entries.first()?.as_str()?;
+            if key != *preferred_key {
+                return None;
+            }
+
+            header_prop_text(entries.get(1)?).map(str::to_owned)
+        })
+    })
+}
+
+fn header_prop_text(value: &Value) -> Option<&str> {
+    if let Some(text) = value.as_str() {
+        return Some(text);
+    }
+
+    if let Some(array) = value.as_array() {
+        return array.iter().find_map(header_prop_text);
+    }
+
+    if let Some(object) = value.as_object() {
+        for key in ["Str", "String", "Name", "QWord", "Guid", "Id", "value"] {
+            if let Some(text) = object.get(key).and_then(header_prop_text) {
+                return Some(text);
+            }
+        }
+        return object.values().find_map(header_prop_text);
+    }
+
+    None
+}
+
+fn remote_id_text(value: &Value) -> Option<&str> {
+    header_prop_text(value)
+}
+
 const SUBTR_ACTOR_VIEWER_INDEX: &str = include_str!("../../static/subtr-actor/index.html");
 const SUBTR_ACTOR_STATS_INDEX: &str = include_str!("../../static/subtr-actor/stats/index.html");
 
-const REPLAY_LIST_PAGE: &str = r##"<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" href="data:,">
-  <title>Rocket Sense Replays</title>
-  <style>
-    :root {
-      color-scheme: light dark;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f6f7f9;
-      color: #18202f;
-    }
-
-    body {
-      margin: 0;
-      min-height: 100vh;
-      background: #f6f7f9;
-    }
-
-    header {
-      border-bottom: 1px solid #d8dee8;
-      background: #ffffff;
-    }
-
-    .header-inner, main {
-      width: min(1180px, calc(100% - 32px));
-      margin: 0 auto;
-    }
-
-    .header-inner {
-      min-height: 64px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 16px;
-    }
-
-    h1 {
-      margin: 0;
-      font-size: 22px;
-      line-height: 1.2;
-    }
-
-    main {
-      padding: 18px 0 32px;
-      display: grid;
-      gap: 14px;
-    }
-
-    form {
-      display: grid;
-      grid-template-columns: minmax(220px, 2fr) repeat(4, minmax(120px, 1fr)) auto;
-      gap: 10px;
-      align-items: end;
-      padding: 14px 0;
-      border-bottom: 1px solid #d8dee8;
-    }
-
-    label {
-      display: grid;
-      gap: 5px;
-      color: #536176;
-      font-size: 12px;
-      font-weight: 650;
-    }
-
-    input, select, button {
-      height: 36px;
-      box-sizing: border-box;
-      border: 1px solid #c6cfda;
-      border-radius: 6px;
-      padding: 0 10px;
-      font: inherit;
-      background: #ffffff;
-      color: #18202f;
-    }
-
-    button, .button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      min-height: 36px;
-      border: 1px solid #0f766e;
-      border-radius: 6px;
-      padding: 0 12px;
-      background: #0f766e;
-      color: #ffffff;
-      font-weight: 750;
-      text-decoration: none;
-      cursor: pointer;
-    }
-
-    .toolbar {
-      display: flex;
-      justify-content: space-between;
-      gap: 12px;
-      align-items: center;
-      color: #536176;
-      font-size: 13px;
-    }
-
-    .token {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    .token input {
-      width: min(420px, 48vw);
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-    }
-
-    .table-wrap {
-      overflow-x: auto;
-      border: 1px solid #d8dee8;
-      border-radius: 8px;
-      background: #ffffff;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      table-layout: fixed;
-    }
-
-    th, td {
-      padding: 11px 12px;
-      border-bottom: 1px solid #e7ebf0;
-      text-align: left;
-      vertical-align: middle;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    th {
-      color: #536176;
-      font-size: 12px;
-      font-weight: 750;
-      background: #fbfcfd;
-    }
-
-    tr:last-child td {
-      border-bottom: 0;
-    }
-
-    .name {
-      width: 34%;
-      font-weight: 720;
-    }
-
-    .muted {
-      color: #64748b;
-    }
-
-    .replay-link {
-      color: #0f766e;
-      font-weight: 750;
-      text-decoration: none;
-    }
-
-    .replay-link:hover {
-      text-decoration: underline;
-    }
-
-    .replay-id-link {
-      display: block;
-      margin-top: 2px;
-      color: #64748b;
-      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .status {
-      display: inline-flex;
-      align-items: center;
-      min-height: 24px;
-      padding: 0 8px;
-      border-radius: 999px;
-      background: #eef2f7;
-      color: #344256;
-      font-size: 12px;
-      font-weight: 750;
-    }
-
-    .actions {
-      width: 160px;
-      text-align: right;
-    }
-
-    td.actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 12px;
-    }
-
-    .actions a {
-      color: #0f766e;
-      font-weight: 750;
-      text-decoration: none;
-    }
-
-    .empty, .error {
-      padding: 24px;
-      border: 1px solid #d8dee8;
-      border-radius: 8px;
-      background: #ffffff;
-      color: #536176;
-    }
-
-    .error {
-      border-color: #f3b4ad;
-      color: #b42318;
-    }
-
-    .pager {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-    }
-
-    .pager button {
-      background: #ffffff;
-      color: #18202f;
-      border-color: #c6cfda;
-      font-weight: 650;
-    }
-
-    .pager button:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-
-    @media (max-width: 860px) {
-      .header-inner, main {
-        width: min(100% - 20px, 1180px);
-      }
-
-      .header-inner, .toolbar {
-        align-items: flex-start;
-        flex-direction: column;
-        justify-content: flex-start;
-      }
-
-      form {
-        grid-template-columns: 1fr 1fr;
-      }
-
-      form button {
-        grid-column: 1 / -1;
-      }
-
-      .token {
-        width: 100%;
-      }
-
-      .token input {
-        width: 100%;
-      }
-    }
-  </style>
-</head>
-<body>
-  <header>
-    <div class="header-inner">
-      <h1>Rocket Sense Replays</h1>
-      <a class="button" href="/profile">Profile</a>
-    </div>
-  </header>
-  <main>
-    <form id="filters">
-      <label>
-        Search
-        <input name="q" placeholder="Filename, player, id">
-      </label>
-      <label>
-        Player
-        <input name="player-name" placeholder="Display name">
-      </label>
-      <label>
-        Playlist
-        <select name="playlist">
-          <option value="">Any</option>
-          <option value="ranked-duels">Ranked Duel</option>
-          <option value="ranked-doubles">Ranked Doubles</option>
-          <option value="ranked-standard">Ranked Standard</option>
-          <option value="ranked-solo-standard">Ranked Solo Standard</option>
-          <option value="ranked-hoops">Ranked Hoops</option>
-          <option value="ranked-rumble">Ranked Rumble</option>
-          <option value="ranked-dropshot">Ranked Dropshot</option>
-          <option value="ranked-snowday">Ranked Snow Day</option>
-          <option value="unranked-duels">Casual Duel</option>
-          <option value="unranked-doubles">Casual Doubles</option>
-          <option value="unranked-standard">Casual Standard</option>
-          <option value="unranked-chaos">Casual Chaos</option>
-          <option value="private">Private</option>
-          <option value="season">Season</option>
-          <option value="offline">Offline</option>
-          <option value="tournament">Tournament</option>
-          <option value="hoops">Hoops</option>
-          <option value="rumble">Rumble</option>
-          <option value="dropshot">Dropshot</option>
-          <option value="snowday">Snow Day</option>
-          <option value="rocketlabs">Rocket Labs</option>
-          <option value="dropshot-rumble">Dropshot Rumble</option>
-          <option value="heatseeker">Heatseeker</option>
-        </select>
-      </label>
-      <label>
-        Map
-        <input name="map" placeholder="stadium_p">
-      </label>
-      <label>
-        Status
-        <select name="status">
-          <option value="">Any</option>
-          <option value="pending">Pending</option>
-          <option value="parsing">Parsing</option>
-          <option value="parsed">Parsed</option>
-          <option value="failed">Failed</option>
-        </select>
-      </label>
-      <button type="submit">Search</button>
-    </form>
-
-    <div class="toolbar">
-      <div id="summary">Loading replays...</div>
-      <label class="token">
-        API token
-        <input id="token" type="password" autocomplete="off" placeholder="Optional bearer token">
-      </label>
-    </div>
-
-    <div id="content"></div>
-    <div class="pager">
-      <button id="previous" type="button">Previous</button>
-      <button id="next" type="button">Next</button>
-    </div>
-  </main>
-
-  <script>
-    const form = document.querySelector("#filters");
-    const content = document.querySelector("#content");
-    const summary = document.querySelector("#summary");
-    const tokenInput = document.querySelector("#token");
-    const previousButton = document.querySelector("#previous");
-    const nextButton = document.querySelector("#next");
-    const pageSize = 50;
-    let offset = Number(new URLSearchParams(location.search).get("offset") || 0);
-    let nextOffset = null;
-
-    tokenInput.value = localStorage.getItem("rocket_sense_access_token") || "";
-    tokenInput.addEventListener("change", () => {
-      localStorage.setItem("rocket_sense_access_token", tokenInput.value.trim());
-      offset = 0;
-      loadReplays();
-    });
-
-    function restoreFilters() {
-      const params = new URLSearchParams(location.search);
-      for (const element of form.elements) {
-        if (!element.name || element.type === "submit") continue;
-        element.value = params.get(element.name) || "";
-      }
-    }
-
-    function buildParams() {
-      const params = new URLSearchParams();
-      const data = new FormData(form);
-      for (const [key, value] of data.entries()) {
-        const text = String(value).trim();
-        if (text) params.append(key, text);
-      }
-      params.set("count", String(pageSize));
-      params.set("offset", String(offset));
-      params.set("sort-by", "upload-date");
-      params.set("sort-dir", "desc");
-      return params;
-    }
-
-    function headers() {
-      const token = tokenInput.value.trim();
-      return token ? { Authorization: `Bearer ${token}` } : {};
-    }
-
-    function viewerUrl(replay) {
-      return `/replays/${encodeURIComponent(replay.id)}`;
-    }
-
-    function statsUrl(replay) {
-      return `/replays/${encodeURIComponent(replay.id)}/stats`;
-    }
-
-    function replayName(replay) {
-      return replay.original_file_name || replay.external_replay_id || replay.id;
-    }
-
-    function formatDate(value) {
-      if (!value) return "";
-      return new Intl.DateTimeFormat(undefined, {
-        dateStyle: "medium",
-        timeStyle: "short"
-      }).format(new Date(value));
-    }
-
-    function formatBytes(value) {
-      if (!Number.isFinite(value)) return "";
-      return new Intl.NumberFormat(undefined, {
-        style: "unit",
-        unit: "byte",
-        notation: "compact"
-      }).format(value);
-    }
-
-    function text(value) {
-      return value == null || value === "" ? "-" : String(value);
-    }
-
-    function render(replays) {
-      if (replays.length === 0) {
-        content.innerHTML = `<div class="empty">No replays match these filters.</div>`;
-        return;
-      }
-
-      const rows = replays.map((replay) => {
-        const name = replayName(replay);
-        const replayHref = viewerUrl(replay);
-
-        return `
-        <tr>
-          <td class="name" title="${escapeHtml(name)}">
-            <a class="replay-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>
-            <a class="replay-link replay-id-link" href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(replay.id)}</a>
-          </td>
-          <td>${escapeHtml(formatDate(replay.replay_date || replay.created_at))}</td>
-          <td>${escapeHtml(text(replay.playlist))}</td>
-          <td>${escapeHtml(text(replay.map_code))}</td>
-          <td><span class="status">${escapeHtml(replay.status)}</span></td>
-          <td>${escapeHtml(formatBytes(replay.byte_size))}</td>
-          <td class="actions">
-            <a href="${viewerUrl(replay)}" target="_blank" rel="noopener">Viewer</a>
-            <a href="${statsUrl(replay)}" target="_blank" rel="noopener">Stats</a>
-          </td>
-        </tr>
-      `;
-      }).join("");
-
-      content.innerHTML = `
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th class="name">Replay</th>
-                <th>Date</th>
-                <th>Playlist</th>
-                <th>Map</th>
-                <th>Status</th>
-                <th>Size</th>
-                <th class="actions">Action</th>
-              </tr>
-            </thead>
-            <tbody>${rows}</tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    function escapeHtml(value) {
-      return String(value).replace(/[&<>"']/g, (character) => ({
-        "&": "&amp;",
-        "<": "&lt;",
-        ">": "&gt;",
-        '"': "&quot;",
-        "'": "&#039;"
-      }[character]));
-    }
-
-    async function loadReplays() {
-      const params = buildParams();
-      history.replaceState(null, "", `/replays?${params.toString()}`);
-      summary.textContent = "Loading replays...";
-      content.innerHTML = "";
-      previousButton.disabled = offset === 0;
-      nextButton.disabled = true;
-
-      try {
-        const response = await fetch(`/api/v1/replays?${params.toString()}`, {
-          headers: headers(),
-          credentials: "same-origin"
-        });
-        const body = await response.json();
-        if (!response.ok) {
-          throw new Error(body.error || "Replay search failed");
-        }
-
-        nextOffset = body.next_offset;
-        summary.textContent = `${body.total} total replays`;
-        previousButton.disabled = offset === 0;
-        nextButton.disabled = nextOffset == null;
-        render(body.replays);
-      } catch (error) {
-        summary.textContent = "Replay search failed";
-        content.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
-      }
-    }
-
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      offset = 0;
-      loadReplays();
-    });
-
-    previousButton.addEventListener("click", () => {
-      offset = Math.max(0, offset - pageSize);
-      loadReplays();
-    });
-
-    nextButton.addEventListener("click", () => {
-      if (nextOffset != null) {
-        offset = nextOffset;
-        loadReplays();
-      }
-    });
-
-    restoreFilters();
-    loadReplays();
-  </script>
-</body>
-</html>
-"##;
+const REPLAY_LIST_PAGE: &str = include_str!("replays_page.html");

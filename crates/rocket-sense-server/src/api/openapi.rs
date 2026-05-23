@@ -1,4 +1,4 @@
-use super::{auth, health, replays};
+use super::{auth, health, players, replays};
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
@@ -10,6 +10,7 @@ use utoipa::{
         auth::create_dev_token,
         auth::create_profile_token,
         health::health,
+        players::get_player_profile,
         replays::create_replay,
         replays::list_replays,
         replays::get_replay_by_sha256,
@@ -21,15 +22,22 @@ use utoipa::{
             auth::CreateDevTokenRequest,
             crate::auth::AccessToken,
             health::HealthResponse,
+            players::PlayerProfileNameResponse,
+            players::PlayerProfileResponse,
             replays::CreateReplayResponse,
             replays::ListReplaysResponse,
+            replays::ReplayPlayerResponse,
             replays::ReplayResponse,
             replays::ReplayStatus,
+            replays::ReplaySummaryResponse,
+            replays::ReplayTeamScoresResponse,
+            replays::ReplayUploaderResponse,
         )
     ),
     tags(
         (name = "auth", description = "Development auth endpoints"),
         (name = "health", description = "Service health endpoints"),
+        (name = "players", description = "Player profile endpoints"),
         (name = "replays", description = "Replay upload and metadata endpoints")
     ),
     modifiers(&SecurityAddon)
