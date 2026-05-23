@@ -23,6 +23,8 @@ const TOKEN_TTL_HOURS: i64 = 24;
 pub struct AuthUser {
     pub id: Uuid,
     pub email: String,
+    pub provider_name: String,
+    pub provider_subject: String,
 }
 
 impl AuthUser {
@@ -36,6 +38,8 @@ impl AuthUser {
 
         Ok(Self {
             id: stable_user_id("dev", &normalized_email),
+            provider_name: "dev".to_owned(),
+            provider_subject: normalized_email.clone(),
             email: normalized_email,
         })
     }
@@ -55,6 +59,8 @@ impl AuthUser {
 
         Ok(Self {
             id: stable_user_id(provider, subject),
+            provider_name: provider.to_owned(),
+            provider_subject: subject.to_owned(),
             email: normalized_email,
         })
     }
@@ -75,6 +81,14 @@ impl AuthUser {
         Ok(Self {
             id: user_id,
             email: token.claims.email,
+            provider_name: token
+                .claims
+                .provider_name
+                .unwrap_or_else(|| "rocket-sense".to_owned()),
+            provider_subject: token
+                .claims
+                .provider_subject
+                .unwrap_or_else(|| user_id.to_string()),
         })
     }
 }
@@ -84,6 +98,10 @@ struct AccessTokenClaims {
     iss: String,
     sub: String,
     email: String,
+    #[serde(default)]
+    provider_name: Option<String>,
+    #[serde(default)]
+    provider_subject: Option<String>,
     iat: usize,
     exp: usize,
 }
@@ -107,6 +125,8 @@ pub fn issue_access_token(user: &AuthUser, secret: &str) -> Result<AccessToken, 
         iss: TOKEN_ISSUER.to_owned(),
         sub: user.id.to_string(),
         email: user.email.clone(),
+        provider_name: Some(user.provider_name.clone()),
+        provider_subject: Some(user.provider_subject.clone()),
         iat: issued_at.timestamp() as usize,
         exp: expires_at.timestamp() as usize,
     };
@@ -246,6 +266,8 @@ mod tests {
             .expect("dev token should validate");
 
         assert_eq!(user.email, "smoke@test.example");
+        assert_eq!(user.provider_name, "dev");
+        assert_eq!(user.provider_subject, "smoke@test.example");
         assert_eq!(user.id, stable_user_id("dev", "smoke@test.example"));
     }
 }

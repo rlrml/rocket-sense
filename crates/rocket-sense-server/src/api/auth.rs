@@ -102,7 +102,7 @@ fn render_profile_page(auth_mode: AuthMode) -> String {
 
 fn oauth_panel(oauth_providers: &[OAuthProviderSettings]) -> String {
     let buttons = oauth_buttons(oauth_providers);
-    if buttons.is_empty() {
+    if oauth_providers.is_empty() {
         r#"<section>
       <h1>Rocket Sense</h1>
       <p>No OAuth login providers are configured for this server.</p>
@@ -123,18 +123,37 @@ fn oauth_panel(oauth_providers: &[OAuthProviderSettings]) -> String {
 }
 
 fn oauth_buttons(oauth_providers: &[OAuthProviderSettings]) -> String {
-    oauth_providers
+    OAuthProviderKind::all()
         .iter()
         .map(|provider| {
-            format!(
-                r#"        <a class="button provider-{}" href="/auth/{}/start">Continue with {}</a>"#,
-                provider.kind.id(),
-                provider.kind.id(),
-                provider.kind.label()
-            )
+            let configured = oauth_providers.iter().any(|settings| settings.kind == *provider);
+            if configured {
+                format!(
+                    r#"        <a class="button provider-{}" href="/auth/{}/start">{}<span>Continue with {}</span></a>"#,
+                    provider.id(),
+                    provider.id(),
+                    provider_icon(*provider),
+                    provider.label()
+                )
+            } else {
+                format!(
+                    r#"        <button class="button provider-{} provider-disabled" type="button" disabled>{}<span>{} unavailable</span></button>"#,
+                    provider.id(),
+                    provider_icon(*provider),
+                    provider.label()
+                )
+            }
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn provider_icon(kind: OAuthProviderKind) -> &'static str {
+    match kind {
+        OAuthProviderKind::Google => GOOGLE_ICON,
+        OAuthProviderKind::GitHub => GITHUB_ICON,
+        OAuthProviderKind::Discord => DISCORD_ICON,
+    }
 }
 
 fn dev_login_link(auth_mode: AuthMode) -> &'static str {
@@ -626,6 +645,21 @@ fn escape_html(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+const GOOGLE_ICON: &str = r##"<svg viewBox="0 0 18 18" aria-hidden="true" focusable="false">
+          <path fill="#4285f4" d="M17.64 9.2c0-.64-.06-1.26-.16-1.86H9v3.51h4.84a4.14 4.14 0 0 1-1.79 2.72v2.26h2.9c1.7-1.56 2.69-3.87 2.69-6.63z"/>
+          <path fill="#34a853" d="M9 18c2.43 0 4.47-.81 5.96-2.17l-2.9-2.26c-.81.54-1.84.86-3.06.86-2.35 0-4.33-1.58-5.04-3.71H.96v2.33A9 9 0 0 0 9 18z"/>
+          <path fill="#fbbc05" d="M3.96 10.72A5.41 5.41 0 0 1 3.68 9c0-.6.1-1.17.28-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.82.96 4.05l3-2.33z"/>
+          <path fill="#ea4335" d="M9 3.58c1.32 0 2.5.45 3.43 1.35l2.58-2.58C13.45.9 11.42 0 9 0A9 9 0 0 0 .96 4.95l3 2.33C4.67 5.16 6.65 3.58 9 3.58z"/>
+        </svg>"##;
+
+const GITHUB_ICON: &str = r##"<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor">
+          <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.11.79-.25.79-.56v-2.15c-3.2.7-3.87-1.36-3.87-1.36-.52-1.33-1.28-1.68-1.28-1.68-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.76 2.69 1.25 3.35.96.1-.75.4-1.25.73-1.54-2.55-.29-5.23-1.28-5.23-5.68 0-1.25.45-2.28 1.19-3.08-.12-.29-.52-1.46.11-3.04 0 0 .97-.31 3.16 1.18A10.9 10.9 0 0 1 12 6.06c.98 0 1.95.13 2.87.39 2.19-1.49 3.15-1.18 3.15-1.18.63 1.58.24 2.75.12 3.04.74.8 1.18 1.83 1.18 3.08 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.13v3.16c0 .31.21.67.79.56A11.51 11.51 0 0 0 23.5 12C23.5 5.65 18.35.5 12 .5z"/>
+        </svg>"##;
+
+const DISCORD_ICON: &str = r##"<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="currentColor">
+          <path d="M19.54 5.34A18.64 18.64 0 0 0 14.91 3.9c-.2.35-.43.82-.59 1.19a17.3 17.3 0 0 0-5.15 0 12.6 12.6 0 0 0-.6-1.19c-1.62.28-3.17.76-4.63 1.44C1.01 9.72.22 13.99.62 18.19a18.8 18.8 0 0 0 5.68 2.88c.46-.62.86-1.28 1.2-1.99-.66-.25-1.3-.56-1.89-.93.16-.12.31-.24.46-.37a13.35 13.35 0 0 0 11.36 0c.15.13.3.25.46.37-.6.37-1.23.68-1.9.93.34.71.74 1.37 1.2 1.99a18.76 18.76 0 0 0 5.69-2.88c.47-4.87-.79-9.11-3.34-12.85zM8.35 15.6c-1.1 0-2-1.02-2-2.27 0-1.25.88-2.27 2-2.27 1.12 0 2.02 1.03 2 2.27 0 1.25-.88 2.27-2 2.27zm7.3 0c-1.1 0-2-1.02-2-2.27 0-1.25.88-2.27 2-2.27 1.12 0 2.02 1.03 2 2.27 0 1.25-.88 2.27-2 2.27z"/>
+        </svg>"##;
+
 const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
 <html lang="en">
 <head>
@@ -703,15 +737,23 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      gap: 12px;
       margin-top: 16px;
       border: 0;
       border-radius: 6px;
-      padding: 10px 14px;
+      min-height: 44px;
+      padding: 10px 16px;
       background: #165dff;
       color: white;
       font-weight: 700;
       cursor: pointer;
       text-decoration: none;
+    }
+
+    .button svg {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
     }
 
     .oauth-buttons {
@@ -724,12 +766,41 @@ const LOGIN_PAGE_TEMPLATE: &str = r##"<!doctype html>
       margin-top: 0;
     }
 
+    .provider-google {
+      border: 1px solid #dadce0;
+      background: #ffffff;
+      color: #3c4043;
+      box-shadow: 0 1px 2px rgba(60, 64, 67, 0.16);
+    }
+
+    .provider-google:hover {
+      background: #f8fafd;
+      border-color: #d2e3fc;
+    }
+
     .provider-github {
       background: #24292f;
+      color: #ffffff;
+    }
+
+    .provider-github:hover {
+      background: #1f2328;
     }
 
     .provider-discord {
       background: #5865f2;
+      color: #ffffff;
+    }
+
+    .provider-discord:hover {
+      background: #4752c4;
+    }
+
+    .provider-disabled,
+    .provider-disabled:hover {
+      opacity: 0.58;
+      cursor: not-allowed;
+      filter: grayscale(0.2);
     }
 
     .secondary {
@@ -792,7 +863,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
     }
 
     main {
-      width: min(100%, 640px);
+      width: min(100%, 760px);
       display: grid;
       gap: 18px;
     }
@@ -815,6 +886,51 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
       margin: 0;
       color: #536179;
       line-height: 1.5;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+      margin-top: 14px;
+    }
+
+    th, td {
+      padding: 10px 8px;
+      border-bottom: 1px solid #e5e9f0;
+      text-align: left;
+      vertical-align: middle;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    th {
+      color: #536179;
+      font-size: 12px;
+      font-weight: 750;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    dl {
+      display: grid;
+      grid-template-columns: max-content minmax(0, 1fr);
+      gap: 8px 16px;
+      margin: 16px 0 0;
+    }
+
+    dt {
+      color: #536179;
+      font-weight: 700;
+    }
+
+    dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
     }
 
     label {
@@ -888,6 +1004,30 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
     .error {
       color: #b42318;
     }
+
+    .muted {
+      color: #536179;
+    }
+
+    .replay-link {
+      color: #165dff;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .replay-link:hover {
+      text-decoration: underline;
+    }
+
+    @media (max-width: 620px) {
+      body {
+        padding: 12px;
+      }
+
+      dl {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
 </head>
 <body>
@@ -901,10 +1041,184 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
       </div>
     </section>
 
+    <section>
+      <h1>Account</h1>
+      <p id="account-status">No active Rocket Sense token found.</p>
+      <dl>
+        <dt>Email</dt>
+        <dd id="account-email">-</dd>
+        <dt>User id</dt>
+        <dd id="account-user-id">-</dd>
+        <dt>Provider</dt>
+        <dd id="account-provider">-</dd>
+        <dt>Connected account id</dt>
+        <dd id="account-subject">-</dd>
+        <dt>Token expires</dt>
+        <dd id="account-expires">-</dd>
+      </dl>
+    </section>
+
     {{dev_token_panel}}
 
     {{session_token_panel}}
+
+    <section>
+      <h1>Recent uploads</h1>
+      <p id="recent-status">Create an upload token to show recent uploads for this account.</p>
+      <div id="recent-content"></div>
+    </section>
   </main>
+
+  <script>
+    const accountStatus = document.querySelector("#account-status");
+    const accountEmail = document.querySelector("#account-email");
+    const accountUserId = document.querySelector("#account-user-id");
+    const accountProvider = document.querySelector("#account-provider");
+    const accountSubject = document.querySelector("#account-subject");
+    const accountExpires = document.querySelector("#account-expires");
+    const recentStatus = document.querySelector("#recent-status");
+    const recentContent = document.querySelector("#recent-content");
+
+    function showProfile(token) {
+      try {
+        const claims = parseJwtClaims(token);
+        accountEmail.textContent = text(claims.email);
+        accountUserId.textContent = text(claims.sub);
+        accountProvider.textContent = text(claims.provider_name);
+        accountSubject.textContent = text(claims.provider_subject);
+        accountExpires.textContent = claims.exp ? formatDate(new Date(claims.exp * 1000)) : "-";
+        accountStatus.textContent = claims.provider_name && claims.provider_subject
+          ? `Connected through ${providerLabel(claims.provider_name)} account ${claims.provider_subject}.`
+          : "This profile is tied to the current Rocket Sense token.";
+      } catch (err) {
+        accountEmail.textContent = "-";
+        accountUserId.textContent = "-";
+        accountProvider.textContent = "-";
+        accountSubject.textContent = "-";
+        accountExpires.textContent = "-";
+        accountStatus.textContent = "The saved Rocket Sense token could not be read.";
+      }
+    }
+
+    function parseJwtClaims(token) {
+      const parts = token.split(".");
+      if (parts.length < 2) throw new Error("Invalid token");
+      const payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+      const padded = payload.padEnd(Math.ceil(payload.length / 4) * 4, "=");
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return JSON.parse(new TextDecoder().decode(bytes));
+    }
+
+    async function loadRecentUploads(token) {
+      recentStatus.textContent = "Loading recent uploads...";
+      recentContent.replaceChildren();
+
+      try {
+        const params = new URLSearchParams({
+          uploader: "me",
+          count: "5",
+          offset: "0",
+          "sort-by": "upload-date",
+          "sort-dir": "desc"
+        });
+        const response = await fetch(`/api/v1/replays?${params}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const body = await response.json();
+
+        if (!response.ok) {
+          throw new Error(body.error || "Replay request failed");
+        }
+
+        renderRecentUploads(body.replays || []);
+      } catch (err) {
+        recentStatus.textContent = err.message;
+      }
+    }
+
+    function renderRecentUploads(replays) {
+      if (replays.length === 0) {
+        recentStatus.textContent = "No uploads found for this account.";
+        return;
+      }
+
+      recentStatus.textContent = `${replays.length} most recent upload${replays.length === 1 ? "" : "s"}.`;
+      const rows = replays.map((replay) => {
+        const name = replayName(replay);
+        return `
+          <tr>
+            <td title="${escapeHtml(name)}"><a class="replay-link" href="/replays/${encodeURIComponent(replay.id)}">${escapeHtml(name)}</a></td>
+            <td>${escapeHtml(formatDate(replay.created_at))}</td>
+            <td>${escapeHtml(text(replay.status))}</td>
+            <td>${escapeHtml(formatBytes(replay.byte_size))}</td>
+          </tr>
+        `;
+      }).join("");
+      recentContent.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Replay</th>
+              <th>Uploaded</th>
+              <th>Status</th>
+              <th>Size</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+    }
+
+    function replayName(replay) {
+      return replay.original_file_name || replay.external_replay_id || replay.id;
+    }
+
+    function formatDate(value) {
+      if (!value) return "-";
+      return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(new Date(value));
+    }
+
+    function formatBytes(value) {
+      if (!Number.isFinite(value)) return "-";
+      return new Intl.NumberFormat(undefined, {
+        style: "unit",
+        unit: "byte",
+        notation: "compact"
+      }).format(value);
+    }
+
+    function text(value) {
+      return value == null || value === "" ? "-" : String(value);
+    }
+
+    function providerLabel(value) {
+      switch (value) {
+        case "dev":
+          return "development";
+        case "google":
+          return "Google";
+        case "github":
+          return "GitHub";
+        case "discord":
+          return "Discord";
+        default:
+          return value;
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#39;");
+    }
+  </script>
 
   {{profile_token_script}}
 </body>
@@ -949,6 +1263,12 @@ const DEV_PROFILE_SCRIPT: &str = r##"<script>
     const result = document.querySelector("#result");
     const tokenOutput = document.querySelector("#token");
     const curlOutput = document.querySelector("#curl");
+    const existingToken = localStorage.getItem("rocket_sense_access_token") || "";
+
+    if (existingToken) {
+      showProfile(existingToken);
+      loadRecentUploads(existingToken);
+    }
 
     if (form) {
       form.addEventListener("submit", async (event) => {
@@ -974,6 +1294,8 @@ const DEV_PROFILE_SCRIPT: &str = r##"<script>
   -H "Authorization: Bearer ${body.access_token}" \\
   -F "file=@/path/to/replay.replay"`;
           result.classList.remove("hidden");
+          showProfile(body.access_token);
+          loadRecentUploads(body.access_token);
         } catch (err) {
           error.textContent = err.message;
         } finally {
@@ -989,10 +1311,16 @@ const OAUTH_PROFILE_SCRIPT: &str = r##"<script>
     const result = document.querySelector("#result");
     const tokenOutput = document.querySelector("#token");
     const curlOutput = document.querySelector("#curl");
+    const existingToken = localStorage.getItem("rocket_sense_access_token") || "";
 
-    async function createSessionToken() {
+    if (existingToken) {
+      showProfile(existingToken);
+      loadRecentUploads(existingToken);
+    }
+
+    async function createSessionToken(options = {}) {
       button.disabled = true;
-      error.textContent = "";
+      if (!options.quiet) error.textContent = "";
 
       try {
         const response = await fetch("/api/v1/auth/profile-token", {
@@ -1011,12 +1339,15 @@ const OAUTH_PROFILE_SCRIPT: &str = r##"<script>
   -H "Authorization: Bearer ${body.access_token}" \\
   -F "file=@/path/to/replay.replay"`;
         result.classList.remove("hidden");
+        showProfile(body.access_token);
+        loadRecentUploads(body.access_token);
       } catch (err) {
-        error.textContent = err.message;
+        if (!options.quiet) error.textContent = err.message;
       } finally {
         button.disabled = false;
       }
     }
 
     button.addEventListener("click", createSessionToken);
+    createSessionToken({ quiet: true });
   </script>"##;

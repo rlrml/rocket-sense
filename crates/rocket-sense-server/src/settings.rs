@@ -25,6 +25,10 @@ pub enum OAuthProviderKind {
 }
 
 impl OAuthProviderKind {
+    pub fn all() -> &'static [Self] {
+        &[Self::Google, Self::GitHub, Self::Discord]
+    }
+
     pub fn id(self) -> &'static str {
         match self {
             Self::Google => "google",
