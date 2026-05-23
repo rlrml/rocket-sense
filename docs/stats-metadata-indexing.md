@@ -74,6 +74,10 @@ they have time spans, players, detector provenance, confidence, and payloads.
 `replay_mechanic_rollups` is the fast path for replay-level searches such as
 "at least two flip resets" or "any ceiling shot with confidence over 0.8".
 
+See [Mechanic Events and Review Design](mechanic-events-review-design.md) for
+the event identity, point/span semantics, review metadata, and review playlist
+model.
+
 ## Query Policy
 
 Search endpoints should use indexed projections for normal queries. If a stat is
