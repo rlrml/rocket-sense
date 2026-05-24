@@ -52,3 +52,109 @@ fn mechanic_review_page_exposes_current_mechanic_filters() {
 
     assert!(MECHANIC_REVIEW_PAGE.contains(r#"action="/mechanics/review/open""#));
 }
+
+#[test]
+fn saved_playlist_spec_normalizes_flat_legacy_filters() {
+    let spec = normalize_saved_playlist_spec(serde_json::json!({
+        "mechanics": ["double_tap"],
+        "reviewStatus": "unreviewed",
+        "count": 25,
+        "offset": 50
+    }))
+    .unwrap();
+
+    assert_eq!(spec["source"]["kind"], "query");
+    assert_eq!(spec["source"]["entity"], "mechanic_event");
+    assert_eq!(
+        spec["source"]["filters"]["mechanics"],
+        serde_json::json!(["double_tap"])
+    );
+    assert_eq!(spec["source"]["filters"]["reviewStatus"], "unreviewed");
+    assert_eq!(spec["page"]["limit"], 25);
+    assert_eq!(spec["page"]["offset"], 50);
+}
+
+#[test]
+fn saved_playlist_spec_accepts_generic_query_source() {
+    let spec = normalize_saved_playlist_spec(serde_json::json!({
+        "source": {
+            "kind": "query",
+            "entity": "mechanic_event",
+            "filters": {
+                "mechanics": "flick",
+                "minConfidence": 0.75
+            }
+        },
+        "page": {
+            "limit": 75
+        }
+    }))
+    .unwrap();
+
+    assert_eq!(spec["source"]["kind"], "query");
+    assert_eq!(
+        spec["source"]["filters"]["mechanics"],
+        serde_json::json!(["flick"])
+    );
+    assert_eq!(spec["source"]["filters"]["minConfidence"], 0.75);
+    assert_eq!(spec["page"]["limit"], 75);
+    assert_eq!(spec["page"]["offset"], 0);
+}
+
+#[test]
+fn saved_playlist_spec_accepts_snapshot_source() {
+    let first = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();
+    let second = Uuid::parse_str("019e5336-650b-770a-bd81-7d09c6e4afe9").unwrap();
+    let spec = normalize_saved_playlist_spec(serde_json::json!({
+        "source": {
+            "kind": "snapshot",
+            "entity": "mechanic_event",
+            "itemIds": [first, second]
+        }
+    }))
+    .unwrap();
+
+    assert_eq!(spec["source"]["kind"], "snapshot");
+    assert_eq!(spec["source"]["entity"], "mechanic_event");
+    assert_eq!(
+        spec["source"]["itemIds"],
+        serde_json::json!([first, second])
+    );
+    assert_eq!(spec["page"]["limit"], 500);
+}
+
+#[test]
+fn saved_playlist_spec_rejects_unknown_entities() {
+    let error = normalize_saved_playlist_spec(serde_json::json!({
+        "source": {
+            "kind": "query",
+            "entity": "replay",
+            "filters": {}
+        }
+    }))
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("mechanic_event"));
+}
+
+#[test]
+fn review_playlist_exposes_page_metadata() {
+    let filters = MechanicEventFilters {
+        event_ids: Vec::new(),
+        mechanics: Vec::new(),
+        detectors: Vec::new(),
+        review_status: None,
+        min_confidence: None,
+        replay_id: None,
+        player_id: None,
+        count: 50,
+        offset: 100,
+    };
+
+    let playlist = build_review_playlist(Vec::new(), "Review".to_owned(), &filters, None);
+
+    assert_eq!(playlist.page.count, 0);
+    assert_eq!(playlist.page.limit, 50);
+    assert_eq!(playlist.page.offset, 100);
+}

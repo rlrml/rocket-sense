@@ -299,9 +299,18 @@ pub struct MechanicReviewPlaylist {
     pub kind: &'static str,
     pub label: String,
     pub playback: PlaylistPlayback,
+    pub page: PlaylistPage,
     pub replays: Vec<PlaylistReplay>,
     pub items: Vec<PlaylistItem>,
     pub meta: PlaylistMeta,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistPage {
+    pub count: u32,
+    pub limit: u32,
+    pub offset: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -366,7 +375,7 @@ pub struct PlaylistItemTarget {
 
 #[derive(Debug, Serialize)]
 pub struct PlaylistMeta {
-    pub query: Value,
+    pub spec: Value,
     pub saved_playlist_id: Option<Uuid>,
 }
 
@@ -398,7 +407,9 @@ pub struct CreateMechanicReviewPlaylistRequest {
     pub name: String,
     pub description: Option<String>,
     #[serde(default)]
-    pub query: Value,
+    pub spec: Option<Value>,
+    #[serde(default)]
+    pub query: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -407,7 +418,7 @@ pub struct SavedMechanicReviewPlaylistResponse {
     pub project_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
-    pub query: Value,
+    pub spec: Value,
     pub created_by_user_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -480,8 +491,7 @@ pub async fn list_saved_mechanic_playlists(
     let playlists = rows
         .into_iter()
         .map(saved_playlist_from_row)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(ApiError::internal)?;
+        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(SavedMechanicReviewPlaylistsResponse {
         count: playlists.len() as u32,
@@ -506,7 +516,8 @@ pub async fn create_saved_mechanic_playlist(
         .description
         .map(|description| description.trim().to_owned())
         .filter(|description| !description.is_empty());
-    let query = normalize_saved_playlist_query(request.query)?;
+    let raw_spec = request.spec.or(request.query).unwrap_or(Value::Null);
+    let spec = normalize_saved_playlist_spec(raw_spec)?;
 
     let row = sqlx::query(
         r#"
@@ -524,16 +535,13 @@ pub async fn create_saved_mechanic_playlist(
     .bind(Uuid::now_v7())
     .bind(name)
     .bind(description)
-    .bind(query)
+    .bind(spec)
     .bind(auth_user.id)
     .fetch_one(db)
     .await
     .map_err(ApiError::internal)?;
 
-    Ok((
-        StatusCode::CREATED,
-        Json(saved_playlist_from_row(row).map_err(ApiError::internal)?),
-    ))
+    Ok((StatusCode::CREATED, Json(saved_playlist_from_row(row)?)))
 }
 
 pub async fn get_saved_mechanic_playlist(
@@ -550,7 +558,7 @@ pub async fn saved_mechanic_playlist_manifest(
 ) -> Result<Json<MechanicReviewPlaylist>, ApiError> {
     let db = require_db(&state)?;
     let playlist = get_saved_playlist(db, playlist_id).await?;
-    let filters = MechanicEventFilters::from_query_value(&playlist.query)?;
+    let filters = MechanicEventFilters::from_playlist_spec(&playlist.spec)?;
     let events = find_mechanic_events(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -652,17 +660,19 @@ pub async fn create_mechanic_event_review(
 
 fn saved_playlist_from_row(
     row: sqlx::postgres::PgRow,
-) -> Result<SavedMechanicReviewPlaylistResponse, sqlx::Error> {
-    let id: Uuid = row.try_get("id")?;
+) -> Result<SavedMechanicReviewPlaylistResponse, ApiError> {
+    let id: Uuid = row.try_get("id").map_err(ApiError::internal)?;
     Ok(SavedMechanicReviewPlaylistResponse {
         id,
-        project_id: row.try_get("project_id")?,
-        name: row.try_get("name")?,
-        description: row.try_get("description")?,
-        query: row.try_get("query")?,
-        created_by_user_id: row.try_get("created_by_user_id")?,
-        created_at: row.try_get("created_at")?,
-        updated_at: row.try_get("updated_at")?,
+        project_id: row.try_get("project_id").map_err(ApiError::internal)?,
+        name: row.try_get("name").map_err(ApiError::internal)?,
+        description: row.try_get("description").map_err(ApiError::internal)?,
+        spec: normalize_saved_playlist_spec(row.try_get("query").map_err(ApiError::internal)?)?,
+        created_by_user_id: row
+            .try_get("created_by_user_id")
+            .map_err(ApiError::internal)?,
+        created_at: row.try_get("created_at").map_err(ApiError::internal)?,
+        updated_at: row.try_get("updated_at").map_err(ApiError::internal)?,
         manifest_url: format!("/api/v1/mechanics/playlists/{id}/manifest"),
     })
 }
@@ -684,7 +694,7 @@ async fn get_saved_playlist(
     .map_err(ApiError::internal)?
     .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "mechanic review playlist not found"))?;
 
-    saved_playlist_from_row(row).map_err(ApiError::internal)
+    saved_playlist_from_row(row)
 }
 
 struct MechanicEventFilters {
@@ -733,8 +743,69 @@ impl MechanicEventFilters {
     }
 
     fn from_query_value(query: &Value) -> Result<Self, ApiError> {
-        let Some(object) = query.as_object() else {
-            return Err(ApiError::bad_request("playlist query must be an object"));
+        Self::from_filter_value(query, None)
+    }
+
+    fn from_playlist_spec(spec: &Value) -> Result<Self, ApiError> {
+        let Some(object) = spec.as_object() else {
+            return Err(ApiError::bad_request("playlist spec must be an object"));
+        };
+
+        let Some(source) = object.get("source") else {
+            return Self::from_query_value(spec);
+        };
+        let Some(source) = source.as_object() else {
+            return Err(ApiError::bad_request(
+                "playlist spec source must be an object",
+            ));
+        };
+        let kind = json_string(source.get("kind"))?
+            .unwrap_or_else(|| "query".to_owned())
+            .trim()
+            .to_owned();
+        let entity = json_string(source.get("entity"))?
+            .unwrap_or_else(|| "mechanic_event".to_owned())
+            .trim()
+            .to_owned();
+        if entity != "mechanic_event" {
+            return Err(ApiError::bad_request(
+                "playlist spec source entity must be mechanic_event",
+            ));
+        }
+
+        let page = object.get("page");
+        match kind.as_str() {
+            "query" => {
+                let empty_filters = Value::Object(serde_json::Map::new());
+                let filters = source.get("filters").unwrap_or(&empty_filters);
+                Self::from_filter_value(filters, page)
+            }
+            "snapshot" => {
+                let event_ids = json_uuid_vec(
+                    source
+                        .get("itemIds")
+                        .or_else(|| source.get("item-ids"))
+                        .or_else(|| source.get("eventIds")),
+                )?;
+                let empty_filters = Value::Object(serde_json::Map::new());
+                let mut filters = Self::from_filter_value(&empty_filters, page)?;
+                filters.event_ids = event_ids;
+                if !filters.event_ids.is_empty() {
+                    filters.count = filters.count.max(filters.event_ids.len() as u32).min(5_000);
+                }
+                Ok(filters)
+            }
+            _ => Err(ApiError::bad_request(
+                "playlist spec source kind must be query or snapshot",
+            )),
+        }
+    }
+
+    fn from_filter_value(filters: &Value, page: Option<&Value>) -> Result<Self, ApiError> {
+        let Some(object) = filters.as_object() else {
+            return Err(ApiError::bad_request(
+                "playlist spec filters must be an object",
+            ));
         };
         let mechanics =
             json_string_vec(object.get("mechanics").or_else(|| object.get("mechanic")))?;
@@ -759,21 +830,36 @@ impl MechanicEventFilters {
         if let Some(confidence) = min_confidence {
             if !(0.0..=1.0).contains(&confidence) {
                 return Err(ApiError::bad_request(
-                    "playlist query minConfidence must be between 0.0 and 1.0",
+                    "playlist spec minConfidence must be between 0.0 and 1.0",
                 ));
             }
         }
         let replay_id = json_string(object.get("replayId").or_else(|| object.get("replay-id")))?
             .map(|value| Uuid::parse_str(&value))
             .transpose()
-            .map_err(|_| ApiError::bad_request("playlist query replayId must be a UUID"))?;
+            .map_err(|_| ApiError::bad_request("playlist spec replayId must be a UUID"))?;
         let player_id = json_string(object.get("playerId").or_else(|| object.get("player-id")))?
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
-        let count = json_u32(object.get("count"))?
-            .unwrap_or(500)
-            .clamp(1, 5_000);
-        let offset = json_u32(object.get("offset"))?.unwrap_or(0);
+        let page_object = page.and_then(Value::as_object);
+        if page.is_some() && page_object.is_none() {
+            return Err(ApiError::bad_request(
+                "playlist spec page must be an object",
+            ));
+        }
+        let count = json_u32(
+            page_object
+                .and_then(|page| page.get("limit").or_else(|| page.get("count")))
+                .or_else(|| object.get("count")),
+        )?
+        .unwrap_or(500)
+        .clamp(1, 5_000);
+        let offset = json_u32(
+            page_object
+                .and_then(|page| page.get("offset"))
+                .or_else(|| object.get("offset")),
+        )?
+        .unwrap_or(0);
 
         Ok(Self {
             event_ids,
@@ -823,24 +909,58 @@ fn mechanic_review_playlist_url(filters: &MechanicEventFilters) -> String {
     }
 }
 
-fn normalize_saved_playlist_query(query: Value) -> Result<Value, ApiError> {
-    let query = if query.is_null() {
+fn normalize_saved_playlist_spec(spec: Value) -> Result<Value, ApiError> {
+    let spec = if spec.is_null() {
         serde_json::json!({})
     } else {
-        query
+        spec
     };
-    let filters = MechanicEventFilters::from_query_value(&query)?;
-    Ok(serde_json::json!({
-        "eventIds": filters.event_ids,
-        "mechanics": filters.mechanics,
-        "detectors": filters.detectors,
-        "reviewStatus": filters.review_status,
-        "minConfidence": filters.min_confidence,
-        "replayId": filters.replay_id,
-        "playerId": filters.player_id,
-        "count": filters.count,
-        "offset": filters.offset,
-    }))
+    let filters = MechanicEventFilters::from_playlist_spec(&spec)?;
+    let source_kind = spec
+        .as_object()
+        .and_then(|object| object.get("source"))
+        .and_then(Value::as_object)
+        .and_then(|source| source.get("kind"))
+        .and_then(Value::as_str)
+        .unwrap_or("query");
+
+    if source_kind == "snapshot" {
+        Ok(serde_json::json!({
+            "source": {
+                "kind": "snapshot",
+                "entity": "mechanic_event",
+                "itemIds": filters.event_ids,
+            },
+            "page": {
+                "limit": filters.count,
+                "offset": filters.offset,
+            },
+        }))
+    } else {
+        Ok(playlist_spec_from_filters(&filters))
+    }
+}
+
+fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
+    serde_json::json!({
+        "source": {
+            "kind": "query",
+            "entity": "mechanic_event",
+            "filters": {
+                "eventIds": filters.event_ids,
+                "mechanics": filters.mechanics,
+                "detectors": filters.detectors,
+                "reviewStatus": filters.review_status,
+                "minConfidence": filters.min_confidence,
+                "replayId": filters.replay_id,
+                "playerId": filters.player_id,
+            },
+        },
+        "page": {
+            "limit": filters.count,
+            "offset": filters.offset,
+        },
+    })
 }
 
 fn json_string_vec(value: Option<&Value>) -> Result<Vec<String>, ApiError> {
@@ -852,12 +972,12 @@ fn json_string_vec(value: Option<&Value>) -> Result<Vec<String>, ApiError> {
             .map(|value| match value {
                 Value::String(value) => Ok(value.clone()),
                 _ => Err(ApiError::bad_request(
-                    "playlist query string-list fields must contain only strings",
+                    "playlist spec string-list fields must contain only strings",
                 )),
             })
             .collect(),
         Some(_) => Err(ApiError::bad_request(
-            "playlist query string-list fields must be a string or array of strings",
+            "playlist spec string-list fields must be a string or array of strings",
         )),
     }
 }
@@ -867,20 +987,20 @@ fn json_uuid_vec(value: Option<&Value>) -> Result<Vec<Uuid>, ApiError> {
         None | Some(Value::Null) => Ok(Vec::new()),
         Some(Value::String(value)) => Uuid::parse_str(value)
             .map(|value| vec![value])
-            .map_err(|_| ApiError::bad_request("playlist query eventIds must contain UUIDs")),
+            .map_err(|_| ApiError::bad_request("playlist spec eventIds must contain UUIDs")),
         Some(Value::Array(values)) => values
             .iter()
             .map(|value| match value {
                 Value::String(value) => Uuid::parse_str(value).map_err(|_| {
-                    ApiError::bad_request("playlist query eventIds must contain UUIDs")
+                    ApiError::bad_request("playlist spec eventIds must contain UUIDs")
                 }),
                 _ => Err(ApiError::bad_request(
-                    "playlist query eventIds must contain only strings",
+                    "playlist spec eventIds must contain only strings",
                 )),
             })
             .collect(),
         Some(_) => Err(ApiError::bad_request(
-            "playlist query eventIds must be a UUID string or array of UUID strings",
+            "playlist spec eventIds must be a UUID string or array of UUID strings",
         )),
     }
 }
@@ -890,7 +1010,7 @@ fn json_string(value: Option<&Value>) -> Result<Option<String>, ApiError> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(value)) => Ok(Some(value.clone())),
         Some(_) => Err(ApiError::bad_request(
-            "playlist query field must be a string when provided",
+            "playlist spec field must be a string when provided",
         )),
     }
 }
@@ -900,10 +1020,10 @@ fn json_f64(value: Option<&Value>) -> Result<Option<f64>, ApiError> {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Number(value)) => value
             .as_f64()
-            .ok_or_else(|| ApiError::bad_request("playlist query number is out of range"))
+            .ok_or_else(|| ApiError::bad_request("playlist spec number is out of range"))
             .map(Some),
         Some(_) => Err(ApiError::bad_request(
-            "playlist query field must be a number when provided",
+            "playlist spec field must be a number when provided",
         )),
     }
 }
@@ -914,13 +1034,13 @@ fn json_u32(value: Option<&Value>) -> Result<Option<u32>, ApiError> {
         Some(Value::Number(value)) => {
             let value = value
                 .as_u64()
-                .ok_or_else(|| ApiError::bad_request("playlist query integer is out of range"))?;
+                .ok_or_else(|| ApiError::bad_request("playlist spec integer is out of range"))?;
             u32::try_from(value)
                 .map(Some)
-                .map_err(|_| ApiError::bad_request("playlist query integer is out of range"))
+                .map_err(|_| ApiError::bad_request("playlist spec integer is out of range"))
         }
         Some(_) => Err(ApiError::bad_request(
-            "playlist query field must be an unsigned integer when provided",
+            "playlist spec field must be an unsigned integer when provided",
         )),
     }
 }
@@ -1053,6 +1173,7 @@ fn build_review_playlist(
             replay_ids.push(event.replay_id);
         }
     }
+    let count = events.len() as u32;
 
     MechanicReviewPlaylist {
         version: 1,
@@ -1061,6 +1182,11 @@ fn build_review_playlist(
         playback: PlaylistPlayback {
             advance_mode: "manual",
             end_mode: "stop",
+        },
+        page: PlaylistPage {
+            count,
+            limit: filters.count,
+            offset: filters.offset,
         },
         replays: replay_ids
             .into_iter()
@@ -1077,17 +1203,7 @@ fn build_review_playlist(
             .map(|(index, event)| playlist_item(index, event))
             .collect(),
         meta: PlaylistMeta {
-            query: serde_json::json!({
-                "eventIds": filters.event_ids,
-                "mechanics": filters.mechanics,
-                "detectors": filters.detectors,
-                "reviewStatus": filters.review_status,
-                "minConfidence": filters.min_confidence,
-                "replayId": filters.replay_id,
-                "playerId": filters.player_id,
-                "count": filters.count,
-                "offset": filters.offset,
-            }),
+            spec: playlist_spec_from_filters(filters),
             saved_playlist_id,
         },
     }
