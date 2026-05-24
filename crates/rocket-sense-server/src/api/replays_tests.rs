@@ -27,9 +27,9 @@ fn subtr_actor_review_url_points_at_evaluation_player() {
 
 #[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_static_asset("main-CrR9IRLq.js").unwrap();
-    let css = subtr_actor_static_asset("main-B47VKW7Z.css").unwrap();
-    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-EyPRboYq.wasm").unwrap();
+    let javascript = subtr_actor_static_asset("main-oo5WmjCU.js").unwrap();
+    let css = subtr_actor_static_asset("main-DxFUh1W9.css").unwrap();
+    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-CRVUaZTH.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -44,9 +44,9 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-CBS_ASa4.js").unwrap();
-    let css = subtr_actor_stats_static_asset("index-PB1mR1-R.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-BMUMQ3Gy.wasm").unwrap();
+    let javascript = subtr_actor_stats_static_asset("index-CbM_XPQR.js").unwrap();
+    let css = subtr_actor_stats_static_asset("index-BO4Z84VP.css").unwrap();
+    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-CRVUaZTH.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -62,8 +62,8 @@ fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
 #[test]
 fn subtr_actor_stats_index_serves_report_app() {
     assert!(SUBTR_ACTOR_STATS_INDEX.contains("subtr-actor stats report"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-CBS_ASa4.js"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-PB1mR1-R.css"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-CbM_XPQR.js"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-BO4Z84VP.css"));
 }
 
 #[test]
