@@ -33,15 +33,10 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let bootstrap = subtr_actor_stats_static_asset("index-ArPNw1cK.js").unwrap();
-    let javascript = subtr_actor_stats_static_asset("main-Kbbjc0Ny.js").unwrap();
-    let css = subtr_actor_stats_static_asset("main-CXzJ96Q-.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-ByvsmF_E.wasm").unwrap();
+    let javascript = subtr_actor_stats_static_asset("index-CBS_ASa4.js").unwrap();
+    let css = subtr_actor_stats_static_asset("index-PB1mR1-R.css").unwrap();
+    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-BMUMQ3Gy.wasm").unwrap();
 
-    assert_eq!(
-        bootstrap.content_type,
-        "application/javascript; charset=utf-8"
-    );
     assert_eq!(
         javascript.content_type,
         "application/javascript; charset=utf-8"
@@ -51,6 +46,13 @@ fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
     assert!(javascript.bytes.len() > 10_000);
     assert!(wasm.bytes.len() > 1_000_000);
     assert!(subtr_actor_stats_static_asset("missing.js").is_none());
+}
+
+#[test]
+fn subtr_actor_stats_index_serves_report_app() {
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("subtr-actor stats report"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-CBS_ASa4.js"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-PB1mR1-R.css"));
 }
 
 #[test]
