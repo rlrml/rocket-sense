@@ -21,7 +21,7 @@
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        rustToolchain = fenix.packages.${system}.latest.toolchain;
+        rustToolchain = fenix.packages.${system}.stable.toolchain;
         rustPlatform = pkgs.makeRustPlatform {
           cargo = rustToolchain;
           rustc = rustToolchain;
@@ -35,7 +35,7 @@
         shellPackages =
           [
             rustToolchain
-            fenix.packages.${system}.latest.rust-analyzer
+            fenix.packages.${system}.stable.rust-analyzer
             pkgs.cargo-watch
             pkgs.curl
             pkgs.just
@@ -56,10 +56,10 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "subtr-actor-0.7.5" = "sha256-hADKJOBMVvOqVC2V9Q8Jd81e5edcP3/SEOPOmNLbCKo=";
+              "subtr-actor-0.7.9" = "sha256-1Os/b+MM9bLs2ivChc5/CuXh/Q8OW/pvtW75L8cs+kM=";
             };
           };
-          RUST_MIN_STACK = "16777216";
+          RUST_MIN_STACK = "33554432";
           inherit nativeBuildInputs buildInputs;
         };
       in

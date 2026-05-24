@@ -2166,8 +2166,8 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "subtr-actor"
-version = "0.7.5"
-source = "git+https://github.com/rlrml/subtr-actor#53d5844a1356951be65a5c159be309f63c7bab9a"
+version = "0.7.9"
+source = "git+https://github.com/rlrml/subtr-actor#4177c6105b831e0bcd9dc2bb6ffa784cef7cf3ab"
 dependencies = [
  "anyhow",
  "boxcars",
