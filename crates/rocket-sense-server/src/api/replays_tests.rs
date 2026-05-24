@@ -96,6 +96,7 @@ fn replay_list_page_uses_ballchasing_style_replay_rows() {
     assert!(REPLAY_LIST_PAGE.contains(r#"content.addEventListener("click", (event) => {"#));
     assert!(REPLAY_LIST_PAGE.contains(r#"<div class="keyboard-hint">"#));
     assert!(REPLAY_LIST_PAGE.contains("function iconDownload()"));
+    assert!(REPLAY_LIST_PAGE.contains("function iconPlay()"));
     assert!(REPLAY_LIST_PAGE.contains("function platformIcon(player)"));
     assert!(REPLAY_LIST_PAGE.contains("function renderTeam(players, teamClass)"));
     assert!(REPLAY_LIST_PAGE.contains("function updateSelectedReplay"));
@@ -110,6 +111,9 @@ fn replay_list_page_uses_ballchasing_style_replay_rows() {
             .count(),
         2
     );
+    assert!(REPLAY_LIST_PAGE.contains(
+        r#"<a href="${viewerUrl(replay)}" target="_blank" rel="noopener" title="Open replay player" aria-label="Open replay player">${iconPlay()}</a>"#
+    ));
 }
 
 #[test]

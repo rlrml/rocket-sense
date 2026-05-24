@@ -46,3 +46,11 @@ fn player_profile_page_links_replay_names_to_stats() {
         .contains(r#"<a href="${replayStatsUrl(replay)}" target="_blank" rel="noopener">"#));
     assert!(!PLAYER_PROFILE_PAGE.contains(r#"<a href="${replayUrl(replay)}""#));
 }
+
+#[test]
+fn player_profile_page_keeps_replay_player_link() {
+    assert!(PLAYER_PROFILE_PAGE.contains("function replayViewerUrl(replay)"));
+    assert!(PLAYER_PROFILE_PAGE.contains(
+        r#"<a class="player-link" href="${replayViewerUrl(replay)}" target="_blank" rel="noopener">Player</a>"#
+    ));
+}

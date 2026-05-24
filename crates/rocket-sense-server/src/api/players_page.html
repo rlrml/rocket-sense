@@ -270,6 +270,20 @@
       text-align: center;
     }
 
+    .replay-side {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .player-link {
+      color: #485fc7;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
     .score span {
       width: 42px;
       display: inline-block;
@@ -394,6 +408,10 @@
       return `/replays/${encodeURIComponent(replay.id)}/stats`;
     }
 
+    function replayViewerUrl(replay) {
+      return `/replays/${encodeURIComponent(replay.id)}`;
+    }
+
     function formatDate(value) {
       if (!value) return "";
       const date = new Date(value);
@@ -477,9 +495,12 @@
             <div class="replay-title"><a href="${replayStatsUrl(replay)}" target="_blank" rel="noopener">${escapeHtml(replayName(replay))}</a></div>
             <div class="meta-line">${metadata.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</div>
           </div>
-          <div class="score" aria-label="Score">
-            <span class="blue">${escapeHtml(score(replay, "blue"))}</span>
-            <span class="orange">${escapeHtml(score(replay, "orange"))}</span>
+          <div class="replay-side">
+            <a class="player-link" href="${replayViewerUrl(replay)}" target="_blank" rel="noopener">Player</a>
+            <div class="score" aria-label="Score">
+              <span class="blue">${escapeHtml(score(replay, "blue"))}</span>
+              <span class="orange">${escapeHtml(score(replay, "orange"))}</span>
+            </div>
           </div>
         </li>
       `;

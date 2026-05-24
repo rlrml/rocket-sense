@@ -854,6 +854,10 @@
       return `/replays/${encodeURIComponent(replay.id)}/stats`;
     }
 
+    function viewerUrl(replay) {
+      return `/replays/${encodeURIComponent(replay.id)}`;
+    }
+
     function fileUrl(replay) {
       return `/api/v1/replays/${encodeURIComponent(replay.id)}/file`;
     }
@@ -1045,8 +1049,8 @@
       return `<svg class="action-icon action-download" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M7 1h2v7h3l-4 4-4-4h3zM3 13h10v2H3z"/></svg>`;
     }
 
-    function iconGroup() {
-      return `<svg class="action-icon action-group" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M2 3h12L8 6zM2 7h12l-6 3zM2 11h12l-6 3z"/></svg>`;
+    function iconPlay() {
+      return `<svg class="action-icon action-play" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M4 2l10 6-10 6z"/></svg>`;
     }
 
     function render(replays, total) {
@@ -1095,7 +1099,7 @@
               <div class="actions">
                 <input type="checkbox" aria-label="Select replay ${escapeHtml(name)}">
                 <a href="${fileUrl(replay)}" title="Download replay" aria-label="Download replay">${iconDownload()}</a>
-                <a href="${statsUrl(replay)}" target="_blank" rel="noopener" title="Replay stats" aria-label="Replay stats">${iconGroup()}</a>
+                <a href="${viewerUrl(replay)}" target="_blank" rel="noopener" title="Open replay player" aria-label="Open replay player">${iconPlay()}</a>
               </div>
             </div>
             <div class="meta-line">
