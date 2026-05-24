@@ -17,9 +17,13 @@ use uuid::Uuid;
 
 const SESSION_COOKIE_MAX_AGE_SECONDS: i64 = 400 * 24 * 60 * 60;
 
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;
+
 pub fn public_router() -> Router<AppState> {
     Router::new()
-        .route("/", get(login_page))
+        .route("/", get(root_page))
         .route("/login", get(login_page))
         .route("/profile", get(profile_page))
         .route("/auth/{provider}/start", get(start_oauth_login))
@@ -79,6 +83,10 @@ pub async fn create_profile_token(
     State(state): State<AppState>,
 ) -> Result<Json<AccessToken>, AuthError> {
     issue_access_token(&auth_user, &state.app_jwt_secret).map(Json)
+}
+
+async fn root_page() -> Redirect {
+    Redirect::temporary("/replays")
 }
 
 async fn login_page(State(state): State<AppState>) -> Html<String> {

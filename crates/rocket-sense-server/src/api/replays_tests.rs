@@ -79,8 +79,9 @@ fn replay_list_page_uses_playlist_dropdown_values() {
 }
 
 #[test]
-fn replay_list_page_links_replay_name_to_viewer() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"const replayHref = viewerUrl(replay);"#));
+fn replay_list_page_links_replay_name_to_stats() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"const replayHref = statsUrl(replay);"#));
+    assert!(!REPLAY_LIST_PAGE.contains(r#"const replayHref = viewerUrl(replay);"#));
     assert!(REPLAY_LIST_PAGE.contains(
         r#"<a href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>"#
     ));
@@ -102,6 +103,12 @@ fn replay_list_page_uses_ballchasing_style_replay_rows() {
     assert!(REPLAY_LIST_PAGE.contains("function openRandomReplay"));
     assert!(
         REPLAY_LIST_PAGE.contains(r#"randomButton.addEventListener("click", openRandomReplay);"#)
+    );
+    assert_eq!(
+        REPLAY_LIST_PAGE
+            .matches(r#"if (replay) location.href = statsUrl(replay);"#)
+            .count(),
+        2
     );
 }
 

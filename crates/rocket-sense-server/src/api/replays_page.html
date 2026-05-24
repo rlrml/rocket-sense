@@ -654,7 +654,7 @@
         <nav class="nav-links" aria-label="Primary">
           <a class="nav-item active" href="/replays">Replays</a>
           <a class="nav-item" href="/profile">▰ Replay Groups</a>
-          <a class="nav-item" href="/mechanics/review-playlist">▤ Population Stats <span class="nav-caret">⌄</span></a>
+          <a class="nav-item" href="/mechanics/review">▤ Mechanics Review <span class="nav-caret">⌄</span></a>
           <a class="nav-item" href="/profile">♜ Top <span class="nav-caret">⌄</span></a>
           <a class="nav-item" href="/profile">♟ Community <span class="nav-caret">⌄</span></a>
           <a class="nav-item" href="/profile">● Patreon</a>
@@ -848,10 +848,6 @@
     function headers() {
       const token = tokenInput.value.trim();
       return token ? { Authorization: `Bearer ${token}` } : {};
-    }
-
-    function viewerUrl(replay) {
-      return `/replays/${encodeURIComponent(replay.id)}`;
     }
 
     function statsUrl(replay) {
@@ -1062,7 +1058,7 @@
       const rows = replays.map((replay) => {
         const name = replayName(replay);
         const uploader = uploaderName(replay);
-        const replayHref = viewerUrl(replay);
+        const replayHref = statsUrl(replay);
         const summary = replay.summary || {};
         const scores = summary.team_scores || {};
         const blueScore = scores.blue == null ? "-" : scores.blue;
@@ -1167,7 +1163,7 @@
         }
 
         const replay = body.replays?.[0];
-        if (replay) location.href = viewerUrl(replay);
+        if (replay) location.href = statsUrl(replay);
       } catch (error) {
         summary.textContent = error.message;
       } finally {
@@ -1269,7 +1265,7 @@
         event.preventDefault();
       } else if (event.key === "Enter") {
         const replay = selectedReplay();
-        if (replay) location.href = viewerUrl(replay);
+        if (replay) location.href = statsUrl(replay);
       }
     });
 

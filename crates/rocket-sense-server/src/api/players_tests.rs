@@ -38,3 +38,11 @@ fn player_profile_page_fetches_player_profile_api() {
     assert!(PLAYER_PROFILE_PAGE.contains("rocket_sense_access_token"));
     assert!(PLAYER_PROFILE_PAGE.contains("Latest replays"));
 }
+
+#[test]
+fn player_profile_page_links_replay_names_to_stats() {
+    assert!(PLAYER_PROFILE_PAGE.contains("function replayStatsUrl(replay)"));
+    assert!(PLAYER_PROFILE_PAGE
+        .contains(r#"<a href="${replayStatsUrl(replay)}" target="_blank" rel="noopener">"#));
+    assert!(!PLAYER_PROFILE_PAGE.contains(r#"<a href="${replayUrl(replay)}""#));
+}

@@ -390,8 +390,8 @@
       return replay.original_file_name || replay.external_replay_id || replay.id;
     }
 
-    function replayUrl(replay) {
-      return `/replays/${encodeURIComponent(replay.id)}`;
+    function replayStatsUrl(replay) {
+      return `/replays/${encodeURIComponent(replay.id)}/stats`;
     }
 
     function formatDate(value) {
@@ -474,7 +474,7 @@
       return `
         <li class="replay-row">
           <div>
-            <div class="replay-title"><a href="${replayUrl(replay)}" target="_blank" rel="noopener">${escapeHtml(replayName(replay))}</a></div>
+            <div class="replay-title"><a href="${replayStatsUrl(replay)}" target="_blank" rel="noopener">${escapeHtml(replayName(replay))}</a></div>
             <div class="meta-line">${metadata.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</div>
           </div>
           <div class="score" aria-label="Score">

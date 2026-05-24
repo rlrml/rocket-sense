@@ -60,10 +60,11 @@ ROCKET_SENSE_AUTH_MODE=dev
 just dev
 ```
 
-Open `/` or `/login` in the browser. In `ROCKET_SENSE_AUTH_MODE=oauth` or the
-legacy-compatible `ROCKET_SENSE_AUTH_MODE=google`, the page shows configured
-OAuth provider buttons. In development mode, the same page offers a token form
-for local API upload testing.
+Open `/` in the browser for replay search, or `/login` for authentication. In
+`ROCKET_SENSE_AUTH_MODE=oauth` or the legacy-compatible
+`ROCKET_SENSE_AUTH_MODE=google`, the login page shows configured OAuth provider
+buttons. In development mode, the login page offers a token form for local API
+upload testing.
 
 You can request a non-expiring development token from the API:
 
