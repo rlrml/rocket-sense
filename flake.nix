@@ -56,7 +56,7 @@
           cargoLock = {
             lockFile = ./Cargo.lock;
             outputHashes = {
-              "subtr-actor-0.7.9" = "sha256-1Os/b+MM9bLs2ivChc5/CuXh/Q8OW/pvtW75L8cs+kM=";
+              "subtr-actor-0.7.10" = "sha256-p9mnzhvM5+HFuyOMKO1UZem54S6HmdF66iVpvQGrMiA=";
             };
           };
           RUST_MIN_STACK = "33554432";
