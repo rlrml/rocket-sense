@@ -800,9 +800,8 @@ async fn find_mechanic_events(
             review.id AS latest_review_id,
             review.status AS review_status
         FROM mechanic_events event
-        LEFT JOIN replay_analysis_states state
-          ON state.replay_id = event.replay_id
-         AND state.index_profile_id = event.index_profile_id
+        JOIN replays replay
+          ON replay.id = event.replay_id
         LEFT JOIN LATERAL (
             SELECT id, status
             FROM mechanic_event_reviews
@@ -810,7 +809,7 @@ async fn find_mechanic_events(
             ORDER BY created_at DESC
             LIMIT 1
         ) review ON TRUE
-        WHERE (state.active_analysis_run_id IS NULL OR state.active_analysis_run_id = event.analysis_run_id)
+        WHERE event.analysis_run_id = replay.canonical_analysis_run_id
         "#,
     );
 

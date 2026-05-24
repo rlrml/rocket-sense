@@ -2,10 +2,13 @@ use anyhow::{anyhow, Context, Result};
 use boxcars::{HeaderProp, RemoteId};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket_sense_storage::{sha256_hex, ObjectStorage};
-use serde_json::Value;
-use sqlx::PgPool;
-use std::sync::Arc;
-use subtr_actor::{MechanicEvent, MechanicTiming, PlayerInfo, ReplayMeta, StatsCollector};
+use serde_json::{Map, Value};
+use sqlx::{PgPool, Row};
+use std::{collections::HashMap, sync::Arc};
+use subtr_actor::{
+    MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo, ReplayMeta,
+    StatsCollector,
+};
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -17,6 +20,95 @@ const DEFAULT_CONFIG_HASH: &str = "aggregate-stats:v1:all-builtin-modules";
 const DEFAULT_INDEX_PROFILE_ID: Uuid = Uuid::from_u128(0x0198_0000_0000_7000_8000_000000000001);
 const DEFAULT_INDEX_PROFILE_NAME: &str = "default-mechanics";
 const DEFAULT_INDEX_PROFILE_VERSION: i32 = 1;
+const PLAY_EVENT_SOURCE: &str = "subtr-actor:stats-timeline";
+
+struct PersistentEventType {
+    key: &'static str,
+    display_name: &'static str,
+    category: &'static str,
+    subtr_actor_kind: &'static str,
+}
+
+const PERSISTENT_MECHANIC_EVENT_TYPES: &[PersistentEventType] = &[
+    PersistentEventType {
+        key: "mechanic.air_dribble",
+        display_name: "Air dribble",
+        category: "mechanic",
+        subtr_actor_kind: "air_dribble",
+    },
+    PersistentEventType {
+        key: "mechanic.ball_carry",
+        display_name: "Ball carry",
+        category: "mechanic",
+        subtr_actor_kind: "ball_carry",
+    },
+    PersistentEventType {
+        key: "mechanic.ceiling_shot",
+        display_name: "Ceiling shot",
+        category: "mechanic",
+        subtr_actor_kind: "ceiling_shot",
+    },
+    PersistentEventType {
+        key: "mechanic.double_tap",
+        display_name: "Double tap",
+        category: "mechanic",
+        subtr_actor_kind: "double_tap",
+    },
+    PersistentEventType {
+        key: "mechanic.flick",
+        display_name: "Flick",
+        category: "mechanic",
+        subtr_actor_kind: "flick",
+    },
+    PersistentEventType {
+        key: "mechanic.flip_reset",
+        display_name: "Flip reset",
+        category: "mechanic",
+        subtr_actor_kind: "flip_reset",
+    },
+    PersistentEventType {
+        key: "mechanic.half_flip",
+        display_name: "Half flip",
+        category: "mechanic",
+        subtr_actor_kind: "half_flip",
+    },
+    PersistentEventType {
+        key: "mechanic.half_volley",
+        display_name: "Half volley",
+        category: "mechanic",
+        subtr_actor_kind: "half_volley",
+    },
+    PersistentEventType {
+        key: "mechanic.musty_flick",
+        display_name: "Musty flick",
+        category: "mechanic",
+        subtr_actor_kind: "musty_flick",
+    },
+    PersistentEventType {
+        key: "mechanic.one_timer",
+        display_name: "One timer",
+        category: "mechanic",
+        subtr_actor_kind: "one_timer",
+    },
+    PersistentEventType {
+        key: "mechanic.pass",
+        display_name: "Pass",
+        category: "mechanic",
+        subtr_actor_kind: "pass",
+    },
+    PersistentEventType {
+        key: "mechanic.speed_flip",
+        display_name: "Speed flip",
+        category: "mechanic",
+        subtr_actor_kind: "speed_flip",
+    },
+    PersistentEventType {
+        key: "mechanic.wavedash",
+        display_name: "Wavedash",
+        category: "mechanic",
+        subtr_actor_kind: "wavedash",
+    },
+];
 
 struct ReplayAnalysisOutput {
     stats: Value,
@@ -85,7 +177,18 @@ async fn process_replay(
         let stats_sha256 = sha256_hex(&stats_bytes);
 
         insert_stat_blob(&pool, analysis_run_id, replay_id, stats, &stats_sha256).await?;
-        upsert_replay_search_metadata(&pool, replay_id, &output.metadata).await?;
+        let replay_players =
+            upsert_replay_search_metadata(&pool, replay_id, &output.metadata).await?;
+        let event_type_ids = ensure_persistent_event_types(&pool).await?;
+        insert_play_events(
+            &pool,
+            analysis_run_id,
+            replay_id,
+            &output.mechanic_events,
+            &event_type_ids,
+            &replay_players,
+        )
+        .await?;
         insert_mechanic_events(
             &pool,
             analysis_run_id,
@@ -96,6 +199,7 @@ async fn process_replay(
         .await?;
         upsert_replay_analysis_state(&pool, analysis_run_id, replay_id, &file_sha256).await?;
         mark_analysis_run_succeeded(&pool, analysis_run_id).await?;
+        set_canonical_analysis_run(&pool, replay_id, analysis_run_id).await?;
         set_replay_status(&pool, replay_id, "parsed").await?;
 
         Ok::<_, anyhow::Error>(())
@@ -191,6 +295,25 @@ fn remote_id_parts(remote_id: &RemoteId) -> (Option<String>, Option<String>) {
         RemoteId::QQ(id) => (Some("qq".to_owned()), Some(id.to_string())),
         RemoteId::Epic(id) => (Some("epic".to_owned()), Some(id.clone())),
     }
+}
+
+fn player_lookup_key(
+    platform: &Option<String>,
+    platform_player_id: &Option<String>,
+) -> Option<String> {
+    platform
+        .as_deref()
+        .zip(platform_player_id.as_deref())
+        .map(|(platform, platform_player_id)| format!("{platform}:{platform_player_id}"))
+}
+
+fn replay_player_id_for_event(
+    event: &MechanicEvent,
+    replay_players: &HashMap<String, Uuid>,
+) -> Option<Uuid> {
+    let (platform, platform_player_id) = remote_id_parts(&event.player_id);
+    player_lookup_key(&platform, &platform_player_id)
+        .and_then(|key| replay_players.get(&key).copied())
 }
 
 fn header_text(headers: &[(String, HeaderProp)], keys: &[&str]) -> Option<String> {
@@ -293,7 +416,7 @@ async fn upsert_replay_search_metadata(
     pool: &PgPool,
     replay_id: Uuid,
     metadata: &ReplaySearchMetadata,
-) -> Result<()> {
+) -> Result<HashMap<String, Uuid>> {
     sqlx::query(
         r#"
         UPDATE replays
@@ -320,7 +443,9 @@ async fn upsert_replay_search_metadata(
         .await
         .context("failed to replace replay players")?;
 
+    let mut replay_players = HashMap::new();
     for player in &metadata.players {
+        let replay_player_id = Uuid::now_v7();
         sqlx::query(
             r#"
             INSERT INTO replay_players (
@@ -335,7 +460,7 @@ async fn upsert_replay_search_metadata(
             VALUES ($1, $2, $3, $4, $5, $6, $7)
             "#,
         )
-        .bind(Uuid::now_v7())
+        .bind(replay_player_id)
         .bind(replay_id)
         .bind(&player.name)
         .bind(&player.platform)
@@ -345,9 +470,13 @@ async fn upsert_replay_search_metadata(
         .execute(pool)
         .await
         .context("failed to insert replay player")?;
+
+        if let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) {
+            replay_players.entry(key).or_insert(replay_player_id);
+        }
     }
 
-    Ok(())
+    Ok(replay_players)
 }
 
 async fn ensure_default_index_profile(pool: &PgPool) -> Result<()> {
@@ -442,6 +571,127 @@ async fn insert_stat_blob(
     .execute(pool)
     .await
     .context("failed to insert replay stat blob")?;
+
+    Ok(())
+}
+
+async fn ensure_persistent_event_types(pool: &PgPool) -> Result<HashMap<&'static str, i32>> {
+    let mut event_type_ids = HashMap::new();
+    for event_type in PERSISTENT_MECHANIC_EVENT_TYPES {
+        let row = sqlx::query(
+            r#"
+            INSERT INTO event_types (
+                key,
+                display_name,
+                category
+            )
+            VALUES ($1, $2, $3)
+            ON CONFLICT (key)
+            DO UPDATE SET
+                display_name = EXCLUDED.display_name,
+                category = EXCLUDED.category,
+                updated_at = now()
+            RETURNING id
+            "#,
+        )
+        .bind(event_type.key)
+        .bind(event_type.display_name)
+        .bind(event_type.category)
+        .fetch_one(pool)
+        .await
+        .with_context(|| format!("failed to ensure event type `{}`", event_type.key))?;
+
+        event_type_ids.insert(event_type.subtr_actor_kind, row.try_get("id")?);
+    }
+
+    Ok(event_type_ids)
+}
+
+async fn insert_play_events(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[MechanicEvent],
+    event_type_ids: &HashMap<&'static str, i32>,
+    replay_players: &HashMap<String, Uuid>,
+) -> Result<()> {
+    for event in events {
+        let Some(event_type_id) = event_type_ids.get(event.kind.as_str()).copied() else {
+            continue;
+        };
+
+        let play_event_id = Uuid::now_v7();
+        let primary_replay_player_id = replay_player_id_for_event(event, replay_players);
+        let (start_frame, end_frame, event_frame, start_time, end_time, event_time) =
+            mechanic_timing_columns(&event.timing);
+        let attributes = mechanic_event_attributes(event)?;
+        let payload =
+            serde_json::to_value(event).context("failed to serialize play event payload")?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO play_events (
+                id,
+                analysis_run_id,
+                replay_id,
+                event_type_id,
+                primary_replay_player_id,
+                source,
+                source_event_id,
+                start_frame,
+                end_frame,
+                event_frame,
+                start_time,
+                end_time,
+                event_time,
+                attributes,
+                payload
+            )
+            VALUES (
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+                $11, $12, $13, $14, $15
+            )
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(play_event_id)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .bind(event_type_id)
+        .bind(primary_replay_player_id)
+        .bind(PLAY_EVENT_SOURCE)
+        .bind(&event.id)
+        .bind(start_frame)
+        .bind(end_frame)
+        .bind(event_frame)
+        .bind(start_time)
+        .bind(end_time)
+        .bind(event_time)
+        .bind(attributes)
+        .bind(payload)
+        .execute(pool)
+        .await
+        .context("failed to insert play event")?;
+
+        if let Some(replay_player_id) = primary_replay_player_id {
+            sqlx::query(
+                r#"
+                INSERT INTO play_event_players (
+                    event_id,
+                    replay_player_id,
+                    role
+                )
+                VALUES ($1, $2, 'actor')
+                ON CONFLICT DO NOTHING
+                "#,
+            )
+            .bind(play_event_id)
+            .bind(replay_player_id)
+            .execute(pool)
+            .await
+            .context("failed to insert play event player")?;
+        }
+    }
 
     Ok(())
 }
@@ -610,6 +860,23 @@ fn mechanic_timing_columns(
     }
 }
 
+fn mechanic_event_attributes(event: &MechanicEvent) -> Result<Value> {
+    let mut attributes = Map::new();
+    for property in &event.properties {
+        let value = match &property.value {
+            MechanicEventPropertyValue::Text(value) => Value::String(value.clone()),
+            MechanicEventPropertyValue::Unsigned(value) => serde_json::to_value(value)
+                .context("failed to serialize unsigned mechanic event property")?,
+            MechanicEventPropertyValue::Float(value) => serde_json::to_value(value)
+                .context("failed to serialize float mechanic event property")?,
+            MechanicEventPropertyValue::Boolean(value) => Value::Bool(*value),
+        };
+        attributes.insert(property.key.clone(), value);
+    }
+
+    Ok(Value::Object(attributes))
+}
+
 fn player_id_to_string(value: Value) -> Result<String> {
     let Value::Object(object) = value else {
         return Ok(format!("Unknown:{value}"));
@@ -684,6 +951,28 @@ async fn mark_analysis_run_failed(
     .execute(pool)
     .await
     .context("failed to mark analysis run failed")?;
+
+    Ok(())
+}
+
+async fn set_canonical_analysis_run(
+    pool: &PgPool,
+    replay_id: Uuid,
+    analysis_run_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        UPDATE replays
+        SET canonical_analysis_run_id = $2,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(replay_id)
+    .bind(analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to set canonical analysis run")?;
 
     Ok(())
 }

@@ -1158,11 +1158,8 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
         ) players ON TRUE
         LEFT JOIN LATERAL (
             SELECT blob.stats
-            FROM replay_analysis_states state
-            JOIN replay_stat_blobs blob
-              ON blob.analysis_run_id = state.active_analysis_run_id
-            WHERE state.replay_id = r.id
-            ORDER BY blob.created_at DESC
+            FROM replay_stat_blobs blob
+            WHERE blob.analysis_run_id = r.canonical_analysis_run_id
             LIMIT 1
         ) latest_stats ON TRUE
         {where_clause}

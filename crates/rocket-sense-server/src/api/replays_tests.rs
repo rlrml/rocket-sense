@@ -125,7 +125,8 @@ fn replay_select_includes_players_and_latest_stats() {
 
     assert!(sql.contains("jsonb_build_object"));
     assert!(sql.contains("FROM replay_players player"));
-    assert!(sql.contains("JOIN replay_stat_blobs blob"));
+    assert!(sql.contains("FROM replay_stat_blobs blob"));
+    assert!(sql.contains("blob.analysis_run_id = r.canonical_analysis_run_id"));
     assert!(sql.contains("latest_stats.stats AS latest_stats"));
 }
 
