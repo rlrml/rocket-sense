@@ -496,6 +496,10 @@ struct SubtrActorReviewQuery {
 }
 
 async fn subtr_actor_review(Query(query): Query<SubtrActorReviewQuery>) -> Redirect {
+    Redirect::temporary(&subtr_actor_review_url(query))
+}
+
+fn subtr_actor_review_url(query: SubtrActorReviewQuery) -> String {
     let playlist = query
         .review_playlist
         .or(query.review)
@@ -503,7 +507,7 @@ async fn subtr_actor_review(Query(query): Query<SubtrActorReviewQuery>) -> Redir
         .or(query.playlist_url);
     let review_token = query.review_token.or(query.token);
 
-    let mut target = String::from("/subtr-actor/stats/");
+    let mut target = String::from("/subtr-actor/");
     let mut params = url::form_urlencoded::Serializer::new(String::new());
     if let Some(playlist) = playlist {
         params.append_pair("reviewPlaylist", &playlist);
@@ -517,7 +521,7 @@ async fn subtr_actor_review(Query(query): Query<SubtrActorReviewQuery>) -> Redir
         target.push_str(&query_string);
     }
 
-    Redirect::temporary(&target)
+    target
 }
 
 async fn subtr_actor_asset(

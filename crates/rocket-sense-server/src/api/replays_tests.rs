@@ -15,6 +15,17 @@ fn hosted_replay_app_urls_point_at_local_subtr_actor_apps() {
 }
 
 #[test]
+fn subtr_actor_review_url_points_at_evaluation_player() {
+    assert_eq!(
+        subtr_actor_review_url(SubtrActorReviewQuery {
+            review_playlist: Some("/api/v1/mechanics/review-playlist?count=1000".to_owned()),
+            ..SubtrActorReviewQuery::default()
+        }),
+        "/subtr-actor/?reviewPlaylist=%2Fapi%2Fv1%2Fmechanics%2Freview-playlist%3Fcount%3D1000"
+    );
+}
+
+#[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
     let javascript = subtr_actor_static_asset("main-CrR9IRLq.js").unwrap();
     let css = subtr_actor_static_asset("main-B47VKW7Z.css").unwrap();

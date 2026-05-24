@@ -2,7 +2,7 @@ use crate::{app::AppState, auth::AuthUser};
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -11,6 +11,16 @@ use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use uuid::Uuid;
+
+#[cfg(test)]
+#[path = "mechanics_tests.rs"]
+mod tests;
+
+pub fn public_router() -> Router<AppState> {
+    Router::new()
+        .route("/mechanics/review", get(mechanic_review_page))
+        .route("/mechanics/review/open", get(open_mechanic_review))
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -48,14 +58,39 @@ pub struct MechanicEventsQuery {
     pub detector: Vec<String>,
     #[serde(rename = "review-status")]
     pub review_status: Option<String>,
-    #[serde(rename = "min-confidence")]
+    #[serde(
+        default,
+        rename = "min-confidence",
+        deserialize_with = "deserialize_optional_f64"
+    )]
     pub min_confidence: Option<f64>,
-    #[serde(rename = "replay-id")]
+    #[serde(
+        default,
+        rename = "replay-id",
+        deserialize_with = "deserialize_optional_uuid"
+    )]
     pub replay_id: Option<Uuid>,
     #[serde(rename = "player-id")]
     pub player_id: Option<String>,
     pub count: Option<u32>,
     pub offset: Option<u32>,
+}
+
+async fn mechanic_review_page() -> Html<&'static str> {
+    Html(MECHANIC_REVIEW_PAGE)
+}
+
+async fn open_mechanic_review(
+    Query(query): Query<MechanicEventsQuery>,
+) -> Result<Redirect, ApiError> {
+    let filters = MechanicEventFilters::from_query(query)?;
+    let playlist_url = mechanic_review_playlist_url(&filters);
+    let mut target = String::from("/subtr-actor/review?");
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    query.append_pair("reviewPlaylist", &playlist_url);
+    target.push_str(&query.finish());
+
+    Ok(Redirect::temporary(&target))
 }
 
 fn deserialize_uuid_vec<'de, D>(deserializer: D) -> Result<Vec<Uuid>, D::Error>
@@ -142,6 +177,89 @@ where
     }
 
     deserializer.deserialize_any(StringVecVisitor)
+}
+
+fn deserialize_optional_uuid<'de, D>(deserializer: D) -> Result<Option<Uuid>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    value
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(|value| Uuid::parse_str(&value).map_err(de::Error::custom))
+        .transpose()
+}
+
+fn deserialize_optional_f64<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct OptionalF64Visitor;
+
+    impl<'de> de::Visitor<'de> for OptionalF64Visitor {
+        type Value = Option<f64>;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a number or empty string")
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(None)
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            let value = value.trim();
+            if value.is_empty() {
+                Ok(None)
+            } else {
+                value.parse::<f64>().map(Some).map_err(E::custom)
+            }
+        }
+
+        fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            self.visit_str(&value)
+        }
+
+        fn visit_f64<E>(self, value: f64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value))
+        }
+
+        fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value as f64))
+        }
+
+        fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
+        where
+            E: de::Error,
+        {
+            Ok(Some(value as f64))
+        }
+    }
+
+    deserializer.deserialize_any(OptionalF64Visitor)
 }
 
 #[derive(Debug, Serialize)]
@@ -671,6 +789,40 @@ impl MechanicEventFilters {
     }
 }
 
+fn mechanic_review_playlist_url(filters: &MechanicEventFilters) -> String {
+    let mut query = url::form_urlencoded::Serializer::new(String::new());
+    for event_id in &filters.event_ids {
+        query.append_pair("event-id", &event_id.to_string());
+    }
+    for mechanic in &filters.mechanics {
+        query.append_pair("mechanic", mechanic);
+    }
+    for detector in &filters.detectors {
+        query.append_pair("detector", detector);
+    }
+    if let Some(status) = &filters.review_status {
+        query.append_pair("review-status", status);
+    }
+    if let Some(confidence) = filters.min_confidence {
+        query.append_pair("min-confidence", &confidence.to_string());
+    }
+    if let Some(replay_id) = filters.replay_id {
+        query.append_pair("replay-id", &replay_id.to_string());
+    }
+    if let Some(player_id) = &filters.player_id {
+        query.append_pair("player-id", player_id);
+    }
+    query.append_pair("count", &filters.count.to_string());
+    query.append_pair("offset", &filters.offset.to_string());
+
+    let query_string = query.finish();
+    if query_string.is_empty() {
+        "/api/v1/mechanics/review-playlist".to_owned()
+    } else {
+        format!("/api/v1/mechanics/review-playlist?{query_string}")
+    }
+}
+
 fn normalize_saved_playlist_query(query: Value) -> Result<Value, ApiError> {
     let query = if query.is_null() {
         serde_json::json!({})
@@ -1096,6 +1248,7 @@ fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
     })
 }
 
+#[derive(Debug)]
 pub struct ApiError {
     status: StatusCode,
     message: String,
@@ -1130,3 +1283,5 @@ impl IntoResponse for ApiError {
             .into_response()
     }
 }
+
+const MECHANIC_REVIEW_PAGE: &str = include_str!("mechanics_review_page.html");

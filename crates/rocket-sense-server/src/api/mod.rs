@@ -16,6 +16,7 @@ pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api", get(api_index))
         .merge(auth::public_router().with_state(state.clone()))
+        .merge(mechanics::public_router().with_state(state.clone()))
         .merge(players::public_router().with_state(state.clone()))
         .merge(replays::public_router().with_state(state.clone()))
         .nest("/api/v1", api_v1_router(state))
