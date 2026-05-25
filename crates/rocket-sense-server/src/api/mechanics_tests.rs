@@ -31,6 +31,25 @@ fn mechanic_review_playlist_url_preserves_filter_fields() {
 }
 
 #[test]
+fn mechanic_events_query_accepts_repeated_mechanic_fields() {
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let query = MechanicEventsQuery::from_raw_query(Some(
+        "mechanic=wavedash&mechanic=speed_flip&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&player-id=steam%3Aabc123&count=1000&offset=25",
+    ))
+    .unwrap();
+
+    assert_eq!(query.mechanic, ["wavedash", "speed_flip"]);
+    assert_eq!(query.detector, ["stats_timeline"]);
+    assert_eq!(query.event_ids.len(), 2);
+    assert_eq!(query.review_status.as_deref(), Some("unreviewed"));
+    assert_eq!(query.min_confidence, Some(0.7));
+    assert_eq!(query.replay_id, Some(replay_id));
+    assert_eq!(query.player_id.as_deref(), Some("steam:abc123"));
+    assert_eq!(query.count, Some(1000));
+    assert_eq!(query.offset, Some(25));
+}
+
+#[test]
 fn mechanic_review_page_exposes_current_mechanic_filters() {
     for mechanic in [
         "air_dribble",

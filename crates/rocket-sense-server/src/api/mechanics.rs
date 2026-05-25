@@ -1,6 +1,6 @@
 use crate::{app::AppState, auth::AuthUser};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, RawQuery, State},
     http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
@@ -79,13 +79,81 @@ pub struct MechanicEventsQuery {
     pub offset: Option<u32>,
 }
 
+impl MechanicEventsQuery {
+    fn from_raw_query(query: Option<&str>) -> Result<Self, ApiError> {
+        let mut parsed = Self {
+            event_ids: Vec::new(),
+            mechanic: Vec::new(),
+            detector: Vec::new(),
+            review_status: None,
+            min_confidence: None,
+            replay_id: None,
+            player_id: None,
+            count: None,
+            offset: None,
+        };
+
+        for (key, value) in query
+            .into_iter()
+            .flat_map(|query| url::form_urlencoded::parse(query.as_bytes()))
+        {
+            let value = value.trim();
+            match key.as_ref() {
+                "event-id" if !value.is_empty() => {
+                    parsed
+                        .event_ids
+                        .push(Uuid::parse_str(value).map_err(ApiError::bad_request)?);
+                }
+                "mechanic" if !value.is_empty() => parsed.mechanic.push(value.to_owned()),
+                "detector" if !value.is_empty() => parsed.detector.push(value.to_owned()),
+                "review-status" => parsed.review_status = non_empty_string(value),
+                "min-confidence" => {
+                    parsed.min_confidence = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.parse::<f64>().map_err(ApiError::bad_request)?)
+                    };
+                }
+                "replay-id" => {
+                    parsed.replay_id = if value.is_empty() {
+                        None
+                    } else {
+                        Some(Uuid::parse_str(value).map_err(ApiError::bad_request)?)
+                    };
+                }
+                "player-id" => parsed.player_id = non_empty_string(value),
+                "count" => {
+                    parsed.count = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.parse::<u32>().map_err(ApiError::bad_request)?)
+                    };
+                }
+                "offset" => {
+                    parsed.offset = if value.is_empty() {
+                        None
+                    } else {
+                        Some(value.parse::<u32>().map_err(ApiError::bad_request)?)
+                    };
+                }
+                _ => {}
+            }
+        }
+
+        Ok(parsed)
+    }
+}
+
+fn non_empty_string(value: &str) -> Option<String> {
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
 async fn mechanic_review_page() -> Html<&'static str> {
     Html(MECHANIC_REVIEW_PAGE)
 }
 
-async fn open_mechanic_review(
-    Query(query): Query<MechanicEventsQuery>,
-) -> Result<Redirect, ApiError> {
+async fn open_mechanic_review(RawQuery(raw_query): RawQuery) -> Result<Redirect, ApiError> {
+    let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let filters = MechanicEventFilters::from_query(query)?;
     let playlist_url = mechanic_review_playlist_url(&filters);
     let mut target = String::from("/subtr-actor/review?");
@@ -451,8 +519,9 @@ struct ErrorResponse {
 
 pub async fn list_mechanic_events(
     State(state): State<AppState>,
-    Query(query): Query<MechanicEventsQuery>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Json<MechanicEventsResponse>, ApiError> {
+    let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let db = require_db(&state)?;
     let filters = MechanicEventFilters::from_query(query)?;
     let events = find_mechanic_events(db, &filters)
@@ -471,8 +540,9 @@ pub async fn list_mechanic_events(
 
 pub async fn mechanic_review_playlist(
     State(state): State<AppState>,
-    Query(query): Query<MechanicEventsQuery>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Json<MechanicReviewPlaylist>, ApiError> {
+    let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let db = require_db(&state)?;
     let filters = MechanicEventFilters::from_query(query)?;
     let events = find_mechanic_events(db, &filters)
