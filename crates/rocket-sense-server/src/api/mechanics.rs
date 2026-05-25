@@ -16,6 +16,9 @@ use uuid::Uuid;
 #[path = "mechanics_tests.rs"]
 mod tests;
 
+const MECHANIC_REVIEW_PREROLL_SECONDS: f64 = 4.0;
+const MECHANIC_REVIEW_POSTROLL_SECONDS: f64 = 3.0;
+
 pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/mechanics/review", get(mechanic_review_page))
@@ -356,8 +359,18 @@ pub struct PlaylistItemMeta {
     pub player_id: Option<String>,
     pub team: Option<String>,
     pub review_status: Option<String>,
+    pub clip: PlaylistItemClip,
     pub target: PlaylistItemTarget,
     pub event: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistItemClip {
+    pub start_time: f64,
+    pub end_time: f64,
+    pub preroll_seconds: f64,
+    pub postroll_seconds: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -1217,8 +1230,8 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
         .unwrap_or(0.0);
     let start_time = event.start_time.unwrap_or(event_time);
     let end_time = event.end_time.unwrap_or(event_time);
-    let clip_start = (start_time - 2.0).max(0.0);
-    let clip_end = (end_time + 3.0).max(clip_start + 0.5);
+    let clip_start = (start_time - MECHANIC_REVIEW_PREROLL_SECONDS).max(0.0);
+    let clip_end = (end_time + MECHANIC_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
     let mechanic_label = mechanic_label(&event.mechanic);
 
     PlaylistItem {
@@ -1249,6 +1262,12 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
                 }
             }),
             review_status: event.review_status,
+            clip: PlaylistItemClip {
+                start_time: clip_start,
+                end_time: clip_end,
+                preroll_seconds: start_time - clip_start,
+                postroll_seconds: clip_end - end_time,
+            },
             target: PlaylistItemTarget {
                 kind: "mechanic",
                 player_id: event.player_id,
