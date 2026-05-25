@@ -16,9 +16,9 @@ fn hosted_replay_app_urls_point_at_local_subtr_actor_apps() {
 
 #[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_static_asset("main-CuZYmsCh.js").unwrap();
+    let javascript = subtr_actor_static_asset("main-Ca9G_FNB.js").unwrap();
     let css = subtr_actor_static_asset("main-BT92amxN.css").unwrap();
-    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-C9yZYoa5.wasm").unwrap();
+    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-CR6MiFQt.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -33,9 +33,9 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-Di5u4iTC.js").unwrap();
+    let javascript = subtr_actor_stats_static_asset("index-HZHSxrtX.js").unwrap();
     let css = subtr_actor_stats_static_asset("index-bFLDgAAY.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-C9yZYoa5.wasm").unwrap();
+    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-CR6MiFQt.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -50,9 +50,9 @@ fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_review_static_asset("index-DD7j--or.js").unwrap();
+    let javascript = subtr_actor_review_static_asset("index-BF-1glrY.js").unwrap();
     let css = subtr_actor_review_static_asset("index-Dy-Q3BHC.css").unwrap();
-    let wasm = subtr_actor_review_static_asset("rl_replay_subtr_actor_bg-C9yZYoa5.wasm").unwrap();
+    let wasm = subtr_actor_review_static_asset("rl_replay_subtr_actor_bg-CR6MiFQt.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -68,14 +68,14 @@ fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
 #[test]
 fn subtr_actor_stats_index_serves_report_app() {
     assert!(SUBTR_ACTOR_STATS_INDEX.contains("subtr-actor stats report"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-Di5u4iTC.js"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-HZHSxrtX.js"));
     assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-bFLDgAAY.css"));
 }
 
 #[test]
 fn subtr_actor_review_index_serves_mechanic_review_player() {
     assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("Mechanic Review Player"));
-    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-DD7j--or.js"));
+    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-BF-1glrY.js"));
     assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-Dy-Q3BHC.css"));
 }
 
