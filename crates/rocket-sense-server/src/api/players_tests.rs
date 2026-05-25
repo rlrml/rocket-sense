@@ -40,6 +40,18 @@ fn player_profile_page_fetches_player_profile_api() {
 }
 
 #[test]
+fn player_profile_header_can_show_authenticated_account() {
+    assert!(PLAYER_PROFILE_PAGE.contains(r#"id="account-link""#));
+    assert!(PLAYER_PROFILE_PAGE
+        .contains(r#"<a class="nav-item" href="/mechanics/review">Mechanics Review</a>"#));
+    assert!(PLAYER_PROFILE_PAGE.contains("function renderHeaderAccount()"));
+    assert!(PLAYER_PROFILE_PAGE.contains("function setHeaderAccountFromToken(token)"));
+    assert!(PLAYER_PROFILE_PAGE.contains("function hydrateHeaderAccount()"));
+    assert!(PLAYER_PROFILE_PAGE.contains(r#"/api/v1/auth/profile-token"#));
+    assert!(PLAYER_PROFILE_PAGE.contains(r#"class="account-avatar""#));
+}
+
+#[test]
 fn player_profile_page_links_replay_names_to_stats() {
     assert!(PLAYER_PROFILE_PAGE.contains("function replayStatsUrl(replay)"));
     assert!(PLAYER_PROFILE_PAGE
