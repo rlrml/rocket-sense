@@ -1,6 +1,6 @@
 use crate::{app::AppState, auth::AuthUser, processing::spawn_replay_processing};
 use axum::{
-    extract::{Multipart, Path, Query, State},
+    extract::{Multipart, Path, Query, RawQuery, State},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         StatusCode,
@@ -47,7 +47,7 @@ pub fn public_router() -> Router<AppState> {
             "/subtr-actor/stats/assets/{asset_path}",
             get(subtr_actor_stats_asset),
         )
-        .route("/subtr-actor/review", get(subtr_actor_review))
+        .route("/subtr-actor/review", get(subtr_actor_review_redirect))
         .route("/subtr-actor/review/", get(subtr_actor_review))
         .route(
             "/subtr-actor/review/assets/{asset_path}",
@@ -488,6 +488,17 @@ async fn subtr_actor_stats() -> Html<&'static str> {
 
 async fn subtr_actor_review() -> Html<&'static str> {
     Html(SUBTR_ACTOR_REVIEW_INDEX)
+}
+
+async fn subtr_actor_review_redirect(RawQuery(raw_query): RawQuery) -> Redirect {
+    Redirect::temporary(&subtr_actor_review_trailing_slash_url(raw_query.as_deref()))
+}
+
+fn subtr_actor_review_trailing_slash_url(raw_query: Option<&str>) -> String {
+    match raw_query {
+        Some(query) if !query.is_empty() => format!("/subtr-actor/review/?{query}"),
+        _ => "/subtr-actor/review/".to_owned(),
+    }
 }
 
 async fn subtr_actor_asset(

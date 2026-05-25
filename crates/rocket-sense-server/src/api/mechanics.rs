@@ -155,13 +155,16 @@ async fn mechanic_review_page() -> Html<&'static str> {
 async fn open_mechanic_review(RawQuery(raw_query): RawQuery) -> Result<Redirect, ApiError> {
     let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let filters = MechanicEventFilters::from_query(query)?;
+    Ok(Redirect::temporary(&mechanic_review_player_url(&filters)))
+}
+
+fn mechanic_review_player_url(filters: &MechanicEventFilters) -> String {
     let playlist_url = mechanic_review_playlist_url(&filters);
-    let mut target = String::from("/subtr-actor/review?");
+    let mut target = String::from("/subtr-actor/?");
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     query.append_pair("reviewPlaylist", &playlist_url);
     target.push_str(&query.finish());
-
-    Ok(Redirect::temporary(&target))
+    target
 }
 
 fn deserialize_uuid_vec<'de, D>(deserializer: D) -> Result<Vec<Uuid>, D::Error>

@@ -31,6 +31,29 @@ fn mechanic_review_playlist_url_preserves_filter_fields() {
 }
 
 #[test]
+fn mechanic_review_open_targets_stats_evaluation_player() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        event_ids: Vec::new(),
+        mechanic: vec!["wavedash".to_owned(), "speed_flip".to_owned()],
+        detector: Vec::new(),
+        review_status: None,
+        min_confidence: None,
+        replay_id: None,
+        player_id: None,
+        count: Some(10),
+        offset: None,
+    })
+    .unwrap();
+
+    let url = mechanic_review_player_url(&filters);
+
+    assert!(url.starts_with("/subtr-actor/?reviewPlaylist="));
+    assert!(!url.starts_with("/subtr-actor/review"));
+    assert!(url.contains("mechanic%3Dwavedash"));
+    assert!(url.contains("mechanic%3Dspeed_flip"));
+}
+
+#[test]
 fn mechanic_events_query_accepts_repeated_mechanic_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let query = MechanicEventsQuery::from_raw_query(Some(

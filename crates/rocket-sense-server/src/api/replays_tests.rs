@@ -80,6 +80,18 @@ fn subtr_actor_review_index_serves_mechanic_review_player() {
 }
 
 #[test]
+fn subtr_actor_review_without_trailing_slash_redirects_to_slash() {
+    assert_eq!(
+        subtr_actor_review_trailing_slash_url(Some("playlist=/api/v1/mechanics/review-playlist")),
+        "/subtr-actor/review/?playlist=/api/v1/mechanics/review-playlist"
+    );
+    assert_eq!(
+        subtr_actor_review_trailing_slash_url(None),
+        "/subtr-actor/review/"
+    );
+}
+
+#[test]
 fn replay_list_page_uses_playlist_dropdown_values() {
     assert!(REPLAY_LIST_PAGE.contains(r#"<div class="filter-group-title">Ranked</div>"#));
     assert!(REPLAY_LIST_PAGE
