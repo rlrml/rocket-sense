@@ -15,21 +15,10 @@ fn hosted_replay_app_urls_point_at_local_subtr_actor_apps() {
 }
 
 #[test]
-fn subtr_actor_review_url_points_at_evaluation_player() {
-    assert_eq!(
-        subtr_actor_review_url(SubtrActorReviewQuery {
-            review_playlist: Some("/api/v1/mechanics/review-playlist?count=1000".to_owned()),
-            ..SubtrActorReviewQuery::default()
-        }),
-        "/subtr-actor/?reviewPlaylist=%2Fapi%2Fv1%2Fmechanics%2Freview-playlist%3Fcount%3D1000"
-    );
-}
-
-#[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_static_asset("main-axCEUMqx.js").unwrap();
-    let css = subtr_actor_static_asset("main-Cy93V9DO.css").unwrap();
-    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-XP9AVl66.wasm").unwrap();
+    let javascript = subtr_actor_static_asset("main-CuZYmsCh.js").unwrap();
+    let css = subtr_actor_static_asset("main-BT92amxN.css").unwrap();
+    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-C9yZYoa5.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -44,9 +33,9 @@ fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-Dx0VPRT2.js").unwrap();
-    let css = subtr_actor_stats_static_asset("index-CtcVo4mH.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-XP9AVl66.wasm").unwrap();
+    let javascript = subtr_actor_stats_static_asset("index-Di5u4iTC.js").unwrap();
+    let css = subtr_actor_stats_static_asset("index-bFLDgAAY.css").unwrap();
+    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-C9yZYoa5.wasm").unwrap();
 
     assert_eq!(
         javascript.content_type,
@@ -60,10 +49,34 @@ fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
 }
 
 #[test]
+fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
+    let javascript = subtr_actor_review_static_asset("index-DD7j--or.js").unwrap();
+    let css = subtr_actor_review_static_asset("index-Dy-Q3BHC.css").unwrap();
+    let wasm = subtr_actor_review_static_asset("rl_replay_subtr_actor_bg-C9yZYoa5.wasm").unwrap();
+
+    assert_eq!(
+        javascript.content_type,
+        "application/javascript; charset=utf-8"
+    );
+    assert_eq!(css.content_type, "text/css; charset=utf-8");
+    assert_eq!(wasm.content_type, "application/wasm");
+    assert!(javascript.bytes.len() > 100_000);
+    assert!(wasm.bytes.len() > 1_000_000);
+    assert!(subtr_actor_review_static_asset("missing.js").is_none());
+}
+
+#[test]
 fn subtr_actor_stats_index_serves_report_app() {
     assert!(SUBTR_ACTOR_STATS_INDEX.contains("subtr-actor stats report"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-Dx0VPRT2.js"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-CtcVo4mH.css"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-Di5u4iTC.js"));
+    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-bFLDgAAY.css"));
+}
+
+#[test]
+fn subtr_actor_review_index_serves_mechanic_review_player() {
+    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("Mechanic Review Player"));
+    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-DD7j--or.js"));
+    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-Dy-Q3BHC.css"));
 }
 
 #[test]
@@ -114,6 +127,29 @@ fn replay_list_page_uses_ballchasing_style_replay_rows() {
     assert!(REPLAY_LIST_PAGE.contains(
         r#"<a href="${viewerUrl(replay)}" target="_blank" rel="noopener" title="Open replay player" aria-label="Open replay player">${iconPlay()}</a>"#
     ));
+}
+
+#[test]
+fn replay_list_header_only_links_rocket_sense_destinations() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"<a class="nav-item active" href="/replays">Replays</a>"#));
+    assert!(REPLAY_LIST_PAGE
+        .contains(r#"<a class="nav-item" href="/mechanics/review">Mechanics Review</a>"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<a class="nav-item" href="/profile">Profile</a>"#));
+    assert!(!REPLAY_LIST_PAGE.contains("Patreon"));
+    assert!(!REPLAY_LIST_PAGE.contains("Help"));
+    assert!(!REPLAY_LIST_PAGE.contains("Community"));
+    assert!(!REPLAY_LIST_PAGE.contains("Replay Groups"));
+    assert!(!REPLAY_LIST_PAGE.contains(">Top<"));
+}
+
+#[test]
+fn replay_list_header_can_show_authenticated_account() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"id="account-link""#));
+    assert!(REPLAY_LIST_PAGE.contains("function renderHeaderAccount()"));
+    assert!(REPLAY_LIST_PAGE.contains("function setHeaderAccountFromToken(token)"));
+    assert!(REPLAY_LIST_PAGE.contains("function hydrateHeaderAccount()"));
+    assert!(REPLAY_LIST_PAGE.contains(r#"/api/v1/auth/profile-token"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"class="account-avatar""#));
 }
 
 #[test]

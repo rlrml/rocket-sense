@@ -49,6 +49,10 @@ pub fn public_router() -> Router<AppState> {
         )
         .route("/subtr-actor/review", get(subtr_actor_review))
         .route("/subtr-actor/review/", get(subtr_actor_review))
+        .route(
+            "/subtr-actor/review/assets/{asset_path}",
+            get(subtr_actor_review_asset),
+        )
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -482,46 +486,8 @@ async fn subtr_actor_stats() -> Html<&'static str> {
     Html(SUBTR_ACTOR_STATS_INDEX)
 }
 
-#[derive(Debug, Default, Deserialize)]
-struct SubtrActorReviewQuery {
-    playlist: Option<String>,
-    #[serde(rename = "playlistUrl")]
-    playlist_url: Option<String>,
-    #[serde(rename = "reviewPlaylist")]
-    review_playlist: Option<String>,
-    review: Option<String>,
-    token: Option<String>,
-    #[serde(rename = "reviewToken")]
-    review_token: Option<String>,
-}
-
-async fn subtr_actor_review(Query(query): Query<SubtrActorReviewQuery>) -> Redirect {
-    Redirect::temporary(&subtr_actor_review_url(query))
-}
-
-fn subtr_actor_review_url(query: SubtrActorReviewQuery) -> String {
-    let playlist = query
-        .review_playlist
-        .or(query.review)
-        .or(query.playlist)
-        .or(query.playlist_url);
-    let review_token = query.review_token.or(query.token);
-
-    let mut target = String::from("/subtr-actor/");
-    let mut params = url::form_urlencoded::Serializer::new(String::new());
-    if let Some(playlist) = playlist {
-        params.append_pair("reviewPlaylist", &playlist);
-    }
-    if let Some(review_token) = review_token {
-        params.append_pair("reviewToken", &review_token);
-    }
-    let query_string = params.finish();
-    if !query_string.is_empty() {
-        target.push('?');
-        target.push_str(&query_string);
-    }
-
-    target
+async fn subtr_actor_review() -> Html<&'static str> {
+    Html(SUBTR_ACTOR_REVIEW_INDEX)
 }
 
 async fn subtr_actor_asset(
@@ -536,6 +502,14 @@ async fn subtr_actor_stats_asset(
     Path(asset_path): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let asset = subtr_actor_stats_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+}
+
+async fn subtr_actor_review_asset(
+    Path(asset_path): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let asset = subtr_actor_review_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
 }
@@ -798,33 +772,33 @@ struct StaticAsset {
 
 fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-DVhlPote.js" => Some(StaticAsset {
+        "index-qHp3j1Xz.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/index-DVhlPote.js"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/index-qHp3j1Xz.js"),
         }),
-        "main-Cy93V9DO.css" => Some(StaticAsset {
+        "main-BT92amxN.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/main-Cy93V9DO.css"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/main-BT92amxN.css"),
         }),
-        "main-axCEUMqx.js" => Some(StaticAsset {
+        "main-CuZYmsCh.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/main-axCEUMqx.js"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/main-CuZYmsCh.js"),
         }),
-        "replayLoader.worker-CqYS31kY.js" => Some(StaticAsset {
+        "replayLoader.worker-CM1RO3Ve.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
             bytes: include_bytes!(
-                "../../static/subtr-actor/assets/replayLoader.worker-CqYS31kY.js"
+                "../../static/subtr-actor/assets/replayLoader.worker-CM1RO3Ve.js"
             ),
         }),
-        "rl_replay_subtr_actor_bg-XP9AVl66.wasm" => Some(StaticAsset {
+        "rl_replay_subtr_actor_bg-C9yZYoa5.wasm" => Some(StaticAsset {
             content_type: "application/wasm",
             bytes: include_bytes!(
-                "../../static/subtr-actor/assets/rl_replay_subtr_actor_bg-XP9AVl66.wasm"
+                "../../static/subtr-actor/assets/rl_replay_subtr_actor_bg-C9yZYoa5.wasm"
             ),
         }),
-        "wasm.worker-BcUwG4kg.js" => Some(StaticAsset {
+        "wasm.worker-B_rcTK7L.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/wasm.worker-BcUwG4kg.js"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/wasm.worker-B_rcTK7L.js"),
         }),
         _ => None,
     }
@@ -832,29 +806,53 @@ fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
 
 fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-Dx0VPRT2.js" => Some(StaticAsset {
+        "index-Di5u4iTC.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-Dx0VPRT2.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-Di5u4iTC.js"),
         }),
-        "index-CtcVo4mH.css" => Some(StaticAsset {
+        "index-bFLDgAAY.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-CtcVo4mH.css"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-bFLDgAAY.css"),
         }),
-        "replayLoader.worker-CqYS31kY.js" => Some(StaticAsset {
+        "replayLoader.worker-CM1RO3Ve.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
             bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/replayLoader.worker-CqYS31kY.js"
+                "../../static/subtr-actor/stats/assets/replayLoader.worker-CM1RO3Ve.js"
             ),
         }),
-        "rl_replay_subtr_actor_bg-XP9AVl66.wasm" => Some(StaticAsset {
+        "rl_replay_subtr_actor_bg-C9yZYoa5.wasm" => Some(StaticAsset {
             content_type: "application/wasm",
             bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-XP9AVl66.wasm"
+                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-C9yZYoa5.wasm"
             ),
         }),
-        "wasm.worker-BcUwG4kg.js" => Some(StaticAsset {
+        "wasm.worker-B_rcTK7L.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-BcUwG4kg.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-B_rcTK7L.js"),
+        }),
+        _ => None,
+    }
+}
+
+fn subtr_actor_review_static_asset(path: &str) -> Option<StaticAsset> {
+    match path {
+        "index-DD7j--or.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/review/assets/index-DD7j--or.js"),
+        }),
+        "index-Dy-Q3BHC.css" => Some(StaticAsset {
+            content_type: "text/css; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/review/assets/index-Dy-Q3BHC.css"),
+        }),
+        "rl_replay_subtr_actor_bg-C9yZYoa5.wasm" => Some(StaticAsset {
+            content_type: "application/wasm",
+            bytes: include_bytes!(
+                "../../static/subtr-actor/review/assets/rl_replay_subtr_actor_bg-C9yZYoa5.wasm"
+            ),
+        }),
+        "wasm.worker-B_rcTK7L.js" => Some(StaticAsset {
+            content_type: "application/javascript; charset=utf-8",
+            bytes: include_bytes!("../../static/subtr-actor/review/assets/wasm.worker-B_rcTK7L.js"),
         }),
         _ => None,
     }
@@ -1543,5 +1541,6 @@ fn remote_id_text(value: &Value) -> Option<&str> {
 
 const SUBTR_ACTOR_VIEWER_INDEX: &str = include_str!("../../static/subtr-actor/index.html");
 const SUBTR_ACTOR_STATS_INDEX: &str = include_str!("../../static/subtr-actor/stats/index.html");
+const SUBTR_ACTOR_REVIEW_INDEX: &str = include_str!("../../static/subtr-actor/review/index.html");
 
 const REPLAY_LIST_PAGE: &str = include_str!("replays_page.html");
