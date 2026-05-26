@@ -783,33 +783,33 @@ struct StaticAsset {
 
 fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-05E1bRkM.js" => Some(StaticAsset {
+        "index-C5ZLJyf-.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/index-05E1bRkM.js"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/index-C5ZLJyf-.js"),
         }),
-        "main-BalhHtua.css" => Some(StaticAsset {
+        "main-CwtZ1J5U.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/main-BalhHtua.css"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/main-CwtZ1J5U.css"),
         }),
-        "main-BpGY7SL5.js" => Some(StaticAsset {
+        "main-DnBbSxYc.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/main-BpGY7SL5.js"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/main-DnBbSxYc.js"),
         }),
-        "replayLoader.worker-P6yy4VAy.js" => Some(StaticAsset {
+        "replayLoader.worker-D4jOiD4n.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
             bytes: include_bytes!(
-                "../../static/subtr-actor/assets/replayLoader.worker-P6yy4VAy.js"
+                "../../static/subtr-actor/assets/replayLoader.worker-D4jOiD4n.js"
             ),
         }),
-        "rl_replay_subtr_actor_bg-Dask3Tt2.wasm" => Some(StaticAsset {
+        "rl_replay_subtr_actor_bg-BYZJU53-.wasm" => Some(StaticAsset {
             content_type: "application/wasm",
             bytes: include_bytes!(
-                "../../static/subtr-actor/assets/rl_replay_subtr_actor_bg-Dask3Tt2.wasm"
+                "../../static/subtr-actor/assets/rl_replay_subtr_actor_bg-BYZJU53-.wasm"
             ),
         }),
-        "wasm.worker-C1xpSe4V.js" => Some(StaticAsset {
+        "wasm.worker-CXvX3V3O.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/wasm.worker-C1xpSe4V.js"),
+            bytes: include_bytes!("../../static/subtr-actor/assets/wasm.worker-CXvX3V3O.js"),
         }),
         _ => None,
     }
@@ -817,29 +817,29 @@ fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
 
 fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-AvqACPrc.js" => Some(StaticAsset {
+        "index-CQK__Mt_.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-AvqACPrc.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-CQK__Mt_.js"),
         }),
-        "index-C73soLr-.css" => Some(StaticAsset {
+        "index-Bw2_Ha6f.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-C73soLr-.css"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-Bw2_Ha6f.css"),
         }),
-        "replayLoader.worker-P6yy4VAy.js" => Some(StaticAsset {
+        "replayLoader.worker-D4jOiD4n.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
             bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/replayLoader.worker-P6yy4VAy.js"
+                "../../static/subtr-actor/stats/assets/replayLoader.worker-D4jOiD4n.js"
             ),
         }),
-        "rl_replay_subtr_actor_bg-Dask3Tt2.wasm" => Some(StaticAsset {
+        "rl_replay_subtr_actor_bg-BYZJU53-.wasm" => Some(StaticAsset {
             content_type: "application/wasm",
             bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-Dask3Tt2.wasm"
+                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-BYZJU53-.wasm"
             ),
         }),
-        "wasm.worker-C1xpSe4V.js" => Some(StaticAsset {
+        "wasm.worker-CXvX3V3O.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-C1xpSe4V.js"),
+            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-CXvX3V3O.js"),
         }),
         _ => None,
     }
@@ -847,23 +847,23 @@ fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
 
 fn subtr_actor_review_static_asset(path: &str) -> Option<StaticAsset> {
     match path {
-        "index-DurXMxqX.js" => Some(StaticAsset {
+        "index-DEe1FZ9T.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/review/assets/index-DurXMxqX.js"),
+            bytes: include_bytes!("../../static/subtr-actor/review/assets/index-DEe1FZ9T.js"),
         }),
         "index-Dy-Q3BHC.css" => Some(StaticAsset {
             content_type: "text/css; charset=utf-8",
             bytes: include_bytes!("../../static/subtr-actor/review/assets/index-Dy-Q3BHC.css"),
         }),
-        "rl_replay_subtr_actor_bg-Dask3Tt2.wasm" => Some(StaticAsset {
+        "rl_replay_subtr_actor_bg-BYZJU53-.wasm" => Some(StaticAsset {
             content_type: "application/wasm",
             bytes: include_bytes!(
-                "../../static/subtr-actor/review/assets/rl_replay_subtr_actor_bg-Dask3Tt2.wasm"
+                "../../static/subtr-actor/review/assets/rl_replay_subtr_actor_bg-BYZJU53-.wasm"
             ),
         }),
-        "wasm.worker-C1xpSe4V.js" => Some(StaticAsset {
+        "wasm.worker-CXvX3V3O.js" => Some(StaticAsset {
             content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/review/assets/wasm.worker-C1xpSe4V.js"),
+            bytes: include_bytes!("../../static/subtr-actor/review/assets/wasm.worker-CXvX3V3O.js"),
         }),
         _ => None,
     }

@@ -17,7 +17,7 @@ mod tests;
 
 const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:aggregate-stats";
 const DEFAULT_CONFIG_HASH: &str = "aggregate-stats:v1:all-builtin-modules";
-const DEFAULT_INDEX_PROFILE_ID: Uuid = Uuid::from_u128(0x0198_0000_0000_7000_8000_000000000001);
+const DEFAULT_INDEX_PROFILE_ID: Uuid = Uuid::from_u128(0x0198_0000_0000_7000_8000_0000_0000_0001);
 const DEFAULT_INDEX_PROFILE_NAME: &str = "default-mechanics";
 const DEFAULT_INDEX_PROFILE_VERSION: i32 = 1;
 const PLAY_EVENT_SOURCE: &str = "subtr-actor:stats-timeline";
@@ -828,16 +828,16 @@ async fn upsert_replay_analysis_state(
     Ok(())
 }
 
-fn mechanic_timing_columns(
-    timing: &MechanicTiming,
-) -> (
+type MechanicTimingColumns = (
     Option<i32>,
     Option<i32>,
     Option<i32>,
     Option<f64>,
     Option<f64>,
     Option<f64>,
-) {
+);
+
+fn mechanic_timing_columns(timing: &MechanicTiming) -> MechanicTimingColumns {
     match *timing {
         MechanicTiming::Moment { frame, time } => {
             let frame = Some(frame as i32);

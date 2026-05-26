@@ -159,7 +159,7 @@ async fn open_mechanic_review(RawQuery(raw_query): RawQuery) -> Result<Redirect,
 }
 
 fn mechanic_review_player_url(filters: &MechanicEventFilters) -> String {
-    let playlist_url = mechanic_review_playlist_url(&filters);
+    let playlist_url = mechanic_review_playlist_url(filters);
     let mut target = String::from("/subtr-actor/?");
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     query.append_pair("reviewPlaylist", &playlist_url);
