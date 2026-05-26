@@ -51,8 +51,7 @@ impl AuthUser {
         let normalized_email = email.trim().to_lowercase();
         if normalized_email.is_empty() {
             return Err(AuthError::unauthorized(format!(
-                "{} account has no email",
-                provider
+                "{provider} account has no email"
             )));
         }
 

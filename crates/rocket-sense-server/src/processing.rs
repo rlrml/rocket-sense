@@ -1,13 +1,17 @@
 use anyhow::{anyhow, Context, Result};
 use boxcars::{HeaderProp, RemoteId};
+use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket_sense_storage::{sha256_hex, ObjectStorage};
 use serde_json::{Map, Value};
 use sqlx::{PgPool, Row};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    sync::Arc,
+};
 use subtr_actor::{
-    MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo, ReplayMeta,
-    StatsCollector,
+    MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo, ReplayDataCollector,
+    ReplayMeta, StatsCollector,
 };
 use uuid::Uuid;
 
@@ -15,105 +19,42 @@ use uuid::Uuid;
 #[path = "processing_tests.rs"]
 mod tests;
 
-const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:aggregate-stats";
-const DEFAULT_CONFIG_HASH: &str = "aggregate-stats:v1:all-builtin-modules";
-const DEFAULT_INDEX_PROFILE_ID: Uuid = Uuid::from_u128(0x0198_0000_0000_7000_8000_0000_0000_0001);
-const DEFAULT_INDEX_PROFILE_NAME: &str = "default-mechanics";
-const DEFAULT_INDEX_PROFILE_VERSION: i32 = 1;
-const PLAY_EVENT_SOURCE: &str = "subtr-actor:stats-timeline";
-
-struct PersistentEventType {
-    key: &'static str,
-    display_name: &'static str,
-    category: &'static str,
-    subtr_actor_kind: &'static str,
-}
-
-const PERSISTENT_MECHANIC_EVENT_TYPES: &[PersistentEventType] = &[
-    PersistentEventType {
-        key: "mechanic.air_dribble",
-        display_name: "Air dribble",
-        category: "mechanic",
-        subtr_actor_kind: "air_dribble",
-    },
-    PersistentEventType {
-        key: "mechanic.ball_carry",
-        display_name: "Ball carry",
-        category: "mechanic",
-        subtr_actor_kind: "ball_carry",
-    },
-    PersistentEventType {
-        key: "mechanic.ceiling_shot",
-        display_name: "Ceiling shot",
-        category: "mechanic",
-        subtr_actor_kind: "ceiling_shot",
-    },
-    PersistentEventType {
-        key: "mechanic.double_tap",
-        display_name: "Double tap",
-        category: "mechanic",
-        subtr_actor_kind: "double_tap",
-    },
-    PersistentEventType {
-        key: "mechanic.flick",
-        display_name: "Flick",
-        category: "mechanic",
-        subtr_actor_kind: "flick",
-    },
-    PersistentEventType {
-        key: "mechanic.flip_reset",
-        display_name: "Flip reset",
-        category: "mechanic",
-        subtr_actor_kind: "flip_reset",
-    },
-    PersistentEventType {
-        key: "mechanic.half_flip",
-        display_name: "Half flip",
-        category: "mechanic",
-        subtr_actor_kind: "half_flip",
-    },
-    PersistentEventType {
-        key: "mechanic.half_volley",
-        display_name: "Half volley",
-        category: "mechanic",
-        subtr_actor_kind: "half_volley",
-    },
-    PersistentEventType {
-        key: "mechanic.musty_flick",
-        display_name: "Musty flick",
-        category: "mechanic",
-        subtr_actor_kind: "musty_flick",
-    },
-    PersistentEventType {
-        key: "mechanic.one_timer",
-        display_name: "One timer",
-        category: "mechanic",
-        subtr_actor_kind: "one_timer",
-    },
-    PersistentEventType {
-        key: "mechanic.pass",
-        display_name: "Pass",
-        category: "mechanic",
-        subtr_actor_kind: "pass",
-    },
-    PersistentEventType {
-        key: "mechanic.speed_flip",
-        display_name: "Speed flip",
-        category: "mechanic",
-        subtr_actor_kind: "speed_flip",
-    },
-    PersistentEventType {
-        key: "mechanic.wavedash",
-        display_name: "Wavedash",
-        category: "mechanic",
-        subtr_actor_kind: "wavedash",
-    },
-];
+const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
+const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v1";
+const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
+const REPLAY_DATA_SOURCE: &str = "subtr-actor:replay-data";
 
 struct ReplayAnalysisOutput {
-    stats: Value,
-    mechanic_events: Vec<MechanicEvent>,
+    event_stream: Value,
+    indexed_events: Vec<IndexedEvent>,
     metadata: ReplaySearchMetadata,
+}
+
+#[derive(Debug, Clone)]
+struct IndexedEvent {
+    event_type_key: String,
+    display_name: String,
+    category: String,
+    source: String,
+    source_event_id: String,
+    primary_subject: Option<EventSubject>,
+    subjects: Vec<EventSubject>,
+    start_frame: Option<i32>,
+    end_frame: Option<i32>,
+    event_frame: Option<i32>,
+    start_time: Option<f64>,
+    end_time: Option<f64>,
+    event_time: Option<f64>,
+    confidence: Option<f64>,
+    attributes: Value,
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Clone)]
+struct EventSubject {
+    kind: String,
+    id: String,
+    role: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,7 +99,6 @@ async fn process_replay(
 ) -> Result<()> {
     set_replay_status(&pool, replay_id, "parsing").await?;
 
-    ensure_default_index_profile(&pool).await?;
     let analysis_run_id = Uuid::now_v7();
     insert_analysis_run(&pool, analysis_run_id, replay_id, &file_sha256).await?;
 
@@ -170,34 +110,37 @@ async fn process_replay(
         let output =
             tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
                 .await
-                .context("replay stats task panicked")??;
-        let stats = output.stats;
-        let stats_bytes =
-            serde_json::to_vec(&stats).context("failed to serialize replay stats blob")?;
-        let stats_sha256 = sha256_hex(&stats_bytes);
+                .context("replay analysis task panicked")??;
+        let event_stream_bytes = serde_json::to_vec(&output.event_stream)
+            .context("failed to serialize replay event stream")?;
+        let event_stream_sha256 = sha256_hex(&event_stream_bytes);
+        let event_stream_key = event_stream_object_key(&file_sha256, analysis_run_id);
+        let stored_event_stream = storage
+            .put(&event_stream_key, Bytes::from(event_stream_bytes), None)
+            .await
+            .context("failed to write replay event stream object")?;
 
-        insert_stat_blob(&pool, analysis_run_id, replay_id, stats, &stats_sha256).await?;
+        insert_replay_object(&pool, replay_id, "event_stream", &stored_event_stream).await?;
+        update_analysis_run_event_stream(
+            &pool,
+            analysis_run_id,
+            &stored_event_stream.key,
+            &event_stream_sha256,
+            stored_event_stream.byte_size,
+        )
+        .await?;
         let replay_players =
             upsert_replay_search_metadata(&pool, replay_id, &output.metadata).await?;
-        let event_type_ids = ensure_persistent_event_types(&pool).await?;
+        let event_type_ids = ensure_event_types(&pool, &output.indexed_events).await?;
         insert_play_events(
             &pool,
             analysis_run_id,
             replay_id,
-            &output.mechanic_events,
+            &output.indexed_events,
             &event_type_ids,
             &replay_players,
         )
         .await?;
-        insert_mechanic_events(
-            &pool,
-            analysis_run_id,
-            replay_id,
-            &file_sha256,
-            &output.mechanic_events,
-        )
-        .await?;
-        upsert_replay_analysis_state(&pool, analysis_run_id, replay_id, &file_sha256).await?;
         mark_analysis_run_succeeded(&pool, analysis_run_id).await?;
         set_canonical_analysis_run(&pool, replay_id, analysis_run_id).await?;
         set_replay_status(&pool, replay_id, "parsed").await?;
@@ -222,17 +165,45 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         .on_error_check_crc()
         .parse()
         .context("failed to parse replay")?;
-    let stats = StatsCollector::new()
-        .get_stats(&replay)
-        .map_err(|error| anyhow!("failed to collect replay stats: {error:?}"))?;
+    let replay_data = ReplayDataCollector::new()
+        .get_replay_data(&replay)
+        .map_err(|error| anyhow!("failed to collect replay data: {error:?}"))?;
     let timeline = StatsCollector::new()
         .get_replay_stats_timeline(&replay)
-        .map_err(|error| anyhow!("failed to collect replay mechanic events: {error:?}"))?;
-    let metadata = replay_search_metadata(&stats.replay_meta);
+        .map_err(|error| anyhow!("failed to collect replay event timeline: {error:?}"))?;
+    let metadata = replay_search_metadata(&timeline.replay_meta);
+    let replay_data_value =
+        serde_json::to_value(&replay_data).context("failed to serialize replay data")?;
+    let timeline_events_value = serde_json::to_value(&timeline.events)
+        .context("failed to serialize replay timeline events")?;
+    let exact_events = replay_data_value
+        .as_object()
+        .context("serialized replay data was not an object")?;
+    let event_stream = serde_json::json!({
+        "schema_version": EVENT_STREAM_SCHEMA_VERSION,
+        "source": {
+            "extractor_name": DEFAULT_EXTRACTOR_NAME,
+            "extractor_version": env!("CARGO_PKG_VERSION"),
+            "subtr_actor_version": subtr_actor_version(),
+            "subtr_actor_git_sha": option_env!("SUBTR_ACTOR_GIT_SHA"),
+            "rocket_sense_git_sha": option_env!("GIT_SHA")
+        },
+        "replay_meta": timeline.replay_meta.clone(),
+        "exact_events": {
+            "boost_pad": exact_events.get("boost_pad_events").cloned().unwrap_or(Value::Array(Vec::new())),
+            "demo": exact_events.get("demolish_infos").cloned().unwrap_or(Value::Array(Vec::new())),
+            "dodge_refresh": exact_events.get("dodge_refreshed_events").cloned().unwrap_or(Value::Array(Vec::new())),
+            "goal": exact_events.get("goal_events").cloned().unwrap_or(Value::Array(Vec::new())),
+            "player_stat": exact_events.get("player_stat_events").cloned().unwrap_or(Value::Array(Vec::new())),
+            "touch": exact_events.get("touch_events").cloned().unwrap_or(Value::Array(Vec::new()))
+        },
+        "timeline_events": timeline_events_value
+    });
+    let indexed_events = build_indexed_events(&replay_data_value, &timeline.events.mechanics)?;
 
     Ok(ReplayAnalysisOutput {
-        stats: serde_json::to_value(stats).context("failed to convert replay stats to JSON")?,
-        mechanic_events: timeline.events.mechanics,
+        event_stream,
+        indexed_events,
         metadata,
     })
 }
@@ -305,15 +276,6 @@ fn player_lookup_key(
         .as_deref()
         .zip(platform_player_id.as_deref())
         .map(|(platform, platform_player_id)| format!("{platform}:{platform_player_id}"))
-}
-
-fn replay_player_id_for_event(
-    event: &MechanicEvent,
-    replay_players: &HashMap<String, Uuid>,
-) -> Option<Uuid> {
-    let (platform, platform_player_id) = remote_id_parts(&event.player_id);
-    player_lookup_key(&platform, &platform_player_id)
-        .and_then(|key| replay_players.get(&key).copied())
 }
 
 fn header_text(headers: &[(String, HeaderProp)], keys: &[&str]) -> Option<String> {
@@ -479,36 +441,6 @@ async fn upsert_replay_search_metadata(
     Ok(replay_players)
 }
 
-async fn ensure_default_index_profile(pool: &PgPool) -> Result<()> {
-    sqlx::query(
-        r#"
-        INSERT INTO stat_index_profiles (
-            id,
-            name,
-            version,
-            description,
-            config
-        )
-        VALUES (
-            $1,
-            $2,
-            $3,
-            'Default Rocket Sense mechanics/stat projection profile',
-            '{"mechanics": "all"}'::jsonb
-        )
-        ON CONFLICT (name, version) DO NOTHING
-        "#,
-    )
-    .bind(DEFAULT_INDEX_PROFILE_ID)
-    .bind(DEFAULT_INDEX_PROFILE_NAME)
-    .bind(DEFAULT_INDEX_PROFILE_VERSION)
-    .execute(pool)
-    .await
-    .context("failed to ensure default index profile")?;
-
-    Ok(())
-}
-
 async fn insert_analysis_run(
     pool: &PgPool,
     analysis_run_id: Uuid,
@@ -520,25 +452,27 @@ async fn insert_analysis_run(
         INSERT INTO analysis_runs (
             id,
             replay_id,
-            index_profile_id,
             status,
             extractor_name,
             extractor_version,
+            subtr_actor_version,
+            subtr_actor_git_sha,
             rocket_sense_git_sha,
-            config_hash,
-            input_file_sha256
+            input_file_sha256,
+            event_stream_schema_version
         )
-        VALUES ($1, $2, $3, 'running', $4, $5, $6, $7, $8)
+        VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9)
         "#,
     )
     .bind(analysis_run_id)
     .bind(replay_id)
-    .bind(DEFAULT_INDEX_PROFILE_ID)
     .bind(DEFAULT_EXTRACTOR_NAME)
     .bind(env!("CARGO_PKG_VERSION"))
+    .bind(subtr_actor_version())
+    .bind(option_env!("SUBTR_ACTOR_GIT_SHA"))
     .bind(option_env!("GIT_SHA"))
-    .bind(DEFAULT_CONFIG_HASH)
     .bind(file_sha256)
+    .bind(EVENT_STREAM_SCHEMA_VERSION)
     .execute(pool)
     .await
     .context("failed to insert analysis run")?;
@@ -546,38 +480,82 @@ async fn insert_analysis_run(
     Ok(())
 }
 
-async fn insert_stat_blob(
+async fn insert_replay_object(
     pool: &PgPool,
-    analysis_run_id: Uuid,
     replay_id: Uuid,
-    stats: Value,
-    stats_sha256: &str,
+    kind: &str,
+    stored: &rocket_sense_storage::StoredObject,
 ) -> Result<()> {
     sqlx::query(
         r#"
-        INSERT INTO replay_stat_blobs (
-            analysis_run_id,
+        INSERT INTO replay_objects (
+            id,
             replay_id,
-            stats,
-            stats_sha256
+            kind,
+            storage_key,
+            content_type,
+            byte_size,
+            sha256
         )
-        VALUES ($1, $2, $3, $4)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (replay_id, kind, storage_key) DO NOTHING
         "#,
     )
-    .bind(analysis_run_id)
+    .bind(Uuid::now_v7())
     .bind(replay_id)
-    .bind(stats)
-    .bind(stats_sha256)
+    .bind(kind)
+    .bind(&stored.key)
+    .bind(stored.content_type.as_ref().map(ToString::to_string))
+    .bind(stored.byte_size as i64)
+    .bind(&stored.sha256)
     .execute(pool)
     .await
-    .context("failed to insert replay stat blob")?;
+    .context("failed to insert replay object")?;
 
     Ok(())
 }
 
-async fn ensure_persistent_event_types(pool: &PgPool) -> Result<HashMap<&'static str, i32>> {
+async fn update_analysis_run_event_stream(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    event_stream_object_key: &str,
+    event_stream_sha256: &str,
+    event_stream_byte_size: u64,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        UPDATE analysis_runs
+        SET event_stream_object_key = $2,
+            event_stream_sha256 = $3,
+            event_stream_byte_size = $4,
+            updated_at = now()
+        WHERE id = $1
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(event_stream_object_key)
+    .bind(event_stream_sha256)
+    .bind(event_stream_byte_size as i64)
+    .execute(pool)
+    .await
+    .context("failed to update analysis run event stream metadata")?;
+
+    Ok(())
+}
+
+async fn ensure_event_types(
+    pool: &PgPool,
+    events: &[IndexedEvent],
+) -> Result<HashMap<String, i32>> {
     let mut event_type_ids = HashMap::new();
-    for event_type in PERSISTENT_MECHANIC_EVENT_TYPES {
+    let mut event_types = BTreeMap::<String, (&str, &str)>::new();
+    for event in events {
+        event_types
+            .entry(event.event_type_key.clone())
+            .or_insert((&event.display_name, &event.category));
+    }
+
+    for (key, (display_name, category)) in event_types {
         let row = sqlx::query(
             r#"
             INSERT INTO event_types (
@@ -594,14 +572,14 @@ async fn ensure_persistent_event_types(pool: &PgPool) -> Result<HashMap<&'static
             RETURNING id
             "#,
         )
-        .bind(event_type.key)
-        .bind(event_type.display_name)
-        .bind(event_type.category)
+        .bind(&key)
+        .bind(display_name)
+        .bind(category)
         .fetch_one(pool)
         .await
-        .with_context(|| format!("failed to ensure event type `{}`", event_type.key))?;
+        .with_context(|| format!("failed to ensure event type `{key}`"))?;
 
-        event_type_ids.insert(event_type.subtr_actor_kind, row.try_get("id")?);
+        event_type_ids.insert(key, row.try_get("id")?);
     }
 
     Ok(event_type_ids)
@@ -611,22 +589,16 @@ async fn insert_play_events(
     pool: &PgPool,
     analysis_run_id: Uuid,
     replay_id: Uuid,
-    events: &[MechanicEvent],
-    event_type_ids: &HashMap<&'static str, i32>,
+    events: &[IndexedEvent],
+    event_type_ids: &HashMap<String, i32>,
     replay_players: &HashMap<String, Uuid>,
 ) -> Result<()> {
     for event in events {
-        let Some(event_type_id) = event_type_ids.get(event.kind.as_str()).copied() else {
+        let Some(event_type_id) = event_type_ids.get(&event.event_type_key).copied() else {
             continue;
         };
 
         let play_event_id = Uuid::now_v7();
-        let primary_replay_player_id = replay_player_id_for_event(event, replay_players);
-        let (start_frame, end_frame, event_frame, start_time, end_time, event_time) =
-            mechanic_timing_columns(&event.timing);
-        let attributes = mechanic_event_attributes(event)?;
-        let payload =
-            serde_json::to_value(event).context("failed to serialize play event payload")?;
 
         sqlx::query(
             r#"
@@ -635,21 +607,23 @@ async fn insert_play_events(
                 analysis_run_id,
                 replay_id,
                 event_type_id,
-                primary_replay_player_id,
                 source,
                 source_event_id,
+                primary_subject_kind,
+                primary_subject_id,
                 start_frame,
                 end_frame,
                 event_frame,
                 start_time,
                 end_time,
                 event_time,
+                confidence,
                 attributes,
                 payload
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15
+                $11, $12, $13, $14, $15, $16, $17
             )
             ON CONFLICT DO NOTHING
             "#,
@@ -658,174 +632,427 @@ async fn insert_play_events(
         .bind(analysis_run_id)
         .bind(replay_id)
         .bind(event_type_id)
-        .bind(primary_replay_player_id)
-        .bind(PLAY_EVENT_SOURCE)
-        .bind(&event.id)
-        .bind(start_frame)
-        .bind(end_frame)
-        .bind(event_frame)
-        .bind(start_time)
-        .bind(end_time)
-        .bind(event_time)
-        .bind(attributes)
-        .bind(payload)
+        .bind(&event.source)
+        .bind(&event.source_event_id)
+        .bind(event.primary_subject.as_ref().map(|subject| &subject.kind))
+        .bind(event.primary_subject.as_ref().map(|subject| &subject.id))
+        .bind(event.start_frame)
+        .bind(event.end_frame)
+        .bind(event.event_frame)
+        .bind(event.start_time)
+        .bind(event.end_time)
+        .bind(event.event_time)
+        .bind(event.confidence)
+        .bind(&event.attributes)
+        .bind(&event.payload)
         .execute(pool)
         .await
         .context("failed to insert play event")?;
 
-        if let Some(replay_player_id) = primary_replay_player_id {
+        for subject in &event.subjects {
             sqlx::query(
                 r#"
-                INSERT INTO play_event_players (
+                INSERT INTO play_event_subjects (
                     event_id,
+                    subject_kind,
+                    subject_id,
                     replay_player_id,
                     role
                 )
-                VALUES ($1, $2, 'actor')
+                VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT DO NOTHING
                 "#,
             )
             .bind(play_event_id)
-            .bind(replay_player_id)
+            .bind(&subject.kind)
+            .bind(&subject.id)
+            .bind(resolve_replay_player_id(subject, replay_players))
+            .bind(&subject.role)
             .execute(pool)
             .await
-            .context("failed to insert play event player")?;
+            .context("failed to insert play event subject")?;
         }
     }
 
     Ok(())
 }
 
-async fn insert_mechanic_events(
-    pool: &PgPool,
-    analysis_run_id: Uuid,
-    replay_id: Uuid,
-    file_sha256: &str,
-    events: &[MechanicEvent],
-) -> Result<()> {
-    for event in events {
-        let mechanic_event_id = Uuid::now_v7();
-        let player_id = player_id_to_string(
-            serde_json::to_value(&event.player_id)
-                .context("failed to serialize mechanic event player id")?,
-        )?;
-        let team = if event.is_team_0 { 0_i32 } else { 1_i32 };
-        let (start_frame, end_frame, event_frame, start_time, end_time, event_time) =
-            mechanic_timing_columns(&event.timing);
-        let payload =
-            serde_json::to_value(event).context("failed to serialize mechanic event payload")?;
-        let stable_fingerprint = mechanic_event_fingerprint(
-            file_sha256,
-            &event.kind,
-            &player_id,
-            start_frame,
-            end_frame,
-            event_frame,
-        );
+fn build_indexed_events(
+    replay_data: &Value,
+    mechanics: &[MechanicEvent],
+) -> Result<Vec<IndexedEvent>> {
+    let mut events = Vec::new();
+    append_exact_events(
+        &mut events,
+        replay_data,
+        "touch_events",
+        "ball.touch",
+        "Ball touch",
+        "touch",
+        "touch",
+    )?;
+    append_exact_events(
+        &mut events,
+        replay_data,
+        "boost_pad_events",
+        "boost.pad_event",
+        "Boost pad event",
+        "boost",
+        "boost_pad",
+    )?;
+    append_exact_events(
+        &mut events,
+        replay_data,
+        "demolish_infos",
+        "core.demo",
+        "Demo",
+        "core",
+        "demo",
+    )?;
+    append_exact_events(
+        &mut events,
+        replay_data,
+        "dodge_refreshed_events",
+        "movement.dodge_refresh",
+        "Dodge refresh",
+        "movement",
+        "dodge_refresh",
+    )?;
+    append_exact_events(
+        &mut events,
+        replay_data,
+        "goal_events",
+        "core.goal",
+        "Goal",
+        "core",
+        "goal",
+    )?;
+    append_player_stat_events(&mut events, replay_data)?;
 
-        sqlx::query(
-            r#"
-            INSERT INTO mechanic_events (
-                id,
-                analysis_run_id,
-                index_profile_id,
-                replay_id,
-                mechanic,
-                detector,
-                detector_version,
-                subject_kind,
-                subject_id,
-                player_id,
-                team,
-                start_frame,
-                end_frame,
-                event_frame,
-                start_time,
-                end_time,
-                event_time,
-                stable_fingerprint,
-                payload
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6, $7, 'player', $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17, $18
-            )
-            ON CONFLICT DO NOTHING
-            "#,
-        )
-        .bind(mechanic_event_id)
-        .bind(analysis_run_id)
-        .bind(DEFAULT_INDEX_PROFILE_ID)
-        .bind(replay_id)
-        .bind(&event.kind)
-        .bind("subtr-actor:stats-timeline")
-        .bind(option_env!("SUBTR_ACTOR_GIT_SHA"))
-        .bind(&player_id)
-        .bind(&player_id)
-        .bind(team)
-        .bind(start_frame)
-        .bind(end_frame)
-        .bind(event_frame)
-        .bind(start_time)
-        .bind(end_time)
-        .bind(event_time)
-        .bind(stable_fingerprint)
-        .bind(payload)
-        .execute(pool)
-        .await
-        .context("failed to insert mechanic event")?;
+    for event in mechanics {
+        events.push(indexed_mechanic_event(event)?);
+    }
+
+    Ok(events)
+}
+
+fn append_exact_events(
+    events: &mut Vec<IndexedEvent>,
+    replay_data: &Value,
+    field: &str,
+    event_type_key: &str,
+    display_name: &str,
+    category: &str,
+    source_kind: &str,
+) -> Result<()> {
+    let Some(items) = replay_data.get(field).and_then(Value::as_array) else {
+        return Ok(());
+    };
+
+    for (index, payload) in items.iter().enumerate() {
+        let payload = payload.clone();
+        let source_event_id = format!("{source_kind}:{index}");
+        let event_frame = int_value(&payload, &["frame", "frame_number"]);
+        let event_time = float_value(&payload, &["time"]);
+        let primary_subject = exact_primary_subject(source_kind, &payload)?;
+        let subjects = primary_subject.iter().cloned().collect::<Vec<_>>();
+
+        events.push(IndexedEvent {
+            event_type_key: event_type_key.to_owned(),
+            display_name: display_name.to_owned(),
+            category: category.to_owned(),
+            source: REPLAY_DATA_SOURCE.to_owned(),
+            source_event_id,
+            primary_subject,
+            subjects,
+            start_frame: event_frame,
+            end_frame: event_frame,
+            event_frame,
+            start_time: event_time,
+            end_time: event_time,
+            event_time,
+            confidence: None,
+            attributes: exact_event_attributes(source_kind, &payload),
+            payload: None,
+        });
     }
 
     Ok(())
 }
 
-async fn upsert_replay_analysis_state(
-    pool: &PgPool,
-    analysis_run_id: Uuid,
-    replay_id: Uuid,
-    file_sha256: &str,
-) -> Result<()> {
-    sqlx::query(
-        r#"
-        INSERT INTO replay_analysis_states (
-            replay_id,
-            index_profile_id,
-            active_analysis_run_id,
-            desired_extractor_name,
-            desired_extractor_version,
-            desired_config_hash,
-            desired_input_file_sha256,
-            needs_reanalysis,
-            needs_reindex,
-            stale_reason,
-            updated_at
-        )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, false, false, NULL, now())
-        ON CONFLICT (replay_id, index_profile_id)
-        DO UPDATE SET
-            active_analysis_run_id = EXCLUDED.active_analysis_run_id,
-            desired_extractor_name = EXCLUDED.desired_extractor_name,
-            desired_extractor_version = EXCLUDED.desired_extractor_version,
-            desired_config_hash = EXCLUDED.desired_config_hash,
-            desired_input_file_sha256 = EXCLUDED.desired_input_file_sha256,
-            needs_reanalysis = false,
-            needs_reindex = false,
-            stale_reason = NULL,
-            updated_at = now()
-        "#,
-    )
-    .bind(replay_id)
-    .bind(DEFAULT_INDEX_PROFILE_ID)
-    .bind(analysis_run_id)
-    .bind(DEFAULT_EXTRACTOR_NAME)
-    .bind(env!("CARGO_PKG_VERSION"))
-    .bind(DEFAULT_CONFIG_HASH)
-    .bind(file_sha256)
-    .execute(pool)
-    .await
-    .context("failed to upsert replay analysis state")?;
+fn append_player_stat_events(events: &mut Vec<IndexedEvent>, replay_data: &Value) -> Result<()> {
+    let Some(items) = replay_data
+        .get("player_stat_events")
+        .and_then(Value::as_array)
+    else {
+        return Ok(());
+    };
+
+    for (index, payload) in items.iter().enumerate() {
+        let payload = payload.clone();
+        let kind = payload
+            .get("kind")
+            .and_then(serialized_variant_name)
+            .unwrap_or("stat");
+        let key_suffix = kind.to_ascii_lowercase();
+        let event_type_key = format!("core.{key_suffix}");
+        let event_frame = int_value(&payload, &["frame", "frame_number"]);
+        let event_time = float_value(&payload, &["time"]);
+        let primary_subject = player_subject_from_field(&payload, "player", "actor")?;
+        let subjects = primary_subject.iter().cloned().collect::<Vec<_>>();
+
+        events.push(IndexedEvent {
+            event_type_key,
+            display_name: display_name_from_key(kind),
+            category: "core".to_owned(),
+            source: REPLAY_DATA_SOURCE.to_owned(),
+            source_event_id: format!("player_stat:{index}"),
+            primary_subject,
+            subjects,
+            start_frame: event_frame,
+            end_frame: event_frame,
+            event_frame,
+            start_time: event_time,
+            end_time: event_time,
+            event_time,
+            confidence: None,
+            attributes: exact_event_attributes("player_stat", &payload),
+            payload: None,
+        });
+    }
 
     Ok(())
+}
+
+fn indexed_mechanic_event(event: &MechanicEvent) -> Result<IndexedEvent> {
+    let player_id = remote_id_value_to_subject_id(
+        &serde_json::to_value(&event.player_id)
+            .context("failed to serialize mechanic event player id")?,
+    )?;
+    let (start_frame, end_frame, event_frame, start_time, end_time, event_time) =
+        mechanic_timing_columns(&event.timing);
+    let mut attributes = mechanic_event_attributes(event)?;
+    if let Value::Object(attributes) = &mut attributes {
+        attributes.insert(
+            "team".to_owned(),
+            Value::from(if event.is_team_0 { 0 } else { 1 }),
+        );
+    }
+
+    Ok(IndexedEvent {
+        event_type_key: format!("mechanic.{}", event.kind),
+        display_name: display_name_from_key(&event.kind),
+        category: "mechanic".to_owned(),
+        source: STATS_TIMELINE_SOURCE.to_owned(),
+        source_event_id: event.id.clone(),
+        primary_subject: Some(EventSubject {
+            kind: "player".to_owned(),
+            id: player_id.clone(),
+            role: "actor".to_owned(),
+        }),
+        subjects: vec![EventSubject {
+            kind: "player".to_owned(),
+            id: player_id,
+            role: "actor".to_owned(),
+        }],
+        start_frame,
+        end_frame,
+        event_frame,
+        start_time,
+        end_time,
+        event_time,
+        confidence: None,
+        attributes,
+        payload: Some(serde_json::to_value(event).context("failed to serialize mechanic event")?),
+    })
+}
+
+fn exact_primary_subject(source_kind: &str, payload: &Value) -> Result<Option<EventSubject>> {
+    match source_kind {
+        "touch" => player_subject_from_field(payload, "player", "actor").or_else(|_| {
+            Ok(
+                bool_value(payload, &["team_is_team_0"]).map(|is_team_0| EventSubject {
+                    kind: "team".to_owned(),
+                    id: team_subject_id(is_team_0),
+                    role: "actor".to_owned(),
+                }),
+            )
+        }),
+        "goal" => player_subject_from_field(payload, "player", "scorer").or_else(|_| {
+            Ok(
+                bool_value(payload, &["scoring_team_is_team_0"]).map(|is_team_0| EventSubject {
+                    kind: "team".to_owned(),
+                    id: team_subject_id(is_team_0),
+                    role: "scoring_team".to_owned(),
+                }),
+            )
+        }),
+        "demo" => player_subject_from_field(payload, "attacker", "attacker"),
+        "dodge_refresh" => player_subject_from_field(payload, "player", "actor"),
+        "boost_pad" => {
+            stringish_value(payload, &["pad_id", "boost_pad_id", "actor_id"]).map(|id| {
+                id.map(|id| EventSubject {
+                    kind: "boost_pad".to_owned(),
+                    id,
+                    role: "pad".to_owned(),
+                })
+            })
+        }
+        _ => Ok(None),
+    }
+}
+
+fn player_subject_from_field(
+    payload: &Value,
+    field: &str,
+    role: &str,
+) -> Result<Option<EventSubject>> {
+    payload
+        .get(field)
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            remote_id_value_to_subject_id(value).map(|id| EventSubject {
+                kind: "player".to_owned(),
+                id,
+                role: role.to_owned(),
+            })
+        })
+        .transpose()
+}
+
+fn exact_event_attributes(source_kind: &str, payload: &Value) -> Value {
+    let mut attributes = Map::new();
+    if let Some(is_team_0) = bool_value(payload, &["team_is_team_0", "is_team_0"]) {
+        attributes.insert(
+            "team".to_owned(),
+            Value::from(if is_team_0 { 0 } else { 1 }),
+        );
+    }
+    if let Some(is_team_0) = bool_value(payload, &["scoring_team_is_team_0"]) {
+        attributes.insert(
+            "scoring_team".to_owned(),
+            Value::from(if is_team_0 { 0 } else { 1 }),
+        );
+    }
+    if source_kind == "player_stat" {
+        if let Some(kind) = payload.get("kind").and_then(serialized_variant_name) {
+            attributes.insert("kind".to_owned(), Value::String(kind.to_owned()));
+        }
+    }
+    if let Some(distance) = float_value(payload, &["closest_approach_distance"]) {
+        attributes.insert(
+            "closest_approach_distance".to_owned(),
+            Value::from(distance),
+        );
+    }
+    Value::Object(attributes)
+}
+
+fn remote_id_value_to_subject_id(value: &Value) -> Result<String> {
+    let Value::Object(object) = value else {
+        return Ok(format!("unknown:{value}"));
+    };
+    let Some((kind, value)) = object.iter().next() else {
+        return Ok("unknown:null".to_owned());
+    };
+    let platform = match kind.as_str() {
+        "PlayStation" => "ps4",
+        "PsyNet" => "psynet",
+        "SplitScreen" => "splitscreen",
+        "Steam" => "steam",
+        "Switch" => "switch",
+        "Xbox" => "xbox",
+        "QQ" => "qq",
+        "Epic" => "epic",
+        other => {
+            return Ok(format!(
+                "{}:{}",
+                other.to_ascii_lowercase(),
+                json_scalar_text(value)?
+            ))
+        }
+    };
+    Ok(format!("{platform}:{}", json_scalar_text(value)?))
+}
+
+fn json_scalar_text(value: &Value) -> Result<String> {
+    match value {
+        Value::String(value) => Ok(value.clone()),
+        Value::Number(value) => Ok(value.to_string()),
+        other => serde_json::to_string(other).context("failed to stringify JSON scalar"),
+    }
+}
+
+fn serialized_variant_name(value: &Value) -> Option<&str> {
+    value
+        .as_str()
+        .or_else(|| value.as_object()?.keys().next().map(String::as_str))
+}
+
+fn int_value(value: &Value, keys: &[&str]) -> Option<i32> {
+    keys.iter().find_map(|key| {
+        value
+            .get(*key)
+            .and_then(Value::as_i64)
+            .and_then(|number| i32::try_from(number).ok())
+    })
+}
+
+fn float_value(value: &Value, keys: &[&str]) -> Option<f64> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_f64))
+        .filter(|value| value.is_finite())
+}
+
+fn bool_value(value: &Value, keys: &[&str]) -> Option<bool> {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_bool))
+}
+
+fn stringish_value(value: &Value, keys: &[&str]) -> Result<Option<String>> {
+    keys.iter()
+        .find_map(|key| value.get(*key))
+        .map(json_scalar_text)
+        .transpose()
+}
+
+fn team_subject_id(is_team_0: bool) -> String {
+    if is_team_0 {
+        "0".to_owned()
+    } else {
+        "1".to_owned()
+    }
+}
+
+fn resolve_replay_player_id(
+    subject: &EventSubject,
+    replay_players: &HashMap<String, Uuid>,
+) -> Option<Uuid> {
+    (subject.kind == "player")
+        .then(|| replay_players.get(&subject.id).copied())
+        .flatten()
+}
+
+fn display_name_from_key(key: &str) -> String {
+    key.split(['.', '_', '-'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn event_stream_object_key(file_sha256: &str, analysis_run_id: Uuid) -> String {
+    format!("event-streams/sha256/{file_sha256}/{analysis_run_id}.json")
+}
+
+fn subtr_actor_version() -> &'static str {
+    option_env!("SUBTR_ACTOR_VERSION").unwrap_or("unknown")
 }
 
 type MechanicTimingColumns = (
@@ -875,42 +1102,6 @@ fn mechanic_event_attributes(event: &MechanicEvent) -> Result<Value> {
     }
 
     Ok(Value::Object(attributes))
-}
-
-fn player_id_to_string(value: Value) -> Result<String> {
-    let Value::Object(object) = value else {
-        return Ok(format!("Unknown:{value}"));
-    };
-    let Some((kind, value)) = object.into_iter().next() else {
-        return Ok("Unknown:null".to_owned());
-    };
-    match value {
-        Value::String(value) => Ok(format!("{kind}:{value}")),
-        Value::Number(value) => Ok(format!("{kind}:{value}")),
-        other => Ok(format!(
-            "{kind}:{}",
-            serde_json::to_string(&other).context("failed to stringify player id")?
-        )),
-    }
-}
-
-fn mechanic_event_fingerprint(
-    file_sha256: &str,
-    mechanic: &str,
-    player_id: &str,
-    start_frame: Option<i32>,
-    end_frame: Option<i32>,
-    event_frame: Option<i32>,
-) -> String {
-    sha256_hex(
-        format!(
-            "{file_sha256}:{mechanic}:{player_id}:{}:{}:{}",
-            start_frame.unwrap_or(-1),
-            end_frame.unwrap_or(-1),
-            event_frame.unwrap_or(-1)
-        )
-        .as_bytes(),
-    )
 }
 
 async fn mark_analysis_run_succeeded(pool: &PgPool, analysis_run_id: Uuid) -> Result<()> {

@@ -100,8 +100,7 @@ pub async fn proxy_ballchasing_replay_file(
         response.headers_mut(),
         CONTENT_DISPOSITION,
         upstream.content_disposition.as_deref().unwrap_or(&format!(
-            "attachment; filename=\"{}.replay\"",
-            ballchasing_replay_id
+            "attachment; filename=\"{ballchasing_replay_id}.replay\""
         )),
     );
 

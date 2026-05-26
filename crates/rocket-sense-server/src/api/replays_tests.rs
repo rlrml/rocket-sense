@@ -195,46 +195,13 @@ fn replay_select_includes_uploader_profile() {
 }
 
 #[test]
-fn replay_select_includes_players_and_latest_stats() {
+fn replay_select_includes_players_without_stats_blob_join() {
     let sql = replay_select_sql("WHERE r.id = $1");
 
     assert!(sql.contains("jsonb_build_object"));
     assert!(sql.contains("FROM replay_players player"));
-    assert!(sql.contains("FROM replay_stat_blobs blob"));
-    assert!(sql.contains("blob.analysis_run_id = r.canonical_analysis_run_id"));
-    assert!(sql.contains("latest_stats.stats AS latest_stats"));
-}
-
-#[test]
-fn replay_metadata_falls_back_to_latest_stats_headers() {
-    let stats = serde_json::json!({
-        "replay_meta": {
-            "all_headers": [
-                ["Playlist", { "Int": 11 }],
-                ["MapName", { "Name": "Stadium_P" }],
-                ["Date", { "Str": "2026-05-23 05-50-00" }],
-                ["Season", { "Int": 21 }],
-                ["OvertimeSeconds", { "Float": 28.4 }]
-            ]
-        }
-    });
-
-    assert_eq!(
-        replay_playlist_from_stats(Some(&stats)).as_deref(),
-        Some("ranked-doubles")
-    );
-    assert_eq!(
-        replay_map_code_from_stats(Some(&stats)).as_deref(),
-        Some("Stadium_P")
-    );
-    assert_eq!(
-        replay_date_from_stats(Some(&stats))
-            .map(|date| date.to_rfc3339())
-            .as_deref(),
-        Some("2026-05-23T05:50:00+00:00")
-    );
-    assert_eq!(season_from_stats(&stats).as_deref(), Some("Season 21"));
-    assert_eq!(overtime_seconds_from_stats(&stats), Some(28));
+    assert!(!sql.contains("replay_stat_blobs"));
+    assert!(!sql.contains("latest_stats"));
 }
 
 #[test]

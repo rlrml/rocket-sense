@@ -11,6 +11,7 @@ edition.workspace = true
 anyhow.workspace = true
 axum.workspace = true
 boxcars.workspace = true
+bytes.workspace = true
 chrono.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true

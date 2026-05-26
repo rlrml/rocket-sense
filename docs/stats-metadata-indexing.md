@@ -1,86 +1,97 @@
-# Stats Metadata Indexing
+# Event Stream Indexing
 
-Rocket Sense stores replay-derived stats in two layers:
+Rocket Sense stores replay-derived analysis in two layers:
 
-- The full stats output is stored as an authoritative blob tied to an
-  `analysis_runs` row.
-- A selected subset of stats and mechanic detections is projected into
-  searchable index tables tied to both the analysis run and an index profile.
+- The complete event stream is serialized to object storage and tied to an
+  immutable `analysis_runs` row.
+- Searchable events are projected into `play_events` and `play_event_subjects`
+  as lean index rows.
 
-This keeps stat iteration cheap. When `subtr-actor`, extractor code, or index
-profile configuration changes, existing blobs and projections can be marked
-stale without changing the database shape. The indexed tables are rebuildable
-cache data; the stat blob and its analysis-run provenance are the durable record.
+The event stream is the durable replay-processing output. Database rows are an
+index over that stream, not a second aggregate-stat product. If indexing policy
+changes, rows can be rebuilt from a new run without preserving old projection
+tables.
 
 ## Versioning
 
-Each `analysis_runs` row records the code and configuration that produced a stat
-blob:
+Each `analysis_runs` row records the provenance for one serialized event stream:
 
 - extractor name and version
 - extractor git SHA when available
 - `subtr-actor` version and git SHA when available
 - Rocket Sense git SHA when available
 - input replay file SHA-256
-- analysis config hash
-- stats schema version
+- event stream schema version
+- event stream object key, SHA-256, and byte size once processing succeeds
 
-`replay_analysis_states` tracks the desired extractor/config state for a replay
-and index profile. It gives workers a simple queue for reanalysis or reindexing
-while still allowing staleness to be audited from immutable run metadata.
+`replays.canonical_analysis_run_id` points at the active analysis run for normal
+queries. Older runs can remain for audit or debugging, but user-facing event
+queries should filter through the canonical run.
 
 ## Processing
 
-The initial implementation starts processing from the upload request by spawning
-a Tokio task after the replay bytes and metadata have been committed. The task
-marks the replay `parsing`, creates an `analysis_runs` row, runs aggregate
-`subtr-actor` stats on a blocking thread, writes `replay_stat_blobs`, then marks
-the replay `parsed` or `failed`.
+The upload processor creates an `analysis_runs` row, runs `subtr-actor`, builds
+an event stream, writes that stream to object storage, and then indexes selected
+events into Postgres. It also updates replay metadata and replay-player rows.
 
-This is intentionally not a durable queue. A crash can lose in-flight work, and
-there is no startup sweep yet. That is acceptable for the first pass because the
-database schema already has enough run/state metadata to grow into a stronger
-worker later without changing the stat blob/index model.
+The initial worker still runs as a spawned Tokio task after upload commit. This
+is not a durable queue; a crash can lose in-flight work. The schema keeps enough
+run provenance to support a stronger worker later without changing the event
+stream model.
 
 Set `ROCKET_SENSE_PROCESS_REPLAYS_IN_BACKGROUND=false` to disable the spawned
 processor.
 
-## Blobs
+## Event Stream Blob
 
-`replay_stat_blobs.stats` is JSONB so aggregate stats remain queryable for
-debugging and ad-hoc inspection. Large frame/timeline artifacts should stay in
-object storage via `replay_objects`; the blob table should hold replay-level,
-team-level, and player-level aggregate output.
+The serialized event stream contains replay metadata, exact replay-data events,
+and timeline-derived events. It should remain the canonical output for analysis.
+High-volume or highly-shaped payloads belong here first.
 
-## Indexed Facts
+Object storage keeps the full stream out of hot Postgres tables while still
+making it feasible to re-index, inspect, or export a complete replay analysis.
+The `replay_objects` table records the stored object; raw replay storage remains
+owned by `replays.storage_key` and is not removed by analysis migrations.
 
-`indexed_stat_facts` is intentionally generic:
+## Indexed Events
 
-- `subject_kind` and `subject_id` describe whether a fact belongs to the replay,
-  a team, a player, or a later segment.
-- `stat_key` is a stable dotted key such as `boost.bpm` or
-  `touch.touch_count`.
-- `labels` holds optional stat dimensions as a JSON object.
-- exactly one typed value column is populated.
+`play_events` is the canonical event index table:
 
-This table should contain only stats selected by the active index profile. New
-stats do not require migrations unless they need a new query shape that the
-generic fact model cannot express.
+- `event_type_id` references `event_types`, whose keys are stable dotted names
+  such as `ball.touch`, `boost.pad_event`, and `mechanic.flip_reset`.
+- `source` identifies the producing subsystem, such as exact replay data or a
+  timeline detector.
+- `source_event_id` gives stable identity within the event stream when known.
+- subject columns identify the primary replay, team, player, ball, boost pad, or
+  segment involved.
+- frame/time columns support replay seeking and range queries.
+- `attributes` holds small indexed dimensions.
+- `payload` is optional and should only contain compact detail needed directly
+  by indexed workflows.
 
-## Mechanics
+`play_event_subjects` stores secondary participants and normalized player
+appearance links. It should be used when an event has multiple players, teams,
+or objects involved.
 
-Mechanic detections use `mechanic_events` rather than only stat facts because
-they have time spans, players, detector provenance, confidence, and payloads.
-`replay_mechanic_rollups` is the fast path for replay-level searches such as
-"at least two flip resets" or "any ceiling shot with confidence over 0.8".
+## Indexing Policy
 
-See [Mechanic Events and Review Design](mechanic-events-review-design.md) for
-the event identity, point/span semantics, review metadata, and review playlist
-model.
+The current policy indexes exact gameplay events and mechanic detections as lean
+rows. Full payloads remain in the serialized event stream unless a product query
+needs a compact copy in Postgres.
+
+Measured fixture volumes from `subtr-actor` v0.8.14 support indexing touches by
+default: touches averaged about 124 per replay, with a fixture maximum of 209.
+Boost pad events were higher volume, averaging about 1,414 per replay and
+peaking at 3,521, so they should stay lean and avoid per-row payload expansion.
+
+Rocket Sense is still pre-compatibility, so old aggregate stat tables, index
+profiles, and mechanic-specific event tables can be removed in favor of this
+single event model. Aggregates should be computed from `play_events` or from
+the serialized stream when needed, rather than persisted as the primary output.
 
 ## Query Policy
 
-Search endpoints should use indexed projections for normal queries. If a stat is
-not present in the active index profile, the API should report that the stat is
-not indexed rather than silently scanning every blob. Slow JSONB blob inspection
-can exist as an explicit debugging/admin path.
+Normal API queries should use `play_events` filtered to the replay's canonical
+analysis run. Queries that need the entire replay output should fetch the event
+stream blob. Slow blob scans can exist as explicit debugging or admin paths, but
+not as hidden fallbacks for ordinary search.

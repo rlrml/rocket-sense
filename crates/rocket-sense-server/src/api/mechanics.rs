@@ -674,16 +674,16 @@ pub async fn create_mechanic_event_review(
         r#"
         WITH target_event AS (
             SELECT id, replay_id
-            FROM mechanic_events
+            FROM play_events
             WHERE id = $1
         )
-        INSERT INTO mechanic_event_reviews (
+        INSERT INTO event_reviews (
             id,
-            mechanic_event_id,
+            event_id,
             replay_id,
             reviewer_user_id,
             status,
-            reviewed_mechanic,
+            reviewed_event_type_key,
             reviewed_subject_kind,
             reviewed_subject_id,
             reviewed_start_frame,
@@ -707,7 +707,7 @@ pub async fn create_mechanic_event_review(
             $11,
             $12
         FROM target_event
-        RETURNING id, mechanic_event_id, replay_id, reviewer_user_id, status, created_at
+        RETURNING id, event_id AS mechanic_event_id, replay_id, reviewer_user_id, status, created_at
         "#,
     )
     .bind(event_id)
@@ -959,6 +959,19 @@ impl MechanicEventFilters {
             offset,
         })
     }
+
+    fn mechanic_event_type_keys(&self) -> Vec<String> {
+        self.mechanics
+            .iter()
+            .map(|mechanic| {
+                if mechanic.starts_with("mechanic.") {
+                    mechanic.clone()
+                } else {
+                    format!("mechanic.{mechanic}")
+                }
+            })
+            .collect()
+    }
 }
 
 fn mechanic_review_playlist_url(filters: &MechanicEventFilters) -> String {
@@ -1141,10 +1154,10 @@ async fn find_mechanic_events(
             event.id,
             event.replay_id,
             event.analysis_run_id,
-            event.mechanic,
-            event.detector,
-            event.player_id,
-            event.team,
+            regexp_replace(event_type.key, '^mechanic\.', '') AS mechanic,
+            event.source AS detector,
+            event.primary_subject_id AS player_id,
+            (event.attributes->>'team')::integer AS team,
             event.start_frame,
             event.end_frame,
             event.event_frame,
@@ -1152,22 +1165,25 @@ async fn find_mechanic_events(
             event.end_time,
             event.event_time,
             event.confidence,
-            event.reason,
-            event.payload,
+            NULL::text AS reason,
+            COALESCE(event.payload, '{}'::jsonb) AS payload,
             event.created_at,
             review.id AS latest_review_id,
             review.status AS review_status
-        FROM mechanic_events event
+        FROM play_events event
+        JOIN event_types event_type
+          ON event_type.id = event.event_type_id
         JOIN replays replay
           ON replay.id = event.replay_id
         LEFT JOIN LATERAL (
             SELECT id, status
-            FROM mechanic_event_reviews
-            WHERE mechanic_event_id = event.id
+            FROM event_reviews
+            WHERE event_id = event.id
             ORDER BY created_at DESC
             LIMIT 1
         ) review ON TRUE
         WHERE event.analysis_run_id = replay.canonical_analysis_run_id
+          AND event_type.category = 'mechanic'
         "#,
     );
 
@@ -1178,14 +1194,15 @@ async fn find_mechanic_events(
             .push(")");
     }
     if !filters.mechanics.is_empty() {
+        let mechanic_event_type_keys = filters.mechanic_event_type_keys();
         builder
-            .push(" AND event.mechanic = ANY(")
-            .push_bind(&filters.mechanics)
+            .push(" AND event_type.key = ANY(")
+            .push_bind(mechanic_event_type_keys)
             .push(")");
     }
     if !filters.detectors.is_empty() {
         builder
-            .push(" AND event.detector = ANY(")
+            .push(" AND event.source = ANY(")
             .push_bind(&filters.detectors)
             .push(")");
     }
@@ -1193,7 +1210,9 @@ async fn find_mechanic_events(
         builder.push(" AND event.replay_id = ").push_bind(replay_id);
     }
     if let Some(player_id) = &filters.player_id {
-        builder.push(" AND event.player_id = ").push_bind(player_id);
+        builder
+            .push(" AND event.primary_subject_kind = 'player' AND event.primary_subject_id = ")
+            .push_bind(player_id);
     }
     if let Some(confidence) = filters.min_confidence {
         builder

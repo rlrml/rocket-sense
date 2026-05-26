@@ -9,10 +9,9 @@ use axum::{
     routing::get,
     Json, Router,
 };
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::{DateTime, Utc};
 use rocket_sense_storage::{raw_replay_key, replay_mime_type, sha256_hex, StorageError};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use sqlx::types::Json as SqlxJson;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
@@ -1147,9 +1146,9 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.playlist,
             r.map_code,
             r.replay_date,
+            r.season,
             r.has_pro_player,
             COALESCE(players.players, '[]'::jsonb) AS players,
-            latest_stats.stats AS latest_stats,
             r.parse_status,
             r.created_at,
             r.updated_at
@@ -1169,12 +1168,6 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             FROM replay_players player
             WHERE player.replay_id = r.id
         ) players ON TRUE
-        LEFT JOIN LATERAL (
-            SELECT blob.stats
-            FROM replay_stat_blobs blob
-            WHERE blob.analysis_run_id = r.canonical_analysis_run_id
-            LIMIT 1
-        ) latest_stats ON TRUE
         {where_clause}
         "#
     )
@@ -1183,18 +1176,14 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
 pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::Error> {
     let byte_size: i64 = row.try_get("byte_size")?;
     let parse_status: String = row.try_get("parse_status")?;
-    let latest_stats: Option<Value> = row.try_get("latest_stats")?;
-    let players = replay_players_from_row(&row, latest_stats.as_ref())?;
-    let summary = replay_summary_from_stats(latest_stats.as_ref());
-    let playlist = row
-        .try_get::<Option<String>, _>("playlist")?
-        .or_else(|| replay_playlist_from_stats(latest_stats.as_ref()));
-    let map_code = row
-        .try_get::<Option<String>, _>("map_code")?
-        .or_else(|| replay_map_code_from_stats(latest_stats.as_ref()));
-    let replay_date = row
-        .try_get::<Option<DateTime<Utc>>, _>("replay_date")?
-        .or_else(|| replay_date_from_stats(latest_stats.as_ref()));
+    let players = replay_players_from_row(&row)?;
+    let summary = ReplaySummaryResponse {
+        season: row.try_get("season").unwrap_or(None),
+        ..ReplaySummaryResponse::default()
+    };
+    let playlist = row.try_get::<Option<String>, _>("playlist")?;
+    let map_code = row.try_get::<Option<String>, _>("map_code")?;
+    let replay_date = row.try_get::<Option<DateTime<Utc>>, _>("replay_date")?;
     let uploaded_by = row
         .try_get::<Option<Uuid>, _>("uploader_id")?
         .map(|id| -> Result<ReplayUploaderResponse, sqlx::Error> {
@@ -1230,324 +1219,9 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
 
 fn replay_players_from_row(
     row: &sqlx::postgres::PgRow,
-    latest_stats: Option<&Value>,
 ) -> Result<Vec<ReplayPlayerResponse>, sqlx::Error> {
-    let SqlxJson(mut players): SqlxJson<Vec<ReplayPlayerResponse>> = row.try_get("players")?;
-    if players.is_empty() {
-        players = replay_players_from_stats(latest_stats);
-    }
-
+    let SqlxJson(players): SqlxJson<Vec<ReplayPlayerResponse>> = row.try_get("players")?;
     Ok(players)
-}
-
-fn replay_players_from_stats(latest_stats: Option<&Value>) -> Vec<ReplayPlayerResponse> {
-    let Some(stats) = latest_stats else {
-        return Vec::new();
-    };
-
-    let mut players = Vec::new();
-    for (team_key, team) in [("team_zero", 0_i32), ("team_one", 1_i32)] {
-        let Some(team_players) = stats
-            .pointer(&format!("/replay_meta/{team_key}"))
-            .and_then(Value::as_array)
-        else {
-            continue;
-        };
-
-        players.extend(team_players.iter().map(|player| {
-            ReplayPlayerResponse {
-                name: player
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned),
-                platform: None,
-                platform_player_id: player
-                    .get("remote_id")
-                    .and_then(remote_id_text)
-                    .map(str::to_owned),
-                team: Some(team),
-                is_pro: false,
-            }
-        }));
-    }
-
-    players
-}
-
-fn replay_summary_from_stats(latest_stats: Option<&Value>) -> ReplaySummaryResponse {
-    let Some(stats) = latest_stats else {
-        return ReplaySummaryResponse::default();
-    };
-
-    ReplaySummaryResponse {
-        team_scores: ReplayTeamScoresResponse {
-            blue: int_at(stats, "/modules/core/team_zero/goals"),
-            orange: int_at(stats, "/modules/core/team_one/goals"),
-        },
-        duration_seconds: duration_seconds_from_stats(stats),
-        overtime_seconds: overtime_seconds_from_stats(stats),
-        match_guid: match_guid_from_stats(stats),
-        season: season_from_stats(stats),
-    }
-}
-
-fn replay_playlist_from_stats(latest_stats: Option<&Value>) -> Option<String> {
-    replay_header_text(
-        latest_stats?,
-        &["Playlist", "PlaylistName", "GamePlaylist", "MatchType"],
-    )
-    .map(normalize_playlist_value)
-}
-
-fn replay_map_code_from_stats(latest_stats: Option<&Value>) -> Option<String> {
-    replay_header_text(latest_stats?, &["MapName", "Map", "LevelName"])
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-}
-
-fn replay_date_from_stats(latest_stats: Option<&Value>) -> Option<DateTime<Utc>> {
-    replay_header_text(latest_stats?, &["Date", "ReplayDate", "RecordDate"])
-        .and_then(|value| parse_replay_date_text(&value))
-}
-
-fn season_from_stats(stats: &Value) -> Option<String> {
-    replay_header_text(
-        stats,
-        &[
-            "SeasonLabel",
-            "SeasonName",
-            "Season",
-            "CompetitiveSeason",
-            "RocketLeagueSeason",
-        ],
-    )
-    .map(normalize_season_value)
-    .filter(|value| !value.is_empty())
-}
-
-fn replay_header_text(stats: &Value, preferred_keys: &[&str]) -> Option<String> {
-    let headers = stats
-        .pointer("/replay_meta/all_headers")
-        .and_then(Value::as_array)?;
-
-    preferred_keys.iter().find_map(|preferred_key| {
-        headers.iter().find_map(|header| {
-            let entries = header.as_array()?;
-            let key = entries.first()?.as_str()?;
-            if !key.eq_ignore_ascii_case(preferred_key) {
-                return None;
-            }
-
-            header_prop_value_text(entries.get(1)?)
-        })
-    })
-}
-
-fn header_prop_value_text(value: &Value) -> Option<String> {
-    if let Some(text) = value.as_str() {
-        return Some(text.to_owned());
-    }
-
-    if let Some(number) = value.as_i64() {
-        return Some(number.to_string());
-    }
-
-    if let Some(number) = value.as_u64() {
-        return Some(number.to_string());
-    }
-
-    if let Some(number) = value.as_f64() {
-        return Some(number.to_string());
-    }
-
-    if let Some(boolean) = value.as_bool() {
-        return Some(boolean.to_string());
-    }
-
-    if let Some(array) = value.as_array() {
-        return array.iter().find_map(header_prop_value_text);
-    }
-
-    if let Some(object) = value.as_object() {
-        return object.values().find_map(header_prop_value_text);
-    }
-
-    None
-}
-
-fn normalize_playlist_value(value: String) -> String {
-    let trimmed = value.trim();
-    let key = trimmed
-        .to_ascii_lowercase()
-        .replace(['_', '-'], " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    match key.as_str() {
-        "1" | "duel" | "duels" | "casual duel" | "casual duels" | "unranked duel"
-        | "unranked duels" => "unranked-duels".to_owned(),
-        "2" | "doubles" | "casual doubles" | "unranked doubles" => "unranked-doubles".to_owned(),
-        "3" | "standard" | "casual standard" | "unranked standard" => {
-            "unranked-standard".to_owned()
-        }
-        "4" | "chaos" | "casual chaos" | "unranked chaos" => "unranked-chaos".to_owned(),
-        "10" | "ranked duel" | "ranked duels" => "ranked-duels".to_owned(),
-        "11" | "ranked doubles" => "ranked-doubles".to_owned(),
-        "12" | "ranked solo standard" => "ranked-solo-standard".to_owned(),
-        "13" | "ranked standard" => "ranked-standard".to_owned(),
-        "27" | "hoops" | "ranked hoops" => "ranked-hoops".to_owned(),
-        "28" | "rumble" | "ranked rumble" => "ranked-rumble".to_owned(),
-        "29" | "dropshot" | "ranked dropshot" => "ranked-dropshot".to_owned(),
-        "30" | "snowday" | "snow day" | "ranked snowday" | "ranked snow day" => {
-            "ranked-snowday".to_owned()
-        }
-        "private" => "private".to_owned(),
-        "season" => "season".to_owned(),
-        "offline" => "offline".to_owned(),
-        "tournament" => "tournament".to_owned(),
-        "rocket labs" | "rocketlabs" => "rocketlabs".to_owned(),
-        "dropshot rumble" => "dropshot-rumble".to_owned(),
-        "heatseeker" => "heatseeker".to_owned(),
-        _ => trimmed.to_owned(),
-    }
-}
-
-fn normalize_season_value(value: String) -> String {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-
-    if trimmed.to_ascii_lowercase().starts_with("season") {
-        trimmed.to_owned()
-    } else {
-        format!("Season {trimmed}")
-    }
-}
-
-fn parse_replay_date_text(value: &str) -> Option<DateTime<Utc>> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    DateTime::parse_from_rfc3339(trimmed)
-        .map(|date| date.with_timezone(&Utc))
-        .ok()
-        .or_else(|| {
-            DateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S %z")
-                .map(|date| date.with_timezone(&Utc))
-                .ok()
-        })
-        .or_else(|| {
-            [
-                "%Y-%m-%d %H-%M-%S",
-                "%Y-%m-%d %H:%M:%S",
-                "%Y.%m.%d %H.%M.%S",
-                "%m/%d/%Y %H:%M:%S",
-            ]
-            .iter()
-            .find_map(|format| {
-                NaiveDateTime::parse_from_str(trimmed, format)
-                    .map(|date| DateTime::from_naive_utc_and_offset(date, Utc))
-                    .ok()
-            })
-        })
-}
-
-fn int_at(value: &Value, pointer: &str) -> Option<i32> {
-    value
-        .pointer(pointer)
-        .and_then(Value::as_i64)
-        .and_then(|number| i32::try_from(number).ok())
-}
-
-fn duration_seconds_from_stats(stats: &Value) -> Option<u32> {
-    let timeline = stats
-        .pointer("/modules/core/timeline")
-        .and_then(Value::as_array)?;
-    let duration = timeline
-        .iter()
-        .filter_map(|event| event.get("time").and_then(Value::as_f64))
-        .filter(|time| time.is_finite() && *time >= 0.0)
-        .fold(None, |max_time: Option<f64>, time| {
-            Some(max_time.map_or(time, |current| current.max(time)))
-        })?;
-
-    Some(duration.round() as u32)
-}
-
-fn overtime_seconds_from_stats(stats: &Value) -> Option<u32> {
-    replay_header_text(
-        stats,
-        &[
-            "OvertimeSeconds",
-            "OvertimeTime",
-            "Overtime",
-            "OvertimeLength",
-            "OTSeconds",
-        ],
-    )
-    .and_then(|value| parse_positive_seconds(&value))
-}
-
-fn parse_positive_seconds(value: &str) -> Option<u32> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let seconds = trimmed.parse::<f64>().ok().or_else(|| {
-        let (minutes, seconds) = trimmed.split_once(':')?;
-        Some(minutes.trim().parse::<f64>().ok()? * 60.0 + seconds.trim().parse::<f64>().ok()?)
-    })?;
-
-    (seconds.is_finite() && seconds > 0.0).then_some(seconds.round() as u32)
-}
-
-fn match_guid_from_stats(stats: &Value) -> Option<String> {
-    let headers = stats
-        .pointer("/replay_meta/all_headers")
-        .and_then(Value::as_array)?;
-    let preferred_keys = ["Id", "MatchGUID", "MatchGuid", "MatchId", "GameEvent"];
-
-    preferred_keys.iter().find_map(|preferred_key| {
-        headers.iter().find_map(|header| {
-            let entries = header.as_array()?;
-            let key = entries.first()?.as_str()?;
-            if key != *preferred_key {
-                return None;
-            }
-
-            header_prop_text(entries.get(1)?).map(str::to_owned)
-        })
-    })
-}
-
-fn header_prop_text(value: &Value) -> Option<&str> {
-    if let Some(text) = value.as_str() {
-        return Some(text);
-    }
-
-    if let Some(array) = value.as_array() {
-        return array.iter().find_map(header_prop_text);
-    }
-
-    if let Some(object) = value.as_object() {
-        for key in ["Str", "String", "Name", "QWord", "Guid", "Id", "value"] {
-            if let Some(text) = object.get(key).and_then(header_prop_text) {
-                return Some(text);
-            }
-        }
-        return object.values().find_map(header_prop_text);
-    }
-
-    None
-}
-
-fn remote_id_text(value: &Value) -> Option<&str> {
-    header_prop_text(value)
 }
 
 const SUBTR_ACTOR_VIEWER_INDEX: &str = include_str!("../../static/subtr-actor/index.html");
