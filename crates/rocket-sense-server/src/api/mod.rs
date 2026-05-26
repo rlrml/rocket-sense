@@ -1,3 +1,4 @@
+mod admin;
 mod auth;
 mod ballchasing;
 mod health;
@@ -25,6 +26,7 @@ pub fn router(state: AppState) -> Router {
 
 fn api_v1_router(state: AppState) -> Router {
     Router::new()
+        .merge(admin::router())
         .merge(auth::router())
         .merge(ballchasing::router())
         .merge(health::router())

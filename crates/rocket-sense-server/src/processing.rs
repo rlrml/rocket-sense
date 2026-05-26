@@ -13,6 +13,7 @@ use subtr_actor::{
     MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo, ReplayDataCollector,
     ReplayMeta, StatsCollector,
 };
+use tokio::task::JoinSet;
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -75,6 +76,29 @@ struct ReplaySearchPlayer {
     is_pro: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReplayReprocessOptions {
+    pub replay_ids: Vec<Uuid>,
+    pub force: bool,
+    pub concurrency: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplayReprocessSummary {
+    pub matched_replays: usize,
+    pub enqueued_replays: usize,
+    pub skipped_replays: usize,
+    pub concurrency: usize,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ReplayProcessingTarget {
+    replay_id: Uuid,
+    file_sha256: String,
+    storage_key: String,
+}
+
 pub fn spawn_replay_processing(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
@@ -88,6 +112,182 @@ pub fn spawn_replay_processing(
             tracing::error!(%replay_id, error = %error, "replay background processing failed");
         }
     });
+}
+
+pub async fn enqueue_replay_reprocessing(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    options: ReplayReprocessOptions,
+) -> Result<ReplayReprocessSummary> {
+    let concurrency = options.concurrency.clamp(1, 4);
+    let targets = reprocess_targets(&pool, &options).await?;
+    let enqueued_replays = targets.len();
+    if !targets.is_empty() {
+        spawn_reprocess_worker(pool, storage, targets, concurrency);
+    }
+
+    Ok(ReplayReprocessSummary {
+        matched_replays: enqueued_replays,
+        enqueued_replays,
+        skipped_replays: 0,
+        concurrency,
+        force: options.force,
+    })
+}
+
+fn spawn_reprocess_worker(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    targets: Vec<ReplayProcessingTarget>,
+    concurrency: usize,
+) {
+    tokio::spawn(async move {
+        let total = targets.len();
+        let mut pending = targets.into_iter();
+        let mut tasks = JoinSet::new();
+        let mut succeeded = 0usize;
+        let mut failed = 0usize;
+
+        loop {
+            while tasks.len() < concurrency {
+                let Some(target) = pending.next() else {
+                    break;
+                };
+                let pool = pool.clone();
+                let storage = storage.clone();
+                tasks.spawn(async move {
+                    let replay_id = target.replay_id;
+                    let result = process_replay(
+                        pool,
+                        storage,
+                        replay_id,
+                        target.file_sha256,
+                        target.storage_key,
+                    )
+                    .await;
+                    (replay_id, result)
+                });
+            }
+
+            let Some(result) = tasks.join_next().await else {
+                break;
+            };
+
+            match result {
+                Ok((replay_id, Ok(()))) => {
+                    succeeded += 1;
+                    tracing::info!(
+                        %replay_id,
+                        succeeded,
+                        failed,
+                        total,
+                        "replay reprocessing succeeded"
+                    );
+                }
+                Ok((replay_id, Err(error))) => {
+                    failed += 1;
+                    tracing::error!(
+                        %replay_id,
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "replay reprocessing failed"
+                    );
+                }
+                Err(error) => {
+                    failed += 1;
+                    tracing::error!(
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "replay reprocessing task panicked"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            succeeded,
+            failed,
+            total,
+            "replay reprocessing batch finished"
+        );
+    });
+}
+
+async fn reprocess_targets(
+    pool: &PgPool,
+    options: &ReplayReprocessOptions,
+) -> Result<Vec<ReplayProcessingTarget>> {
+    let mut query = sqlx::QueryBuilder::new(
+        r#"
+        SELECT
+            r.id,
+            r.file_sha256,
+            r.storage_key
+        FROM replays r
+        "#,
+    );
+    let mut has_where = false;
+
+    if !options.replay_ids.is_empty() {
+        query.push(" WHERE r.id = ANY(");
+        query.push_bind(&options.replay_ids);
+        query.push(")");
+        has_where = true;
+    }
+
+    if !options.force {
+        if has_where {
+            query.push(" AND ");
+        } else {
+            query.push(" WHERE ");
+        }
+        query.push(
+            r#"
+            (
+                r.canonical_analysis_run_id IS NULL
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM analysis_runs ar
+                    WHERE ar.id = r.canonical_analysis_run_id
+                      AND ar.status = 'succeeded'
+                      AND ar.event_stream_schema_version =
+            "#,
+        );
+        query.push_bind(EVENT_STREAM_SCHEMA_VERSION);
+        query.push(
+            r#"
+                      AND ar.event_stream_object_key IS NOT NULL
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                )
+            )
+            "#,
+        );
+    }
+
+    query.push(" ORDER BY r.created_at, r.id");
+
+    query
+        .build()
+        .fetch_all(pool)
+        .await
+        .context("failed to list replays for reprocessing")?
+        .into_iter()
+        .map(|row| {
+            Ok(ReplayProcessingTarget {
+                replay_id: row.try_get("id")?,
+                file_sha256: row.try_get("file_sha256")?,
+                storage_key: row.try_get("storage_key")?,
+            })
+        })
+        .collect()
 }
 
 async fn process_replay(

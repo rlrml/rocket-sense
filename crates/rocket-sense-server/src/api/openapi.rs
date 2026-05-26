@@ -1,4 +1,4 @@
-use super::{auth, ballchasing, health, players, replays};
+use super::{admin, auth, ballchasing, health, players, replays};
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
@@ -7,6 +7,7 @@ use utoipa::{
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        admin::reprocess_replays,
         auth::create_dev_token,
         auth::create_profile_token,
         ballchasing::load_ballchasing_replay,
@@ -22,6 +23,8 @@ use utoipa::{
     components(
         schemas(
             auth::CreateDevTokenRequest,
+            admin::ReprocessReplaysRequest,
+            admin::ReprocessReplaysResponse,
             crate::auth::AccessToken,
             health::HealthResponse,
             players::PlayerProfileNameResponse,
@@ -38,6 +41,7 @@ use utoipa::{
     ),
     tags(
         (name = "auth", description = "Development auth endpoints"),
+        (name = "admin", description = "Administrative maintenance endpoints"),
         (name = "ballchasing", description = "Ballchasing replay loading and proxy endpoints"),
         (name = "health", description = "Service health endpoints"),
         (name = "players", description = "Player profile endpoints"),
