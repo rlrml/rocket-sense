@@ -10,8 +10,8 @@ use std::{
     sync::Arc,
 };
 use subtr_actor::{
-    MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo, ReplayDataCollector,
-    ReplayMeta, StatsTimelineEventCollector,
+    GoalTagEvent, MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo,
+    ReplayDataCollector, ReplayMeta, StatsTimelineEventCollector,
 };
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -412,7 +412,11 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         },
         "timeline_events": timeline_events_value
     });
-    let indexed_events = build_indexed_events(&replay_data_value, &timeline.events.mechanics)?;
+    let indexed_events = build_indexed_events(
+        &replay_data_value,
+        &timeline.events.mechanics,
+        &timeline.events.goal_tags,
+    )?;
 
     Ok(ReplayAnalysisOutput {
         event_stream,
@@ -893,6 +897,7 @@ async fn insert_play_events(
 fn build_indexed_events(
     replay_data: &Value,
     mechanics: &[MechanicEvent],
+    goal_tags: &[GoalTagEvent],
 ) -> Result<Vec<IndexedEvent>> {
     let mut events = Vec::new();
     append_exact_events(
@@ -944,6 +949,9 @@ fn build_indexed_events(
 
     for event in mechanics {
         events.push(indexed_mechanic_event(event)?);
+    }
+    for (index, event) in goal_tags.iter().enumerate() {
+        events.push(indexed_goal_tag_event(index, event)?);
     }
 
     Ok(events)
@@ -1077,6 +1085,60 @@ fn indexed_mechanic_event(event: &MechanicEvent) -> Result<IndexedEvent> {
         confidence: None,
         attributes,
         payload: Some(serde_json::to_value(event).context("failed to serialize mechanic event")?),
+    })
+}
+
+fn indexed_goal_tag_event(index: usize, event: &GoalTagEvent) -> Result<IndexedEvent> {
+    let payload = serde_json::to_value(event).context("failed to serialize goal tag event")?;
+    let kind = payload
+        .get("kind")
+        .and_then(serialized_variant_name)
+        .unwrap_or("goal_tag")
+        .to_owned();
+    let scorer_subject = payload
+        .get("scorer")
+        .filter(|value| !value.is_null())
+        .map(|value| {
+            remote_id_value_to_subject_id(value).map(|id| EventSubject {
+                kind: "player".to_owned(),
+                id,
+                role: "scorer".to_owned(),
+            })
+        })
+        .transpose()?;
+    let scoring_team_subject = EventSubject {
+        kind: "team".to_owned(),
+        id: team_subject_id(event.scoring_team_is_team_0),
+        role: "scoring_team".to_owned(),
+    };
+    let primary_subject = scorer_subject
+        .clone()
+        .or_else(|| Some(scoring_team_subject.clone()));
+    let mut subjects = Vec::new();
+    if let Some(subject) = scorer_subject {
+        subjects.push(subject);
+    }
+    subjects.push(scoring_team_subject);
+    let frame = i32::try_from(event.frame).ok();
+    let time = Some(f64::from(event.time));
+
+    Ok(IndexedEvent {
+        event_type_key: format!("goal_tag.{kind}"),
+        display_name: display_name_from_key(&kind),
+        category: "goal_tag".to_owned(),
+        source: STATS_TIMELINE_SOURCE.to_owned(),
+        source_event_id: format!("goal_tag:{}:{kind}:{index}", event.goal_index),
+        primary_subject,
+        subjects,
+        start_frame: frame,
+        end_frame: frame,
+        event_frame: frame,
+        start_time: time,
+        end_time: time,
+        event_time: time,
+        confidence: Some(f64::from(event.confidence)),
+        attributes: goal_tag_event_attributes(event, &payload),
+        payload: Some(payload),
     })
 }
 
@@ -1315,6 +1377,37 @@ fn mechanic_event_attributes(event: &MechanicEvent) -> Result<Value> {
     }
 
     Ok(Value::Object(attributes))
+}
+
+fn goal_tag_event_attributes(event: &GoalTagEvent, payload: &Value) -> Value {
+    let mut attributes = Map::new();
+    attributes.insert(
+        "goal_index".to_owned(),
+        serde_json::to_value(event.goal_index).unwrap_or(Value::Null),
+    );
+    attributes.insert(
+        "team".to_owned(),
+        Value::from(if event.scoring_team_is_team_0 { 0 } else { 1 }),
+    );
+    if let Some(kind) = payload.get("kind").and_then(serialized_variant_name) {
+        attributes.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    }
+    if let Some(modifiers) = payload.get("modifiers") {
+        attributes.insert("modifiers".to_owned(), modifiers.clone());
+    }
+    let evidence_kinds = payload
+        .get("evidence")
+        .and_then(Value::as_array)
+        .map(|evidence| {
+            evidence
+                .iter()
+                .filter_map(|item| item.get("kind").and_then(serialized_variant_name))
+                .map(|kind| Value::String(kind.to_owned()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    attributes.insert("evidence_kinds".to_owned(), Value::Array(evidence_kinds));
+    Value::Object(attributes)
 }
 
 async fn mark_analysis_run_succeeded(pool: &PgPool, analysis_run_id: Uuid) -> Result<()> {

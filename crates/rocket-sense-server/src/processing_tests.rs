@@ -77,3 +77,49 @@ fn normalize_playlist_returns_filter_slugs_for_common_values() {
         "Unrecognized Playlist"
     );
 }
+
+#[test]
+fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
+    let event = subtr_actor::GoalTagEvent {
+        goal_index: 2,
+        time: 123.5,
+        frame: 7410,
+        kind: subtr_actor::GoalTagKind::DoubleTapGoal,
+        scoring_team_is_team_0: false,
+        scorer: Some(RemoteId::Steam(76561198000000001)),
+        confidence: 0.85,
+        modifiers: vec![subtr_actor::GoalTagModifier::ByScorer],
+        evidence: vec![subtr_actor::GoalTagEvidence {
+            kind: subtr_actor::GoalTagEvidenceKind::DoubleTap,
+            time: 121.0,
+            frame: 7260,
+            player: Some(RemoteId::Steam(76561198000000001)),
+        }],
+    };
+
+    let indexed = indexed_goal_tag_event(3, &event).expect("goal tag should index");
+
+    assert_eq!(indexed.event_type_key, "goal_tag.double_tap_goal");
+    assert_eq!(indexed.display_name, "Double Tap Goal");
+    assert_eq!(indexed.category, "goal_tag");
+    assert_eq!(indexed.source_event_id, "goal_tag:2:double_tap_goal:3");
+    assert_eq!(indexed.event_frame, Some(7410));
+    assert_eq!(indexed.event_time, Some(123.5));
+    assert_eq!(indexed.confidence, Some(0.8500000238418579));
+    assert_eq!(
+        indexed.primary_subject.as_ref().map(|subject| (
+            subject.kind.as_str(),
+            subject.id.as_str(),
+            subject.role.as_str()
+        )),
+        Some(("player", "steam:76561198000000001", "scorer"))
+    );
+    assert!(indexed.subjects.iter().any(|subject| {
+        subject.kind == "team" && subject.id == "1" && subject.role == "scoring_team"
+    }));
+    assert_eq!(indexed.attributes["goal_index"], 2);
+    assert_eq!(indexed.attributes["team"], 1);
+    assert_eq!(indexed.attributes["kind"], "double_tap_goal");
+    assert_eq!(indexed.attributes["modifiers"][0], "by_scorer");
+    assert_eq!(indexed.attributes["evidence_kinds"][0], "double_tap");
+}
