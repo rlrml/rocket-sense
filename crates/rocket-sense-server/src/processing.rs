@@ -11,7 +11,7 @@ use std::{
 };
 use subtr_actor::{
     MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo, ReplayDataCollector,
-    ReplayMeta, StatsCollector,
+    ReplayMeta, StatsTimelineEventCollector,
 };
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -21,7 +21,7 @@ use uuid::Uuid;
 mod tests;
 
 const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
-const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v1";
+const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v2";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const REPLAY_DATA_SOURCE: &str = "subtr-actor:replay-data";
 
@@ -365,15 +365,25 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         .on_error_check_crc()
         .parse()
         .context("failed to parse replay")?;
-    let replay_data = ReplayDataCollector::new()
-        .get_replay_data(&replay)
-        .map_err(|error| anyhow!("failed to collect replay data: {error:?}"))?;
-    let timeline = StatsCollector::new()
-        .get_replay_stats_timeline(&replay)
+    let timeline = StatsTimelineEventCollector::new()
+        .get_replay_stats_timeline_scaffold(&replay)
         .map_err(|error| anyhow!("failed to collect replay event timeline: {error:?}"))?;
     let metadata = replay_search_metadata(&timeline.replay_meta);
-    let replay_data_value =
-        serde_json::to_value(&replay_data).context("failed to serialize replay data")?;
+    let (replay_data_value, replay_data_error) =
+        match ReplayDataCollector::new().get_replay_data(&replay) {
+            Ok(replay_data) => (
+                serde_json::to_value(&replay_data).context("failed to serialize replay data")?,
+                None,
+            ),
+            Err(error) => {
+                let message = format!("{error:?}");
+                tracing::warn!(
+                    error = %message,
+                    "exact replay-data event extraction failed; continuing with timeline events"
+                );
+                (Value::Object(Map::new()), Some(message))
+            }
+        };
     let timeline_events_value = serde_json::to_value(&timeline.events)
         .context("failed to serialize replay timeline events")?;
     let exact_events = replay_data_value
@@ -389,6 +399,9 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
             "rocket_sense_git_sha": option_env!("GIT_SHA")
         },
         "replay_meta": timeline.replay_meta.clone(),
+        "diagnostics": {
+            "replay_data_error": replay_data_error,
+        },
         "exact_events": {
             "boost_pad": exact_events.get("boost_pad_events").cloned().unwrap_or(Value::Array(Vec::new())),
             "demo": exact_events.get("demolish_infos").cloned().unwrap_or(Value::Array(Vec::new())),
