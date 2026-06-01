@@ -59,7 +59,8 @@
       "inputs": {
         "fenix": "fenix",
         "flake-utils": "flake-utils",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "subtr-actor-src": "subtr-actor-src"
       }
     },
     "rust-analyzer-src": {
@@ -77,6 +78,21 @@
         "ref": "nightly",
         "repo": "rust-analyzer",
         "type": "github"
+      }
+    },
+    "subtr-actor-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1779967008,
+        "narHash": "sha256-fTGzN1zi84YsnB0sYQHWcNsuEoKyJAYTd9zdD2QaY5M=",
+        "rev": "ef58130a8789159ae314550feb9c14c0ffd4a123",
+        "revCount": 826,
+        "type": "git",
+        "url": "file:./vendor/subtr-actor"
+      },
+      "original": {
+        "type": "git",
+        "url": "file:./vendor/subtr-actor"
       }
     },
     "systems": {

@@ -265,6 +265,42 @@
       background: #ffffff;
     }
 
+    .stat-table-wrap {
+      overflow-x: auto;
+      border: 1px solid #dbdbdb;
+      background: #ffffff;
+    }
+
+    .stat-table {
+      width: 100%;
+      min-width: 680px;
+      border-collapse: collapse;
+      font-size: 13px;
+      line-height: 18px;
+    }
+
+    .stat-table th,
+    .stat-table td {
+      padding: 9px 10px;
+      border-bottom: 1px solid #eeeeee;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    .stat-table th {
+      color: #536176;
+      font-size: 12px;
+      font-weight: 700;
+      background: #fafafa;
+    }
+
+    .stat-table td.number,
+    .stat-table th.number {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+      white-space: nowrap;
+    }
+
     .replay-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -543,6 +579,12 @@
       return `${minutes}:${String(remaining).padStart(2, "0")}`;
     }
 
+    function formatDecimal(value, digits = 2) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "-";
+      return number.toFixed(digits);
+    }
+
     function playlistLabel(value) {
       const raw = String(value || "").trim();
       if (!raw) return "";
@@ -563,14 +605,40 @@
 
       const names = Array.isArray(profile.names) ? profile.names : [];
       const replays = Array.isArray(profile.latest_replays) ? profile.latest_replays : [];
+      const stats = Array.isArray(profile.stats) ? profile.stats : [];
 
       content.innerHTML = `
         <div class="stats">
           <div class="stat"><span>Indexed replays</span><strong>${escapeHtml(profile.replay_count)}</strong></div>
-          <div class="stat"><span>First seen</span><strong>${escapeHtml(formatDate(profile.first_seen_at) || "-")}</strong></div>
+          <div class="stat"><span>Active time</span><strong>${escapeHtml(formatDuration(profile.active_time_seconds) || "-")}</strong></div>
+          <div class="stat"><span>Non-demo active</span><strong>${escapeHtml(formatDuration(profile.non_demo_active_time_seconds) || "-")}</strong></div>
           <div class="stat"><span>Last seen</span><strong>${escapeHtml(formatDate(profile.last_seen_at) || "-")}</strong></div>
-          <div class="stat"><span>Pro flag</span><strong>${profile.is_pro ? "Yes" : "No"}</strong></div>
         </div>
+
+        <section>
+          <h2 class="section-title">Aggregate stats</h2>
+          ${stats.length === 0 ? `<div class="empty">No canonical play events indexed for this player yet.</div>` : `
+            <div class="stat-table-wrap">
+              <table class="stat-table">
+                <thead>
+                  <tr>
+                    <th>Stat</th>
+                    <th>Category</th>
+                    <th class="number">Count</th>
+                    <th class="number">Per game</th>
+                    <th class="number">Per active min</th>
+                    <th class="number">Per non-demo min</th>
+                    <th class="number">Tm avg/game</th>
+                    <th class="number">Tm active min</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${stats.map(renderAggregateStat).join("")}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </section>
 
         <section>
           <h2 class="section-title">Names</h2>
@@ -589,6 +657,21 @@
             </ol>
           `}
         </section>
+      `;
+    }
+
+    function renderAggregateStat(stat) {
+      return `
+        <tr>
+          <td>${escapeHtml(stat.display_name || stat.key)}</td>
+          <td>${escapeHtml(stat.category || "-")}</td>
+          <td class="number">${escapeHtml(stat.event_count)}</td>
+          <td class="number">${escapeHtml(formatDecimal(stat.count_per_game))}</td>
+          <td class="number">${escapeHtml(formatDecimal(stat.per_active_minute))}</td>
+          <td class="number">${escapeHtml(formatDecimal(stat.per_non_demo_active_minute))}</td>
+          <td class="number">${escapeHtml(formatDecimal(stat.teammate_count_per_game))}</td>
+          <td class="number">${escapeHtml(formatDecimal(stat.teammate_per_active_minute))}</td>
+        </tr>
       `;
     }
 
@@ -639,7 +722,8 @@
       }
 
       try {
-        const response = await fetch(`/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`, {
+        const query = location.search || "";
+        const response = await fetch(`/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}${query}`, {
           headers: headers(),
           credentials: "same-origin"
         });

@@ -1,0 +1,3 @@
+[submodule "vendor/subtr-actor"]
+	path = vendor/subtr-actor
+	url = https://github.com/rlrml/subtr-actor.git

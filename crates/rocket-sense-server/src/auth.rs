@@ -26,6 +26,8 @@ pub struct AuthUser {
     pub provider_subject: String,
 }
 
+pub struct OptionalAuthUser(pub Option<AuthUser>);
+
 impl AuthUser {
     pub fn from_dev_email(email: String) -> Result<Self, AuthError> {
         let normalized_email = email.trim().to_lowercase();
@@ -166,6 +168,28 @@ impl FromRequestParts<AppState> for AuthUser {
             }
             AuthMode::OAuth => Err(AuthError::unauthorized("missing bearer token")),
         }
+    }
+}
+
+impl FromRequestParts<AppState> for OptionalAuthUser {
+    type Rejection = AuthError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let has_bearer_token = bearer_token(parts)?.is_some();
+        let has_session_cookie = session_cookie(parts).is_some();
+        let has_dev_user =
+            matches!(state.auth_mode, AuthMode::Dev) && dev_user_header(parts)?.is_some();
+
+        if !(has_bearer_token || has_session_cookie || has_dev_user) {
+            return Ok(Self(None));
+        }
+
+        AuthUser::from_request_parts(parts, state)
+            .await
+            .map(|user| Self(Some(user)))
     }
 }
 

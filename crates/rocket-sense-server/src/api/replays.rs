@@ -1,4 +1,8 @@
-use crate::{app::AppState, auth::AuthUser, processing::spawn_replay_processing};
+use crate::{
+    app::AppState,
+    auth::{AuthUser, OptionalAuthUser},
+    processing::spawn_replay_processing,
+};
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State},
     http::{
@@ -30,6 +34,17 @@ pub fn router() -> Router<AppState> {
         )
         .route("/replays/{replay_id}/file", get(download_replay_file))
         .route("/replays/{replay_id}", get(get_replay))
+        .route(
+            "/replay-groups",
+            get(list_replay_groups).post(create_replay_group),
+        )
+        .route("/replay-groups/{group_id}", get(get_replay_group))
+        .route(
+            "/replay-groups/{group_id}/replays",
+            get(list_replay_group_replays)
+                .post(add_replay_group_replays)
+                .delete(remove_replay_group_replays),
+        )
 }
 
 pub fn public_router() -> Router<AppState> {
@@ -97,6 +112,9 @@ pub struct ReplayPlayerResponse {
     pub platform_player_id: Option<String>,
     pub team: Option<i32>,
     pub is_pro: bool,
+    pub active_time_seconds: Option<f64>,
+    pub time_demolished_seconds: Option<f64>,
+    pub non_demo_active_time_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -147,7 +165,46 @@ pub struct ListReplaysResponse {
     pub next_offset: Option<u32>,
 }
 
-#[derive(Debug, Deserialize, IntoParams)]
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateReplayGroupRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub project_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReplayGroupReplayUpdateRequest {
+    #[serde(default)]
+    pub replay_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub file_sha256s: Vec<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayGroupResponse {
+    pub id: Uuid,
+    pub project_id: Option<Uuid>,
+    pub name: String,
+    pub description: Option<String>,
+    pub created_by_user_id: Option<Uuid>,
+    pub replay_count: u64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ListReplayGroupsResponse {
+    pub groups: Vec<ReplayGroupResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayGroupReplayUpdateResponse {
+    pub group: ReplayGroupResponse,
+    pub matched_replays: u64,
+    pub changed_replays: u64,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub struct ListReplaysQuery {
     /// Text search over original filename, SHA-256, and external replay id.
@@ -167,8 +224,10 @@ pub struct ListReplaysQuery {
     pub pro: Option<bool>,
     /// `me` for the authenticated user, or a Rocket Sense user UUID.
     pub uploader: Option<String>,
-    /// Rocket Sense project id. This is the closest current equivalent to a Ballchasing group.
+    /// Rocket Sense replay group id.
     pub group: Option<String>,
+    /// Rocket Sense project id.
+    pub project: Option<String>,
     /// Filter by one or more map codes.
     #[serde(default, rename = "map")]
     pub maps: Vec<String>,
@@ -314,20 +373,17 @@ pub async fn create_replay(
     responses(
         (status = 200, description = "Replay list", body = ListReplaysResponse),
         (status = 400, description = "Replay filters were invalid"),
-        (status = 401, description = "Authentication required"),
+        (status = 401, description = "Authentication was invalid or required for the selected filter"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn list_replays(
-    auth_user: AuthUser,
+    OptionalAuthUser(auth_user): OptionalAuthUser,
     State(state): State<AppState>,
     Query(query): Query<ListReplaysQuery>,
 ) -> Result<Json<ListReplaysResponse>, ApiError> {
     let db = require_db(&state)?;
-    let filters = ReplayFilters::from_query(query, auth_user.id)?;
+    let filters = ReplayFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
     let total = count_replays(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -415,6 +471,274 @@ pub async fn get_replay_by_sha256(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
 
     Ok(Json(replay))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/replay-groups",
+    tag = "replay-groups",
+    responses(
+        (status = 200, description = "Replay groups", body = ListReplayGroupsResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_replay_groups(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<ListReplayGroupsResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let groups = load_replay_groups(db).await.map_err(ApiError::internal)?;
+
+    Ok(Json(ListReplayGroupsResponse { groups }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replay-groups",
+    tag = "replay-groups",
+    request_body = CreateReplayGroupRequest,
+    responses(
+        (status = 200, description = "Created replay group", body = ReplayGroupResponse),
+        (status = 400, description = "Replay group request was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn create_replay_group(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<CreateReplayGroupRequest>,
+) -> Result<Json<ReplayGroupResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let name = validate_replay_group_name(&request.name)?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let group_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO replay_groups (
+            id,
+            project_id,
+            name,
+            description,
+            created_by_user_id
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        "#,
+    )
+    .bind(group_id)
+    .bind(request.project_id)
+    .bind(name)
+    .bind(request.description.filter(|value| !value.trim().is_empty()))
+    .bind(auth_user.id)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(group))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/replay-groups/{group_id}",
+    tag = "replay-groups",
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Replay group", body = ReplayGroupResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn get_replay_group(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<ReplayGroupResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(group))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/replay-groups/{group_id}/replays",
+    tag = "replay-groups",
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Replay group replays", body = ListReplaysResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_replay_group_replays(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<ListReplaysResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group(db, group_id).await?;
+    let total = count_replay_group_replays(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
+    let replays = load_replay_group_replays(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(ListReplaysResponse {
+        count: replays.len() as u32,
+        offset: 0,
+        total,
+        next_offset: None,
+        replays,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replay-groups/{group_id}/replays",
+    tag = "replay-groups",
+    request_body = ReplayGroupReplayUpdateRequest,
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Replay group update result", body = ReplayGroupReplayUpdateResponse),
+        (status = 400, description = "Replay group update request was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn add_replay_group_replays(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+    Json(request): Json<ReplayGroupReplayUpdateRequest>,
+) -> Result<Json<ReplayGroupReplayUpdateResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group(db, group_id).await?;
+    let replay_ids = resolve_replay_group_update_replays(db, &request).await?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let mut changed_replays = 0u64;
+    for replay_id in &replay_ids {
+        let result = sqlx::query(
+            r#"
+            INSERT INTO replay_group_replays (
+                group_id,
+                replay_id,
+                added_by_user_id
+            )
+            VALUES ($1, $2, $3)
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(group_id)
+        .bind(replay_id)
+        .bind(auth_user.id)
+        .execute(db)
+        .await
+        .map_err(ApiError::internal)?;
+        changed_replays += result.rows_affected();
+    }
+
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(ReplayGroupReplayUpdateResponse {
+        group,
+        matched_replays: replay_ids.len() as u64,
+        changed_replays,
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/replay-groups/{group_id}/replays",
+    tag = "replay-groups",
+    request_body = ReplayGroupReplayUpdateRequest,
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Replay group update result", body = ReplayGroupReplayUpdateResponse),
+        (status = 400, description = "Replay group update request was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn remove_replay_group_replays(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+    Json(request): Json<ReplayGroupReplayUpdateRequest>,
+) -> Result<Json<ReplayGroupReplayUpdateResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group(db, group_id).await?;
+    let replay_ids = resolve_replay_group_update_replays(db, &request).await?;
+    let result = sqlx::query(
+        r#"
+        DELETE FROM replay_group_replays
+        WHERE group_id = $1
+          AND replay_id = ANY($2)
+        "#,
+    )
+    .bind(group_id)
+    .bind(&replay_ids)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(ReplayGroupReplayUpdateResponse {
+        group,
+        matched_replays: replay_ids.len() as u64,
+        changed_replays: result.rows_affected(),
+    }))
 }
 
 #[utoipa::path(
@@ -568,6 +892,7 @@ struct ReplayFilters {
     maps: Vec<String>,
     pro: Option<bool>,
     uploader_user_id: Option<Uuid>,
+    group_id: Option<Uuid>,
     project_id: Option<Uuid>,
     status: Option<String>,
     created_after: Option<DateTime<Utc>>,
@@ -581,7 +906,7 @@ struct ReplayFilters {
 }
 
 impl ReplayFilters {
-    fn from_query(query: ListReplaysQuery, auth_user_id: Uuid) -> Result<Self, ApiError> {
+    fn from_query(query: ListReplaysQuery, auth_user_id: Option<Uuid>) -> Result<Self, ApiError> {
         let search = query
             .q
             .or(query.title)
@@ -591,9 +916,13 @@ impl ReplayFilters {
             .uploader
             .map(|uploader| parse_uploader_filter(&uploader, auth_user_id))
             .transpose()?;
-        let project_id = query
+        let group_id = query
             .group
             .map(|group| parse_group_filter(&group))
+            .transpose()?;
+        let project_id = query
+            .project
+            .map(|project| parse_project_filter(&project))
             .transpose()?;
 
         Ok(Self {
@@ -610,6 +939,7 @@ impl ReplayFilters {
             maps: normalize_terms(query.maps),
             pro: query.pro,
             uploader_user_id,
+            group_id,
             project_id,
             status: query
                 .status
@@ -699,10 +1029,15 @@ pub(super) fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
     })
 }
 
-fn parse_uploader_filter(value: &str, auth_user_id: Uuid) -> Result<Uuid, ApiError> {
+fn parse_uploader_filter(value: &str, auth_user_id: Option<Uuid>) -> Result<Uuid, ApiError> {
     let value = value.trim();
     if value == "me" {
-        return Ok(auth_user_id);
+        return auth_user_id.ok_or_else(|| {
+            ApiError::new(
+                StatusCode::UNAUTHORIZED,
+                "uploader=me requires authentication",
+            )
+        });
     }
 
     Uuid::parse_str(value)
@@ -711,7 +1046,12 @@ fn parse_uploader_filter(value: &str, auth_user_id: Uuid) -> Result<Uuid, ApiErr
 
 fn parse_group_filter(value: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value.trim())
-        .map_err(|_| ApiError::bad_request("group must be a Rocket Sense project UUID for now"))
+        .map_err(|_| ApiError::bad_request("group must be a Rocket Sense replay group UUID"))
+}
+
+fn parse_project_filter(value: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(value.trim())
+        .map_err(|_| ApiError::bad_request("project must be a Rocket Sense project UUID"))
 }
 
 fn parse_player_id_filter(value: &str) -> Result<PlayerIdFilter, ApiError> {
@@ -780,93 +1120,7 @@ struct StaticAsset {
     bytes: &'static [u8],
 }
 
-fn subtr_actor_static_asset(path: &str) -> Option<StaticAsset> {
-    match path {
-        "index-CuFV7-xb.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/index-CuFV7-xb.js"),
-        }),
-        "main-CwtZ1J5U.css" => Some(StaticAsset {
-            content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/main-CwtZ1J5U.css"),
-        }),
-        "main-B052gX83.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/main-B052gX83.js"),
-        }),
-        "replayLoader.worker-CIl194Oz.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!(
-                "../../static/subtr-actor/assets/replayLoader.worker-CIl194Oz.js"
-            ),
-        }),
-        "rl_replay_subtr_actor_bg-YX0244DR.wasm" => Some(StaticAsset {
-            content_type: "application/wasm",
-            bytes: include_bytes!(
-                "../../static/subtr-actor/assets/rl_replay_subtr_actor_bg-YX0244DR.wasm"
-            ),
-        }),
-        "wasm.worker-Bowh_BHh.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/assets/wasm.worker-Bowh_BHh.js"),
-        }),
-        _ => None,
-    }
-}
-
-fn subtr_actor_stats_static_asset(path: &str) -> Option<StaticAsset> {
-    match path {
-        "index-Dcp27w41.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-Dcp27w41.js"),
-        }),
-        "index-Bw2_Ha6f.css" => Some(StaticAsset {
-            content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/index-Bw2_Ha6f.css"),
-        }),
-        "replayLoader.worker-CIl194Oz.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/replayLoader.worker-CIl194Oz.js"
-            ),
-        }),
-        "rl_replay_subtr_actor_bg-YX0244DR.wasm" => Some(StaticAsset {
-            content_type: "application/wasm",
-            bytes: include_bytes!(
-                "../../static/subtr-actor/stats/assets/rl_replay_subtr_actor_bg-YX0244DR.wasm"
-            ),
-        }),
-        "wasm.worker-Bowh_BHh.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/stats/assets/wasm.worker-Bowh_BHh.js"),
-        }),
-        _ => None,
-    }
-}
-
-fn subtr_actor_review_static_asset(path: &str) -> Option<StaticAsset> {
-    match path {
-        "index-LlPJfRPh.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/review/assets/index-LlPJfRPh.js"),
-        }),
-        "index-Dy-Q3BHC.css" => Some(StaticAsset {
-            content_type: "text/css; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/review/assets/index-Dy-Q3BHC.css"),
-        }),
-        "rl_replay_subtr_actor_bg-YX0244DR.wasm" => Some(StaticAsset {
-            content_type: "application/wasm",
-            bytes: include_bytes!(
-                "../../static/subtr-actor/review/assets/rl_replay_subtr_actor_bg-YX0244DR.wasm"
-            ),
-        }),
-        "wasm.worker-Bowh_BHh.js" => Some(StaticAsset {
-            content_type: "application/javascript; charset=utf-8",
-            bytes: include_bytes!("../../static/subtr-actor/review/assets/wasm.worker-Bowh_BHh.js"),
-        }),
-        _ => None,
-    }
-}
+include!(concat!(env!("OUT_DIR"), "/subtr_actor_static_assets.rs"));
 
 fn storage_read_error(error: StorageError) -> ApiError {
     match &error {
@@ -930,6 +1184,167 @@ async fn find_replay_by_sha256(
         .await?
         .map(replay_from_row)
         .transpose()
+}
+
+async fn load_replay_groups(pool: &PgPool) -> Result<Vec<ReplayGroupResponse>, sqlx::Error> {
+    let rows = sqlx::query(replay_group_select_sql("").as_str())
+        .fetch_all(pool)
+        .await?;
+
+    rows.into_iter().map(replay_group_from_row).collect()
+}
+
+async fn load_replay_group(
+    pool: &PgPool,
+    group_id: Uuid,
+) -> Result<Option<ReplayGroupResponse>, sqlx::Error> {
+    let sql = replay_group_select_sql("WHERE replay_group.id = $1");
+    sqlx::query(sql.as_str())
+        .bind(group_id)
+        .fetch_optional(pool)
+        .await?
+        .map(replay_group_from_row)
+        .transpose()
+}
+
+async fn require_replay_group(pool: &PgPool, group_id: Uuid) -> Result<(), ApiError> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM replay_groups WHERE id = $1)")
+            .bind(group_id)
+            .fetch_one(pool)
+            .await
+            .map_err(ApiError::internal)?;
+    if exists {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "replay group not found",
+        ))
+    }
+}
+
+async fn count_replay_group_replays(pool: &PgPool, group_id: Uuid) -> Result<u64, sqlx::Error> {
+    let total: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM replay_group_replays
+        WHERE group_id = $1
+        "#,
+    )
+    .bind(group_id)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(total.max(0) as u64)
+}
+
+async fn load_replay_group_replays(
+    pool: &PgPool,
+    group_id: Uuid,
+) -> Result<Vec<ReplayResponse>, sqlx::Error> {
+    let sql = replay_select_sql(
+        r#"
+        JOIN replay_group_replays group_replay
+          ON group_replay.replay_id = r.id
+        WHERE group_replay.group_id = $1
+        ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC
+        "#,
+    );
+
+    let rows = sqlx::query(sql.as_str())
+        .bind(group_id)
+        .fetch_all(pool)
+        .await?;
+
+    rows.into_iter().map(replay_from_row).collect()
+}
+
+async fn resolve_replay_group_update_replays(
+    pool: &PgPool,
+    request: &ReplayGroupReplayUpdateRequest,
+) -> Result<Vec<Uuid>, ApiError> {
+    let file_sha256s = request
+        .file_sha256s
+        .iter()
+        .map(|sha256| normalize_sha256_hex(sha256))
+        .collect::<Result<Vec<_>, _>>()?;
+    if request.replay_ids.is_empty() && file_sha256s.is_empty() {
+        return Err(ApiError::bad_request(
+            "replay group update must include at least one replay id or sha256",
+        ));
+    }
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id
+        FROM replays
+        WHERE id = ANY($1)
+           OR file_sha256 = ANY($2)
+        "#,
+    )
+    .bind(&request.replay_ids)
+    .bind(&file_sha256s)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    let mut replay_ids = rows
+        .into_iter()
+        .map(|row| row.try_get("id"))
+        .collect::<Result<Vec<Uuid>, _>>()
+        .map_err(ApiError::internal)?;
+    replay_ids.sort();
+    replay_ids.dedup();
+
+    Ok(replay_ids)
+}
+
+fn validate_replay_group_name(value: &str) -> Result<String, ApiError> {
+    let name = value.trim();
+    if name.is_empty() {
+        return Err(ApiError::bad_request("replay group name must not be empty"));
+    }
+
+    Ok(name.to_owned())
+}
+
+fn replay_group_select_sql(where_clause: &str) -> String {
+    format!(
+        r#"
+        SELECT
+            replay_group.id,
+            replay_group.project_id,
+            replay_group.name,
+            replay_group.description,
+            replay_group.created_by_user_id,
+            COALESCE(replay_counts.replay_count, 0) AS replay_count,
+            replay_group.created_at,
+            replay_group.updated_at
+        FROM replay_groups replay_group
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS replay_count
+            FROM replay_group_replays group_replay
+            WHERE group_replay.group_id = replay_group.id
+        ) replay_counts ON TRUE
+        {where_clause}
+        ORDER BY replay_group.updated_at DESC, replay_group.created_at DESC, replay_group.name
+        "#
+    )
+}
+
+fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupResponse, sqlx::Error> {
+    let replay_count: i64 = row.try_get("replay_count")?;
+
+    Ok(ReplayGroupResponse {
+        id: row.try_get("id")?,
+        project_id: row.try_get("project_id")?,
+        name: row.try_get("name")?,
+        description: row.try_get("description")?,
+        created_by_user_id: row.try_get("created_by_user_id")?,
+        replay_count: replay_count.max(0) as u64,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
 }
 
 fn maybe_spawn_replay_processing(state: &AppState, db: &PgPool, replay: &ReplayResponse) {
@@ -1095,6 +1510,14 @@ fn append_replay_filters<'args>(
             .push_bind(uploader_user_id);
     }
 
+    if let Some(group_id) = filters.group_id {
+        builder.push(
+            " AND EXISTS (SELECT 1 FROM replay_group_replays list_group WHERE list_group.replay_id = r.id AND list_group.group_id = ",
+        );
+        builder.push_bind(group_id);
+        builder.push(")");
+    }
+
     if let Some(project_id) = filters.project_id {
         builder.push(" AND r.project_id = ").push_bind(project_id);
     }
@@ -1147,6 +1570,11 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.map_code,
             r.replay_date,
             r.season,
+            r.duration_seconds,
+            r.overtime_seconds,
+            r.team_zero_score,
+            r.team_one_score,
+            r.match_guid,
             r.has_pro_player,
             COALESCE(players.players, '[]'::jsonb) AS players,
             r.parse_status,
@@ -1161,7 +1589,11 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
                     'platform', player.platform,
                     'platform_player_id', player.platform_player_id,
                     'team', player.team,
-                    'is_pro', player.is_pro
+                    'is_pro', player.is_pro,
+                    'active_time_seconds', player.active_time_seconds,
+                    'time_demolished_seconds', player.time_demolished_seconds,
+                    'non_demo_active_time_seconds',
+                        GREATEST(player.active_time_seconds - COALESCE(player.time_demolished_seconds, 0.0), 0.0)
                 )
                 ORDER BY player.team NULLS LAST, player.name NULLS LAST
             ) AS players
@@ -1179,7 +1611,13 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
     let players = replay_players_from_row(&row)?;
     let summary = ReplaySummaryResponse {
         season: row.try_get("season").unwrap_or(None),
-        ..ReplaySummaryResponse::default()
+        duration_seconds: optional_seconds_to_u32(row.try_get("duration_seconds").unwrap_or(None)),
+        overtime_seconds: optional_seconds_to_u32(row.try_get("overtime_seconds").unwrap_or(None)),
+        match_guid: row.try_get("match_guid").unwrap_or(None),
+        team_scores: ReplayTeamScoresResponse {
+            blue: row.try_get("team_zero_score").unwrap_or(None),
+            orange: row.try_get("team_one_score").unwrap_or(None),
+        },
     };
     let playlist = row.try_get::<Option<String>, _>("playlist")?;
     let map_code = row.try_get::<Option<String>, _>("map_code")?;
@@ -1222,6 +1660,12 @@ fn replay_players_from_row(
 ) -> Result<Vec<ReplayPlayerResponse>, sqlx::Error> {
     let SqlxJson(players): SqlxJson<Vec<ReplayPlayerResponse>> = row.try_get("players")?;
     Ok(players)
+}
+
+fn optional_seconds_to_u32(value: Option<f64>) -> Option<u32> {
+    value
+        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
+        .map(|seconds| seconds.round().min(f64::from(u32::MAX)) as u32)
 }
 
 const SUBTR_ACTOR_VIEWER_INDEX: &str = include_str!("../../static/subtr-actor/index.html");

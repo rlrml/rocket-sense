@@ -29,7 +29,7 @@ fn replay_search_metadata_extracts_headers_and_players() {
         ],
     };
 
-    let metadata = replay_search_metadata(&replay_meta);
+    let metadata = replay_search_metadata_from_meta(&replay_meta);
 
     assert_eq!(metadata.playlist.as_deref(), Some("ranked-doubles"));
     assert_eq!(metadata.map_code.as_deref(), Some("Stadium_P"));

@@ -11,10 +11,13 @@ use std::{
 };
 use subtr_actor::{
     GoalTagEvent, MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo,
-    ReplayDataCollector, ReplayMeta, StatsTimelineEventCollector,
+    ReplayDataCollector, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
 };
 use tokio::task::JoinSet;
 use uuid::Uuid;
+
+#[cfg(test)]
+use subtr_actor::ReplayMeta;
 
 #[cfg(test)]
 #[path = "processing_tests.rs"]
@@ -58,23 +61,38 @@ struct EventSubject {
     role: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 struct ReplaySearchMetadata {
     playlist: Option<String>,
     map_code: Option<String>,
     replay_date: Option<DateTime<Utc>>,
+    summary: ReplaySummaryMetadata,
     has_pro_player: bool,
     players: Vec<ReplaySearchPlayer>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ReplaySummaryMetadata {
+    duration_seconds: Option<f64>,
+    overtime_seconds: Option<f64>,
+    team_zero_score: Option<i32>,
+    team_one_score: Option<i32>,
+    match_guid: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct ReplaySearchPlayer {
     name: String,
     platform: Option<String>,
     platform_player_id: Option<String>,
     team: i32,
     is_pro: bool,
+    active_time_seconds: Option<OrderedFloat>,
+    time_demolished_seconds: Option<OrderedFloat>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct OrderedFloat(f64);
 
 #[derive(Debug, Clone)]
 pub struct ReplayReprocessOptions {
@@ -368,7 +386,7 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
     let timeline = StatsTimelineEventCollector::new()
         .get_replay_stats_timeline_scaffold(&replay)
         .map_err(|error| anyhow!("failed to collect replay event timeline: {error:?}"))?;
-    let metadata = replay_search_metadata(&timeline.replay_meta);
+    let metadata = replay_search_metadata(&timeline);
     let (replay_data_value, replay_data_error) =
         match ReplayDataCollector::new().get_replay_data(&replay) {
             Ok(replay_data) => (
@@ -425,7 +443,46 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
     })
 }
 
-fn replay_search_metadata(replay_meta: &ReplayMeta) -> ReplaySearchMetadata {
+fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearchMetadata {
+    let replay_meta = &timeline.replay_meta;
+    let playlist = header_text(
+        &replay_meta.all_headers,
+        &["Playlist", "PlaylistName", "GamePlaylist", "MatchType"],
+    )
+    .map(normalize_playlist);
+    let map_code = header_text(&replay_meta.all_headers, &["MapName", "Map", "LevelName"])
+        .map(normalize_header_value);
+    let replay_date = header_text(
+        &replay_meta.all_headers,
+        &["Date", "ReplayDate", "RecordDate"],
+    )
+    .and_then(|value| parse_replay_date(&value));
+    let mut players = replay_meta
+        .team_zero
+        .iter()
+        .map(|player| replay_search_player(player, 0))
+        .chain(
+            replay_meta
+                .team_one
+                .iter()
+                .map(|player| replay_search_player(player, 1)),
+        )
+        .collect::<Vec<_>>();
+    apply_player_timing_metadata(&mut players, timeline);
+    let has_pro_player = players.iter().any(|player| player.is_pro);
+
+    ReplaySearchMetadata {
+        playlist,
+        map_code,
+        replay_date,
+        summary: replay_summary_metadata(timeline),
+        has_pro_player,
+        players,
+    }
+}
+
+#[cfg(test)]
+fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMetadata {
     let playlist = header_text(
         &replay_meta.all_headers,
         &["Playlist", "PlaylistName", "GamePlaylist", "MatchType"],
@@ -455,6 +512,7 @@ fn replay_search_metadata(replay_meta: &ReplayMeta) -> ReplaySearchMetadata {
         playlist,
         map_code,
         replay_date,
+        summary: ReplaySummaryMetadata::default(),
         has_pro_player,
         players,
     }
@@ -469,7 +527,88 @@ fn replay_search_player(player: &PlayerInfo, team: i32) -> ReplaySearchPlayer {
         platform_player_id,
         team,
         is_pro: false,
+        active_time_seconds: None,
+        time_demolished_seconds: None,
     }
+}
+
+fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySummaryMetadata {
+    let last_frame = timeline.frames.last();
+    let duration_seconds = last_frame
+        .map(|frame| f64::from(frame.time))
+        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+    let overtime_seconds = last_frame
+        .and_then(|frame| frame.seconds_remaining)
+        .filter(|seconds_remaining| *seconds_remaining < 0)
+        .map(|seconds_remaining| f64::from(-seconds_remaining));
+
+    ReplaySummaryMetadata {
+        duration_seconds,
+        overtime_seconds,
+        team_zero_score: Some(team_score_from_events(timeline, true)),
+        team_one_score: Some(team_score_from_events(timeline, false)),
+        match_guid: header_text(
+            &timeline.replay_meta.all_headers,
+            &["Id", "MatchGuid", "MatchGUID", "ReplayId"],
+        )
+        .map(normalize_header_value)
+        .filter(|value| !value.trim().is_empty()),
+    }
+}
+
+fn team_score_from_events(timeline: &ReplayStatsTimelineScaffold, is_team_0: bool) -> i32 {
+    timeline
+        .events
+        .core_team
+        .iter()
+        .filter(|event| event.is_team_0 == is_team_0)
+        .map(|event| event.delta.goals)
+        .sum()
+}
+
+fn apply_player_timing_metadata(
+    players: &mut [ReplaySearchPlayer],
+    timeline: &ReplayStatsTimelineScaffold,
+) {
+    let mut timing_by_key = HashMap::<String, (f64, f64)>::new();
+    for event in &timeline.events.positioning {
+        let (platform, platform_player_id) = remote_id_parts(&event.player);
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let timing = timing_by_key.entry(key).or_default();
+        timing.0 += f64::from(event.active_game_time);
+        timing.1 += f64::from(event.time_demolished);
+    }
+
+    let known_player_keys = timeline
+        .frames
+        .last()
+        .into_iter()
+        .flat_map(|frame| frame.players.iter())
+        .filter_map(|player| {
+            let (platform, platform_player_id) = remote_id_parts(&player.player_id);
+            player_lookup_key(&platform, &platform_player_id)
+        })
+        .collect::<Vec<_>>();
+    for key in known_player_keys {
+        timing_by_key.entry(key).or_default();
+    }
+
+    for player in players {
+        let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
+            continue;
+        };
+        let Some((active_time, demolished_time)) = timing_by_key.get(&key).copied() else {
+            continue;
+        };
+        player.active_time_seconds = finite_nonnegative(active_time).map(OrderedFloat);
+        player.time_demolished_seconds = finite_nonnegative(demolished_time).map(OrderedFloat);
+    }
+}
+
+fn finite_nonnegative(value: f64) -> Option<f64> {
+    value.is_finite().then_some(value.max(0.0))
 }
 
 fn remote_id_parts(remote_id: &RemoteId) -> (Option<String>, Option<String>) {
@@ -602,7 +741,12 @@ async fn upsert_replay_search_metadata(
         SET playlist = COALESCE($2, playlist),
             map_code = COALESCE($3, map_code),
             replay_date = COALESCE($4, replay_date),
-            has_pro_player = has_pro_player OR $5,
+            duration_seconds = COALESCE($5, duration_seconds),
+            overtime_seconds = COALESCE($6, overtime_seconds),
+            team_zero_score = COALESCE($7, team_zero_score),
+            team_one_score = COALESCE($8, team_one_score),
+            match_guid = COALESCE($9, match_guid),
+            has_pro_player = has_pro_player OR $10,
             updated_at = now()
         WHERE id = $1
         "#,
@@ -611,6 +755,11 @@ async fn upsert_replay_search_metadata(
     .bind(&metadata.playlist)
     .bind(&metadata.map_code)
     .bind(metadata.replay_date)
+    .bind(metadata.summary.duration_seconds)
+    .bind(metadata.summary.overtime_seconds)
+    .bind(metadata.summary.team_zero_score)
+    .bind(metadata.summary.team_one_score)
+    .bind(&metadata.summary.match_guid)
     .bind(metadata.has_pro_player)
     .execute(pool)
     .await
@@ -634,9 +783,11 @@ async fn upsert_replay_search_metadata(
                 platform,
                 platform_player_id,
                 team,
-                is_pro
+                is_pro,
+                active_time_seconds,
+                time_demolished_seconds
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             "#,
         )
         .bind(replay_player_id)
@@ -646,6 +797,8 @@ async fn upsert_replay_search_metadata(
         .bind(&player.platform_player_id)
         .bind(player.team)
         .bind(player.is_pro)
+        .bind(player.active_time_seconds.map(|value| value.0))
+        .bind(player.time_demolished_seconds.map(|value| value.0))
         .execute(pool)
         .await
         .context("failed to insert replay player")?;

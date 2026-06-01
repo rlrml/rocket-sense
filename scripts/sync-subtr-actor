@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+subtr_actor_dir="$repo_root/vendor/subtr-actor"
+static_dir="$repo_root/crates/rocket-sense-server/static/subtr-actor"
+rev="${1:-${SUBTR_ACTOR_REV:-}}"
+
+if [[ ! -d "$subtr_actor_dir/.git" && ! -f "$subtr_actor_dir/.git" ]]; then
+  git -C "$repo_root" submodule update --init vendor/subtr-actor
+fi
+
+if [[ -n "$rev" ]]; then
+  git -C "$subtr_actor_dir" fetch origin "$rev"
+  git -C "$subtr_actor_dir" checkout --detach FETCH_HEAD
+fi
+
+resolved_rev="$(git -C "$subtr_actor_dir" rev-parse HEAD)"
+echo "Using subtr-actor $resolved_rev"
+
+cargo update -p subtr-actor
+nix flake update subtr-actor-src
+
+asset_result="$repo_root/result-subtr-actor-static"
+nix build "path:$subtr_actor_dir#js-stats-player-pages" --out-link "$asset_result"
+
+sync_dist() {
+  local source_dir="$1"
+  local target_dir="$2"
+  if [[ -e "$target_dir" ]]; then
+    chmod -R u+w "$target_dir"
+  fi
+  rm -rf "$target_dir"
+  mkdir -p "$target_dir"
+  cp -R "$source_dir"/. "$target_dir"/
+  chmod -R u+w "$target_dir"
+}
+
+sync_dist "$asset_result" "$static_dir"
+rm "$asset_result"
+
+git -C "$repo_root" add .gitmodules Cargo.lock flake.lock vendor/subtr-actor "$static_dir"
+echo "Synced subtr-actor assets from $resolved_rev"

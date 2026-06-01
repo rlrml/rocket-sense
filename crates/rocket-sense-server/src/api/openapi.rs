@@ -17,6 +17,12 @@ use utoipa::{
         replays::create_replay,
         replays::list_replays,
         replays::get_replay_by_sha256,
+        replays::list_replay_groups,
+        replays::create_replay_group,
+        replays::get_replay_group,
+        replays::list_replay_group_replays,
+        replays::add_replay_group_replays,
+        replays::remove_replay_group_replays,
         replays::download_replay_file,
         replays::get_replay,
     ),
@@ -29,8 +35,14 @@ use utoipa::{
             health::HealthResponse,
             players::PlayerProfileNameResponse,
             players::PlayerProfileResponse,
+            players::PlayerStatAggregateResponse,
+            replays::CreateReplayGroupRequest,
             replays::CreateReplayResponse,
             replays::ListReplaysResponse,
+            replays::ListReplayGroupsResponse,
+            replays::ReplayGroupReplayUpdateRequest,
+            replays::ReplayGroupReplayUpdateResponse,
+            replays::ReplayGroupResponse,
             replays::ReplayPlayerResponse,
             replays::ReplayResponse,
             replays::ReplayStatus,
@@ -45,7 +57,8 @@ use utoipa::{
         (name = "ballchasing", description = "Ballchasing replay loading and proxy endpoints"),
         (name = "health", description = "Service health endpoints"),
         (name = "players", description = "Player profile endpoints"),
-        (name = "replays", description = "Replay upload and metadata endpoints")
+        (name = "replays", description = "Replay upload and metadata endpoints"),
+        (name = "replay-groups", description = "Replay group endpoints")
     ),
     modifiers(&SecurityAddon)
 )]

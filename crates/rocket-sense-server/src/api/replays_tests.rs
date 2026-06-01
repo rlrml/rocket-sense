@@ -16,72 +16,70 @@ fn hosted_replay_app_urls_point_at_local_subtr_actor_apps() {
 
 #[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
-    let index_javascript = subtr_actor_static_asset("index-CuFV7-xb.js").unwrap();
-    let javascript = subtr_actor_static_asset("main-B052gX83.js").unwrap();
-    let css = subtr_actor_static_asset("main-CwtZ1J5U.css").unwrap();
-    let wasm = subtr_actor_static_asset("rl_replay_subtr_actor_bg-YX0244DR.wasm").unwrap();
-
-    assert_eq!(
-        index_javascript.content_type,
-        "application/javascript; charset=utf-8"
-    );
-    assert_eq!(
-        javascript.content_type,
-        "application/javascript; charset=utf-8"
-    );
-    assert_eq!(css.content_type, "text/css; charset=utf-8");
-    assert_eq!(wasm.content_type, "application/wasm");
-    assert!(javascript.bytes.len() > 100_000);
-    assert!(wasm.bytes.len() > 1_000_000);
+    assert_index_assets_are_embedded(SUBTR_ACTOR_VIEWER_INDEX, subtr_actor_static_asset);
     assert!(subtr_actor_static_asset("missing.js").is_none());
 }
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_stats_static_asset("index-Dcp27w41.js").unwrap();
-    let css = subtr_actor_stats_static_asset("index-Bw2_Ha6f.css").unwrap();
-    let wasm = subtr_actor_stats_static_asset("rl_replay_subtr_actor_bg-YX0244DR.wasm").unwrap();
-
-    assert_eq!(
-        javascript.content_type,
-        "application/javascript; charset=utf-8"
-    );
-    assert_eq!(css.content_type, "text/css; charset=utf-8");
-    assert_eq!(wasm.content_type, "application/wasm");
-    assert!(javascript.bytes.len() > 10_000);
-    assert!(wasm.bytes.len() > 1_000_000);
+    assert_index_assets_are_embedded(SUBTR_ACTOR_STATS_INDEX, subtr_actor_stats_static_asset);
     assert!(subtr_actor_stats_static_asset("missing.js").is_none());
 }
 
 #[test]
 fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
-    let javascript = subtr_actor_review_static_asset("index-LlPJfRPh.js").unwrap();
-    let css = subtr_actor_review_static_asset("index-Dy-Q3BHC.css").unwrap();
-    let wasm = subtr_actor_review_static_asset("rl_replay_subtr_actor_bg-YX0244DR.wasm").unwrap();
-
-    assert_eq!(
-        javascript.content_type,
-        "application/javascript; charset=utf-8"
-    );
-    assert_eq!(css.content_type, "text/css; charset=utf-8");
-    assert_eq!(wasm.content_type, "application/wasm");
-    assert!(javascript.bytes.len() > 100_000);
-    assert!(wasm.bytes.len() > 1_000_000);
+    assert_index_assets_are_embedded(SUBTR_ACTOR_REVIEW_INDEX, subtr_actor_review_static_asset);
     assert!(subtr_actor_review_static_asset("missing.js").is_none());
 }
 
 #[test]
 fn subtr_actor_stats_index_serves_report_app() {
     assert!(SUBTR_ACTOR_STATS_INDEX.contains("subtr-actor stats report"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-Dcp27w41.js"));
-    assert!(SUBTR_ACTOR_STATS_INDEX.contains("index-Bw2_Ha6f.css"));
+    assert!(asset_paths(SUBTR_ACTOR_STATS_INDEX)
+        .iter()
+        .any(|path| path.ends_with(".js")));
+    assert!(asset_paths(SUBTR_ACTOR_STATS_INDEX)
+        .iter()
+        .any(|path| path.ends_with(".css")));
 }
 
 #[test]
 fn subtr_actor_review_index_serves_mechanic_review_player() {
-    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("Mechanic Review Player"));
-    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-LlPJfRPh.js"));
-    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("index-Dy-Q3BHC.css"));
+    assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("stat evaluation player"));
+    assert!(asset_paths(SUBTR_ACTOR_REVIEW_INDEX)
+        .iter()
+        .any(|path| path.ends_with(".js")));
+}
+
+fn assert_index_assets_are_embedded(index: &str, load: fn(&str) -> Option<StaticAsset>) {
+    let paths = asset_paths(index);
+    assert!(!paths.is_empty());
+    for path in paths {
+        let asset = load(&path).unwrap_or_else(|| panic!("missing asset {path}"));
+        if path.ends_with(".css") {
+            assert_eq!(asset.content_type, "text/css; charset=utf-8");
+        } else if path.ends_with(".js") {
+            assert_eq!(asset.content_type, "application/javascript; charset=utf-8");
+            assert!(!asset.bytes.is_empty());
+        } else if path.ends_with(".wasm") {
+            assert_eq!(asset.content_type, "application/wasm");
+            assert!(asset.bytes.len() > 1_000_000);
+        }
+    }
+}
+
+fn asset_paths(index: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut rest = index;
+    while let Some(start) = rest.find("./assets/") {
+        let after_prefix = &rest[start + "./assets/".len()..];
+        let Some(end) = after_prefix.find(|character| character == '"' || character == '\'') else {
+            break;
+        };
+        paths.push(after_prefix[..end].to_owned());
+        rest = &after_prefix[end..];
+    }
+    paths
 }
 
 #[test]
@@ -202,6 +200,73 @@ fn replay_select_includes_players_without_stats_blob_join() {
     assert!(sql.contains("FROM replay_players player"));
     assert!(!sql.contains("replay_stat_blobs"));
     assert!(!sql.contains("latest_stats"));
+}
+
+#[test]
+fn replay_group_select_includes_member_count() {
+    let sql = replay_group_select_sql("WHERE replay_group.id = $1");
+
+    assert!(sql.contains("FROM replay_groups replay_group"));
+    assert!(sql.contains("FROM replay_group_replays group_replay"));
+    assert!(sql.contains("COALESCE(replay_counts.replay_count, 0) AS replay_count"));
+}
+
+#[test]
+fn replay_filters_parse_group_as_replay_group_and_project_separately() {
+    let group_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let project_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f1").unwrap();
+    let auth_user_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f2").unwrap();
+    let filters = ReplayFilters::from_query(
+        ListReplaysQuery {
+            group: Some(group_id.to_string()),
+            project: Some(project_id.to_string()),
+            ..ListReplaysQuery::default()
+        },
+        Some(auth_user_id),
+    )
+    .expect("filters should parse");
+
+    assert_eq!(filters.group_id, Some(group_id));
+    assert_eq!(filters.project_id, Some(project_id));
+}
+
+#[test]
+fn replay_filters_do_not_require_authentication_without_me_filter() {
+    let filters = ReplayFilters::from_query(ListReplaysQuery::default(), None)
+        .expect("anonymous replay filters should parse");
+
+    assert_eq!(filters.uploader_user_id, None);
+}
+
+#[test]
+fn replay_filters_require_authentication_for_me_uploader_filter() {
+    let result = ReplayFilters::from_query(
+        ListReplaysQuery {
+            uploader: Some("me".to_owned()),
+            ..ListReplaysQuery::default()
+        },
+        None,
+    );
+    let Err(error) = result else {
+        panic!("uploader=me should require auth");
+    };
+
+    assert_eq!(error.status, StatusCode::UNAUTHORIZED);
+}
+
+#[test]
+fn replay_filters_parse_me_uploader_when_authenticated() {
+    let auth_user_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f2").unwrap();
+    let filters = ReplayFilters::from_query(
+        ListReplaysQuery {
+            uploader: Some("me".to_owned()),
+            ..ListReplaysQuery::default()
+        },
+        Some(auth_user_id),
+    )
+    .expect("uploader=me should parse with auth");
+
+    assert_eq!(filters.uploader_user_id, Some(auth_user_id));
 }
 
 #[test]
