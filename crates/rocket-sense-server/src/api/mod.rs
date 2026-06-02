@@ -6,6 +6,7 @@ mod mechanics;
 mod openapi;
 mod players;
 mod replays;
+mod stats;
 
 use crate::app::AppState;
 use axum::{routing::get, Json, Router};
@@ -33,6 +34,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(mechanics::router())
         .merge(players::router())
         .merge(replays::router())
+        .merge(stats::router())
         .with_state(state)
 }
 

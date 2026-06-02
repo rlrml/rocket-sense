@@ -12,7 +12,10 @@ use sqlx::{Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::replays::{replay_from_row, replay_select_sql, require_db, ApiError, ReplayResponse};
+use super::{
+    replays::{replay_from_row, replay_select_sql, require_db, ApiError, ReplayResponse},
+    stats::{load_stat_aggregates, PlayerStatFilter, StatAggregateFilters, StatAggregateResponse},
+};
 
 #[cfg(test)]
 #[path = "players_tests.rs"]
@@ -194,6 +197,32 @@ impl PlayerProfileFilters {
             replay_date_before: query.replay_date_before,
         })
     }
+
+    fn to_stat_aggregate_filters(&self, identity: &PlayerIdentity) -> StatAggregateFilters {
+        StatAggregateFilters {
+            search_pattern: None,
+            player_name_patterns: Vec::new(),
+            playlists: self.playlists.clone(),
+            replay_ids: self.replay_ids.clone(),
+            file_sha256s: self.file_sha256s.clone(),
+            group_id: self.group_id,
+            project_id: self.project_id,
+            maps: Vec::new(),
+            pro: None,
+            uploader_user_id: None,
+            status: None,
+            player: Some(PlayerStatFilter {
+                platform: identity.platform.clone(),
+                platform_player_id: identity.platform_player_id.clone(),
+            }),
+            include_teammates: true,
+            created_after: self.created_after,
+            created_before: self.created_before,
+            replay_date_after: self.replay_date_after,
+            replay_date_before: self.replay_date_before,
+            limit: 50,
+        }
+    }
 }
 
 impl PlayerIdentity {
@@ -248,7 +277,7 @@ async fn load_player_profile(
 
     let names = load_player_names(pool, identity, filters).await?;
     let latest_replays = load_player_replays(pool, identity, filters, 25).await?;
-    let stats = load_player_stat_aggregates(pool, identity, filters, replay_count).await?;
+    let stats = load_player_stat_aggregates(pool, identity, filters).await?;
 
     Ok(Some(PlayerProfileResponse {
         platform: identity.platform.clone(),
@@ -275,165 +304,38 @@ async fn load_player_stat_aggregates(
     pool: &sqlx::PgPool,
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
-    replay_count: i64,
 ) -> Result<Vec<PlayerStatAggregateResponse>, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS (
-            SELECT
-                rp.id,
-                rp.replay_id,
-                rp.team,
-                rp.active_time_seconds,
-                rp.time_demolished_seconds
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-        "#,
-    );
-    append_target_player_filters(&mut query, identity, filters);
-    query.push(
-        r#"
-        ),
-        target_denominators AS (
-            SELECT
-                COUNT(DISTINCT replay_id) AS replay_count,
-                SUM(active_time_seconds) AS active_time_seconds,
-                SUM(GREATEST(active_time_seconds - COALESCE(time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds
-            FROM target_appearances
-        ),
-        teammate_appearances AS (
-            SELECT DISTINCT
-                teammate.id,
-                teammate.replay_id,
-                teammate.active_time_seconds,
-                teammate.time_demolished_seconds
-            FROM target_appearances target
-            JOIN replay_players teammate
-              ON teammate.replay_id = target.replay_id
-             AND teammate.team = target.team
-             AND teammate.id <> target.id
-        ),
-        teammate_denominators AS (
-            SELECT
-                COUNT(*) AS appearance_count,
-                SUM(active_time_seconds) AS active_time_seconds,
-                SUM(GREATEST(active_time_seconds - COALESCE(time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds
-            FROM teammate_appearances
-        ),
-        target_stats AS (
-            SELECT
-                et.key,
-                et.display_name,
-                et.category,
-                COUNT(DISTINCT event.id) AS event_count
-            FROM target_appearances appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
-            JOIN event_types et
-              ON et.id = event.event_type_id
-            GROUP BY et.key, et.display_name, et.category
-        ),
-        teammate_stats AS (
-            SELECT
-                et.key,
-                et.display_name,
-                et.category,
-                COUNT(DISTINCT event.id) AS event_count
-            FROM teammate_appearances appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
-            JOIN event_types et
-              ON et.id = event.event_type_id
-            GROUP BY et.key, et.display_name, et.category
-        )
-        SELECT
-            COALESCE(target_stats.key, teammate_stats.key) AS key,
-            COALESCE(target_stats.display_name, teammate_stats.display_name) AS display_name,
-            COALESCE(target_stats.category, teammate_stats.category) AS category,
-            COALESCE(target_stats.event_count, 0) AS event_count,
-            COALESCE(teammate_stats.event_count, 0) AS teammate_event_count,
-            target_denominators.active_time_seconds,
-            target_denominators.non_demo_active_time_seconds,
-            teammate_denominators.appearance_count AS teammate_appearance_count,
-            teammate_denominators.active_time_seconds AS teammate_active_time_seconds,
-            teammate_denominators.non_demo_active_time_seconds AS teammate_non_demo_active_time_seconds
-        FROM target_stats
-        FULL OUTER JOIN teammate_stats
-          ON teammate_stats.key = target_stats.key
-        CROSS JOIN target_denominators
-        CROSS JOIN teammate_denominators
-        ORDER BY
-            GREATEST(COALESCE(target_stats.event_count, 0), COALESCE(teammate_stats.event_count, 0)) DESC,
-            category,
-            display_name,
-            key
-        LIMIT 50
-        "#,
-    );
-    let rows = query.build().fetch_all(pool).await?;
+    let aggregates =
+        load_stat_aggregates(pool, &filters.to_stat_aggregate_filters(identity)).await?;
 
-    let replay_count = replay_count.max(1) as f64;
-    rows.into_iter()
-        .map(|row| {
-            let event_count: i64 = row.try_get("event_count")?;
-            let event_count = event_count.max(0) as u64;
-            let teammate_event_count: i64 = row.try_get("teammate_event_count")?;
-            let teammate_event_count = teammate_event_count.max(0) as u64;
-            let teammate_appearance_count: i64 = row.try_get("teammate_appearance_count")?;
-            let teammate_appearance_count = teammate_appearance_count.max(0) as u64;
-            let active_time_seconds = finite_nonnegative(row.try_get("active_time_seconds")?);
-            let non_demo_active_time_seconds =
-                finite_nonnegative(row.try_get("non_demo_active_time_seconds")?);
-            let teammate_active_time_seconds =
-                finite_nonnegative(row.try_get("teammate_active_time_seconds")?);
-            let teammate_non_demo_active_time_seconds =
-                finite_nonnegative(row.try_get("teammate_non_demo_active_time_seconds")?);
+    Ok(aggregates
+        .stats
+        .into_iter()
+        .map(PlayerStatAggregateResponse::from)
+        .collect())
+}
 
-            Ok(PlayerStatAggregateResponse {
-                key: row.try_get("key")?,
-                display_name: row.try_get("display_name")?,
-                category: row.try_get("category")?,
-                event_count,
-                count_per_game: event_count as f64 / replay_count,
-                per_active_minute: per_minute(event_count, active_time_seconds),
-                per_non_demo_active_minute: per_minute(event_count, non_demo_active_time_seconds),
-                teammate_event_count,
-                teammate_appearance_count,
-                teammate_count_per_game: (teammate_appearance_count > 0)
-                    .then(|| teammate_event_count as f64 / teammate_appearance_count as f64),
-                teammate_per_active_minute: per_minute(
-                    teammate_event_count,
-                    teammate_active_time_seconds,
-                ),
-                teammate_per_non_demo_active_minute: per_minute(
-                    teammate_event_count,
-                    teammate_non_demo_active_time_seconds,
-                ),
-            })
-        })
-        .collect()
+impl From<StatAggregateResponse> for PlayerStatAggregateResponse {
+    fn from(stat: StatAggregateResponse) -> Self {
+        Self {
+            key: stat.key,
+            display_name: stat.display_name,
+            category: stat.category,
+            event_count: stat.event_count,
+            count_per_game: stat.count_per_game,
+            per_active_minute: stat.per_active_minute,
+            per_non_demo_active_minute: stat.per_non_demo_active_minute,
+            teammate_event_count: stat.teammate_event_count,
+            teammate_appearance_count: stat.teammate_appearance_count,
+            teammate_count_per_game: stat.teammate_count_per_game,
+            teammate_per_active_minute: stat.teammate_per_active_minute,
+            teammate_per_non_demo_active_minute: stat.teammate_per_non_demo_active_minute,
+        }
+    }
 }
 
 fn finite_nonnegative(value: Option<f64>) -> Option<f64> {
     value.filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-}
-
-fn per_minute(count: u64, denominator_seconds: Option<f64>) -> Option<f64> {
-    denominator_seconds
-        .filter(|seconds| *seconds > 0.0)
-        .map(|seconds| count as f64 * 60.0 / seconds)
 }
 
 async fn load_player_names(
