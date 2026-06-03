@@ -11,7 +11,7 @@ use std::{
 };
 use subtr_actor::{
     GoalTagEvent, MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo,
-    ReplayDataCollector, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
+    ReplayDataCollector, ReplayStatsTimelineScaffold, StatsTimelineEventCollector, TouchStatsEvent,
 };
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -425,13 +425,13 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
             "demo": exact_events.get("demolish_infos").cloned().unwrap_or(Value::Array(Vec::new())),
             "dodge_refresh": exact_events.get("dodge_refreshed_events").cloned().unwrap_or(Value::Array(Vec::new())),
             "goal": exact_events.get("goal_events").cloned().unwrap_or(Value::Array(Vec::new())),
-            "player_stat": exact_events.get("player_stat_events").cloned().unwrap_or(Value::Array(Vec::new())),
-            "touch": exact_events.get("touch_events").cloned().unwrap_or(Value::Array(Vec::new()))
+            "player_stat": exact_events.get("player_stat_events").cloned().unwrap_or(Value::Array(Vec::new()))
         },
         "timeline_events": timeline_events_value
     });
     let indexed_events = build_indexed_events(
         &replay_data_value,
+        &timeline.events.touch,
         &timeline.events.mechanics,
         &timeline.events.goal_tags,
     )?;
@@ -1049,19 +1049,12 @@ async fn insert_play_events(
 
 fn build_indexed_events(
     replay_data: &Value,
+    touch_events: &[TouchStatsEvent],
     mechanics: &[MechanicEvent],
     goal_tags: &[GoalTagEvent],
 ) -> Result<Vec<IndexedEvent>> {
     let mut events = Vec::new();
-    append_exact_events(
-        &mut events,
-        replay_data,
-        "touch_events",
-        "ball.touch",
-        "Ball touch",
-        "touch",
-        "touch",
-    )?;
+    append_touch_stats_events(&mut events, touch_events)?;
     append_exact_events(
         &mut events,
         replay_data,
@@ -1108,6 +1101,53 @@ fn build_indexed_events(
     }
 
     Ok(events)
+}
+
+fn append_touch_stats_events(
+    events: &mut Vec<IndexedEvent>,
+    touch_events: &[TouchStatsEvent],
+) -> Result<()> {
+    for (index, event) in touch_events.iter().enumerate() {
+        let player_id = remote_id_value_to_subject_id(
+            &serde_json::to_value(&event.player)
+                .context("failed to serialize touch event player id")?,
+        )?;
+        let team_subject = EventSubject {
+            kind: "team".to_owned(),
+            id: team_subject_id(event.is_team_0),
+            role: "team".to_owned(),
+        };
+        let player_subject = EventSubject {
+            kind: "player".to_owned(),
+            id: player_id.clone(),
+            role: "actor".to_owned(),
+        };
+        let frame = i32::try_from(event.frame).ok();
+        let time = Some(f64::from(event.time));
+
+        events.push(IndexedEvent {
+            event_type_key: "ball.touch".to_owned(),
+            display_name: "Ball touch".to_owned(),
+            category: "touch".to_owned(),
+            source: STATS_TIMELINE_SOURCE.to_owned(),
+            source_event_id: format!("touch:{index}"),
+            primary_subject: Some(player_subject.clone()),
+            subjects: vec![player_subject, team_subject],
+            start_frame: frame,
+            end_frame: frame,
+            event_frame: frame,
+            start_time: time,
+            end_time: time,
+            event_time: time,
+            confidence: None,
+            attributes: touch_stats_event_attributes(event),
+            payload: Some(
+                serde_json::to_value(event).context("failed to serialize touch stats event")?,
+            ),
+        });
+    }
+
+    Ok(())
 }
 
 fn append_exact_events(
@@ -1372,6 +1412,36 @@ fn exact_event_attributes(source_kind: &str, payload: &Value) -> Value {
             "closest_approach_distance".to_owned(),
             Value::from(distance),
         );
+    }
+    Value::Object(attributes)
+}
+
+fn touch_stats_event_attributes(event: &TouchStatsEvent) -> Value {
+    let mut attributes = Map::new();
+    attributes.insert(
+        "team".to_owned(),
+        Value::from(if event.is_team_0 { 0 } else { 1 }),
+    );
+    attributes.insert("kind".to_owned(), Value::String(event.kind.clone()));
+    attributes.insert(
+        "height_band".to_owned(),
+        Value::String(event.height_band.clone()),
+    );
+    attributes.insert("surface".to_owned(), Value::String(event.surface.clone()));
+    attributes.insert(
+        "dodge_state".to_owned(),
+        Value::String(event.dodge_state.clone()),
+    );
+    attributes.insert(
+        "ball_speed_change".to_owned(),
+        Value::from(f64::from(event.ball_speed_change)),
+    );
+    attributes.insert(
+        "sample_time".to_owned(),
+        Value::from(f64::from(event.sample_time)),
+    );
+    if let Ok(sample_frame) = i64::try_from(event.sample_frame) {
+        attributes.insert("sample_frame".to_owned(), Value::from(sample_frame));
     }
     Value::Object(attributes)
 }

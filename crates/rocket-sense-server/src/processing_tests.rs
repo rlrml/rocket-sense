@@ -123,3 +123,68 @@ fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
     assert_eq!(indexed.attributes["modifiers"][0], "by_scorer");
     assert_eq!(indexed.attributes["evidence_kinds"][0], "double_tap");
 }
+
+#[test]
+fn build_indexed_events_uses_stats_timeline_touches_not_replay_data_touches() {
+    let replay_data = serde_json::json!({
+        "touch_events": [
+            {
+                "time": 1.0,
+                "frame": 60,
+                "team_is_team_0": true,
+                "player": { "Steam": 76561198000000001_u64 }
+            }
+        ]
+    });
+    let touch_events = vec![
+        touch_stats_event(2.0, 120, RemoteId::Steam(76561198000000002), true),
+        touch_stats_event(3.0, 180, RemoteId::Epic("epic-player".to_owned()), false),
+    ];
+
+    let indexed = build_indexed_events(&replay_data, &touch_events, &[], &[])
+        .expect("touch events should index");
+    let touch_rows = indexed
+        .iter()
+        .filter(|event| event.event_type_key == "ball.touch")
+        .collect::<Vec<_>>();
+
+    assert_eq!(touch_rows.len(), 2);
+    assert!(touch_rows
+        .iter()
+        .all(|event| event.source == STATS_TIMELINE_SOURCE));
+    assert_eq!(
+        touch_rows[0]
+            .primary_subject
+            .as_ref()
+            .map(|subject| subject.id.as_str()),
+        Some("steam:76561198000000002")
+    );
+    assert_eq!(
+        touch_rows[1]
+            .primary_subject
+            .as_ref()
+            .map(|subject| subject.id.as_str()),
+        Some("epic:epic-player")
+    );
+}
+
+fn touch_stats_event(
+    time: f32,
+    frame: usize,
+    player: RemoteId,
+    is_team_0: bool,
+) -> subtr_actor::TouchStatsEvent {
+    subtr_actor::TouchStatsEvent {
+        time,
+        frame,
+        sample_time: time,
+        sample_frame: frame,
+        player,
+        is_team_0,
+        kind: "hit".to_owned(),
+        height_band: "ground".to_owned(),
+        surface: "floor".to_owned(),
+        dodge_state: "none".to_owned(),
+        ball_speed_change: 250.0,
+    }
+}
