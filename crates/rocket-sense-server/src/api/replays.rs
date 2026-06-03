@@ -4,7 +4,7 @@ use crate::{
     processing::spawn_replay_processing,
 };
 use axum::{
-    extract::{Multipart, Path, Query, RawQuery, State},
+    extract::{Multipart, Path, RawQuery, State},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         StatusCode,
@@ -20,6 +20,10 @@ use sqlx::types::Json as SqlxJson;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
+
+use super::query::{
+    deserialize_string_vec, parse_bool_filter, parse_datetime_filter, parse_u32_filter, QueryParams,
+};
 
 #[cfg(test)]
 #[path = "replays_tests.rs"]
@@ -212,13 +216,31 @@ pub struct ListReplaysQuery {
     /// Ballchasing-compatible title filter. Currently maps to original filename.
     pub title: Option<String>,
     /// Filter by one or more player display names.
-    #[serde(default, rename = "player-name")]
+    #[serde(
+        default,
+        rename = "player-name",
+        alias = "player-name[]",
+        alias = "player_names",
+        alias = "player_names[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub player_names: Vec<String>,
     /// Filter by one or more player ids in `platform:id` form.
-    #[serde(default, rename = "player-id")]
+    #[serde(
+        default,
+        rename = "player-id",
+        alias = "player-id[]",
+        alias = "player_ids",
+        alias = "player_ids[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub player_ids: Vec<String>,
     /// Filter by one or more playlist codes.
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "playlist[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub playlist: Vec<String>,
     /// Only include replays containing at least one pro player.
     pub pro: Option<bool>,
@@ -229,7 +251,14 @@ pub struct ListReplaysQuery {
     /// Rocket Sense project id.
     pub project: Option<String>,
     /// Filter by one or more map codes.
-    #[serde(default, rename = "map")]
+    #[serde(
+        default,
+        rename = "map",
+        alias = "map[]",
+        alias = "maps",
+        alias = "maps[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub maps: Vec<String>,
     /// Replay parsing status.
     pub status: Option<String>,
@@ -255,6 +284,54 @@ pub struct ListReplaysQuery {
     /// Supported values: `asc`, `desc`.
     #[serde(rename = "sort-dir")]
     pub sort_dir: Option<String>,
+}
+
+impl ListReplaysQuery {
+    fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
+        let params = QueryParams::from_raw(raw_query);
+        Ok(Self {
+            q: params.first(&["q"]),
+            title: params.first(&["title"]),
+            player_names: params.values(&["player-name", "player_names"]),
+            player_ids: params.values(&["player-id", "player_ids"]),
+            playlist: params.values(&["playlist"]),
+            pro: params
+                .first(&["pro"])
+                .map(|value| parse_bool_filter("pro", &value))
+                .transpose()?,
+            uploader: params.first(&["uploader"]),
+            group: params.first(&["group"]),
+            project: params.first(&["project"]),
+            maps: params.values(&["map", "maps"]),
+            status: params.first(&["status"]),
+            created_after: params
+                .first(&["created-after", "created_after"])
+                .map(|value| parse_datetime_filter("created-after", &value))
+                .transpose()?,
+            created_before: params
+                .first(&["created-before", "created_before"])
+                .map(|value| parse_datetime_filter("created-before", &value))
+                .transpose()?,
+            replay_date_after: params
+                .first(&["replay-date-after", "replay_date_after"])
+                .map(|value| parse_datetime_filter("replay-date-after", &value))
+                .transpose()?,
+            replay_date_before: params
+                .first(&["replay-date-before", "replay_date_before"])
+                .map(|value| parse_datetime_filter("replay-date-before", &value))
+                .transpose()?,
+            count: params
+                .first(&["count"])
+                .map(|value| parse_u32_filter("count", &value))
+                .transpose()?,
+            offset: params
+                .first(&["offset"])
+                .map(|value| parse_u32_filter("offset", &value))
+                .transpose()?,
+            sort_by: params.first(&["sort-by", "sort_by"]),
+            sort_dir: params.first(&["sort-dir", "sort_dir"]),
+        })
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -380,9 +457,10 @@ pub async fn create_replay(
 pub async fn list_replays(
     OptionalAuthUser(auth_user): OptionalAuthUser,
     State(state): State<AppState>,
-    Query(query): Query<ListReplaysQuery>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Json<ListReplaysResponse>, ApiError> {
     let db = require_db(&state)?;
+    let query = ListReplaysQuery::from_raw_query(raw_query.as_deref())?;
     let filters = ReplayFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
     let total = count_replays(db, &filters)
         .await

@@ -37,6 +37,50 @@ fn player_profile_filters_normalize_game_modes_sha_and_group_ids() {
 }
 
 #[test]
+fn player_profile_query_accepts_html_form_array_filters() {
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let raw_query = format!(
+        "playlist=Online&game-mode=ranked-doubles&replay-id={replay_id}&sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+    let query = PlayerProfileQuery::from_raw_query(Some(&raw_query))
+        .expect("single-value HTML form filters should deserialize");
+
+    assert_eq!(query.playlist, ["Online"]);
+    assert_eq!(query.game_modes, ["ranked-doubles"]);
+    assert_eq!(query.replay_ids, [replay_id]);
+    assert_eq!(query.file_sha256s.len(), 1);
+}
+
+#[test]
+fn player_profile_query_accepts_bracketed_array_filters() {
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let raw_query = format!(
+        "playlist%5B%5D=Online&game-mode%5B%5D=ranked-doubles&replay-id%5B%5D={replay_id}&sha256%5B%5D=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    );
+    let query = PlayerProfileQuery::from_raw_query(Some(&raw_query))
+        .expect("bracketed array filters should deserialize");
+
+    assert_eq!(query.playlist, ["Online"]);
+    assert_eq!(query.game_modes, ["ranked-doubles"]);
+    assert_eq!(query.replay_ids, [replay_id]);
+    assert_eq!(query.file_sha256s.len(), 1);
+}
+
+#[test]
+fn player_profile_query_accepts_repeated_array_filters() {
+    let first_replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let second_replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f1").unwrap();
+    let raw_query = format!(
+        "playlist=Online&playlist=Private&replay-id={first_replay_id}&replay-id={second_replay_id}"
+    );
+    let query = PlayerProfileQuery::from_raw_query(Some(&raw_query))
+        .expect("repeated array filters should deserialize");
+
+    assert_eq!(query.playlist, ["Online", "Private"]);
+    assert_eq!(query.replay_ids, [first_replay_id, second_replay_id]);
+}
+
+#[test]
 fn player_profile_filters_reject_invalid_sha() {
     assert!(PlayerProfileFilters::from_query(PlayerProfileQuery {
         file_sha256s: vec!["abc".to_owned()],

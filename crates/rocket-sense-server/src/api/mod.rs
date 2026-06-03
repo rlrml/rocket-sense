@@ -5,6 +5,7 @@ mod health;
 mod mechanics;
 mod openapi;
 mod players;
+mod query;
 mod replays;
 mod stats;
 

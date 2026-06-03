@@ -1,12 +1,18 @@
 use crate::{app::AppState, auth::AuthUser};
-use axum::{extract::Query, extract::State, routing::get, Json, Router};
+use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::replays::{require_db, ApiError};
+use super::{
+    query::{
+        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_datetime_filter,
+        parse_u32_filter, parse_uuid_values, QueryParams,
+    },
+    replays::{require_db, ApiError},
+};
 
 #[cfg(test)]
 #[path = "stats_tests.rs"]
@@ -52,26 +58,65 @@ pub struct StatAggregatesQuery {
     /// Ballchasing-compatible title filter. Currently maps to original filename search.
     pub title: Option<String>,
     /// Filter by one or more player display names in the replay set.
-    #[serde(default, rename = "player-name")]
+    #[serde(
+        default,
+        rename = "player-name",
+        alias = "player-name[]",
+        alias = "player_names",
+        alias = "player_names[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub player_names: Vec<String>,
     /// Filter by one or more playlist/game-mode codes.
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "playlist[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub playlist: Vec<String>,
     /// Alias for `playlist`.
-    #[serde(default, rename = "game-mode")]
+    #[serde(
+        default,
+        rename = "game-mode",
+        alias = "game-mode[]",
+        alias = "game_modes",
+        alias = "game_modes[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub game_modes: Vec<String>,
     /// Filter to one or more Rocket Sense replay ids.
-    #[serde(default, rename = "replay-id")]
+    #[serde(
+        default,
+        rename = "replay-id",
+        alias = "replay-id[]",
+        alias = "replay_ids",
+        alias = "replay_ids[]",
+        deserialize_with = "deserialize_uuid_vec"
+    )]
     pub replay_ids: Vec<Uuid>,
     /// Filter to one or more replay file SHA-256 digests.
-    #[serde(default, rename = "sha256")]
+    #[serde(
+        default,
+        rename = "sha256",
+        alias = "sha256[]",
+        alias = "file_sha256s",
+        alias = "file_sha256s[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub file_sha256s: Vec<String>,
     /// Filter to a replay group id.
     pub group: Option<String>,
     /// Filter to a legacy project id.
     pub project: Option<String>,
     /// Filter by one or more map codes.
-    #[serde(default, rename = "map")]
+    #[serde(
+        default,
+        rename = "map",
+        alias = "map[]",
+        alias = "maps",
+        alias = "maps[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub maps: Vec<String>,
     /// Only include replays containing at least one pro player.
     pub pro: Option<bool>,
@@ -207,6 +252,58 @@ impl StatAggregateFilters {
     }
 }
 
+impl StatAggregatesQuery {
+    fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
+        let params = QueryParams::from_raw(raw_query);
+        Ok(Self {
+            q: params.first(&["q"]),
+            title: params.first(&["title"]),
+            player_names: params.values(&["player-name", "player_names"]),
+            playlist: params.values(&["playlist"]),
+            game_modes: params.values(&["game-mode", "game_modes"]),
+            replay_ids: parse_uuid_values(
+                "replay-id",
+                params.values(&["replay-id", "replay_ids"]),
+            )?,
+            file_sha256s: params.values(&["sha256", "file_sha256s"]),
+            group: params.first(&["group"]),
+            project: params.first(&["project"]),
+            maps: params.values(&["map", "maps"]),
+            pro: params
+                .first(&["pro"])
+                .map(|value| parse_bool_filter("pro", &value))
+                .transpose()?,
+            uploader: params.first(&["uploader"]),
+            status: params.first(&["status"]),
+            player_id: params.first(&["player-id", "player_id"]),
+            include_teammates: params
+                .first(&["include-teammates", "include_teammates"])
+                .map(|value| parse_bool_filter("include-teammates", &value))
+                .transpose()?,
+            created_after: params
+                .first(&["created-after", "created_after"])
+                .map(|value| parse_datetime_filter("created-after", &value))
+                .transpose()?,
+            created_before: params
+                .first(&["created-before", "created_before"])
+                .map(|value| parse_datetime_filter("created-before", &value))
+                .transpose()?,
+            replay_date_after: params
+                .first(&["replay-date-after", "replay_date_after"])
+                .map(|value| parse_datetime_filter("replay-date-after", &value))
+                .transpose()?,
+            replay_date_before: params
+                .first(&["replay-date-before", "replay_date_before"])
+                .map(|value| parse_datetime_filter("replay-date-before", &value))
+                .transpose()?,
+            count: params
+                .first(&["count"])
+                .map(|value| parse_u32_filter("count", &value))
+                .transpose()?,
+        })
+    }
+}
+
 impl PlayerStatFilter {
     pub(crate) fn new(
         platform: impl Into<String>,
@@ -252,9 +349,10 @@ impl PlayerStatFilter {
 pub async fn get_stat_aggregates(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Query(query): Query<StatAggregatesQuery>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Json<StatAggregateSetResponse>, ApiError> {
     let db = require_db(&state)?;
+    let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
     let filters = StatAggregateFilters::from_query(query, Some(auth_user.id))?;
     let aggregates = load_stat_aggregates(db, &filters)
         .await

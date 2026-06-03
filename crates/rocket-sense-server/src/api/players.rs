@@ -1,6 +1,6 @@
 use crate::{app::AppState, auth::AuthUser};
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Path, RawQuery, State},
     http::StatusCode,
     response::Html,
     routing::get,
@@ -13,6 +13,10 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::{
+    query::{
+        deserialize_string_vec, deserialize_uuid_vec, parse_datetime_filter, parse_uuid_values,
+        QueryParams,
+    },
     replays::{replay_from_row, replay_select_sql, require_db, ApiError, ReplayResponse},
     stats::{load_stat_aggregates, PlayerStatFilter, StatAggregateFilters, StatAggregateResponse},
 };
@@ -79,16 +83,41 @@ pub struct PlayerStatAggregateResponse {
 #[into_params(parameter_in = Query)]
 pub struct PlayerProfileQuery {
     /// Filter by one or more playlist/game-mode codes.
-    #[serde(default)]
+    #[serde(
+        default,
+        alias = "playlist[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub playlist: Vec<String>,
     /// Alias for `playlist`.
-    #[serde(default, rename = "game-mode")]
+    #[serde(
+        default,
+        rename = "game-mode",
+        alias = "game-mode[]",
+        alias = "game_modes",
+        alias = "game_modes[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub game_modes: Vec<String>,
     /// Filter to one or more Rocket Sense replay ids.
-    #[serde(default, rename = "replay-id")]
+    #[serde(
+        default,
+        rename = "replay-id",
+        alias = "replay-id[]",
+        alias = "replay_ids",
+        alias = "replay_ids[]",
+        deserialize_with = "deserialize_uuid_vec"
+    )]
     pub replay_ids: Vec<Uuid>,
     /// Filter to one or more replay file SHA-256 digests.
-    #[serde(default, rename = "sha256")]
+    #[serde(
+        default,
+        rename = "sha256",
+        alias = "sha256[]",
+        alias = "file_sha256s",
+        alias = "file_sha256s[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
     pub file_sha256s: Vec<String>,
     /// Filter to a replay group id.
     pub group: Option<String>,
@@ -132,10 +161,11 @@ pub async fn get_player_profile(
     _auth_user: AuthUser,
     State(state): State<AppState>,
     Path((platform, platform_player_id)): Path<(String, String)>,
-    Query(query): Query<PlayerProfileQuery>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Json<PlayerProfileResponse>, ApiError> {
     let db = require_db(&state)?;
     let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    let query = PlayerProfileQuery::from_raw_query(raw_query.as_deref())?;
     let filters = PlayerProfileFilters::from_query(query)?;
 
     let profile = load_player_profile(db, &identity, &filters)
@@ -222,6 +252,39 @@ impl PlayerProfileFilters {
             replay_date_before: self.replay_date_before,
             limit: 50,
         }
+    }
+}
+
+impl PlayerProfileQuery {
+    fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
+        let params = QueryParams::from_raw(raw_query);
+        Ok(Self {
+            playlist: params.values(&["playlist"]),
+            game_modes: params.values(&["game-mode", "game_modes"]),
+            replay_ids: parse_uuid_values(
+                "replay-id",
+                params.values(&["replay-id", "replay_ids"]),
+            )?,
+            file_sha256s: params.values(&["sha256", "file_sha256s"]),
+            group: params.first(&["group"]),
+            project: params.first(&["project"]),
+            created_after: params
+                .first(&["created-after", "created_after"])
+                .map(|value| parse_datetime_filter("created-after", &value))
+                .transpose()?,
+            created_before: params
+                .first(&["created-before", "created_before"])
+                .map(|value| parse_datetime_filter("created-before", &value))
+                .transpose()?,
+            replay_date_after: params
+                .first(&["replay-date-after", "replay_date_after"])
+                .map(|value| parse_datetime_filter("replay-date-after", &value))
+                .transpose()?,
+            replay_date_before: params
+                .first(&["replay-date-before", "replay_date_before"])
+                .map(|value| parse_datetime_filter("replay-date-before", &value))
+                .transpose()?,
+        })
     }
 }
 

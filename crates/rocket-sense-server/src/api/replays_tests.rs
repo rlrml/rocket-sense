@@ -232,6 +232,44 @@ fn replay_filters_parse_group_as_replay_group_and_project_separately() {
 }
 
 #[test]
+fn list_replays_query_accepts_html_form_array_filters() {
+    let query = ListReplaysQuery::from_raw_query(Some(
+        "player-name=colonelpanic8&player-id=epic%3Aabc&playlist=Online&map=Stadium_P",
+    ))
+    .expect("single-value HTML form filters should deserialize");
+
+    assert_eq!(query.player_names, ["colonelpanic8"]);
+    assert_eq!(query.player_ids, ["epic:abc"]);
+    assert_eq!(query.playlist, ["Online"]);
+    assert_eq!(query.maps, ["Stadium_P"]);
+}
+
+#[test]
+fn list_replays_query_accepts_bracketed_array_filters() {
+    let query = ListReplaysQuery::from_raw_query(Some(
+        "player-name%5B%5D=colonelpanic8&player-id%5B%5D=epic%3Aabc&playlist%5B%5D=Online&map%5B%5D=Stadium_P",
+    ))
+    .expect("bracketed array filters should deserialize");
+
+    assert_eq!(query.player_names, ["colonelpanic8"]);
+    assert_eq!(query.player_ids, ["epic:abc"]);
+    assert_eq!(query.playlist, ["Online"]);
+    assert_eq!(query.maps, ["Stadium_P"]);
+}
+
+#[test]
+fn list_replays_query_accepts_repeated_array_filters() {
+    let query = ListReplaysQuery::from_raw_query(Some(
+        "player-name=colonelpanic8&player-name=teammate&player-id=epic%3Aabc&player-id=steam%3Adef&playlist=Online&playlist=Private",
+    ))
+    .expect("repeated array filters should deserialize");
+
+    assert_eq!(query.player_names, ["colonelpanic8", "teammate"]);
+    assert_eq!(query.player_ids, ["epic:abc", "steam:def"]);
+    assert_eq!(query.playlist, ["Online", "Private"]);
+}
+
+#[test]
 fn replay_filters_do_not_require_authentication_without_me_filter() {
     let filters = ReplayFilters::from_query(ListReplaysQuery::default(), None)
         .expect("anonymous replay filters should parse");

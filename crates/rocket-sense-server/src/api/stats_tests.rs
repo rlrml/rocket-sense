@@ -50,6 +50,55 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
 }
 
 #[test]
+fn stat_aggregate_query_accepts_html_form_array_filters() {
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let raw_query = format!(
+        "player-name=colonelpanic8&playlist=Online&game-mode=ranked-doubles&replay-id={replay_id}&sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&map=Stadium_P"
+    );
+    let query = StatAggregatesQuery::from_raw_query(Some(&raw_query))
+        .expect("single-value HTML form filters should deserialize");
+
+    assert_eq!(query.player_names, ["colonelpanic8"]);
+    assert_eq!(query.playlist, ["Online"]);
+    assert_eq!(query.game_modes, ["ranked-doubles"]);
+    assert_eq!(query.replay_ids, [replay_id]);
+    assert_eq!(query.file_sha256s.len(), 1);
+    assert_eq!(query.maps, ["Stadium_P"]);
+}
+
+#[test]
+fn stat_aggregate_query_accepts_bracketed_array_filters() {
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let raw_query = format!(
+        "player-name%5B%5D=colonelpanic8&playlist%5B%5D=Online&game-mode%5B%5D=ranked-doubles&replay-id%5B%5D={replay_id}&sha256%5B%5D=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&map%5B%5D=Stadium_P"
+    );
+    let query = StatAggregatesQuery::from_raw_query(Some(&raw_query))
+        .expect("bracketed array filters should deserialize");
+
+    assert_eq!(query.player_names, ["colonelpanic8"]);
+    assert_eq!(query.playlist, ["Online"]);
+    assert_eq!(query.game_modes, ["ranked-doubles"]);
+    assert_eq!(query.replay_ids, [replay_id]);
+    assert_eq!(query.file_sha256s.len(), 1);
+    assert_eq!(query.maps, ["Stadium_P"]);
+}
+
+#[test]
+fn stat_aggregate_query_accepts_repeated_array_filters() {
+    let first_replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let second_replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f1").unwrap();
+    let raw_query = format!(
+        "player-name=colonelpanic8&player-name=teammate&playlist=Online&playlist=Private&replay-id={first_replay_id}&replay-id={second_replay_id}"
+    );
+    let query = StatAggregatesQuery::from_raw_query(Some(&raw_query))
+        .expect("repeated array filters should deserialize");
+
+    assert_eq!(query.player_names, ["colonelpanic8", "teammate"]);
+    assert_eq!(query.playlist, ["Online", "Private"]);
+    assert_eq!(query.replay_ids, [first_replay_id, second_replay_id]);
+}
+
+#[test]
 fn stat_aggregate_filters_reject_invalid_inputs() {
     assert!(StatAggregateFilters::from_query(
         StatAggregatesQuery {
