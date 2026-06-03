@@ -10,8 +10,9 @@ use std::{
     sync::Arc,
 };
 use subtr_actor::{
-    GoalTagEvent, MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo,
-    ReplayDataCollector, ReplayStatsTimelineScaffold, StatsTimelineEventCollector, TouchStatsEvent,
+    GoalTagEvent, PlayerInfo, ReplayDataCollector, ReplayStatsTimelineScaffold,
+    StatsEventPropertyValue, StatsEventTiming, StatsTimelineEventCollector, StatsTimelineTagEvent,
+    TouchStatsEvent,
 };
 use tokio::task::JoinSet;
 use uuid::Uuid;
@@ -1050,7 +1051,7 @@ async fn insert_play_events(
 fn build_indexed_events(
     replay_data: &Value,
     touch_events: &[TouchStatsEvent],
-    mechanics: &[MechanicEvent],
+    mechanics: &[StatsTimelineTagEvent],
     goal_tags: &[GoalTagEvent],
 ) -> Result<Vec<IndexedEvent>> {
     let mut events = Vec::new();
@@ -1238,7 +1239,7 @@ fn append_player_stat_events(events: &mut Vec<IndexedEvent>, replay_data: &Value
     Ok(())
 }
 
-fn indexed_mechanic_event(event: &MechanicEvent) -> Result<IndexedEvent> {
+fn indexed_mechanic_event(event: &StatsTimelineTagEvent) -> Result<IndexedEvent> {
     let player_id = remote_id_value_to_subject_id(
         &serde_json::to_value(&event.player_id)
             .context("failed to serialize mechanic event player id")?,
@@ -1562,14 +1563,14 @@ type MechanicTimingColumns = (
     Option<f64>,
 );
 
-fn mechanic_timing_columns(timing: &MechanicTiming) -> MechanicTimingColumns {
+fn mechanic_timing_columns(timing: &StatsEventTiming) -> MechanicTimingColumns {
     match *timing {
-        MechanicTiming::Moment { frame, time } => {
+        StatsEventTiming::Moment { frame, time } => {
             let frame = Some(frame as i32);
             let time = Some(f64::from(time));
             (frame, frame, frame, time, time, time)
         }
-        MechanicTiming::Span {
+        StatsEventTiming::Span {
             start_frame,
             end_frame,
             start_time,
@@ -1585,16 +1586,16 @@ fn mechanic_timing_columns(timing: &MechanicTiming) -> MechanicTimingColumns {
     }
 }
 
-fn mechanic_event_attributes(event: &MechanicEvent) -> Result<Value> {
+fn mechanic_event_attributes(event: &StatsTimelineTagEvent) -> Result<Value> {
     let mut attributes = Map::new();
     for property in &event.properties {
         let value = match &property.value {
-            MechanicEventPropertyValue::Text(value) => Value::String(value.clone()),
-            MechanicEventPropertyValue::Unsigned(value) => serde_json::to_value(value)
+            StatsEventPropertyValue::Text(value) => Value::String(value.clone()),
+            StatsEventPropertyValue::Unsigned(value) => serde_json::to_value(value)
                 .context("failed to serialize unsigned mechanic event property")?,
-            MechanicEventPropertyValue::Float(value) => serde_json::to_value(value)
+            StatsEventPropertyValue::Float(value) => serde_json::to_value(value)
                 .context("failed to serialize float mechanic event property")?,
-            MechanicEventPropertyValue::Boolean(value) => Value::Bool(*value),
+            StatsEventPropertyValue::Boolean(value) => Value::Bool(*value),
         };
         attributes.insert(property.key.clone(), value);
     }

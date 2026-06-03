@@ -87,6 +87,7 @@ fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
         kind: subtr_actor::GoalTagKind::DoubleTapGoal,
         scoring_team_is_team_0: false,
         scorer: Some(RemoteId::Steam(76561198000000001)),
+        scorer_position: None,
         confidence: 0.85,
         modifiers: vec![subtr_actor::GoalTagModifier::ByScorer],
         evidence: vec![subtr_actor::GoalTagEvidence {
@@ -94,6 +95,7 @@ fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
             time: 121.0,
             frame: 7260,
             player: Some(RemoteId::Steam(76561198000000001)),
+            player_position: None,
         }],
     };
 
@@ -180,6 +182,7 @@ fn touch_stats_event(
         sample_time: time,
         sample_frame: frame,
         player,
+        player_position: None,
         is_team_0,
         kind: "hit".to_owned(),
         height_band: "ground".to_owned(),
