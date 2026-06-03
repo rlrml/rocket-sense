@@ -142,7 +142,7 @@ span, player, or mechanic.
 
 ## Playlist and Queue Model
 
-A mechanic review playlist is a query over `play_events` plus latest review
+An event review playlist is a query over `play_events` plus latest review
 state. It does not need materialized rows for every queue at first.
 
 Example filters:

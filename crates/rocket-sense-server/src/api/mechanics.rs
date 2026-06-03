@@ -16,30 +16,45 @@ use uuid::Uuid;
 #[path = "mechanics_tests.rs"]
 mod tests;
 
-const MECHANIC_REVIEW_PREROLL_SECONDS: f64 = 4.0;
-const MECHANIC_REVIEW_POSTROLL_SECONDS: f64 = 3.0;
+const EVENT_REVIEW_PREROLL_SECONDS: f64 = 4.0;
+const EVENT_REVIEW_POSTROLL_SECONDS: f64 = 3.0;
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
-        .route("/mechanics/review", get(mechanic_review_page))
-        .route("/mechanics/review/open", get(open_mechanic_review))
+        .route("/events/review", get(event_review_page))
+        .route("/events/review/open", get(open_event_review))
+        .route("/mechanics/review", get(event_review_page))
+        .route("/mechanics/review/open", get(open_event_review))
 }
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/events/review-playlist", get(event_review_playlist))
+        .route(
+            "/events/playlists",
+            get(list_saved_event_playlists).post(create_saved_event_playlist),
+        )
+        .route(
+            "/events/playlists/{playlist_id}",
+            get(get_saved_event_playlist),
+        )
+        .route(
+            "/events/playlists/{playlist_id}/manifest",
+            get(saved_event_playlist_manifest),
+        )
         .route("/mechanics/events", get(list_mechanic_events))
-        .route("/mechanics/review-playlist", get(mechanic_review_playlist))
+        .route("/mechanics/review-playlist", get(event_review_playlist))
         .route(
             "/mechanics/playlists",
-            get(list_saved_mechanic_playlists).post(create_saved_mechanic_playlist),
+            get(list_saved_event_playlists).post(create_saved_event_playlist),
         )
         .route(
             "/mechanics/playlists/{playlist_id}",
-            get(get_saved_mechanic_playlist),
+            get(get_saved_event_playlist),
         )
         .route(
             "/mechanics/playlists/{playlist_id}/manifest",
-            get(saved_mechanic_playlist_manifest),
+            get(saved_event_playlist_manifest),
         )
         .route(
             "/mechanics/events/{event_id}/reviews",
@@ -148,18 +163,18 @@ fn non_empty_string(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
-async fn mechanic_review_page() -> Html<&'static str> {
-    Html(MECHANIC_REVIEW_PAGE)
+async fn event_review_page() -> Html<&'static str> {
+    Html(EVENT_REVIEW_PAGE)
 }
 
-async fn open_mechanic_review(RawQuery(raw_query): RawQuery) -> Result<Redirect, ApiError> {
+async fn open_event_review(RawQuery(raw_query): RawQuery) -> Result<Redirect, ApiError> {
     let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let filters = MechanicEventFilters::from_query(query)?;
-    Ok(Redirect::temporary(&mechanic_review_player_url(&filters)))
+    Ok(Redirect::temporary(&event_review_player_url(&filters)))
 }
 
-fn mechanic_review_player_url(filters: &MechanicEventFilters) -> String {
-    let playlist_url = mechanic_review_playlist_url(filters);
+fn event_review_player_url(filters: &MechanicEventFilters) -> String {
+    let playlist_url = event_review_playlist_url(filters);
     let mut target = String::from("/subtr-actor/?");
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     query.append_pair("reviewPlaylist", &playlist_url);
@@ -368,7 +383,7 @@ pub struct MechanicEventResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct MechanicReviewPlaylist {
+pub struct EventReviewPlaylist {
     pub version: u32,
     pub kind: &'static str,
     pub label: String,
@@ -487,7 +502,7 @@ pub struct CreateReviewResponse {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateMechanicReviewPlaylistRequest {
+pub struct CreateEventReviewPlaylistRequest {
     pub name: String,
     pub description: Option<String>,
     #[serde(default)]
@@ -497,7 +512,7 @@ pub struct CreateMechanicReviewPlaylistRequest {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SavedMechanicReviewPlaylistResponse {
+pub struct SavedEventReviewPlaylistResponse {
     pub id: Uuid,
     pub project_id: Option<Uuid>,
     pub name: String,
@@ -510,8 +525,8 @@ pub struct SavedMechanicReviewPlaylistResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct SavedMechanicReviewPlaylistsResponse {
-    pub playlists: Vec<SavedMechanicReviewPlaylistResponse>,
+pub struct SavedEventReviewPlaylistsResponse {
+    pub playlists: Vec<SavedEventReviewPlaylistResponse>,
     pub count: u32,
 }
 
@@ -541,10 +556,10 @@ pub async fn list_mechanic_events(
     }))
 }
 
-pub async fn mechanic_review_playlist(
+pub async fn event_review_playlist(
     State(state): State<AppState>,
     RawQuery(raw_query): RawQuery,
-) -> Result<Json<MechanicReviewPlaylist>, ApiError> {
+) -> Result<Json<EventReviewPlaylist>, ApiError> {
     let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let db = require_db(&state)?;
     let filters = MechanicEventFilters::from_query(query)?;
@@ -554,15 +569,15 @@ pub async fn mechanic_review_playlist(
 
     Ok(Json(build_review_playlist(
         events,
-        "Rocket Sense mechanic review".to_owned(),
+        "Rocket Sense events review".to_owned(),
         &filters,
         None,
     )))
 }
 
-pub async fn list_saved_mechanic_playlists(
+pub async fn list_saved_event_playlists(
     State(state): State<AppState>,
-) -> Result<Json<SavedMechanicReviewPlaylistsResponse>, ApiError> {
+) -> Result<Json<SavedEventReviewPlaylistsResponse>, ApiError> {
     let db = require_db(&state)?;
     let rows = sqlx::query(
         r#"
@@ -579,17 +594,17 @@ pub async fn list_saved_mechanic_playlists(
         .map(saved_playlist_from_row)
         .collect::<Result<Vec<_>, _>>()?;
 
-    Ok(Json(SavedMechanicReviewPlaylistsResponse {
+    Ok(Json(SavedEventReviewPlaylistsResponse {
         count: playlists.len() as u32,
         playlists,
     }))
 }
 
-pub async fn create_saved_mechanic_playlist(
+pub async fn create_saved_event_playlist(
     auth_user: AuthUser,
     State(state): State<AppState>,
-    Json(request): Json<CreateMechanicReviewPlaylistRequest>,
-) -> Result<(StatusCode, Json<SavedMechanicReviewPlaylistResponse>), ApiError> {
+    Json(request): Json<CreateEventReviewPlaylistRequest>,
+) -> Result<(StatusCode, Json<SavedEventReviewPlaylistResponse>), ApiError> {
     let db = require_db(&state)?;
     upsert_user(db, &auth_user)
         .await
@@ -630,18 +645,18 @@ pub async fn create_saved_mechanic_playlist(
     Ok((StatusCode::CREATED, Json(saved_playlist_from_row(row)?)))
 }
 
-pub async fn get_saved_mechanic_playlist(
+pub async fn get_saved_event_playlist(
     State(state): State<AppState>,
     Path(playlist_id): Path<Uuid>,
-) -> Result<Json<SavedMechanicReviewPlaylistResponse>, ApiError> {
+) -> Result<Json<SavedEventReviewPlaylistResponse>, ApiError> {
     let playlist = get_saved_playlist(require_db(&state)?, playlist_id).await?;
     Ok(Json(playlist))
 }
 
-pub async fn saved_mechanic_playlist_manifest(
+pub async fn saved_event_playlist_manifest(
     State(state): State<AppState>,
     Path(playlist_id): Path<Uuid>,
-) -> Result<Json<MechanicReviewPlaylist>, ApiError> {
+) -> Result<Json<EventReviewPlaylist>, ApiError> {
     let db = require_db(&state)?;
     let playlist = get_saved_playlist(db, playlist_id).await?;
     let filters = MechanicEventFilters::from_playlist_spec(&playlist.spec)?;
@@ -746,9 +761,9 @@ pub async fn create_mechanic_event_review(
 
 fn saved_playlist_from_row(
     row: sqlx::postgres::PgRow,
-) -> Result<SavedMechanicReviewPlaylistResponse, ApiError> {
+) -> Result<SavedEventReviewPlaylistResponse, ApiError> {
     let id: Uuid = row.try_get("id").map_err(ApiError::internal)?;
-    Ok(SavedMechanicReviewPlaylistResponse {
+    Ok(SavedEventReviewPlaylistResponse {
         id,
         project_id: row.try_get("project_id").map_err(ApiError::internal)?,
         name: row.try_get("name").map_err(ApiError::internal)?,
@@ -759,14 +774,14 @@ fn saved_playlist_from_row(
             .map_err(ApiError::internal)?,
         created_at: row.try_get("created_at").map_err(ApiError::internal)?,
         updated_at: row.try_get("updated_at").map_err(ApiError::internal)?,
-        manifest_url: format!("/api/v1/mechanics/playlists/{id}/manifest"),
+        manifest_url: format!("/api/v1/events/playlists/{id}/manifest"),
     })
 }
 
 async fn get_saved_playlist(
     pool: &PgPool,
     playlist_id: Uuid,
-) -> Result<SavedMechanicReviewPlaylistResponse, ApiError> {
+) -> Result<SavedEventReviewPlaylistResponse, ApiError> {
     let row = sqlx::query(
         r#"
         SELECT id, project_id, name, description, query, created_by_user_id, created_at, updated_at
@@ -778,7 +793,7 @@ async fn get_saved_playlist(
     .fetch_optional(pool)
     .await
     .map_err(ApiError::internal)?
-    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "mechanic review playlist not found"))?;
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "events review playlist not found"))?;
 
     saved_playlist_from_row(row)
 }
@@ -974,7 +989,7 @@ impl MechanicEventFilters {
     }
 }
 
-fn mechanic_review_playlist_url(filters: &MechanicEventFilters) -> String {
+fn event_review_playlist_url(filters: &MechanicEventFilters) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     for event_id in &filters.event_ids {
         query.append_pair("event-id", &event_id.to_string());
@@ -1002,9 +1017,9 @@ fn mechanic_review_playlist_url(filters: &MechanicEventFilters) -> String {
 
     let query_string = query.finish();
     if query_string.is_empty() {
-        "/api/v1/mechanics/review-playlist".to_owned()
+        "/api/v1/events/review-playlist".to_owned()
     } else {
-        format!("/api/v1/mechanics/review-playlist?{query_string}")
+        format!("/api/v1/events/review-playlist?{query_string}")
     }
 }
 
@@ -1271,7 +1286,7 @@ fn build_review_playlist(
     label: String,
     filters: &MechanicEventFilters,
     saved_playlist_id: Option<Uuid>,
-) -> MechanicReviewPlaylist {
+) -> EventReviewPlaylist {
     let mut replay_ids = Vec::<Uuid>::new();
     for event in &events {
         if !replay_ids.contains(&event.replay_id) {
@@ -1280,7 +1295,7 @@ fn build_review_playlist(
     }
     let count = events.len() as u32;
 
-    MechanicReviewPlaylist {
+    EventReviewPlaylist {
         version: 1,
         kind: "playlist",
         label,
@@ -1322,8 +1337,8 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
         .unwrap_or(0.0);
     let start_time = event.start_time.unwrap_or(event_time);
     let end_time = event.end_time.unwrap_or(event_time);
-    let clip_start = (start_time - MECHANIC_REVIEW_PREROLL_SECONDS).max(0.0);
-    let clip_end = (end_time + MECHANIC_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
+    let clip_start = (start_time - EVENT_REVIEW_PREROLL_SECONDS).max(0.0);
+    let clip_end = (end_time + EVENT_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
     let mechanic_label = mechanic_label(&event.mechanic);
 
     PlaylistItem {
@@ -1470,7 +1485,7 @@ fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
     state.db.as_ref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
-            "postgres connection is required for mechanic review",
+            "postgres connection is required for events review",
         )
     })
 }
@@ -1511,4 +1526,4 @@ impl IntoResponse for ApiError {
     }
 }
 
-const MECHANIC_REVIEW_PAGE: &str = include_str!("mechanics_review_page.html");
+const EVENT_REVIEW_PAGE: &str = include_str!("events_review_page.html");

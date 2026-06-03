@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn mechanic_review_playlist_url_preserves_filter_fields() {
+fn event_review_playlist_url_preserves_filter_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
         event_ids: Vec::new(),
@@ -16,9 +16,9 @@ fn mechanic_review_playlist_url_preserves_filter_fields() {
     })
     .unwrap();
 
-    let url = mechanic_review_playlist_url(&filters);
+    let url = event_review_playlist_url(&filters);
 
-    assert!(url.starts_with("/api/v1/mechanics/review-playlist?"));
+    assert!(url.starts_with("/api/v1/events/review-playlist?"));
     assert!(url.contains("mechanic=wavedash"));
     assert!(url.contains("mechanic=speed_flip"));
     assert!(url.contains("detector=stats_timeline"));
@@ -31,7 +31,7 @@ fn mechanic_review_playlist_url_preserves_filter_fields() {
 }
 
 #[test]
-fn mechanic_review_open_targets_stats_evaluation_player() {
+fn event_review_open_targets_stats_evaluation_player() {
     let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
         event_ids: Vec::new(),
         mechanic: vec!["wavedash".to_owned(), "speed_flip".to_owned()],
@@ -45,7 +45,7 @@ fn mechanic_review_open_targets_stats_evaluation_player() {
     })
     .unwrap();
 
-    let url = mechanic_review_player_url(&filters);
+    let url = event_review_player_url(&filters);
 
     assert!(url.starts_with("/subtr-actor/?reviewPlaylist="));
     assert!(!url.starts_with("/subtr-actor/review"));
@@ -73,7 +73,7 @@ fn mechanic_events_query_accepts_repeated_mechanic_fields() {
 }
 
 #[test]
-fn mechanic_review_page_exposes_current_mechanic_filters() {
+fn event_review_page_exposes_current_mechanic_filters() {
     for mechanic in [
         "air_dribble",
         "ball_carry",
@@ -89,10 +89,14 @@ fn mechanic_review_page_exposes_current_mechanic_filters() {
         "speed_flip",
         "wavedash",
     ] {
-        assert!(MECHANIC_REVIEW_PAGE.contains(&format!(r#"value="{mechanic}""#)));
+        assert!(EVENT_REVIEW_PAGE.contains(&format!(r#"value="{mechanic}""#)));
     }
 
-    assert!(MECHANIC_REVIEW_PAGE.contains(r#"action="/mechanics/review/open""#));
+    assert!(EVENT_REVIEW_PAGE.contains("<title>Events review</title>"));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"<h1>Events review</h1>"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
+    assert!(EVENT_REVIEW_PAGE
+        .contains(r#"href="/api/v1/events/review-playlist?review-status=unreviewed&count=1000""#));
 }
 
 #[test]

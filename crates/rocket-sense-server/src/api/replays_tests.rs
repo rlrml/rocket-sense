@@ -44,7 +44,7 @@ fn subtr_actor_stats_index_serves_report_app() {
 }
 
 #[test]
-fn subtr_actor_review_index_serves_mechanic_review_player() {
+fn subtr_actor_review_index_serves_event_review_player() {
     assert!(SUBTR_ACTOR_REVIEW_INDEX.contains("stat evaluation player"));
     assert!(asset_paths(SUBTR_ACTOR_REVIEW_INDEX)
         .iter()
@@ -85,8 +85,8 @@ fn asset_paths(index: &str) -> Vec<String> {
 #[test]
 fn subtr_actor_review_without_trailing_slash_redirects_to_slash() {
     assert_eq!(
-        subtr_actor_review_trailing_slash_url(Some("playlist=/api/v1/mechanics/review-playlist")),
-        "/subtr-actor/review/?playlist=/api/v1/mechanics/review-playlist"
+        subtr_actor_review_trailing_slash_url(Some("playlist=/api/v1/events/review-playlist")),
+        "/subtr-actor/review/?playlist=/api/v1/events/review-playlist"
     );
     assert_eq!(
         subtr_actor_review_trailing_slash_url(None),
@@ -147,8 +147,9 @@ fn replay_list_page_uses_ballchasing_style_replay_rows() {
 #[test]
 fn replay_list_header_only_links_rocket_sense_destinations() {
     assert!(REPLAY_LIST_PAGE.contains(r#"<a class="nav-item active" href="/replays">Replays</a>"#));
-    assert!(REPLAY_LIST_PAGE
-        .contains(r#"<a class="nav-item" href="/mechanics/review">Mechanics Review</a>"#));
+    assert!(
+        REPLAY_LIST_PAGE.contains(r#"<a class="nav-item" href="/events/review">Events Review</a>"#)
+    );
     assert!(REPLAY_LIST_PAGE.contains(r#"<a class="nav-item" href="/profile">Profile</a>"#));
     assert!(!REPLAY_LIST_PAGE.contains("Patreon"));
     assert!(!REPLAY_LIST_PAGE.contains("Help"));

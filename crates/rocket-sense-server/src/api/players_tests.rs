@@ -79,7 +79,7 @@ fn player_profile_page_fetches_player_profile_api() {
 fn player_profile_header_can_show_authenticated_account() {
     assert!(PLAYER_PROFILE_PAGE.contains(r#"id="account-link""#));
     assert!(PLAYER_PROFILE_PAGE
-        .contains(r#"<a class="nav-item" href="/mechanics/review">Mechanics Review</a>"#));
+        .contains(r#"<a class="nav-item" href="/events/review">Events Review</a>"#));
     assert!(PLAYER_PROFILE_PAGE.contains("function renderHeaderAccount()"));
     assert!(PLAYER_PROFILE_PAGE.contains("function setHeaderAccountFromToken(token)"));
     assert!(PLAYER_PROFILE_PAGE.contains("function hydrateHeaderAccount()"));
