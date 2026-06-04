@@ -1,7 +1,10 @@
 use crate::{
     app::AppState,
     auth::AuthUser,
-    processing::{enqueue_replay_reprocessing, ReplayReprocessOptions},
+    processing::{
+        enqueue_profile_timing_backfill, enqueue_replay_reprocessing,
+        ReplayProfileTimingBackfillOptions, ReplayReprocessOptions,
+    },
 };
 use axum::{
     extract::State,
@@ -16,7 +19,12 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/admin/replays/reprocess", post(reprocess_replays))
+    Router::new()
+        .route("/admin/replays/reprocess", post(reprocess_replays))
+        .route(
+            "/admin/replays/backfill-profile-timing",
+            post(backfill_profile_timing),
+        )
 }
 
 #[derive(Debug, Default, Deserialize, ToSchema)]
@@ -30,6 +38,24 @@ pub struct ReprocessReplaysRequest {
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ReprocessReplaysResponse {
+    pub matched_replays: usize,
+    pub enqueued_replays: usize,
+    pub skipped_replays: usize,
+    pub concurrency: usize,
+    pub force: bool,
+}
+
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct BackfillProfileTimingRequest {
+    #[serde(default)]
+    pub replay_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub force: bool,
+    pub concurrency: Option<usize>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BackfillProfileTimingResponse {
     pub matched_replays: usize,
     pub enqueued_replays: usize,
     pub skipped_replays: usize,
@@ -70,6 +96,47 @@ pub async fn reprocess_replays(
     .map_err(ApiError::internal)?;
 
     Ok(Json(ReprocessReplaysResponse {
+        matched_replays: summary.matched_replays,
+        enqueued_replays: summary.enqueued_replays,
+        skipped_replays: summary.skipped_replays,
+        concurrency: summary.concurrency,
+        force: summary.force,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/replays/backfill-profile-timing",
+    tag = "admin",
+    request_body = BackfillProfileTimingRequest,
+    responses(
+        (status = 200, description = "Profile timing event backfill batch enqueued", body = BackfillProfileTimingResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn backfill_profile_timing(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<BackfillProfileTimingRequest>,
+) -> Result<Json<BackfillProfileTimingResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    let summary = enqueue_profile_timing_backfill(
+        pool.clone(),
+        state.storage.clone(),
+        ReplayProfileTimingBackfillOptions {
+            replay_ids: request.replay_ids,
+            force: request.force,
+            concurrency: request.concurrency.unwrap_or(1),
+        },
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(BackfillProfileTimingResponse {
         matched_replays: summary.matched_replays,
         enqueued_replays: summary.enqueued_replays,
         skipped_replays: summary.skipped_replays,

@@ -9,10 +9,7 @@ use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
-use subtr_actor::{
-    GoalTagEvent, MechanicEvent, MechanicEventPropertyValue, MechanicTiming, PlayerInfo,
-    ReplayDataCollector, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
-};
+use subtr_actor::{PlayerInfo, ReplayStatsTimelineScaffold, StatsTimelineEventCollector};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -26,7 +23,6 @@ mod tests;
 const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v2";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
-const REPLAY_DATA_SOURCE: &str = "subtr-actor:replay-data";
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -40,18 +36,22 @@ struct IndexedEvent {
     display_name: String,
     category: String,
     source: String,
+    source_stream: String,
+    source_index: usize,
     source_event_id: String,
     primary_subject: Option<EventSubject>,
     subjects: Vec<EventSubject>,
+    team: Option<i32>,
     start_frame: Option<i32>,
     end_frame: Option<i32>,
     event_frame: Option<i32>,
     start_time: Option<f64>,
     end_time: Option<f64>,
     event_time: Option<f64>,
+    duration_seconds: Option<f64>,
     confidence: Option<f64>,
     attributes: Value,
-    payload: Option<Value>,
+    payload: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +59,43 @@ struct EventSubject {
     kind: String,
     id: String,
     role: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+struct EventScalarField {
+    source: &'static str,
+    path: String,
+    value_kind: &'static str,
+    string_value: Option<String>,
+    numeric_value: Option<f64>,
+    boolean_value: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PlayEventInsertOptions {
+    payload: bool,
+    attributes: bool,
+    scalar_fields: bool,
+    details: bool,
+    subjects: bool,
+}
+
+impl PlayEventInsertOptions {
+    const FULL: Self = Self {
+        payload: true,
+        attributes: true,
+        scalar_fields: true,
+        details: true,
+        subjects: true,
+    };
+
+    const PROFILE_TIMING_BACKFILL: Self = Self {
+        payload: true,
+        attributes: false,
+        scalar_fields: false,
+        details: true,
+        subjects: true,
+    };
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +126,8 @@ struct ReplaySearchPlayer {
     is_pro: bool,
     active_time_seconds: Option<OrderedFloat>,
     time_demolished_seconds: Option<OrderedFloat>,
+    time_most_back_seconds: Option<OrderedFloat>,
+    time_most_forward_seconds: Option<OrderedFloat>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,6 +154,31 @@ struct ReplayProcessingTarget {
     replay_id: Uuid,
     file_sha256: String,
     storage_key: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReplayProfileTimingBackfillOptions {
+    pub replay_ids: Vec<Uuid>,
+    pub force: bool,
+    pub concurrency: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplayProfileTimingBackfillSummary {
+    pub matched_replays: usize,
+    pub enqueued_replays: usize,
+    pub skipped_replays: usize,
+    pub concurrency: usize,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ReplayProfileTimingBackfillTarget {
+    replay_id: Uuid,
+    analysis_run_id: Uuid,
+    storage_key: String,
+    needs_positioning: bool,
+    needs_rotation_player: bool,
 }
 
 pub fn spawn_replay_processing(
@@ -151,6 +215,111 @@ pub async fn enqueue_replay_reprocessing(
         concurrency,
         force: options.force,
     })
+}
+
+pub async fn enqueue_profile_timing_backfill(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    options: ReplayProfileTimingBackfillOptions,
+) -> Result<ReplayProfileTimingBackfillSummary> {
+    let concurrency = options.concurrency.clamp(1, 4);
+    let targets = profile_timing_backfill_targets(&pool, &options).await?;
+    let enqueued_replays = targets.len();
+    if !targets.is_empty() {
+        spawn_profile_timing_backfill_worker(pool, storage, targets, concurrency);
+    }
+
+    Ok(ReplayProfileTimingBackfillSummary {
+        matched_replays: enqueued_replays,
+        enqueued_replays,
+        skipped_replays: 0,
+        concurrency,
+        force: options.force,
+    })
+}
+
+fn spawn_profile_timing_backfill_worker(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    targets: Vec<ReplayProfileTimingBackfillTarget>,
+    concurrency: usize,
+) {
+    tokio::spawn(async move {
+        let total = targets.len();
+        let mut pending = targets.into_iter();
+        let mut tasks = JoinSet::new();
+        let mut succeeded = 0usize;
+        let mut failed = 0usize;
+
+        loop {
+            while tasks.len() < concurrency {
+                let Some(target) = pending.next() else {
+                    break;
+                };
+                let pool = pool.clone();
+                let storage = storage.clone();
+                tasks.spawn(async move {
+                    let replay_id = target.replay_id;
+                    let needs_positioning = target.needs_positioning;
+                    let needs_rotation_player = target.needs_rotation_player;
+                    tracing::info!(
+                        %replay_id,
+                        needs_positioning,
+                        needs_rotation_player,
+                        "profile timing backfill started"
+                    );
+                    let result = backfill_profile_timing_events(pool, storage, target).await;
+                    (replay_id, result)
+                });
+            }
+
+            let Some(result) = tasks.join_next().await else {
+                break;
+            };
+
+            match result {
+                Ok((replay_id, Ok(inserted))) => {
+                    succeeded += 1;
+                    tracing::info!(
+                        %replay_id,
+                        inserted,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill succeeded"
+                    );
+                }
+                Ok((replay_id, Err(error))) => {
+                    failed += 1;
+                    tracing::error!(
+                        %replay_id,
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill failed"
+                    );
+                }
+                Err(error) => {
+                    failed += 1;
+                    tracing::error!(
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill task panicked"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            succeeded,
+            failed,
+            total,
+            "profile timing backfill batch finished"
+        );
+    });
 }
 
 fn spawn_reprocess_worker(
@@ -308,6 +477,175 @@ async fn reprocess_targets(
         .collect()
 }
 
+async fn profile_timing_backfill_targets(
+    pool: &PgPool,
+    options: &ReplayProfileTimingBackfillOptions,
+) -> Result<Vec<ReplayProfileTimingBackfillTarget>> {
+    let mut query = sqlx::QueryBuilder::new(
+        r#"
+        SELECT
+            r.id,
+            r.storage_key,
+            r.canonical_analysis_run_id,
+            NOT EXISTS (
+                SELECT 1
+                FROM play_events event
+                WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                  AND event.source_stream = 'positioning'
+            ) AS needs_positioning,
+            (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    JOIN play_event_rotation_player_details detail
+                      ON detail.event_id = event.id
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+            ) AS needs_rotation_player
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+        "#,
+    );
+
+    if !options.replay_ids.is_empty() {
+        query.push(" AND r.id = ANY(");
+        query.push_bind(&options.replay_ids);
+        query.push(")");
+    }
+
+    if !options.force {
+        query.push(
+            r#"
+            AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'positioning'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    JOIN play_event_rotation_player_details detail
+                      ON detail.event_id = event.id
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+            )
+            "#,
+        );
+    }
+
+    query.push(" ORDER BY r.created_at, r.id");
+
+    query
+        .build()
+        .fetch_all(pool)
+        .await
+        .context("failed to list replays for profile timing backfill")?
+        .into_iter()
+        .map(|row| {
+            Ok(ReplayProfileTimingBackfillTarget {
+                replay_id: row.try_get("id")?,
+                storage_key: row.try_get("storage_key")?,
+                analysis_run_id: row.try_get("canonical_analysis_run_id")?,
+                needs_positioning: options.force || row.try_get("needs_positioning")?,
+                needs_rotation_player: options.force || row.try_get("needs_rotation_player")?,
+            })
+        })
+        .collect()
+}
+
+async fn backfill_profile_timing_events(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    target: ReplayProfileTimingBackfillTarget,
+) -> Result<usize> {
+    let replay_bytes = storage
+        .get(&target.storage_key)
+        .await
+        .with_context(|| format!("failed to read replay object `{}`", target.storage_key))?;
+    let output =
+        tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
+            .await
+            .context("profile timing backfill analysis task panicked")??;
+    let mut indexed_events = output
+        .indexed_events
+        .into_iter()
+        .filter(|event| {
+            (target.needs_rotation_player && event.source_stream == "rotation_player")
+                || (target.needs_positioning && event.source_stream == "positioning")
+        })
+        .collect::<Vec<_>>();
+    if indexed_events.is_empty() {
+        return Ok(0);
+    }
+
+    indexed_events.sort_by_key(|event| match event.source_stream.as_str() {
+        "rotation_player" => 0,
+        "positioning" => 1,
+        _ => 2,
+    });
+
+    let replay_players = load_replay_player_lookup(&pool, target.replay_id).await?;
+    let event_type_ids = ensure_event_types(&pool, &indexed_events).await?;
+    let inserted = insert_play_events_with_options(
+        &pool,
+        target.analysis_run_id,
+        target.replay_id,
+        &indexed_events,
+        &event_type_ids,
+        &replay_players,
+        PlayEventInsertOptions::PROFILE_TIMING_BACKFILL,
+    )
+    .await?;
+
+    Ok(inserted)
+}
+
+async fn load_replay_player_lookup(
+    pool: &PgPool,
+    replay_id: Uuid,
+) -> Result<HashMap<String, Uuid>> {
+    sqlx::query(
+        r#"
+        SELECT id, platform, platform_player_id
+        FROM replay_players
+        WHERE replay_id = $1
+          AND platform IS NOT NULL
+          AND platform_player_id IS NOT NULL
+        "#,
+    )
+    .bind(replay_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to load replay player lookup")?
+    .into_iter()
+    .map(|row| {
+        let platform: Option<String> = row.try_get("platform")?;
+        let platform_player_id: Option<String> = row.try_get("platform_player_id")?;
+        let id: Uuid = row.try_get("id")?;
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            return Err(anyhow!("replay player lookup row had no key"));
+        };
+        Ok((key, id))
+    })
+    .collect()
+}
+
 async fn process_replay(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
@@ -387,26 +725,8 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         .get_replay_stats_timeline_scaffold(&replay)
         .map_err(|error| anyhow!("failed to collect replay event timeline: {error:?}"))?;
     let metadata = replay_search_metadata(&timeline);
-    let (replay_data_value, replay_data_error) =
-        match ReplayDataCollector::new().get_replay_data(&replay) {
-            Ok(replay_data) => (
-                serde_json::to_value(&replay_data).context("failed to serialize replay data")?,
-                None,
-            ),
-            Err(error) => {
-                let message = format!("{error:?}");
-                tracing::warn!(
-                    error = %message,
-                    "exact replay-data event extraction failed; continuing with timeline events"
-                );
-                (Value::Object(Map::new()), Some(message))
-            }
-        };
     let timeline_events_value = serde_json::to_value(&timeline.events)
         .context("failed to serialize replay timeline events")?;
-    let exact_events = replay_data_value
-        .as_object()
-        .context("serialized replay data was not an object")?;
     let event_stream = serde_json::json!({
         "schema_version": EVENT_STREAM_SCHEMA_VERSION,
         "source": {
@@ -417,24 +737,9 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
             "rocket_sense_git_sha": option_env!("GIT_SHA")
         },
         "replay_meta": timeline.replay_meta.clone(),
-        "diagnostics": {
-            "replay_data_error": replay_data_error,
-        },
-        "exact_events": {
-            "boost_pad": exact_events.get("boost_pad_events").cloned().unwrap_or(Value::Array(Vec::new())),
-            "demo": exact_events.get("demolish_infos").cloned().unwrap_or(Value::Array(Vec::new())),
-            "dodge_refresh": exact_events.get("dodge_refreshed_events").cloned().unwrap_or(Value::Array(Vec::new())),
-            "goal": exact_events.get("goal_events").cloned().unwrap_or(Value::Array(Vec::new())),
-            "player_stat": exact_events.get("player_stat_events").cloned().unwrap_or(Value::Array(Vec::new())),
-            "touch": exact_events.get("touch_events").cloned().unwrap_or(Value::Array(Vec::new()))
-        },
         "timeline_events": timeline_events_value
     });
-    let indexed_events = build_indexed_events(
-        &replay_data_value,
-        &timeline.events.mechanics,
-        &timeline.events.goal_tags,
-    )?;
+    let indexed_events = build_indexed_events(&timeline)?;
 
     Ok(ReplayAnalysisOutput {
         event_stream,
@@ -529,6 +834,8 @@ fn replay_search_player(player: &PlayerInfo, team: i32) -> ReplaySearchPlayer {
         is_pro: false,
         active_time_seconds: None,
         time_demolished_seconds: None,
+        time_most_back_seconds: None,
+        time_most_forward_seconds: None,
     }
 }
 
@@ -559,10 +866,10 @@ fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySumm
 fn team_score_from_events(timeline: &ReplayStatsTimelineScaffold, is_team_0: bool) -> i32 {
     timeline
         .events
-        .core_team
+        .core_player
         .iter()
         .filter(|event| event.is_team_0 == is_team_0)
-        .map(|event| event.delta.goals)
+        .map(|event| event.goals_delta)
         .sum()
 }
 
@@ -570,15 +877,32 @@ fn apply_player_timing_metadata(
     players: &mut [ReplaySearchPlayer],
     timeline: &ReplayStatsTimelineScaffold,
 ) {
-    let mut timing_by_key = HashMap::<String, (f64, f64)>::new();
+    let mut timing_by_key = HashMap::<String, PlayerTimingMetadata>::new();
     for event in &timeline.events.positioning {
         let (platform, platform_player_id) = remote_id_parts(&event.player);
         let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
             continue;
         };
         let timing = timing_by_key.entry(key).or_default();
-        timing.0 += f64::from(event.active_game_time);
-        timing.1 += f64::from(event.time_demolished);
+        let duration = f64::from(event.duration);
+        if event.active {
+            timing.active_time += duration;
+        }
+        if event.demolished {
+            timing.time_demolished += duration;
+        }
+        match event.teammate_role {
+            subtr_actor::PositioningTeammateRoleState::MostBack => {
+                timing.time_most_back += duration;
+            }
+            subtr_actor::PositioningTeammateRoleState::MostForward => {
+                timing.time_most_forward += duration;
+            }
+            subtr_actor::PositioningTeammateRoleState::NoTeammates
+            | subtr_actor::PositioningTeammateRoleState::Mid
+            | subtr_actor::PositioningTeammateRoleState::Other
+            | subtr_actor::PositioningTeammateRoleState::Unknown => {}
+        }
     }
 
     let known_player_keys = timeline
@@ -599,12 +923,24 @@ fn apply_player_timing_metadata(
         let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
             continue;
         };
-        let Some((active_time, demolished_time)) = timing_by_key.get(&key).copied() else {
+        let Some(timing) = timing_by_key.get(&key).copied() else {
             continue;
         };
-        player.active_time_seconds = finite_nonnegative(active_time).map(OrderedFloat);
-        player.time_demolished_seconds = finite_nonnegative(demolished_time).map(OrderedFloat);
+        player.active_time_seconds = finite_nonnegative(timing.active_time).map(OrderedFloat);
+        player.time_demolished_seconds =
+            finite_nonnegative(timing.time_demolished).map(OrderedFloat);
+        player.time_most_back_seconds = finite_nonnegative(timing.time_most_back).map(OrderedFloat);
+        player.time_most_forward_seconds =
+            finite_nonnegative(timing.time_most_forward).map(OrderedFloat);
     }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PlayerTimingMetadata {
+    active_time: f64,
+    time_demolished: f64,
+    time_most_back: f64,
+    time_most_forward: f64,
 }
 
 fn finite_nonnegative(value: f64) -> Option<f64> {
@@ -785,9 +1121,11 @@ async fn upsert_replay_search_metadata(
                 team,
                 is_pro,
                 active_time_seconds,
-                time_demolished_seconds
+                time_demolished_seconds,
+                time_most_back_seconds,
+                time_most_forward_seconds
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             "#,
         )
         .bind(replay_player_id)
@@ -799,6 +1137,8 @@ async fn upsert_replay_search_metadata(
         .bind(player.is_pro)
         .bind(player.active_time_seconds.map(|value| value.0))
         .bind(player.time_demolished_seconds.map(|value| value.0))
+        .bind(player.time_most_back_seconds.map(|value| value.0))
+        .bind(player.time_most_forward_seconds.map(|value| value.0))
         .execute(pool)
         .await
         .context("failed to insert replay player")?;
@@ -962,15 +1302,35 @@ async fn insert_play_events(
     events: &[IndexedEvent],
     event_type_ids: &HashMap<String, i32>,
     replay_players: &HashMap<String, Uuid>,
-) -> Result<()> {
+) -> Result<usize> {
+    insert_play_events_with_options(
+        pool,
+        analysis_run_id,
+        replay_id,
+        events,
+        event_type_ids,
+        replay_players,
+        PlayEventInsertOptions::FULL,
+    )
+    .await
+}
+
+async fn insert_play_events_with_options(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+    event_type_ids: &HashMap<String, i32>,
+    replay_players: &HashMap<String, Uuid>,
+    options: PlayEventInsertOptions,
+) -> Result<usize> {
+    let mut inserted = 0usize;
     for event in events {
         let Some(event_type_id) = event_type_ids.get(&event.event_type_key).copied() else {
             continue;
         };
 
-        let play_event_id = Uuid::now_v7();
-
-        sqlx::query(
+        let Some(row) = sqlx::query(
             r#"
             INSERT INTO play_events (
                 id,
@@ -978,50 +1338,74 @@ async fn insert_play_events(
                 replay_id,
                 event_type_id,
                 source,
+                source_stream,
+                source_index,
                 source_event_id,
                 primary_subject_kind,
                 primary_subject_id,
+                team,
                 start_frame,
                 end_frame,
                 event_frame,
                 start_time,
                 end_time,
                 event_time,
-                confidence,
-                attributes,
-                payload
+                duration_seconds,
+                confidence
             )
             VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-                $11, $12, $13, $14, $15, $16, $17
+                $11, $12, $13, $14, $15, $16, $17, $18, $19
             )
             ON CONFLICT DO NOTHING
+            RETURNING id
             "#,
         )
-        .bind(play_event_id)
+        .bind(Uuid::now_v7())
         .bind(analysis_run_id)
         .bind(replay_id)
         .bind(event_type_id)
         .bind(&event.source)
+        .bind(&event.source_stream)
+        .bind(event.source_index as i32)
         .bind(&event.source_event_id)
         .bind(event.primary_subject.as_ref().map(|subject| &subject.kind))
         .bind(event.primary_subject.as_ref().map(|subject| &subject.id))
+        .bind(event.team)
         .bind(event.start_frame)
         .bind(event.end_frame)
         .bind(event.event_frame)
         .bind(event.start_time)
         .bind(event.end_time)
         .bind(event.event_time)
+        .bind(event.duration_seconds)
         .bind(event.confidence)
-        .bind(&event.attributes)
-        .bind(&event.payload)
-        .execute(pool)
+        .fetch_optional(pool)
         .await
-        .context("failed to insert play event")?;
+        .context("failed to insert play event")?
+        else {
+            continue;
+        };
+        let play_event_id: Uuid = row.try_get("id")?;
+        inserted += 1;
 
-        for subject in &event.subjects {
-            sqlx::query(
-                r#"
+        if options.payload {
+            insert_play_event_payload(pool, play_event_id, &event.payload).await?;
+        }
+        if options.attributes {
+            insert_play_event_attributes(pool, play_event_id, &event.attributes).await?;
+        }
+        if options.scalar_fields {
+            insert_play_event_scalar_fields(pool, play_event_id, event).await?;
+        }
+        if options.details {
+            insert_play_event_details(pool, play_event_id, event).await?;
+        }
+
+        if options.subjects {
+            for subject in &event.subjects {
+                sqlx::query(
+                    r#"
                 INSERT INTO play_event_subjects (
                     event_id,
                     subject_kind,
@@ -1032,301 +1416,817 @@ async fn insert_play_events(
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT DO NOTHING
                 "#,
+                )
+                .bind(play_event_id)
+                .bind(&subject.kind)
+                .bind(&subject.id)
+                .bind(resolve_replay_player_id(subject, replay_players))
+                .bind(&subject.role)
+                .execute(pool)
+                .await
+                .context("failed to insert play event subject")?;
+            }
+        }
+    }
+
+    Ok(inserted)
+}
+
+async fn insert_play_event_payload(pool: &PgPool, event_id: Uuid, payload: &Value) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_payloads (
+            event_id,
+            payload
+        )
+        VALUES ($1, $2)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(payload)
+    .execute(pool)
+    .await
+    .context("failed to insert play event payload")?;
+    Ok(())
+}
+
+async fn insert_play_event_attributes(
+    pool: &PgPool,
+    event_id: Uuid,
+    attributes: &Value,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_attributes (
+            event_id,
+            attributes
+        )
+        VALUES ($1, $2)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(attributes)
+    .execute(pool)
+    .await
+    .context("failed to insert play event attributes")?;
+    Ok(())
+}
+
+async fn insert_play_event_scalar_fields(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    for field in event_scalar_fields(event) {
+        sqlx::query(
+            r#"
+            INSERT INTO play_event_scalar_fields (
+                event_id,
+                field_source,
+                field_path,
+                value_kind,
+                string_value,
+                numeric_value,
+                boolean_value
             )
-            .bind(play_event_id)
-            .bind(&subject.kind)
-            .bind(&subject.id)
-            .bind(resolve_replay_player_id(subject, replay_players))
-            .bind(&subject.role)
-            .execute(pool)
-            .await
-            .context("failed to insert play event subject")?;
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT DO NOTHING
+            "#,
+        )
+        .bind(event_id)
+        .bind(field.source)
+        .bind(&field.path)
+        .bind(field.value_kind)
+        .bind(&field.string_value)
+        .bind(field.numeric_value)
+        .bind(field.boolean_value)
+        .execute(pool)
+        .await
+        .context("failed to insert play event scalar field")?;
+    }
+
+    Ok(())
+}
+
+async fn insert_play_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    match event.source_stream.as_str() {
+        "timeline" => insert_timeline_event_details(pool, event_id, event).await,
+        "mechanics" => insert_mechanic_event_details(pool, event_id, event).await,
+        "goal_tags" => insert_goal_tag_event_details(pool, event_id, event).await,
+        "touch" => insert_touch_event_details(pool, event_id, event).await,
+        "rotation_player" => insert_rotation_player_event_details(pool, event_id, event).await,
+        _ => Ok(()),
+    }
+}
+
+async fn insert_timeline_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_timeline_details (
+            event_id,
+            kind,
+            player_subject_id,
+            team
+        )
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(required_kind(&event.payload)?)
+    .bind(player_subject_id_from_field(&event.payload, "player_id")?)
+    .bind(event.team)
+    .execute(pool)
+    .await
+    .context("failed to insert timeline event details")?;
+    Ok(())
+}
+
+async fn insert_mechanic_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    let mut properties = Map::new();
+    append_mechanic_property_attributes(&event.payload, &mut properties);
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_mechanic_details (
+            event_id,
+            mechanic,
+            properties
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(required_kind(&event.payload)?)
+    .bind(Value::Object(properties))
+    .execute(pool)
+    .await
+    .context("failed to insert mechanic event details")?;
+    Ok(())
+}
+
+async fn insert_goal_tag_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_goal_tag_details (
+            event_id,
+            goal_index,
+            kind,
+            scoring_team,
+            scorer_subject_id,
+            confidence,
+            modifiers,
+            evidence
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(required_int(&event.payload, "goal_index")?)
+    .bind(required_kind(&event.payload)?)
+    .bind(required_team_bool(
+        &event.payload,
+        "scoring_team_is_team_0",
+    )?)
+    .bind(player_subject_id_from_field(&event.payload, "scorer")?)
+    .bind(required_float(&event.payload, "confidence")?)
+    .bind(json_array_or_empty(&event.payload, "modifiers"))
+    .bind(json_array_or_empty(&event.payload, "evidence"))
+    .execute(pool)
+    .await
+    .context("failed to insert goal tag event details")?;
+    Ok(())
+}
+
+async fn insert_touch_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_touch_details (
+            event_id,
+            kind,
+            height_band,
+            surface,
+            dodge_state,
+            ball_speed_change,
+            sample_frame,
+            sample_time
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(required_string(&event.payload, "kind")?)
+    .bind(required_string(&event.payload, "height_band")?)
+    .bind(required_string(&event.payload, "surface")?)
+    .bind(required_string(&event.payload, "dodge_state")?)
+    .bind(required_float(&event.payload, "ball_speed_change")?)
+    .bind(required_int(&event.payload, "sample_frame")?)
+    .bind(required_float(&event.payload, "sample_time")?)
+    .execute(pool)
+    .await
+    .context("failed to insert touch event details")?;
+    Ok(())
+}
+
+async fn insert_rotation_player_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO play_event_rotation_player_details (
+            event_id,
+            active,
+            current_role_state,
+            current_depth_state,
+            active_game_time,
+            tracked_time,
+            time_first_man,
+            time_second_man,
+            time_third_man,
+            time_ambiguous_role,
+            time_behind_play,
+            time_level_with_play,
+            time_ahead_of_play,
+            longest_first_man_stint_time,
+            first_man_stint_count,
+            became_first_man_count,
+            lost_first_man_count
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+            $11, $12, $13, $14, $15, $16, $17
+        )
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(event_id)
+    .bind(required_bool(&event.payload, "active")?)
+    .bind(required_normalized_variant(
+        &event.payload,
+        "current_role_state",
+    )?)
+    .bind(required_normalized_variant(
+        &event.payload,
+        "current_depth_state",
+    )?)
+    .bind(float_value(&event.payload, &["active_game_time"]))
+    .bind(float_value(&event.payload, &["tracked_time"]))
+    .bind(float_value(&event.payload, &["time_first_man"]))
+    .bind(float_value(&event.payload, &["time_second_man"]))
+    .bind(float_value(&event.payload, &["time_third_man"]))
+    .bind(float_value(&event.payload, &["time_ambiguous_role"]))
+    .bind(float_value(&event.payload, &["time_behind_play"]))
+    .bind(float_value(&event.payload, &["time_level_with_play"]))
+    .bind(float_value(&event.payload, &["time_ahead_of_play"]))
+    .bind(float_value(
+        &event.payload,
+        &["longest_first_man_stint_time"],
+    ))
+    .bind(int_value(&event.payload, &["first_man_stint_count"]))
+    .bind(int_value(&event.payload, &["became_first_man_count"]))
+    .bind(int_value(&event.payload, &["lost_first_man_count"]))
+    .execute(pool)
+    .await
+    .context("failed to insert rotation player event details")?;
+    Ok(())
+}
+
+fn build_indexed_events(timeline: &ReplayStatsTimelineScaffold) -> Result<Vec<IndexedEvent>> {
+    let mut events = Vec::new();
+    append_serialized_timeline_events(&mut events, timeline)?;
+    Ok(events)
+}
+
+fn append_serialized_timeline_events(
+    events: &mut Vec<IndexedEvent>,
+    timeline: &ReplayStatsTimelineScaffold,
+) -> Result<()> {
+    let Value::Object(streams) =
+        serde_json::to_value(&timeline.events).context("failed to serialize timeline events")?
+    else {
+        return Ok(());
+    };
+
+    let mut goal_tag_index = 0;
+    for (stream, stream_events) in streams {
+        let Some(stream_events) = stream_events.as_array() else {
+            continue;
+        };
+        for (index, payload) in stream_events.iter().enumerate() {
+            events.push(indexed_timeline_payload_event(&stream, index, payload)?);
+            if stream == "goal_context" {
+                append_goal_context_goal_tags(events, index, payload, &mut goal_tag_index)?;
+            }
         }
     }
 
     Ok(())
 }
 
-fn build_indexed_events(
-    replay_data: &Value,
-    mechanics: &[MechanicEvent],
-    goal_tags: &[GoalTagEvent],
-) -> Result<Vec<IndexedEvent>> {
-    let mut events = Vec::new();
-    append_exact_events(
-        &mut events,
-        replay_data,
-        "touch_events",
-        "ball.touch",
-        "Ball touch",
-        "touch",
-        "touch",
-    )?;
-    append_exact_events(
-        &mut events,
-        replay_data,
-        "boost_pad_events",
-        "boost.pad_event",
-        "Boost pad event",
-        "boost",
-        "boost_pad",
-    )?;
-    append_exact_events(
-        &mut events,
-        replay_data,
-        "demolish_infos",
-        "core.demo",
-        "Demo",
-        "core",
-        "demo",
-    )?;
-    append_exact_events(
-        &mut events,
-        replay_data,
-        "dodge_refreshed_events",
-        "movement.dodge_refresh",
-        "Dodge refresh",
-        "movement",
-        "dodge_refresh",
-    )?;
-    append_exact_events(
-        &mut events,
-        replay_data,
-        "goal_events",
-        "core.goal",
-        "Goal",
-        "core",
-        "goal",
-    )?;
-    append_player_stat_events(&mut events, replay_data)?;
-
-    for event in mechanics {
-        events.push(indexed_mechanic_event(event)?);
-    }
-    for (index, event) in goal_tags.iter().enumerate() {
-        events.push(indexed_goal_tag_event(index, event)?);
-    }
-
-    Ok(events)
-}
-
-fn append_exact_events(
+fn append_goal_context_goal_tags(
     events: &mut Vec<IndexedEvent>,
-    replay_data: &Value,
-    field: &str,
-    event_type_key: &str,
-    display_name: &str,
-    category: &str,
-    source_kind: &str,
+    goal_index: usize,
+    goal_payload: &Value,
+    goal_tag_index: &mut usize,
 ) -> Result<()> {
-    let Some(items) = replay_data.get(field).and_then(Value::as_array) else {
+    let Some(tags) = goal_payload.get("tags").and_then(Value::as_array) else {
         return Ok(());
     };
 
-    for (index, payload) in items.iter().enumerate() {
-        let payload = payload.clone();
-        let source_event_id = format!("{source_kind}:{index}");
-        let event_frame = int_value(&payload, &["frame", "frame_number"]);
-        let event_time = float_value(&payload, &["time"]);
-        let primary_subject = exact_primary_subject(source_kind, &payload)?;
-        let subjects = primary_subject.iter().cloned().collect::<Vec<_>>();
+    for tag in tags {
+        let Some(kind) = tag.get("kind") else {
+            continue;
+        };
+        let metadata = tag
+            .get("metadata")
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default();
+        let mut payload = Map::new();
+        payload.insert("goal_index".to_owned(), Value::from(goal_index));
+        payload.insert("kind".to_owned(), kind.clone());
+        for field in ["time", "frame", "scoring_team_is_team_0", "scorer"] {
+            if let Some(value) = goal_payload.get(field) {
+                payload.insert(field.to_owned(), value.clone());
+            }
+        }
+        for field in ["confidence", "modifiers", "related_events", "evidence"] {
+            if let Some(value) = metadata.get(field) {
+                payload.insert(field.to_owned(), value.clone());
+            }
+        }
 
-        events.push(IndexedEvent {
-            event_type_key: event_type_key.to_owned(),
-            display_name: display_name.to_owned(),
-            category: category.to_owned(),
-            source: REPLAY_DATA_SOURCE.to_owned(),
-            source_event_id,
-            primary_subject,
-            subjects,
-            start_frame: event_frame,
-            end_frame: event_frame,
-            event_frame,
-            start_time: event_time,
-            end_time: event_time,
-            event_time,
-            confidence: None,
-            attributes: exact_event_attributes(source_kind, &payload),
-            payload: None,
-        });
+        events.push(indexed_timeline_payload_event(
+            "goal_tags",
+            *goal_tag_index,
+            &Value::Object(payload),
+        )?);
+        *goal_tag_index += 1;
     }
 
     Ok(())
 }
 
-fn append_player_stat_events(events: &mut Vec<IndexedEvent>, replay_data: &Value) -> Result<()> {
-    let Some(items) = replay_data
-        .get("player_stat_events")
-        .and_then(Value::as_array)
-    else {
-        return Ok(());
-    };
-
-    for (index, payload) in items.iter().enumerate() {
-        let payload = payload.clone();
-        let kind = payload
-            .get("kind")
-            .and_then(serialized_variant_name)
-            .unwrap_or("stat");
-        let key_suffix = kind.to_ascii_lowercase();
-        let event_type_key = format!("core.{key_suffix}");
-        let event_frame = int_value(&payload, &["frame", "frame_number"]);
-        let event_time = float_value(&payload, &["time"]);
-        let primary_subject = player_subject_from_field(&payload, "player", "actor")?;
-        let subjects = primary_subject.iter().cloned().collect::<Vec<_>>();
-
-        events.push(IndexedEvent {
-            event_type_key,
-            display_name: display_name_from_key(kind),
-            category: "core".to_owned(),
-            source: REPLAY_DATA_SOURCE.to_owned(),
-            source_event_id: format!("player_stat:{index}"),
-            primary_subject,
-            subjects,
-            start_frame: event_frame,
-            end_frame: event_frame,
-            event_frame,
-            start_time: event_time,
-            end_time: event_time,
-            event_time,
-            confidence: None,
-            attributes: exact_event_attributes("player_stat", &payload),
-            payload: None,
-        });
-    }
-
-    Ok(())
-}
-
-fn indexed_mechanic_event(event: &MechanicEvent) -> Result<IndexedEvent> {
-    let player_id = remote_id_value_to_subject_id(
-        &serde_json::to_value(&event.player_id)
-            .context("failed to serialize mechanic event player id")?,
-    )?;
+fn indexed_timeline_payload_event(
+    stream: &str,
+    index: usize,
+    payload: &Value,
+) -> Result<IndexedEvent> {
+    let payload = ensure_object_payload(payload);
+    let (event_type_key, display_name, category) = timeline_event_type(stream, &payload);
     let (start_frame, end_frame, event_frame, start_time, end_time, event_time) =
-        mechanic_timing_columns(&event.timing);
-    let mut attributes = mechanic_event_attributes(event)?;
-    if let Value::Object(attributes) = &mut attributes {
-        attributes.insert(
-            "team".to_owned(),
-            Value::from(if event.is_team_0 { 0 } else { 1 }),
-        );
-    }
+        timeline_event_timing(&payload);
+    let subjects = timeline_event_subjects(&payload)?;
+    let primary_subject = subjects.first().cloned();
+    let source_event_id = timeline_source_event_id(stream, index, &payload, &event_type_key);
+    let duration_seconds = timeline_event_duration(&payload);
+    let team = timeline_event_team(&payload);
 
     Ok(IndexedEvent {
-        event_type_key: format!("mechanic.{}", event.kind),
-        display_name: display_name_from_key(&event.kind),
-        category: "mechanic".to_owned(),
+        event_type_key,
+        display_name,
+        category,
         source: STATS_TIMELINE_SOURCE.to_owned(),
-        source_event_id: event.id.clone(),
-        primary_subject: Some(EventSubject {
-            kind: "player".to_owned(),
-            id: player_id.clone(),
-            role: "actor".to_owned(),
-        }),
-        subjects: vec![EventSubject {
-            kind: "player".to_owned(),
-            id: player_id,
-            role: "actor".to_owned(),
-        }],
+        source_stream: stream.to_owned(),
+        source_index: index,
+        source_event_id,
+        primary_subject,
+        subjects,
+        team,
         start_frame,
         end_frame,
         event_frame,
         start_time,
         end_time,
         event_time,
-        confidence: None,
-        attributes,
-        payload: Some(serde_json::to_value(event).context("failed to serialize mechanic event")?),
+        duration_seconds,
+        confidence: float_value(&payload, &["confidence"]),
+        attributes: timeline_event_attributes(stream, &payload),
+        payload,
     })
 }
 
-fn indexed_goal_tag_event(index: usize, event: &GoalTagEvent) -> Result<IndexedEvent> {
-    let payload = serde_json::to_value(event).context("failed to serialize goal tag event")?;
-    let kind = payload
-        .get("kind")
-        .and_then(serialized_variant_name)
-        .unwrap_or("goal_tag")
-        .to_owned();
-    let scorer_subject = payload
-        .get("scorer")
-        .filter(|value| !value.is_null())
-        .map(|value| {
-            remote_id_value_to_subject_id(value).map(|id| EventSubject {
-                kind: "player".to_owned(),
-                id,
-                role: "scorer".to_owned(),
-            })
-        })
-        .transpose()?;
-    let scoring_team_subject = EventSubject {
-        kind: "team".to_owned(),
-        id: team_subject_id(event.scoring_team_is_team_0),
-        role: "scoring_team".to_owned(),
+fn ensure_object_payload(payload: &Value) -> Value {
+    if payload.is_object() {
+        payload.clone()
+    } else {
+        serde_json::json!({ "value": payload })
+    }
+}
+
+fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String) {
+    let kind = payload.get("kind").and_then(normalized_variant_name);
+    let event_type_key = match stream {
+        "mechanics" => format!("mechanic.{}", kind.as_deref().unwrap_or("unknown")),
+        "goal_tags" => format!("goal_tag.{}", kind.as_deref().unwrap_or("unknown")),
+        "touch" => "ball.touch".to_owned(),
+        "timeline" => format!("core.{}", kind.as_deref().unwrap_or("event")),
+        "rotation_player" if is_first_man_rotation_span(payload) => {
+            "rotation.first_man_stint".to_owned()
+        }
+        _ => stream.replace('_', "."),
     };
-    let primary_subject = scorer_subject
-        .clone()
-        .or_else(|| Some(scoring_team_subject.clone()));
+    let category = if event_type_key == "ball.touch" {
+        "touch".to_owned()
+    } else {
+        event_type_key
+            .split_once('.')
+            .map(|(category, _)| category.to_owned())
+            .unwrap_or_else(|| stream.to_owned())
+    };
+    let display_name = match stream {
+        "mechanics" | "goal_tags" | "timeline" => {
+            display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))
+        }
+        "rotation_player" if event_type_key == "rotation.first_man_stint" => {
+            display_name_from_key("first_man_stint")
+        }
+        _ => display_name_from_key(&event_type_key),
+    };
+
+    (event_type_key, display_name, category)
+}
+
+fn is_first_man_rotation_span(payload: &Value) -> bool {
+    bool_value(payload, &["active"]).unwrap_or(false)
+        && payload
+            .get("current_role_state")
+            .and_then(normalized_variant_name)
+            .as_deref()
+            == Some("first_man")
+        && rotation_first_man_duration(payload).unwrap_or(0.0) > 0.0
+}
+
+fn rotation_first_man_duration(payload: &Value) -> Option<f64> {
+    let time_first_man = float_value(payload, &["time_first_man"]);
+    let duration = float_value(payload, &["duration"]);
+    match (time_first_man, duration) {
+        (Some(left), Some(right)) => Some(left.max(right)),
+        (Some(value), None) | (None, Some(value)) => Some(value),
+        (None, None) => None,
+    }
+}
+
+fn timeline_event_duration(payload: &Value) -> Option<f64> {
+    rotation_first_man_duration(payload)
+        .or_else(|| float_value(payload, &["duration"]))
+        .filter(|value| *value >= 0.0)
+}
+
+fn timeline_event_team(payload: &Value) -> Option<i32> {
+    bool_value(
+        payload,
+        &["is_team_0", "team_is_team_0", "scoring_team_is_team_0"],
+    )
+    .map(|is_team_0| if is_team_0 { 0 } else { 1 })
+}
+
+fn timeline_source_event_id(
+    stream: &str,
+    index: usize,
+    payload: &Value,
+    event_type_key: &str,
+) -> String {
+    if stream == "mechanics" {
+        if let Some(id) = payload.get("id").and_then(Value::as_str) {
+            return id.to_owned();
+        }
+    }
+    if stream == "goal_tags" {
+        let kind = payload
+            .get("kind")
+            .and_then(normalized_variant_name)
+            .unwrap_or_else(|| "goal_tag".to_owned());
+        let goal_index = payload
+            .get("goal_index")
+            .and_then(Value::as_u64)
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "unknown".to_owned());
+        return format!("goal_tag:{goal_index}:{kind}:{index}");
+    }
+    if event_type_key == "rotation.first_man_stint" {
+        return format!("rotation:first_man_stint:{index}");
+    }
+    format!("{stream}:{index}")
+}
+
+fn timeline_event_timing(payload: &Value) -> MechanicTimingColumns {
+    if let Some(timing) = payload.get("timing") {
+        if let Some(columns) = stats_event_timing_columns(timing) {
+            return columns;
+        }
+    }
+
+    let start_frame = int_value(payload, &["frame", "frame_number"]);
+    let end_frame = int_value(payload, &["end_frame"]).or(start_frame);
+    let start_time = float_value(payload, &["time"]);
+    let end_time = float_value(payload, &["end_time"]).or(start_time);
+    (
+        start_frame,
+        end_frame,
+        end_frame.or(start_frame),
+        start_time,
+        end_time,
+        end_time.or(start_time),
+    )
+}
+
+fn stats_event_timing_columns(timing: &Value) -> Option<MechanicTimingColumns> {
+    let object = timing.as_object()?;
+    match object.get("type").and_then(Value::as_str)? {
+        "moment" => {
+            let value = object.get("value").unwrap_or(timing);
+            let frame = int_value(value, &["frame"])?;
+            let time = float_value(value, &["time"])?;
+            Some((
+                Some(frame),
+                Some(frame),
+                Some(frame),
+                Some(time),
+                Some(time),
+                Some(time),
+            ))
+        }
+        "span" => {
+            let value = object.get("value").unwrap_or(timing);
+            let start_frame = int_value(value, &["start_frame"])?;
+            let end_frame = int_value(value, &["end_frame"])?;
+            let start_time = float_value(value, &["start_time"])?;
+            let end_time = float_value(value, &["end_time"])?;
+            Some((
+                Some(start_frame),
+                Some(end_frame),
+                Some(end_frame),
+                Some(start_time),
+                Some(end_time),
+                Some(end_time),
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
     let mut subjects = Vec::new();
-    if let Some(subject) = scorer_subject {
+    for (field, role) in [
+        ("player", "actor"),
+        ("player_id", "actor"),
+        ("scorer", "scorer"),
+        ("initiator", "initiator"),
+        ("victim", "victim"),
+        ("attacker", "attacker"),
+    ] {
+        if let Some(subject) = player_subject_from_field(payload, field, role)? {
+            push_unique_subject(&mut subjects, subject);
+        }
+    }
+    for (field, role) in [
+        ("is_team_0", "team"),
+        ("team_is_team_0", "team"),
+        ("scoring_team_is_team_0", "scoring_team"),
+    ] {
+        if let Some(is_team_0) = bool_value(payload, &[field]) {
+            push_unique_subject(
+                &mut subjects,
+                EventSubject {
+                    kind: "team".to_owned(),
+                    id: team_subject_id(is_team_0),
+                    role: role.to_owned(),
+                },
+            );
+        }
+    }
+    if let Some(id) = stringish_value(payload, &["pad_id", "boost_pad_id", "actor_id"])? {
+        push_unique_subject(
+            &mut subjects,
+            EventSubject {
+                kind: "boost_pad".to_owned(),
+                id,
+                role: "pad".to_owned(),
+            },
+        );
+    }
+    Ok(subjects)
+}
+
+fn push_unique_subject(subjects: &mut Vec<EventSubject>, subject: EventSubject) {
+    if !subjects.iter().any(|existing| {
+        existing.kind == subject.kind && existing.id == subject.id && existing.role == subject.role
+    }) {
         subjects.push(subject);
     }
-    subjects.push(scoring_team_subject);
-    let frame = i32::try_from(event.frame).ok();
-    let time = Some(f64::from(event.time));
-
-    Ok(IndexedEvent {
-        event_type_key: format!("goal_tag.{kind}"),
-        display_name: display_name_from_key(&kind),
-        category: "goal_tag".to_owned(),
-        source: STATS_TIMELINE_SOURCE.to_owned(),
-        source_event_id: format!("goal_tag:{}:{kind}:{index}", event.goal_index),
-        primary_subject,
-        subjects,
-        start_frame: frame,
-        end_frame: frame,
-        event_frame: frame,
-        start_time: time,
-        end_time: time,
-        event_time: time,
-        confidence: Some(f64::from(event.confidence)),
-        attributes: goal_tag_event_attributes(event, &payload),
-        payload: Some(payload),
-    })
 }
 
-fn exact_primary_subject(source_kind: &str, payload: &Value) -> Result<Option<EventSubject>> {
-    match source_kind {
-        "touch" => player_subject_from_field(payload, "player", "actor").or_else(|_| {
-            Ok(
-                bool_value(payload, &["team_is_team_0"]).map(|is_team_0| EventSubject {
-                    kind: "team".to_owned(),
-                    id: team_subject_id(is_team_0),
-                    role: "actor".to_owned(),
-                }),
-            )
-        }),
-        "goal" => player_subject_from_field(payload, "player", "scorer").or_else(|_| {
-            Ok(
-                bool_value(payload, &["scoring_team_is_team_0"]).map(|is_team_0| EventSubject {
-                    kind: "team".to_owned(),
-                    id: team_subject_id(is_team_0),
-                    role: "scoring_team".to_owned(),
-                }),
-            )
-        }),
-        "demo" => player_subject_from_field(payload, "attacker", "attacker"),
-        "dodge_refresh" => player_subject_from_field(payload, "player", "actor"),
-        "boost_pad" => {
-            stringish_value(payload, &["pad_id", "boost_pad_id", "actor_id"]).map(|id| {
-                id.map(|id| EventSubject {
-                    kind: "boost_pad".to_owned(),
-                    id,
-                    role: "pad".to_owned(),
-                })
-            })
+fn timeline_event_attributes(stream: &str, payload: &Value) -> Value {
+    let mut attributes = Map::new();
+    attributes.insert("source_stream".to_owned(), Value::String(stream.to_owned()));
+    if let Some(object) = payload.as_object() {
+        for (key, value) in object {
+            if matches!(value, Value::String(_) | Value::Number(_) | Value::Bool(_)) {
+                attributes.insert(key.clone(), value.clone());
+            }
         }
-        _ => Ok(None),
+    }
+    if let Some(kind) = payload.get("kind").and_then(normalized_variant_name) {
+        attributes.insert("kind".to_owned(), Value::String(kind.to_owned()));
+    }
+    if let Some(is_team_0) = bool_value(payload, &["is_team_0", "team_is_team_0"]) {
+        attributes.insert(
+            "team".to_owned(),
+            Value::from(if is_team_0 { 0 } else { 1 }),
+        );
+    }
+    if let Some(is_team_0) = bool_value(payload, &["scoring_team_is_team_0"]) {
+        attributes.insert(
+            "team".to_owned(),
+            Value::from(if is_team_0 { 0 } else { 1 }),
+        );
+        attributes.insert(
+            "scoring_team".to_owned(),
+            Value::from(if is_team_0 { 0 } else { 1 }),
+        );
+    }
+    if let Some(duration) = timeline_event_duration(payload) {
+        attributes.insert("duration_seconds".to_owned(), Value::from(duration));
+    }
+    append_mechanic_property_attributes(payload, &mut attributes);
+    append_goal_tag_attributes(payload, &mut attributes);
+    Value::Object(attributes)
+}
+
+fn event_scalar_fields(event: &IndexedEvent) -> Vec<EventScalarField> {
+    let mut fields = Vec::new();
+    append_json_scalar_fields("payload", "", &event.payload, &mut fields);
+    append_json_scalar_fields("attribute", "", &event.attributes, &mut fields);
+    fields
+}
+
+fn append_json_scalar_fields(
+    source: &'static str,
+    path: &str,
+    value: &Value,
+    fields: &mut Vec<EventScalarField>,
+) {
+    match value {
+        Value::Object(object) => {
+            if let Some(variant) = serialized_unit_variant(object) {
+                push_string_scalar_field(
+                    source,
+                    scalar_path(path),
+                    &normalize_identifier(variant),
+                    fields,
+                );
+                return;
+            }
+            for (key, value) in object {
+                let field_path = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                append_json_scalar_fields(source, &field_path, value, fields);
+            }
+        }
+        Value::Array(values) => {
+            for (index, value) in values.iter().enumerate() {
+                let field_path = format!("{}[{index}]", scalar_path(path));
+                append_json_scalar_fields(source, &field_path, value, fields);
+            }
+        }
+        Value::String(value) => {
+            push_string_scalar_field(source, scalar_path(path), value, fields);
+        }
+        Value::Number(value) => {
+            if let Some(value) = value.as_f64().filter(|value| value.is_finite()) {
+                fields.push(EventScalarField {
+                    source,
+                    path: scalar_path(path),
+                    value_kind: "number",
+                    string_value: None,
+                    numeric_value: Some(value),
+                    boolean_value: None,
+                });
+            }
+        }
+        Value::Bool(value) => {
+            fields.push(EventScalarField {
+                source,
+                path: scalar_path(path),
+                value_kind: "boolean",
+                string_value: None,
+                numeric_value: None,
+                boolean_value: Some(*value),
+            });
+        }
+        Value::Null => {}
+    }
+}
+
+fn push_string_scalar_field(
+    source: &'static str,
+    path: String,
+    value: &str,
+    fields: &mut Vec<EventScalarField>,
+) {
+    fields.push(EventScalarField {
+        source,
+        path,
+        value_kind: "string",
+        string_value: Some(value.to_owned()),
+        numeric_value: None,
+        boolean_value: None,
+    });
+}
+
+fn scalar_path(path: &str) -> String {
+    if path.is_empty() {
+        "value".to_owned()
+    } else {
+        path.to_owned()
+    }
+}
+
+fn serialized_unit_variant(object: &Map<String, Value>) -> Option<&str> {
+    if object.len() != 1 {
+        return None;
+    }
+    let (variant, value) = object.iter().next()?;
+    match value {
+        Value::Object(inner) if inner.is_empty() => Some(variant.as_str()),
+        Value::Null => Some(variant.as_str()),
+        _ => None,
+    }
+}
+
+fn append_mechanic_property_attributes(payload: &Value, attributes: &mut Map<String, Value>) {
+    let Some(properties) = payload.get("properties").and_then(Value::as_array) else {
+        return;
+    };
+    for property in properties {
+        let Some(key) = property.get("key").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(value) = property.get("value") else {
+            continue;
+        };
+        attributes.insert(key.to_owned(), stats_property_value(value));
+    }
+}
+
+fn stats_property_value(value: &Value) -> Value {
+    let Some(object) = value.as_object() else {
+        return value.clone();
+    };
+    if object.len() == 1 {
+        object.values().next().cloned().unwrap_or(Value::Null)
+    } else {
+        value.clone()
+    }
+}
+
+fn append_goal_tag_attributes(payload: &Value, attributes: &mut Map<String, Value>) {
+    let evidence_kinds = payload
+        .get("evidence")
+        .and_then(Value::as_array)
+        .map(|evidence| {
+            evidence
+                .iter()
+                .filter_map(|item| item.get("kind").and_then(normalized_variant_name))
+                .map(|kind| Value::String(kind.to_owned()))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !evidence_kinds.is_empty() {
+        attributes.insert("evidence_kinds".to_owned(), Value::Array(evidence_kinds));
+    }
+    if let Some(modifiers) = payload.get("modifiers") {
+        attributes.insert("modifiers".to_owned(), modifiers.clone());
     }
 }
 
@@ -1348,32 +2248,12 @@ fn player_subject_from_field(
         .transpose()
 }
 
-fn exact_event_attributes(source_kind: &str, payload: &Value) -> Value {
-    let mut attributes = Map::new();
-    if let Some(is_team_0) = bool_value(payload, &["team_is_team_0", "is_team_0"]) {
-        attributes.insert(
-            "team".to_owned(),
-            Value::from(if is_team_0 { 0 } else { 1 }),
-        );
-    }
-    if let Some(is_team_0) = bool_value(payload, &["scoring_team_is_team_0"]) {
-        attributes.insert(
-            "scoring_team".to_owned(),
-            Value::from(if is_team_0 { 0 } else { 1 }),
-        );
-    }
-    if source_kind == "player_stat" {
-        if let Some(kind) = payload.get("kind").and_then(serialized_variant_name) {
-            attributes.insert("kind".to_owned(), Value::String(kind.to_owned()));
-        }
-    }
-    if let Some(distance) = float_value(payload, &["closest_approach_distance"]) {
-        attributes.insert(
-            "closest_approach_distance".to_owned(),
-            Value::from(distance),
-        );
-    }
-    Value::Object(attributes)
+fn player_subject_id_from_field(payload: &Value, field: &str) -> Result<Option<String>> {
+    payload
+        .get(field)
+        .filter(|value| !value.is_null())
+        .map(remote_id_value_to_subject_id)
+        .transpose()
 }
 
 fn remote_id_value_to_subject_id(value: &Value) -> Result<String> {
@@ -1417,6 +2297,43 @@ fn serialized_variant_name(value: &Value) -> Option<&str> {
         .or_else(|| value.as_object()?.keys().next().map(String::as_str))
 }
 
+fn normalized_variant_name(value: &Value) -> Option<String> {
+    serialized_variant_name(value).map(normalize_identifier)
+}
+
+fn normalize_identifier(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut previous_was_separator = true;
+    let mut previous_was_lower_or_digit = false;
+    for character in value.chars() {
+        if character == '-' || character == ' ' || character == '.' {
+            if !previous_was_separator {
+                normalized.push('_');
+            }
+            previous_was_separator = true;
+            previous_was_lower_or_digit = false;
+            continue;
+        }
+        if character == '_' {
+            if !previous_was_separator {
+                normalized.push('_');
+            }
+            previous_was_separator = true;
+            previous_was_lower_or_digit = false;
+            continue;
+        }
+        if character.is_uppercase() && previous_was_lower_or_digit {
+            normalized.push('_');
+        }
+        for lowercase in character.to_lowercase() {
+            normalized.push(lowercase);
+        }
+        previous_was_separator = false;
+        previous_was_lower_or_digit = character.is_lowercase() || character.is_ascii_digit();
+    }
+    normalized.trim_matches('_').to_owned()
+}
+
 fn int_value(value: &Value, keys: &[&str]) -> Option<i32> {
     keys.iter().find_map(|key| {
         value
@@ -1435,6 +2352,50 @@ fn float_value(value: &Value, keys: &[&str]) -> Option<f64> {
 fn bool_value(value: &Value, keys: &[&str]) -> Option<bool> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(Value::as_bool))
+}
+
+fn required_string(value: &Value, key: &str) -> Result<String> {
+    value
+        .get(key)
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned)
+        .with_context(|| format!("timeline event missing string field `{key}`"))
+}
+
+fn required_kind(value: &Value) -> Result<String> {
+    required_normalized_variant(value, "kind")
+}
+
+fn required_normalized_variant(value: &Value, key: &str) -> Result<String> {
+    value
+        .get(key)
+        .and_then(normalized_variant_name)
+        .with_context(|| format!("timeline event missing variant field `{key}`"))
+}
+
+fn required_int(value: &Value, key: &str) -> Result<i32> {
+    int_value(value, &[key]).with_context(|| format!("timeline event missing int field `{key}`"))
+}
+
+fn required_float(value: &Value, key: &str) -> Result<f64> {
+    float_value(value, &[key])
+        .with_context(|| format!("timeline event missing float field `{key}`"))
+}
+
+fn required_bool(value: &Value, key: &str) -> Result<bool> {
+    bool_value(value, &[key]).with_context(|| format!("timeline event missing bool field `{key}`"))
+}
+
+fn required_team_bool(value: &Value, key: &str) -> Result<i32> {
+    required_bool(value, key).map(|is_team_0| if is_team_0 { 0 } else { 1 })
+}
+
+fn json_array_or_empty(value: &Value, key: &str) -> Value {
+    value
+        .get(key)
+        .filter(|value| value.is_array())
+        .cloned()
+        .unwrap_or_else(|| Value::Array(Vec::new()))
 }
 
 fn stringish_value(value: &Value, keys: &[&str]) -> Result<Option<String>> {
@@ -1491,77 +2452,6 @@ type MechanicTimingColumns = (
     Option<f64>,
     Option<f64>,
 );
-
-fn mechanic_timing_columns(timing: &MechanicTiming) -> MechanicTimingColumns {
-    match *timing {
-        MechanicTiming::Moment { frame, time } => {
-            let frame = Some(frame as i32);
-            let time = Some(f64::from(time));
-            (frame, frame, frame, time, time, time)
-        }
-        MechanicTiming::Span {
-            start_frame,
-            end_frame,
-            start_time,
-            end_time,
-        } => (
-            Some(start_frame as i32),
-            Some(end_frame as i32),
-            Some(end_frame as i32),
-            Some(f64::from(start_time)),
-            Some(f64::from(end_time)),
-            Some(f64::from(end_time)),
-        ),
-    }
-}
-
-fn mechanic_event_attributes(event: &MechanicEvent) -> Result<Value> {
-    let mut attributes = Map::new();
-    for property in &event.properties {
-        let value = match &property.value {
-            MechanicEventPropertyValue::Text(value) => Value::String(value.clone()),
-            MechanicEventPropertyValue::Unsigned(value) => serde_json::to_value(value)
-                .context("failed to serialize unsigned mechanic event property")?,
-            MechanicEventPropertyValue::Float(value) => serde_json::to_value(value)
-                .context("failed to serialize float mechanic event property")?,
-            MechanicEventPropertyValue::Boolean(value) => Value::Bool(*value),
-        };
-        attributes.insert(property.key.clone(), value);
-    }
-
-    Ok(Value::Object(attributes))
-}
-
-fn goal_tag_event_attributes(event: &GoalTagEvent, payload: &Value) -> Value {
-    let mut attributes = Map::new();
-    attributes.insert(
-        "goal_index".to_owned(),
-        serde_json::to_value(event.goal_index).unwrap_or(Value::Null),
-    );
-    attributes.insert(
-        "team".to_owned(),
-        Value::from(if event.scoring_team_is_team_0 { 0 } else { 1 }),
-    );
-    if let Some(kind) = payload.get("kind").and_then(serialized_variant_name) {
-        attributes.insert("kind".to_owned(), Value::String(kind.to_owned()));
-    }
-    if let Some(modifiers) = payload.get("modifiers") {
-        attributes.insert("modifiers".to_owned(), modifiers.clone());
-    }
-    let evidence_kinds = payload
-        .get("evidence")
-        .and_then(Value::as_array)
-        .map(|evidence| {
-            evidence
-                .iter()
-                .filter_map(|item| item.get("kind").and_then(serialized_variant_name))
-                .map(|kind| Value::String(kind.to_owned()))
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    attributes.insert("evidence_kinds".to_owned(), Value::Array(evidence_kinds));
-    Value::Object(attributes)
-}
 
 async fn mark_analysis_run_succeeded(pool: &PgPool, analysis_run_id: Uuid) -> Result<()> {
     sqlx::query(

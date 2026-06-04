@@ -1172,7 +1172,7 @@ async fn find_mechanic_events(
             regexp_replace(event_type.key, '^mechanic\.', '') AS mechanic,
             event.source AS detector,
             event.primary_subject_id AS player_id,
-            (event.attributes->>'team')::integer AS team,
+            event.team,
             event.start_frame,
             event.end_frame,
             event.event_frame,
@@ -1181,13 +1181,15 @@ async fn find_mechanic_events(
             event.event_time,
             event.confidence,
             NULL::text AS reason,
-            COALESCE(event.payload, '{}'::jsonb) AS payload,
+            COALESCE(payload.payload, '{}'::jsonb) AS payload,
             event.created_at,
             review.id AS latest_review_id,
             review.status AS review_status
         FROM play_events event
         JOIN event_types event_type
           ON event_type.id = event.event_type_id
+        LEFT JOIN play_event_payloads payload
+          ON payload.event_id = event.id
         JOIN replays replay
           ON replay.id = event.replay_id
         LEFT JOIN LATERAL (
@@ -1339,19 +1341,14 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     let end_time = event.end_time.unwrap_or(event_time);
     let clip_start = (start_time - EVENT_REVIEW_PREROLL_SECONDS).max(0.0);
     let clip_end = (end_time + EVENT_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
+    let (start_bound, end_bound) = playlist_playback_bounds(clip_start, clip_end);
     let mechanic_label = mechanic_label(&event.mechanic);
 
     PlaylistItem {
         id: event.id.to_string(),
         replay: event.replay_id.to_string(),
-        start: PlaylistBound {
-            kind: "time",
-            value: clip_start,
-        },
-        end: PlaylistBound {
-            kind: "time",
-            value: clip_end,
-        },
+        start: start_bound,
+        end: end_bound,
         label: format!("{mechanic_label} candidate {}", index + 1),
         meta: PlaylistItemMeta {
             event_id: event.id,
@@ -1388,6 +1385,19 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
             event: event.payload,
         },
     }
+}
+
+fn playlist_playback_bounds(clip_start: f64, clip_end: f64) -> (PlaylistBound, PlaylistBound) {
+    (
+        PlaylistBound {
+            kind: "time",
+            value: clip_start,
+        },
+        PlaylistBound {
+            kind: "time",
+            value: clip_end,
+        },
+    )
 }
 
 fn mechanic_label(mechanic: &str) -> String {

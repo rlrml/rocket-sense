@@ -221,6 +221,56 @@
       line-height: 28px;
     }
 
+    #content {
+      display: grid;
+      gap: 20px;
+    }
+
+    .histogram {
+      display: grid;
+      grid-auto-flow: column;
+      grid-auto-columns: minmax(46px, 1fr);
+      gap: 8px;
+      align-items: end;
+      overflow-x: auto;
+      padding: 14px 12px 10px;
+      border: 1px solid #dbdbdb;
+      background: #ffffff;
+    }
+
+    .histogram-bin {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: 18px 120px 18px;
+      gap: 6px;
+      align-items: end;
+    }
+
+    .histogram-count,
+    .histogram-label {
+      overflow: hidden;
+      color: #536176;
+      font-size: 11px;
+      line-height: 16px;
+      text-align: center;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .histogram-track {
+      height: 120px;
+      display: flex;
+      align-items: flex-end;
+      border: 1px solid #eeeeee;
+      background: #fafafa;
+    }
+
+    .histogram-fill {
+      width: 100%;
+      min-height: 2px;
+      background: #00d1b2;
+    }
+
     .section-title {
       margin: 0;
       color: #363636;
@@ -269,6 +319,10 @@
       overflow-x: auto;
       border: 1px solid #dbdbdb;
       background: #ffffff;
+    }
+
+    .timing-table {
+      min-width: 560px;
     }
 
     .stat-table {
@@ -585,6 +639,12 @@
       return number.toFixed(digits);
     }
 
+    function formatPercent(value, digits = 1) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "-";
+      return `${number.toFixed(digits)}%`;
+    }
+
     function playlistLabel(value) {
       const raw = String(value || "").trim();
       if (!raw) return "";
@@ -606,6 +666,11 @@
       const names = Array.isArray(profile.names) ? profile.names : [];
       const replays = Array.isArray(profile.latest_replays) ? profile.latest_replays : [];
       const stats = Array.isArray(profile.stats) ? profile.stats : [];
+      const rotationHistogram = Array.isArray(profile.rotation_duration_histogram) ? profile.rotation_duration_histogram : [];
+      const secondToFirstHistogram = Array.isArray(profile.second_man_to_first_rotation_duration_histogram)
+        ? profile.second_man_to_first_rotation_duration_histogram
+        : [];
+      const timingComparison = profile.timing_comparison || {};
 
       content.innerHTML = `
         <div class="stats">
@@ -614,6 +679,21 @@
           <div class="stat"><span>Non-demo active</span><strong>${escapeHtml(formatDuration(profile.non_demo_active_time_seconds) || "-")}</strong></div>
           <div class="stat"><span>Last seen</span><strong>${escapeHtml(formatDate(profile.last_seen_at) || "-")}</strong></div>
         </div>
+
+        <section>
+          <h2 class="section-title">Timing comparison</h2>
+          ${renderTimingComparison(timingComparison)}
+        </section>
+
+        <section>
+          <h2 class="section-title">First-man stint duration</h2>
+          ${renderRotationHistogram(rotationHistogram, "First-man stint duration histogram", "No first-man rotation stints indexed for this player yet.")}
+        </section>
+
+        <section>
+          <h2 class="section-title">Second-to-first rotation duration</h2>
+          ${renderRotationHistogram(secondToFirstHistogram, "Second-to-first rotation duration histogram", "No second-man to first-man rotations indexed for this player yet.")}
+        </section>
 
         <section>
           <h2 class="section-title">Aggregate stats</h2>
@@ -658,6 +738,92 @@
           `}
         </section>
       `;
+    }
+
+    function renderTimingComparison(comparison) {
+      const rows = [
+        ["Player", comparison.player],
+        ["Teammates", comparison.teammates]
+      ].filter(([, stats]) => stats && Number(stats.appearance_count || 0) > 0);
+
+      if (rows.length === 0) {
+        return `<div class="empty">No timing data indexed for this player yet.</div>`;
+      }
+
+      return `
+        <div class="stat-table-wrap">
+          <table class="stat-table timing-table">
+            <thead>
+              <tr>
+                <th>Group</th>
+                <th class="number">Appearances</th>
+                <th class="number">Active time</th>
+                <th class="number">Most forward</th>
+                <th class="number">Most back</th>
+                <th class="number">Offensive half</th>
+                <th class="number">Defensive half</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows.map(([label, stats]) => renderTimingComparisonRow(label, stats)).join("")}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    function renderTimingComparisonRow(label, stats) {
+      return `
+        <tr>
+          <td>${escapeHtml(label)}</td>
+          <td class="number">${escapeHtml(stats.appearance_count || 0)}</td>
+          <td class="number">${escapeHtml(formatDuration(stats.active_time_seconds) || "-")}</td>
+          <td class="number">${escapeHtml(formatPercent(stats.time_most_forward_percent))}</td>
+          <td class="number">${escapeHtml(formatPercent(stats.time_most_back_percent))}</td>
+          <td class="number">${escapeHtml(formatPercent(stats.offensive_half_percent))}</td>
+          <td class="number">${escapeHtml(formatPercent(stats.defensive_half_percent))}</td>
+        </tr>
+      `;
+    }
+
+    function renderRotationHistogram(buckets, ariaLabel, emptyMessage) {
+      if (buckets.length === 0) {
+        return `<div class="empty">${escapeHtml(emptyMessage)}</div>`;
+      }
+
+      const maxCount = Math.max(...buckets.map((bucket) => Number(bucket.count) || 0), 1);
+      return `
+        <div class="histogram" aria-label="${escapeHtml(ariaLabel)}">
+          ${buckets.map((bucket) => renderRotationBucket(bucket, maxCount)).join("")}
+        </div>
+      `;
+    }
+
+    function renderRotationBucket(bucket, maxCount) {
+      const count = Math.max(0, Number(bucket.count) || 0);
+      const height = Math.max(2, Math.round((count / maxCount) * 120));
+      const label = formatDurationRange(bucket.min_seconds, bucket.max_seconds);
+      return `
+        <div class="histogram-bin" title="${escapeHtml(`${label}: ${count}`)}">
+          <div class="histogram-count">${escapeHtml(count)}</div>
+          <div class="histogram-track">
+            <div class="histogram-fill" style="height: ${height}px"></div>
+          </div>
+          <div class="histogram-label">${escapeHtml(label)}</div>
+        </div>
+      `;
+    }
+
+    function formatDurationRange(minSeconds, maxSeconds) {
+      const min = Number(minSeconds);
+      const max = Number(maxSeconds);
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return "-";
+      return `${formatSecondsLabel(min)}-${formatSecondsLabel(max)}`;
+    }
+
+    function formatSecondsLabel(seconds) {
+      const rounded = Math.round(Math.max(0, Number(seconds) || 0));
+      return `${rounded}s`;
     }
 
     function renderAggregateStat(stat) {

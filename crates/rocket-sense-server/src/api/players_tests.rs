@@ -153,3 +153,18 @@ fn player_profile_page_shows_teammate_aggregate_columns() {
     assert!(PLAYER_PROFILE_PAGE.contains("stat.teammate_count_per_game"));
     assert!(PLAYER_PROFILE_PAGE.contains("stat.teammate_per_active_minute"));
 }
+
+#[test]
+fn player_profile_page_renders_rotation_duration_histogram() {
+    assert!(PLAYER_PROFILE_PAGE.contains("Timing comparison"));
+    assert!(PLAYER_PROFILE_PAGE.contains("profile.timing_comparison"));
+    assert!(PLAYER_PROFILE_PAGE.contains("Most forward"));
+    assert!(PLAYER_PROFILE_PAGE.contains("Offensive half"));
+    assert!(PLAYER_PROFILE_PAGE.contains("First-man stint duration"));
+    assert!(PLAYER_PROFILE_PAGE.contains("Second-to-first rotation duration"));
+    assert!(PLAYER_PROFILE_PAGE.contains("profile.rotation_duration_histogram"));
+    assert!(PLAYER_PROFILE_PAGE.contains("profile.second_man_to_first_rotation_duration_histogram"));
+    assert!(PLAYER_PROFILE_PAGE
+        .contains("function renderRotationHistogram(buckets, ariaLabel, emptyMessage)"));
+    assert!(PLAYER_PROFILE_PAGE.contains(r#"class="histogram-fill""#));
+}

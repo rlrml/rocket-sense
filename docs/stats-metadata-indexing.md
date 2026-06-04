@@ -75,9 +75,11 @@ or objects involved.
 
 ## Indexing Policy
 
-The current policy indexes exact gameplay events and mechanic detections as lean
-rows. Full payloads remain in the serialized event stream unless a product query
-needs a compact copy in Postgres.
+The current policy indexes exact gameplay events, stats-timeline touches, and
+mechanic detections as lean rows. Replay-data `touch_events` are intentionally
+not indexed because they are a narrow replay signal rather than the canonical
+player touch count. Full payloads remain in the serialized event stream unless a
+product query needs a compact copy in Postgres.
 
 Measured fixture volumes from `subtr-actor` v0.8.14 support indexing touches by
 default: touches averaged about 124 per replay, with a fixture maximum of 209.

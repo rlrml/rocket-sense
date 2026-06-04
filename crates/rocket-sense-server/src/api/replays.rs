@@ -119,6 +119,8 @@ pub struct ReplayPlayerResponse {
     pub active_time_seconds: Option<f64>,
     pub time_demolished_seconds: Option<f64>,
     pub non_demo_active_time_seconds: Option<f64>,
+    pub time_most_back_seconds: Option<f64>,
+    pub time_most_forward_seconds: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -1671,7 +1673,9 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
                     'active_time_seconds', player.active_time_seconds,
                     'time_demolished_seconds', player.time_demolished_seconds,
                     'non_demo_active_time_seconds',
-                        GREATEST(player.active_time_seconds - COALESCE(player.time_demolished_seconds, 0.0), 0.0)
+                        GREATEST(player.active_time_seconds - COALESCE(player.time_demolished_seconds, 0.0), 0.0),
+                    'time_most_back_seconds', player.time_most_back_seconds,
+                    'time_most_forward_seconds', player.time_most_forward_seconds
                 )
                 ORDER BY player.team NULLS LAST, player.name NULLS LAST
             ) AS players
