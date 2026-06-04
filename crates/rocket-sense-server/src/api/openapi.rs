@@ -7,6 +7,7 @@ use utoipa::{
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        admin::backfill_profile_timing,
         admin::reprocess_replays,
         auth::create_dev_token,
         auth::create_profile_token,
@@ -30,6 +31,8 @@ use utoipa::{
     components(
         schemas(
             auth::CreateDevTokenRequest,
+            admin::BackfillProfileTimingRequest,
+            admin::BackfillProfileTimingResponse,
             admin::ReprocessReplaysRequest,
             admin::ReprocessReplaysResponse,
             crate::auth::AccessToken,

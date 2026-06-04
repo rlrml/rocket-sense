@@ -129,6 +129,29 @@ struct ReplayProcessingTarget {
     storage_key: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReplayProfileTimingBackfillOptions {
+    pub replay_ids: Vec<Uuid>,
+    pub force: bool,
+    pub concurrency: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ReplayProfileTimingBackfillSummary {
+    pub matched_replays: usize,
+    pub enqueued_replays: usize,
+    pub skipped_replays: usize,
+    pub concurrency: usize,
+    pub force: bool,
+}
+
+#[derive(Debug, Clone)]
+struct ReplayProfileTimingBackfillTarget {
+    replay_id: Uuid,
+    analysis_run_id: Uuid,
+    storage_key: String,
+}
+
 pub fn spawn_replay_processing(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
@@ -163,6 +186,103 @@ pub async fn enqueue_replay_reprocessing(
         concurrency,
         force: options.force,
     })
+}
+
+pub async fn enqueue_profile_timing_backfill(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    options: ReplayProfileTimingBackfillOptions,
+) -> Result<ReplayProfileTimingBackfillSummary> {
+    let concurrency = options.concurrency.clamp(1, 4);
+    let targets = profile_timing_backfill_targets(&pool, &options).await?;
+    let enqueued_replays = targets.len();
+    if !targets.is_empty() {
+        spawn_profile_timing_backfill_worker(pool, storage, targets, concurrency);
+    }
+
+    Ok(ReplayProfileTimingBackfillSummary {
+        matched_replays: enqueued_replays,
+        enqueued_replays,
+        skipped_replays: 0,
+        concurrency,
+        force: options.force,
+    })
+}
+
+fn spawn_profile_timing_backfill_worker(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    targets: Vec<ReplayProfileTimingBackfillTarget>,
+    concurrency: usize,
+) {
+    tokio::spawn(async move {
+        let total = targets.len();
+        let mut pending = targets.into_iter();
+        let mut tasks = JoinSet::new();
+        let mut succeeded = 0usize;
+        let mut failed = 0usize;
+
+        loop {
+            while tasks.len() < concurrency {
+                let Some(target) = pending.next() else {
+                    break;
+                };
+                let pool = pool.clone();
+                let storage = storage.clone();
+                tasks.spawn(async move {
+                    let replay_id = target.replay_id;
+                    let result = backfill_profile_timing_events(pool, storage, target).await;
+                    (replay_id, result)
+                });
+            }
+
+            let Some(result) = tasks.join_next().await else {
+                break;
+            };
+
+            match result {
+                Ok((replay_id, Ok(inserted))) => {
+                    succeeded += 1;
+                    tracing::info!(
+                        %replay_id,
+                        inserted,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill succeeded"
+                    );
+                }
+                Ok((replay_id, Err(error))) => {
+                    failed += 1;
+                    tracing::error!(
+                        %replay_id,
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill failed"
+                    );
+                }
+                Err(error) => {
+                    failed += 1;
+                    tracing::error!(
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill task panicked"
+                    );
+                }
+            }
+        }
+
+        tracing::info!(
+            succeeded,
+            failed,
+            total,
+            "profile timing backfill batch finished"
+        );
+    });
 }
 
 fn spawn_reprocess_worker(
@@ -318,6 +438,147 @@ async fn reprocess_targets(
             })
         })
         .collect()
+}
+
+async fn profile_timing_backfill_targets(
+    pool: &PgPool,
+    options: &ReplayProfileTimingBackfillOptions,
+) -> Result<Vec<ReplayProfileTimingBackfillTarget>> {
+    let mut query = sqlx::QueryBuilder::new(
+        r#"
+        SELECT
+            r.id,
+            r.storage_key,
+            r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+        "#,
+    );
+
+    if !options.replay_ids.is_empty() {
+        query.push(" AND r.id = ANY(");
+        query.push_bind(&options.replay_ids);
+        query.push(")");
+    }
+
+    if !options.force {
+        query.push(
+            r#"
+            AND (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'positioning'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    JOIN play_event_rotation_player_details detail
+                      ON detail.event_id = event.id
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+            )
+            "#,
+        );
+    }
+
+    query.push(" ORDER BY r.created_at, r.id");
+
+    query
+        .build()
+        .fetch_all(pool)
+        .await
+        .context("failed to list replays for profile timing backfill")?
+        .into_iter()
+        .map(|row| {
+            Ok(ReplayProfileTimingBackfillTarget {
+                replay_id: row.try_get("id")?,
+                storage_key: row.try_get("storage_key")?,
+                analysis_run_id: row.try_get("canonical_analysis_run_id")?,
+            })
+        })
+        .collect()
+}
+
+async fn backfill_profile_timing_events(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    target: ReplayProfileTimingBackfillTarget,
+) -> Result<usize> {
+    let replay_bytes = storage
+        .get(&target.storage_key)
+        .await
+        .with_context(|| format!("failed to read replay object `{}`", target.storage_key))?;
+    let output =
+        tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
+            .await
+            .context("profile timing backfill analysis task panicked")??;
+    let indexed_events = output
+        .indexed_events
+        .into_iter()
+        .filter(|event| {
+            matches!(
+                event.source_stream.as_str(),
+                "positioning" | "rotation_player"
+            )
+        })
+        .collect::<Vec<_>>();
+    let inserted = indexed_events.len();
+    if indexed_events.is_empty() {
+        return Ok(0);
+    }
+
+    let replay_players = load_replay_player_lookup(&pool, target.replay_id).await?;
+    let event_type_ids = ensure_event_types(&pool, &indexed_events).await?;
+    insert_play_events(
+        &pool,
+        target.analysis_run_id,
+        target.replay_id,
+        &indexed_events,
+        &event_type_ids,
+        &replay_players,
+    )
+    .await?;
+
+    Ok(inserted)
+}
+
+async fn load_replay_player_lookup(
+    pool: &PgPool,
+    replay_id: Uuid,
+) -> Result<HashMap<String, Uuid>> {
+    sqlx::query(
+        r#"
+        SELECT id, platform, platform_player_id
+        FROM replay_players
+        WHERE replay_id = $1
+          AND platform IS NOT NULL
+          AND platform_player_id IS NOT NULL
+        "#,
+    )
+    .bind(replay_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to load replay player lookup")?
+    .into_iter()
+    .map(|row| {
+        let platform: Option<String> = row.try_get("platform")?;
+        let platform_player_id: Option<String> = row.try_get("platform_player_id")?;
+        let id: Uuid = row.try_get("id")?;
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            return Err(anyhow!("replay player lookup row had no key"));
+        };
+        Ok((key, id))
+    })
+    .collect()
 }
 
 async fn process_replay(
