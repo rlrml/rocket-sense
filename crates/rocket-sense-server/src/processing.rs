@@ -71,6 +71,33 @@ struct EventScalarField {
     boolean_value: Option<bool>,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct PlayEventInsertOptions {
+    payload: bool,
+    attributes: bool,
+    scalar_fields: bool,
+    details: bool,
+    subjects: bool,
+}
+
+impl PlayEventInsertOptions {
+    const FULL: Self = Self {
+        payload: true,
+        attributes: true,
+        scalar_fields: true,
+        details: true,
+        subjects: true,
+    };
+
+    const PROFILE_TIMING_BACKFILL: Self = Self {
+        payload: true,
+        attributes: false,
+        scalar_fields: false,
+        details: true,
+        subjects: true,
+    };
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ReplaySearchMetadata {
     playlist: Option<String>,
@@ -575,13 +602,14 @@ async fn backfill_profile_timing_events(
 
     let replay_players = load_replay_player_lookup(&pool, target.replay_id).await?;
     let event_type_ids = ensure_event_types(&pool, &indexed_events).await?;
-    let inserted = insert_play_events(
+    let inserted = insert_play_events_with_options(
         &pool,
         target.analysis_run_id,
         target.replay_id,
         &indexed_events,
         &event_type_ids,
         &replay_players,
+        PlayEventInsertOptions::PROFILE_TIMING_BACKFILL,
     )
     .await?;
 
@@ -1275,6 +1303,27 @@ async fn insert_play_events(
     event_type_ids: &HashMap<String, i32>,
     replay_players: &HashMap<String, Uuid>,
 ) -> Result<usize> {
+    insert_play_events_with_options(
+        pool,
+        analysis_run_id,
+        replay_id,
+        events,
+        event_type_ids,
+        replay_players,
+        PlayEventInsertOptions::FULL,
+    )
+    .await
+}
+
+async fn insert_play_events_with_options(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+    event_type_ids: &HashMap<String, i32>,
+    replay_players: &HashMap<String, Uuid>,
+    options: PlayEventInsertOptions,
+) -> Result<usize> {
     let mut inserted = 0usize;
     for event in events {
         let Some(event_type_id) = event_type_ids.get(&event.event_type_key).copied() else {
@@ -1340,14 +1389,23 @@ async fn insert_play_events(
         let play_event_id: Uuid = row.try_get("id")?;
         inserted += 1;
 
-        insert_play_event_payload(pool, play_event_id, &event.payload).await?;
-        insert_play_event_attributes(pool, play_event_id, &event.attributes).await?;
-        insert_play_event_scalar_fields(pool, play_event_id, event).await?;
-        insert_play_event_details(pool, play_event_id, event).await?;
+        if options.payload {
+            insert_play_event_payload(pool, play_event_id, &event.payload).await?;
+        }
+        if options.attributes {
+            insert_play_event_attributes(pool, play_event_id, &event.attributes).await?;
+        }
+        if options.scalar_fields {
+            insert_play_event_scalar_fields(pool, play_event_id, event).await?;
+        }
+        if options.details {
+            insert_play_event_details(pool, play_event_id, event).await?;
+        }
 
-        for subject in &event.subjects {
-            sqlx::query(
-                r#"
+        if options.subjects {
+            for subject in &event.subjects {
+                sqlx::query(
+                    r#"
                 INSERT INTO play_event_subjects (
                     event_id,
                     subject_kind,
@@ -1358,15 +1416,16 @@ async fn insert_play_events(
                 VALUES ($1, $2, $3, $4, $5)
                 ON CONFLICT DO NOTHING
                 "#,
-            )
-            .bind(play_event_id)
-            .bind(&subject.kind)
-            .bind(&subject.id)
-            .bind(resolve_replay_player_id(subject, replay_players))
-            .bind(&subject.role)
-            .execute(pool)
-            .await
-            .context("failed to insert play event subject")?;
+                )
+                .bind(play_event_id)
+                .bind(&subject.kind)
+                .bind(&subject.id)
+                .bind(resolve_replay_player_id(subject, replay_players))
+                .bind(&subject.role)
+                .execute(pool)
+                .await
+                .context("failed to insert play event subject")?;
+            }
         }
     }
 
