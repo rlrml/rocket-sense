@@ -150,6 +150,8 @@ struct ReplayProfileTimingBackfillTarget {
     replay_id: Uuid,
     analysis_run_id: Uuid,
     storage_key: String,
+    needs_positioning: bool,
+    needs_rotation_player: bool,
 }
 
 pub fn spawn_replay_processing(
@@ -231,6 +233,14 @@ fn spawn_profile_timing_backfill_worker(
                 let storage = storage.clone();
                 tasks.spawn(async move {
                     let replay_id = target.replay_id;
+                    let needs_positioning = target.needs_positioning;
+                    let needs_rotation_player = target.needs_rotation_player;
+                    tracing::info!(
+                        %replay_id,
+                        needs_positioning,
+                        needs_rotation_player,
+                        "profile timing backfill started"
+                    );
                     let result = backfill_profile_timing_events(pool, storage, target).await;
                     (replay_id, result)
                 });
@@ -449,7 +459,29 @@ async fn profile_timing_backfill_targets(
         SELECT
             r.id,
             r.storage_key,
-            r.canonical_analysis_run_id
+            r.canonical_analysis_run_id,
+            NOT EXISTS (
+                SELECT 1
+                FROM play_events event
+                WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                  AND event.source_stream = 'positioning'
+            ) AS needs_positioning,
+            (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    JOIN play_event_rotation_player_details detail
+                      ON detail.event_id = event.id
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_player'
+                )
+            ) AS needs_rotation_player
         FROM replays r
         WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
@@ -503,6 +535,8 @@ async fn profile_timing_backfill_targets(
                 replay_id: row.try_get("id")?,
                 storage_key: row.try_get("storage_key")?,
                 analysis_run_id: row.try_get("canonical_analysis_run_id")?,
+                needs_positioning: options.force || row.try_get("needs_positioning")?,
+                needs_rotation_player: options.force || row.try_get("needs_rotation_player")?,
             })
         })
         .collect()
@@ -521,24 +555,27 @@ async fn backfill_profile_timing_events(
         tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
             .await
             .context("profile timing backfill analysis task panicked")??;
-    let indexed_events = output
+    let mut indexed_events = output
         .indexed_events
         .into_iter()
         .filter(|event| {
-            matches!(
-                event.source_stream.as_str(),
-                "positioning" | "rotation_player"
-            )
+            (target.needs_rotation_player && event.source_stream == "rotation_player")
+                || (target.needs_positioning && event.source_stream == "positioning")
         })
         .collect::<Vec<_>>();
-    let inserted = indexed_events.len();
     if indexed_events.is_empty() {
         return Ok(0);
     }
 
+    indexed_events.sort_by_key(|event| match event.source_stream.as_str() {
+        "rotation_player" => 0,
+        "positioning" => 1,
+        _ => 2,
+    });
+
     let replay_players = load_replay_player_lookup(&pool, target.replay_id).await?;
     let event_type_ids = ensure_event_types(&pool, &indexed_events).await?;
-    insert_play_events(
+    let inserted = insert_play_events(
         &pool,
         target.analysis_run_id,
         target.replay_id,
@@ -1237,7 +1274,8 @@ async fn insert_play_events(
     events: &[IndexedEvent],
     event_type_ids: &HashMap<String, i32>,
     replay_players: &HashMap<String, Uuid>,
-) -> Result<()> {
+) -> Result<usize> {
+    let mut inserted = 0usize;
     for event in events {
         let Some(event_type_id) = event_type_ids.get(&event.event_type_key).copied() else {
             continue;
@@ -1300,6 +1338,7 @@ async fn insert_play_events(
             continue;
         };
         let play_event_id: Uuid = row.try_get("id")?;
+        inserted += 1;
 
         insert_play_event_payload(pool, play_event_id, &event.payload).await?;
         insert_play_event_attributes(pool, play_event_id, &event.attributes).await?;
@@ -1331,7 +1370,7 @@ async fn insert_play_events(
         }
     }
 
-    Ok(())
+    Ok(inserted)
 }
 
 async fn insert_play_event_payload(pool: &PgPool, event_id: Uuid, payload: &Value) -> Result<()> {
