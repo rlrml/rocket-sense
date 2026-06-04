@@ -1636,22 +1636,22 @@ async fn insert_rotation_player_event_details(
         &event.payload,
         "current_depth_state",
     )?)
-    .bind(required_float(&event.payload, "active_game_time")?)
-    .bind(required_float(&event.payload, "tracked_time")?)
-    .bind(required_float(&event.payload, "time_first_man")?)
-    .bind(required_float(&event.payload, "time_second_man")?)
-    .bind(required_float(&event.payload, "time_third_man")?)
-    .bind(required_float(&event.payload, "time_ambiguous_role")?)
-    .bind(required_float(&event.payload, "time_behind_play")?)
-    .bind(required_float(&event.payload, "time_level_with_play")?)
-    .bind(required_float(&event.payload, "time_ahead_of_play")?)
-    .bind(required_float(
+    .bind(float_value(&event.payload, &["active_game_time"]))
+    .bind(float_value(&event.payload, &["tracked_time"]))
+    .bind(float_value(&event.payload, &["time_first_man"]))
+    .bind(float_value(&event.payload, &["time_second_man"]))
+    .bind(float_value(&event.payload, &["time_third_man"]))
+    .bind(float_value(&event.payload, &["time_ambiguous_role"]))
+    .bind(float_value(&event.payload, &["time_behind_play"]))
+    .bind(float_value(&event.payload, &["time_level_with_play"]))
+    .bind(float_value(&event.payload, &["time_ahead_of_play"]))
+    .bind(float_value(
         &event.payload,
-        "longest_first_man_stint_time",
-    )?)
-    .bind(required_int(&event.payload, "first_man_stint_count")?)
-    .bind(required_int(&event.payload, "became_first_man_count")?)
-    .bind(required_int(&event.payload, "lost_first_man_count")?)
+        &["longest_first_man_stint_time"],
+    ))
+    .bind(int_value(&event.payload, &["first_man_stint_count"]))
+    .bind(int_value(&event.payload, &["became_first_man_count"]))
+    .bind(int_value(&event.payload, &["lost_first_man_count"]))
     .execute(pool)
     .await
     .context("failed to insert rotation player event details")?;
