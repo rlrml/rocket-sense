@@ -478,7 +478,7 @@ async fn load_player_rotation_duration_histogram(
             JOIN play_event_rotation_player_details detail
               ON detail.event_id = event.id
         ),
-        first_man_spans AS (
+        ordered_rotation_spans AS (
             SELECT
                 *,
                 COALESCE(
@@ -493,6 +493,10 @@ async fn load_player_rotation_duration_histogram(
                     0.0
                 ) AS non_first_man_duration_before_span
             FROM rotation_spans
+        ),
+        first_man_spans AS (
+            SELECT *
+            FROM ordered_rotation_spans
             WHERE is_first_man
         ),
         marked_first_man_spans AS (
