@@ -1172,7 +1172,7 @@ async fn find_mechanic_events(
             regexp_replace(event_type.key, '^mechanic\.', '') AS mechanic,
             event.source AS detector,
             event.primary_subject_id AS player_id,
-            (event.attributes->>'team')::integer AS team,
+            event.team,
             event.start_frame,
             event.end_frame,
             event.event_frame,
@@ -1181,13 +1181,15 @@ async fn find_mechanic_events(
             event.event_time,
             event.confidence,
             NULL::text AS reason,
-            COALESCE(event.payload, '{}'::jsonb) AS payload,
+            COALESCE(payload.payload, '{}'::jsonb) AS payload,
             event.created_at,
             review.id AS latest_review_id,
             review.status AS review_status
         FROM play_events event
         JOIN event_types event_type
           ON event_type.id = event.event_type_id
+        LEFT JOIN play_event_payloads payload
+          ON payload.event_id = event.id
         JOIN replays replay
           ON replay.id = event.replay_id
         LEFT JOIN LATERAL (

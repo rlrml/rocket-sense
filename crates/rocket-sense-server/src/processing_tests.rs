@@ -99,7 +99,9 @@ fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
         }],
     };
 
-    let indexed = indexed_goal_tag_event(3, &event).expect("goal tag should index");
+    let payload = serde_json::to_value(&event).expect("goal tag should serialize");
+    let indexed =
+        indexed_timeline_payload_event("goal_tags", 3, &payload).expect("goal tag should index");
 
     assert_eq!(indexed.event_type_key, "goal_tag.double_tap_goal");
     assert_eq!(indexed.display_name, "Double Tap Goal");
@@ -127,24 +129,17 @@ fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
 }
 
 #[test]
-fn build_indexed_events_uses_stats_timeline_touches_not_replay_data_touches() {
-    let replay_data = serde_json::json!({
-        "touch_events": [
-            {
-                "time": 1.0,
-                "frame": 60,
-                "team_is_team_0": true,
-                "player": { "Steam": 76561198000000001_u64 }
-            }
-        ]
-    });
+fn build_indexed_events_uses_serialized_stats_timeline_touches() {
     let touch_events = vec![
         touch_stats_event(2.0, 120, RemoteId::Steam(76561198000000002), true),
         touch_stats_event(3.0, 180, RemoteId::Epic("epic-player".to_owned()), false),
     ];
+    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
+        touch: touch_events,
+        ..Default::default()
+    });
 
-    let indexed = build_indexed_events(&replay_data, &touch_events, &[], &[])
-        .expect("touch events should index");
+    let indexed = build_indexed_events(&timeline).expect("touch events should index");
     let touch_rows = indexed
         .iter()
         .filter(|event| event.event_type_key == "ball.touch")
@@ -168,6 +163,147 @@ fn build_indexed_events_uses_stats_timeline_touches_not_replay_data_touches() {
             .map(|subject| subject.id.as_str()),
         Some("epic:epic-player")
     );
+}
+
+#[test]
+fn build_indexed_events_emits_rotation_first_man_stint_durations() {
+    let player = RemoteId::Steam(76561198000000001);
+    let mut first_man_span = rotation_player_event(
+        0.0,
+        0,
+        player.clone(),
+        true,
+        subtr_actor::RoleState::FirstMan,
+    );
+    first_man_span.end_time = 1.0;
+    first_man_span.end_frame = 2;
+    first_man_span.duration = 1.5;
+    first_man_span.time_first_man = 1.5;
+    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
+        rotation_player: vec![
+            first_man_span,
+            rotation_player_event(
+                1.5,
+                3,
+                player.clone(),
+                true,
+                subtr_actor::RoleState::SecondMan,
+            ),
+        ],
+        ..Default::default()
+    });
+
+    let indexed = build_indexed_events(&timeline).expect("rotation should index");
+    let rotation_rows = indexed
+        .iter()
+        .filter(|event| event.event_type_key == "rotation.first_man_stint")
+        .collect::<Vec<_>>();
+
+    assert_eq!(rotation_rows.len(), 1);
+    let row = rotation_rows[0];
+    assert_eq!(row.start_frame, Some(0));
+    assert_eq!(row.end_frame, Some(2));
+    assert_eq!(row.start_time, Some(0.0));
+    assert_eq!(row.end_time, Some(1.0));
+    assert_eq!(row.attributes["duration_seconds"], 1.5);
+    assert_eq!(
+        row.primary_subject
+            .as_ref()
+            .map(|subject| subject.id.as_str()),
+        Some("steam:76561198000000001")
+    );
+}
+
+#[test]
+fn event_scalar_fields_index_payload_and_normalized_attributes() {
+    let payload = serde_json::json!({
+        "kind": { "FirstMan": {} },
+        "player": { "Steam": 76561198000000001_u64 },
+        "time_first_man": 1.5,
+        "active": true,
+        "evidence": [
+            { "kind": { "DoubleTap": {} }, "confidence": 0.75 }
+        ]
+    });
+    let indexed = indexed_timeline_payload_event("rotation_player", 0, &payload)
+        .expect("rotation payload should index");
+
+    let scalar_fields = event_scalar_fields(&indexed);
+
+    assert!(scalar_fields.iter().any(|field| {
+        field.source == "payload"
+            && field.path == "kind"
+            && field.value_kind == "string"
+            && field.string_value.as_deref() == Some("first_man")
+    }));
+    assert!(scalar_fields.iter().any(|field| {
+        field.source == "payload"
+            && field.path == "time_first_man"
+            && field.value_kind == "number"
+            && field.numeric_value == Some(1.5)
+    }));
+    assert!(scalar_fields.iter().any(|field| {
+        field.source == "payload"
+            && field.path == "evidence[0].kind"
+            && field.value_kind == "string"
+            && field.string_value.as_deref() == Some("double_tap")
+    }));
+    assert!(scalar_fields.iter().any(|field| {
+        field.source == "attribute"
+            && field.path == "duration_seconds"
+            && field.value_kind == "number"
+            && field.numeric_value == Some(1.5)
+    }));
+}
+
+fn stats_timeline_with_events(
+    events: subtr_actor::ReplayStatsTimelineEvents,
+) -> subtr_actor::ReplayStatsTimelineScaffold {
+    subtr_actor::ReplayStatsTimelineScaffold {
+        config: subtr_actor::default_stats_timeline_config(),
+        replay_meta: ReplayMeta {
+            team_zero: vec![],
+            team_one: vec![],
+            all_headers: vec![],
+        },
+        events,
+        frames: vec![],
+    }
+}
+
+fn rotation_player_event(
+    time: f32,
+    frame: usize,
+    player: RemoteId,
+    is_team_0: bool,
+    current_role_state: subtr_actor::RoleState,
+) -> subtr_actor::RotationPlayerEvent {
+    subtr_actor::RotationPlayerEvent {
+        time,
+        frame,
+        end_time: time,
+        end_frame: frame,
+        duration: 0.0,
+        player,
+        player_position: None,
+        is_team_0,
+        active: true,
+        active_game_time: 0.0,
+        tracked_time: 0.0,
+        time_first_man: 0.0,
+        time_second_man: 0.0,
+        time_third_man: 0.0,
+        time_ambiguous_role: 0.0,
+        time_behind_play: 0.0,
+        time_level_with_play: 0.0,
+        time_ahead_of_play: 0.0,
+        longest_first_man_stint_time: 0.0,
+        first_man_stint_count: 0,
+        became_first_man_count: u32::from(current_role_state == subtr_actor::RoleState::FirstMan),
+        lost_first_man_count: u32::from(current_role_state != subtr_actor::RoleState::FirstMan),
+        current_role_state,
+        current_depth_state: subtr_actor::PlayDepthState::BehindPlay,
+    }
 }
 
 fn touch_stats_event(

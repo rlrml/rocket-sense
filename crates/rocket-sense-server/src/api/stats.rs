@@ -28,10 +28,23 @@ pub struct StatAggregateSetResponse {
     pub player_appearance_count: Option<u64>,
     pub active_time_seconds: Option<f64>,
     pub non_demo_active_time_seconds: Option<f64>,
+    pub time_most_back_seconds: Option<f64>,
+    pub time_most_forward_seconds: Option<f64>,
     pub teammate_appearance_count: Option<u64>,
     pub teammate_active_time_seconds: Option<f64>,
     pub teammate_non_demo_active_time_seconds: Option<f64>,
+    pub teammate_time_most_back_seconds: Option<f64>,
+    pub teammate_time_most_forward_seconds: Option<f64>,
+    pub rotation_duration_bucket_seconds: f64,
+    pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub stats: Vec<StatAggregateResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct RotationDurationBucketResponse {
+    pub min_seconds: f64,
+    pub max_seconds: f64,
+    pub count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -180,7 +193,17 @@ struct StatDenominators {
     appearance_count: Option<u64>,
     active_time_seconds: Option<f64>,
     non_demo_active_time_seconds: Option<f64>,
+    time_most_back_seconds: Option<f64>,
+    time_most_forward_seconds: Option<f64>,
 }
+
+#[derive(Debug, Clone)]
+struct RotationDurationBucketRow {
+    bucket_start_seconds: f64,
+    count: u64,
+}
+
+const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
 
 #[derive(Debug, Clone)]
 struct StatCountRow {
@@ -383,6 +406,13 @@ pub(crate) async fn load_stat_aggregates(
     let teammate_non_demo_active_time_seconds = teammate_denominators
         .as_ref()
         .and_then(|denominator| denominator.non_demo_active_time_seconds);
+    let teammate_time_most_back_seconds = teammate_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.time_most_back_seconds);
+    let teammate_time_most_forward_seconds = teammate_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.time_most_forward_seconds);
+    let rotation_duration_histogram = load_rotation_duration_histogram(pool, filters).await?;
 
     let stats = rows
         .into_iter()
@@ -417,11 +447,17 @@ pub(crate) async fn load_stat_aggregates(
         player_appearance_count: target_denominators.appearance_count,
         active_time_seconds: target_denominators.active_time_seconds,
         non_demo_active_time_seconds: target_denominators.non_demo_active_time_seconds,
+        time_most_back_seconds: target_denominators.time_most_back_seconds,
+        time_most_forward_seconds: target_denominators.time_most_forward_seconds,
         teammate_appearance_count: teammate_denominators
             .as_ref()
             .and_then(|denominator| denominator.appearance_count),
         teammate_active_time_seconds,
         teammate_non_demo_active_time_seconds,
+        teammate_time_most_back_seconds,
+        teammate_time_most_forward_seconds,
+        rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
+        rotation_duration_histogram,
         stats,
     })
 }
@@ -437,7 +473,9 @@ async fn load_target_denominators(
                 COUNT(DISTINCT rp.replay_id) AS replay_count,
                 COUNT(*) AS appearance_count,
                 SUM(rp.active_time_seconds) AS active_time_seconds,
-                SUM(GREATEST(rp.active_time_seconds - COALESCE(rp.time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds
+                SUM(GREATEST(rp.active_time_seconds - COALESCE(rp.time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
+                SUM(rp.time_most_back_seconds) AS time_most_back_seconds,
+                SUM(rp.time_most_forward_seconds) AS time_most_forward_seconds
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
             "#,
@@ -448,11 +486,14 @@ async fn load_target_denominators(
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
-                COUNT(*) AS replay_count,
+                COUNT(DISTINCT r.id) AS replay_count,
                 NULL::bigint AS appearance_count,
                 NULL::double precision AS active_time_seconds,
-                NULL::double precision AS non_demo_active_time_seconds
+                NULL::double precision AS non_demo_active_time_seconds,
+                SUM(rp.time_most_back_seconds) AS time_most_back_seconds,
+                SUM(rp.time_most_forward_seconds) AS time_most_forward_seconds
             FROM replays r
+            LEFT JOIN replay_players rp ON rp.replay_id = r.id
             WHERE r.canonical_analysis_run_id IS NOT NULL
             "#,
         );
@@ -469,6 +510,8 @@ async fn load_target_denominators(
         non_demo_active_time_seconds: finite_nonnegative(
             row.try_get("non_demo_active_time_seconds")?,
         ),
+        time_most_back_seconds: finite_nonnegative(row.try_get("time_most_back_seconds")?),
+        time_most_forward_seconds: finite_nonnegative(row.try_get("time_most_forward_seconds")?),
     })
 }
 
@@ -493,7 +536,9 @@ async fn load_teammate_denominators(
                 teammate.id,
                 teammate.replay_id,
                 teammate.active_time_seconds,
-                teammate.time_demolished_seconds
+                teammate.time_demolished_seconds,
+                teammate.time_most_back_seconds,
+                teammate.time_most_forward_seconds
             FROM target_appearances target
             JOIN replay_players teammate
               ON teammate.replay_id = target.replay_id
@@ -504,7 +549,9 @@ async fn load_teammate_denominators(
             COUNT(DISTINCT replay_id) AS replay_count,
             COUNT(*) AS appearance_count,
             SUM(active_time_seconds) AS active_time_seconds,
-            SUM(GREATEST(active_time_seconds - COALESCE(time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds
+            SUM(GREATEST(active_time_seconds - COALESCE(time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
+            SUM(time_most_back_seconds) AS time_most_back_seconds,
+            SUM(time_most_forward_seconds) AS time_most_forward_seconds
         FROM teammate_appearances
         "#,
     );
@@ -519,7 +566,94 @@ async fn load_teammate_denominators(
         non_demo_active_time_seconds: finite_nonnegative(
             row.try_get("non_demo_active_time_seconds")?,
         ),
+        time_most_back_seconds: finite_nonnegative(row.try_get("time_most_back_seconds")?),
+        time_most_forward_seconds: finite_nonnegative(row.try_get("time_most_forward_seconds")?),
     })
+}
+
+async fn load_rotation_duration_histogram(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let mut query = if filters.player.is_some() {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            WITH target_appearances AS (
+                SELECT rp.id, rp.replay_id
+                FROM replay_players rp
+                JOIN replays r ON r.id = rp.replay_id
+            "#,
+        );
+        append_target_player_filters(&mut query, filters);
+        query.push(
+            r#"
+            ),
+            rotation_events AS (
+                SELECT event.duration_seconds
+                FROM target_appearances appearance
+                JOIN replays r
+                  ON r.id = appearance.replay_id
+                 AND r.canonical_analysis_run_id IS NOT NULL
+                JOIN play_event_subjects subject
+                  ON subject.replay_player_id = appearance.id
+                 AND subject.role = 'actor'
+                JOIN play_events event
+                  ON event.id = subject.event_id
+                 AND event.analysis_run_id = r.canonical_analysis_run_id
+                JOIN event_types et
+                  ON et.id = event.event_type_id
+                 AND et.key = 'rotation.first_man_stint'
+            ),
+            bucketed AS (
+                SELECT floor(duration_seconds /
+            "#,
+        );
+        query
+    } else {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            WITH rotation_events AS (
+                SELECT event.duration_seconds
+                FROM replays r
+                JOIN play_events event
+                  ON event.replay_id = r.id
+                 AND event.analysis_run_id = r.canonical_analysis_run_id
+                JOIN event_types et
+                  ON et.id = event.event_type_id
+                 AND et.key = 'rotation.first_man_stint'
+                WHERE r.canonical_analysis_run_id IS NOT NULL
+            "#,
+        );
+        append_replay_filters(&mut query, filters, "r");
+        query.push(
+            r#"
+            ),
+            bucketed AS (
+                SELECT floor(duration_seconds /
+            "#,
+        );
+        query
+    };
+
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds
+        FROM rotation_events
+        WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
+    )
+    SELECT bucket_start_seconds, COUNT(*) AS count
+    FROM bucketed
+    GROUP BY bucket_start_seconds
+    ORDER BY bucket_start_seconds
+    "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
 }
 
 async fn load_stat_count_rows(
@@ -689,6 +823,20 @@ fn stat_count_row_from_db(row: sqlx::postgres::PgRow) -> Result<StatCountRow, sq
         category: row.try_get("category")?,
         event_count: event_count.max(0) as u64,
         teammate_event_count: teammate_event_count.max(0) as u64,
+    })
+}
+
+fn rotation_duration_bucket_row_from_db(
+    row: sqlx::postgres::PgRow,
+) -> Result<RotationDurationBucketResponse, sqlx::Error> {
+    let bucket = RotationDurationBucketRow {
+        bucket_start_seconds: row.try_get("bucket_start_seconds")?,
+        count: row.try_get::<i64, _>("count")?.max(0) as u64,
+    };
+    Ok(RotationDurationBucketResponse {
+        min_seconds: bucket.bucket_start_seconds,
+        max_seconds: bucket.bucket_start_seconds + ROTATION_DURATION_BUCKET_SECONDS,
+        count: bucket.count,
     })
 }
 

@@ -49,6 +49,8 @@ pub struct PlayerProfileResponse {
     pub active_time_seconds: Option<f64>,
     pub time_demolished_seconds: Option<f64>,
     pub non_demo_active_time_seconds: Option<f64>,
+    pub time_most_back_seconds: Option<f64>,
+    pub time_most_forward_seconds: Option<f64>,
     pub stats: Vec<PlayerStatAggregateResponse>,
     pub first_seen_at: Option<DateTime<Utc>>,
     pub last_seen_at: Option<DateTime<Utc>>,
@@ -319,6 +321,8 @@ async fn load_player_profile(
             SUM(rp.active_time_seconds) AS active_time_seconds,
             SUM(rp.time_demolished_seconds) AS time_demolished_seconds,
             SUM(GREATEST(rp.active_time_seconds - COALESCE(rp.time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
+            SUM(rp.time_most_back_seconds) AS time_most_back_seconds,
+            SUM(rp.time_most_forward_seconds) AS time_most_forward_seconds,
             BOOL_OR(rp.is_pro) AS is_pro,
             (
                 ARRAY_REMOVE(
@@ -352,6 +356,10 @@ async fn load_player_profile(
         time_demolished_seconds: finite_nonnegative(summary.try_get("time_demolished_seconds")?),
         non_demo_active_time_seconds: finite_nonnegative(
             summary.try_get("non_demo_active_time_seconds")?,
+        ),
+        time_most_back_seconds: finite_nonnegative(summary.try_get("time_most_back_seconds")?),
+        time_most_forward_seconds: finite_nonnegative(
+            summary.try_get("time_most_forward_seconds")?,
         ),
         stats,
         first_seen_at: summary.try_get("first_seen_at")?,
