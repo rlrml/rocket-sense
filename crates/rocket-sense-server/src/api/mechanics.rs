@@ -18,7 +18,6 @@ mod tests;
 
 const EVENT_REVIEW_PREROLL_SECONDS: f64 = 4.0;
 const EVENT_REVIEW_POSTROLL_SECONDS: f64 = 3.0;
-const EVENT_REVIEW_APPROX_FRAMES_PER_SECOND: f64 = 30.0;
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
@@ -1342,7 +1341,7 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     let end_time = event.end_time.unwrap_or(event_time);
     let clip_start = (start_time - EVENT_REVIEW_PREROLL_SECONDS).max(0.0);
     let clip_end = (end_time + EVENT_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
-    let (start_bound, end_bound) = playlist_playback_bounds(&event, clip_start, clip_end);
+    let (start_bound, end_bound) = playlist_playback_bounds(clip_start, clip_end);
     let mechanic_label = mechanic_label(&event.mechanic);
 
     PlaylistItem {
@@ -1388,37 +1387,7 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     }
 }
 
-fn playlist_playback_bounds(
-    event: &MechanicEventResponse,
-    clip_start: f64,
-    clip_end: f64,
-) -> (PlaylistBound, PlaylistBound) {
-    let start_frame = event.start_frame.or(event.event_frame);
-    let end_frame = event.end_frame.or(event.event_frame);
-
-    if let (Some(start_frame), Some(end_frame)) = (start_frame, end_frame) {
-        if end_frame >= start_frame {
-            let preroll_frames =
-                seconds_to_review_frames(EVENT_REVIEW_PREROLL_SECONDS).unwrap_or(0);
-            let postroll_frames =
-                seconds_to_review_frames(EVENT_REVIEW_POSTROLL_SECONDS).unwrap_or(0);
-            let clip_start_frame = start_frame.saturating_sub(preroll_frames).max(0);
-            let clip_end_frame = end_frame
-                .saturating_add(postroll_frames)
-                .max(clip_start_frame.saturating_add(1));
-            return (
-                PlaylistBound {
-                    kind: "frame",
-                    value: f64::from(clip_start_frame),
-                },
-                PlaylistBound {
-                    kind: "frame",
-                    value: f64::from(clip_end_frame),
-                },
-            );
-        }
-    }
-
+fn playlist_playback_bounds(clip_start: f64, clip_end: f64) -> (PlaylistBound, PlaylistBound) {
     (
         PlaylistBound {
             kind: "time",
@@ -1429,14 +1398,6 @@ fn playlist_playback_bounds(
             value: clip_end,
         },
     )
-}
-
-fn seconds_to_review_frames(seconds: f64) -> Option<i32> {
-    if seconds.is_finite() && seconds >= 0.0 {
-        Some((seconds * EVENT_REVIEW_APPROX_FRAMES_PER_SECOND).round() as i32)
-    } else {
-        None
-    }
 }
 
 fn mechanic_label(mechanic: &str) -> String {

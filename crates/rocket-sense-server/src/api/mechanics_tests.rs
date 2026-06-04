@@ -235,10 +235,10 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
         },
     );
 
-    assert_eq!(item.start.kind, "frame");
-    assert_eq!(item.start.value, 0.0);
-    assert_eq!(item.end.kind, "frame");
-    assert_eq!(item.end.value, 220.0);
+    assert_eq!(item.start.kind, "time");
+    assert_eq!(item.start.value, 8.5);
+    assert_eq!(item.end.kind, "time");
+    assert_eq!(item.end.value, 16.5);
     assert_eq!(item.meta.clip.start_time, 8.5);
     assert_eq!(item.meta.clip.end_time, 16.5);
     assert_eq!(item.meta.clip.preroll_seconds, 4.0);
