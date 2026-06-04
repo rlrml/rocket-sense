@@ -54,7 +54,15 @@
           src = ./.;
           filter =
             path: type:
-            !(baseNameOf path == "subtr-actor" && baseNameOf (dirOf path) == "vendor");
+            let
+              name = baseNameOf path;
+              parentName = baseNameOf (dirOf path);
+            in
+            pkgs.lib.cleanSourceFilter path type
+            && !(name == "subtr-actor" && parentName == "vendor")
+            && !(name == "target" && type == "directory")
+            && !(name == ".worktrees" && type == "directory")
+            && !(pkgs.lib.hasPrefix "result" name);
         };
         sourceWithSubtrActor = pkgs.runCommandLocal "rocket-sense-source" { } ''
           mkdir -p "$out"

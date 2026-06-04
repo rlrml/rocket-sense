@@ -203,7 +203,7 @@ struct RotationDurationBucketRow {
     count: u64,
 }
 
-const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
+pub(crate) const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
 
 #[derive(Debug, Clone)]
 struct StatCountRow {

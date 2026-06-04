@@ -7,11 +7,17 @@ fn replay_search_metadata_extracts_headers_and_players() {
             remote_id: RemoteId::Steam(76561198000000001),
             stats: None,
             name: "Blue Player".to_owned(),
+            car_body_id: None,
+            car_body_name: None,
+            car_hitbox_family: None,
         }],
         team_one: vec![PlayerInfo {
             remote_id: RemoteId::Epic("orange-epic-id".to_owned()),
             stats: None,
             name: "Orange Player".to_owned(),
+            car_body_id: None,
+            car_body_name: None,
+            car_hitbox_family: None,
         }],
         all_headers: vec![
             (
@@ -79,34 +85,50 @@ fn normalize_playlist_returns_filter_slugs_for_common_values() {
 }
 
 #[test]
-fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
-    let event = subtr_actor::GoalTagEvent {
-        goal_index: 2,
+fn indexed_goal_context_tags_use_scorer_and_goal_tag_dimensions() {
+    let event = subtr_actor::GoalContextEvent {
         time: 123.5,
         frame: 7410,
-        kind: subtr_actor::GoalTagKind::DoubleTapGoal,
         scoring_team_is_team_0: false,
         scorer: Some(RemoteId::Steam(76561198000000001)),
-        scorer_position: None,
-        confidence: 0.85,
-        modifiers: vec![subtr_actor::GoalTagModifier::ByScorer],
-        evidence: vec![subtr_actor::GoalTagEvidence {
-            kind: subtr_actor::GoalTagEvidenceKind::DoubleTap,
-            time: 121.0,
-            frame: 7260,
-            player: Some(RemoteId::Steam(76561198000000001)),
-            player_position: None,
-        }],
+        scoring_team_most_back_player: None,
+        defending_team_most_back_player: None,
+        ball_position: None,
+        ball_speed_at_goal: None,
+        ball_air_time_before_goal: None,
+        goal_buildup: subtr_actor::GoalBuildupKind::Other,
+        scorer_last_touch: None,
+        players: vec![],
+        tags: vec![subtr_actor::GoalTag::DoubleTapGoal(
+            subtr_actor::GoalTagMetadata {
+                confidence: 0.85,
+                modifiers: vec![subtr_actor::GoalTagModifier::ByScorer],
+                related_events: vec![],
+                evidence: vec![subtr_actor::GoalTagEvidence {
+                    kind: subtr_actor::GoalTagEvidenceKind::DoubleTap,
+                    time: 121.0,
+                    frame: 7260,
+                    player: Some(RemoteId::Steam(76561198000000001)),
+                    player_position: None,
+                }],
+            },
+        )],
     };
+    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
+        goal_context: vec![event],
+        ..Default::default()
+    });
 
-    let payload = serde_json::to_value(&event).expect("goal tag should serialize");
-    let indexed =
-        indexed_timeline_payload_event("goal_tags", 3, &payload).expect("goal tag should index");
+    let indexed = build_indexed_events(&timeline).expect("goal tag should index");
+    let indexed = indexed
+        .iter()
+        .find(|event| event.event_type_key == "goal_tag.double_tap_goal")
+        .expect("goal tag row should be synthesized");
 
     assert_eq!(indexed.event_type_key, "goal_tag.double_tap_goal");
     assert_eq!(indexed.display_name, "Double Tap Goal");
     assert_eq!(indexed.category, "goal_tag");
-    assert_eq!(indexed.source_event_id, "goal_tag:2:double_tap_goal:3");
+    assert_eq!(indexed.source_event_id, "goal_tag:0:double_tap_goal:0");
     assert_eq!(indexed.event_frame, Some(7410));
     assert_eq!(indexed.event_time, Some(123.5));
     assert_eq!(indexed.confidence, Some(0.8500000238418579));
@@ -121,7 +143,7 @@ fn indexed_goal_tag_event_uses_scorer_and_goal_tag_dimensions() {
     assert!(indexed.subjects.iter().any(|subject| {
         subject.kind == "team" && subject.id == "1" && subject.role == "scoring_team"
     }));
-    assert_eq!(indexed.attributes["goal_index"], 2);
+    assert_eq!(indexed.attributes["goal_index"], 0);
     assert_eq!(indexed.attributes["team"], 1);
     assert_eq!(indexed.attributes["kind"], "double_tap_goal");
     assert_eq!(indexed.attributes["modifiers"][0], "by_scorer");
@@ -178,7 +200,6 @@ fn build_indexed_events_emits_rotation_first_man_stint_durations() {
     first_man_span.end_time = 1.0;
     first_man_span.end_frame = 2;
     first_man_span.duration = 1.5;
-    first_man_span.time_first_man = 1.5;
     let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
         rotation_player: vec![
             first_man_span,
@@ -288,19 +309,6 @@ fn rotation_player_event(
         player_position: None,
         is_team_0,
         active: true,
-        active_game_time: 0.0,
-        tracked_time: 0.0,
-        time_first_man: 0.0,
-        time_second_man: 0.0,
-        time_third_man: 0.0,
-        time_ambiguous_role: 0.0,
-        time_behind_play: 0.0,
-        time_level_with_play: 0.0,
-        time_ahead_of_play: 0.0,
-        longest_first_man_stint_time: 0.0,
-        first_man_stint_count: 0,
-        became_first_man_count: u32::from(current_role_state == subtr_actor::RoleState::FirstMan),
-        lost_first_man_count: u32::from(current_role_state != subtr_actor::RoleState::FirstMan),
         current_role_state,
         current_depth_state: subtr_actor::PlayDepthState::BehindPlay,
     }
@@ -311,8 +319,8 @@ fn touch_stats_event(
     frame: usize,
     player: RemoteId,
     is_team_0: bool,
-) -> subtr_actor::TouchStatsEvent {
-    subtr_actor::TouchStatsEvent {
+) -> subtr_actor::TouchClassificationEvent {
+    subtr_actor::TouchClassificationEvent {
         time,
         frame,
         sample_time: time,

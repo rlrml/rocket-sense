@@ -315,6 +315,16 @@ resource "kubernetes_deployment_v1" "server" {
             }
           }
 
+          startup_probe {
+            failure_threshold = 120
+            period_seconds    = 5
+
+            http_get {
+              path = "/api/v1/health"
+              port = "http"
+            }
+          }
+
           liveness_probe {
             http_get {
               path = "/api/v1/health"

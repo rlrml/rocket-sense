@@ -235,12 +235,50 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
         },
     );
 
-    assert_eq!(item.start.value, 8.5);
-    assert_eq!(item.end.value, 16.5);
+    assert_eq!(item.start.kind, "frame");
+    assert_eq!(item.start.value, 0.0);
+    assert_eq!(item.end.kind, "frame");
+    assert_eq!(item.end.value, 220.0);
     assert_eq!(item.meta.clip.start_time, 8.5);
     assert_eq!(item.meta.clip.end_time, 16.5);
     assert_eq!(item.meta.clip.preroll_seconds, 4.0);
     assert_eq!(item.meta.clip.postroll_seconds, 3.0);
     assert_eq!(item.meta.target.start_time, Some(12.5));
     assert_eq!(item.meta.target.end_time, Some(13.5));
+}
+
+#[test]
+fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
+    let event_id = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let analysis_run_id = Uuid::parse_str("019e5336-650b-770a-bd81-7d09c6e4afe9").unwrap();
+    let item = playlist_item(
+        0,
+        MechanicEventResponse {
+            id: event_id,
+            replay_id,
+            analysis_run_id,
+            mechanic: "speed_flip".to_owned(),
+            detector: "stats_timeline".to_owned(),
+            player_id: Some("steam:abc123".to_owned()),
+            team: Some(0),
+            start_frame: None,
+            end_frame: None,
+            event_frame: None,
+            start_time: Some(12.5),
+            end_time: Some(13.5),
+            event_time: Some(13.5),
+            confidence: Some(0.84),
+            reason: Some("candidate".to_owned()),
+            payload: serde_json::json!({ "kind": "speed_flip" }),
+            review_status: None,
+            latest_review_id: None,
+            created_at: Utc::now(),
+        },
+    );
+
+    assert_eq!(item.start.kind, "time");
+    assert_eq!(item.start.value, 8.5);
+    assert_eq!(item.end.kind, "time");
+    assert_eq!(item.end.value, 16.5);
 }
