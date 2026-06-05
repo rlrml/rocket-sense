@@ -81,7 +81,7 @@
             "rocket-sense-server"
           ];
           cargoLock.lockFile = ./Cargo.lock;
-          RUST_MIN_STACK = "67108864";
+          RUST_MIN_STACK = "134217728";
           inherit nativeBuildInputs buildInputs;
         };
       in
