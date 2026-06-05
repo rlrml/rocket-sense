@@ -215,6 +215,15 @@ fn build_indexed_events_emits_rotation_first_man_stint_durations() {
     });
 
     let indexed = build_indexed_events(&timeline).expect("rotation should index");
+    let raw_rotation_rows = indexed
+        .iter()
+        .filter(|event| event.source_stream == "rotation_player")
+        .collect::<Vec<_>>();
+    assert_eq!(raw_rotation_rows.len(), 2);
+    assert!(raw_rotation_rows
+        .iter()
+        .all(|event| event.event_type_key == "rotation.player_state_span"));
+
     let rotation_rows = indexed
         .iter()
         .filter(|event| event.event_type_key == "rotation.first_man_stint")
@@ -236,11 +245,65 @@ fn build_indexed_events_emits_rotation_first_man_stint_durations() {
 }
 
 #[test]
+fn build_indexed_events_derives_role_level_rotation_events() {
+    let player = RemoteId::Steam(76561198000000001);
+    let mut first_man_behind = rotation_player_event_with_depth(
+        0.0,
+        0,
+        player.clone(),
+        true,
+        subtr_actor::RoleState::FirstMan,
+        subtr_actor::PlayDepthState::BehindPlay,
+    );
+    first_man_behind.end_time = 0.5;
+    first_man_behind.end_frame = 5;
+    first_man_behind.duration = 0.5;
+    let mut first_man_ahead = rotation_player_event_with_depth(
+        0.5,
+        5,
+        player.clone(),
+        true,
+        subtr_actor::RoleState::FirstMan,
+        subtr_actor::PlayDepthState::AheadOfPlay,
+    );
+    first_man_ahead.end_time = 1.25;
+    first_man_ahead.end_frame = 12;
+    first_man_ahead.duration = 0.75;
+    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
+        rotation_player: vec![first_man_behind, first_man_ahead],
+        ..Default::default()
+    });
+
+    let indexed = build_indexed_events(&timeline).expect("rotation should index");
+    let first_man_stints = indexed
+        .iter()
+        .filter(|event| event.event_type_key == "rotation.first_man_stint")
+        .collect::<Vec<_>>();
+    let first_man_role_spans = indexed
+        .iter()
+        .filter(|event| event.event_type_key == "rotation.role.first_man")
+        .collect::<Vec<_>>();
+    let depth_spans = indexed
+        .iter()
+        .filter(|event| event.source_stream == "rotation_depth_span")
+        .collect::<Vec<_>>();
+
+    assert_eq!(first_man_stints.len(), 1);
+    assert_eq!(first_man_stints[0].start_time, Some(0.0));
+    assert_eq!(first_man_stints[0].end_time, Some(1.25));
+    assert_eq!(first_man_stints[0].duration_seconds, Some(1.25));
+    assert_eq!(first_man_role_spans.len(), 1);
+    assert_eq!(first_man_role_spans[0].duration_seconds, Some(1.25));
+    assert_eq!(depth_spans.len(), 2);
+}
+
+#[test]
 fn event_scalar_fields_index_payload_and_normalized_attributes() {
     let payload = serde_json::json!({
         "kind": { "FirstMan": {} },
         "player": { "Steam": 76561198000000001_u64 },
         "time_first_man": 1.5,
+        "duration": 1.5,
         "active": true,
         "evidence": [
             { "kind": { "DoubleTap": {} }, "confidence": 0.75 }
@@ -299,6 +362,24 @@ fn rotation_player_event(
     is_team_0: bool,
     current_role_state: subtr_actor::RoleState,
 ) -> subtr_actor::RotationPlayerEvent {
+    rotation_player_event_with_depth(
+        time,
+        frame,
+        player,
+        is_team_0,
+        current_role_state,
+        subtr_actor::PlayDepthState::BehindPlay,
+    )
+}
+
+fn rotation_player_event_with_depth(
+    time: f32,
+    frame: usize,
+    player: RemoteId,
+    is_team_0: bool,
+    current_role_state: subtr_actor::RoleState,
+    current_depth_state: subtr_actor::PlayDepthState,
+) -> subtr_actor::RotationPlayerEvent {
     subtr_actor::RotationPlayerEvent {
         time,
         frame,
@@ -310,7 +391,7 @@ fn rotation_player_event(
         is_team_0,
         active: true,
         current_role_state,
-        current_depth_state: subtr_actor::PlayDepthState::BehindPlay,
+        current_depth_state,
     }
 }
 
