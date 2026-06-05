@@ -155,6 +155,17 @@ fn player_profile_page_shows_teammate_aggregate_columns() {
 }
 
 #[test]
+fn player_profile_page_divides_stats_by_playlist() {
+    assert!(PLAYER_PROFILE_PAGE.contains("Stats by playlist"));
+    assert!(PLAYER_PROFILE_PAGE.contains("/api/v1/stats/aggregates"));
+    assert!(PLAYER_PROFILE_PAGE.contains(r#"params.set("group-by", "playlist")"#));
+    assert!(PLAYER_PROFILE_PAGE.contains(r#"params.set("include-teammates", "true")"#));
+    assert!(PLAYER_PROFILE_PAGE.contains("function renderPlaylistStatGroup(group)"));
+    assert!(PLAYER_PROFILE_PAGE.contains("function renderAggregateStatsTable(stats, emptyMessage)"));
+    assert!(PLAYER_PROFILE_PAGE.contains("playlistLabel(group.key)"));
+}
+
+#[test]
 fn player_profile_page_renders_rotation_duration_histogram() {
     assert!(PLAYER_PROFILE_PAGE.contains("Timing comparison"));
     assert!(PLAYER_PROFILE_PAGE.contains("profile.timing_comparison"));

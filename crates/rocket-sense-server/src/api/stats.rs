@@ -38,6 +38,26 @@ pub struct StatAggregateSetResponse {
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub stats: Vec<StatAggregateResponse>,
+    pub groups: Vec<StatAggregateGroupResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatAggregateGroupResponse {
+    pub group_by: String,
+    pub key: String,
+    pub display_name: String,
+    pub replay_count: u64,
+    pub player_appearance_count: Option<u64>,
+    pub active_time_seconds: Option<f64>,
+    pub non_demo_active_time_seconds: Option<f64>,
+    pub time_most_back_seconds: Option<f64>,
+    pub time_most_forward_seconds: Option<f64>,
+    pub teammate_appearance_count: Option<u64>,
+    pub teammate_active_time_seconds: Option<f64>,
+    pub teammate_non_demo_active_time_seconds: Option<f64>,
+    pub teammate_time_most_back_seconds: Option<f64>,
+    pub teammate_time_most_forward_seconds: Option<f64>,
+    pub stats: Vec<StatAggregateResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -157,6 +177,9 @@ pub struct StatAggregatesQuery {
     pub replay_date_before: Option<DateTime<Utc>>,
     /// Maximum number of stat rows to return. Clamped to 1..=200.
     pub count: Option<u32>,
+    /// Optional aggregate grouping. Currently supports `playlist`.
+    #[serde(rename = "group-by", alias = "group_by")]
+    pub group_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -179,6 +202,7 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) replay_date_after: Option<DateTime<Utc>>,
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
     pub(crate) limit: u32,
+    pub(crate) group_by: Option<StatAggregateGroupBy>,
 }
 
 #[derive(Debug, Clone)]
@@ -201,6 +225,11 @@ struct StatDenominators {
 struct RotationDurationBucketRow {
     bucket_start_seconds: f64,
     count: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatAggregateGroupBy {
+    Playlist,
 }
 
 pub(crate) const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
@@ -271,6 +300,10 @@ impl StatAggregateFilters {
             replay_date_after: query.replay_date_after,
             replay_date_before: query.replay_date_before,
             limit: query.count.unwrap_or(50).clamp(1, 200),
+            group_by: query
+                .group_by
+                .map(|group_by| parse_stat_group_by(&group_by))
+                .transpose()?,
         })
     }
 }
@@ -323,6 +356,7 @@ impl StatAggregatesQuery {
                 .first(&["count"])
                 .map(|value| parse_u32_filter("count", &value))
                 .transpose()?,
+            group_by: params.first(&["group-by", "group_by"]),
         })
     }
 }
@@ -385,6 +419,15 @@ pub async fn get_stat_aggregates(
 }
 
 pub(crate) async fn load_stat_aggregates(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<StatAggregateSetResponse, sqlx::Error> {
+    let mut aggregates = load_stat_aggregates_base(pool, filters).await?;
+    aggregates.groups = load_stat_aggregate_groups(pool, filters).await?;
+    Ok(aggregates)
+}
+
+async fn load_stat_aggregates_base(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
@@ -459,7 +502,100 @@ pub(crate) async fn load_stat_aggregates(
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
         stats,
+        groups: Vec::new(),
     })
+}
+
+async fn load_stat_aggregate_groups(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    let Some(group_by) = filters.group_by else {
+        return Ok(Vec::new());
+    };
+
+    match group_by {
+        StatAggregateGroupBy::Playlist => load_playlist_stat_aggregate_groups(pool, filters).await,
+    }
+}
+
+async fn load_playlist_stat_aggregate_groups(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    let playlists = load_stat_group_playlists(pool, filters).await?;
+    let mut groups = Vec::with_capacity(playlists.len());
+    for playlist in playlists {
+        let mut group_filters = filters.clone();
+        group_filters.group_by = None;
+        group_filters.playlists = vec![playlist.clone()];
+        let aggregates = load_stat_aggregates_base(pool, &group_filters).await?;
+        groups.push(StatAggregateGroupResponse {
+            group_by: "playlist".to_owned(),
+            display_name: playlist_label(&playlist),
+            key: playlist,
+            replay_count: aggregates.replay_count,
+            player_appearance_count: aggregates.player_appearance_count,
+            active_time_seconds: aggregates.active_time_seconds,
+            non_demo_active_time_seconds: aggregates.non_demo_active_time_seconds,
+            time_most_back_seconds: aggregates.time_most_back_seconds,
+            time_most_forward_seconds: aggregates.time_most_forward_seconds,
+            teammate_appearance_count: aggregates.teammate_appearance_count,
+            teammate_active_time_seconds: aggregates.teammate_active_time_seconds,
+            teammate_non_demo_active_time_seconds: aggregates.teammate_non_demo_active_time_seconds,
+            teammate_time_most_back_seconds: aggregates.teammate_time_most_back_seconds,
+            teammate_time_most_forward_seconds: aggregates.teammate_time_most_forward_seconds,
+            stats: aggregates.stats,
+        });
+    }
+
+    Ok(groups)
+}
+
+async fn load_stat_group_playlists(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut query = if filters.player.is_some() {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                r.playlist,
+                COUNT(DISTINCT rp.replay_id) AS replay_count,
+                MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            "#,
+        );
+        append_target_player_filters(&mut query, filters);
+        query
+    } else {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                r.playlist,
+                COUNT(DISTINCT r.id) AS replay_count,
+                MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
+            FROM replays r
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+            "#,
+        );
+        append_replay_filters(&mut query, filters, "r");
+        query
+    };
+    query.push(
+        r#"
+          AND r.playlist IS NOT NULL
+          AND btrim(r.playlist) <> ''
+        GROUP BY r.playlist
+        ORDER BY COUNT(*) DESC, MAX(COALESCE(r.replay_date, r.created_at)) DESC NULLS LAST, r.playlist
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| row.try_get("playlist"))
+        .collect()
 }
 
 async fn load_target_denominators(
@@ -1024,6 +1160,28 @@ fn parse_uploader_filter(value: &str, auth_user_id: Option<Uuid>) -> Result<Uuid
 fn parse_uuid_filter(name: &str, value: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value.trim())
         .map_err(|_| ApiError::bad_request(format!("{name} must be a UUID")))
+}
+
+fn parse_stat_group_by(value: &str) -> Result<StatAggregateGroupBy, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "playlist" | "game-mode" | "game_mode" => Ok(StatAggregateGroupBy::Playlist),
+        _ => Err(ApiError::bad_request("group-by must be one of: playlist")),
+    }
+}
+
+fn playlist_label(value: &str) -> String {
+    value
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn escape_like_term(term: &str) -> String {

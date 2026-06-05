@@ -23,6 +23,7 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
             player_id: Some(" Steam : 76561198000000000 ".to_owned()),
             include_teammates: Some(true),
             count: Some(500),
+            group_by: Some(" playlist ".to_owned()),
             ..StatAggregatesQuery::default()
         },
         Some(uploader_id),
@@ -43,6 +44,7 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
     assert_eq!(filters.uploader_user_id, Some(uploader_id));
     assert_eq!(filters.status, Some("parsed".to_owned()));
     assert_eq!(filters.limit, 200);
+    assert_eq!(filters.group_by, Some(StatAggregateGroupBy::Playlist));
     assert!(filters.include_teammates);
     let player = filters.player.expect("player filter should parse");
     assert_eq!(player.platform, "steam");
@@ -53,7 +55,7 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
 fn stat_aggregate_query_accepts_html_form_array_filters() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let raw_query = format!(
-        "player-name=colonelpanic8&playlist=Online&game-mode=ranked-doubles&replay-id={replay_id}&sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&map=Stadium_P"
+        "player-name=colonelpanic8&playlist=Online&game-mode=ranked-doubles&replay-id={replay_id}&sha256=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&map=Stadium_P&group-by=playlist"
     );
     let query = StatAggregatesQuery::from_raw_query(Some(&raw_query))
         .expect("single-value HTML form filters should deserialize");
@@ -64,6 +66,7 @@ fn stat_aggregate_query_accepts_html_form_array_filters() {
     assert_eq!(query.replay_ids, [replay_id]);
     assert_eq!(query.file_sha256s.len(), 1);
     assert_eq!(query.maps, ["Stadium_P"]);
+    assert_eq!(query.group_by.as_deref(), Some("playlist"));
 }
 
 #[test]
@@ -121,6 +124,15 @@ fn stat_aggregate_filters_reject_invalid_inputs() {
     assert!(StatAggregateFilters::from_query(
         StatAggregatesQuery {
             uploader: Some("me".to_owned()),
+            ..StatAggregatesQuery::default()
+        },
+        None
+    )
+    .is_err());
+
+    assert!(StatAggregateFilters::from_query(
+        StatAggregatesQuery {
+            group_by: Some("rank".to_owned()),
             ..StatAggregatesQuery::default()
         },
         None
