@@ -188,6 +188,30 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
 }
 
 #[test]
+fn remote_id_value_to_subject_id_extracts_platform_online_id_objects() {
+    let ps4_id = serde_json::to_value(RemoteId::PlayStation(boxcars::Ps4Id {
+        online_id: 6788998483854448235,
+        name: "KvonUnknown".to_owned(),
+        unknown1: vec![98, 50, 117],
+    }))
+    .unwrap();
+    let switch_id = serde_json::to_value(RemoteId::Switch(boxcars::SwitchId {
+        online_id: 123456789,
+        unknown1: vec![1, 2, 3],
+    }))
+    .unwrap();
+
+    assert_eq!(
+        remote_id_value_to_subject_id(&ps4_id).unwrap(),
+        "ps4:6788998483854448235"
+    );
+    assert_eq!(
+        remote_id_value_to_subject_id(&switch_id).unwrap(),
+        "switch:123456789"
+    );
+}
+
+#[test]
 fn build_indexed_events_emits_rotation_first_man_stint_durations() {
     let player = RemoteId::Steam(76561198000000001);
     let mut first_man_span = rotation_player_event(
