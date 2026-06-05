@@ -155,8 +155,8 @@ fn player_profile_page_shows_teammate_aggregate_columns() {
 }
 
 #[test]
-fn player_profile_page_divides_stats_by_playlist() {
-    assert!(PLAYER_PROFILE_PAGE.contains("Stats by playlist"));
+fn player_profile_page_divides_stats_by_game_mode() {
+    assert!(PLAYER_PROFILE_PAGE.contains("Stats by game mode"));
     assert!(PLAYER_PROFILE_PAGE.contains("/api/v1/stats/aggregates"));
     assert!(PLAYER_PROFILE_PAGE.contains(r#"params.set("group-by", "playlist")"#));
     assert!(PLAYER_PROFILE_PAGE.contains(r#"params.set("include-teammates", "true")"#));

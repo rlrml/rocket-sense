@@ -56,6 +56,46 @@ fn replay_search_metadata_extracts_headers_and_players() {
 }
 
 #[test]
+fn replay_search_metadata_prefers_specific_playlist_name_over_online_match_type() {
+    let replay_meta = ReplayMeta {
+        team_zero: vec![],
+        team_one: vec![],
+        all_headers: vec![
+            ("Playlist".to_owned(), HeaderProp::Str("Online".to_owned())),
+            (
+                "PlaylistName".to_owned(),
+                HeaderProp::Str("Ranked Standard".to_owned()),
+            ),
+        ],
+    };
+
+    let metadata = replay_search_metadata_from_meta(&replay_meta);
+
+    assert_eq!(metadata.playlist.as_deref(), Some("ranked-standard"));
+}
+
+#[test]
+fn replay_search_metadata_splits_online_playlist_by_team_size() {
+    let player = || PlayerInfo {
+        remote_id: RemoteId::Epic("player".to_owned()),
+        stats: None,
+        name: "Player".to_owned(),
+        car_body_id: None,
+        car_body_name: None,
+        car_hitbox_family: None,
+    };
+    let replay_meta = ReplayMeta {
+        team_zero: vec![player(), player()],
+        team_one: vec![player(), player()],
+        all_headers: vec![("Playlist".to_owned(), HeaderProp::Str("Online".to_owned()))],
+    };
+
+    let metadata = replay_search_metadata_from_meta(&replay_meta);
+
+    assert_eq!(metadata.playlist.as_deref(), Some("online-2v2"));
+}
+
+#[test]
 fn parse_replay_date_accepts_common_replay_header_formats() {
     assert_eq!(
         parse_replay_date("2026-05-23 05-50-00")

@@ -735,8 +735,8 @@
         </section>
 
         <section>
-          <h2 class="section-title">Stats by playlist</h2>
-          ${playlistStatGroups.length === 0 ? `<div class="empty">No playlist metadata indexed for this player yet.</div>` : `
+          <h2 class="section-title">Stats by game mode</h2>
+          ${playlistStatGroups.length === 0 ? `<div class="empty">No game mode metadata indexed for this player yet.</div>` : `
             <div class="playlist-stat-groups">
               ${playlistStatGroups.map(renderPlaylistStatGroup).join("")}
             </div>
@@ -774,10 +774,10 @@
       return `
         <section>
           <div class="section-heading">
-            <h3 class="section-title">${escapeHtml(group.display_name || playlistLabel(group.key) || "Unknown playlist")}</h3>
+            <h3 class="section-title">${escapeHtml(group.display_name || playlistLabel(group.key) || "Unknown game mode")}</h3>
             <div class="section-meta">${metadata.map(escapeHtml).join(" &middot; ")}</div>
           </div>
-          ${renderAggregateStatsTable(stats, "No canonical play events indexed for this playlist yet.")}
+          ${renderAggregateStatsTable(stats, "No canonical play events indexed for this game mode yet.")}
         </section>
       `;
     }

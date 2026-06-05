@@ -203,6 +203,7 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
     pub(crate) limit: u32,
     pub(crate) group_by: Option<StatAggregateGroupBy>,
+    pub(crate) playlist_group_key: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -315,6 +316,7 @@ impl StatAggregateFilters {
                 .group_by
                 .map(|group_by| parse_stat_group_by(&group_by))
                 .transpose()?,
+            playlist_group_key: None,
         })
     }
 }
@@ -539,7 +541,7 @@ async fn load_playlist_stat_aggregate_groups(
     for playlist in playlists {
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
-        group_filters.playlists = vec![playlist.clone()];
+        group_filters.playlist_group_key = Some(playlist.clone());
         let aggregates = load_stat_aggregates_base(pool, &group_filters).await?;
         groups.push(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
@@ -568,10 +570,10 @@ async fn load_stat_group_playlists(
     filters: &StatAggregateFilters,
 ) -> Result<Vec<String>, sqlx::Error> {
     let mut query = if filters.player.is_some() {
-        let mut query = QueryBuilder::<Postgres>::new(
-            r#"
-            SELECT
-                r.playlist,
+        let mut query = QueryBuilder::<Postgres>::new("\n            SELECT\n                ");
+        push_playlist_group_key_expression(&mut query, "r");
+        query.push(
+            r#" AS playlist,
                 COUNT(DISTINCT rp.replay_id) AS replay_count,
                 MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
             FROM replay_players rp
@@ -581,10 +583,10 @@ async fn load_stat_group_playlists(
         append_target_player_filters(&mut query, filters);
         query
     } else {
-        let mut query = QueryBuilder::<Postgres>::new(
-            r#"
-            SELECT
-                r.playlist,
+        let mut query = QueryBuilder::<Postgres>::new("\n            SELECT\n                ");
+        push_playlist_group_key_expression(&mut query, "r");
+        query.push(
+            r#" AS playlist,
                 COUNT(DISTINCT r.id) AS replay_count,
                 MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
             FROM replays r
@@ -596,10 +598,13 @@ async fn load_stat_group_playlists(
     };
     query.push(
         r#"
-          AND r.playlist IS NOT NULL
-          AND btrim(r.playlist) <> ''
-        GROUP BY r.playlist
-        ORDER BY COUNT(*) DESC, MAX(COALESCE(r.replay_date, r.created_at)) DESC NULLS LAST, r.playlist
+          AND "#,
+    );
+    push_playlist_group_key_expression(&mut query, "r");
+    query.push(
+        r#" IS NOT NULL
+        GROUP BY 1
+        ORDER BY replay_count DESC, latest_seen_at DESC NULLS LAST, playlist
         "#,
     );
 
@@ -1068,6 +1073,12 @@ fn append_replay_filters<'args>(
             .push_bind(&filters.playlists)
             .push(")");
     }
+    if let Some(playlist_group_key) = &filters.playlist_group_key {
+        builder.push(" AND ");
+        push_playlist_group_key_expression(builder, replay_alias);
+        builder.push(" = ");
+        builder.push_bind(playlist_group_key);
+    }
     if !filters.replay_ids.is_empty() {
         builder
             .push(" AND ")
@@ -1171,6 +1182,33 @@ fn per_minute(count: u64, denominator_seconds: Option<f64>) -> Option<f64> {
     denominator_seconds
         .filter(|seconds| *seconds > 0.0)
         .map(|seconds| count as f64 * 60.0 / seconds)
+}
+
+fn push_playlist_group_key_expression<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+) {
+    builder
+        .push("CASE WHEN lower(btrim(COALESCE(")
+        .push(replay_alias)
+        .push(".playlist, ''))) = 'online' THEN COALESCE(CASE (");
+    push_replay_team_size_expression(builder, replay_alias);
+    builder
+        .push(") WHEN 1 THEN 'online-1v1' WHEN 2 THEN 'online-2v2' WHEN 3 THEN 'online-3v3' WHEN 4 THEN 'online-4v4' END, NULLIF(btrim(")
+        .push(replay_alias)
+        .push(".playlist), '')) ELSE NULLIF(btrim(")
+        .push(replay_alias)
+        .push(".playlist), '') END");
+}
+
+fn push_replay_team_size_expression<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+) {
+    builder
+        .push("SELECT MAX(team_player_count)::integer FROM (SELECT COUNT(*) AS team_player_count FROM replay_players stats_mode_player WHERE stats_mode_player.replay_id = ")
+        .push(replay_alias)
+        .push(".id AND stats_mode_player.team IS NOT NULL GROUP BY stats_mode_player.team) stats_mode_team_counts");
 }
 
 fn normalize_terms(terms: Vec<String>) -> Vec<String> {

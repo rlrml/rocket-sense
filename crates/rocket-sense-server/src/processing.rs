@@ -10,13 +10,12 @@ use std::{
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
-use subtr_actor::{PlayerInfo, ReplayStatsTimelineScaffold, StatsTimelineEventCollector};
+use subtr_actor::{
+    PlayerInfo, ReplayMeta, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
+};
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use uuid::Uuid;
-
-#[cfg(test)]
-use subtr_actor::ReplayMeta;
 
 #[cfg(test)]
 #[path = "processing_tests.rs"]
@@ -1136,11 +1135,7 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
 
 fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearchMetadata {
     let replay_meta = &timeline.replay_meta;
-    let playlist = header_text(
-        &replay_meta.all_headers,
-        &["Playlist", "PlaylistName", "GamePlaylist", "MatchType"],
-    )
-    .map(normalize_playlist);
+    let playlist = replay_playlist(replay_meta);
     let map_code = header_text(&replay_meta.all_headers, &["MapName", "Map", "LevelName"])
         .map(normalize_header_value);
     let replay_date = header_text(
@@ -1174,11 +1169,7 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
 
 #[cfg(test)]
 fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMetadata {
-    let playlist = header_text(
-        &replay_meta.all_headers,
-        &["Playlist", "PlaylistName", "GamePlaylist", "MatchType"],
-    )
-    .map(normalize_playlist);
+    let playlist = replay_playlist(replay_meta);
     let map_code = header_text(&replay_meta.all_headers, &["MapName", "Map", "LevelName"])
         .map(normalize_header_value);
     let replay_date = header_text(
@@ -1365,6 +1356,38 @@ fn header_text(headers: &[(String, HeaderProp)], keys: &[&str]) -> Option<String
     })
 }
 
+fn replay_playlist(replay_meta: &ReplayMeta) -> Option<String> {
+    playlist_header_text(replay_meta, &["PlaylistName", "GamePlaylist"])
+        .or_else(|| playlist_header_text(replay_meta, &["Playlist", "MatchType"]))
+        .map(normalize_playlist)
+        .and_then(|playlist| {
+            if playlist.eq_ignore_ascii_case("online") {
+                online_playlist_from_team_size(replay_meta).or(Some(playlist))
+            } else {
+                Some(playlist)
+            }
+        })
+}
+
+fn playlist_header_text(replay_meta: &ReplayMeta, keys: &[&str]) -> Option<String> {
+    header_text(&replay_meta.all_headers, keys).and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
+}
+
+fn online_playlist_from_team_size(replay_meta: &ReplayMeta) -> Option<String> {
+    let team_size = replay_meta.team_zero.len().max(replay_meta.team_one.len());
+    match team_size {
+        1..=4 => Some(format!("online-{team_size}v{team_size}")),
+        _ => None,
+    }
+}
+
 fn header_prop_text(value: &HeaderProp) -> Option<String> {
     match value {
         HeaderProp::Name(value) | HeaderProp::Str(value) => Some(value.clone()),
@@ -1411,6 +1434,7 @@ fn normalize_playlist(value: String) -> String {
         "30" | "snowday" | "snow day" | "ranked snowday" | "ranked snow day" => {
             "ranked-snowday".to_owned()
         }
+        "online" => "online".to_owned(),
         "private" => "private".to_owned(),
         "season" => "season".to_owned(),
         "offline" => "offline".to_owned(),
