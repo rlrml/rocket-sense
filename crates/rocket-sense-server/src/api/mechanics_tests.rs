@@ -200,6 +200,7 @@ fn review_playlist_exposes_page_metadata() {
 
     let playlist = build_review_playlist(Vec::new(), "Review".to_owned(), &filters, None);
 
+    assert_eq!(playlist.playback.time_base, "rawReplay");
     assert_eq!(playlist.page.count, 0);
     assert_eq!(playlist.page.limit, 50);
     assert_eq!(playlist.page.offset, 100);

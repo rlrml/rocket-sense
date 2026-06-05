@@ -407,6 +407,7 @@ pub struct PlaylistPage {
 pub struct PlaylistPlayback {
     pub advance_mode: &'static str,
     pub end_mode: &'static str,
+    pub time_base: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -1304,6 +1305,7 @@ fn build_review_playlist(
         playback: PlaylistPlayback {
             advance_mode: "manual",
             end_mode: "stop",
+            time_base: "rawReplay",
         },
         page: PlaylistPage {
             count,
