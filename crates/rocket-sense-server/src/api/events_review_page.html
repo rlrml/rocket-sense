@@ -303,6 +303,18 @@
 
         <div class="filter-grid">
           <label class="field">
+            Search
+            <input name="q" type="search" autocomplete="off" placeholder="filename, SHA, external ID">
+          </label>
+          <label class="field">
+            Player name
+            <input name="player-name" type="text" autocomplete="off" placeholder="Zen">
+          </label>
+          <label class="field">
+            Primary player ID
+            <input name="player-id" type="text" autocomplete="off" placeholder="platform:platform_id">
+          </label>
+          <label class="field">
             Event category
             <select name="event-category">
               <option value="" selected>All indexed events</option>
@@ -331,12 +343,24 @@
             </select>
           </label>
           <label class="field">
-            Minimum confidence
-            <input name="min-confidence" type="number" min="0" max="1" step="0.01" placeholder="0.50">
+            Playlist
+            <input name="playlist" type="text" autocomplete="off" placeholder="ranked-doubles">
           </label>
           <label class="field">
-            Player ID
-            <input name="player-id" type="text" autocomplete="off" placeholder="platform:platform_id">
+            Map
+            <input name="map" type="text" autocomplete="off" placeholder="stadium_p">
+          </label>
+          <label class="field">
+            Pro players
+            <select name="pro">
+              <option value="" selected>Any</option>
+              <option value="true">Has pro player</option>
+              <option value="false">No pro players</option>
+            </select>
+          </label>
+          <label class="field">
+            Minimum confidence
+            <input name="min-confidence" type="number" min="0" max="1" step="0.01" placeholder="0.50">
           </label>
           <label class="field">
             Replay ID
@@ -345,6 +369,42 @@
           <label class="field">
             Detector
             <input name="detector" type="text" autocomplete="off" placeholder="stats_timeline">
+          </label>
+          <label class="field">
+            Uploaded after
+            <input name="created-after" type="text" autocomplete="off" placeholder="2026-06-01T00:00:00Z">
+          </label>
+          <label class="field">
+            Uploaded before
+            <input name="created-before" type="text" autocomplete="off" placeholder="2026-06-05T23:59:59Z">
+          </label>
+          <label class="field">
+            Played after
+            <input name="replay-date-after" type="text" autocomplete="off" placeholder="2026-06-01T00:00:00Z">
+          </label>
+          <label class="field">
+            Played before
+            <input name="replay-date-before" type="text" autocomplete="off" placeholder="2026-06-05T23:59:59Z">
+          </label>
+          <label class="field">
+            Event indexed after
+            <input name="event-created-after" type="text" autocomplete="off" placeholder="2026-06-01T00:00:00Z">
+          </label>
+          <label class="field">
+            Event indexed before
+            <input name="event-created-before" type="text" autocomplete="off" placeholder="2026-06-05T23:59:59Z">
+          </label>
+          <label class="field">
+            Uploader
+            <input name="uploader" type="text" autocomplete="off" placeholder="user UUID">
+          </label>
+          <label class="field">
+            Group
+            <input name="group" type="text" autocomplete="off" placeholder="replay group UUID">
+          </label>
+          <label class="field">
+            Project
+            <input name="project" type="text" autocomplete="off" placeholder="project UUID">
           </label>
           <label class="field">
             Count

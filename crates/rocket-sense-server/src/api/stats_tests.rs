@@ -146,3 +146,23 @@ fn per_minute_requires_positive_denominator() {
     assert_eq!(per_minute(2, Some(0.0)), None);
     assert_eq!(per_minute(2, None), None);
 }
+
+#[test]
+fn aggregate_hidden_event_source_streams_cover_state_and_context_rows() {
+    for source_stream in [
+        "positioning",
+        "boost_state",
+        "boost_ledger",
+        "movement",
+        "rotation_player",
+        "rotation_role_span",
+        "rotation_depth_span",
+        "powerslide",
+        "touch_last_touch",
+    ] {
+        assert!(
+            AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS.contains(&source_stream),
+            "{source_stream} should be hidden from aggregate stat counts"
+        );
+    }
+}

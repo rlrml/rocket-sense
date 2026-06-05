@@ -107,6 +107,13 @@ fn replay_list_page_uses_playlist_dropdown_values() {
 }
 
 #[test]
+fn replay_list_page_preserves_hidden_api_filters() {
+    assert!(REPLAY_LIST_PAGE.contains(r#"<input type="hidden" name="group">"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<input type="hidden" name="player-id">"#));
+    assert!(REPLAY_LIST_PAGE.contains(r#"<input type="hidden" name="project">"#));
+}
+
+#[test]
 fn replay_list_page_links_replay_name_to_stats() {
     assert!(REPLAY_LIST_PAGE.contains(r#"const replayHref = statsUrl(replay);"#));
     assert!(!REPLAY_LIST_PAGE.contains(r#"const replayHref = viewerUrl(replay);"#));

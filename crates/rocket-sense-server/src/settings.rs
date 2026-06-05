@@ -74,6 +74,7 @@ pub struct Settings {
     pub run_migrations: bool,
     pub storage_root: PathBuf,
     pub process_replays_in_background: bool,
+    pub background_processing_concurrency: usize,
 }
 
 impl Settings {
@@ -105,6 +106,12 @@ impl Settings {
         let process_replays_in_background = env::var("ROCKET_SENSE_PROCESS_REPLAYS_IN_BACKGROUND")
             .map(|value| value != "0" && value.to_lowercase() != "false")
             .unwrap_or(true);
+        let background_processing_concurrency =
+            env::var("ROCKET_SENSE_BACKGROUND_PROCESSING_CONCURRENCY")
+                .ok()
+                .and_then(|value| value.parse::<usize>().ok())
+                .unwrap_or(1)
+                .clamp(1, 4);
 
         Ok(Self {
             bind_addr,
@@ -115,6 +122,7 @@ impl Settings {
             run_migrations,
             storage_root,
             process_replays_in_background,
+            background_processing_concurrency,
         })
     }
 }

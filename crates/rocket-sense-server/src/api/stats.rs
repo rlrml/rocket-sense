@@ -233,6 +233,17 @@ pub(crate) enum StatAggregateGroupBy {
 }
 
 pub(crate) const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
+const AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS: &[&str] = &[
+    "positioning",
+    "boost_state",
+    "boost_ledger",
+    "movement",
+    "rotation_player",
+    "rotation_role_span",
+    "rotation_depth_span",
+    "powerslide",
+    "touch_last_touch",
+];
 
 #[derive(Debug, Clone)]
 struct StatCountRow {
@@ -826,6 +837,7 @@ async fn load_replay_set_stat_count_rows(
         WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
     );
+    append_user_facing_stat_event_filter(&mut query, "event");
     append_replay_filters(&mut query, filters, "r");
     query.push(
         r#"
@@ -876,6 +888,12 @@ async fn load_player_stat_count_rows(
              AND event.analysis_run_id = r.canonical_analysis_run_id
             JOIN event_types et
               ON et.id = event.event_type_id
+            WHERE 1 = 1
+            "#,
+    );
+    append_user_facing_stat_event_filter(&mut query, "event");
+    query.push(
+        r#"
             GROUP BY et.key, et.display_name, et.category
         )
         "#,
@@ -912,6 +930,12 @@ async fn load_player_stat_count_rows(
                  AND event.analysis_run_id = r.canonical_analysis_run_id
                 JOIN event_types et
                   ON et.id = event.event_type_id
+                WHERE 1 = 1
+                "#,
+        );
+        append_user_facing_stat_event_filter(&mut query, "event");
+        query.push(
+            r#"
                 GROUP BY et.key, et.display_name, et.category
             )
             SELECT
@@ -976,6 +1000,21 @@ fn rotation_duration_bucket_row_from_db(
         max_seconds: bucket.bucket_start_seconds + ROTATION_DURATION_BUCKET_SECONDS,
         count: bucket.count,
     })
+}
+
+fn append_user_facing_stat_event_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    event_alias: &str,
+) {
+    builder
+        .push(" AND ")
+        .push(event_alias)
+        .push(".source_stream NOT IN (");
+    let mut separated = builder.separated(", ");
+    for source_stream in AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS {
+        separated.push_bind(*source_stream);
+    }
+    separated.push_unseparated(")");
 }
 
 fn append_target_player_filters<'args>(
