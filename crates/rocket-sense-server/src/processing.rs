@@ -6,6 +6,7 @@ use rocket_sense_storage::{sha256_hex, ObjectStorage};
 use serde_json::{Map, Value};
 use sqlx::{PgPool, Row};
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     sync::Arc,
 };
@@ -23,6 +24,13 @@ mod tests;
 const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v2";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
+const FIRST_MAN_STINT_END_GRACE_SECONDS: f64 = 0.35;
+const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
+    "rotation_player",
+    "rotation_role_span",
+    "rotation_depth_span",
+    "rotation_first_man_stint",
+];
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -59,6 +67,35 @@ struct EventSubject {
     kind: String,
     id: String,
     role: String,
+}
+
+#[derive(Debug, Clone)]
+struct RotationSpanPayload {
+    source_index: usize,
+    payload: Value,
+    player_subject: EventSubject,
+    start_frame: Option<i32>,
+    end_frame: Option<i32>,
+    start_time: Option<f64>,
+    end_time: Option<f64>,
+    duration_seconds: f64,
+    active: bool,
+    role_state: Option<String>,
+    depth_state: Option<String>,
+    is_team_0: Option<bool>,
+}
+
+#[derive(Debug, Clone)]
+struct RotationDerivedSpan {
+    kind: String,
+    state: String,
+    player_payload: Value,
+    is_team_0: Option<bool>,
+    start_frame: Option<i32>,
+    end_frame: Option<i32>,
+    start_time: Option<f64>,
+    end_time: Option<f64>,
+    duration_seconds: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -503,6 +540,24 @@ async fn profile_timing_backfill_targets(
                 OR NOT EXISTS (
                     SELECT 1
                     FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_role_span'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_depth_span'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_first_man_stint'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
                     JOIN play_event_rotation_player_details detail
                       ON detail.event_id = event.id
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
@@ -535,6 +590,24 @@ async fn profile_timing_backfill_targets(
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
                       AND event.source_stream = 'rotation_player'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_role_span'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_depth_span'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'rotation_first_man_stint'
                 )
                 OR NOT EXISTS (
                     SELECT 1
@@ -586,7 +659,8 @@ async fn backfill_profile_timing_events(
         .indexed_events
         .into_iter()
         .filter(|event| {
-            (target.needs_rotation_player && event.source_stream == "rotation_player")
+            (target.needs_rotation_player
+                && is_rotation_profile_timing_stream(&event.source_stream))
                 || (target.needs_positioning && event.source_stream == "positioning")
         })
         .collect::<Vec<_>>();
@@ -596,9 +670,24 @@ async fn backfill_profile_timing_events(
 
     indexed_events.sort_by_key(|event| match event.source_stream.as_str() {
         "rotation_player" => 0,
-        "positioning" => 1,
-        _ => 2,
+        "rotation_role_span" => 1,
+        "rotation_depth_span" => 2,
+        "rotation_first_man_stint" => 3,
+        "positioning" => 4,
+        _ => 5,
     });
+
+    if target.needs_rotation_player {
+        delete_profile_timing_streams(
+            &pool,
+            target.analysis_run_id,
+            &ROTATION_PROFILE_TIMING_STREAMS,
+        )
+        .await?;
+    }
+    if target.needs_positioning {
+        delete_profile_timing_streams(&pool, target.analysis_run_id, &["positioning"]).await?;
+    }
 
     let replay_players = load_replay_player_lookup(&pool, target.replay_id).await?;
     let event_type_ids = ensure_event_types(&pool, &indexed_events).await?;
@@ -614,6 +703,34 @@ async fn backfill_profile_timing_events(
     .await?;
 
     Ok(inserted)
+}
+
+async fn delete_profile_timing_streams(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    source_streams: &[&str],
+) -> Result<()> {
+    let source_streams = source_streams
+        .iter()
+        .map(|stream| (*stream).to_owned())
+        .collect::<Vec<_>>();
+    sqlx::query(
+        r#"
+        DELETE FROM play_events
+        WHERE analysis_run_id = $1
+          AND source_stream = ANY($2)
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(&source_streams)
+    .execute(pool)
+    .await
+    .context("failed to delete stale profile timing events")?;
+    Ok(())
+}
+
+fn is_rotation_profile_timing_stream(source_stream: &str) -> bool {
+    ROTATION_PROFILE_TIMING_STREAMS.contains(&source_stream)
 }
 
 async fn load_replay_player_lookup(
@@ -1744,6 +1861,9 @@ fn append_serialized_timeline_events(
                 append_goal_context_goal_tags(events, index, payload, &mut goal_tag_index)?;
             }
         }
+        if stream == "rotation_player" {
+            append_rotation_derived_events(events, stream_events)?;
+        }
     }
 
     Ok(())
@@ -1791,6 +1911,271 @@ fn append_goal_context_goal_tags(
     }
 
     Ok(())
+}
+
+fn append_rotation_derived_events(
+    events: &mut Vec<IndexedEvent>,
+    payloads: &[Value],
+) -> Result<()> {
+    let mut spans_by_player = BTreeMap::<String, Vec<RotationSpanPayload>>::new();
+    for (index, payload) in payloads.iter().enumerate() {
+        let payload = ensure_object_payload(payload);
+        let Some(span) = rotation_span_payload(index, payload)? else {
+            continue;
+        };
+        spans_by_player
+            .entry(span.player_subject.id.clone())
+            .or_default()
+            .push(span);
+    }
+
+    let mut role_spans = Vec::new();
+    let mut depth_spans = Vec::new();
+    let mut first_man_stints = Vec::new();
+
+    for spans in spans_by_player.values_mut() {
+        spans.sort_by(compare_rotation_spans);
+        role_spans.extend(derive_rotation_state_spans(
+            spans,
+            RotationStateSpanKind::Role,
+        ));
+        depth_spans.extend(derive_rotation_state_spans(
+            spans,
+            RotationStateSpanKind::Depth,
+        ));
+        first_man_stints.extend(derive_first_man_stints(spans));
+    }
+
+    role_spans.sort_by(compare_rotation_derived_spans);
+    depth_spans.sort_by(compare_rotation_derived_spans);
+    first_man_stints.sort_by(compare_rotation_derived_spans);
+
+    for (index, span) in role_spans.into_iter().enumerate() {
+        events.push(indexed_timeline_payload_event(
+            "rotation_role_span",
+            index,
+            &rotation_derived_span_payload(span, "current_role_state"),
+        )?);
+    }
+    for (index, span) in depth_spans.into_iter().enumerate() {
+        events.push(indexed_timeline_payload_event(
+            "rotation_depth_span",
+            index,
+            &rotation_derived_span_payload(span, "current_depth_state"),
+        )?);
+    }
+    for (index, span) in first_man_stints.into_iter().enumerate() {
+        events.push(indexed_timeline_payload_event(
+            "rotation_first_man_stint",
+            index,
+            &rotation_derived_span_payload(span, "current_role_state"),
+        )?);
+    }
+
+    Ok(())
+}
+
+fn rotation_span_payload(index: usize, payload: Value) -> Result<Option<RotationSpanPayload>> {
+    let Some(player_subject) = rotation_player_subject(&payload)? else {
+        return Ok(None);
+    };
+    let (start_frame, end_frame, _, start_time, end_time, _) = timeline_event_timing(&payload);
+    let duration_seconds = float_value(&payload, &["duration"])
+        .filter(|duration| *duration > 0.0)
+        .unwrap_or(0.0);
+    let active = bool_value(&payload, &["active"]).unwrap_or(false);
+    let role_state = payload
+        .get("current_role_state")
+        .and_then(normalized_variant_name);
+    let depth_state = payload
+        .get("current_depth_state")
+        .and_then(normalized_variant_name);
+    let is_team_0 = bool_value(&payload, &["is_team_0", "team_is_team_0"]);
+    Ok(Some(RotationSpanPayload {
+        source_index: index,
+        player_subject,
+        payload,
+        start_frame,
+        end_frame,
+        start_time,
+        end_time,
+        duration_seconds,
+        active,
+        role_state,
+        depth_state,
+        is_team_0,
+    }))
+}
+
+fn rotation_player_subject(payload: &Value) -> Result<Option<EventSubject>> {
+    if let Some(subject) = player_subject_from_field(payload, "player", "actor")? {
+        return Ok(Some(subject));
+    }
+    player_subject_from_field(payload, "player_id", "actor")
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RotationStateSpanKind {
+    Role,
+    Depth,
+}
+
+impl RotationStateSpanKind {
+    fn state<'a>(&self, span: &'a RotationSpanPayload) -> Option<&'a str> {
+        match self {
+            Self::Role => span.role_state.as_deref(),
+            Self::Depth => span.depth_state.as_deref(),
+        }
+    }
+}
+
+fn derive_rotation_state_spans(
+    spans: &[RotationSpanPayload],
+    kind: RotationStateSpanKind,
+) -> Vec<RotationDerivedSpan> {
+    let mut derived = Vec::new();
+    let mut current: Option<RotationDerivedSpan> = None;
+
+    for span in spans {
+        let eligible = span.active && span.duration_seconds > 0.0;
+        let Some(state) = kind.state(span).filter(|_| eligible) else {
+            if let Some(span) = current.take() {
+                derived.push(span);
+            }
+            continue;
+        };
+
+        if let Some(current_span) = current.as_mut() {
+            if current_span.kind == state {
+                extend_rotation_derived_span(current_span, span);
+                continue;
+            }
+            derived.push(current.take().expect("current span must exist"));
+        }
+
+        current = Some(new_rotation_derived_span(state, span));
+    }
+
+    if let Some(span) = current {
+        derived.push(span);
+    }
+
+    derived
+}
+
+fn derive_first_man_stints(spans: &[RotationSpanPayload]) -> Vec<RotationDerivedSpan> {
+    let mut stints = Vec::new();
+    let mut current: Option<RotationDerivedSpan> = None;
+    let mut non_first_man_seconds = 0.0;
+
+    for span in spans {
+        let is_first_man = span.active
+            && span.duration_seconds > 0.0
+            && span.role_state.as_deref() == Some("first_man");
+
+        if is_first_man {
+            match current.as_mut() {
+                Some(current_span) => extend_rotation_derived_span(current_span, span),
+                None => current = Some(new_first_man_stint_span(span)),
+            }
+            non_first_man_seconds = 0.0;
+            continue;
+        }
+
+        if current.is_some() {
+            non_first_man_seconds += span.duration_seconds;
+            if non_first_man_seconds > FIRST_MAN_STINT_END_GRACE_SECONDS {
+                stints.push(current.take().expect("current stint must exist"));
+                non_first_man_seconds = 0.0;
+            }
+        }
+    }
+
+    if let Some(stint) = current {
+        stints.push(stint);
+    }
+
+    stints
+}
+
+fn new_rotation_derived_span(kind: &str, span: &RotationSpanPayload) -> RotationDerivedSpan {
+    RotationDerivedSpan {
+        kind: kind.to_owned(),
+        state: kind.to_owned(),
+        player_payload: rotation_player_payload(span),
+        is_team_0: span.is_team_0,
+        start_frame: span.start_frame,
+        end_frame: span.end_frame,
+        start_time: span.start_time,
+        end_time: span.end_time,
+        duration_seconds: span.duration_seconds,
+    }
+}
+
+fn new_first_man_stint_span(span: &RotationSpanPayload) -> RotationDerivedSpan {
+    let mut derived = new_rotation_derived_span("first_man", span);
+    derived.kind = "first_man_stint".to_owned();
+    derived
+}
+
+fn extend_rotation_derived_span(derived: &mut RotationDerivedSpan, span: &RotationSpanPayload) {
+    derived.end_frame = span.end_frame.or(derived.end_frame);
+    derived.end_time = span.end_time.or(derived.end_time);
+    derived.duration_seconds += span.duration_seconds;
+}
+
+fn rotation_player_payload(span: &RotationSpanPayload) -> Value {
+    span.payload
+        .get("player")
+        .or_else(|| span.payload.get("player_id"))
+        .cloned()
+        .unwrap_or_else(|| Value::String(span.player_subject.id.clone()))
+}
+
+fn rotation_derived_span_payload(span: RotationDerivedSpan, state_field: &str) -> Value {
+    let mut payload = Map::new();
+    payload.insert("kind".to_owned(), Value::String(span.kind.clone()));
+    payload.insert("player".to_owned(), span.player_payload);
+    payload.insert("active".to_owned(), Value::Bool(true));
+    payload.insert(state_field.to_owned(), Value::String(span.state));
+    payload.insert("duration".to_owned(), Value::from(span.duration_seconds));
+    if let Some(is_team_0) = span.is_team_0 {
+        payload.insert("is_team_0".to_owned(), Value::Bool(is_team_0));
+    }
+    if let Some(frame) = span.start_frame {
+        payload.insert("frame".to_owned(), Value::from(frame));
+    }
+    if let Some(frame) = span.end_frame {
+        payload.insert("end_frame".to_owned(), Value::from(frame));
+    }
+    if let Some(time) = span.start_time {
+        payload.insert("time".to_owned(), Value::from(time));
+    }
+    if let Some(time) = span.end_time {
+        payload.insert("end_time".to_owned(), Value::from(time));
+    }
+    Value::Object(payload)
+}
+
+fn compare_rotation_spans(left: &RotationSpanPayload, right: &RotationSpanPayload) -> Ordering {
+    compare_optional_f64(left.start_time, right.start_time)
+        .then_with(|| left.start_frame.cmp(&right.start_frame))
+        .then_with(|| left.source_index.cmp(&right.source_index))
+}
+
+fn compare_rotation_derived_spans(
+    left: &RotationDerivedSpan,
+    right: &RotationDerivedSpan,
+) -> Ordering {
+    compare_optional_f64(left.start_time, right.start_time)
+        .then_with(|| left.start_frame.cmp(&right.start_frame))
+        .then_with(|| left.kind.cmp(&right.kind))
+}
+
+fn compare_optional_f64(left: Option<f64>, right: Option<f64>) -> Ordering {
+    left.unwrap_or(f64::INFINITY)
+        .partial_cmp(&right.unwrap_or(f64::INFINITY))
+        .unwrap_or(Ordering::Equal)
 }
 
 fn indexed_timeline_payload_event(
@@ -1847,9 +2232,12 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
         "goal_tags" => format!("goal_tag.{}", kind.as_deref().unwrap_or("unknown")),
         "touch" => "ball.touch".to_owned(),
         "timeline" => format!("core.{}", kind.as_deref().unwrap_or("event")),
-        "rotation_player" if is_first_man_rotation_span(payload) => {
-            "rotation.first_man_stint".to_owned()
+        "rotation_player" => "rotation.player_state_span".to_owned(),
+        "rotation_role_span" => format!("rotation.role.{}", kind.as_deref().unwrap_or("unknown")),
+        "rotation_depth_span" => {
+            format!("rotation.depth.{}", kind.as_deref().unwrap_or("unknown"))
         }
+        "rotation_first_man_stint" => "rotation.first_man_stint".to_owned(),
         _ => stream.replace('_', "."),
     };
     let category = if event_type_key == "ball.touch" {
@@ -1864,39 +2252,16 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
         "mechanics" | "goal_tags" | "timeline" => {
             display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))
         }
-        "rotation_player" if event_type_key == "rotation.first_man_stint" => {
-            display_name_from_key("first_man_stint")
-        }
+        "rotation_first_man_stint" => display_name_from_key("first_man_stint"),
+        "rotation_player" => display_name_from_key("player_state_span"),
         _ => display_name_from_key(&event_type_key),
     };
 
     (event_type_key, display_name, category)
 }
 
-fn is_first_man_rotation_span(payload: &Value) -> bool {
-    bool_value(payload, &["active"]).unwrap_or(false)
-        && payload
-            .get("current_role_state")
-            .and_then(normalized_variant_name)
-            .as_deref()
-            == Some("first_man")
-        && rotation_first_man_duration(payload).unwrap_or(0.0) > 0.0
-}
-
-fn rotation_first_man_duration(payload: &Value) -> Option<f64> {
-    let time_first_man = float_value(payload, &["time_first_man"]);
-    let duration = float_value(payload, &["duration"]);
-    match (time_first_man, duration) {
-        (Some(left), Some(right)) => Some(left.max(right)),
-        (Some(value), None) | (None, Some(value)) => Some(value),
-        (None, None) => None,
-    }
-}
-
 fn timeline_event_duration(payload: &Value) -> Option<f64> {
-    rotation_first_man_duration(payload)
-        .or_else(|| float_value(payload, &["duration"]))
-        .filter(|value| *value >= 0.0)
+    float_value(payload, &["duration"]).filter(|value| *value >= 0.0)
 }
 
 fn timeline_event_team(payload: &Value) -> Option<i32> {
@@ -1911,7 +2276,7 @@ fn timeline_source_event_id(
     stream: &str,
     index: usize,
     payload: &Value,
-    event_type_key: &str,
+    _event_type_key: &str,
 ) -> String {
     if stream == "mechanics" {
         if let Some(id) = payload.get("id").and_then(Value::as_str) {
@@ -1930,7 +2295,7 @@ fn timeline_source_event_id(
             .unwrap_or_else(|| "unknown".to_owned());
         return format!("goal_tag:{goal_index}:{kind}:{index}");
     }
-    if event_type_key == "rotation.first_man_stint" {
+    if stream == "rotation_first_man_stint" {
         return format!("rotation:first_man_stint:{index}");
     }
     format!("{stream}:{index}")

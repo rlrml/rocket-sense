@@ -600,6 +600,7 @@ async fn load_rotation_duration_histogram(
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = r.canonical_analysis_run_id
+                 AND event.source_stream = 'rotation_first_man_stint'
                 JOIN event_types et
                   ON et.id = event.event_type_id
                  AND et.key = 'rotation.first_man_stint'
@@ -618,6 +619,7 @@ async fn load_rotation_duration_histogram(
                 JOIN play_events event
                   ON event.replay_id = r.id
                  AND event.analysis_run_id = r.canonical_analysis_run_id
+                 AND event.source_stream = 'rotation_first_man_stint'
                 JOIN event_types et
                   ON et.id = event.event_type_id
                  AND et.key = 'rotation.first_man_stint'

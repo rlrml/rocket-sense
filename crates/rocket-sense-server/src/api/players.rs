@@ -28,8 +28,6 @@ use super::{
 #[path = "players_tests.rs"]
 mod tests;
 
-const FIRST_MAN_STINT_END_GRACE_SECONDS: f64 = 0.35;
-
 pub fn router() -> Router<AppState> {
     Router::new().route(
         "/players/{platform}/{platform_player_id}",
@@ -431,8 +429,6 @@ async fn load_player_rotation_duration_histogram(
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
 ) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    // rotation_player spans are keyed by active + role + depth. A first-man stint
-    // is role-only, so depth changes within first_man need to stay in one stint.
     let mut query = QueryBuilder::<Postgres>::new(
         r#"
         WITH target_appearances AS (
@@ -445,25 +441,8 @@ async fn load_player_rotation_duration_histogram(
     query.push(
         r#"
         ),
-        rotation_spans AS (
-            SELECT
-                appearance.id AS replay_player_id,
-                event.start_time,
-                event.start_frame,
-                event.source_index,
-                GREATEST(COALESCE(event.duration_seconds, 0.0), 0.0) AS duration_seconds,
-                (
-                    detail.active
-                    AND detail.current_role_state = 'first_man'
-                    AND COALESCE(event.duration_seconds, 0.0) > 0.0
-                ) AS is_first_man,
-                CASE
-                    WHEN detail.active
-                     AND detail.current_role_state = 'first_man'
-                     AND COALESCE(event.duration_seconds, 0.0) > 0.0
-                    THEN 0.0
-                    ELSE GREATEST(COALESCE(event.duration_seconds, 0.0), 0.0)
-                END AS non_first_man_duration_seconds
+        rotation_events AS (
+            SELECT event.duration_seconds
             FROM target_appearances appearance
             JOIN replays r
               ON r.id = appearance.replay_id
@@ -474,78 +453,10 @@ async fn load_player_rotation_duration_histogram(
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = r.canonical_analysis_run_id
-             AND event.source_stream = 'rotation_player'
-            JOIN play_event_rotation_player_details detail
-              ON detail.event_id = event.id
-        ),
-        ordered_rotation_spans AS (
-            SELECT
-                *,
-                COALESCE(
-                    SUM(non_first_man_duration_seconds) OVER (
-                        PARTITION BY replay_player_id
-                        ORDER BY
-                            start_time NULLS LAST,
-                            start_frame NULLS LAST,
-                            source_index
-                        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
-                    ),
-                    0.0
-                ) AS non_first_man_duration_before_span
-            FROM rotation_spans
-        ),
-        first_man_spans AS (
-            SELECT *
-            FROM ordered_rotation_spans
-            WHERE is_first_man
-        ),
-        marked_first_man_spans AS (
-            SELECT
-                *,
-                CASE
-                    WHEN LAG(non_first_man_duration_before_span) OVER (
-                        PARTITION BY replay_player_id
-                        ORDER BY
-                            start_time NULLS LAST,
-                            start_frame NULLS LAST,
-                            source_index
-                    ) IS NULL
-                    THEN 1
-                    WHEN non_first_man_duration_before_span
-                       - LAG(non_first_man_duration_before_span) OVER (
-                            PARTITION BY replay_player_id
-                            ORDER BY
-                                start_time NULLS LAST,
-                                start_frame NULLS LAST,
-                                source_index
-                         ) >
-        "#,
-    );
-    query.push_bind(FIRST_MAN_STINT_END_GRACE_SECONDS);
-    query.push(
-        r#"
-                    THEN 1
-                    ELSE 0
-                END AS first_man_stint_start
-            FROM first_man_spans
-        ),
-        grouped_first_man_spans AS (
-            SELECT
-                *,
-                SUM(first_man_stint_start) OVER (
-                    PARTITION BY replay_player_id
-                    ORDER BY
-                        start_time NULLS LAST,
-                        start_frame NULLS LAST,
-                        source_index
-                    ROWS UNBOUNDED PRECEDING
-                ) AS first_man_stint_group
-            FROM marked_first_man_spans
-        ),
-        rotation_events AS (
-            SELECT SUM(duration_seconds) AS duration_seconds
-            FROM grouped_first_man_spans
-            GROUP BY replay_player_id, first_man_stint_group
+             AND event.source_stream = 'rotation_first_man_stint'
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key = 'rotation.first_man_stint'
         ),
         bucketed AS (
             SELECT floor(duration_seconds /
@@ -702,8 +613,6 @@ async fn load_player_second_man_to_first_rotation_duration_histogram(
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
 ) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    // Measure the completed second-man role run before a first-man transition,
-    // ignoring depth-only splits inside the second_man run.
     let mut query = QueryBuilder::<Postgres>::new(
         r#"
         WITH target_appearances AS (
@@ -716,19 +625,28 @@ async fn load_player_second_man_to_first_rotation_duration_histogram(
     query.push(
         r#"
         ),
-        rotation_spans AS (
+        ordered_role_spans AS (
             SELECT
                 appearance.id AS replay_player_id,
                 event.start_time,
                 event.start_frame,
                 event.source_index,
-                detail.current_role_state,
-                GREATEST(COALESCE(event.duration_seconds, 0.0), 0.0) AS duration_seconds,
-                (
-                    detail.active
-                    AND detail.current_role_state IN ('first_man', 'second_man', 'third_man')
-                    AND COALESCE(event.duration_seconds, 0.0) > 0.0
-                ) AS is_active_rotation_role
+                et.key AS role_event_type_key,
+                event.duration_seconds,
+                LAG(et.key) OVER (
+                    PARTITION BY appearance.id
+                    ORDER BY
+                        event.start_time NULLS LAST,
+                        event.start_frame NULLS LAST,
+                        event.source_index
+                ) AS previous_role_event_type_key,
+                LAG(event.duration_seconds) OVER (
+                    PARTITION BY appearance.id
+                    ORDER BY
+                        event.start_time NULLS LAST,
+                        event.start_frame NULLS LAST,
+                        event.source_index
+                ) AS previous_duration_seconds
             FROM target_appearances appearance
             JOIN replays r
               ON r.id = appearance.replay_id
@@ -739,79 +657,16 @@ async fn load_player_second_man_to_first_rotation_duration_histogram(
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = r.canonical_analysis_run_id
-             AND event.source_stream = 'rotation_player'
-            JOIN play_event_rotation_player_details detail
-              ON detail.event_id = event.id
-        ),
-        marked_rotation_spans AS (
-            SELECT
-                *,
-                CASE
-                    WHEN is_active_rotation_role
-                     AND current_role_state IS DISTINCT FROM LAG(
-                        CASE WHEN is_active_rotation_role THEN current_role_state END
-                     ) OVER (
-                        PARTITION BY replay_player_id
-                        ORDER BY
-                            start_time NULLS LAST,
-                            start_frame NULLS LAST,
-                            source_index
-                     )
-                    THEN 1
-                    ELSE 0
-                END AS role_run_start
-            FROM rotation_spans
-        ),
-        grouped_rotation_spans AS (
-            SELECT
-                *,
-                SUM(role_run_start) OVER (
-                    PARTITION BY replay_player_id
-                    ORDER BY
-                        start_time NULLS LAST,
-                        start_frame NULLS LAST,
-                        source_index
-                    ROWS UNBOUNDED PRECEDING
-                ) AS role_run_group
-            FROM marked_rotation_spans
-        ),
-        role_runs AS (
-            SELECT
-                replay_player_id,
-                role_run_group,
-                current_role_state,
-                MIN(start_time) AS start_time,
-                MIN(start_frame) AS start_frame,
-                MIN(source_index) AS source_index,
-                SUM(duration_seconds) AS duration_seconds
-            FROM grouped_rotation_spans
-            WHERE is_active_rotation_role
-            GROUP BY replay_player_id, role_run_group, current_role_state
-        ),
-        ordered_role_runs AS (
-            SELECT
-                *,
-                LAG(current_role_state) OVER (
-                    PARTITION BY replay_player_id
-                    ORDER BY
-                        start_time NULLS LAST,
-                        start_frame NULLS LAST,
-                        source_index
-                ) AS previous_role_state,
-                LAG(duration_seconds) OVER (
-                    PARTITION BY replay_player_id
-                    ORDER BY
-                        start_time NULLS LAST,
-                        start_frame NULLS LAST,
-                        source_index
-                ) AS previous_duration_seconds
-            FROM role_runs
+             AND event.source_stream = 'rotation_role_span'
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key IN ('rotation.role.first_man', 'rotation.role.second_man')
         ),
         rotation_events AS (
             SELECT previous_duration_seconds AS duration_seconds
-            FROM ordered_role_runs
-            WHERE current_role_state = 'first_man'
-              AND previous_role_state = 'second_man'
+            FROM ordered_role_spans
+            WHERE role_event_type_key = 'rotation.role.first_man'
+              AND previous_role_event_type_key = 'rotation.role.second_man'
         ),
         bucketed AS (
             SELECT floor(duration_seconds /
