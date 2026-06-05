@@ -32,6 +32,7 @@ pub fn public_router() -> Router<AppState> {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(list_mechanic_events))
+        .route("/events/evaluation", get(event_review_evaluation))
         .route("/events/review-playlist", get(event_review_playlist))
         .route(
             "/events/playlists",
@@ -46,6 +47,7 @@ pub fn router() -> Router<AppState> {
             get(saved_event_playlist_manifest),
         )
         .route("/mechanics/events", get(list_mechanic_events))
+        .route("/mechanics/evaluation", get(event_review_evaluation))
         .route("/mechanics/review-playlist", get(event_review_playlist))
         .route(
             "/mechanics/playlists",
@@ -69,8 +71,10 @@ pub fn router() -> Router<AppState> {
         )
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 pub struct MechanicEventsQuery {
+    pub q: Option<String>,
+    pub title: Option<String>,
     #[serde(
         default,
         rename = "event-id",
@@ -87,6 +91,52 @@ pub struct MechanicEventsQuery {
     pub event_category: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_string_vec")]
     pub detector: Vec<String>,
+    #[serde(
+        default,
+        rename = "player-name",
+        alias = "player-name[]",
+        alias = "player_names",
+        alias = "player_names[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub player_names: Vec<String>,
+    #[serde(
+        default,
+        rename = "player-id",
+        alias = "player-id[]",
+        alias = "player_ids",
+        alias = "player_ids[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub player_ids: Vec<String>,
+    #[serde(
+        default,
+        alias = "playlist[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub playlist: Vec<String>,
+    #[serde(
+        default,
+        rename = "game-mode",
+        alias = "game-mode[]",
+        alias = "game_modes",
+        alias = "game_modes[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub game_modes: Vec<String>,
+    #[serde(
+        default,
+        rename = "map",
+        alias = "map[]",
+        alias = "maps",
+        alias = "maps[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub maps: Vec<String>,
+    pub pro: Option<bool>,
+    pub uploader: Option<String>,
+    pub group: Option<String>,
+    pub project: Option<String>,
     #[serde(rename = "review-status")]
     pub review_status: Option<String>,
     #[serde(
@@ -101,33 +151,37 @@ pub struct MechanicEventsQuery {
         deserialize_with = "deserialize_optional_uuid"
     )]
     pub replay_id: Option<Uuid>,
-    #[serde(rename = "player-id")]
+    #[serde(rename = "primary-player-id")]
     pub player_id: Option<String>,
+    #[serde(rename = "created-after")]
+    pub created_after: Option<DateTime<Utc>>,
+    #[serde(rename = "created-before")]
+    pub created_before: Option<DateTime<Utc>>,
+    #[serde(rename = "replay-date-after")]
+    pub replay_date_after: Option<DateTime<Utc>>,
+    #[serde(rename = "replay-date-before")]
+    pub replay_date_before: Option<DateTime<Utc>>,
+    #[serde(rename = "event-created-after")]
+    pub event_created_after: Option<DateTime<Utc>>,
+    #[serde(rename = "event-created-before")]
+    pub event_created_before: Option<DateTime<Utc>>,
     pub count: Option<u32>,
     pub offset: Option<u32>,
 }
 
 impl MechanicEventsQuery {
     fn from_raw_query(query: Option<&str>) -> Result<Self, ApiError> {
-        let mut parsed = Self {
-            event_ids: Vec::new(),
-            mechanic: Vec::new(),
-            event_category: Vec::new(),
-            detector: Vec::new(),
-            review_status: None,
-            min_confidence: None,
-            replay_id: None,
-            player_id: None,
-            count: None,
-            offset: None,
-        };
+        let mut parsed = Self::default();
 
         for (key, value) in query
             .into_iter()
             .flat_map(|query| url::form_urlencoded::parse(query.as_bytes()))
         {
             let value = value.trim();
-            match key.as_ref() {
+            let key = key.strip_suffix("[]").unwrap_or(key.as_ref());
+            match key {
+                "q" => parsed.q = non_empty_string(value),
+                "title" => parsed.title = non_empty_string(value),
                 "event-id" if !value.is_empty() => {
                     parsed
                         .event_ids
@@ -140,6 +194,30 @@ impl MechanicEventsQuery {
                     parsed.event_category.push(value.to_owned())
                 }
                 "detector" if !value.is_empty() => parsed.detector.push(value.to_owned()),
+                "player-name" | "player_names" if !value.is_empty() => {
+                    parsed.player_names.push(value.to_owned())
+                }
+                "player-id" | "player_ids" if !value.is_empty() => {
+                    parsed.player_ids.push(value.to_owned());
+                    if parsed.player_id.is_none() {
+                        parsed.player_id = Some(value.to_owned());
+                    }
+                }
+                "primary-player-id" if !value.is_empty() => {
+                    parsed.player_ids.push(value.to_owned());
+                    parsed.player_id = Some(value.to_owned());
+                }
+                "playlist" if !value.is_empty() => parsed.playlist.push(value.to_owned()),
+                "game-mode" | "game_modes" if !value.is_empty() => {
+                    parsed.game_modes.push(value.to_owned())
+                }
+                "map" | "maps" if !value.is_empty() => parsed.maps.push(value.to_owned()),
+                "pro" if !value.is_empty() => {
+                    parsed.pro = Some(parse_review_bool_filter("pro", value)?);
+                }
+                "uploader" => parsed.uploader = non_empty_string(value),
+                "group" => parsed.group = non_empty_string(value),
+                "project" => parsed.project = non_empty_string(value),
                 "review-status" => parsed.review_status = non_empty_string(value),
                 "min-confidence" => {
                     parsed.min_confidence = if value.is_empty() {
@@ -155,7 +233,30 @@ impl MechanicEventsQuery {
                         Some(Uuid::parse_str(value).map_err(ApiError::bad_request)?)
                     };
                 }
-                "player-id" => parsed.player_id = non_empty_string(value),
+                "created-after" | "created_after" if !value.is_empty() => {
+                    parsed.created_after =
+                        Some(parse_review_datetime_filter("created-after", value)?);
+                }
+                "created-before" | "created_before" if !value.is_empty() => {
+                    parsed.created_before =
+                        Some(parse_review_datetime_filter("created-before", value)?);
+                }
+                "replay-date-after" | "replay_date_after" if !value.is_empty() => {
+                    parsed.replay_date_after =
+                        Some(parse_review_datetime_filter("replay-date-after", value)?);
+                }
+                "replay-date-before" | "replay_date_before" if !value.is_empty() => {
+                    parsed.replay_date_before =
+                        Some(parse_review_datetime_filter("replay-date-before", value)?);
+                }
+                "event-created-after" | "event_created_after" if !value.is_empty() => {
+                    parsed.event_created_after =
+                        Some(parse_review_datetime_filter("event-created-after", value)?);
+                }
+                "event-created-before" | "event_created_before" if !value.is_empty() => {
+                    parsed.event_created_before =
+                        Some(parse_review_datetime_filter("event-created-before", value)?);
+                }
                 "count" => {
                     parsed.count = if value.is_empty() {
                         None
@@ -561,6 +662,26 @@ pub struct SavedEventReviewPlaylistsResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct EventReviewEvaluationResponse {
+    pub label_count: i64,
+    pub positive_label_count: i64,
+    pub rejected_label_count: i64,
+    pub candidate_count: i64,
+    pub matched_positive_label_count: i64,
+    pub missed_positive_label_count: i64,
+    pub matched_rejected_label_count: i64,
+    pub clean_rejected_label_count: i64,
+    pub unlabeled_candidate_count: i64,
+    pub reviewed_precision: Option<f64>,
+    pub reviewed_recall: Option<f64>,
+    pub reviewed_false_positive_rate: Option<f64>,
+    pub candidate_analysis_run_id: Option<Uuid>,
+    pub frame_tolerance: i32,
+    pub time_tolerance_seconds: f64,
+    pub filters: Value,
+}
+
+#[derive(Debug, Serialize)]
 struct ErrorResponse {
     error: String,
 }
@@ -603,6 +724,21 @@ pub async fn event_review_playlist(
         &filters,
         None,
     )))
+}
+
+pub async fn event_review_evaluation(
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<EventReviewEvaluationResponse>, ApiError> {
+    let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
+    let db = require_db(&state)?;
+    let filters = MechanicEventFilters::from_query(query)?;
+    let options = EventEvaluationOptions::from_raw_query(raw_query.as_deref())?;
+    let evaluation = evaluate_reviewed_events(db, &filters, &options)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(evaluation))
 }
 
 pub async fn list_saved_event_playlists(
@@ -713,14 +849,53 @@ pub async fn create_mechanic_event_review(
         .await
         .map_err(ApiError::internal)?;
     let status = normalize_review_status(&request.status)?;
+    let reviewed_event_type_key = request
+        .reviewed_mechanic
+        .as_deref()
+        .map(normalize_reviewed_event_type_key)
+        .transpose()?;
     validate_review_request(&request)?;
 
     let row = sqlx::query(
         r#"
         WITH target_event AS (
-            SELECT id, replay_id
-            FROM play_events
-            WHERE id = $1
+            SELECT
+                event.id,
+                event.replay_id,
+                event.analysis_run_id,
+                event.source,
+                event.source_stream,
+                event.source_index,
+                event.source_event_id,
+                event.primary_subject_kind,
+                event.primary_subject_id,
+                event.team,
+                event.start_frame,
+                event.end_frame,
+                event.event_frame,
+                event.start_time,
+                event.end_time,
+                event.event_time,
+                event.duration_seconds,
+                event.confidence,
+                event.created_at,
+                event_type.key AS event_type_key,
+                event_type.display_name AS event_type_label,
+                event_type.category AS event_category,
+                payload.payload,
+                attributes.attributes,
+                mechanic_detail.mechanic,
+                mechanic_detail.properties AS mechanic_properties
+            FROM play_events event
+            JOIN event_types event_type
+              ON event_type.id = event.event_type_id
+            LEFT JOIN play_event_payloads payload
+              ON payload.event_id = event.id
+            LEFT JOIN play_event_attributes attributes
+              ON attributes.event_id = event.id
+            LEFT JOIN play_event_mechanic_details mechanic_detail
+              ON mechanic_detail.event_id = event.id
+            WHERE event.id = $1
         )
         INSERT INTO event_reviews (
             id,
@@ -735,7 +910,8 @@ pub async fn create_mechanic_event_review(
             reviewed_end_frame,
             reviewed_event_frame,
             confidence,
-            notes
+            notes,
+            event_snapshot
         )
         SELECT
             $2,
@@ -743,14 +919,58 @@ pub async fn create_mechanic_event_review(
             target_event.replay_id,
             $3,
             $4,
-            $5,
-            $6,
-            $7,
-            $8,
-            $9,
-            $10,
-            $11,
-            $12
+            COALESCE($5, target_event.event_type_key),
+            COALESCE($6, target_event.primary_subject_kind),
+            COALESCE($7, target_event.primary_subject_id),
+            COALESCE($8, target_event.start_frame),
+            COALESCE($9, target_event.end_frame),
+            COALESCE($10, target_event.event_frame),
+            COALESCE($11, target_event.confidence),
+            $12,
+            jsonb_strip_nulls(jsonb_build_object(
+                'id', target_event.id,
+                'analysisRunId', target_event.analysis_run_id,
+                'replayId', target_event.replay_id,
+                'eventType', jsonb_build_object(
+                    'key', target_event.event_type_key,
+                    'displayName', target_event.event_type_label,
+                    'category', target_event.event_category
+                ),
+                'source', target_event.source,
+                'sourceStream', target_event.source_stream,
+                'sourceIndex', target_event.source_index,
+                'sourceEventId', target_event.source_event_id,
+                'primarySubject', CASE
+                    WHEN target_event.primary_subject_kind IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                        'kind', target_event.primary_subject_kind,
+                        'id', target_event.primary_subject_id
+                    )
+                END,
+                'team', target_event.team,
+                'frames', jsonb_strip_nulls(jsonb_build_object(
+                    'start', target_event.start_frame,
+                    'end', target_event.end_frame,
+                    'event', target_event.event_frame
+                )),
+                'times', jsonb_strip_nulls(jsonb_build_object(
+                    'start', target_event.start_time,
+                    'end', target_event.end_time,
+                    'event', target_event.event_time,
+                    'duration', target_event.duration_seconds
+                )),
+                'confidence', target_event.confidence,
+                'payload', COALESCE(target_event.payload, '{}'::jsonb),
+                'attributes', COALESCE(target_event.attributes, '{}'::jsonb),
+                'mechanicDetails', CASE
+                    WHEN target_event.mechanic IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                        'mechanic', target_event.mechanic,
+                        'properties', target_event.mechanic_properties
+                    )
+                END,
+                'createdAt', target_event.created_at
+            ))
         FROM target_event
         RETURNING id, event_id AS mechanic_event_id, replay_id, reviewer_user_id, status, created_at
         "#,
@@ -759,7 +979,7 @@ pub async fn create_mechanic_event_review(
     .bind(Uuid::now_v7())
     .bind(auth_user.id)
     .bind(&status)
-    .bind(request.reviewed_mechanic)
+    .bind(reviewed_event_type_key.as_deref())
     .bind(request.reviewed_subject_kind)
     .bind(request.reviewed_subject_id)
     .bind(request.reviewed_start_frame)
@@ -829,27 +1049,152 @@ async fn get_saved_playlist(
 }
 
 struct MechanicEventFilters {
+    search_pattern: Option<String>,
     event_ids: Vec<Uuid>,
     mechanics: Vec<String>,
     event_categories: Vec<String>,
     detectors: Vec<String>,
+    player_name_patterns: Vec<String>,
+    player_ids: Vec<String>,
+    playlists: Vec<String>,
+    maps: Vec<String>,
+    pro: Option<bool>,
+    uploader_user_id: Option<Uuid>,
+    group_id: Option<Uuid>,
+    project_id: Option<Uuid>,
     review_status: Option<String>,
     min_confidence: Option<f64>,
     replay_id: Option<Uuid>,
-    player_id: Option<String>,
+    created_after: Option<DateTime<Utc>>,
+    created_before: Option<DateTime<Utc>>,
+    replay_date_after: Option<DateTime<Utc>>,
+    replay_date_before: Option<DateTime<Utc>>,
+    event_created_after: Option<DateTime<Utc>>,
+    event_created_before: Option<DateTime<Utc>>,
     count: u32,
     offset: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct EventEvaluationOptions {
+    candidate_analysis_run_id: Option<Uuid>,
+    frame_tolerance: i32,
+    time_tolerance_seconds: f64,
+}
+
+impl Default for EventEvaluationOptions {
+    fn default() -> Self {
+        Self {
+            candidate_analysis_run_id: None,
+            frame_tolerance: 90,
+            time_tolerance_seconds: 3.0,
+        }
+    }
+}
+
+impl EventEvaluationOptions {
+    fn from_raw_query(query: Option<&str>) -> Result<Self, ApiError> {
+        let mut options = Self::default();
+
+        for (key, value) in query
+            .into_iter()
+            .flat_map(|query| url::form_urlencoded::parse(query.as_bytes()))
+        {
+            let value = value.trim();
+            if value.is_empty() {
+                continue;
+            }
+            match key.strip_suffix("[]").unwrap_or(key.as_ref()) {
+                "candidate-analysis-run"
+                | "candidate-analysis-run-id"
+                | "analysis-run"
+                | "analysis-run-id" => {
+                    options.candidate_analysis_run_id =
+                        Some(Uuid::parse_str(value).map_err(|_| {
+                            ApiError::bad_request("analysis-run-id must be a UUID")
+                        })?);
+                }
+                "frame-tolerance" | "frameTolerance" => {
+                    options.frame_tolerance = value
+                        .parse::<i32>()
+                        .map_err(|_| ApiError::bad_request("frame-tolerance must be an integer"))?;
+                    if options.frame_tolerance < 0 {
+                        return Err(ApiError::bad_request(
+                            "frame-tolerance must be greater than or equal to zero",
+                        ));
+                    }
+                }
+                "time-tolerance" | "time-tolerance-seconds" | "timeToleranceSeconds" => {
+                    options.time_tolerance_seconds = value.parse::<f64>().map_err(|_| {
+                        ApiError::bad_request("time-tolerance-seconds must be a number")
+                    })?;
+                    if options.time_tolerance_seconds < 0.0 {
+                        return Err(ApiError::bad_request(
+                            "time-tolerance-seconds must be greater than or equal to zero",
+                        ));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Ok(options)
+    }
+}
+
+impl Default for MechanicEventFilters {
+    fn default() -> Self {
+        Self {
+            search_pattern: None,
+            event_ids: Vec::new(),
+            mechanics: Vec::new(),
+            event_categories: Vec::new(),
+            detectors: Vec::new(),
+            player_name_patterns: Vec::new(),
+            player_ids: Vec::new(),
+            playlists: Vec::new(),
+            maps: Vec::new(),
+            pro: None,
+            uploader_user_id: None,
+            group_id: None,
+            project_id: None,
+            review_status: None,
+            min_confidence: None,
+            replay_id: None,
+            created_after: None,
+            created_before: None,
+            replay_date_after: None,
+            replay_date_before: None,
+            event_created_after: None,
+            event_created_before: None,
+            count: DEFAULT_EVENT_REVIEW_PAGE_SIZE,
+            offset: 0,
+        }
+    }
+}
+
 impl MechanicEventFilters {
     fn from_query(query: MechanicEventsQuery) -> Result<Self, ApiError> {
-        let review_status = query
-            .review_status
-            .map(|status| status.trim().to_lowercase())
-            .filter(|status| !status.is_empty());
-        if let Some(status) = &review_status {
-            validate_review_status_filter(status)?;
+        let search = query
+            .q
+            .or(query.title)
+            .map(|term| term.trim().to_owned())
+            .filter(|term| !term.is_empty());
+        let mut player_ids = normalize_terms(query.player_ids);
+        if let Some(player_id) = query.player_id {
+            player_ids.push(player_id);
         }
+        player_ids = normalize_terms(player_ids);
+        player_ids.sort();
+        player_ids.dedup();
+        let mut playlists = normalize_terms(query.playlist);
+        playlists.extend(normalize_terms(query.game_modes));
+        playlists.sort();
+        playlists.dedup();
+        let review_status = match query.review_status {
+            Some(status) => normalize_review_status_filter(&status)?,
+            None => None,
+        };
         if let Some(confidence) = query.min_confidence {
             if !(0.0..=1.0).contains(&confidence) {
                 return Err(ApiError::bad_request(
@@ -859,17 +1204,40 @@ impl MechanicEventFilters {
         }
 
         Ok(Self {
+            search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
             event_ids: query.event_ids,
             mechanics: normalize_terms(query.mechanic),
             event_categories: normalize_terms(query.event_category),
             detectors: normalize_terms(query.detector),
+            player_name_patterns: normalize_terms(query.player_names)
+                .into_iter()
+                .map(|term| format!("%{}%", escape_like_term(&term)))
+                .collect(),
+            player_ids,
+            playlists,
+            maps: normalize_terms(query.maps),
+            pro: query.pro,
+            uploader_user_id: query
+                .uploader
+                .map(|uploader| parse_review_uuid_filter("uploader", &uploader))
+                .transpose()?,
+            group_id: query
+                .group
+                .map(|group| parse_review_uuid_filter("group", &group))
+                .transpose()?,
+            project_id: query
+                .project
+                .map(|project| parse_review_uuid_filter("project", &project))
+                .transpose()?,
             review_status,
             min_confidence: query.min_confidence,
             replay_id: query.replay_id,
-            player_id: query
-                .player_id
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty()),
+            created_after: query.created_after,
+            created_before: query.created_before,
+            replay_date_after: query.replay_date_after,
+            replay_date_before: query.replay_date_before,
+            event_created_after: query.event_created_after,
+            event_created_before: query.event_created_before,
             count: query
                 .count
                 .unwrap_or(DEFAULT_EVENT_REVIEW_PAGE_SIZE)
@@ -957,6 +1325,39 @@ impl MechanicEventFilters {
         )?;
         let detectors =
             json_string_vec(object.get("detectors").or_else(|| object.get("detector")))?;
+        let search = json_string(object.get("q").or_else(|| object.get("title")))?
+            .map(|term| term.trim().to_owned())
+            .filter(|term| !term.is_empty());
+        let player_names = json_string_vec(
+            object
+                .get("playerNames")
+                .or_else(|| object.get("player-names"))
+                .or_else(|| object.get("playerName"))
+                .or_else(|| object.get("player-name")),
+        )?;
+        let mut player_ids = json_string_vec(
+            object
+                .get("playerIds")
+                .or_else(|| object.get("player-ids"))
+                .or_else(|| object.get("playerId"))
+                .or_else(|| object.get("player-id"))
+                .or_else(|| object.get("primaryPlayerId"))
+                .or_else(|| object.get("primary-player-id")),
+        )?;
+        player_ids.sort();
+        player_ids.dedup();
+        let mut playlists = json_string_vec(
+            object
+                .get("playlists")
+                .or_else(|| object.get("playlist"))
+                .or_else(|| object.get("gameModes"))
+                .or_else(|| object.get("game-modes"))
+                .or_else(|| object.get("gameMode"))
+                .or_else(|| object.get("game-mode")),
+        )?;
+        playlists.sort();
+        playlists.dedup();
+        let maps = json_string_vec(object.get("maps").or_else(|| object.get("map")))?;
         let event_categories = json_string_vec(
             object
                 .get("eventCategories")
@@ -967,16 +1368,14 @@ impl MechanicEventFilters {
                 .or_else(|| object.get("category")),
         )?;
         let event_ids = json_uuid_vec(object.get("eventIds").or_else(|| object.get("event-id")))?;
-        let review_status = json_string(
+        let review_status = match json_string(
             object
                 .get("reviewStatus")
                 .or_else(|| object.get("review-status")),
-        )?
-        .map(|status| status.trim().to_lowercase())
-        .filter(|status| !status.is_empty());
-        if let Some(status) = &review_status {
-            validate_review_status_filter(status)?;
-        }
+        )? {
+            Some(status) => normalize_review_status_filter(&status)?,
+            None => None,
+        };
         let min_confidence = json_f64(
             object
                 .get("minConfidence")
@@ -993,9 +1392,52 @@ impl MechanicEventFilters {
             .map(|value| Uuid::parse_str(&value))
             .transpose()
             .map_err(|_| ApiError::bad_request("playlist spec replayId must be a UUID"))?;
-        let player_id = json_string(object.get("playerId").or_else(|| object.get("player-id")))?
-            .map(|value| value.trim().to_owned())
-            .filter(|value| !value.is_empty());
+        let pro = json_bool(object.get("pro"))?;
+        let uploader_user_id = json_string(object.get("uploader"))?
+            .map(|value| parse_review_uuid_filter("uploader", &value))
+            .transpose()?;
+        let group_id = json_string(object.get("group").or_else(|| object.get("groupId")))?
+            .map(|value| parse_review_uuid_filter("group", &value))
+            .transpose()?;
+        let project_id = json_string(object.get("project").or_else(|| object.get("projectId")))?
+            .map(|value| parse_review_uuid_filter("project", &value))
+            .transpose()?;
+        let created_after = json_datetime(
+            "created-after",
+            object
+                .get("createdAfter")
+                .or_else(|| object.get("created-after")),
+        )?;
+        let created_before = json_datetime(
+            "created-before",
+            object
+                .get("createdBefore")
+                .or_else(|| object.get("created-before")),
+        )?;
+        let replay_date_after = json_datetime(
+            "replay-date-after",
+            object
+                .get("replayDateAfter")
+                .or_else(|| object.get("replay-date-after")),
+        )?;
+        let replay_date_before = json_datetime(
+            "replay-date-before",
+            object
+                .get("replayDateBefore")
+                .or_else(|| object.get("replay-date-before")),
+        )?;
+        let event_created_after = json_datetime(
+            "event-created-after",
+            object
+                .get("eventCreatedAfter")
+                .or_else(|| object.get("event-created-after")),
+        )?;
+        let event_created_before = json_datetime(
+            "event-created-before",
+            object
+                .get("eventCreatedBefore")
+                .or_else(|| object.get("event-created-before")),
+        )?;
         let page_object = page.and_then(Value::as_object);
         if page.is_some() && page_object.is_none() {
             return Err(ApiError::bad_request(
@@ -1017,14 +1459,31 @@ impl MechanicEventFilters {
         .unwrap_or(0);
 
         Ok(Self {
+            search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
             event_ids,
             mechanics: normalize_terms(mechanics),
             event_categories: normalize_terms(event_categories),
             detectors: normalize_terms(detectors),
+            player_name_patterns: normalize_terms(player_names)
+                .into_iter()
+                .map(|term| format!("%{}%", escape_like_term(&term)))
+                .collect(),
+            player_ids: normalize_terms(player_ids),
+            playlists: normalize_terms(playlists),
+            maps: normalize_terms(maps),
+            pro,
+            uploader_user_id,
+            group_id,
+            project_id,
             review_status,
             min_confidence,
             replay_id,
-            player_id,
+            created_after,
+            created_before,
+            replay_date_after,
+            replay_date_before,
+            event_created_after,
+            event_created_before,
             count,
             offset,
         })
@@ -1054,6 +1513,9 @@ fn event_review_playlist_url(filters: &MechanicEventFilters) -> String {
 
 fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset: u32) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
+    if let Some(pattern) = &filters.search_pattern {
+        query.append_pair("q", &unescape_like_pattern(pattern));
+    }
     for event_id in &filters.event_ids {
         query.append_pair("event-id", &event_id.to_string());
     }
@@ -1066,6 +1528,30 @@ fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset:
     for detector in &filters.detectors {
         query.append_pair("detector", detector);
     }
+    for pattern in &filters.player_name_patterns {
+        query.append_pair("player-name", &unescape_like_pattern(pattern));
+    }
+    for player_id in &filters.player_ids {
+        query.append_pair("player-id", player_id);
+    }
+    for playlist in &filters.playlists {
+        query.append_pair("playlist", playlist);
+    }
+    for map in &filters.maps {
+        query.append_pair("map", map);
+    }
+    if let Some(pro) = filters.pro {
+        query.append_pair("pro", if pro { "true" } else { "false" });
+    }
+    if let Some(uploader_user_id) = filters.uploader_user_id {
+        query.append_pair("uploader", &uploader_user_id.to_string());
+    }
+    if let Some(group_id) = filters.group_id {
+        query.append_pair("group", &group_id.to_string());
+    }
+    if let Some(project_id) = filters.project_id {
+        query.append_pair("project", &project_id.to_string());
+    }
     if let Some(status) = &filters.review_status {
         query.append_pair("review-status", status);
     }
@@ -1075,8 +1561,23 @@ fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset:
     if let Some(replay_id) = filters.replay_id {
         query.append_pair("replay-id", &replay_id.to_string());
     }
-    if let Some(player_id) = &filters.player_id {
-        query.append_pair("player-id", player_id);
+    if let Some(created_after) = filters.created_after {
+        query.append_pair("created-after", &created_after.to_rfc3339());
+    }
+    if let Some(created_before) = filters.created_before {
+        query.append_pair("created-before", &created_before.to_rfc3339());
+    }
+    if let Some(replay_date_after) = filters.replay_date_after {
+        query.append_pair("replay-date-after", &replay_date_after.to_rfc3339());
+    }
+    if let Some(replay_date_before) = filters.replay_date_before {
+        query.append_pair("replay-date-before", &replay_date_before.to_rfc3339());
+    }
+    if let Some(event_created_after) = filters.event_created_after {
+        query.append_pair("event-created-after", &event_created_after.to_rfc3339());
+    }
+    if let Some(event_created_before) = filters.event_created_before {
+        query.append_pair("event-created-before", &event_created_before.to_rfc3339());
     }
     query.append_pair("count", &filters.count.to_string());
     query.append_pair("offset", &offset.to_string());
@@ -1127,14 +1628,28 @@ fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
             "kind": "query",
             "entity": "event",
             "filters": {
+                "q": filters.search_pattern.as_ref().map(|pattern| unescape_like_pattern(pattern)),
                 "eventIds": filters.event_ids,
                 "eventTypes": filters.mechanics,
                 "eventCategories": filters.event_categories,
                 "detectors": filters.detectors,
+                "playerNames": filters.player_name_patterns.iter().map(|pattern| unescape_like_pattern(pattern)).collect::<Vec<_>>(),
+                "playerIds": filters.player_ids,
+                "playlists": filters.playlists,
+                "maps": filters.maps,
+                "pro": filters.pro,
+                "uploader": filters.uploader_user_id,
+                "group": filters.group_id,
+                "project": filters.project_id,
                 "reviewStatus": filters.review_status,
                 "minConfidence": filters.min_confidence,
                 "replayId": filters.replay_id,
-                "playerId": filters.player_id,
+                "createdAfter": filters.created_after,
+                "createdBefore": filters.created_before,
+                "replayDateAfter": filters.replay_date_after,
+                "replayDateBefore": filters.replay_date_before,
+                "eventCreatedAfter": filters.event_created_after,
+                "eventCreatedBefore": filters.event_created_before,
             },
         },
         "page": {
@@ -1196,6 +1711,25 @@ fn json_string(value: Option<&Value>) -> Result<Option<String>, ApiError> {
     }
 }
 
+fn json_bool(value: Option<&Value>) -> Result<Option<bool>, ApiError> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::Bool(value)) => Ok(Some(*value)),
+        Some(Value::String(value)) => {
+            parse_review_bool_filter("playlist spec boolean", value).map(Some)
+        }
+        Some(_) => Err(ApiError::bad_request(
+            "playlist spec field must be a boolean when provided",
+        )),
+    }
+}
+
+fn json_datetime(name: &str, value: Option<&Value>) -> Result<Option<DateTime<Utc>>, ApiError> {
+    json_string(value)?
+        .map(|value| parse_review_datetime_filter(name, &value))
+        .transpose()
+}
+
 fn json_f64(value: Option<&Value>) -> Result<Option<f64>, ApiError> {
     match value {
         None | Some(Value::Null) => Ok(None),
@@ -1224,6 +1758,468 @@ fn json_u32(value: Option<&Value>) -> Result<Option<u32>, ApiError> {
             "playlist spec field must be an unsigned integer when provided",
         )),
     }
+}
+
+async fn evaluate_reviewed_events(
+    pool: &PgPool,
+    filters: &MechanicEventFilters,
+    options: &EventEvaluationOptions,
+) -> Result<EventReviewEvaluationResponse, sqlx::Error> {
+    let event_type_keys = filters.event_type_keys();
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH review_label_values AS (
+            SELECT
+                review.id,
+                review.event_id,
+                review.replay_id,
+                review.status,
+                review.created_at,
+                COALESCE(
+                    review.reviewed_event_type_key,
+                    review.event_snapshot #>> '{eventType,key}'
+                ) AS event_type_key,
+                COALESCE(
+                    review.reviewed_subject_kind,
+                    review.event_snapshot #>> '{primarySubject,kind}'
+                ) AS subject_kind,
+                COALESCE(
+                    review.reviewed_subject_id,
+                    review.event_snapshot #>> '{primarySubject,id}'
+                ) AS subject_id,
+                COALESCE(
+                    review.reviewed_start_frame,
+                    NULLIF(review.event_snapshot #>> '{frames,start}', '')::integer
+                ) AS start_frame,
+                COALESCE(
+                    review.reviewed_end_frame,
+                    NULLIF(review.event_snapshot #>> '{frames,end}', '')::integer
+                ) AS end_frame,
+                COALESCE(
+                    review.reviewed_event_frame,
+                    NULLIF(review.event_snapshot #>> '{frames,event}', '')::integer
+                ) AS event_frame,
+                NULLIF(review.event_snapshot #>> '{times,start}', '')::double precision AS start_time,
+                NULLIF(review.event_snapshot #>> '{times,end}', '')::double precision AS end_time,
+                NULLIF(review.event_snapshot #>> '{times,event}', '')::double precision AS event_time
+            FROM event_reviews review
+            JOIN replays replay
+              ON replay.id = review.replay_id
+            LEFT JOIN replay_players review_player
+              ON review_player.replay_id = review.replay_id
+             AND review_player.platform IS NOT NULL
+             AND review_player.platform_player_id IS NOT NULL
+             AND concat(review_player.platform, ':', review_player.platform_player_id) = COALESCE(
+                    review.reviewed_subject_id,
+                    review.event_snapshot #>> '{primarySubject,id}'
+                 )
+            WHERE review.status IN ('confirmed', 'corrected', 'rejected')
+        "#,
+    );
+    push_evaluation_label_filters(&mut builder, filters, &event_type_keys);
+    builder.push(
+        r#"
+        ),
+        latest_labels AS (
+            SELECT *
+            FROM (
+                SELECT
+                    review_label_values.*,
+                    row_number() OVER (
+                        PARTITION BY
+                            replay_id,
+                            event_type_key,
+                            COALESCE(subject_kind, ''),
+                            COALESCE(subject_id, ''),
+                            COALESCE(start_frame, -1),
+                            COALESCE(end_frame, -1),
+                            COALESCE(event_frame, -1),
+                            status
+                        ORDER BY created_at DESC, id DESC
+                    ) AS label_rank
+                FROM review_label_values
+                WHERE event_type_key IS NOT NULL
+            ) ranked_labels
+            WHERE label_rank = 1
+        ),
+        candidate_events AS (
+            SELECT
+                event.id,
+                event.replay_id,
+                event_type.key AS event_type_key,
+                event.primary_subject_kind AS subject_kind,
+                event.primary_subject_id AS subject_id,
+                event.start_frame,
+                event.end_frame,
+                event.event_frame,
+                event.start_time,
+                event.end_time,
+                event.event_time
+            FROM play_events event
+            JOIN event_types event_type
+              ON event_type.id = event.event_type_id
+            JOIN replays replay
+              ON replay.id = event.replay_id
+            LEFT JOIN replay_players candidate_player
+              ON candidate_player.replay_id = event.replay_id
+             AND event.primary_subject_kind = 'player'
+             AND candidate_player.platform IS NOT NULL
+             AND candidate_player.platform_player_id IS NOT NULL
+             AND concat(candidate_player.platform, ':', candidate_player.platform_player_id) = event.primary_subject_id
+            WHERE (
+                (
+        "#,
+    );
+    builder
+        .push_bind(options.candidate_analysis_run_id)
+        .push(
+            r#"::uuid IS NULL
+                  AND event.analysis_run_id = replay.canonical_analysis_run_id
+                )
+                OR event.analysis_run_id =
+        "#,
+        )
+        .push_bind(options.candidate_analysis_run_id)
+        .push(
+            r#"
+            )
+        "#,
+        );
+    push_evaluation_candidate_filters(&mut builder, filters, &event_type_keys);
+    builder
+        .push(
+            r#"
+        ),
+        label_matches AS (
+            SELECT DISTINCT
+                label.id AS label_id,
+                candidate.id AS candidate_id
+            FROM latest_labels label
+            JOIN candidate_events candidate
+              ON candidate.replay_id = label.replay_id
+             AND candidate.event_type_key = label.event_type_key
+             AND (
+                    label.subject_kind IS NULL
+                 OR label.subject_id IS NULL
+                 OR (
+                        candidate.subject_kind = label.subject_kind
+                    AND candidate.subject_id = label.subject_id
+                 )
+             )
+             AND (
+                    (
+                        COALESCE(candidate.event_frame, candidate.start_frame, candidate.end_frame) IS NOT NULL
+                    AND COALESCE(label.event_frame, label.start_frame, label.end_frame) IS NOT NULL
+                    AND abs(
+                            COALESCE(candidate.event_frame, candidate.start_frame, candidate.end_frame)
+                          - COALESCE(label.event_frame, label.start_frame, label.end_frame)
+                        ) <=
+        "#,
+        )
+        .push_bind(options.frame_tolerance)
+        .push(
+            r#"
+                    )
+                 OR (
+                        COALESCE(candidate.event_time, candidate.start_time, candidate.end_time) IS NOT NULL
+                    AND COALESCE(label.event_time, label.start_time, label.end_time) IS NOT NULL
+                    AND abs(
+                            COALESCE(candidate.event_time, candidate.start_time, candidate.end_time)
+                          - COALESCE(label.event_time, label.start_time, label.end_time)
+                        ) <=
+        "#,
+        )
+        .push_bind(options.time_tolerance_seconds)
+        .push(
+            r#"
+                    )
+             )
+        ),
+        summary AS (
+            SELECT
+                (SELECT count(*) FROM latest_labels) AS label_count,
+                (SELECT count(*) FROM latest_labels WHERE status IN ('confirmed', 'corrected')) AS positive_label_count,
+                (SELECT count(*) FROM latest_labels WHERE status = 'rejected') AS rejected_label_count,
+                (SELECT count(*) FROM candidate_events) AS candidate_count,
+                (
+                    SELECT count(DISTINCT match.label_id)
+                    FROM label_matches match
+                    JOIN latest_labels label
+                      ON label.id = match.label_id
+                    WHERE label.status IN ('confirmed', 'corrected')
+                ) AS matched_positive_label_count,
+                (
+                    SELECT count(DISTINCT match.label_id)
+                    FROM label_matches match
+                    JOIN latest_labels label
+                      ON label.id = match.label_id
+                    WHERE label.status = 'rejected'
+                ) AS matched_rejected_label_count,
+                (
+                    SELECT count(*)
+                    FROM candidate_events candidate
+                    WHERE NOT EXISTS (
+                        SELECT 1
+                        FROM label_matches match
+                        WHERE match.candidate_id = candidate.id
+                    )
+                ) AS unlabeled_candidate_count
+        )
+        SELECT *
+        FROM summary
+        "#,
+        );
+
+    let row = builder.build().fetch_one(pool).await?;
+    let positive_label_count: i64 = row.try_get("positive_label_count")?;
+    let rejected_label_count: i64 = row.try_get("rejected_label_count")?;
+    let matched_positive_label_count: i64 = row.try_get("matched_positive_label_count")?;
+    let matched_rejected_label_count: i64 = row.try_get("matched_rejected_label_count")?;
+    let label_count = row.try_get("label_count")?;
+    let candidate_count = row.try_get("candidate_count")?;
+    let unlabeled_candidate_count = row.try_get("unlabeled_candidate_count")?;
+    let missed_positive_label_count = positive_label_count - matched_positive_label_count;
+    let clean_rejected_label_count = rejected_label_count - matched_rejected_label_count;
+
+    Ok(EventReviewEvaluationResponse {
+        label_count,
+        positive_label_count,
+        rejected_label_count,
+        candidate_count,
+        matched_positive_label_count,
+        missed_positive_label_count,
+        matched_rejected_label_count,
+        clean_rejected_label_count,
+        unlabeled_candidate_count,
+        reviewed_precision: ratio(
+            matched_positive_label_count,
+            matched_positive_label_count + matched_rejected_label_count,
+        ),
+        reviewed_recall: ratio(matched_positive_label_count, positive_label_count),
+        reviewed_false_positive_rate: ratio(matched_rejected_label_count, rejected_label_count),
+        candidate_analysis_run_id: options.candidate_analysis_run_id,
+        frame_tolerance: options.frame_tolerance,
+        time_tolerance_seconds: options.time_tolerance_seconds,
+        filters: playlist_spec_from_filters(filters)["source"]["filters"].clone(),
+    })
+}
+
+fn push_evaluation_label_filters<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    filters: &'a MechanicEventFilters,
+    event_type_keys: &'a [String],
+) {
+    if !filters.event_ids.is_empty() {
+        builder
+            .push(" AND review.event_id = ANY(")
+            .push_bind(&filters.event_ids)
+            .push(")");
+    }
+    if !event_type_keys.is_empty() {
+        builder
+            .push(" AND COALESCE(review.reviewed_event_type_key, review.event_snapshot #>> '{eventType,key}') = ANY(")
+            .push_bind(event_type_keys)
+            .push(")");
+    }
+    if !filters.event_categories.is_empty() {
+        builder
+            .push(" AND review.event_snapshot #>> '{eventType,category}' = ANY(")
+            .push_bind(&filters.event_categories)
+            .push(")");
+    }
+    if !filters.detectors.is_empty() {
+        builder
+            .push(" AND review.event_snapshot #>> '{source}' = ANY(")
+            .push_bind(&filters.detectors)
+            .push(")");
+    }
+    for pattern in &filters.player_name_patterns {
+        builder
+            .push(" AND review_player.name ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\'");
+    }
+    if !filters.player_ids.is_empty() {
+        builder
+            .push(" AND COALESCE(review.reviewed_subject_kind, review.event_snapshot #>> '{primarySubject,kind}') = 'player' AND COALESCE(review.reviewed_subject_id, review.event_snapshot #>> '{primarySubject,id}') = ANY(")
+            .push_bind(&filters.player_ids)
+            .push(")");
+    }
+    if let Some(status) = &filters.review_status {
+        if status == "unreviewed" {
+            builder.push(" AND false");
+        } else if status != "all" {
+            builder.push(" AND review.status = ").push_bind(status);
+        }
+    }
+    push_evaluation_replay_filters(builder, filters, "review", "replay");
+}
+
+fn push_evaluation_candidate_filters<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    filters: &'a MechanicEventFilters,
+    event_type_keys: &'a [String],
+) {
+    if !filters.event_ids.is_empty() {
+        builder
+            .push(" AND event.id = ANY(")
+            .push_bind(&filters.event_ids)
+            .push(")");
+    }
+    if !event_type_keys.is_empty() {
+        builder
+            .push(" AND event_type.key = ANY(")
+            .push_bind(event_type_keys)
+            .push(")");
+    }
+    if !filters.event_categories.is_empty() {
+        builder
+            .push(" AND event_type.category = ANY(")
+            .push_bind(&filters.event_categories)
+            .push(")");
+    }
+    if !filters.detectors.is_empty() {
+        builder
+            .push(" AND event.source = ANY(")
+            .push_bind(&filters.detectors)
+            .push(")");
+    }
+    for pattern in &filters.player_name_patterns {
+        builder
+            .push(" AND candidate_player.name ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\'");
+    }
+    if !filters.player_ids.is_empty() {
+        builder
+            .push(" AND event.primary_subject_kind = 'player' AND event.primary_subject_id = ANY(")
+            .push_bind(&filters.player_ids)
+            .push(")");
+    }
+    if let Some(confidence) = filters.min_confidence {
+        builder
+            .push(" AND event.confidence >= ")
+            .push_bind(confidence);
+    }
+    if let Some(event_created_after) = filters.event_created_after {
+        builder
+            .push(" AND event.created_at >= ")
+            .push_bind(event_created_after);
+    }
+    if let Some(event_created_before) = filters.event_created_before {
+        builder
+            .push(" AND event.created_at <= ")
+            .push_bind(event_created_before);
+    }
+    push_evaluation_replay_filters(builder, filters, "event", "replay");
+}
+
+fn push_evaluation_replay_filters<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    filters: &'a MechanicEventFilters,
+    replay_id_source: &'static str,
+    replay_alias: &'static str,
+) {
+    if let Some(pattern) = &filters.search_pattern {
+        builder
+            .push(" AND (")
+            .push(replay_alias)
+            .push(".original_file_name ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\' OR ")
+            .push(replay_alias)
+            .push(".file_sha256 ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\' OR ")
+            .push(replay_alias)
+            .push(".external_replay_id ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\')");
+    }
+    if !filters.playlists.is_empty() {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".playlist = ANY(")
+            .push_bind(&filters.playlists)
+            .push(")");
+    }
+    if !filters.maps.is_empty() {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".map_code = ANY(")
+            .push_bind(&filters.maps)
+            .push(")");
+    }
+    if let Some(pro) = filters.pro {
+        builder.push(" AND ");
+        if !pro {
+            builder.push("NOT ");
+        }
+        builder.push(replay_alias).push(".has_pro_player");
+    }
+    if let Some(uploader_user_id) = filters.uploader_user_id {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".uploaded_by_user_id = ")
+            .push_bind(uploader_user_id);
+    }
+    if let Some(group_id) = filters.group_id {
+        builder
+            .push(" AND EXISTS (SELECT 1 FROM replay_group_replays review_group WHERE review_group.replay_id = ")
+            .push(replay_id_source)
+            .push(".replay_id AND review_group.group_id = ")
+            .push_bind(group_id)
+            .push(")");
+    }
+    if let Some(project_id) = filters.project_id {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".project_id = ")
+            .push_bind(project_id);
+    }
+    if let Some(replay_id) = filters.replay_id {
+        builder
+            .push(" AND ")
+            .push(replay_id_source)
+            .push(".replay_id = ")
+            .push_bind(replay_id);
+    }
+    if let Some(created_after) = filters.created_after {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".created_at >= ")
+            .push_bind(created_after);
+    }
+    if let Some(created_before) = filters.created_before {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".created_at <= ")
+            .push_bind(created_before);
+    }
+    if let Some(replay_date_after) = filters.replay_date_after {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".replay_date >= ")
+            .push_bind(replay_date_after);
+    }
+    if let Some(replay_date_before) = filters.replay_date_before {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".replay_date <= ")
+            .push_bind(replay_date_before);
+    }
+}
+
+fn ratio(numerator: i64, denominator: i64) -> Option<f64> {
+    (denominator > 0).then(|| numerator as f64 / denominator as f64)
 }
 
 async fn find_mechanic_events(
@@ -1284,6 +2280,16 @@ async fn find_mechanic_events(
         "#,
     );
 
+    if let Some(pattern) = &filters.search_pattern {
+        builder
+            .push(" AND (replay.original_file_name ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\' OR replay.file_sha256 ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\' OR replay.external_replay_id ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\')");
+    }
     if !filters.event_ids.is_empty() {
         builder
             .push(" AND event.id = ANY(")
@@ -1309,13 +2315,56 @@ async fn find_mechanic_events(
             .push_bind(&filters.detectors)
             .push(")");
     }
+    for pattern in &filters.player_name_patterns {
+        builder
+            .push(" AND event.primary_subject_kind = 'player' AND replay_player.name ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\'");
+    }
+    if !filters.player_ids.is_empty() {
+        builder
+            .push(" AND event.primary_subject_kind = 'player' AND event.primary_subject_id = ANY(")
+            .push_bind(&filters.player_ids)
+            .push(")");
+    }
+    if !filters.playlists.is_empty() {
+        builder
+            .push(" AND replay.playlist = ANY(")
+            .push_bind(&filters.playlists)
+            .push(")");
+    }
+    if !filters.maps.is_empty() {
+        builder
+            .push(" AND replay.map_code = ANY(")
+            .push_bind(&filters.maps)
+            .push(")");
+    }
+    if let Some(pro) = filters.pro {
+        if pro {
+            builder.push(" AND replay.has_pro_player");
+        } else {
+            builder.push(" AND NOT replay.has_pro_player");
+        }
+    }
+    if let Some(uploader_user_id) = filters.uploader_user_id {
+        builder
+            .push(" AND replay.uploaded_by_user_id = ")
+            .push_bind(uploader_user_id);
+    }
+    if let Some(group_id) = filters.group_id {
+        builder.push(
+            " AND EXISTS (SELECT 1 FROM replay_group_replays review_group WHERE review_group.replay_id = replay.id AND review_group.group_id = ",
+        );
+        builder.push_bind(group_id);
+        builder.push(")");
+    }
+    if let Some(project_id) = filters.project_id {
+        builder
+            .push(" AND replay.project_id = ")
+            .push_bind(project_id);
+    }
     if let Some(replay_id) = filters.replay_id {
         builder.push(" AND event.replay_id = ").push_bind(replay_id);
-    }
-    if let Some(player_id) = &filters.player_id {
-        builder
-            .push(" AND event.primary_subject_kind = 'player' AND event.primary_subject_id = ")
-            .push_bind(player_id);
     }
     if let Some(confidence) = filters.min_confidence {
         builder
@@ -1328,6 +2377,36 @@ async fn find_mechanic_events(
         } else if status != "all" {
             builder.push(" AND review.status = ").push_bind(status);
         }
+    }
+    if let Some(created_after) = filters.created_after {
+        builder
+            .push(" AND replay.created_at >= ")
+            .push_bind(created_after);
+    }
+    if let Some(created_before) = filters.created_before {
+        builder
+            .push(" AND replay.created_at <= ")
+            .push_bind(created_before);
+    }
+    if let Some(replay_date_after) = filters.replay_date_after {
+        builder
+            .push(" AND replay.replay_date >= ")
+            .push_bind(replay_date_after);
+    }
+    if let Some(replay_date_before) = filters.replay_date_before {
+        builder
+            .push(" AND replay.replay_date <= ")
+            .push_bind(replay_date_before);
+    }
+    if let Some(event_created_after) = filters.event_created_after {
+        builder
+            .push(" AND event.created_at >= ")
+            .push_bind(event_created_after);
+    }
+    if let Some(event_created_before) = filters.event_created_before {
+        builder
+            .push(" AND event.created_at <= ")
+            .push_bind(event_created_before);
     }
 
     builder
@@ -1564,6 +2643,7 @@ fn validate_review_status_filter(status: &str) -> Result<(), ApiError> {
         status,
         "all"
             | "unreviewed"
+            | "accepted"
             | "confirmed"
             | "rejected"
             | "corrected"
@@ -1578,9 +2658,25 @@ fn validate_review_status_filter(status: &str) -> Result<(), ApiError> {
     }
 }
 
-fn normalize_review_status(status: &str) -> Result<String, ApiError> {
+fn normalize_review_status_filter(status: &str) -> Result<Option<String>, ApiError> {
     let status = status.trim().to_lowercase();
+    if status.is_empty() {
+        return Ok(None);
+    }
     validate_review_status_filter(&status)?;
+    if status == "accepted" {
+        Ok(Some("confirmed".to_owned()))
+    } else {
+        Ok(Some(status))
+    }
+}
+
+fn normalize_review_status(status: &str) -> Result<String, ApiError> {
+    let Some(status) = normalize_review_status_filter(status)? else {
+        return Err(ApiError::bad_request(
+            "review status must be one of confirmed, rejected, corrected, uncertain, needs_second_review",
+        ));
+    };
     if status == "all" || status == "unreviewed" {
         return Err(ApiError::bad_request(
             "review status must be one of confirmed, rejected, corrected, uncertain, needs_second_review",
@@ -1589,12 +2685,73 @@ fn normalize_review_status(status: &str) -> Result<String, ApiError> {
     Ok(status)
 }
 
+fn normalize_reviewed_event_type_key(value: &str) -> Result<String, ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ApiError::bad_request(
+            "reviewed_mechanic must not be empty when provided",
+        ));
+    }
+    if value.contains('.') {
+        Ok(value.to_owned())
+    } else {
+        Ok(format!("mechanic.{value}"))
+    }
+}
+
 fn normalize_terms(values: Vec<String>) -> Vec<String> {
     values
         .into_iter()
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .collect()
+}
+
+fn parse_review_uuid_filter(name: &str, value: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(value.trim())
+        .map_err(|_| ApiError::bad_request(format!("{name} must be a Rocket Sense UUID")))
+}
+
+fn parse_review_bool_filter(name: &str, value: &str) -> Result<bool, ApiError> {
+    value
+        .trim()
+        .parse::<bool>()
+        .map_err(|_| ApiError::bad_request(format!("{name} must be true or false")))
+}
+
+fn parse_review_datetime_filter(name: &str, value: &str) -> Result<DateTime<Utc>, ApiError> {
+    DateTime::parse_from_rfc3339(value.trim())
+        .map(|date| date.with_timezone(&Utc))
+        .map_err(|_| ApiError::bad_request(format!("{name} must be an RFC3339 timestamp")))
+}
+
+fn escape_like_term(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+fn unescape_like_pattern(pattern: &str) -> String {
+    let pattern = pattern
+        .strip_prefix('%')
+        .and_then(|pattern| pattern.strip_suffix('%'))
+        .unwrap_or(pattern);
+    let mut output = String::with_capacity(pattern.len());
+    let mut escaped = false;
+    for character in pattern.chars() {
+        if escaped {
+            output.push(character);
+            escaped = false;
+        } else if character == '\\' {
+            escaped = true;
+        } else {
+            output.push(character);
+        }
+    }
+    if escaped {
+        output.push('\\');
+    }
+    output
 }
 
 async fn upsert_user(pool: &PgPool, auth_user: &AuthUser) -> Result<(), sqlx::Error> {

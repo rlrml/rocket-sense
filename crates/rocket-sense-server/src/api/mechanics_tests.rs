@@ -3,33 +3,87 @@ use super::*;
 #[test]
 fn event_review_playlist_url_preserves_filter_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let uploader_id = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();
+    let group_id = Uuid::parse_str("019e5336-650b-770a-bd81-7d09c6e4afe9").unwrap();
+    let project_id = Uuid::parse_str("019e5336-7351-7839-b952-bfc954274e78").unwrap();
     let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        q: Some("Grand Finals".to_owned()),
         event_ids: Vec::new(),
         mechanic: vec![" wavedash ".to_owned(), "speed_flip".to_owned()],
         event_category: vec!["touch".to_owned()],
         detector: vec!["stats_timeline".to_owned()],
+        player_names: vec!["Zen".to_owned()],
+        player_ids: vec!["steam:abc123".to_owned()],
+        playlist: vec!["ranked-doubles".to_owned()],
+        game_modes: vec!["private".to_owned()],
+        maps: vec!["stadium_p".to_owned()],
+        pro: Some(true),
+        uploader: Some(uploader_id.to_string()),
+        group: Some(group_id.to_string()),
+        project: Some(project_id.to_string()),
         review_status: Some("unreviewed".to_owned()),
         min_confidence: Some(0.7),
         replay_id: Some(replay_id),
         player_id: Some("steam:abc123".to_owned()),
+        created_after: Some("2026-06-01T00:00:00Z".parse().unwrap()),
+        created_before: Some("2026-06-02T00:00:00Z".parse().unwrap()),
+        replay_date_after: Some("2026-05-01T00:00:00Z".parse().unwrap()),
+        replay_date_before: Some("2026-05-02T00:00:00Z".parse().unwrap()),
+        event_created_after: Some("2026-04-01T00:00:00Z".parse().unwrap()),
+        event_created_before: Some("2026-04-02T00:00:00Z".parse().unwrap()),
         count: Some(1000),
         offset: Some(25),
+        ..MechanicEventsQuery::default()
     })
     .unwrap();
 
     let url = event_review_playlist_url(&filters);
 
     assert!(url.starts_with("/api/v1/events/review-playlist?"));
-    assert!(url.contains("event-type=wavedash"));
-    assert!(url.contains("event-type=speed_flip"));
-    assert!(url.contains("event-category=touch"));
-    assert!(url.contains("detector=stats_timeline"));
-    assert!(url.contains("review-status=unreviewed"));
-    assert!(url.contains("min-confidence=0.7"));
-    assert!(url.contains("replay-id=0196f449-e997-7413-af77-28082e6478f0"));
-    assert!(url.contains("player-id=steam%3Aabc123"));
-    assert!(url.contains("count=1000"));
-    assert!(url.contains("offset=25"));
+    let query = url.split_once('?').unwrap().1;
+    let pairs = url::form_urlencoded::parse(query.as_bytes())
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+    assert!(pairs.contains(&("q".to_owned(), "Grand Finals".to_owned())));
+    assert!(pairs.contains(&("event-type".to_owned(), "wavedash".to_owned())));
+    assert!(pairs.contains(&("event-type".to_owned(), "speed_flip".to_owned())));
+    assert!(pairs.contains(&("event-category".to_owned(), "touch".to_owned())));
+    assert!(pairs.contains(&("detector".to_owned(), "stats_timeline".to_owned())));
+    assert!(pairs.contains(&("player-name".to_owned(), "Zen".to_owned())));
+    assert!(pairs.contains(&("player-id".to_owned(), "steam:abc123".to_owned())));
+    assert!(pairs.contains(&("playlist".to_owned(), "ranked-doubles".to_owned())));
+    assert!(pairs.contains(&("playlist".to_owned(), "private".to_owned())));
+    assert!(pairs.contains(&("map".to_owned(), "stadium_p".to_owned())));
+    assert!(pairs.contains(&("pro".to_owned(), "true".to_owned())));
+    assert!(pairs.contains(&("uploader".to_owned(), uploader_id.to_string())));
+    assert!(pairs.contains(&("group".to_owned(), group_id.to_string())));
+    assert!(pairs.contains(&("project".to_owned(), project_id.to_string())));
+    assert!(pairs.contains(&("review-status".to_owned(), "unreviewed".to_owned())));
+    assert!(pairs.contains(&("min-confidence".to_owned(), "0.7".to_owned())));
+    assert!(pairs.contains(&(
+        "replay-id".to_owned(),
+        "0196f449-e997-7413-af77-28082e6478f0".to_owned()
+    )));
+    assert!(pairs.contains(&("created-after".into(), "2026-06-01T00:00:00+00:00".into())));
+    assert!(pairs.contains(&("created-before".into(), "2026-06-02T00:00:00+00:00".into())));
+    assert!(pairs.contains(&(
+        "replay-date-after".into(),
+        "2026-05-01T00:00:00+00:00".into()
+    )));
+    assert!(pairs.contains(&(
+        "replay-date-before".into(),
+        "2026-05-02T00:00:00+00:00".into()
+    )));
+    assert!(pairs.contains(&(
+        "event-created-after".into(),
+        "2026-04-01T00:00:00+00:00".into()
+    )));
+    assert!(pairs.contains(&(
+        "event-created-before".into(),
+        "2026-04-02T00:00:00+00:00".into()
+    )));
+    assert!(pairs.contains(&("count".into(), "1000".into())));
+    assert!(pairs.contains(&("offset".into(), "25".into())));
 }
 
 #[test]
@@ -45,6 +99,7 @@ fn event_review_open_targets_stats_evaluation_player() {
         player_id: None,
         count: Some(10),
         offset: None,
+        ..MechanicEventsQuery::default()
     })
     .unwrap();
 
@@ -60,20 +115,105 @@ fn event_review_open_targets_stats_evaluation_player() {
 fn mechanic_events_query_accepts_repeated_event_type_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let query = MechanicEventsQuery::from_raw_query(Some(
-        "event-type=wavedash&event-type=speed_flip&event-category=touch&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&player-id=steam%3Aabc123&count=1000&offset=25",
+        "q=grand&event-type=wavedash&event-type=speed_flip&event-category=touch&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&player-name=Zen&player-name=Alpha&player-id=steam%3Aabc123&playlist=ranked-doubles&game-mode=private&map=stadium_p&pro=true&uploader=019e5336-5e24-7281-8267-189914aa46b5&group=019e5336-650b-770a-bd81-7d09c6e4afe9&project=019e5336-7351-7839-b952-bfc954274e78&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&created-after=2026-06-01T00%3A00%3A00Z&created-before=2026-06-02T00%3A00%3A00Z&replay-date-after=2026-05-01T00%3A00%3A00Z&replay-date-before=2026-05-02T00%3A00%3A00Z&event-created-after=2026-04-01T00%3A00%3A00Z&event-created-before=2026-04-02T00%3A00%3A00Z&count=1000&offset=25",
     ))
     .unwrap();
 
+    assert_eq!(query.q.as_deref(), Some("grand"));
     assert_eq!(query.mechanic, ["wavedash", "speed_flip"]);
     assert_eq!(query.event_category, ["touch"]);
     assert_eq!(query.detector, ["stats_timeline"]);
     assert_eq!(query.event_ids.len(), 2);
+    assert_eq!(query.player_names, ["Zen", "Alpha"]);
+    assert_eq!(query.player_ids, ["steam:abc123"]);
+    assert_eq!(query.playlist, ["ranked-doubles"]);
+    assert_eq!(query.game_modes, ["private"]);
+    assert_eq!(query.maps, ["stadium_p"]);
+    assert_eq!(query.pro, Some(true));
+    assert_eq!(
+        query.uploader.as_deref(),
+        Some("019e5336-5e24-7281-8267-189914aa46b5")
+    );
+    assert_eq!(
+        query.group.as_deref(),
+        Some("019e5336-650b-770a-bd81-7d09c6e4afe9")
+    );
+    assert_eq!(
+        query.project.as_deref(),
+        Some("019e5336-7351-7839-b952-bfc954274e78")
+    );
     assert_eq!(query.review_status.as_deref(), Some("unreviewed"));
     assert_eq!(query.min_confidence, Some(0.7));
     assert_eq!(query.replay_id, Some(replay_id));
     assert_eq!(query.player_id.as_deref(), Some("steam:abc123"));
+    assert_eq!(
+        query.created_after.unwrap().to_rfc3339(),
+        "2026-06-01T00:00:00+00:00"
+    );
+    assert_eq!(
+        query.replay_date_after.unwrap().to_rfc3339(),
+        "2026-05-01T00:00:00+00:00"
+    );
+    assert_eq!(
+        query.event_created_after.unwrap().to_rfc3339(),
+        "2026-04-01T00:00:00+00:00"
+    );
     assert_eq!(query.count, Some(1000));
     assert_eq!(query.offset, Some(25));
+}
+
+#[test]
+fn review_status_accepts_accepted_as_confirmed_alias() {
+    assert_eq!(normalize_review_status("accepted").unwrap(), "confirmed");
+    assert_eq!(
+        normalize_review_status_filter("accepted")
+            .unwrap()
+            .as_deref(),
+        Some("confirmed")
+    );
+}
+
+#[test]
+fn reviewed_mechanic_normalizes_to_event_type_key() {
+    assert_eq!(
+        normalize_reviewed_event_type_key("speed_flip").unwrap(),
+        "mechanic.speed_flip"
+    );
+    assert_eq!(
+        normalize_reviewed_event_type_key("ball.touch").unwrap(),
+        "ball.touch"
+    );
+}
+
+#[test]
+fn event_evaluation_options_parse_candidate_run_and_tolerances() {
+    let analysis_run_id = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();
+    let options = EventEvaluationOptions::from_raw_query(Some(
+        "analysis-run-id=019e5336-5e24-7281-8267-189914aa46b5&frame-tolerance=45&time-tolerance-seconds=1.25",
+    ))
+    .unwrap();
+
+    assert_eq!(options.candidate_analysis_run_id, Some(analysis_run_id));
+    assert_eq!(options.frame_tolerance, 45);
+    assert_eq!(options.time_tolerance_seconds, 1.25);
+}
+
+#[test]
+fn event_evaluation_options_reject_negative_tolerances() {
+    let error = EventEvaluationOptions::from_raw_query(Some("frame-tolerance=-1")).unwrap_err();
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("frame-tolerance"));
+
+    let error =
+        EventEvaluationOptions::from_raw_query(Some("time-tolerance-seconds=-0.1")).unwrap_err();
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("time-tolerance-seconds"));
+}
+
+#[test]
+fn reviewed_ratio_is_empty_when_denominator_is_zero() {
+    assert_eq!(ratio(0, 0), None);
+    assert_eq!(ratio(3, 4), Some(0.75));
 }
 
 #[test]
@@ -97,6 +237,7 @@ fn event_type_filters_include_exact_keys_and_legacy_mechanic_shorthands() {
         player_id: None,
         count: None,
         offset: None,
+        ..MechanicEventsQuery::default()
     })
     .unwrap();
 
@@ -133,6 +274,21 @@ fn event_review_page_exposes_current_event_type_filters() {
     assert!(EVENT_REVIEW_PAGE.contains(r#"<h1>Events review</h1>"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"<h2>Event filters</h2>"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-type""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="q""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="player-name""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="player-id""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="playlist""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="map""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="pro""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="created-after""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="created-before""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="replay-date-after""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="replay-date-before""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-created-after""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-created-before""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="uploader""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="group""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="project""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"autocomplete="off""#));
     assert!(EVENT_REVIEW_PAGE.contains("resetEventTypeFilters"));
@@ -239,9 +395,9 @@ fn review_playlist_exposes_page_metadata() {
         review_status: None,
         min_confidence: None,
         replay_id: None,
-        player_id: None,
         count: 50,
         offset: 100,
+        ..MechanicEventFilters::default()
     };
 
     let playlist = build_review_playlist(Vec::new(), "Review".to_owned(), &filters, None);
@@ -269,9 +425,9 @@ fn review_playlist_exposes_next_page_when_page_is_full() {
         review_status: Some("unreviewed".to_owned()),
         min_confidence: None,
         replay_id: None,
-        player_id: None,
         count: 2,
         offset: 4,
+        ..MechanicEventFilters::default()
     };
     let events = (0..2)
         .map(|index| MechanicEventResponse {

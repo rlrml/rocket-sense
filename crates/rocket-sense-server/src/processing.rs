@@ -4,13 +4,14 @@ use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket_sense_storage::{sha256_hex, ObjectStorage};
 use serde_json::{Map, Value};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::{
     cmp::Ordering,
-    collections::{BTreeMap, HashMap},
+    collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
 use subtr_actor::{PlayerInfo, ReplayStatsTimelineScaffold, StatsTimelineEventCollector};
+use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
@@ -31,6 +32,11 @@ const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
     "rotation_depth_span",
     "rotation_first_man_stint",
 ];
+const PLAY_EVENT_INSERT_CHUNK_SIZE: usize = 500;
+const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
+const PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE: usize = 1_000;
+const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
+const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -108,7 +114,7 @@ struct EventScalarField {
     boolean_value: Option<bool>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PlayEventInsertOptions {
     payload: bool,
     attributes: bool,
@@ -133,6 +139,13 @@ impl PlayEventInsertOptions {
         details: true,
         subjects: true,
     };
+}
+
+#[derive(Clone, Copy)]
+struct PreparedIndexedEvent<'a> {
+    id: Uuid,
+    event: &'a IndexedEvent,
+    event_type_id: i32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -221,14 +234,23 @@ struct ReplayProfileTimingBackfillTarget {
 pub fn spawn_replay_processing(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
+    permits: Arc<Semaphore>,
     replay_id: Uuid,
     file_sha256: String,
     storage_key: String,
 ) {
     tokio::spawn(async move {
+        tracing::info!(%replay_id, "queued replay background processing");
+        let Ok(_permit) = permits.acquire_owned().await else {
+            tracing::warn!(%replay_id, "replay background processing was cancelled before start");
+            return;
+        };
+        tracing::info!(%replay_id, "started replay background processing");
         if let Err(error) = process_replay(pool, storage, replay_id, file_sha256, storage_key).await
         {
             tracing::error!(%replay_id, error = %error, "replay background processing failed");
+        } else {
+            tracing::info!(%replay_id, "finished replay background processing");
         }
     });
 }
@@ -814,6 +836,16 @@ async fn process_replay(
             &replay_players,
         )
         .await?;
+        let carried_reviews =
+            carry_forward_event_reviews(&pool, replay_id, analysis_run_id).await?;
+        if carried_reviews > 0 {
+            tracing::info!(
+                %replay_id,
+                %analysis_run_id,
+                carried_reviews,
+                "carried forward replay event reviews"
+            );
+        }
         mark_analysis_run_succeeded(&pool, analysis_run_id).await?;
         set_canonical_analysis_run(&pool, replay_id, analysis_run_id).await?;
         set_replay_status(&pool, replay_id, "parsed").await?;
@@ -830,6 +862,243 @@ async fn process_replay(
     }
 
     Ok(())
+}
+
+struct CarryForwardEventReview {
+    event_id: Uuid,
+    replay_id: Uuid,
+    reviewer_user_id: Option<Uuid>,
+    status: String,
+    reviewed_event_type_key: Option<String>,
+    reviewed_subject_kind: Option<String>,
+    reviewed_subject_id: Option<String>,
+    reviewed_start_frame: Option<i32>,
+    reviewed_end_frame: Option<i32>,
+    reviewed_event_frame: Option<i32>,
+    confidence: Option<f64>,
+    notes: Option<String>,
+    source_review_id: Uuid,
+    carry_forward_distance_frames: Option<i32>,
+    event_snapshot: Value,
+}
+
+async fn carry_forward_event_reviews(
+    pool: &PgPool,
+    replay_id: Uuid,
+    analysis_run_id: Uuid,
+) -> Result<usize> {
+    let rows = sqlx::query(
+        r#"
+        WITH previous_canonical AS (
+            SELECT canonical_analysis_run_id
+            FROM replays
+            WHERE id = $1
+              AND canonical_analysis_run_id IS NOT NULL
+              AND canonical_analysis_run_id <> $2
+        ),
+        latest_previous_reviews AS (
+            SELECT DISTINCT ON (review.event_id)
+                review.id AS source_review_id,
+                review.reviewer_user_id,
+                review.status,
+                review.reviewed_event_type_key,
+                review.reviewed_subject_kind,
+                review.reviewed_subject_id,
+                review.reviewed_start_frame,
+                review.reviewed_end_frame,
+                review.reviewed_event_frame,
+                review.confidence AS reviewed_confidence,
+                review.notes,
+                old_event.event_type_id,
+                old_event.source,
+                old_event.source_stream,
+                old_event.source_index,
+                old_event.source_event_id,
+                old_event.primary_subject_kind,
+                old_event.primary_subject_id,
+                old_event.start_frame,
+                old_event.end_frame,
+                old_event.event_frame
+            FROM event_reviews review
+            JOIN play_events old_event
+              ON old_event.id = review.event_id
+            JOIN previous_canonical previous
+              ON previous.canonical_analysis_run_id = old_event.analysis_run_id
+            ORDER BY review.event_id, review.created_at DESC, review.id DESC
+        )
+        SELECT
+            new_event.id AS event_id,
+            new_event.replay_id,
+            previous.reviewer_user_id,
+            previous.status,
+            COALESCE(previous.reviewed_event_type_key, event_type.key) AS reviewed_event_type_key,
+            COALESCE(previous.reviewed_subject_kind, new_event.primary_subject_kind) AS reviewed_subject_kind,
+            COALESCE(previous.reviewed_subject_id, new_event.primary_subject_id) AS reviewed_subject_id,
+            COALESCE(previous.reviewed_start_frame, new_event.start_frame) AS reviewed_start_frame,
+            COALESCE(previous.reviewed_end_frame, new_event.end_frame) AS reviewed_end_frame,
+            COALESCE(previous.reviewed_event_frame, new_event.event_frame) AS reviewed_event_frame,
+            COALESCE(previous.reviewed_confidence, new_event.confidence) AS confidence,
+            previous.notes,
+            previous.source_review_id,
+            CASE
+                WHEN previous.reviewed_event_frame IS NULL OR new_event.event_frame IS NULL THEN NULL
+                ELSE abs(previous.reviewed_event_frame - new_event.event_frame)
+            END AS carry_forward_distance_frames,
+            jsonb_strip_nulls(jsonb_build_object(
+                'id', new_event.id,
+                'analysisRunId', new_event.analysis_run_id,
+                'replayId', new_event.replay_id,
+                'eventType', jsonb_build_object(
+                    'key', event_type.key,
+                    'displayName', event_type.display_name,
+                    'category', event_type.category
+                ),
+                'source', new_event.source,
+                'sourceStream', new_event.source_stream,
+                'sourceIndex', new_event.source_index,
+                'sourceEventId', new_event.source_event_id,
+                'primarySubject', CASE
+                    WHEN new_event.primary_subject_kind IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                        'kind', new_event.primary_subject_kind,
+                        'id', new_event.primary_subject_id
+                    )
+                END,
+                'team', new_event.team,
+                'frames', jsonb_strip_nulls(jsonb_build_object(
+                    'start', new_event.start_frame,
+                    'end', new_event.end_frame,
+                    'event', new_event.event_frame
+                )),
+                'times', jsonb_strip_nulls(jsonb_build_object(
+                    'start', new_event.start_time,
+                    'end', new_event.end_time,
+                    'event', new_event.event_time,
+                    'duration', new_event.duration_seconds
+                )),
+                'confidence', new_event.confidence,
+                'payload', COALESCE(payload.payload, '{}'::jsonb),
+                'attributes', COALESCE(attributes.attributes, '{}'::jsonb),
+                'mechanicDetails', CASE
+                    WHEN mechanic_detail.event_id IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                        'mechanic', mechanic_detail.mechanic,
+                        'properties', mechanic_detail.properties
+                    )
+                END,
+                'createdAt', new_event.created_at
+            )) AS event_snapshot
+        FROM latest_previous_reviews previous
+        JOIN play_events new_event
+          ON new_event.analysis_run_id = $2
+         AND new_event.event_type_id = previous.event_type_id
+         AND new_event.source = previous.source
+         AND new_event.source_stream = previous.source_stream
+         AND new_event.source_index = previous.source_index
+         AND COALESCE(new_event.source_event_id, '') = COALESCE(previous.source_event_id, '')
+         AND COALESCE(new_event.primary_subject_kind, '') = COALESCE(previous.primary_subject_kind, '')
+         AND COALESCE(new_event.primary_subject_id, '') = COALESCE(previous.primary_subject_id, '')
+         AND COALESCE(new_event.start_frame, -1) = COALESCE(previous.start_frame, -1)
+         AND COALESCE(new_event.end_frame, -1) = COALESCE(previous.end_frame, -1)
+         AND COALESCE(new_event.event_frame, -1) = COALESCE(previous.event_frame, -1)
+        JOIN event_types event_type
+          ON event_type.id = new_event.event_type_id
+        LEFT JOIN play_event_payloads payload
+          ON payload.event_id = new_event.id
+        LEFT JOIN play_event_attributes attributes
+          ON attributes.event_id = new_event.id
+        LEFT JOIN play_event_mechanic_details mechanic_detail
+          ON mechanic_detail.event_id = new_event.id
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM event_reviews existing_review
+            WHERE existing_review.event_id = new_event.id
+        )
+        "#,
+    )
+    .bind(replay_id)
+    .bind(analysis_run_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to find replay event reviews to carry forward")?;
+
+    let reviews = rows
+        .into_iter()
+        .map(|row| {
+            Ok(CarryForwardEventReview {
+                event_id: row.try_get("event_id")?,
+                replay_id: row.try_get("replay_id")?,
+                reviewer_user_id: row.try_get("reviewer_user_id")?,
+                status: row.try_get("status")?,
+                reviewed_event_type_key: row.try_get("reviewed_event_type_key")?,
+                reviewed_subject_kind: row.try_get("reviewed_subject_kind")?,
+                reviewed_subject_id: row.try_get("reviewed_subject_id")?,
+                reviewed_start_frame: row.try_get("reviewed_start_frame")?,
+                reviewed_end_frame: row.try_get("reviewed_end_frame")?,
+                reviewed_event_frame: row.try_get("reviewed_event_frame")?,
+                confidence: row.try_get("confidence")?,
+                notes: row.try_get("notes")?,
+                source_review_id: row.try_get("source_review_id")?,
+                carry_forward_distance_frames: row.try_get("carry_forward_distance_frames")?,
+                event_snapshot: row.try_get("event_snapshot")?,
+            })
+        })
+        .collect::<std::result::Result<Vec<_>, sqlx::Error>>()
+        .context("failed to read replay event reviews to carry forward")?;
+
+    if reviews.is_empty() {
+        return Ok(0);
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO event_reviews (
+            id,
+            event_id,
+            replay_id,
+            reviewer_user_id,
+            status,
+            reviewed_event_type_key,
+            reviewed_subject_kind,
+            reviewed_subject_id,
+            reviewed_start_frame,
+            reviewed_end_frame,
+            reviewed_event_frame,
+            confidence,
+            notes,
+            source_review_id,
+            carry_forward_method,
+            carry_forward_distance_frames,
+            event_snapshot
+        )
+        "#,
+    );
+    query.push_values(&reviews, |mut row, review| {
+        row.push_bind(Uuid::now_v7())
+            .push_bind(review.event_id)
+            .push_bind(review.replay_id)
+            .push_bind(review.reviewer_user_id)
+            .push_bind(&review.status)
+            .push_bind(&review.reviewed_event_type_key)
+            .push_bind(&review.reviewed_subject_kind)
+            .push_bind(&review.reviewed_subject_id)
+            .push_bind(review.reviewed_start_frame)
+            .push_bind(review.reviewed_end_frame)
+            .push_bind(review.reviewed_event_frame)
+            .push_bind(review.confidence)
+            .push_bind(&review.notes)
+            .push_bind(review.source_review_id)
+            .push_bind("exact_event_identity")
+            .push_bind(review.carry_forward_distance_frames)
+            .push_bind(&review.event_snapshot);
+    });
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to carry forward replay event reviews")?;
+
+    Ok(reviews.len())
 }
 
 fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput> {
@@ -1441,6 +1710,349 @@ async fn insert_play_events_with_options(
     replay_players: &HashMap<String, Uuid>,
     options: PlayEventInsertOptions,
 ) -> Result<usize> {
+    if options == PlayEventInsertOptions::FULL {
+        return insert_play_events_batched(
+            pool,
+            analysis_run_id,
+            replay_id,
+            events,
+            event_type_ids,
+            replay_players,
+        )
+        .await;
+    }
+
+    insert_play_events_row_by_row(
+        pool,
+        analysis_run_id,
+        replay_id,
+        events,
+        event_type_ids,
+        replay_players,
+        options,
+    )
+    .await
+}
+
+async fn insert_play_events_batched(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+    event_type_ids: &HashMap<String, i32>,
+    replay_players: &HashMap<String, Uuid>,
+) -> Result<usize> {
+    let prepared_events = prepare_indexed_events(events, event_type_ids);
+    if prepared_events.is_empty() {
+        return Ok(0);
+    }
+
+    let inserted_event_ids =
+        insert_play_event_rows(pool, analysis_run_id, replay_id, &prepared_events)
+            .await
+            .context("failed to insert play event rows")?;
+    let inserted_events = prepared_events
+        .iter()
+        .copied()
+        .filter(|prepared| inserted_event_ids.contains(&prepared.id))
+        .collect::<Vec<_>>();
+
+    insert_play_event_payload_rows(pool, &inserted_events).await?;
+    insert_play_event_attribute_rows(pool, &inserted_events).await?;
+    insert_play_event_scalar_field_rows_for_events(pool, &inserted_events).await?;
+    insert_play_event_detail_rows(pool, &inserted_events).await?;
+    insert_play_event_subject_rows(pool, &inserted_events, replay_players).await?;
+
+    Ok(inserted_events.len())
+}
+
+fn prepare_indexed_events<'a>(
+    events: &'a [IndexedEvent],
+    event_type_ids: &HashMap<String, i32>,
+) -> Vec<PreparedIndexedEvent<'a>> {
+    events
+        .iter()
+        .filter_map(|event| {
+            event_type_ids
+                .get(&event.event_type_key)
+                .copied()
+                .map(|event_type_id| PreparedIndexedEvent {
+                    id: Uuid::now_v7(),
+                    event,
+                    event_type_id,
+                })
+        })
+        .collect()
+}
+
+async fn insert_play_event_rows(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[PreparedIndexedEvent<'_>],
+) -> Result<HashSet<Uuid>> {
+    let mut inserted = HashSet::with_capacity(events.len());
+    for chunk in events.chunks(PLAY_EVENT_INSERT_CHUNK_SIZE) {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            INSERT INTO play_events (
+                id,
+                analysis_run_id,
+                replay_id,
+                event_type_id,
+                source,
+                source_stream,
+                source_index,
+                source_event_id,
+                primary_subject_kind,
+                primary_subject_id,
+                team,
+                start_frame,
+                end_frame,
+                event_frame,
+                start_time,
+                end_time,
+                event_time,
+                duration_seconds,
+                confidence
+            )
+            "#,
+        );
+        query.push_values(chunk, |mut row, prepared| {
+            let event = prepared.event;
+            row.push_bind(prepared.id)
+                .push_bind(analysis_run_id)
+                .push_bind(replay_id)
+                .push_bind(prepared.event_type_id)
+                .push_bind(&event.source)
+                .push_bind(&event.source_stream)
+                .push_bind(event.source_index as i32)
+                .push_bind(&event.source_event_id)
+                .push_bind(
+                    event
+                        .primary_subject
+                        .as_ref()
+                        .map(|subject| subject.kind.as_str()),
+                )
+                .push_bind(
+                    event
+                        .primary_subject
+                        .as_ref()
+                        .map(|subject| subject.id.as_str()),
+                )
+                .push_bind(event.team)
+                .push_bind(event.start_frame)
+                .push_bind(event.end_frame)
+                .push_bind(event.event_frame)
+                .push_bind(event.start_time)
+                .push_bind(event.end_time)
+                .push_bind(event.event_time)
+                .push_bind(event.duration_seconds)
+                .push_bind(event.confidence);
+        });
+        query.push(" ON CONFLICT DO NOTHING RETURNING id");
+        for row in query
+            .build()
+            .fetch_all(pool)
+            .await
+            .context("failed to batch insert play events")?
+        {
+            inserted.insert(row.try_get("id")?);
+        }
+    }
+
+    Ok(inserted)
+}
+
+async fn insert_play_event_payload_rows(
+    pool: &PgPool,
+    events: &[PreparedIndexedEvent<'_>],
+) -> Result<()> {
+    for chunk in events.chunks(PLAY_EVENT_JSON_INSERT_CHUNK_SIZE) {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            INSERT INTO play_event_payloads (
+                event_id,
+                payload
+            )
+            "#,
+        );
+        query.push_values(chunk, |mut row, prepared| {
+            row.push_bind(prepared.id)
+                .push_bind(&prepared.event.payload);
+        });
+        query.push(" ON CONFLICT DO NOTHING");
+        query
+            .build()
+            .execute(pool)
+            .await
+            .context("failed to batch insert play event payloads")?;
+    }
+
+    Ok(())
+}
+
+async fn insert_play_event_attribute_rows(
+    pool: &PgPool,
+    events: &[PreparedIndexedEvent<'_>],
+) -> Result<()> {
+    for chunk in events.chunks(PLAY_EVENT_JSON_INSERT_CHUNK_SIZE) {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            INSERT INTO play_event_attributes (
+                event_id,
+                attributes
+            )
+            "#,
+        );
+        query.push_values(chunk, |mut row, prepared| {
+            row.push_bind(prepared.id)
+                .push_bind(&prepared.event.attributes);
+        });
+        query.push(" ON CONFLICT DO NOTHING");
+        query
+            .build()
+            .execute(pool)
+            .await
+            .context("failed to batch insert play event attributes")?;
+    }
+
+    Ok(())
+}
+
+async fn insert_play_event_scalar_field_rows_for_events(
+    pool: &PgPool,
+    events: &[PreparedIndexedEvent<'_>],
+) -> Result<()> {
+    let mut rows =
+        Vec::<(Uuid, EventScalarField)>::with_capacity(PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE);
+    for prepared in events {
+        for field in event_scalar_fields(prepared.event) {
+            rows.push((prepared.id, field));
+            if rows.len() >= PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE {
+                insert_play_event_scalar_field_rows(pool, &rows).await?;
+                rows.clear();
+            }
+        }
+    }
+    if !rows.is_empty() {
+        insert_play_event_scalar_field_rows(pool, &rows).await?;
+    }
+
+    Ok(())
+}
+
+async fn insert_play_event_scalar_field_rows(
+    pool: &PgPool,
+    rows: &[(Uuid, EventScalarField)],
+) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_scalar_fields (
+            event_id,
+            field_source,
+            field_path,
+            value_kind,
+            string_value,
+            numeric_value,
+            boolean_value
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, (event_id, field)| {
+        row.push_bind(event_id)
+            .push_bind(field.source)
+            .push_bind(&field.path)
+            .push_bind(field.value_kind)
+            .push_bind(field.string_value.as_deref())
+            .push_bind(field.numeric_value)
+            .push_bind(field.boolean_value);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert play event scalar fields")?;
+
+    Ok(())
+}
+
+async fn insert_play_event_subject_rows(
+    pool: &PgPool,
+    events: &[PreparedIndexedEvent<'_>],
+    replay_players: &HashMap<String, Uuid>,
+) -> Result<()> {
+    let mut rows = Vec::with_capacity(PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE);
+    for prepared in events {
+        for subject in &prepared.event.subjects {
+            rows.push((
+                prepared.id,
+                subject,
+                resolve_replay_player_id(subject, replay_players),
+            ));
+            if rows.len() >= PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE {
+                insert_play_event_subject_row_chunk(pool, &rows).await?;
+                rows.clear();
+            }
+        }
+    }
+    if !rows.is_empty() {
+        insert_play_event_subject_row_chunk(pool, &rows).await?;
+    }
+
+    Ok(())
+}
+
+async fn insert_play_event_subject_row_chunk(
+    pool: &PgPool,
+    rows: &[(Uuid, &EventSubject, Option<Uuid>)],
+) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_subjects (
+            event_id,
+            subject_kind,
+            subject_id,
+            replay_player_id,
+            role
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, (event_id, subject, replay_player_id)| {
+        row.push_bind(event_id)
+            .push_bind(&subject.kind)
+            .push_bind(&subject.id)
+            .push_bind(replay_player_id)
+            .push_bind(&subject.role);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert play event subjects")?;
+
+    Ok(())
+}
+
+async fn insert_play_events_row_by_row(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+    event_type_ids: &HashMap<String, i32>,
+    replay_players: &HashMap<String, Uuid>,
+    options: PlayEventInsertOptions,
+) -> Result<usize> {
     let mut inserted = 0usize;
     for event in events {
         let Some(event_type_id) = event_type_ids.get(&event.event_type_key).copied() else {
@@ -1549,6 +2161,392 @@ async fn insert_play_events_with_options(
     Ok(inserted)
 }
 
+struct TimelineDetailRow {
+    event_id: Uuid,
+    kind: String,
+    player_subject_id: Option<String>,
+    team: Option<i32>,
+}
+
+struct MechanicDetailRow {
+    event_id: Uuid,
+    mechanic: String,
+    properties: Value,
+}
+
+struct GoalTagDetailRow {
+    event_id: Uuid,
+    goal_index: i32,
+    kind: String,
+    scoring_team: i32,
+    scorer_subject_id: Option<String>,
+    confidence: f64,
+    modifiers: Value,
+    evidence: Value,
+}
+
+struct TouchDetailRow {
+    event_id: Uuid,
+    kind: String,
+    height_band: String,
+    surface: String,
+    dodge_state: String,
+    ball_speed_change: f64,
+    sample_frame: i32,
+    sample_time: f64,
+}
+
+struct RotationPlayerDetailRow {
+    event_id: Uuid,
+    active: bool,
+    current_role_state: String,
+    current_depth_state: String,
+    active_game_time: Option<f64>,
+    tracked_time: Option<f64>,
+    time_first_man: Option<f64>,
+    time_second_man: Option<f64>,
+    time_third_man: Option<f64>,
+    time_ambiguous_role: Option<f64>,
+    time_behind_play: Option<f64>,
+    time_level_with_play: Option<f64>,
+    time_ahead_of_play: Option<f64>,
+    longest_first_man_stint_time: Option<f64>,
+    first_man_stint_count: Option<i32>,
+    became_first_man_count: Option<i32>,
+    lost_first_man_count: Option<i32>,
+}
+
+async fn insert_play_event_detail_rows(
+    pool: &PgPool,
+    events: &[PreparedIndexedEvent<'_>],
+) -> Result<()> {
+    let mut timeline_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut mechanic_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut goal_tag_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut touch_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut rotation_player_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+
+    for prepared in events {
+        match prepared.event.source_stream.as_str() {
+            "timeline" => {
+                timeline_rows.push(timeline_detail_row(prepared.id, prepared.event)?);
+                if timeline_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_timeline_detail_rows(pool, &timeline_rows).await?;
+                    timeline_rows.clear();
+                }
+            }
+            "mechanics" => {
+                mechanic_rows.push(mechanic_detail_row(prepared.id, prepared.event)?);
+                if mechanic_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_mechanic_detail_rows(pool, &mechanic_rows).await?;
+                    mechanic_rows.clear();
+                }
+            }
+            "goal_tags" => {
+                goal_tag_rows.push(goal_tag_detail_row(prepared.id, prepared.event)?);
+                if goal_tag_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_goal_tag_detail_rows(pool, &goal_tag_rows).await?;
+                    goal_tag_rows.clear();
+                }
+            }
+            "touch" => {
+                touch_rows.push(touch_detail_row(prepared.id, prepared.event)?);
+                if touch_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_touch_detail_rows(pool, &touch_rows).await?;
+                    touch_rows.clear();
+                }
+            }
+            "rotation_player" => {
+                rotation_player_rows.push(rotation_player_detail_row(prepared.id, prepared.event)?);
+                if rotation_player_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_rotation_player_detail_rows(pool, &rotation_player_rows).await?;
+                    rotation_player_rows.clear();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    insert_timeline_detail_rows(pool, &timeline_rows).await?;
+    insert_mechanic_detail_rows(pool, &mechanic_rows).await?;
+    insert_goal_tag_detail_rows(pool, &goal_tag_rows).await?;
+    insert_touch_detail_rows(pool, &touch_rows).await?;
+    insert_rotation_player_detail_rows(pool, &rotation_player_rows).await?;
+
+    Ok(())
+}
+
+fn timeline_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<TimelineDetailRow> {
+    Ok(TimelineDetailRow {
+        event_id,
+        kind: required_kind(&event.payload)?,
+        player_subject_id: player_subject_id_from_field(&event.payload, "player_id")?,
+        team: event.team,
+    })
+}
+
+fn mechanic_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<MechanicDetailRow> {
+    let mut properties = Map::new();
+    append_mechanic_property_attributes(&event.payload, &mut properties);
+    Ok(MechanicDetailRow {
+        event_id,
+        mechanic: required_kind(&event.payload)?,
+        properties: Value::Object(properties),
+    })
+}
+
+fn goal_tag_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<GoalTagDetailRow> {
+    Ok(GoalTagDetailRow {
+        event_id,
+        goal_index: required_int(&event.payload, "goal_index")?,
+        kind: required_kind(&event.payload)?,
+        scoring_team: required_team_bool(&event.payload, "scoring_team_is_team_0")?,
+        scorer_subject_id: player_subject_id_from_field(&event.payload, "scorer")?,
+        confidence: required_float(&event.payload, "confidence")?,
+        modifiers: json_array_or_empty(&event.payload, "modifiers"),
+        evidence: json_array_or_empty(&event.payload, "evidence"),
+    })
+}
+
+fn touch_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<TouchDetailRow> {
+    Ok(TouchDetailRow {
+        event_id,
+        kind: required_string(&event.payload, "kind")?,
+        height_band: required_string(&event.payload, "height_band")?,
+        surface: required_string(&event.payload, "surface")?,
+        dodge_state: required_string(&event.payload, "dodge_state")?,
+        ball_speed_change: required_float(&event.payload, "ball_speed_change")?,
+        sample_frame: required_int(&event.payload, "sample_frame")?,
+        sample_time: required_float(&event.payload, "sample_time")?,
+    })
+}
+
+fn rotation_player_detail_row(
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<RotationPlayerDetailRow> {
+    Ok(RotationPlayerDetailRow {
+        event_id,
+        active: required_bool(&event.payload, "active")?,
+        current_role_state: required_normalized_variant(&event.payload, "current_role_state")?,
+        current_depth_state: required_normalized_variant(&event.payload, "current_depth_state")?,
+        active_game_time: float_value(&event.payload, &["active_game_time"]),
+        tracked_time: float_value(&event.payload, &["tracked_time"]),
+        time_first_man: float_value(&event.payload, &["time_first_man"]),
+        time_second_man: float_value(&event.payload, &["time_second_man"]),
+        time_third_man: float_value(&event.payload, &["time_third_man"]),
+        time_ambiguous_role: float_value(&event.payload, &["time_ambiguous_role"]),
+        time_behind_play: float_value(&event.payload, &["time_behind_play"]),
+        time_level_with_play: float_value(&event.payload, &["time_level_with_play"]),
+        time_ahead_of_play: float_value(&event.payload, &["time_ahead_of_play"]),
+        longest_first_man_stint_time: float_value(
+            &event.payload,
+            &["longest_first_man_stint_time"],
+        ),
+        first_man_stint_count: int_value(&event.payload, &["first_man_stint_count"]),
+        became_first_man_count: int_value(&event.payload, &["became_first_man_count"]),
+        lost_first_man_count: int_value(&event.payload, &["lost_first_man_count"]),
+    })
+}
+
+async fn insert_timeline_detail_rows(pool: &PgPool, rows: &[TimelineDetailRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_timeline_details (
+            event_id,
+            kind,
+            player_subject_id,
+            team
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(&detail.kind)
+            .push_bind(&detail.player_subject_id)
+            .push_bind(detail.team);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert timeline event details")?;
+
+    Ok(())
+}
+
+async fn insert_mechanic_detail_rows(pool: &PgPool, rows: &[MechanicDetailRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_mechanic_details (
+            event_id,
+            mechanic,
+            properties
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(&detail.mechanic)
+            .push_bind(&detail.properties);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert mechanic event details")?;
+
+    Ok(())
+}
+
+async fn insert_goal_tag_detail_rows(pool: &PgPool, rows: &[GoalTagDetailRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_goal_tag_details (
+            event_id,
+            goal_index,
+            kind,
+            scoring_team,
+            scorer_subject_id,
+            confidence,
+            modifiers,
+            evidence
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(detail.goal_index)
+            .push_bind(&detail.kind)
+            .push_bind(detail.scoring_team)
+            .push_bind(&detail.scorer_subject_id)
+            .push_bind(detail.confidence)
+            .push_bind(&detail.modifiers)
+            .push_bind(&detail.evidence);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert goal tag event details")?;
+
+    Ok(())
+}
+
+async fn insert_touch_detail_rows(pool: &PgPool, rows: &[TouchDetailRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_touch_details (
+            event_id,
+            kind,
+            height_band,
+            surface,
+            dodge_state,
+            ball_speed_change,
+            sample_frame,
+            sample_time
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(&detail.kind)
+            .push_bind(&detail.height_band)
+            .push_bind(&detail.surface)
+            .push_bind(&detail.dodge_state)
+            .push_bind(detail.ball_speed_change)
+            .push_bind(detail.sample_frame)
+            .push_bind(detail.sample_time);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert touch event details")?;
+
+    Ok(())
+}
+
+async fn insert_rotation_player_detail_rows(
+    pool: &PgPool,
+    rows: &[RotationPlayerDetailRow],
+) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_rotation_player_details (
+            event_id,
+            active,
+            current_role_state,
+            current_depth_state,
+            active_game_time,
+            tracked_time,
+            time_first_man,
+            time_second_man,
+            time_third_man,
+            time_ambiguous_role,
+            time_behind_play,
+            time_level_with_play,
+            time_ahead_of_play,
+            longest_first_man_stint_time,
+            first_man_stint_count,
+            became_first_man_count,
+            lost_first_man_count
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(detail.active)
+            .push_bind(&detail.current_role_state)
+            .push_bind(&detail.current_depth_state)
+            .push_bind(detail.active_game_time)
+            .push_bind(detail.tracked_time)
+            .push_bind(detail.time_first_man)
+            .push_bind(detail.time_second_man)
+            .push_bind(detail.time_third_man)
+            .push_bind(detail.time_ambiguous_role)
+            .push_bind(detail.time_behind_play)
+            .push_bind(detail.time_level_with_play)
+            .push_bind(detail.time_ahead_of_play)
+            .push_bind(detail.longest_first_man_stint_time)
+            .push_bind(detail.first_man_stint_count)
+            .push_bind(detail.became_first_man_count)
+            .push_bind(detail.lost_first_man_count);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert rotation player event details")?;
+
+    Ok(())
+}
+
 async fn insert_play_event_payload(pool: &PgPool, event_id: Uuid, payload: &Value) -> Result<()> {
     sqlx::query(
         r#"
@@ -1596,33 +2594,39 @@ async fn insert_play_event_scalar_fields(
     event_id: Uuid,
     event: &IndexedEvent,
 ) -> Result<()> {
-    for field in event_scalar_fields(event) {
-        sqlx::query(
-            r#"
-            INSERT INTO play_event_scalar_fields (
-                event_id,
-                field_source,
-                field_path,
-                value_kind,
-                string_value,
-                numeric_value,
-                boolean_value
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
-            ON CONFLICT DO NOTHING
-            "#,
+    let fields = event_scalar_fields(event);
+    if fields.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_scalar_fields (
+            event_id,
+            field_source,
+            field_path,
+            value_kind,
+            string_value,
+            numeric_value,
+            boolean_value
         )
-        .bind(event_id)
-        .bind(field.source)
-        .bind(&field.path)
-        .bind(field.value_kind)
-        .bind(&field.string_value)
-        .bind(field.numeric_value)
-        .bind(field.boolean_value)
+        "#,
+    );
+    query.push_values(fields, |mut row, field| {
+        row.push_bind(event_id)
+            .push_bind(field.source)
+            .push_bind(field.path)
+            .push_bind(field.value_kind)
+            .push_bind(field.string_value)
+            .push_bind(field.numeric_value)
+            .push_bind(field.boolean_value);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
         .execute(pool)
         .await
-        .context("failed to insert play event scalar field")?;
-    }
+        .context("failed to insert play event scalar fields")?;
 
     Ok(())
 }
