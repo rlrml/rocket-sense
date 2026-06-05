@@ -124,7 +124,9 @@ fn event_review_page_exposes_current_event_type_filters() {
         "speed_flip",
         "wavedash",
     ] {
-        assert!(EVENT_REVIEW_PAGE.contains(&format!(r#"value="{mechanic}""#)));
+        assert!(EVENT_REVIEW_PAGE.contains(&format!(
+            r#"<input type="checkbox" name="event-type" value="{mechanic}">"#
+        )));
     }
 
     assert!(EVENT_REVIEW_PAGE.contains("<title>Events review</title>"));
@@ -132,6 +134,8 @@ fn event_review_page_exposes_current_event_type_filters() {
     assert!(EVENT_REVIEW_PAGE.contains(r#"<h2>Event filters</h2>"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-type""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"autocomplete="off""#));
+    assert!(EVENT_REVIEW_PAGE.contains("resetEventTypeFilters"));
     assert!(EVENT_REVIEW_PAGE.contains(r#"href="/api/v1/events?review-status=unreviewed""#));
 }
 

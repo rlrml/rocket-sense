@@ -282,7 +282,7 @@
       <h1>Events review</h1>
       <a class="api-link" href="/api/v1/events?review-status=unreviewed">API queue</a>
     </div>
-    <form method="get" action="/events/review/open">
+    <form method="get" action="/events/review/open" autocomplete="off">
       <section>
         <h2>Event filters</h2>
         <div class="mechanic-grid">
@@ -363,5 +363,14 @@
       </aside>
     </form>
   </main>
+  <script>
+    function resetEventTypeFilters() {
+      document.querySelectorAll('input[name="event-type"]').forEach((input) => {
+        input.checked = false;
+      });
+    }
+
+    window.addEventListener("pageshow", resetEventTypeFilters);
+  </script>
 </body>
 </html>
