@@ -82,7 +82,7 @@
           ];
           cargoLock.lockFile = ./Cargo.lock;
           auditable = false;
-          RUST_MIN_STACK = "134217728";
+          RUST_MIN_STACK = "268435456";
           inherit nativeBuildInputs buildInputs;
         };
       in
