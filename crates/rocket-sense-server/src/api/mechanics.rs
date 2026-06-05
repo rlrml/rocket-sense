@@ -18,6 +18,8 @@ mod tests;
 
 const EVENT_REVIEW_PREROLL_SECONDS: f64 = 4.0;
 const EVENT_REVIEW_POSTROLL_SECONDS: f64 = 3.0;
+const DEFAULT_EVENT_REVIEW_PAGE_SIZE: u32 = 100;
+const MAX_EVENT_REVIEW_PAGE_SIZE: u32 = 5_000;
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
@@ -29,6 +31,7 @@ pub fn public_router() -> Router<AppState> {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/events", get(list_mechanic_events))
         .route("/events/review-playlist", get(event_review_playlist))
         .route(
             "/events/playlists",
@@ -58,6 +61,10 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/mechanics/events/{event_id}/reviews",
+            post(create_mechanic_event_review),
+        )
+        .route(
+            "/events/{event_id}/reviews",
             post(create_mechanic_event_review),
         )
 }
@@ -119,7 +126,9 @@ impl MechanicEventsQuery {
                         .event_ids
                         .push(Uuid::parse_str(value).map_err(ApiError::bad_request)?);
                 }
-                "mechanic" if !value.is_empty() => parsed.mechanic.push(value.to_owned()),
+                "event-type" | "eventType" | "mechanic" if !value.is_empty() => {
+                    parsed.mechanic.push(value.to_owned())
+                }
                 "detector" if !value.is_empty() => parsed.detector.push(value.to_owned()),
                 "review-status" => parsed.review_status = non_empty_string(value),
                 "min-confidence" => {
@@ -363,10 +372,12 @@ pub struct MechanicEventsResponse {
 pub struct MechanicEventResponse {
     pub id: Uuid,
     pub replay_id: Uuid,
+    pub replay_label: Option<String>,
     pub analysis_run_id: Uuid,
     pub mechanic: String,
     pub detector: String,
     pub player_id: Option<String>,
+    pub player_name: Option<String>,
     pub team: Option<i32>,
     pub start_frame: Option<i32>,
     pub end_frame: Option<i32>,
@@ -397,6 +408,8 @@ pub struct EventReviewPlaylist {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistPage {
+    pub next: Option<String>,
+    pub previous: Option<String>,
     pub count: u32,
     pub limit: u32,
     pub offset: u32,
@@ -438,12 +451,15 @@ pub struct PlaylistBound {
 #[serde(rename_all = "camelCase")]
 pub struct PlaylistItemMeta {
     pub event_id: Uuid,
+    pub event_type: String,
+    pub event_type_label: String,
     pub mechanic: String,
     pub mechanic_label: String,
     pub detector: String,
     pub confidence: Option<f64>,
     pub reason: Option<String>,
     pub player_id: Option<String>,
+    pub player_name: Option<String>,
     pub team: Option<String>,
     pub review_status: Option<String>,
     pub clip: PlaylistItemClip,
@@ -839,7 +855,10 @@ impl MechanicEventFilters {
                 .player_id
                 .map(|value| value.trim().to_owned())
                 .filter(|value| !value.is_empty()),
-            count: query.count.unwrap_or(500).clamp(1, 5_000),
+            count: query
+                .count
+                .unwrap_or(DEFAULT_EVENT_REVIEW_PAGE_SIZE)
+                .clamp(1, MAX_EVENT_REVIEW_PAGE_SIZE),
             offset: query.offset.unwrap_or(0),
         })
     }
@@ -866,12 +885,12 @@ impl MechanicEventFilters {
             .trim()
             .to_owned();
         let entity = json_string(source.get("entity"))?
-            .unwrap_or_else(|| "mechanic_event".to_owned())
+            .unwrap_or_else(|| "event".to_owned())
             .trim()
             .to_owned();
-        if entity != "mechanic_event" {
+        if entity != "event" && entity != "mechanic_event" {
             return Err(ApiError::bad_request(
-                "playlist spec source entity must be mechanic_event",
+                "playlist spec source entity must be event",
             ));
         }
 
@@ -893,7 +912,10 @@ impl MechanicEventFilters {
                 let mut filters = Self::from_filter_value(&empty_filters, page)?;
                 filters.event_ids = event_ids;
                 if !filters.event_ids.is_empty() {
-                    filters.count = filters.count.max(filters.event_ids.len() as u32).min(5_000);
+                    filters.count = filters
+                        .count
+                        .max(filters.event_ids.len() as u32)
+                        .min(MAX_EVENT_REVIEW_PAGE_SIZE);
                 }
                 Ok(filters)
             }
@@ -909,8 +931,15 @@ impl MechanicEventFilters {
                 "playlist spec filters must be an object",
             ));
         };
-        let mechanics =
-            json_string_vec(object.get("mechanics").or_else(|| object.get("mechanic")))?;
+        let mechanics = json_string_vec(
+            object
+                .get("eventTypes")
+                .or_else(|| object.get("event-types"))
+                .or_else(|| object.get("eventType"))
+                .or_else(|| object.get("event-type"))
+                .or_else(|| object.get("mechanics"))
+                .or_else(|| object.get("mechanic")),
+        )?;
         let detectors =
             json_string_vec(object.get("detectors").or_else(|| object.get("detector")))?;
         let event_ids = json_uuid_vec(object.get("eventIds").or_else(|| object.get("event-id")))?;
@@ -954,8 +983,8 @@ impl MechanicEventFilters {
                 .and_then(|page| page.get("limit").or_else(|| page.get("count")))
                 .or_else(|| object.get("count")),
         )?
-        .unwrap_or(500)
-        .clamp(1, 5_000);
+        .unwrap_or(DEFAULT_EVENT_REVIEW_PAGE_SIZE)
+        .clamp(1, MAX_EVENT_REVIEW_PAGE_SIZE);
         let offset = json_u32(
             page_object
                 .and_then(|page| page.get("offset"))
@@ -991,12 +1020,16 @@ impl MechanicEventFilters {
 }
 
 fn event_review_playlist_url(filters: &MechanicEventFilters) -> String {
+    event_review_playlist_url_with_offset(filters, filters.offset)
+}
+
+fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset: u32) -> String {
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     for event_id in &filters.event_ids {
         query.append_pair("event-id", &event_id.to_string());
     }
     for mechanic in &filters.mechanics {
-        query.append_pair("mechanic", mechanic);
+        query.append_pair("event-type", mechanic);
     }
     for detector in &filters.detectors {
         query.append_pair("detector", detector);
@@ -1014,7 +1047,7 @@ fn event_review_playlist_url(filters: &MechanicEventFilters) -> String {
         query.append_pair("player-id", player_id);
     }
     query.append_pair("count", &filters.count.to_string());
-    query.append_pair("offset", &filters.offset.to_string());
+    query.append_pair("offset", &offset.to_string());
 
     let query_string = query.finish();
     if query_string.is_empty() {
@@ -1043,7 +1076,7 @@ fn normalize_saved_playlist_spec(spec: Value) -> Result<Value, ApiError> {
         Ok(serde_json::json!({
             "source": {
                 "kind": "snapshot",
-                "entity": "mechanic_event",
+                "entity": "event",
                 "itemIds": filters.event_ids,
             },
             "page": {
@@ -1060,10 +1093,10 @@ fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
     serde_json::json!({
         "source": {
             "kind": "query",
-            "entity": "mechanic_event",
+            "entity": "event",
             "filters": {
                 "eventIds": filters.event_ids,
-                "mechanics": filters.mechanics,
+                "eventTypes": filters.mechanics,
                 "detectors": filters.detectors,
                 "reviewStatus": filters.review_status,
                 "minConfidence": filters.min_confidence,
@@ -1169,10 +1202,12 @@ async fn find_mechanic_events(
         SELECT
             event.id,
             event.replay_id,
+            NULLIF(replay.original_file_name, '') AS replay_label,
             event.analysis_run_id,
             regexp_replace(event_type.key, '^mechanic\.', '') AS mechanic,
             event.source AS detector,
             event.primary_subject_id AS player_id,
+            NULLIF(replay_player.name, '') AS player_name,
             event.team,
             event.start_frame,
             event.end_frame,
@@ -1193,6 +1228,12 @@ async fn find_mechanic_events(
           ON payload.event_id = event.id
         JOIN replays replay
           ON replay.id = event.replay_id
+        LEFT JOIN replay_players replay_player
+          ON replay_player.replay_id = event.replay_id
+         AND event.primary_subject_kind = 'player'
+         AND replay_player.platform IS NOT NULL
+         AND replay_player.platform_player_id IS NOT NULL
+         AND concat(replay_player.platform, ':', replay_player.platform_player_id) = event.primary_subject_id
         LEFT JOIN LATERAL (
             SELECT id, status
             FROM event_reviews
@@ -1264,10 +1305,12 @@ fn mechanic_event_from_row(
     Ok(MechanicEventResponse {
         id: row.try_get("id")?,
         replay_id: row.try_get("replay_id")?,
+        replay_label: row.try_get("replay_label")?,
         analysis_run_id: row.try_get("analysis_run_id")?,
         mechanic: row.try_get("mechanic")?,
         detector: row.try_get("detector")?,
         player_id: row.try_get("player_id")?,
+        player_name: row.try_get("player_name")?,
         team: row.try_get("team")?,
         start_frame: row.try_get("start_frame")?,
         end_frame: row.try_get("end_frame")?,
@@ -1290,13 +1333,22 @@ fn build_review_playlist(
     filters: &MechanicEventFilters,
     saved_playlist_id: Option<Uuid>,
 ) -> EventReviewPlaylist {
-    let mut replay_ids = Vec::<Uuid>::new();
+    let mut replays = Vec::<(Uuid, Option<String>)>::new();
     for event in &events {
-        if !replay_ids.contains(&event.replay_id) {
-            replay_ids.push(event.replay_id);
+        if !replays
+            .iter()
+            .any(|(replay_id, _)| *replay_id == event.replay_id)
+        {
+            replays.push((event.replay_id, event.replay_label.clone()));
         }
     }
     let count = events.len() as u32;
+    let next = (count == filters.count).then(|| {
+        event_review_playlist_url_with_offset(filters, filters.offset.saturating_add(count))
+    });
+    let previous = (filters.offset > 0).then(|| {
+        event_review_playlist_url_with_offset(filters, filters.offset.saturating_sub(filters.count))
+    });
 
     EventReviewPlaylist {
         version: 1,
@@ -1308,16 +1360,18 @@ fn build_review_playlist(
             time_base: "rawReplay",
         },
         page: PlaylistPage {
+            next,
+            previous,
             count,
             limit: filters.count,
             offset: filters.offset,
         },
-        replays: replay_ids
+        replays: replays
             .into_iter()
-            .map(|replay_id| PlaylistReplay {
+            .map(|(replay_id, replay_label)| PlaylistReplay {
                 id: replay_id.to_string(),
                 path: format!("/api/v1/replays/{replay_id}/file"),
-                label: replay_id.to_string(),
+                label: replay_label.unwrap_or_else(|| replay_id.to_string()),
                 meta: serde_json::json!({ "rocketSenseReplayId": replay_id }),
             })
             .collect(),
@@ -1345,21 +1399,29 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     let clip_end = (end_time + EVENT_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
     let (start_bound, end_bound) = playlist_playback_bounds(clip_start, clip_end);
     let mechanic_label = mechanic_label(&event.mechanic);
+    let label = event
+        .player_name
+        .as_deref()
+        .map(|player_label| format!("{player_label} - {mechanic_label} candidate {}", index + 1))
+        .unwrap_or_else(|| format!("{mechanic_label} candidate {}", index + 1));
 
     PlaylistItem {
         id: event.id.to_string(),
         replay: event.replay_id.to_string(),
         start: start_bound,
         end: end_bound,
-        label: format!("{mechanic_label} candidate {}", index + 1),
+        label,
         meta: PlaylistItemMeta {
             event_id: event.id,
+            event_type: event.mechanic.clone(),
+            event_type_label: mechanic_label.clone(),
             mechanic: event.mechanic,
             mechanic_label,
             detector: event.detector,
             confidence: event.confidence,
             reason: event.reason,
             player_id: event.player_id.clone(),
+            player_name: event.player_name,
             team: event.team.map(|team| {
                 if team == 0 {
                     "blue".to_owned()

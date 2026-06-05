@@ -19,8 +19,8 @@ fn event_review_playlist_url_preserves_filter_fields() {
     let url = event_review_playlist_url(&filters);
 
     assert!(url.starts_with("/api/v1/events/review-playlist?"));
-    assert!(url.contains("mechanic=wavedash"));
-    assert!(url.contains("mechanic=speed_flip"));
+    assert!(url.contains("event-type=wavedash"));
+    assert!(url.contains("event-type=speed_flip"));
     assert!(url.contains("detector=stats_timeline"));
     assert!(url.contains("review-status=unreviewed"));
     assert!(url.contains("min-confidence=0.7"));
@@ -49,15 +49,15 @@ fn event_review_open_targets_stats_evaluation_player() {
 
     assert!(url.starts_with("/subtr-actor/?reviewPlaylist="));
     assert!(!url.starts_with("/subtr-actor/review"));
-    assert!(url.contains("mechanic%3Dwavedash"));
-    assert!(url.contains("mechanic%3Dspeed_flip"));
+    assert!(url.contains("event-type%3Dwavedash"));
+    assert!(url.contains("event-type%3Dspeed_flip"));
 }
 
 #[test]
-fn mechanic_events_query_accepts_repeated_mechanic_fields() {
+fn mechanic_events_query_accepts_repeated_event_type_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let query = MechanicEventsQuery::from_raw_query(Some(
-        "mechanic=wavedash&mechanic=speed_flip&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&player-id=steam%3Aabc123&count=1000&offset=25",
+        "event-type=wavedash&event-type=speed_flip&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&player-id=steam%3Aabc123&count=1000&offset=25",
     ))
     .unwrap();
 
@@ -73,7 +73,15 @@ fn mechanic_events_query_accepts_repeated_mechanic_fields() {
 }
 
 #[test]
-fn event_review_page_exposes_current_mechanic_filters() {
+fn mechanic_events_query_still_accepts_legacy_mechanic_fields() {
+    let query =
+        MechanicEventsQuery::from_raw_query(Some("mechanic=wavedash&mechanic=speed_flip")).unwrap();
+
+    assert_eq!(query.mechanic, ["wavedash", "speed_flip"]);
+}
+
+#[test]
+fn event_review_page_exposes_current_event_type_filters() {
     for mechanic in [
         "air_dribble",
         "ball_carry",
@@ -94,9 +102,10 @@ fn event_review_page_exposes_current_mechanic_filters() {
 
     assert!(EVENT_REVIEW_PAGE.contains("<title>Events review</title>"));
     assert!(EVENT_REVIEW_PAGE.contains(r#"<h1>Events review</h1>"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"<h2>Event filters</h2>"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-type""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
-    assert!(EVENT_REVIEW_PAGE
-        .contains(r#"href="/api/v1/events/review-playlist?review-status=unreviewed&count=1000""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"href="/api/v1/events?review-status=unreviewed""#));
 }
 
 #[test]
@@ -110,9 +119,9 @@ fn saved_playlist_spec_normalizes_flat_legacy_filters() {
     .unwrap();
 
     assert_eq!(spec["source"]["kind"], "query");
-    assert_eq!(spec["source"]["entity"], "mechanic_event");
+    assert_eq!(spec["source"]["entity"], "event");
     assert_eq!(
-        spec["source"]["filters"]["mechanics"],
+        spec["source"]["filters"]["eventTypes"],
         serde_json::json!(["double_tap"])
     );
     assert_eq!(spec["source"]["filters"]["reviewStatus"], "unreviewed");
@@ -125,9 +134,9 @@ fn saved_playlist_spec_accepts_generic_query_source() {
     let spec = normalize_saved_playlist_spec(serde_json::json!({
         "source": {
             "kind": "query",
-            "entity": "mechanic_event",
+            "entity": "event",
             "filters": {
-                "mechanics": "flick",
+                "eventTypes": "flick",
                 "minConfidence": 0.75
             }
         },
@@ -139,7 +148,7 @@ fn saved_playlist_spec_accepts_generic_query_source() {
 
     assert_eq!(spec["source"]["kind"], "query");
     assert_eq!(
-        spec["source"]["filters"]["mechanics"],
+        spec["source"]["filters"]["eventTypes"],
         serde_json::json!(["flick"])
     );
     assert_eq!(spec["source"]["filters"]["minConfidence"], 0.75);
@@ -154,19 +163,19 @@ fn saved_playlist_spec_accepts_snapshot_source() {
     let spec = normalize_saved_playlist_spec(serde_json::json!({
         "source": {
             "kind": "snapshot",
-            "entity": "mechanic_event",
+            "entity": "event",
             "itemIds": [first, second]
         }
     }))
     .unwrap();
 
     assert_eq!(spec["source"]["kind"], "snapshot");
-    assert_eq!(spec["source"]["entity"], "mechanic_event");
+    assert_eq!(spec["source"]["entity"], "event");
     assert_eq!(
         spec["source"]["itemIds"],
         serde_json::json!([first, second])
     );
-    assert_eq!(spec["page"]["limit"], 500);
+    assert_eq!(spec["page"]["limit"], 100);
 }
 
 #[test]
@@ -181,7 +190,7 @@ fn saved_playlist_spec_rejects_unknown_entities() {
     .unwrap_err();
 
     assert_eq!(error.status, StatusCode::BAD_REQUEST);
-    assert!(error.message.contains("mechanic_event"));
+    assert!(error.message.contains("event"));
 }
 
 #[test]
@@ -204,6 +213,64 @@ fn review_playlist_exposes_page_metadata() {
     assert_eq!(playlist.page.count, 0);
     assert_eq!(playlist.page.limit, 50);
     assert_eq!(playlist.page.offset, 100);
+    assert_eq!(
+        playlist.page.previous.as_deref(),
+        Some("/api/v1/events/review-playlist?count=50&offset=50")
+    );
+    assert_eq!(playlist.page.next, None);
+}
+
+#[test]
+fn review_playlist_exposes_next_page_when_page_is_full() {
+    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let analysis_run_id = Uuid::parse_str("019e5336-650b-770a-bd81-7d09c6e4afe9").unwrap();
+    let filters = MechanicEventFilters {
+        event_ids: Vec::new(),
+        mechanics: vec!["speed_flip".to_owned()],
+        detectors: Vec::new(),
+        review_status: Some("unreviewed".to_owned()),
+        min_confidence: None,
+        replay_id: None,
+        player_id: None,
+        count: 2,
+        offset: 4,
+    };
+    let events = (0..2)
+        .map(|index| MechanicEventResponse {
+            id: Uuid::now_v7(),
+            replay_id,
+            replay_label: None,
+            analysis_run_id,
+            mechanic: "speed_flip".to_owned(),
+            detector: "stats_timeline".to_owned(),
+            player_id: None,
+            player_name: None,
+            team: None,
+            start_frame: None,
+            end_frame: None,
+            event_frame: None,
+            start_time: Some(index as f64),
+            end_time: Some(index as f64 + 1.0),
+            event_time: Some(index as f64),
+            confidence: None,
+            reason: None,
+            payload: serde_json::json!({}),
+            review_status: None,
+            latest_review_id: None,
+            created_at: Utc::now(),
+        })
+        .collect();
+
+    let playlist = build_review_playlist(events, "Review".to_owned(), &filters, None);
+
+    assert_eq!(
+        playlist.page.next.as_deref(),
+        Some("/api/v1/events/review-playlist?event-type=speed_flip&review-status=unreviewed&count=2&offset=6")
+    );
+    assert_eq!(
+        playlist.page.previous.as_deref(),
+        Some("/api/v1/events/review-playlist?event-type=speed_flip&review-status=unreviewed&count=2&offset=2")
+    );
 }
 
 #[test]
@@ -216,10 +283,12 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
         MechanicEventResponse {
             id: event_id,
             replay_id,
+            replay_label: Some("ranked-doubles.replay".to_owned()),
             analysis_run_id,
             mechanic: "speed_flip".to_owned(),
             detector: "stats_timeline".to_owned(),
             player_id: Some("steam:abc123".to_owned()),
+            player_name: Some("Fast Player".to_owned()),
             team: Some(0),
             start_frame: Some(100),
             end_frame: Some(130),
@@ -240,6 +309,8 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
     assert_eq!(item.start.value, 8.5);
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
+    assert_eq!(item.label, "Fast Player - Speed Flip candidate 1");
+    assert_eq!(item.meta.player_name.as_deref(), Some("Fast Player"));
     assert_eq!(item.meta.clip.start_time, 8.5);
     assert_eq!(item.meta.clip.end_time, 16.5);
     assert_eq!(item.meta.clip.preroll_seconds, 4.0);
@@ -258,10 +329,12 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
         MechanicEventResponse {
             id: event_id,
             replay_id,
+            replay_label: None,
             analysis_run_id,
             mechanic: "speed_flip".to_owned(),
             detector: "stats_timeline".to_owned(),
             player_id: Some("steam:abc123".to_owned()),
+            player_name: None,
             team: Some(0),
             start_frame: None,
             end_frame: None,
@@ -282,4 +355,5 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
     assert_eq!(item.start.value, 8.5);
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
+    assert_eq!(item.label, "Speed Flip candidate 1");
 }

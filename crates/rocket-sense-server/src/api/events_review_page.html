@@ -280,25 +280,25 @@
   <main>
     <div class="page-title">
       <h1>Events review</h1>
-      <a class="api-link" href="/api/v1/mechanics/events?review-status=unreviewed">API queue</a>
+      <a class="api-link" href="/api/v1/events?review-status=unreviewed">API queue</a>
     </div>
     <form method="get" action="/events/review/open">
       <section>
-        <h2>Mechanic filters</h2>
+        <h2>Event filters</h2>
         <div class="mechanic-grid">
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="air_dribble" checked> Air dribble</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="ball_carry" checked> Ball carry</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="ceiling_shot" checked> Ceiling shot</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="double_tap" checked> Double tap</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="flick" checked> Flick</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="flip_reset" checked> Flip reset</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="half_flip" checked> Half flip</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="half_volley" checked> Half volley</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="musty_flick" checked> Musty flick</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="one_timer" checked> One timer</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="pass" checked> Pass</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="speed_flip" checked> Speed flip</label>
-          <label class="check-tile"><input type="checkbox" name="mechanic" value="wavedash" checked> Wavedash</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="air_dribble" checked> Air dribble</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="ball_carry" checked> Ball carry</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="ceiling_shot" checked> Ceiling shot</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="double_tap" checked> Double tap</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="flick" checked> Flick</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="flip_reset" checked> Flip reset</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="half_flip" checked> Half flip</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="half_volley" checked> Half volley</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="musty_flick" checked> Musty flick</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="one_timer" checked> One timer</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="pass" checked> Pass</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="speed_flip" checked> Speed flip</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="wavedash" checked> Wavedash</label>
         </div>
 
         <div class="filter-grid">
@@ -342,7 +342,7 @@
         <p class="side-note">The player opens a filtered review playlist and loads clips through the stat evaluation player.</p>
         <div class="actions">
           <button type="submit">Start review</button>
-          <a class="secondary-link" href="/api/v1/events/review-playlist?review-status=unreviewed&count=1000">Open manifest</a>
+          <a class="secondary-link" href="/api/v1/events/review-playlist?review-status=unreviewed&count=100">Open manifest</a>
         </div>
       </aside>
     </form>
