@@ -2645,7 +2645,18 @@ fn remote_id_value_to_subject_id(value: &Value) -> Result<String> {
             ))
         }
     };
-    Ok(format!("{platform}:{}", json_scalar_text(value)?))
+    Ok(format!(
+        "{platform}:{}",
+        remote_id_platform_value_text(value)?
+    ))
+}
+
+fn remote_id_platform_value_text(value: &Value) -> Result<String> {
+    value
+        .as_object()
+        .and_then(|object| object.get("online_id"))
+        .map(json_scalar_text)
+        .unwrap_or_else(|| json_scalar_text(value))
 }
 
 fn json_scalar_text(value: &Value) -> Result<String> {
