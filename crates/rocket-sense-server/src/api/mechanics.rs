@@ -79,6 +79,12 @@ pub struct MechanicEventsQuery {
     pub event_ids: Vec<Uuid>,
     #[serde(default, deserialize_with = "deserialize_string_vec")]
     pub mechanic: Vec<String>,
+    #[serde(
+        default,
+        rename = "event-category",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub event_category: Vec<String>,
     #[serde(default, deserialize_with = "deserialize_string_vec")]
     pub detector: Vec<String>,
     #[serde(rename = "review-status")]
@@ -106,6 +112,7 @@ impl MechanicEventsQuery {
         let mut parsed = Self {
             event_ids: Vec::new(),
             mechanic: Vec::new(),
+            event_category: Vec::new(),
             detector: Vec::new(),
             review_status: None,
             min_confidence: None,
@@ -128,6 +135,9 @@ impl MechanicEventsQuery {
                 }
                 "event-type" | "eventType" | "mechanic" if !value.is_empty() => {
                     parsed.mechanic.push(value.to_owned())
+                }
+                "event-category" | "eventCategory" | "category" if !value.is_empty() => {
+                    parsed.event_category.push(value.to_owned())
                 }
                 "detector" if !value.is_empty() => parsed.detector.push(value.to_owned()),
                 "review-status" => parsed.review_status = non_empty_string(value),
@@ -374,6 +384,9 @@ pub struct MechanicEventResponse {
     pub replay_id: Uuid,
     pub replay_label: Option<String>,
     pub analysis_run_id: Uuid,
+    pub event_type: String,
+    pub event_type_label: String,
+    pub event_category: String,
     pub mechanic: String,
     pub detector: String,
     pub player_id: Option<String>,
@@ -818,6 +831,7 @@ async fn get_saved_playlist(
 struct MechanicEventFilters {
     event_ids: Vec<Uuid>,
     mechanics: Vec<String>,
+    event_categories: Vec<String>,
     detectors: Vec<String>,
     review_status: Option<String>,
     min_confidence: Option<f64>,
@@ -847,6 +861,7 @@ impl MechanicEventFilters {
         Ok(Self {
             event_ids: query.event_ids,
             mechanics: normalize_terms(query.mechanic),
+            event_categories: normalize_terms(query.event_category),
             detectors: normalize_terms(query.detector),
             review_status,
             min_confidence: query.min_confidence,
@@ -942,6 +957,15 @@ impl MechanicEventFilters {
         )?;
         let detectors =
             json_string_vec(object.get("detectors").or_else(|| object.get("detector")))?;
+        let event_categories = json_string_vec(
+            object
+                .get("eventCategories")
+                .or_else(|| object.get("event-categories"))
+                .or_else(|| object.get("eventCategory"))
+                .or_else(|| object.get("event-category"))
+                .or_else(|| object.get("categories"))
+                .or_else(|| object.get("category")),
+        )?;
         let event_ids = json_uuid_vec(object.get("eventIds").or_else(|| object.get("event-id")))?;
         let review_status = json_string(
             object
@@ -995,6 +1019,7 @@ impl MechanicEventFilters {
         Ok(Self {
             event_ids,
             mechanics: normalize_terms(mechanics),
+            event_categories: normalize_terms(event_categories),
             detectors: normalize_terms(detectors),
             review_status,
             min_confidence,
@@ -1005,17 +1030,21 @@ impl MechanicEventFilters {
         })
     }
 
-    fn mechanic_event_type_keys(&self) -> Vec<String> {
-        self.mechanics
+    fn event_type_keys(&self) -> Vec<String> {
+        let mut keys = self
+            .mechanics
             .iter()
-            .map(|mechanic| {
-                if mechanic.starts_with("mechanic.") {
-                    mechanic.clone()
+            .flat_map(|event_type| {
+                if event_type.contains('.') {
+                    vec![event_type.clone()]
                 } else {
-                    format!("mechanic.{mechanic}")
+                    vec![event_type.clone(), format!("mechanic.{event_type}")]
                 }
             })
-            .collect()
+            .collect::<Vec<_>>();
+        keys.sort();
+        keys.dedup();
+        keys
     }
 }
 
@@ -1030,6 +1059,9 @@ fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset:
     }
     for mechanic in &filters.mechanics {
         query.append_pair("event-type", mechanic);
+    }
+    for category in &filters.event_categories {
+        query.append_pair("event-category", category);
     }
     for detector in &filters.detectors {
         query.append_pair("detector", detector);
@@ -1097,6 +1129,7 @@ fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
             "filters": {
                 "eventIds": filters.event_ids,
                 "eventTypes": filters.mechanics,
+                "eventCategories": filters.event_categories,
                 "detectors": filters.detectors,
                 "reviewStatus": filters.review_status,
                 "minConfidence": filters.min_confidence,
@@ -1204,7 +1237,13 @@ async fn find_mechanic_events(
             event.replay_id,
             NULLIF(replay.original_file_name, '') AS replay_label,
             event.analysis_run_id,
-            regexp_replace(event_type.key, '^mechanic\.', '') AS mechanic,
+            event_type.key AS event_type,
+            event_type.display_name AS event_type_label,
+            event_type.category AS event_category,
+            CASE
+                WHEN event_type.key LIKE 'mechanic.%' THEN regexp_replace(event_type.key, '^mechanic\.', '')
+                ELSE event_type.key
+            END AS mechanic,
             event.source AS detector,
             event.primary_subject_id AS player_id,
             NULLIF(replay_player.name, '') AS player_name,
@@ -1242,7 +1281,6 @@ async fn find_mechanic_events(
             LIMIT 1
         ) review ON TRUE
         WHERE event.analysis_run_id = replay.canonical_analysis_run_id
-          AND event_type.category = 'mechanic'
         "#,
     );
 
@@ -1253,10 +1291,16 @@ async fn find_mechanic_events(
             .push(")");
     }
     if !filters.mechanics.is_empty() {
-        let mechanic_event_type_keys = filters.mechanic_event_type_keys();
+        let event_type_keys = filters.event_type_keys();
         builder
             .push(" AND event_type.key = ANY(")
-            .push_bind(mechanic_event_type_keys)
+            .push_bind(event_type_keys)
+            .push(")");
+    }
+    if !filters.event_categories.is_empty() {
+        builder
+            .push(" AND event_type.category = ANY(")
+            .push_bind(&filters.event_categories)
             .push(")");
     }
     if !filters.detectors.is_empty() {
@@ -1307,6 +1351,9 @@ fn mechanic_event_from_row(
         replay_id: row.try_get("replay_id")?,
         replay_label: row.try_get("replay_label")?,
         analysis_run_id: row.try_get("analysis_run_id")?,
+        event_type: row.try_get("event_type")?,
+        event_type_label: row.try_get("event_type_label")?,
+        event_category: row.try_get("event_category")?,
         mechanic: row.try_get("mechanic")?,
         detector: row.try_get("detector")?,
         player_id: row.try_get("player_id")?,
@@ -1398,12 +1445,27 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     let clip_start = (start_time - EVENT_REVIEW_PREROLL_SECONDS).max(0.0);
     let clip_end = (end_time + EVENT_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
     let (start_bound, end_bound) = playlist_playback_bounds(clip_start, clip_end);
-    let mechanic_label = mechanic_label(&event.mechanic);
+    let event_type_label = event.event_type_label.clone();
+    let mechanic_label = if event.event_category == "mechanic" {
+        mechanic_label(&event.mechanic)
+    } else {
+        event_type_label.clone()
+    };
+    let item_label = if event.event_category == "mechanic" {
+        "candidate"
+    } else {
+        "review item"
+    };
     let label = event
         .player_name
         .as_deref()
-        .map(|player_label| format!("{player_label} - {mechanic_label} candidate {}", index + 1))
-        .unwrap_or_else(|| format!("{mechanic_label} candidate {}", index + 1));
+        .map(|player_label| {
+            format!(
+                "{player_label} - {event_type_label} {item_label} {}",
+                index + 1
+            )
+        })
+        .unwrap_or_else(|| format!("{event_type_label} {item_label} {}", index + 1));
 
     PlaylistItem {
         id: event.id.to_string(),
@@ -1413,8 +1475,8 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
         label,
         meta: PlaylistItemMeta {
             event_id: event.id,
-            event_type: event.mechanic.clone(),
-            event_type_label: mechanic_label.clone(),
+            event_type: event.event_type,
+            event_type_label,
             mechanic: event.mechanic,
             mechanic_label,
             detector: event.detector,
@@ -1437,7 +1499,7 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
                 postroll_seconds: clip_end - end_time,
             },
             target: PlaylistItemTarget {
-                kind: "mechanic",
+                kind: "event",
                 player_id: event.player_id,
                 start_time: event.start_time,
                 end_time: event.end_time,

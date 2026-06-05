@@ -286,22 +286,38 @@
       <section>
         <h2>Event filters</h2>
         <div class="mechanic-grid">
-          <label class="check-tile"><input type="checkbox" name="event-type" value="air_dribble" checked> Air dribble</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="ball_carry" checked> Ball carry</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="ceiling_shot" checked> Ceiling shot</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="double_tap" checked> Double tap</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="flick" checked> Flick</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="flip_reset" checked> Flip reset</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="half_flip" checked> Half flip</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="half_volley" checked> Half volley</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="musty_flick" checked> Musty flick</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="one_timer" checked> One timer</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="pass" checked> Pass</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="speed_flip" checked> Speed flip</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="wavedash" checked> Wavedash</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="air_dribble"> Air dribble</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="ball_carry"> Ball carry</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="ceiling_shot"> Ceiling shot</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="double_tap"> Double tap</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="flick"> Flick</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="flip_reset"> Flip reset</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="half_flip"> Half flip</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="half_volley"> Half volley</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="musty_flick"> Musty flick</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="one_timer"> One timer</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="pass"> Pass</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="speed_flip"> Speed flip</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="wavedash"> Wavedash</label>
         </div>
 
         <div class="filter-grid">
+          <label class="field">
+            Event category
+            <select name="event-category">
+              <option value="" selected>All indexed events</option>
+              <option value="mechanic">Mechanic</option>
+              <option value="goal_tag">Goal tag</option>
+              <option value="touch">Touch</option>
+              <option value="core">Core</option>
+              <option value="rotation">Rotation</option>
+              <option value="boost">Boost</option>
+              <option value="movement">Movement</option>
+              <option value="positioning">Positioning</option>
+              <option value="pressure">Pressure</option>
+              <option value="possession">Possession</option>
+            </select>
+          </label>
           <label class="field">
             Review status
             <select name="review-status">
