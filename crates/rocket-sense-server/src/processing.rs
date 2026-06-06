@@ -257,13 +257,14 @@ pub fn spawn_replay_processing(
 pub async fn enqueue_replay_reprocessing(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
+    permits: Arc<Semaphore>,
     options: ReplayReprocessOptions,
 ) -> Result<ReplayReprocessSummary> {
     let concurrency = options.concurrency.clamp(1, 4);
     let targets = reprocess_targets(&pool, &options).await?;
     let enqueued_replays = targets.len();
     if !targets.is_empty() {
-        spawn_reprocess_worker(pool, storage, targets, concurrency);
+        spawn_reprocess_worker(pool, storage, permits, targets, concurrency);
     }
 
     Ok(ReplayReprocessSummary {
@@ -278,13 +279,14 @@ pub async fn enqueue_replay_reprocessing(
 pub async fn enqueue_profile_timing_backfill(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
+    permits: Arc<Semaphore>,
     options: ReplayProfileTimingBackfillOptions,
 ) -> Result<ReplayProfileTimingBackfillSummary> {
     let concurrency = options.concurrency.clamp(1, 4);
     let targets = profile_timing_backfill_targets(&pool, &options).await?;
     let enqueued_replays = targets.len();
     if !targets.is_empty() {
-        spawn_profile_timing_backfill_worker(pool, storage, targets, concurrency);
+        spawn_profile_timing_backfill_worker(pool, storage, permits, targets, concurrency);
     }
 
     Ok(ReplayProfileTimingBackfillSummary {
@@ -299,6 +301,7 @@ pub async fn enqueue_profile_timing_backfill(
 fn spawn_profile_timing_backfill_worker(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
+    permits: Arc<Semaphore>,
     targets: Vec<ReplayProfileTimingBackfillTarget>,
     concurrency: usize,
 ) {
@@ -316,6 +319,7 @@ fn spawn_profile_timing_backfill_worker(
                 };
                 let pool = pool.clone();
                 let storage = storage.clone();
+                let permits = permits.clone();
                 tasks.spawn(async move {
                     let replay_id = target.replay_id;
                     let needs_positioning = target.needs_positioning;
@@ -324,10 +328,20 @@ fn spawn_profile_timing_backfill_worker(
                         %replay_id,
                         needs_positioning,
                         needs_rotation_player,
-                        "profile timing backfill started"
+                        "queued profile timing backfill"
+                    );
+                    let _permit = permits
+                        .acquire_owned()
+                        .await
+                        .context("profile timing backfill worker was cancelled before start")?;
+                    tracing::info!(
+                        %replay_id,
+                        needs_positioning,
+                        needs_rotation_player,
+                        "started profile timing backfill"
                     );
                     let result = backfill_profile_timing_events(pool, storage, target).await;
-                    (replay_id, result)
+                    Ok::<_, anyhow::Error>((replay_id, result))
                 });
             }
 
@@ -336,7 +350,7 @@ fn spawn_profile_timing_backfill_worker(
             };
 
             match result {
-                Ok((replay_id, Ok(inserted))) => {
+                Ok(Ok((replay_id, Ok(inserted)))) => {
                     succeeded += 1;
                     tracing::info!(
                         %replay_id,
@@ -347,7 +361,7 @@ fn spawn_profile_timing_backfill_worker(
                         "profile timing backfill succeeded"
                     );
                 }
-                Ok((replay_id, Err(error))) => {
+                Ok(Ok((replay_id, Err(error)))) => {
                     failed += 1;
                     tracing::error!(
                         %replay_id,
@@ -356,6 +370,16 @@ fn spawn_profile_timing_backfill_worker(
                         failed,
                         total,
                         "profile timing backfill failed"
+                    );
+                }
+                Ok(Err(error)) => {
+                    failed += 1;
+                    tracing::error!(
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "profile timing backfill task failed before start"
                     );
                 }
                 Err(error) => {
@@ -383,6 +407,7 @@ fn spawn_profile_timing_backfill_worker(
 fn spawn_reprocess_worker(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
+    permits: Arc<Semaphore>,
     targets: Vec<ReplayProcessingTarget>,
     concurrency: usize,
 ) {
@@ -400,8 +425,15 @@ fn spawn_reprocess_worker(
                 };
                 let pool = pool.clone();
                 let storage = storage.clone();
+                let permits = permits.clone();
                 tasks.spawn(async move {
                     let replay_id = target.replay_id;
+                    tracing::info!(%replay_id, "queued replay reprocessing");
+                    let _permit = permits
+                        .acquire_owned()
+                        .await
+                        .context("replay reprocessing worker was cancelled before start")?;
+                    tracing::info!(%replay_id, "started replay reprocessing");
                     let result = process_replay(
                         pool,
                         storage,
@@ -410,7 +442,7 @@ fn spawn_reprocess_worker(
                         target.storage_key,
                     )
                     .await;
-                    (replay_id, result)
+                    Ok::<_, anyhow::Error>((replay_id, result))
                 });
             }
 
@@ -419,7 +451,7 @@ fn spawn_reprocess_worker(
             };
 
             match result {
-                Ok((replay_id, Ok(()))) => {
+                Ok(Ok((replay_id, Ok(())))) => {
                     succeeded += 1;
                     tracing::info!(
                         %replay_id,
@@ -429,7 +461,7 @@ fn spawn_reprocess_worker(
                         "replay reprocessing succeeded"
                     );
                 }
-                Ok((replay_id, Err(error))) => {
+                Ok(Ok((replay_id, Err(error)))) => {
                     failed += 1;
                     tracing::error!(
                         %replay_id,
@@ -438,6 +470,16 @@ fn spawn_reprocess_worker(
                         failed,
                         total,
                         "replay reprocessing failed"
+                    );
+                }
+                Ok(Err(error)) => {
+                    failed += 1;
+                    tracing::error!(
+                        error = %error,
+                        succeeded,
+                        failed,
+                        total,
+                        "replay reprocessing task failed before start"
                     );
                 }
                 Err(error) => {
