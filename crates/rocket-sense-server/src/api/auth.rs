@@ -862,47 +862,147 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
   <title>Rocket Sense Profile</title>
   <style>
     :root {
-      color-scheme: light dark;
-      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f8fafc;
-      color: #172033;
+      color-scheme: light;
+      font-family: BlinkMacSystemFont, -apple-system, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: #ffffff;
+      color: #4a4a4a;
     }
 
     body {
       margin: 0;
       min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
+      background: #ffffff;
+      color: #4a4a4a;
+      font-size: 16px;
+      line-height: 24px;
     }
 
-    main {
-      width: min(100%, 760px);
-      display: grid;
+    header {
+      border-bottom: 1px solid #f5f5f5;
+      background: #ffffff;
+    }
+
+    .header-inner, main {
+      width: min(1152px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    .header-inner {
+      min-height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       gap: 18px;
     }
 
-    form, section {
-      border: 1px solid #d6dbe5;
-      border-radius: 8px;
+    .nav-left, .nav-links {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      min-height: 56px;
+    }
+
+    .brand-mark {
+      width: 64px;
+      display: flex;
+      align-items: center;
+      color: #00d1b2;
+      font-size: 28px;
+      line-height: 1;
+    }
+
+    .nav-item {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      color: #363636;
+      font-size: 16px;
+      line-height: 56px;
+      text-decoration: none;
+      white-space: nowrap;
+    }
+
+    .nav-item.active {
+      background: #f5f5f5;
+    }
+
+    main {
+      padding: 20px 0 32px;
+      display: grid;
+      gap: 24px;
+    }
+
+    section, form {
       background: #ffffff;
-      padding: 20px;
-      box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+    }
+
+    section {
+      display: grid;
+      gap: 14px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid #eeeeee;
+    }
+
+    section:last-child {
+      border-bottom: 0;
+    }
+
+    .profile-summary {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 18px;
+    }
+
+    .profile-copy {
+      min-width: 0;
+      display: grid;
+      gap: 4px;
+    }
+
+    .profile-actions {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .grid-two {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(320px, 0.85fr);
+      gap: 24px;
+      align-items: start;
     }
 
     h1 {
-      margin: 0 0 4px;
+      margin: 0;
+      color: #363636;
       font-size: 28px;
-      line-height: 1.15;
+      line-height: 34px;
+      font-weight: 700;
+    }
+
+    h2 {
+      margin: 0;
+      color: #363636;
+      font-size: 20px;
+      line-height: 28px;
+      font-weight: 700;
     }
 
     p {
       margin: 0;
-      color: #536179;
+      color: #536176;
       line-height: 1.5;
+    }
+
+    .status-line {
+      min-height: 24px;
+      color: #536176;
     }
 
     table {
@@ -923,7 +1023,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
     }
 
     th {
-      color: #536179;
+      color: #536176;
       font-size: 12px;
       font-weight: 750;
     }
@@ -934,13 +1034,13 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
 
     dl {
       display: grid;
-      grid-template-columns: max-content minmax(0, 1fr);
+      grid-template-columns: minmax(120px, max-content) minmax(0, 1fr);
       gap: 8px 16px;
-      margin: 16px 0 0;
+      margin: 0;
     }
 
     dt {
-      color: #536179;
+      color: #536176;
       font-weight: 700;
     }
 
@@ -952,59 +1052,77 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
 
     label {
       display: grid;
-      gap: 8px;
+      gap: 5px;
+      color: #536176;
+      font-size: 12px;
       font-weight: 650;
-      margin-top: 18px;
     }
 
-    input, textarea, pre {
+    input, textarea, pre, button {
       width: 100%;
       box-sizing: border-box;
-      border: 1px solid #c7ceda;
-      border-radius: 6px;
-      padding: 10px 12px;
+      border: 1px solid #dbdbdb;
+      border-radius: 4px;
       font: inherit;
       background: #ffffff;
-      color: #172033;
+      color: #363636;
+    }
+
+    input, button {
+      min-height: 36px;
+      padding: 0 11px;
+    }
+
+    input[type="file"] {
+      height: auto;
+      min-height: 36px;
+      padding: 6px 8px;
     }
 
     textarea {
       min-height: 120px;
+      padding: 10px 12px;
       resize: vertical;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
     }
 
+    form {
+      display: grid;
+      gap: 14px;
+    }
+
     button, .button {
       display: inline-flex;
+      width: auto;
+      min-height: 36px;
       align-items: center;
       justify-content: center;
-      margin-top: 16px;
-      border: 0;
-      border-radius: 6px;
-      padding: 10px 14px;
-      background: #165dff;
-      color: white;
-      font-weight: 700;
+      border: 1px solid #00d1b2;
+      border-radius: 4px;
+      padding: 0 12px;
+      background: #00d1b2;
+      color: #ffffff;
       cursor: pointer;
       text-decoration: none;
     }
 
-    .nav {
-      display: flex;
-      gap: 12px;
-      align-items: center;
+    .secondary-button {
+      border-color: #dbdbdb;
+      background: #ffffff;
+      color: #363636;
     }
 
-    .nav a {
-      color: #165dff;
-      font-weight: 700;
-      text-decoration: none;
+    .upload-form {
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) auto;
+      gap: 10px;
+      align-items: end;
     }
 
     button:disabled {
-      opacity: 0.6;
-      cursor: wait;
+      opacity: 0.55;
+      cursor: not-allowed;
     }
 
     pre {
@@ -1012,6 +1130,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
       white-space: pre-wrap;
       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       font-size: 13px;
+      padding: 10px 12px;
     }
 
     .hidden {
@@ -1023,11 +1142,11 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
     }
 
     .muted {
-      color: #536179;
+      color: #536176;
     }
 
     .replay-link {
-      color: #165dff;
+      color: #485fc7;
       font-weight: 700;
       text-decoration: none;
     }
@@ -1036,9 +1155,41 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
       text-decoration: underline;
     }
 
+    .upload-result {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .account-status-strong {
+      color: #363636;
+      font-weight: 700;
+    }
+
     @media (max-width: 620px) {
-      body {
-        padding: 12px;
+      .header-inner, main {
+        width: min(100% - 20px, 1152px);
+      }
+
+      .header-inner,
+      .profile-summary {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .nav-left, .nav-links {
+        min-height: 0;
+        flex-wrap: wrap;
+      }
+
+      .nav-item {
+        line-height: 40px;
+      }
+
+      .grid-two,
+      .upload-form {
+        grid-template-columns: 1fr;
       }
 
       dl {
@@ -1048,39 +1199,69 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
   </style>
 </head>
 <body>
+  <header>
+    <div class="header-inner">
+      <div class="nav-left">
+        <div class="brand-mark" aria-hidden="true">▰</div>
+        <nav class="nav-links" aria-label="Primary">
+          <a class="nav-item" href="/replays">Replays</a>
+          <a class="nav-item" href="/events/review">Events Review</a>
+          <a class="nav-item active" href="/profile">Profile</a>
+        </nav>
+      </div>
+    </div>
+  </header>
   <main>
-    <section>
-      <h1>Profile</h1>
-      <p>Use this page for API upload tokens and replay upload commands.</p>
-      <div class="nav">
-        <a href="/replays">Replay list</a>
-        <a href="/login">Login</a>
+    <section class="profile-summary">
+      <div class="profile-copy">
+        <h1>Profile</h1>
+        <p>Manage your account token, upload Rocket League replay files, and review recent uploads.</p>
+      </div>
+      <div class="profile-actions">
+        <a class="button secondary-button" href="/replays">Replay list</a>
+        <a class="button secondary-button" href="/login">Login</a>
       </div>
     </section>
 
-    <section>
-      <h1>Account</h1>
-      <p id="account-status">No active Rocket Sense token found.</p>
-      <dl>
-        <dt>Email</dt>
-        <dd id="account-email">-</dd>
-        <dt>User id</dt>
-        <dd id="account-user-id">-</dd>
-        <dt>Provider</dt>
-        <dd id="account-provider">-</dd>
-        <dt>Connected account id</dt>
-        <dd id="account-subject">-</dd>
-        <dt>Token expiration</dt>
-        <dd id="account-expires">-</dd>
-      </dl>
-    </section>
+    <div class="grid-two">
+      <section>
+        <h2>Account</h2>
+        <p id="account-status">No active Rocket Sense token found.</p>
+        <dl>
+          <dt>Email</dt>
+          <dd id="account-email">-</dd>
+          <dt>User id</dt>
+          <dd id="account-user-id">-</dd>
+          <dt>Provider</dt>
+          <dd id="account-provider">-</dd>
+          <dt>Connected account id</dt>
+          <dd id="account-subject">-</dd>
+          <dt>Token expiration</dt>
+          <dd id="account-expires">-</dd>
+        </dl>
+      </section>
+
+      <section>
+        <h2>Upload replay</h2>
+        <p>Upload a `.replay` file with the active account token.</p>
+        <form id="upload-form" class="upload-form">
+          <label>
+            Replay file
+            <input id="upload-file" name="file" type="file" accept=".replay" required>
+          </label>
+          <button id="upload-submit" type="submit">Upload replay</button>
+        </form>
+        <p id="upload-status" class="status-line">Create or load an upload token before uploading.</p>
+        <div id="upload-result" class="upload-result"></div>
+      </section>
+    </div>
 
     {{dev_token_panel}}
 
     {{session_token_panel}}
 
     <section>
-      <h1>Recent uploads</h1>
+      <h2>Recent uploads</h2>
       <p id="recent-status">Create an upload token to show recent uploads for this account.</p>
       <div id="recent-content"></div>
     </section>
@@ -1095,6 +1276,11 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
     const accountExpires = document.querySelector("#account-expires");
     const recentStatus = document.querySelector("#recent-status");
     const recentContent = document.querySelector("#recent-content");
+    const uploadForm = document.querySelector("#upload-form");
+    const uploadFile = document.querySelector("#upload-file");
+    const uploadSubmit = document.querySelector("#upload-submit");
+    const uploadStatus = document.querySelector("#upload-status");
+    const uploadResult = document.querySelector("#upload-result");
 
     function showProfile(token) {
       try {
@@ -1107,6 +1293,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
         accountStatus.textContent = claims.provider_name && claims.provider_subject
           ? `Connected through ${providerLabel(claims.provider_name)} account ${claims.provider_subject}.`
           : "This profile is tied to the current Rocket Sense token.";
+        uploadStatus.innerHTML = '<span class="account-status-strong">Ready.</span> Choose a replay file to upload.';
       } catch (err) {
         accountEmail.textContent = "-";
         accountUserId.textContent = "-";
@@ -1114,6 +1301,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
         accountSubject.textContent = "-";
         accountExpires.textContent = "-";
         accountStatus.textContent = "The saved Rocket Sense token could not be read.";
+        uploadStatus.textContent = "Create or load an upload token before uploading.";
       }
     }
 
@@ -1187,6 +1375,62 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
       `;
     }
 
+    async function uploadReplay(event) {
+      event.preventDefault();
+      uploadResult.replaceChildren();
+
+      const token = currentAccessToken();
+      if (!token) {
+        uploadStatus.textContent = "Create or load an upload token before uploading.";
+        return;
+      }
+
+      const file = uploadFile.files && uploadFile.files[0];
+      if (!file) {
+        uploadStatus.textContent = "Choose a replay file first.";
+        return;
+      }
+
+      const body = new FormData();
+      body.append("file", file, file.name);
+      uploadSubmit.disabled = true;
+      uploadStatus.textContent = `Uploading ${file.name}...`;
+
+      try {
+        const response = await fetch("/api/v1/replays", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body,
+          credentials: "same-origin"
+        });
+        const payload = await response.json();
+
+        if (!response.ok) {
+          throw new Error(payload.error || "Replay upload failed");
+        }
+
+        const replay = payload.replay || {};
+        const name = replayName(replay);
+        const replayId = replay.id || "";
+        uploadStatus.textContent = payload.deduplicated
+          ? "That replay was already uploaded."
+          : "Replay uploaded and queued for processing.";
+        uploadResult.innerHTML = replayId
+          ? `<a class="replay-link" href="/replays/${encodeURIComponent(replayId)}">${escapeHtml(name)}</a>`
+          : "";
+        uploadFile.value = "";
+        loadRecentUploads(token);
+      } catch (err) {
+        uploadStatus.textContent = err.message;
+      } finally {
+        uploadSubmit.disabled = false;
+      }
+    }
+
+    function currentAccessToken() {
+      return (localStorage.getItem("rocket_sense_access_token") || "").trim();
+    }
+
     function replayName(replay) {
       return replay.original_file_name || replay.external_replay_id || replay.id;
     }
@@ -1235,6 +1479,8 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
     }
+
+    uploadForm.addEventListener("submit", uploadReplay);
   </script>
 
   {{profile_token_script}}
@@ -1243,7 +1489,7 @@ const PROFILE_PAGE_TEMPLATE: &str = r##"<!doctype html>
 "##;
 
 const DEV_TOKEN_PANEL: &str = r##"<form id="login-form">
-      <h1>Development token</h1>
+      <h2>Development token</h2>
       <p>Create a local bearer token for replay upload testing.</p>
       <label>
         Email
@@ -1261,7 +1507,7 @@ const DEV_TOKEN_PANEL: &str = r##"<form id="login-form">
     </section>"##;
 
 const SESSION_TOKEN_PANEL: &str = r##"<section>
-      <h1>Upload token</h1>
+      <h2>Upload token</h2>
       <p>Create a bearer token from your current browser session.</p>
       <button id="session-token" type="button">Create session token</button>
       <p id="session-error" class="error" role="alert"></p>

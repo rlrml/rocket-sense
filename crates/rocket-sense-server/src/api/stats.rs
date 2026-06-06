@@ -38,6 +38,26 @@ pub struct StatAggregateSetResponse {
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub stats: Vec<StatAggregateResponse>,
+    pub groups: Vec<StatAggregateGroupResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatAggregateGroupResponse {
+    pub group_by: String,
+    pub key: String,
+    pub display_name: String,
+    pub replay_count: u64,
+    pub player_appearance_count: Option<u64>,
+    pub active_time_seconds: Option<f64>,
+    pub non_demo_active_time_seconds: Option<f64>,
+    pub time_most_back_seconds: Option<f64>,
+    pub time_most_forward_seconds: Option<f64>,
+    pub teammate_appearance_count: Option<u64>,
+    pub teammate_active_time_seconds: Option<f64>,
+    pub teammate_non_demo_active_time_seconds: Option<f64>,
+    pub teammate_time_most_back_seconds: Option<f64>,
+    pub teammate_time_most_forward_seconds: Option<f64>,
+    pub stats: Vec<StatAggregateResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -157,6 +177,9 @@ pub struct StatAggregatesQuery {
     pub replay_date_before: Option<DateTime<Utc>>,
     /// Maximum number of stat rows to return. Clamped to 1..=200.
     pub count: Option<u32>,
+    /// Optional aggregate grouping. Currently supports `playlist`.
+    #[serde(rename = "group-by", alias = "group_by")]
+    pub group_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -179,6 +202,8 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) replay_date_after: Option<DateTime<Utc>>,
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
     pub(crate) limit: u32,
+    pub(crate) group_by: Option<StatAggregateGroupBy>,
+    pub(crate) playlist_group_key: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -203,7 +228,25 @@ struct RotationDurationBucketRow {
     count: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StatAggregateGroupBy {
+    Playlist,
+}
+
 pub(crate) const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
+#[cfg(test)]
+const AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS: &[&str] = &[
+    "positioning",
+    "boost_state",
+    "boost_ledger",
+    "movement",
+    "rotation_player",
+    "rotation_role_span",
+    "rotation_depth_span",
+    "powerslide",
+    "touch_last_touch",
+];
+const AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL: &str = "source_stream NOT IN ('positioning', 'boost_state', 'boost_ledger', 'movement', 'rotation_player', 'rotation_role_span', 'rotation_depth_span', 'powerslide', 'touch_last_touch')";
 
 #[derive(Debug, Clone)]
 struct StatCountRow {
@@ -271,6 +314,11 @@ impl StatAggregateFilters {
             replay_date_after: query.replay_date_after,
             replay_date_before: query.replay_date_before,
             limit: query.count.unwrap_or(50).clamp(1, 200),
+            group_by: query
+                .group_by
+                .map(|group_by| parse_stat_group_by(&group_by))
+                .transpose()?,
+            playlist_group_key: None,
         })
     }
 }
@@ -323,6 +371,7 @@ impl StatAggregatesQuery {
                 .first(&["count"])
                 .map(|value| parse_u32_filter("count", &value))
                 .transpose()?,
+            group_by: params.first(&["group-by", "group_by"]),
         })
     }
 }
@@ -385,6 +434,15 @@ pub async fn get_stat_aggregates(
 }
 
 pub(crate) async fn load_stat_aggregates(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<StatAggregateSetResponse, sqlx::Error> {
+    let mut aggregates = load_stat_aggregates_base(pool, filters).await?;
+    aggregates.groups = load_stat_aggregate_groups(pool, filters).await?;
+    Ok(aggregates)
+}
+
+async fn load_stat_aggregates_base(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
@@ -459,7 +517,103 @@ pub(crate) async fn load_stat_aggregates(
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
         stats,
+        groups: Vec::new(),
     })
+}
+
+async fn load_stat_aggregate_groups(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    let Some(group_by) = filters.group_by else {
+        return Ok(Vec::new());
+    };
+
+    match group_by {
+        StatAggregateGroupBy::Playlist => load_playlist_stat_aggregate_groups(pool, filters).await,
+    }
+}
+
+async fn load_playlist_stat_aggregate_groups(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    let playlists = load_stat_group_playlists(pool, filters).await?;
+    let mut groups = Vec::with_capacity(playlists.len());
+    for playlist in playlists {
+        let mut group_filters = filters.clone();
+        group_filters.group_by = None;
+        group_filters.playlist_group_key = Some(playlist.clone());
+        let aggregates = load_stat_aggregates_base(pool, &group_filters).await?;
+        groups.push(StatAggregateGroupResponse {
+            group_by: "playlist".to_owned(),
+            display_name: playlist_label(&playlist),
+            key: playlist,
+            replay_count: aggregates.replay_count,
+            player_appearance_count: aggregates.player_appearance_count,
+            active_time_seconds: aggregates.active_time_seconds,
+            non_demo_active_time_seconds: aggregates.non_demo_active_time_seconds,
+            time_most_back_seconds: aggregates.time_most_back_seconds,
+            time_most_forward_seconds: aggregates.time_most_forward_seconds,
+            teammate_appearance_count: aggregates.teammate_appearance_count,
+            teammate_active_time_seconds: aggregates.teammate_active_time_seconds,
+            teammate_non_demo_active_time_seconds: aggregates.teammate_non_demo_active_time_seconds,
+            teammate_time_most_back_seconds: aggregates.teammate_time_most_back_seconds,
+            teammate_time_most_forward_seconds: aggregates.teammate_time_most_forward_seconds,
+            stats: aggregates.stats,
+        });
+    }
+
+    Ok(groups)
+}
+
+async fn load_stat_group_playlists(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<String>, sqlx::Error> {
+    let mut query = if filters.player.is_some() {
+        let mut query = QueryBuilder::<Postgres>::new("\n            SELECT\n                ");
+        push_playlist_group_key_expression(&mut query, "r");
+        query.push(
+            r#" AS playlist,
+                COUNT(DISTINCT rp.replay_id) AS replay_count,
+                MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            "#,
+        );
+        append_target_player_filters(&mut query, filters);
+        query
+    } else {
+        let mut query = QueryBuilder::<Postgres>::new("\n            SELECT\n                ");
+        push_playlist_group_key_expression(&mut query, "r");
+        query.push(
+            r#" AS playlist,
+                COUNT(DISTINCT r.id) AS replay_count,
+                MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
+            FROM replays r
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+            "#,
+        );
+        append_replay_filters(&mut query, filters, "r");
+        query
+    };
+    query.push(
+        r#"
+          AND "#,
+    );
+    push_playlist_group_key_expression(&mut query, "r");
+    query.push(
+        r#" IS NOT NULL
+        GROUP BY 1
+        ORDER BY replay_count DESC, latest_seen_at DESC NULLS LAST, playlist
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| row.try_get("playlist"))
+        .collect()
 }
 
 async fn load_target_denominators(
@@ -685,6 +839,11 @@ async fn load_replay_set_stat_count_rows(
         JOIN play_events event
           ON event.replay_id = r.id
          AND event.analysis_run_id = r.canonical_analysis_run_id
+        "#,
+    );
+    append_user_facing_stat_event_join_filter(&mut query, "event");
+    query.push(
+        r#"
         JOIN event_types et
           ON et.id = event.event_type_id
         WHERE r.canonical_analysis_run_id IS NOT NULL
@@ -738,6 +897,11 @@ async fn load_player_stat_count_rows(
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = r.canonical_analysis_run_id
+            "#,
+    );
+    append_user_facing_stat_event_join_filter(&mut query, "event");
+    query.push(
+        r#"
             JOIN event_types et
               ON et.id = event.event_type_id
             GROUP BY et.key, et.display_name, et.category
@@ -774,6 +938,11 @@ async fn load_player_stat_count_rows(
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = r.canonical_analysis_run_id
+                "#,
+        );
+        append_user_facing_stat_event_join_filter(&mut query, "event");
+        query.push(
+            r#"
                 JOIN event_types et
                   ON et.id = event.event_type_id
                 GROUP BY et.key, et.display_name, et.category
@@ -842,6 +1011,17 @@ fn rotation_duration_bucket_row_from_db(
     })
 }
 
+fn append_user_facing_stat_event_join_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    event_alias: &str,
+) {
+    builder
+        .push(" AND ")
+        .push(event_alias)
+        .push(".")
+        .push(AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL);
+}
+
 fn append_target_player_filters<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     filters: &'args StatAggregateFilters,
@@ -892,6 +1072,12 @@ fn append_replay_filters<'args>(
             .push(".playlist = ANY(")
             .push_bind(&filters.playlists)
             .push(")");
+    }
+    if let Some(playlist_group_key) = &filters.playlist_group_key {
+        builder.push(" AND ");
+        push_playlist_group_key_expression(builder, replay_alias);
+        builder.push(" = ");
+        builder.push_bind(playlist_group_key);
     }
     if !filters.replay_ids.is_empty() {
         builder
@@ -998,6 +1184,33 @@ fn per_minute(count: u64, denominator_seconds: Option<f64>) -> Option<f64> {
         .map(|seconds| count as f64 * 60.0 / seconds)
 }
 
+fn push_playlist_group_key_expression<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+) {
+    builder
+        .push("CASE WHEN lower(btrim(COALESCE(")
+        .push(replay_alias)
+        .push(".playlist, ''))) = 'online' THEN COALESCE(CASE (");
+    push_replay_team_size_expression(builder, replay_alias);
+    builder
+        .push(") WHEN 1 THEN 'online-1v1' WHEN 2 THEN 'online-2v2' WHEN 3 THEN 'online-3v3' WHEN 4 THEN 'online-4v4' END, NULLIF(btrim(")
+        .push(replay_alias)
+        .push(".playlist), '')) ELSE NULLIF(btrim(")
+        .push(replay_alias)
+        .push(".playlist), '') END");
+}
+
+fn push_replay_team_size_expression<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+) {
+    builder
+        .push("SELECT MAX(team_player_count)::integer FROM (SELECT COUNT(*) AS team_player_count FROM replay_players stats_mode_player WHERE stats_mode_player.replay_id = ")
+        .push(replay_alias)
+        .push(".id AND stats_mode_player.team IS NOT NULL GROUP BY stats_mode_player.team) stats_mode_team_counts");
+}
+
 fn normalize_terms(terms: Vec<String>) -> Vec<String> {
     terms
         .into_iter()
@@ -1024,6 +1237,28 @@ fn parse_uploader_filter(value: &str, auth_user_id: Option<Uuid>) -> Result<Uuid
 fn parse_uuid_filter(name: &str, value: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(value.trim())
         .map_err(|_| ApiError::bad_request(format!("{name} must be a UUID")))
+}
+
+fn parse_stat_group_by(value: &str) -> Result<StatAggregateGroupBy, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "playlist" | "game-mode" | "game_mode" => Ok(StatAggregateGroupBy::Playlist),
+        _ => Err(ApiError::bad_request("group-by must be one of: playlist")),
+    }
+}
+
+fn playlist_label(value: &str) -> String {
+    value
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn escape_like_term(term: &str) -> String {

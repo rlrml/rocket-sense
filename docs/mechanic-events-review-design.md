@@ -118,12 +118,19 @@ event_reviews
 - source_review_id
 - carry_forward_method
 - carry_forward_distance_frames
+- event_snapshot
 - created_at
 ```
 
 Initial statuses are `confirmed`, `rejected`, `corrected`, `uncertain`, and
 `needs_second_review`. The current review state is the latest review for an
 event unless a later supersession model requires a stricter projection.
+
+`event_snapshot` denormalizes the generated event row, event type, detector
+identity, timing, subject, confidence, payload, attributes, and mechanic details
+that were present when the review was created or carried forward. `event_id` is
+only a live link to the generated row; the snapshot is the durable review
+payload and survives cleanup of regenerated analysis output.
 
 ## Review Carry-Forward
 
@@ -139,6 +146,32 @@ When a new analysis generation is produced:
 
 Do not silently copy a rejection or confirmation across a materially different
 span, player, or mechanic.
+
+The first implementation carries reviews forward automatically for exact event
+identity matches on the previous canonical analysis run: event type, detector
+source, source stream/index, source event id, primary subject, and frames must
+match the newly processed event.
+
+## Mechanic Evaluation
+
+Rocket Sense can evaluate subtr-actor mechanic changes against the growing review
+corpus without mutating the reviews. The first evaluation surface is a read-only
+summary endpoint:
+
+```text
+GET /api/v1/events/evaluation?event-type=double_tap
+GET /api/v1/events/evaluation?event-type=double_tap&analysis-run-id=<candidate-run>
+```
+
+The endpoint treats latest `confirmed` and `corrected` review snapshots as
+positive labels, latest `rejected` snapshots as hard negatives, and compares them
+to either the replay's canonical analysis run or an explicitly supplied candidate
+`analysis_run_id`. Matching requires the same replay, event type, compatible
+subject, and either frame or time proximity within configurable tolerances.
+
+Unmatched candidates are reported as unlabeled rather than automatically false
+positive because the reviewed corpus is intentionally incomplete. They are useful
+for building follow-up review playlists after a detector change.
 
 ## Playlist and Queue Model
 

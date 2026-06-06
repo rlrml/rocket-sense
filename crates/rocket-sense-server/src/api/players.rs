@@ -281,6 +281,8 @@ impl PlayerProfileFilters {
             replay_date_after: self.replay_date_after,
             replay_date_before: self.replay_date_before,
             limit: 50,
+            group_by: None,
+            playlist_group_key: None,
         }
     }
 }

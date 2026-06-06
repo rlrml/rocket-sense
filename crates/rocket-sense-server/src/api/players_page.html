@@ -278,6 +278,26 @@
       line-height: 28px;
     }
 
+    .section-heading {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 6px;
+    }
+
+    .section-meta {
+      color: #536176;
+      font-size: 12px;
+      line-height: 18px;
+      text-align: right;
+    }
+
+    .playlist-stat-groups {
+      display: grid;
+      gap: 18px;
+    }
+
     .name-list {
       display: flex;
       flex-wrap: wrap;
@@ -614,6 +634,19 @@
       return `/replays/${encodeURIComponent(replay.id)}`;
     }
 
+    function playerProfileApiUrl() {
+      const query = location.search || "";
+      return `/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}${query}`;
+    }
+
+    function playerPlaylistStatsApiUrl() {
+      const params = new URLSearchParams(location.search);
+      params.set("player-id", `${platform}:${platformPlayerId}`);
+      params.set("include-teammates", "true");
+      params.set("group-by", "playlist");
+      return `/api/v1/stats/aggregates?${params.toString()}`;
+    }
+
     function formatDate(value) {
       if (!value) return "";
       const date = new Date(value);
@@ -657,7 +690,7 @@
       return value == null ? "-" : value;
     }
 
-    function render(profile) {
+    function render(profile, statGroups) {
       const name = profile.display_name || profile.platform_player_id;
       displayName.textContent = name;
       document.title = `${name} - Rocket Sense`;
@@ -666,6 +699,7 @@
       const names = Array.isArray(profile.names) ? profile.names : [];
       const replays = Array.isArray(profile.latest_replays) ? profile.latest_replays : [];
       const stats = Array.isArray(profile.stats) ? profile.stats : [];
+      const playlistStatGroups = Array.isArray(statGroups) ? statGroups : [];
       const rotationHistogram = Array.isArray(profile.rotation_duration_histogram) ? profile.rotation_duration_histogram : [];
       const secondToFirstHistogram = Array.isArray(profile.second_man_to_first_rotation_duration_histogram)
         ? profile.second_man_to_first_rotation_duration_histogram
@@ -696,26 +730,15 @@
         </section>
 
         <section>
-          <h2 class="section-title">Aggregate stats</h2>
-          ${stats.length === 0 ? `<div class="empty">No canonical play events indexed for this player yet.</div>` : `
-            <div class="stat-table-wrap">
-              <table class="stat-table">
-                <thead>
-                  <tr>
-                    <th>Stat</th>
-                    <th>Category</th>
-                    <th class="number">Count</th>
-                    <th class="number">Per game</th>
-                    <th class="number">Per active min</th>
-                    <th class="number">Per non-demo min</th>
-                    <th class="number">Tm avg/game</th>
-                    <th class="number">Tm active min</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${stats.map(renderAggregateStat).join("")}
-                </tbody>
-              </table>
+          <h2 class="section-title">Overall aggregate stats</h2>
+          ${renderAggregateStatsTable(stats, "No canonical play events indexed for this player yet.")}
+        </section>
+
+        <section>
+          <h2 class="section-title">Stats by game mode</h2>
+          ${playlistStatGroups.length === 0 ? `<div class="empty">No game mode metadata indexed for this player yet.</div>` : `
+            <div class="playlist-stat-groups">
+              ${playlistStatGroups.map(renderPlaylistStatGroup).join("")}
             </div>
           `}
         </section>
@@ -737,6 +760,53 @@
             </ol>
           `}
         </section>
+      `;
+    }
+
+    function renderPlaylistStatGroup(group) {
+      const stats = Array.isArray(group.stats) ? group.stats : [];
+      const metadata = [
+        `${Number(group.replay_count || 0)} replays`,
+        formatDuration(group.active_time_seconds),
+        formatDuration(group.non_demo_active_time_seconds) ? `${formatDuration(group.non_demo_active_time_seconds)} non-demo` : ""
+      ].filter(Boolean);
+
+      return `
+        <section>
+          <div class="section-heading">
+            <h3 class="section-title">${escapeHtml(group.display_name || playlistLabel(group.key) || "Unknown game mode")}</h3>
+            <div class="section-meta">${metadata.map(escapeHtml).join(" &middot; ")}</div>
+          </div>
+          ${renderAggregateStatsTable(stats, "No canonical play events indexed for this game mode yet.")}
+        </section>
+      `;
+    }
+
+    function renderAggregateStatsTable(stats, emptyMessage) {
+      if (!Array.isArray(stats) || stats.length === 0) {
+        return `<div class="empty">${escapeHtml(emptyMessage)}</div>`;
+      }
+
+      return `
+        <div class="stat-table-wrap">
+          <table class="stat-table">
+            <thead>
+              <tr>
+                <th>Stat</th>
+                <th>Category</th>
+                <th class="number">Count</th>
+                <th class="number">Per game</th>
+                <th class="number">Per active min</th>
+                <th class="number">Per non-demo min</th>
+                <th class="number">Tm avg/game</th>
+                <th class="number">Tm active min</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${stats.map(renderAggregateStat).join("")}
+            </tbody>
+          </table>
+        </div>
       `;
     }
 
@@ -888,16 +958,25 @@
       }
 
       try {
-        const query = location.search || "";
-        const response = await fetch(`/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}${query}`, {
-          headers: headers(),
-          credentials: "same-origin"
-        });
-        const body = await response.json();
-        if (!response.ok) {
-          throw new Error(body.error || "Player profile failed to load");
+        const [profileResponse, statsResponse] = await Promise.all([
+          fetch(playerProfileApiUrl(), {
+            headers: headers(),
+            credentials: "same-origin"
+          }),
+          fetch(playerPlaylistStatsApiUrl(), {
+            headers: headers(),
+            credentials: "same-origin"
+          })
+        ]);
+        const profileBody = await profileResponse.json();
+        if (!profileResponse.ok) {
+          throw new Error(profileBody.error || "Player profile failed to load");
         }
-        render(body);
+        const statsBody = await statsResponse.json();
+        if (!statsResponse.ok) {
+          throw new Error(statsBody.error || "Player playlist stats failed to load");
+        }
+        render(profileBody, statsBody.groups);
       } catch (error) {
         displayName.textContent = "Player unavailable";
         content.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;

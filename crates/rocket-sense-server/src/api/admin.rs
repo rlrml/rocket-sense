@@ -86,6 +86,7 @@ pub async fn reprocess_replays(
     let summary = enqueue_replay_reprocessing(
         pool.clone(),
         state.storage.clone(),
+        state.background_processing_permits.clone(),
         ReplayReprocessOptions {
             replay_ids: request.replay_ids,
             force: request.force,
@@ -127,6 +128,7 @@ pub async fn backfill_profile_timing(
     let summary = enqueue_profile_timing_backfill(
         pool.clone(),
         state.storage.clone(),
+        state.background_processing_permits.clone(),
         ReplayProfileTimingBackfillOptions {
             replay_ids: request.replay_ids,
             force: request.force,

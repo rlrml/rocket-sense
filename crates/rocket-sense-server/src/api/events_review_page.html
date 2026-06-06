@@ -282,94 +282,37 @@
       <h1>Events review</h1>
       <a class="api-link" href="/api/v1/events?review-status=unreviewed">API queue</a>
     </div>
-    <form method="get" action="/events/review/open">
+    <form method="get" action="/events/review/open" autocomplete="off">
       <section>
         <h2>Event filters</h2>
         <div id="event-type-grid" class="mechanic-grid">
-          <label class="check-tile"><input type="checkbox" name="event-type" value="backboard"> Backboard</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="air_dribble"> Air dribble</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="ball_carry"> Ball carry</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="touch"> Ball touch</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_ledger_collected"> Boost ledger collected</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_ledger_overfill"> Boost ledger overfill</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_ledger_respawn"> Boost ledger respawn</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_ledger_stolen"> Boost ledger stolen</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_ledger_used"> Boost ledger used</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_ledger_used_allocation"> Boost ledger used allocation</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_pickup_both"> Boost pickup matched</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_pickup_ghost"> Boost pickup ghost</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_pickup_missed"> Boost pickup missed</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="boost_state"> Boost state</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="bump"> Bump</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="ceiling_shot"> Ceiling shot</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="center"> Center</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="assist"> Assist</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="death"> Death</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal"> Goal</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="kill"> Kill</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="player"> Core player</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="core_player_goal_context"> Core player goal context</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="save"> Save</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="shot"> Shot</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="dodge_reset"> Dodge reset</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="double_tap"> Double tap</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="fifty_fifty"> Fifty-fifty</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="flick"> Flick</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="flip_impulse"> Flip impulse</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_context"> Goal context</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_aerial_goal"> Aerial goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_air_dribble_goal"> Air dribble goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_bump_goal"> Bump goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_counter_attack_goal"> Counter attack goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_double_tap_goal"> Double tap goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_empty_net_goal"> Empty net goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_flick_goal"> Flick goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_flip_reset_goal"> Flip reset goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_half_volley_goal"> Half volley goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_high_aerial_goal"> High aerial goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_long_distance_goal"> Long distance goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_one_timer_goal"> One timer goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_own_half_goal"> Own half goal tag</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="goal_tag_passing_goal"> Passing goal tag</label>
+          <label class="check-tile"><input type="checkbox" name="event-type" value="flip_reset"> Flip reset</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="half_flip"> Half flip</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="half_volley"> Half volley</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="air_dribble"> Air dribble</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="flip_reset"> Flip reset</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="movement"> Movement</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="musty_flick"> Musty flick</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="one_timer"> One timer</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="pass"> Pass</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="pass_last_completed"> Last completed pass</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="positioning"> Positioning</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="possession"> Possession</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="powerslide"> Powerslide</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="pressure"> Pressure</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_depth_ahead_of_play"> Rotation depth ahead</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_depth_behind_play"> Rotation depth behind</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_depth_level_with_play"> Rotation depth level</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_depth_unknown"> Rotation depth unknown</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_first_man_stint"> Rotation first-man stint</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_player_state_span"> Rotation player state span</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_role_ambiguous"> Rotation role ambiguous</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_role_first_man"> Rotation role first man</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_role_second_man"> Rotation role second man</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_role_third_man"> Rotation role third man</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_role_unknown"> Rotation role unknown</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rotation_team"> Rotation team</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="rush"> Rush</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="speed_flip"> Speed flip</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="territorial_pressure"> Territorial pressure</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="touch_ball_movement"> Touch ball movement</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="touch_last_touch"> Last touch</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="wall_aerial"> Wall aerial</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="wall_aerial_shot"> Wall aerial shot</label>
           <label class="check-tile"><input type="checkbox" name="event-type" value="wavedash"> Wavedash</label>
-          <label class="check-tile"><input type="checkbox" name="event-type" value="whiff"> Whiff</label>
         </div>
 
         <div class="filter-grid">
           <label class="field">
-            Event type
-            <input name="event-type" type="text" autocomplete="off" placeholder="touch or boost_pickup_both">
+            Search
+            <input name="q" type="search" autocomplete="off" placeholder="filename, SHA, external ID">
+          </label>
+          <label class="field">
+            Player name
+            <input name="player-name" type="text" autocomplete="off" placeholder="Zen">
+          </label>
+          <label class="field">
+            Primary player ID
+            <input name="player-id" type="text" autocomplete="off" placeholder="platform:platform_id">
           </label>
           <label class="field">
             Review status
@@ -384,12 +327,50 @@
             </select>
           </label>
           <label class="field">
-            Minimum confidence
-            <input name="min-confidence" type="number" min="0" max="1" step="0.01" placeholder="0.50">
+            Playlist
+            <select name="playlist">
+              <option value="" selected>Any playlist</option>
+              <option value="ranked-duels">Ranked Duels</option>
+              <option value="ranked-doubles">Ranked Doubles</option>
+              <option value="ranked-solo-standard">Ranked Solo Standard</option>
+              <option value="ranked-standard">Ranked Standard</option>
+              <option value="unranked-duels">Unranked Duels</option>
+              <option value="unranked-doubles">Unranked Doubles</option>
+              <option value="unranked-standard">Unranked Standard</option>
+              <option value="unranked-chaos">Unranked Chaos</option>
+              <option value="ranked-hoops">Ranked Hoops</option>
+              <option value="ranked-rumble">Ranked Rumble</option>
+              <option value="ranked-dropshot">Ranked Dropshot</option>
+              <option value="ranked-snowday">Ranked SnowDay</option>
+              <option value="snowday">SnowDay</option>
+              <option value="rocketlabs">RocketLabs</option>
+              <option value="hoops">Hoops</option>
+              <option value="rumble">Rumble</option>
+              <option value="tournament">Tournament</option>
+              <option value="dropshot">Dropshot</option>
+              <option value="dropshot-rumble">Dropshot Rumble</option>
+              <option value="heatseeker">Heatseeker</option>
+              <option value="private">Private</option>
+              <option value="season">Season</option>
+              <option value="offline">Offline</option>
+              <option value="local">Local Lobby</option>
+            </select>
           </label>
           <label class="field">
-            Player ID
-            <input name="player-id" type="text" autocomplete="off" placeholder="platform:platform_id">
+            Map
+            <input name="map" type="text" autocomplete="off" placeholder="stadium_p">
+          </label>
+          <label class="field">
+            Pro players
+            <select name="pro">
+              <option value="" selected>Any</option>
+              <option value="true">Has pro player</option>
+              <option value="false">No pro players</option>
+            </select>
+          </label>
+          <label class="field">
+            Minimum confidence
+            <input name="min-confidence" type="number" min="0" max="1" step="0.01" placeholder="0.50">
           </label>
           <label class="field">
             Replay ID
@@ -398,6 +379,42 @@
           <label class="field">
             Detector
             <input name="detector" type="text" autocomplete="off" placeholder="stats_timeline">
+          </label>
+          <label class="field">
+            Uploaded after
+            <input name="created-after" type="text" autocomplete="off" placeholder="2026-06-01T00:00:00Z">
+          </label>
+          <label class="field">
+            Uploaded before
+            <input name="created-before" type="text" autocomplete="off" placeholder="2026-06-05T23:59:59Z">
+          </label>
+          <label class="field">
+            Played after
+            <input name="replay-date-after" type="text" autocomplete="off" placeholder="2026-06-01T00:00:00Z">
+          </label>
+          <label class="field">
+            Played before
+            <input name="replay-date-before" type="text" autocomplete="off" placeholder="2026-06-05T23:59:59Z">
+          </label>
+          <label class="field">
+            Event indexed after
+            <input name="event-created-after" type="text" autocomplete="off" placeholder="2026-06-01T00:00:00Z">
+          </label>
+          <label class="field">
+            Event indexed before
+            <input name="event-created-before" type="text" autocomplete="off" placeholder="2026-06-05T23:59:59Z">
+          </label>
+          <label class="field">
+            Uploader
+            <input name="uploader" type="text" autocomplete="off" placeholder="user UUID">
+          </label>
+          <label class="field">
+            Group
+            <input name="group" type="text" autocomplete="off" placeholder="replay group UUID">
+          </label>
+          <label class="field">
+            Project
+            <input name="project" type="text" autocomplete="off" placeholder="project UUID">
           </label>
           <label class="field">
             Count
@@ -432,6 +449,12 @@
         return `${displayName} (${key})`;
       };
 
+      const resetEventTypeFilters = () => {
+        document.querySelectorAll('input[name="event-type"]').forEach((input) => {
+          input.checked = false;
+        });
+      };
+
       const replaceEventTypeGrid = (eventTypes) => {
         const fragment = document.createDocumentFragment();
         for (const eventType of eventTypes) {
@@ -458,6 +481,7 @@
         }
       };
 
+      window.addEventListener("pageshow", resetEventTypeFilters);
       fetch("/api/v1/events/types", { credentials: "same-origin" })
         .then((response) => response.ok ? response.json() : null)
         .then((body) => {

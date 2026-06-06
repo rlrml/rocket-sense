@@ -4,6 +4,7 @@ use axum::{extract::DefaultBodyLimit, Router};
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
 use sqlx::PgPool;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 const MAX_REPLAY_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
@@ -16,6 +17,7 @@ pub struct AppState {
     pub app_jwt_secret: Arc<str>,
     pub oauth_providers: Arc<[settings::OAuthProviderSettings]>,
     pub process_replays_in_background: bool,
+    pub background_processing_permits: Arc<Semaphore>,
 }
 
 pub async fn build(settings: settings::Settings) -> Result<Router> {
@@ -37,6 +39,9 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         app_jwt_secret: Arc::from(settings.app_jwt_secret),
         oauth_providers: Arc::from(settings.oauth_providers),
         process_replays_in_background: settings.process_replays_in_background,
+        background_processing_permits: Arc::new(Semaphore::new(
+            settings.background_processing_concurrency,
+        )),
     };
 
     Ok(api::router(state)

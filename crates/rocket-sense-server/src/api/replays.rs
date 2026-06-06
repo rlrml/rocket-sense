@@ -1434,6 +1434,7 @@ fn maybe_spawn_replay_processing(state: &AppState, db: &PgPool, replay: &ReplayR
         spawn_replay_processing(
             db.clone(),
             state.storage.clone(),
+            state.background_processing_permits.clone(),
             replay.id,
             replay.file_sha256.clone(),
             replay.storage_key.clone(),
