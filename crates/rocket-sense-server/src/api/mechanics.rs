@@ -298,8 +298,57 @@ fn event_review_player_url(filters: &MechanicEventFilters) -> String {
     let mut target = String::from("/subtr-actor/?");
     let mut query = url::form_urlencoded::Serializer::new(String::new());
     query.append_pair("reviewPlaylist", &playlist_url);
+    if let Some(config) = event_review_player_config_json(filters) {
+        query.append_pair("cfg", &config.to_string());
+    }
     target.push_str(&query.finish());
     target
+}
+
+fn event_review_player_config_json(filters: &MechanicEventFilters) -> Option<Value> {
+    let mechanics = event_review_mechanic_timeline_kinds(filters);
+    if mechanics.is_empty() {
+        return None;
+    }
+
+    Some(serde_json::json!({
+        "version": 1,
+        "playback": {},
+        "camera": {},
+        "overlays": {
+            "timelineEvents": [],
+            "timelineRanges": [],
+            "mechanics": mechanics,
+            "renderEffects": [],
+            "followedPlayerHud": false,
+            "boostPads": true,
+            "boostPickupAnimation": false,
+            "hitboxWireframes": false,
+            "hitboxOnlyMode": false
+        },
+        "recording": {},
+        "singletonWindows": [],
+        "statsWindows": [],
+        "moduleConfigs": {}
+    }))
+}
+
+fn event_review_mechanic_timeline_kinds(filters: &MechanicEventFilters) -> Vec<String> {
+    let mut mechanics = filters
+        .mechanics
+        .iter()
+        .filter_map(|event_type| mechanic_timeline_kind(event_type))
+        .collect::<Vec<_>>();
+    mechanics.sort();
+    mechanics.dedup();
+    mechanics
+}
+
+fn mechanic_timeline_kind(event_type: &str) -> Option<String> {
+    if let Some(mechanic) = event_type.strip_prefix("mechanic.") {
+        return (!mechanic.is_empty()).then(|| mechanic.to_owned());
+    }
+    (!event_type.contains('.') && !event_type.is_empty()).then(|| event_type.to_owned())
 }
 
 fn deserialize_uuid_vec<'de, D>(deserializer: D) -> Result<Vec<Uuid>, D::Error>

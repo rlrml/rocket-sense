@@ -109,6 +109,70 @@ fn event_review_open_targets_stats_evaluation_player() {
     assert!(!url.starts_with("/subtr-actor/review"));
     assert!(url.contains("event-type%3Dwavedash"));
     assert!(url.contains("event-type%3Dspeed_flip"));
+
+    let params = url_query_pairs(&url);
+    let config = params
+        .iter()
+        .find_map(|(key, value)| (key == "cfg").then_some(value))
+        .expect("review player URL should include a cfg value for mechanic filters");
+    let config: Value = serde_json::from_str(config).expect("cfg should be raw JSON");
+    assert_eq!(
+        config["overlays"]["mechanics"],
+        serde_json::json!(["speed_flip", "wavedash"])
+    );
+    assert_eq!(config["overlays"]["timelineEvents"], serde_json::json!([]));
+    assert_eq!(config["overlays"]["boostPads"], serde_json::json!(true));
+}
+
+#[test]
+fn event_review_player_config_ignores_non_mechanic_event_types() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        event_ids: Vec::new(),
+        mechanic: vec![
+            "ball.touch".to_owned(),
+            "mechanic.flip_reset".to_owned(),
+            "speed_flip".to_owned(),
+        ],
+        event_category: Vec::new(),
+        detector: Vec::new(),
+        review_status: None,
+        min_confidence: None,
+        replay_id: None,
+        player_id: None,
+        count: Some(10),
+        offset: None,
+        ..MechanicEventsQuery::default()
+    })
+    .unwrap();
+
+    assert_eq!(
+        event_review_mechanic_timeline_kinds(&filters),
+        ["flip_reset", "speed_flip"]
+    );
+}
+
+#[test]
+fn event_review_player_url_omits_cfg_without_mechanic_filters() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        event_ids: Vec::new(),
+        mechanic: vec!["ball.touch".to_owned()],
+        event_category: vec!["touch".to_owned()],
+        detector: Vec::new(),
+        review_status: None,
+        min_confidence: None,
+        replay_id: None,
+        player_id: None,
+        count: Some(10),
+        offset: None,
+        ..MechanicEventsQuery::default()
+    })
+    .unwrap();
+
+    let url = event_review_player_url(&filters);
+    let params = url_query_pairs(&url);
+
+    assert!(params.iter().any(|(key, _)| key == "reviewPlaylist"));
+    assert!(!params.iter().any(|(key, _)| key == "cfg"));
 }
 
 #[test]
@@ -216,6 +280,13 @@ fn reviewed_ratio_is_empty_when_denominator_is_zero() {
     assert_eq!(ratio(3, 4), Some(0.75));
 }
 
+fn url_query_pairs(url: &str) -> Vec<(String, String)> {
+    let query = url.split_once('?').map(|(_, query)| query).unwrap_or("");
+    url::form_urlencoded::parse(query.as_bytes())
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect()
+}
+
 #[test]
 fn mechanic_events_query_still_accepts_legacy_mechanic_fields() {
     let query =
@@ -277,7 +348,10 @@ fn event_review_page_exposes_current_event_type_filters() {
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="q""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="player-name""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="player-id""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="playlist""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"<select name="playlist">"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"<option value="" selected>Any playlist</option>"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"<option value="ranked-doubles">Ranked Doubles</option>"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"<option value="private">Private</option>"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="map""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="pro""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="created-after""#));
