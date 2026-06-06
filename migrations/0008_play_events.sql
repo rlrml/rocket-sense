@@ -31,19 +31,19 @@ INSERT INTO event_types (
     category
 )
 VALUES
-    ('air_dribble', 'Air dribble', 'event'),
-    ('ball_carry', 'Ball carry', 'event'),
-    ('ceiling_shot', 'Ceiling shot', 'event'),
-    ('double_tap', 'Double tap', 'event'),
-    ('flick', 'Flick', 'event'),
-    ('flip_reset', 'Flip reset', 'event'),
-    ('half_flip', 'Half flip', 'event'),
-    ('half_volley', 'Half volley', 'event'),
-    ('musty_flick', 'Musty flick', 'event'),
-    ('one_timer', 'One timer', 'event'),
-    ('pass', 'Pass', 'event'),
-    ('speed_flip', 'Speed flip', 'event'),
-    ('wavedash', 'Wavedash', 'event');
+    ('mechanic.air_dribble', 'Air dribble', 'mechanic'),
+    ('mechanic.ball_carry', 'Ball carry', 'mechanic'),
+    ('mechanic.ceiling_shot', 'Ceiling shot', 'mechanic'),
+    ('mechanic.double_tap', 'Double tap', 'mechanic'),
+    ('mechanic.flick', 'Flick', 'mechanic'),
+    ('mechanic.flip_reset', 'Flip reset', 'mechanic'),
+    ('mechanic.half_flip', 'Half flip', 'mechanic'),
+    ('mechanic.half_volley', 'Half volley', 'mechanic'),
+    ('mechanic.musty_flick', 'Musty flick', 'mechanic'),
+    ('mechanic.one_timer', 'One timer', 'mechanic'),
+    ('mechanic.pass', 'Pass', 'mechanic'),
+    ('mechanic.speed_flip', 'Speed flip', 'mechanic'),
+    ('mechanic.wavedash', 'Wavedash', 'mechanic');
 
 CREATE TABLE play_events (
     id uuid PRIMARY KEY,
