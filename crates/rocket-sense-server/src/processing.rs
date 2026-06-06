@@ -2228,18 +2228,21 @@ fn ensure_object_payload(payload: &Value) -> Value {
 fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String) {
     let kind = payload.get("kind").and_then(normalized_variant_name);
     let event_type_key = match stream {
-        "mechanics" => format!("mechanic.{}", kind.as_deref().unwrap_or("unknown")),
-        "goal_tags" => format!("goal_tag.{}", kind.as_deref().unwrap_or("unknown")),
-        "touch" => "ball.touch".to_owned(),
-        "timeline" => format!("core.{}", kind.as_deref().unwrap_or("event")),
-        "rotation_player" => "rotation.player_state_span".to_owned(),
-        "rotation_role_span" => format!("rotation.role.{}", kind.as_deref().unwrap_or("unknown")),
+        "mechanics" => kind.as_deref().unwrap_or("unknown").to_owned(),
+        "goal_tags" => kind
+            .as_deref()
+            .map(|kind| format!("goal_tag_{kind}"))
+            .unwrap_or_else(|| "goal_tag_unknown".to_owned()),
+        "touch" => "touch".to_owned(),
+        "timeline" => kind.as_deref().unwrap_or("event").to_owned(),
+        "rotation_player" => "rotation_player_state_span".to_owned(),
+        "rotation_role_span" => format!("rotation_role_{}", kind.as_deref().unwrap_or("unknown")),
         "rotation_depth_span" => {
-            format!("rotation.depth.{}", kind.as_deref().unwrap_or("unknown"))
+            format!("rotation_depth_{}", kind.as_deref().unwrap_or("unknown"))
         }
-        "rotation_first_man_stint" => "rotation.first_man_stint".to_owned(),
+        "rotation_first_man_stint" => "rotation_first_man_stint".to_owned(),
         "boost_pickups" => format!(
-            "boost.pickup.{}",
+            "boost_pickup_{}",
             payload
                 .get("comparison")
                 .and_then(normalized_variant_name)
@@ -2247,25 +2250,17 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
                 .unwrap_or("event")
         ),
         "boost_ledger" => format!(
-            "boost.ledger.{}",
+            "boost_ledger_{}",
             payload
                 .get("transaction")
                 .and_then(normalized_variant_name)
                 .as_deref()
                 .unwrap_or("event")
         ),
-        "boost_state" => "boost.state".to_owned(),
-        "pass_last_completed" => "pass.last_completed".to_owned(),
-        _ => stream.replace('_', "."),
+        "boost_state" => "boost_state".to_owned(),
+        _ => stream.to_owned(),
     };
-    let category = if event_type_key == "ball.touch" {
-        "touch".to_owned()
-    } else {
-        event_type_key
-            .split_once('.')
-            .map(|(category, _)| category.to_owned())
-            .unwrap_or_else(|| stream.to_owned())
-    };
+    let category = "event".to_owned();
     let display_name = match stream {
         "mechanics" | "goal_tags" | "timeline" => {
             display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))

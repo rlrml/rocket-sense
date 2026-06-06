@@ -1079,17 +1079,7 @@ impl MechanicEventFilters {
     }
 
     fn event_type_keys(&self) -> Vec<String> {
-        let mut keys = self
-            .mechanics
-            .iter()
-            .flat_map(|event_type| {
-                if event_type.contains('.') {
-                    vec![event_type.clone()]
-                } else {
-                    vec![event_type.clone(), format!("mechanic.{event_type}")]
-                }
-            })
-            .collect::<Vec<_>>();
+        let mut keys = self.mechanics.clone();
         keys.sort();
         keys.dedup();
         keys
@@ -1288,10 +1278,7 @@ async fn find_mechanic_events(
             event_type.key AS event_type,
             event_type.display_name AS event_type_label,
             event_type.category AS event_category,
-            CASE
-                WHEN event_type.key LIKE 'mechanic.%' THEN regexp_replace(event_type.key, '^mechanic\.', '')
-                ELSE event_type.key
-            END AS mechanic,
+            event_type.key AS mechanic,
             event.source AS detector,
             event.primary_subject_id AS player_id,
             NULLIF(replay_player.name, '') AS player_name,
@@ -1494,16 +1481,8 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     let clip_end = (end_time + EVENT_REVIEW_POSTROLL_SECONDS).max(clip_start + 0.5);
     let (start_bound, end_bound) = playlist_playback_bounds(clip_start, clip_end);
     let event_type_label = event.event_type_label.clone();
-    let mechanic_label = if event.event_category == "mechanic" {
-        mechanic_label(&event.mechanic)
-    } else {
-        event_type_label.clone()
-    };
-    let item_label = if event.event_category == "mechanic" {
-        "candidate"
-    } else {
-        "review item"
-    };
+    let mechanic_label = event_type_label.clone();
+    let item_label = "review item";
     let label = event
         .player_name
         .as_deref()
@@ -1572,21 +1551,6 @@ fn playlist_playback_bounds(clip_start: f64, clip_end: f64) -> (PlaylistBound, P
             value: clip_end,
         },
     )
-}
-
-fn mechanic_label(mechanic: &str) -> String {
-    mechanic
-        .split('_')
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn validate_review_request(request: &CreateReviewRequest) -> Result<(), ApiError> {

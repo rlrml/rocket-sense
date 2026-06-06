@@ -456,7 +456,7 @@ async fn load_player_rotation_duration_histogram(
              AND event.source_stream = 'rotation_first_man_stint'
             JOIN event_types et
               ON et.id = event.event_type_id
-             AND et.key = 'rotation.first_man_stint'
+             AND et.key = 'rotation_first_man_stint'
         ),
         bucketed AS (
             SELECT floor(duration_seconds /
@@ -660,13 +660,13 @@ async fn load_player_second_man_to_first_rotation_duration_histogram(
              AND event.source_stream = 'rotation_role_span'
             JOIN event_types et
               ON et.id = event.event_type_id
-             AND et.key IN ('rotation.role.first_man', 'rotation.role.second_man')
+             AND et.key IN ('rotation_role_first_man', 'rotation_role_second_man')
         ),
         rotation_events AS (
             SELECT previous_duration_seconds AS duration_seconds
             FROM ordered_role_spans
-            WHERE role_event_type_key = 'rotation.role.first_man'
-              AND previous_role_event_type_key = 'rotation.role.second_man'
+            WHERE role_event_type_key = 'rotation_role_first_man'
+              AND previous_role_event_type_key = 'rotation_role_second_man'
         ),
         bucketed AS (
             SELECT floor(duration_seconds /

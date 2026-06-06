@@ -122,12 +122,12 @@ fn indexed_goal_context_tags_use_scorer_and_goal_tag_dimensions() {
     let indexed = build_indexed_events(&timeline).expect("goal tag should index");
     let indexed = indexed
         .iter()
-        .find(|event| event.event_type_key == "goal_tag.double_tap_goal")
+        .find(|event| event.event_type_key == "goal_tag_double_tap_goal")
         .expect("goal tag row should be synthesized");
 
-    assert_eq!(indexed.event_type_key, "goal_tag.double_tap_goal");
+    assert_eq!(indexed.event_type_key, "goal_tag_double_tap_goal");
     assert_eq!(indexed.display_name, "Double Tap Goal");
-    assert_eq!(indexed.category, "goal_tag");
+    assert_eq!(indexed.category, "event");
     assert_eq!(indexed.source_event_id, "goal_tag:0:double_tap_goal:0");
     assert_eq!(indexed.event_frame, Some(7410));
     assert_eq!(indexed.event_time, Some(123.5));
@@ -164,7 +164,7 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
     let indexed = build_indexed_events(&timeline).expect("touch events should index");
     let touch_rows = indexed
         .iter()
-        .filter(|event| event.event_type_key == "ball.touch")
+        .filter(|event| event.event_type_key == "touch")
         .collect::<Vec<_>>();
 
     assert_eq!(touch_rows.len(), 2);
@@ -205,7 +205,7 @@ fn indexed_timeline_events_use_span_timing_fields_for_review_clips() {
     .expect("rush event should index");
 
     assert_eq!(rush.event_type_key, "rush");
-    assert_eq!(rush.category, "rush");
+    assert_eq!(rush.category, "event");
     assert_eq!(rush.start_time, Some(11.0));
     assert_eq!(rush.end_time, Some(14.25));
     assert_eq!(rush.event_time, Some(14.25));
@@ -241,7 +241,7 @@ fn indexed_timeline_events_use_resolve_timing_fields_for_review_targets() {
     )
     .expect("50/50 event should index");
 
-    assert_eq!(fifty_fifty.event_type_key, "fifty.fifty");
+    assert_eq!(fifty_fifty.event_type_key, "fifty_fifty");
     assert_eq!(fifty_fifty.start_time, Some(20.0));
     assert_eq!(fifty_fifty.end_time, Some(20.6));
     assert_eq!(fifty_fifty.event_time, Some(20.6));
@@ -329,9 +329,9 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
     )
     .expect("boost pickup event should index");
 
-    assert_eq!(boost_pickup.event_type_key, "boost.pickup.both");
+    assert_eq!(boost_pickup.event_type_key, "boost_pickup_both");
     assert_eq!(boost_pickup.display_name, "Boost Pickup Both");
-    assert_eq!(boost_pickup.category, "boost");
+    assert_eq!(boost_pickup.category, "event");
     assert_eq!(
         boost_pickup.primary_subject.as_ref().map(|subject| (
             subject.kind.as_str(),
@@ -365,7 +365,7 @@ fn indexed_timeline_events_use_resolved_timing_fields_for_whiffs() {
     .expect("whiff event should index");
 
     assert_eq!(whiff.event_type_key, "whiff");
-    assert_eq!(whiff.category, "whiff");
+    assert_eq!(whiff.category, "event");
     assert_eq!(whiff.start_time, Some(52.0));
     assert_eq!(whiff.end_time, Some(52.35));
     assert_eq!(whiff.event_time, Some(52.0));
@@ -442,11 +442,11 @@ fn build_indexed_events_emits_rotation_first_man_stint_durations() {
     assert_eq!(raw_rotation_rows.len(), 2);
     assert!(raw_rotation_rows
         .iter()
-        .all(|event| event.event_type_key == "rotation.player_state_span"));
+        .all(|event| event.event_type_key == "rotation_player_state_span"));
 
     let rotation_rows = indexed
         .iter()
-        .filter(|event| event.event_type_key == "rotation.first_man_stint")
+        .filter(|event| event.event_type_key == "rotation_first_man_stint")
         .collect::<Vec<_>>();
 
     assert_eq!(rotation_rows.len(), 1);
@@ -497,11 +497,11 @@ fn build_indexed_events_derives_role_level_rotation_events() {
     let indexed = build_indexed_events(&timeline).expect("rotation should index");
     let first_man_stints = indexed
         .iter()
-        .filter(|event| event.event_type_key == "rotation.first_man_stint")
+        .filter(|event| event.event_type_key == "rotation_first_man_stint")
         .collect::<Vec<_>>();
     let first_man_role_spans = indexed
         .iter()
-        .filter(|event| event.event_type_key == "rotation.role.first_man")
+        .filter(|event| event.event_type_key == "rotation_role_first_man")
         .collect::<Vec<_>>();
     let depth_spans = indexed
         .iter()

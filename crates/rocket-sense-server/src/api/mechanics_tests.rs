@@ -6,7 +6,7 @@ fn event_review_playlist_url_preserves_filter_fields() {
     let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
         event_ids: Vec::new(),
         mechanic: vec![" wavedash ".to_owned(), "speed_flip".to_owned()],
-        event_category: vec!["touch".to_owned()],
+        event_category: vec!["event".to_owned()],
         detector: vec!["stats_timeline".to_owned()],
         review_status: Some("unreviewed".to_owned()),
         min_confidence: Some(0.7),
@@ -22,7 +22,7 @@ fn event_review_playlist_url_preserves_filter_fields() {
     assert!(url.starts_with("/api/v1/events/review-playlist?"));
     assert!(url.contains("event-type=wavedash"));
     assert!(url.contains("event-type=speed_flip"));
-    assert!(url.contains("event-category=touch"));
+    assert!(url.contains("event-category=event"));
     assert!(url.contains("detector=stats_timeline"));
     assert!(url.contains("review-status=unreviewed"));
     assert!(url.contains("min-confidence=0.7"));
@@ -60,12 +60,12 @@ fn event_review_open_targets_stats_evaluation_player() {
 fn mechanic_events_query_accepts_repeated_event_type_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let query = MechanicEventsQuery::from_raw_query(Some(
-        "event-type=wavedash&event-type=speed_flip&event-category=touch&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&player-id=steam%3Aabc123&count=1000&offset=25",
+        "event-type=wavedash&event-type=speed_flip&event-category=event&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&player-id=steam%3Aabc123&count=1000&offset=25",
     ))
     .unwrap();
 
     assert_eq!(query.mechanic, ["wavedash", "speed_flip"]);
-    assert_eq!(query.event_category, ["touch"]);
+    assert_eq!(query.event_category, ["event"]);
     assert_eq!(query.detector, ["stats_timeline"]);
     assert_eq!(query.event_ids.len(), 2);
     assert_eq!(query.review_status.as_deref(), Some("unreviewed"));
@@ -85,11 +85,11 @@ fn mechanic_events_query_still_accepts_legacy_mechanic_fields() {
 }
 
 #[test]
-fn event_type_filters_include_exact_keys_and_legacy_mechanic_shorthands() {
+fn event_type_filters_include_exact_flat_keys() {
     let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
         event_ids: Vec::new(),
-        mechanic: vec!["ball.touch".to_owned(), "speed_flip".to_owned()],
-        event_category: vec!["touch".to_owned(), "mechanic".to_owned()],
+        mechanic: vec!["touch".to_owned(), "speed_flip".to_owned()],
+        event_category: vec!["event".to_owned()],
         detector: Vec::new(),
         review_status: None,
         min_confidence: None,
@@ -100,27 +100,23 @@ fn event_type_filters_include_exact_keys_and_legacy_mechanic_shorthands() {
     })
     .unwrap();
 
-    assert_eq!(
-        filters.event_type_keys(),
-        ["ball.touch", "mechanic.speed_flip", "speed_flip"]
-    );
-    assert_eq!(filters.event_categories, ["touch", "mechanic"]);
+    assert_eq!(filters.event_type_keys(), ["speed_flip", "touch"]);
+    assert_eq!(filters.event_categories, ["event"]);
 }
 
 #[test]
 fn event_review_page_exposes_current_event_type_filters() {
     for event_type in [
-        "ball.touch",
-        "boost.pickup.both",
-        "core.goal",
-        "fifty.fifty",
-        "goal_tag.double_tap_goal",
-        "mechanic.air_dribble",
-        "mechanic.speed_flip",
+        "touch",
+        "boost_pickup_both",
+        "goal",
+        "fifty_fifty",
+        "goal_tag_double_tap_goal",
+        "air_dribble",
+        "speed_flip",
         "pass",
-        "rotation.first_man_stint",
-        "speed.flip",
-        "touch.ball.movement",
+        "rotation_first_man_stint",
+        "touch_ball_movement",
         "whiff",
     ] {
         assert!(EVENT_REVIEW_PAGE.contains(&format!(r#"value="{event_type}""#)));
@@ -132,8 +128,7 @@ fn event_review_page_exposes_current_event_type_filters() {
     assert!(EVENT_REVIEW_PAGE.contains(r#"id="event-type-grid""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"/api/v1/events/types"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-type""#));
-    assert!(EVENT_REVIEW_PAGE.contains("ball.touch or boost.pickup.both"));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"value="fifty""#));
+    assert!(EVENT_REVIEW_PAGE.contains("touch or boost_pickup_both"));
     assert!(EVENT_REVIEW_PAGE.contains(r#"value="rush""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"href="/api/v1/events?review-status=unreviewed""#));
@@ -168,7 +163,7 @@ fn saved_playlist_spec_accepts_generic_query_source() {
             "entity": "event",
             "filters": {
                 "eventTypes": "flick",
-                "eventCategories": "touch",
+                "eventCategories": "event",
                 "minConfidence": 0.75
             }
         },
@@ -185,7 +180,7 @@ fn saved_playlist_spec_accepts_generic_query_source() {
     );
     assert_eq!(
         spec["source"]["filters"]["eventCategories"],
-        serde_json::json!(["touch"])
+        serde_json::json!(["event"])
     );
     assert_eq!(spec["source"]["filters"]["minConfidence"], 0.75);
     assert_eq!(spec["page"]["limit"], 75);
@@ -279,9 +274,9 @@ fn review_playlist_exposes_next_page_when_page_is_full() {
             replay_id,
             replay_label: None,
             analysis_run_id,
-            event_type: "mechanic.speed_flip".to_owned(),
+            event_type: "speed_flip".to_owned(),
             event_type_label: "Speed Flip".to_owned(),
-            event_category: "mechanic".to_owned(),
+            event_category: "event".to_owned(),
             mechanic: "speed_flip".to_owned(),
             detector: "stats_timeline".to_owned(),
             player_id: None,
@@ -326,9 +321,9 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
             replay_id,
             replay_label: Some("ranked-doubles.replay".to_owned()),
             analysis_run_id,
-            event_type: "mechanic.speed_flip".to_owned(),
+            event_type: "speed_flip".to_owned(),
             event_type_label: "Speed Flip".to_owned(),
-            event_category: "mechanic".to_owned(),
+            event_category: "event".to_owned(),
             mechanic: "speed_flip".to_owned(),
             detector: "stats_timeline".to_owned(),
             player_id: Some("steam:abc123".to_owned()),
@@ -353,7 +348,7 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
     assert_eq!(item.start.value, 8.5);
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
-    assert_eq!(item.label, "Fast Player - Speed Flip candidate 1");
+    assert_eq!(item.label, "Fast Player - Speed Flip review item 1");
     assert_eq!(item.meta.player_name.as_deref(), Some("Fast Player"));
     assert_eq!(item.meta.clip.start_time, 8.5);
     assert_eq!(item.meta.clip.end_time, 16.5);
@@ -375,9 +370,9 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
             replay_id,
             replay_label: None,
             analysis_run_id,
-            event_type: "mechanic.speed_flip".to_owned(),
+            event_type: "speed_flip".to_owned(),
             event_type_label: "Speed Flip".to_owned(),
-            event_category: "mechanic".to_owned(),
+            event_category: "event".to_owned(),
             mechanic: "speed_flip".to_owned(),
             detector: "stats_timeline".to_owned(),
             player_id: Some("steam:abc123".to_owned()),
@@ -402,7 +397,7 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
     assert_eq!(item.start.value, 8.5);
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
-    assert_eq!(item.label, "Speed Flip candidate 1");
+    assert_eq!(item.label, "Speed Flip review item 1");
     assert_eq!(item.meta.target.kind, "event");
 }
 
@@ -418,10 +413,10 @@ fn review_playlist_items_support_non_mechanic_events() {
             replay_id,
             replay_label: None,
             analysis_run_id,
-            event_type: "ball.touch".to_owned(),
+            event_type: "touch".to_owned(),
             event_type_label: "Ball Touch".to_owned(),
-            event_category: "touch".to_owned(),
-            mechanic: "ball.touch".to_owned(),
+            event_category: "event".to_owned(),
+            mechanic: "touch".to_owned(),
             detector: "subtr-actor:stats-timeline".to_owned(),
             player_id: Some("steam:abc123".to_owned()),
             player_name: Some("Toucher".to_owned()),
@@ -442,9 +437,9 @@ fn review_playlist_items_support_non_mechanic_events() {
     );
 
     assert_eq!(item.label, "Toucher - Ball Touch review item 1");
-    assert_eq!(item.meta.event_type, "ball.touch");
+    assert_eq!(item.meta.event_type, "touch");
     assert_eq!(item.meta.event_type_label, "Ball Touch");
-    assert_eq!(item.meta.mechanic, "ball.touch");
+    assert_eq!(item.meta.mechanic, "touch");
     assert_eq!(item.meta.mechanic_label, "Ball Touch");
     assert_eq!(item.meta.team.as_deref(), Some("orange"));
 }

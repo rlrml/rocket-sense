@@ -603,7 +603,7 @@ async fn load_rotation_duration_histogram(
                  AND event.source_stream = 'rotation_first_man_stint'
                 JOIN event_types et
                   ON et.id = event.event_type_id
-                 AND et.key = 'rotation.first_man_stint'
+                 AND et.key = 'rotation_first_man_stint'
             ),
             bucketed AS (
                 SELECT floor(duration_seconds /
@@ -622,7 +622,7 @@ async fn load_rotation_duration_histogram(
                  AND event.source_stream = 'rotation_first_man_stint'
                 JOIN event_types et
                   ON et.id = event.event_type_id
-                 AND et.key = 'rotation.first_man_stint'
+                 AND et.key = 'rotation_first_man_stint'
                 WHERE r.canonical_analysis_run_id IS NOT NULL
             "#,
         );

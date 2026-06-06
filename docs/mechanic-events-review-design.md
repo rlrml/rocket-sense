@@ -20,8 +20,8 @@ and human labels have different lifecycles:
 
 ## Event Model
 
-Mechanics are `play_events` whose `event_types.category = 'mechanic'` and whose
-event type key is `mechanic.<name>`, for example `mechanic.flip_reset`.
+Mechanics are `play_events` produced by the `mechanics` source stream. Their
+event type keys use the detector kind directly, for example `flip_reset`.
 
 Important columns:
 
@@ -177,7 +177,7 @@ JOIN event_types event_type
 JOIN replays replay
   ON replay.id = event.replay_id
 WHERE event.analysis_run_id = replay.canonical_analysis_run_id
-  AND event_type.category = 'mechanic';
+  AND event.source_stream = 'mechanics';
 ```
 
 The generic indexes on `play_events` cover event type, replay, frame, primary
