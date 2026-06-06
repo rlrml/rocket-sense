@@ -109,28 +109,32 @@ fn event_type_filters_include_exact_keys_and_legacy_mechanic_shorthands() {
 
 #[test]
 fn event_review_page_exposes_current_event_type_filters() {
-    for mechanic in [
-        "air_dribble",
-        "ball_carry",
-        "ceiling_shot",
-        "double_tap",
-        "flick",
-        "flip_reset",
-        "half_flip",
-        "half_volley",
-        "musty_flick",
-        "one_timer",
+    for event_type in [
+        "ball.touch",
+        "boost.pickup.both",
+        "core.goal",
+        "fifty.fifty",
+        "goal_tag.double_tap_goal",
+        "mechanic.air_dribble",
+        "mechanic.speed_flip",
         "pass",
-        "speed_flip",
-        "wavedash",
+        "rotation.first_man_stint",
+        "speed.flip",
+        "touch.ball.movement",
+        "whiff",
     ] {
-        assert!(EVENT_REVIEW_PAGE.contains(&format!(r#"value="{mechanic}""#)));
+        assert!(EVENT_REVIEW_PAGE.contains(&format!(r#"value="{event_type}""#)));
     }
 
     assert!(EVENT_REVIEW_PAGE.contains("<title>Events review</title>"));
     assert!(EVENT_REVIEW_PAGE.contains(r#"<h1>Events review</h1>"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"<h2>Event filters</h2>"#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"id="event-type-grid""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"/api/v1/events/types"#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-type""#));
+    assert!(EVENT_REVIEW_PAGE.contains("ball.touch or boost.pickup.both"));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"value="fifty""#));
+    assert!(EVENT_REVIEW_PAGE.contains(r#"value="rush""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
     assert!(EVENT_REVIEW_PAGE.contains(r#"href="/api/v1/events?review-status=unreviewed""#));
 }

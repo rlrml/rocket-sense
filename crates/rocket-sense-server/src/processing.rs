@@ -2238,6 +2238,24 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             format!("rotation.depth.{}", kind.as_deref().unwrap_or("unknown"))
         }
         "rotation_first_man_stint" => "rotation.first_man_stint".to_owned(),
+        "boost_pickups" => format!(
+            "boost.pickup.{}",
+            payload
+                .get("comparison")
+                .and_then(normalized_variant_name)
+                .as_deref()
+                .unwrap_or("event")
+        ),
+        "boost_ledger" => format!(
+            "boost.ledger.{}",
+            payload
+                .get("transaction")
+                .and_then(normalized_variant_name)
+                .as_deref()
+                .unwrap_or("event")
+        ),
+        "boost_state" => "boost.state".to_owned(),
+        "pass_last_completed" => "pass.last_completed".to_owned(),
         _ => stream.replace('_', "."),
     };
     let category = if event_type_key == "ball.touch" {
@@ -2308,17 +2326,59 @@ fn timeline_event_timing(payload: &Value) -> MechanicTimingColumns {
         }
     }
 
-    let start_frame = int_value(payload, &["frame", "frame_number"]);
-    let end_frame = int_value(payload, &["end_frame"]).or(start_frame);
-    let start_time = float_value(payload, &["time"]);
-    let end_time = float_value(payload, &["end_time"]).or(start_time);
+    let representative_frame = int_value(
+        payload,
+        &[
+            "event_frame",
+            "frame",
+            "sample_frame",
+            "resolve_frame",
+            "resolved_frame",
+            "reported_frame",
+            "inferred_frame",
+        ],
+    );
+    let representative_time = float_value(
+        payload,
+        &[
+            "event_time",
+            "time",
+            "sample_time",
+            "resolve_time",
+            "resolved_time",
+            "reported_time",
+            "inferred_time",
+        ],
+    );
+    let start_frame = int_value(payload, &["start_frame"]).or(representative_frame);
+    let end_frame = int_value(
+        payload,
+        &[
+            "end_frame",
+            "resolve_frame",
+            "resolved_frame",
+            "sample_frame",
+        ],
+    )
+    .or(representative_frame)
+    .or(start_frame);
+    let event_frame = representative_frame.or(end_frame).or(start_frame);
+    let start_time = float_value(payload, &["start_time"]).or(representative_time);
+    let end_time = float_value(
+        payload,
+        &["end_time", "resolve_time", "resolved_time", "sample_time"],
+    )
+    .or(representative_time)
+    .or(start_time);
+    let event_time = representative_time.or(end_time).or(start_time);
+
     (
         start_frame,
         end_frame,
-        end_frame.or(start_frame),
+        event_frame,
         start_time,
         end_time,
-        end_time.or(start_time),
+        event_time,
     )
 }
 
@@ -2363,6 +2423,12 @@ fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
         ("player", "actor"),
         ("player_id", "actor"),
         ("scorer", "scorer"),
+        ("passer", "passer"),
+        ("receiver", "receiver"),
+        ("team_zero_player", "team_zero_player"),
+        ("team_one_player", "team_one_player"),
+        ("previous_first_man", "previous_first_man"),
+        ("next_first_man", "next_first_man"),
         ("initiator", "initiator"),
         ("victim", "victim"),
         ("attacker", "attacker"),
@@ -2375,6 +2441,10 @@ fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
         ("is_team_0", "team"),
         ("team_is_team_0", "team"),
         ("scoring_team_is_team_0", "scoring_team"),
+        ("winning_team_is_team_0", "winning_team"),
+        ("possession_team_is_team_0", "possession_team"),
+        ("initiator_is_team_0", "initiator_team"),
+        ("victim_is_team_0", "victim_team"),
     ] {
         if let Some(is_team_0) = bool_value(payload, &[field]) {
             push_unique_subject(

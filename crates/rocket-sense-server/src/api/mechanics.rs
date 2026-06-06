@@ -32,6 +32,7 @@ pub fn public_router() -> Router<AppState> {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(list_mechanic_events))
+        .route("/events/types", get(list_event_types))
         .route("/events/review-playlist", get(event_review_playlist))
         .route(
             "/events/playlists",
@@ -46,6 +47,7 @@ pub fn router() -> Router<AppState> {
             get(saved_event_playlist_manifest),
         )
         .route("/mechanics/events", get(list_mechanic_events))
+        .route("/mechanics/types", get(list_event_types))
         .route("/mechanics/review-playlist", get(event_review_playlist))
         .route(
             "/mechanics/playlists",
@@ -379,6 +381,20 @@ pub struct MechanicEventsResponse {
 }
 
 #[derive(Debug, Serialize)]
+pub struct EventTypesResponse {
+    pub event_types: Vec<EventTypeResponse>,
+    pub count: u32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EventTypeResponse {
+    pub key: String,
+    pub display_name: String,
+    pub category: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct MechanicEventResponse {
     pub id: Uuid,
     pub replay_id: Uuid,
@@ -583,6 +599,38 @@ pub async fn list_mechanic_events(
         count,
         offset: filters.offset,
         next_offset,
+    }))
+}
+
+pub async fn list_event_types(
+    State(state): State<AppState>,
+) -> Result<Json<EventTypesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let event_types = sqlx::query(
+        r#"
+        SELECT key, display_name, category, description
+        FROM event_types
+        ORDER BY category, display_name, key
+        "#,
+    )
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?
+    .into_iter()
+    .map(|row| {
+        Ok(EventTypeResponse {
+            key: row.try_get("key")?,
+            display_name: row.try_get("display_name")?,
+            category: row.try_get("category")?,
+            description: row.try_get("description")?,
+        })
+    })
+    .collect::<Result<Vec<_>, sqlx::Error>>()
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(EventTypesResponse {
+        count: event_types.len() as u32,
+        event_types,
     }))
 }
 

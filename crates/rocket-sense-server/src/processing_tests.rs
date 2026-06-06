@@ -188,6 +188,202 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
 }
 
 #[test]
+fn indexed_timeline_events_use_span_timing_fields_for_review_clips() {
+    let rush = indexed_timeline_payload_event(
+        "rush",
+        0,
+        &serde_json::json!({
+            "start_time": 11.0,
+            "start_frame": 660,
+            "end_time": 14.25,
+            "end_frame": 855,
+            "is_team_0": false,
+            "attackers": 2,
+            "defenders": 1
+        }),
+    )
+    .expect("rush event should index");
+
+    assert_eq!(rush.event_type_key, "rush");
+    assert_eq!(rush.category, "rush");
+    assert_eq!(rush.start_time, Some(11.0));
+    assert_eq!(rush.end_time, Some(14.25));
+    assert_eq!(rush.event_time, Some(14.25));
+    assert_eq!(rush.start_frame, Some(660));
+    assert_eq!(rush.end_frame, Some(855));
+    assert_eq!(rush.event_frame, Some(855));
+    assert_eq!(
+        rush.primary_subject.as_ref().map(|subject| (
+            subject.kind.as_str(),
+            subject.id.as_str(),
+            subject.role.as_str()
+        )),
+        Some(("team", "1", "team"))
+    );
+}
+
+#[test]
+fn indexed_timeline_events_use_resolve_timing_fields_for_review_targets() {
+    let fifty_fifty = indexed_timeline_payload_event(
+        "fifty_fifty",
+        0,
+        &serde_json::json!({
+            "start_time": 20.0,
+            "start_frame": 1200,
+            "resolve_time": 20.6,
+            "resolve_frame": 1236,
+            "is_kickoff": false,
+            "team_zero_player": { "Steam": 76561198000000001_u64 },
+            "team_one_player": { "Epic": "orange-player" },
+            "winning_team_is_team_0": true,
+            "possession_team_is_team_0": false
+        }),
+    )
+    .expect("50/50 event should index");
+
+    assert_eq!(fifty_fifty.event_type_key, "fifty.fifty");
+    assert_eq!(fifty_fifty.start_time, Some(20.0));
+    assert_eq!(fifty_fifty.end_time, Some(20.6));
+    assert_eq!(fifty_fifty.event_time, Some(20.6));
+    assert_eq!(fifty_fifty.start_frame, Some(1200));
+    assert_eq!(fifty_fifty.end_frame, Some(1236));
+    assert_eq!(fifty_fifty.event_frame, Some(1236));
+    assert!(fifty_fifty.subjects.iter().any(|subject| {
+        subject.kind == "player"
+            && subject.id == "steam:76561198000000001"
+            && subject.role == "team_zero_player"
+    }));
+    assert!(fifty_fifty.subjects.iter().any(|subject| {
+        subject.kind == "player"
+            && subject.id == "epic:orange-player"
+            && subject.role == "team_one_player"
+    }));
+    assert!(fifty_fifty.subjects.iter().any(|subject| {
+        subject.kind == "team" && subject.id == "0" && subject.role == "winning_team"
+    }));
+    assert!(fifty_fifty.subjects.iter().any(|subject| {
+        subject.kind == "team" && subject.id == "1" && subject.role == "possession_team"
+    }));
+}
+
+#[test]
+fn indexed_timeline_events_keep_pass_start_and_receiver_subject() {
+    let pass = indexed_timeline_payload_event(
+        "pass",
+        0,
+        &serde_json::json!({
+            "time": 31.25,
+            "frame": 1875,
+            "sample_time": 31.5,
+            "sample_frame": 1890,
+            "start_time": 30.0,
+            "start_frame": 1800,
+            "passer": { "Steam": 76561198000000001_u64 },
+            "receiver": { "Steam": 76561198000000002_u64 },
+            "is_team_0": true,
+            "duration": 1.5,
+            "ball_travel_distance": 700.0,
+            "ball_advance_distance": 450.0,
+            "pass_kind": "direct"
+        }),
+    )
+    .expect("pass event should index");
+
+    assert_eq!(pass.event_type_key, "pass");
+    assert_eq!(pass.start_time, Some(30.0));
+    assert_eq!(pass.end_time, Some(31.5));
+    assert_eq!(pass.event_time, Some(31.25));
+    assert_eq!(pass.start_frame, Some(1800));
+    assert_eq!(pass.end_frame, Some(1890));
+    assert_eq!(pass.event_frame, Some(1875));
+    assert_eq!(
+        pass.primary_subject
+            .as_ref()
+            .map(|subject| (subject.id.as_str(), subject.role.as_str())),
+        Some(("steam:76561198000000001", "passer"))
+    );
+    assert!(pass.subjects.iter().any(|subject| {
+        subject.kind == "player"
+            && subject.id == "steam:76561198000000002"
+            && subject.role == "receiver"
+    }));
+}
+
+#[test]
+fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
+    let boost_pickup = indexed_timeline_payload_event(
+        "boost_pickups",
+        0,
+        &serde_json::json!({
+            "comparison": "both",
+            "time": 40.0,
+            "frame": 2400,
+            "player_id": { "Steam": 76561198000000001_u64 },
+            "is_team_0": true,
+            "pad_type": "big",
+            "field_half": "opponent",
+            "activity": "active",
+            "boost_before": 12.0,
+            "boost_after": 100.0
+        }),
+    )
+    .expect("boost pickup event should index");
+
+    assert_eq!(boost_pickup.event_type_key, "boost.pickup.both");
+    assert_eq!(boost_pickup.display_name, "Boost Pickup Both");
+    assert_eq!(boost_pickup.category, "boost");
+    assert_eq!(
+        boost_pickup.primary_subject.as_ref().map(|subject| (
+            subject.kind.as_str(),
+            subject.id.as_str(),
+            subject.role.as_str()
+        )),
+        Some(("player", "steam:76561198000000001", "actor"))
+    );
+}
+
+#[test]
+fn indexed_timeline_events_use_resolved_timing_fields_for_whiffs() {
+    let whiff = indexed_timeline_payload_event(
+        "whiff",
+        0,
+        &serde_json::json!({
+            "kind": "beaten_to_ball",
+            "time": 52.0,
+            "frame": 3120,
+            "resolved_time": 52.35,
+            "resolved_frame": 3141,
+            "player": { "Steam": 76561198000000001_u64 },
+            "is_team_0": true,
+            "closest_approach_distance": 175.0,
+            "forward_alignment": 0.8,
+            "approach_speed": 1200.0,
+            "dodge_active": false,
+            "aerial": false
+        }),
+    )
+    .expect("whiff event should index");
+
+    assert_eq!(whiff.event_type_key, "whiff");
+    assert_eq!(whiff.category, "whiff");
+    assert_eq!(whiff.start_time, Some(52.0));
+    assert_eq!(whiff.end_time, Some(52.35));
+    assert_eq!(whiff.event_time, Some(52.0));
+    assert_eq!(whiff.start_frame, Some(3120));
+    assert_eq!(whiff.end_frame, Some(3141));
+    assert_eq!(whiff.event_frame, Some(3120));
+    assert_eq!(whiff.attributes["kind"], "beaten_to_ball");
+    assert_eq!(
+        whiff.primary_subject.as_ref().map(|subject| (
+            subject.kind.as_str(),
+            subject.id.as_str(),
+            subject.role.as_str()
+        )),
+        Some(("player", "steam:76561198000000001", "actor"))
+    );
+}
+
+#[test]
 fn remote_id_value_to_subject_id_extracts_platform_online_id_objects() {
     let ps4_id = serde_json::to_value(RemoteId::PlayStation(boxcars::Ps4Id {
         online_id: 6788998483854448235,
