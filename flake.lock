@@ -83,10 +83,11 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1780665324,
-        "narHash": "sha256-5N6dt2YsTldWyDrM5bjgaFu5njD+n4mPTUJVjaNyy5w=",
-        "rev": "04cb4016f7fdbe8238897a8b95f63ddf03be1d03",
-        "revCount": 1347,
+        "lastModified": 1780706949,
+        "narHash": "sha256-ERCt0kDul5SRwRBo8stDL4nXCGPlhUzlMdNv6kpghd8=",
+        "ref": "refs/heads/colonelpanic/double-tap-review-window",
+        "rev": "ed951ad10687b4effa14595d419670a4054a28b9",
+        "revCount": 1351,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },
