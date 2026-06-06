@@ -164,5 +164,9 @@ fn aggregate_hidden_event_source_streams_cover_state_and_context_rows() {
             AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS.contains(&source_stream),
             "{source_stream} should be hidden from aggregate stat counts"
         );
+        assert!(
+            AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL.contains(&format!("'{source_stream}'")),
+            "{source_stream} should be present in the aggregate query predicate"
+        );
     }
 }

@@ -234,6 +234,7 @@ pub(crate) enum StatAggregateGroupBy {
 }
 
 pub(crate) const ROTATION_DURATION_BUCKET_SECONDS: f64 = 1.0;
+#[cfg(test)]
 const AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS: &[&str] = &[
     "positioning",
     "boost_state",
@@ -245,6 +246,7 @@ const AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS: &[&str] = &[
     "powerslide",
     "touch_last_touch",
 ];
+const AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL: &str = "source_stream NOT IN ('positioning', 'boost_state', 'boost_ledger', 'movement', 'rotation_player', 'rotation_role_span', 'rotation_depth_span', 'powerslide', 'touch_last_touch')";
 
 #[derive(Debug, Clone)]
 struct StatCountRow {
@@ -837,12 +839,16 @@ async fn load_replay_set_stat_count_rows(
         JOIN play_events event
           ON event.replay_id = r.id
          AND event.analysis_run_id = r.canonical_analysis_run_id
+        "#,
+    );
+    append_user_facing_stat_event_join_filter(&mut query, "event");
+    query.push(
+        r#"
         JOIN event_types et
           ON et.id = event.event_type_id
         WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
     );
-    append_user_facing_stat_event_filter(&mut query, "event");
     append_replay_filters(&mut query, filters, "r");
     query.push(
         r#"
@@ -891,14 +897,13 @@ async fn load_player_stat_count_rows(
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = r.canonical_analysis_run_id
-            JOIN event_types et
-              ON et.id = event.event_type_id
-            WHERE 1 = 1
             "#,
     );
-    append_user_facing_stat_event_filter(&mut query, "event");
+    append_user_facing_stat_event_join_filter(&mut query, "event");
     query.push(
         r#"
+            JOIN event_types et
+              ON et.id = event.event_type_id
             GROUP BY et.key, et.display_name, et.category
         )
         "#,
@@ -933,14 +938,13 @@ async fn load_player_stat_count_rows(
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = r.canonical_analysis_run_id
-                JOIN event_types et
-                  ON et.id = event.event_type_id
-                WHERE 1 = 1
                 "#,
         );
-        append_user_facing_stat_event_filter(&mut query, "event");
+        append_user_facing_stat_event_join_filter(&mut query, "event");
         query.push(
             r#"
+                JOIN event_types et
+                  ON et.id = event.event_type_id
                 GROUP BY et.key, et.display_name, et.category
             )
             SELECT
@@ -1007,19 +1011,15 @@ fn rotation_duration_bucket_row_from_db(
     })
 }
 
-fn append_user_facing_stat_event_filter<'args>(
+fn append_user_facing_stat_event_join_filter<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     event_alias: &str,
 ) {
     builder
         .push(" AND ")
         .push(event_alias)
-        .push(".source_stream NOT IN (");
-    let mut separated = builder.separated(", ");
-    for source_stream in AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS {
-        separated.push_bind(*source_stream);
-    }
-    separated.push_unseparated(")");
+        .push(".")
+        .push(AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL);
 }
 
 fn append_target_player_filters<'args>(
