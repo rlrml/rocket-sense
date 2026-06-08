@@ -115,8 +115,39 @@ fn replay_select_includes_parse_version_metadata() {
 }
 
 #[test]
+fn replay_select_includes_game_type_metadata() {
+    let sql = replay_select_sql("WHERE r.id = $1");
+
+    assert!(sql.contains("r.replay_game_type"));
+    assert!(sql.contains("r.header_match_type"));
+    assert!(sql.contains("r.game_playlist_id"));
+    assert!(sql.contains("r.match_type_class"));
+}
+
+#[test]
+fn replay_game_type_migration_stores_normalized_and_raw_game_type_signals() {
+    let migration = include_str!("../../../../migrations/0025_replay_game_type_metadata.sql");
+
+    assert!(migration.contains("ADD COLUMN replay_game_type text"));
+    assert!(migration.contains("ADD COLUMN header_match_type text"));
+    assert!(migration.contains("ADD COLUMN game_playlist_id integer"));
+    assert!(migration.contains("ADD COLUMN match_type_class text"));
+    assert!(migration.contains("replays_replay_game_type_check"));
+    assert!(migration.contains("replays_replay_game_type_created_at_idx"));
+    assert!(migration.contains("replays_game_playlist_id_idx"));
+}
+
+#[test]
 fn playlist_metadata_classifies_ranked_casual_and_soccar_playlists() {
-    let ranked = playlist_metadata(Some("ranked-doubles"));
+    let ranked = playlist_metadata(
+        Some("ranked-doubles"),
+        ReplayGameTypeResponse {
+            replay_game_type: Some("ranked".to_owned()),
+            header_match_type: Some("Online".to_owned()),
+            game_playlist_id: Some(11),
+            match_type_class: Some("TAGame.MatchType_PublicRanked_TA".to_owned()),
+        },
+    );
     assert_eq!(ranked.label.as_deref(), Some("Ranked Soccar Doubles"));
     assert_eq!(ranked.category.as_deref(), Some("ranked"));
     assert_eq!(ranked.ruleset.as_deref(), Some("soccar"));
@@ -124,8 +155,15 @@ fn playlist_metadata_classifies_ranked_casual_and_soccar_playlists() {
     assert_eq!(ranked.ranked, Some(true));
     assert_eq!(ranked.casual, Some(false));
     assert_eq!(ranked.soccar, Some(true));
+    assert_eq!(ranked.replay_game_type.as_deref(), Some("ranked"));
+    assert_eq!(ranked.header_match_type.as_deref(), Some("Online"));
+    assert_eq!(ranked.game_playlist_id, Some(11));
+    assert_eq!(
+        ranked.match_type_class.as_deref(),
+        Some("TAGame.MatchType_PublicRanked_TA")
+    );
 
-    let casual = playlist_metadata(Some("unranked-standard"));
+    let casual = playlist_metadata(Some("unranked-standard"), ReplayGameTypeResponse::default());
     assert_eq!(casual.label.as_deref(), Some("Casual Soccar Standard"));
     assert_eq!(casual.category.as_deref(), Some("casual"));
     assert_eq!(casual.team_size, Some(3));
@@ -133,16 +171,22 @@ fn playlist_metadata_classifies_ranked_casual_and_soccar_playlists() {
     assert_eq!(casual.casual, Some(true));
     assert_eq!(casual.soccar, Some(true));
 
-    let hoops = playlist_metadata(Some("ranked-hoops"));
+    let hoops = playlist_metadata(Some("ranked-hoops"), ReplayGameTypeResponse::default());
     assert_eq!(hoops.label.as_deref(), Some("Ranked Hoops"));
     assert_eq!(hoops.ruleset.as_deref(), Some("hoops"));
     assert_eq!(hoops.ranked, Some(true));
     assert_eq!(hoops.soccar, Some(false));
+
+    let lan = playlist_metadata(Some("lan"), ReplayGameTypeResponse::default());
+    assert_eq!(lan.label.as_deref(), Some("LAN"));
+    assert_eq!(lan.category.as_deref(), Some("lan"));
+    assert_eq!(lan.ranked, None);
+    assert_eq!(lan.casual, None);
 }
 
 #[test]
 fn playlist_metadata_does_not_invent_ranked_status_for_generic_online() {
-    let metadata = playlist_metadata(Some("online-2v2"));
+    let metadata = playlist_metadata(Some("online-2v2"), ReplayGameTypeResponse::default());
 
     assert_eq!(metadata.label.as_deref(), Some("Online Soccar 2v2"));
     assert_eq!(metadata.category.as_deref(), Some("online"));

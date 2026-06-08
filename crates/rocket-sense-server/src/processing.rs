@@ -150,11 +150,20 @@ struct PreparedIndexedEvent<'a> {
 #[derive(Debug, Clone, PartialEq)]
 struct ReplaySearchMetadata {
     playlist: Option<String>,
+    game_type: ReplayGameTypeMetadata,
     map_code: Option<String>,
     replay_date: Option<DateTime<Utc>>,
     summary: ReplaySummaryMetadata,
     has_pro_player: bool,
     players: Vec<ReplaySearchPlayer>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ReplayGameTypeMetadata {
+    replay_game_type: Option<String>,
+    header_match_type: Option<String>,
+    game_playlist_id: Option<i32>,
+    match_type_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1200,6 +1209,7 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
 
     ReplaySearchMetadata {
         playlist,
+        game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
         summary: replay_summary_metadata(timeline),
@@ -1233,6 +1243,7 @@ fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMet
 
     ReplaySearchMetadata {
         playlist,
+        game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
         summary: ReplaySummaryMetadata::default(),
@@ -1254,6 +1265,27 @@ fn replay_search_player(player: &PlayerInfo, team: i32) -> ReplaySearchPlayer {
         time_demolished_seconds: None,
         time_most_back_seconds: None,
         time_most_forward_seconds: None,
+    }
+}
+
+fn replay_game_type_metadata(replay_meta: &ReplayMeta) -> ReplayGameTypeMetadata {
+    ReplayGameTypeMetadata {
+        replay_game_type: Some(replay_game_type_slug(replay_meta.game_type.game_type).to_owned()),
+        header_match_type: replay_meta.game_type.header_match_type.clone(),
+        game_playlist_id: replay_meta.game_type.playlist_id,
+        match_type_class: replay_meta.game_type.match_type_class.clone(),
+    }
+}
+
+fn replay_game_type_slug(game_type: subtr_actor::ReplayGameType) -> &'static str {
+    match game_type {
+        subtr_actor::ReplayGameType::Ranked => "ranked",
+        subtr_actor::ReplayGameType::Casual => "casual",
+        subtr_actor::ReplayGameType::Private => "private",
+        subtr_actor::ReplayGameType::Offline => "offline",
+        subtr_actor::ReplayGameType::Lan => "lan",
+        subtr_actor::ReplayGameType::Tournament => "tournament",
+        subtr_actor::ReplayGameType::Unknown => "unknown",
     }
 }
 
@@ -1407,16 +1439,32 @@ fn header_text(headers: &[(String, HeaderProp)], keys: &[&str]) -> Option<String
 }
 
 fn replay_playlist(replay_meta: &ReplayMeta) -> Option<String> {
-    playlist_header_text(replay_meta, &["PlaylistName", "GamePlaylist"])
-        .or_else(|| playlist_header_text(replay_meta, &["Playlist", "MatchType"]))
-        .map(normalize_playlist)
-        .and_then(|playlist| {
-            if playlist.eq_ignore_ascii_case("online") {
-                online_playlist_from_team_size(replay_meta).or(Some(playlist))
-            } else {
-                Some(playlist)
-            }
-        })
+    replay_playlist_from_game_type(replay_meta).or_else(|| {
+        playlist_header_text(replay_meta, &["PlaylistName", "GamePlaylist"])
+            .or_else(|| playlist_header_text(replay_meta, &["Playlist", "MatchType"]))
+            .map(normalize_playlist)
+            .and_then(|playlist| {
+                if playlist.eq_ignore_ascii_case("online") {
+                    online_playlist_from_team_size(replay_meta).or(Some(playlist))
+                } else {
+                    Some(playlist)
+                }
+            })
+    })
+}
+
+fn replay_playlist_from_game_type(replay_meta: &ReplayMeta) -> Option<String> {
+    match replay_meta.game_type.game_type {
+        subtr_actor::ReplayGameType::Ranked | subtr_actor::ReplayGameType::Casual => replay_meta
+            .game_type
+            .playlist_id
+            .map(|playlist_id| normalize_playlist(playlist_id.to_string())),
+        subtr_actor::ReplayGameType::Private => Some("private".to_owned()),
+        subtr_actor::ReplayGameType::Offline => Some("offline".to_owned()),
+        subtr_actor::ReplayGameType::Lan => Some("lan".to_owned()),
+        subtr_actor::ReplayGameType::Tournament => Some("tournament".to_owned()),
+        subtr_actor::ReplayGameType::Unknown => None,
+    }
 }
 
 fn playlist_header_text(replay_meta: &ReplayMeta, keys: &[&str]) -> Option<String> {
@@ -1473,6 +1521,8 @@ fn normalize_playlist(value: String) -> String {
         "2" | "casual doubles" | "unranked doubles" => "unranked-doubles".to_owned(),
         "3" | "casual standard" | "unranked standard" => "unranked-standard".to_owned(),
         "4" | "chaos" | "casual chaos" | "unranked chaos" => "unranked-chaos".to_owned(),
+        "6" => "private".to_owned(),
+        "8" => "offline".to_owned(),
         "10" | "duel" | "duels" | "ranked duel" | "ranked duels" => "ranked-duels".to_owned(),
         "11" | "ranked doubles" => "ranked-doubles".to_owned(),
         "12" | "ranked solo standard" => "ranked-solo-standard".to_owned(),
@@ -1481,6 +1531,7 @@ fn normalize_playlist(value: String) -> String {
         "16" | "rocket labs" | "rocketlabs" => "rocketlabs".to_owned(),
         "17" => "hoops".to_owned(),
         "22" | "tournament" => "tournament".to_owned(),
+        "23" => "unranked-standard".to_owned(),
         "25" => "dropshot".to_owned(),
         "27" | "hoops" | "ranked hoops" => "ranked-hoops".to_owned(),
         "28" | "rumble" | "ranked rumble" => "ranked-rumble".to_owned(),
@@ -1537,21 +1588,29 @@ async fn upsert_replay_search_metadata(
     sqlx::query(
         r#"
         UPDATE replays
-        SET playlist = COALESCE($2, playlist),
-            map_code = COALESCE($3, map_code),
-            replay_date = COALESCE($4, replay_date),
-            duration_seconds = COALESCE($5, duration_seconds),
-            overtime_seconds = COALESCE($6, overtime_seconds),
-            team_zero_score = COALESCE($7, team_zero_score),
-            team_one_score = COALESCE($8, team_one_score),
-            match_guid = COALESCE($9, match_guid),
-            has_pro_player = has_pro_player OR $10,
+        SET playlist = $2,
+            replay_game_type = $3,
+            header_match_type = $4,
+            game_playlist_id = $5,
+            match_type_class = $6,
+            map_code = COALESCE($7, map_code),
+            replay_date = COALESCE($8, replay_date),
+            duration_seconds = COALESCE($9, duration_seconds),
+            overtime_seconds = COALESCE($10, overtime_seconds),
+            team_zero_score = COALESCE($11, team_zero_score),
+            team_one_score = COALESCE($12, team_one_score),
+            match_guid = COALESCE($13, match_guid),
+            has_pro_player = has_pro_player OR $14,
             updated_at = now()
         WHERE id = $1
         "#,
     )
     .bind(replay_id)
     .bind(&metadata.playlist)
+    .bind(&metadata.game_type.replay_game_type)
+    .bind(&metadata.game_type.header_match_type)
+    .bind(metadata.game_type.game_playlist_id)
+    .bind(&metadata.game_type.match_type_class)
     .bind(&metadata.map_code)
     .bind(metadata.replay_date)
     .bind(metadata.summary.duration_seconds)
