@@ -181,7 +181,7 @@ export function createDevToken(email: string): Promise<AccessTokenResponse> {
   });
 }
 
-export function createProfileToken(options: { includeAccessToken?: boolean } = {}): Promise<AccessTokenResponse> {
+export function createAccountToken(options: { includeAccessToken?: boolean } = {}): Promise<AccessTokenResponse> {
   return request<AccessTokenResponse>("/api/v1/auth/profile-token", {
     method: "POST",
     credentials: "same-origin",

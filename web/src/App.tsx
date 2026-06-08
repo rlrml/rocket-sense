@@ -24,7 +24,7 @@ import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } fro
 import {
   clearAccessToken,
   createDevToken,
-  createProfileToken,
+  createAccountToken,
   getAccessToken,
   getAuthOptions,
   getPlayerProfile,
@@ -57,7 +57,7 @@ import type {
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
-  { to: "/profile", label: "Profile", icon: CircleUser },
+  { to: "/account", label: "Account", icon: CircleUser },
 ];
 
 const playerStatsSectionGroups: StatGroup[] = statGroups;
@@ -98,7 +98,7 @@ export function App() {
             <Route path="/players/:platform/:platformPlayerId/stats/:statGroup" element={<PlayerStatsPage />} />
             <Route path="/events/review" element={<EventsReviewPage />} />
             <Route path="/mechanics/review" element={<EventsReviewPage />} />
-            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/account" element={<AccountPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         )}
@@ -1234,7 +1234,7 @@ function ApiNotice({ label, message }: { label: string; message: string }) {
 
 function friendlyApiMessage(message: string): string {
   if (message.includes("missing bearer token")) {
-    return "This production endpoint needs a bearer token. Save one on the Profile page to populate this section locally.";
+    return "This production endpoint needs a bearer token. Save one on the Account page to populate this section locally.";
   }
   return message;
 }
@@ -1250,7 +1250,7 @@ function PlayerStatsPage() {
     () => playerStatsSectionGroups.find((group) => group.id === statGroup) ?? playerStatsSectionGroups[0]!,
     [statGroup],
   );
-  const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
+  const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -1265,7 +1265,7 @@ function PlayerStatsPage() {
     setStatsError(null);
     getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
-        if (!cancelled) setProfile(response);
+        if (!cancelled) setPlayerSummary(response);
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -1293,7 +1293,7 @@ function PlayerStatsPage() {
       <header className="page-header">
         <div>
           <p className="eyebrow">Player stats</p>
-          <h1>{profile?.display_name || platformPlayerId}</h1>
+          <h1>{playerSummary?.display_name || platformPlayerId}</h1>
         </div>
         <div className="button-row">
           <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
@@ -1303,21 +1303,21 @@ function PlayerStatsPage() {
         </div>
       </header>
       <StatusLine loading={loading} error={error} />
-      {profile ? (
+      {playerSummary ? (
         <>
           <div className="summary-grid">
-            <Metric label="Replays" value={profile.replay_count.toLocaleString()} />
+            <Metric label="Replays" value={playerSummary.replay_count.toLocaleString()} />
             <Metric label="Active" value={formatDuration(stats?.active_time_seconds ?? null)} />
-            <Metric label="First seen" value={formatShortDate(profile.first_seen_at)} />
-            <Metric label="Last seen" value={formatShortDate(profile.last_seen_at)} />
-            <Metric label="Platform" value={platformLabel(profile.platform)} />
-            <Metric label="Player id" value={profile.platform_player_id} />
-            <Metric label="Names" value={profile.names.length.toLocaleString()} />
-            <Metric label="Pro" value={profile.is_pro ? "Yes" : "No"} />
+            <Metric label="First seen" value={formatShortDate(playerSummary.first_seen_at)} />
+            <Metric label="Last seen" value={formatShortDate(playerSummary.last_seen_at)} />
+            <Metric label="Platform" value={platformLabel(playerSummary.platform)} />
+            <Metric label="Player id" value={playerSummary.platform_player_id} />
+            <Metric label="Names" value={playerSummary.names.length.toLocaleString()} />
+            <Metric label="Pro" value={playerSummary.is_pro ? "Yes" : "No"} />
           </div>
-          {profile.names.length > 0 ? (
-            <div className="profile-name-list">
-              {profile.names.map((name) => (
+          {playerSummary.names.length > 0 ? (
+            <div className="player-name-aliases">
+              {playerSummary.names.map((name) => (
                 <span key={name.name} title={`${name.replay_count.toLocaleString()} replays`}>
                   {name.name}
                 </span>
@@ -1342,7 +1342,7 @@ function PlayerStatsPage() {
             <div className="table-frame">
               <table>
                 <tbody>
-                  {profile.latest_replays.map((replay) => (
+                  {playerSummary.latest_replays.map((replay) => (
                     <tr key={replay.id}>
                       <td>
                         <Link className="primary-link" to={`/replays/${replay.id}`}>
@@ -1389,12 +1389,12 @@ function PlayerAggregateStatsSections({
   search: string;
   stats: StatAggregateSetResponse;
 }) {
-  const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms).slice().sort(compareProfileStatRates);
+  const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms).slice().sort(comparePlayerStatRates);
   const topStats = sectionStats.slice(0, 20);
   const playlistGroups = stats.groups
     .map((group) => ({
       group,
-      stats: filterStatsForGroup(group.stats, activeGroup.terms).slice().sort(compareProfileStatRates),
+      stats: filterStatsForGroup(group.stats, activeGroup.terms).slice().sort(comparePlayerStatRates),
     }))
     .filter((group) => group.stats.length > 0)
     .slice(0, 8);
@@ -1434,11 +1434,11 @@ function PlayerAggregateStatsSections({
         </div>
       </header>
 
-      <div className="profile-stats-grid stat-section-grid">
+      <div className="player-stats-section-grid stat-section-grid">
         <section className="stat-panel">
           <h3>Player rates</h3>
           <div className="table-frame compact-table">
-            <table className="profile-stat-table">
+            <table className="player-stat-table">
               <thead>
                 <tr>
                   <th>Stat</th>
@@ -1509,7 +1509,7 @@ function PlayerAggregateStatsSections({
   );
 }
 
-function compareProfileStatRates(left: StatAggregateResponse, right: StatAggregateResponse): number {
+function comparePlayerStatRates(left: StatAggregateResponse, right: StatAggregateResponse): number {
   const leftRate = left.per_active_minute ?? -1;
   const rightRate = right.per_active_minute ?? -1;
   return rightRate - leftRate || right.event_count - left.event_count || left.display_name.localeCompare(right.display_name);
@@ -2236,7 +2236,7 @@ function reviewStatusLabel(value: string): string {
   return reviewStatusOptions.find((option) => option.value === value)?.label ?? value;
 }
 
-function ProfilePage() {
+function AccountPage() {
   const [token, setToken] = useState(() => getAccessToken() ?? "");
   const [devEmail, setDevEmail] = useState("");
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
@@ -2254,7 +2254,7 @@ function ProfilePage() {
     attemptedSessionHydration.current = true;
 
     let cancelled = false;
-    createProfileToken()
+    createAccountToken()
       .then((response) => {
         if (cancelled) return;
         saveAccessToken(response.access_token);
@@ -2305,7 +2305,7 @@ function ProfilePage() {
     setTokenError(null);
     setTokenStatus(null);
     try {
-      const response = await createProfileToken();
+      const response = await createAccountToken();
       saveAccessToken(response.access_token);
       setTokenStatus("Created a bearer token from the current browser session.");
     } catch (err) {
@@ -2343,7 +2343,7 @@ function ProfilePage() {
       <header className="page-header">
         <div>
           <p className="eyebrow">Account</p>
-          <h1>Profile</h1>
+          <h1>Account</h1>
         </div>
         <button className="secondary-button" type="button" onClick={() => setLoginOpen(true)}>
           <LogIn size={16} />
@@ -2473,7 +2473,7 @@ function accountSummary(claims: AccessTokenClaims | null): string {
   if (claims.provider_name && claims.provider_subject) {
     return `Connected through ${providerLabel(claims.provider_name)}.`;
   }
-  return "This profile is tied to the current Rocket Sense token.";
+  return "This account is tied to the current Rocket Sense token.";
 }
 
 function providerLabel(provider: string): string {
@@ -2584,7 +2584,7 @@ function LoginModal({
         return;
       }
 
-      createProfileToken({ includeAccessToken: false })
+      createAccountToken({ includeAccessToken: false })
         .then((response) => {
           popupRef.current?.close();
           popupRef.current = null;

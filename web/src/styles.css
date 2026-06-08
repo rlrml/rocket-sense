@@ -522,13 +522,13 @@ tbody tr:last-child td {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
-.profile-name-list {
+.player-name-aliases {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.profile-name-list span {
+.player-name-aliases span {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -541,7 +541,7 @@ tbody tr:last-child td {
   font-weight: 700;
 }
 
-.profile-stats-grid {
+.player-stats-section-grid {
   display: grid;
   gap: 16px;
 }
@@ -552,8 +552,8 @@ tbody tr:last-child td {
   gap: 8px;
 }
 
-.profile-stat-table th:nth-child(n + 2),
-.profile-stat-table td:nth-child(n + 2) {
+.player-stat-table th:nth-child(n + 2),
+.player-stat-table td:nth-child(n + 2) {
   white-space: nowrap;
 }
 
