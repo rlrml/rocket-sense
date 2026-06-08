@@ -158,7 +158,6 @@ fn aggregate_hidden_event_source_streams_cover_state_and_context_rows() {
         "rotation_role_span",
         "rotation_depth_span",
         "powerslide",
-        "touch_last_touch",
     ] {
         assert!(
             AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS.contains(&source_stream),

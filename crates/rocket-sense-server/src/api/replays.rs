@@ -130,6 +130,18 @@ pub struct ReplayPlaylistResponse {
     pub ranked: Option<bool>,
     pub casual: Option<bool>,
     pub soccar: Option<bool>,
+    pub replay_game_type: Option<String>,
+    pub header_match_type: Option<String>,
+    pub game_playlist_id: Option<i32>,
+    pub match_type_class: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+struct ReplayGameTypeResponse {
+    replay_game_type: Option<String>,
+    header_match_type: Option<String>,
+    game_playlist_id: Option<i32>,
+    match_type_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
@@ -1834,6 +1846,10 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.storage_key,
             r.external_replay_id,
             r.playlist,
+            r.replay_game_type,
+            r.header_match_type,
+            r.game_playlist_id,
+            r.match_type_class,
             r.map_code,
             r.replay_date,
             r.season,
@@ -1898,6 +1914,12 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         },
     };
     let playlist = row.try_get::<Option<String>, _>("playlist")?;
+    let game_type = ReplayGameTypeResponse {
+        replay_game_type: row.try_get("replay_game_type").unwrap_or(None),
+        header_match_type: row.try_get("header_match_type").unwrap_or(None),
+        game_playlist_id: row.try_get("game_playlist_id").unwrap_or(None),
+        match_type_class: row.try_get("match_type_class").unwrap_or(None),
+    };
     let map_code = row.try_get::<Option<String>, _>("map_code")?;
     let replay_date = row.try_get::<Option<DateTime<Utc>>, _>("replay_date")?;
     let parse_version = ReplayParseVersionResponse {
@@ -1939,7 +1961,7 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         storage_key: row.try_get("storage_key")?,
         external_replay_id: row.try_get("external_replay_id")?,
         playlist: playlist.clone(),
-        playlist_metadata: playlist_metadata(playlist.as_deref()),
+        playlist_metadata: playlist_metadata(playlist.as_deref(), game_type),
         map_code,
         replay_date,
         has_pro_player: row.try_get("has_pro_player")?,
@@ -1965,12 +1987,21 @@ fn optional_seconds_to_u32(value: Option<f64>) -> Option<u32> {
         .map(|seconds| seconds.round().min(f64::from(u32::MAX)) as u32)
 }
 
-fn playlist_metadata(playlist: Option<&str>) -> ReplayPlaylistResponse {
+fn playlist_metadata(
+    playlist: Option<&str>,
+    game_type: ReplayGameTypeResponse,
+) -> ReplayPlaylistResponse {
     let Some(playlist) = playlist
         .map(str::trim)
         .filter(|playlist| !playlist.is_empty())
     else {
-        return ReplayPlaylistResponse::default();
+        return ReplayPlaylistResponse {
+            replay_game_type: game_type.replay_game_type,
+            header_match_type: game_type.header_match_type,
+            game_playlist_id: game_type.game_playlist_id,
+            match_type_class: game_type.match_type_class,
+            ..ReplayPlaylistResponse::default()
+        };
     };
     let key = playlist
         .to_ascii_lowercase()
@@ -1994,6 +2025,10 @@ fn playlist_metadata(playlist: Option<&str>) -> ReplayPlaylistResponse {
         ranked: descriptor.and_then(|descriptor| descriptor.ranked),
         casual: descriptor.and_then(|descriptor| descriptor.casual),
         soccar: descriptor.and_then(|descriptor| descriptor.soccar),
+        replay_game_type: game_type.replay_game_type,
+        header_match_type: game_type.header_match_type,
+        game_playlist_id: game_type.game_playlist_id,
+        match_type_class: game_type.match_type_class,
     }
 }
 
@@ -2045,6 +2080,7 @@ fn playlist_descriptor(key: &str) -> Option<PlaylistDescriptor> {
             Some(true),
         ),
         "offline" => playlist("Offline", Some("offline"), None, None, None, None, None),
+        "lan" => playlist("LAN", Some("lan"), None, None, None, None, None),
         "tournament" => playlist(
             "Tournament",
             Some("tournament"),

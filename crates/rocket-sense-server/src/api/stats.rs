@@ -244,9 +244,8 @@ const AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS: &[&str] = &[
     "rotation_role_span",
     "rotation_depth_span",
     "powerslide",
-    "touch_last_touch",
 ];
-const AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL: &str = "source_stream NOT IN ('positioning', 'boost_state', 'boost_ledger', 'movement', 'rotation_player', 'rotation_role_span', 'rotation_depth_span', 'powerslide', 'touch_last_touch')";
+const AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL: &str = "source_stream NOT IN ('positioning', 'boost_state', 'boost_ledger', 'movement', 'rotation_player', 'rotation_role_span', 'rotation_depth_span', 'powerslide')";
 
 #[derive(Debug, Clone)]
 struct StatCountRow {

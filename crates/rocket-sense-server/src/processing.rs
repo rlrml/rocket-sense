@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 use subtr_actor::{
-    PlayerInfo, ReplayMeta, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
+    EventCategory, PlayerInfo, ReplayMeta, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
 };
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -36,6 +36,7 @@ const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
+const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["touch_last_touch"];
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -150,11 +151,20 @@ struct PreparedIndexedEvent<'a> {
 #[derive(Debug, Clone, PartialEq)]
 struct ReplaySearchMetadata {
     playlist: Option<String>,
+    game_type: ReplayGameTypeMetadata,
     map_code: Option<String>,
     replay_date: Option<DateTime<Utc>>,
     summary: ReplaySummaryMetadata,
     has_pro_player: bool,
     players: Vec<ReplaySearchPlayer>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+struct ReplayGameTypeMetadata {
+    replay_game_type: Option<String>,
+    header_match_type: Option<String>,
+    game_playlist_id: Option<i32>,
+    match_type_class: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -1200,6 +1210,7 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
 
     ReplaySearchMetadata {
         playlist,
+        game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
         summary: replay_summary_metadata(timeline),
@@ -1233,6 +1244,7 @@ fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMet
 
     ReplaySearchMetadata {
         playlist,
+        game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
         summary: ReplaySummaryMetadata::default(),
@@ -1254,6 +1266,27 @@ fn replay_search_player(player: &PlayerInfo, team: i32) -> ReplaySearchPlayer {
         time_demolished_seconds: None,
         time_most_back_seconds: None,
         time_most_forward_seconds: None,
+    }
+}
+
+fn replay_game_type_metadata(replay_meta: &ReplayMeta) -> ReplayGameTypeMetadata {
+    ReplayGameTypeMetadata {
+        replay_game_type: Some(replay_game_type_slug(replay_meta.game_type.game_type).to_owned()),
+        header_match_type: replay_meta.game_type.header_match_type.clone(),
+        game_playlist_id: replay_meta.game_type.playlist_id,
+        match_type_class: replay_meta.game_type.match_type_class.clone(),
+    }
+}
+
+fn replay_game_type_slug(game_type: subtr_actor::ReplayGameType) -> &'static str {
+    match game_type {
+        subtr_actor::ReplayGameType::Ranked => "ranked",
+        subtr_actor::ReplayGameType::Casual => "casual",
+        subtr_actor::ReplayGameType::Private => "private",
+        subtr_actor::ReplayGameType::Offline => "offline",
+        subtr_actor::ReplayGameType::Lan => "lan",
+        subtr_actor::ReplayGameType::Tournament => "tournament",
+        subtr_actor::ReplayGameType::Unknown => "unknown",
     }
 }
 
@@ -1407,16 +1440,32 @@ fn header_text(headers: &[(String, HeaderProp)], keys: &[&str]) -> Option<String
 }
 
 fn replay_playlist(replay_meta: &ReplayMeta) -> Option<String> {
-    playlist_header_text(replay_meta, &["PlaylistName", "GamePlaylist"])
-        .or_else(|| playlist_header_text(replay_meta, &["Playlist", "MatchType"]))
-        .map(normalize_playlist)
-        .and_then(|playlist| {
-            if playlist.eq_ignore_ascii_case("online") {
-                online_playlist_from_team_size(replay_meta).or(Some(playlist))
-            } else {
-                Some(playlist)
-            }
-        })
+    replay_playlist_from_game_type(replay_meta).or_else(|| {
+        playlist_header_text(replay_meta, &["PlaylistName", "GamePlaylist"])
+            .or_else(|| playlist_header_text(replay_meta, &["Playlist", "MatchType"]))
+            .map(normalize_playlist)
+            .and_then(|playlist| {
+                if playlist.eq_ignore_ascii_case("online") {
+                    online_playlist_from_team_size(replay_meta).or(Some(playlist))
+                } else {
+                    Some(playlist)
+                }
+            })
+    })
+}
+
+fn replay_playlist_from_game_type(replay_meta: &ReplayMeta) -> Option<String> {
+    match replay_meta.game_type.game_type {
+        subtr_actor::ReplayGameType::Ranked | subtr_actor::ReplayGameType::Casual => replay_meta
+            .game_type
+            .playlist_id
+            .map(|playlist_id| normalize_playlist(playlist_id.to_string())),
+        subtr_actor::ReplayGameType::Private => Some("private".to_owned()),
+        subtr_actor::ReplayGameType::Offline => Some("offline".to_owned()),
+        subtr_actor::ReplayGameType::Lan => Some("lan".to_owned()),
+        subtr_actor::ReplayGameType::Tournament => Some("tournament".to_owned()),
+        subtr_actor::ReplayGameType::Unknown => None,
+    }
 }
 
 fn playlist_header_text(replay_meta: &ReplayMeta, keys: &[&str]) -> Option<String> {
@@ -1473,6 +1522,8 @@ fn normalize_playlist(value: String) -> String {
         "2" | "casual doubles" | "unranked doubles" => "unranked-doubles".to_owned(),
         "3" | "casual standard" | "unranked standard" => "unranked-standard".to_owned(),
         "4" | "chaos" | "casual chaos" | "unranked chaos" => "unranked-chaos".to_owned(),
+        "6" => "private".to_owned(),
+        "8" => "offline".to_owned(),
         "10" | "duel" | "duels" | "ranked duel" | "ranked duels" => "ranked-duels".to_owned(),
         "11" | "ranked doubles" => "ranked-doubles".to_owned(),
         "12" | "ranked solo standard" => "ranked-solo-standard".to_owned(),
@@ -1481,6 +1532,7 @@ fn normalize_playlist(value: String) -> String {
         "16" | "rocket labs" | "rocketlabs" => "rocketlabs".to_owned(),
         "17" => "hoops".to_owned(),
         "22" | "tournament" => "tournament".to_owned(),
+        "23" => "unranked-standard".to_owned(),
         "25" => "dropshot".to_owned(),
         "27" | "hoops" | "ranked hoops" => "ranked-hoops".to_owned(),
         "28" | "rumble" | "ranked rumble" => "ranked-rumble".to_owned(),
@@ -1537,21 +1589,29 @@ async fn upsert_replay_search_metadata(
     sqlx::query(
         r#"
         UPDATE replays
-        SET playlist = COALESCE($2, playlist),
-            map_code = COALESCE($3, map_code),
-            replay_date = COALESCE($4, replay_date),
-            duration_seconds = COALESCE($5, duration_seconds),
-            overtime_seconds = COALESCE($6, overtime_seconds),
-            team_zero_score = COALESCE($7, team_zero_score),
-            team_one_score = COALESCE($8, team_one_score),
-            match_guid = COALESCE($9, match_guid),
-            has_pro_player = has_pro_player OR $10,
+        SET playlist = $2,
+            replay_game_type = $3,
+            header_match_type = $4,
+            game_playlist_id = $5,
+            match_type_class = $6,
+            map_code = COALESCE($7, map_code),
+            replay_date = COALESCE($8, replay_date),
+            duration_seconds = COALESCE($9, duration_seconds),
+            overtime_seconds = COALESCE($10, overtime_seconds),
+            team_zero_score = COALESCE($11, team_zero_score),
+            team_one_score = COALESCE($12, team_one_score),
+            match_guid = COALESCE($13, match_guid),
+            has_pro_player = has_pro_player OR $14,
             updated_at = now()
         WHERE id = $1
         "#,
     )
     .bind(replay_id)
     .bind(&metadata.playlist)
+    .bind(&metadata.game_type.replay_game_type)
+    .bind(&metadata.game_type.header_match_type)
+    .bind(metadata.game_type.game_playlist_id)
+    .bind(&metadata.game_type.match_type_class)
     .bind(&metadata.map_code)
     .bind(metadata.replay_date)
     .bind(metadata.summary.duration_seconds)
@@ -2295,6 +2355,47 @@ struct RotationPlayerDetailRow {
     lost_first_man_count: Option<i32>,
 }
 
+struct KickoffDetailRow {
+    event_id: Uuid,
+    outcome: Option<String>,
+    winning_team: Option<i32>,
+    win_strength: Option<f64>,
+    win_strength_band: Option<String>,
+    kickoff_possession_outcome: Option<String>,
+    kickoff_possession_team: Option<i32>,
+    kickoff_goal: bool,
+    scoring_team: Option<i32>,
+    time_to_goal: Option<f64>,
+    taker_touch_delay_seconds: Option<f64>,
+    exit_speed: Option<f64>,
+    exit_y_velocity: Option<f64>,
+    first_touch_subject_id: Option<String>,
+    first_touch_team: Option<i32>,
+    first_touch_time: Option<f64>,
+    first_touch_frame: Option<i32>,
+    first_follow_up_touch_subject_id: Option<String>,
+    first_follow_up_touch_team: Option<i32>,
+    first_follow_up_touch_time: Option<f64>,
+    first_follow_up_touch_frame: Option<i32>,
+}
+
+struct KickoffPlayerDetailRow {
+    event_id: Uuid,
+    player_subject_id: String,
+    team: i32,
+    role: &'static str,
+    team_role: &'static str,
+    player_index: i32,
+    spawn_position: Option<String>,
+    start_boost: Option<f64>,
+    boost_after: Option<f64>,
+    first_touch_time: Option<f64>,
+    first_touch_frame: Option<i32>,
+    taker_outcome: Option<String>,
+    approach: Option<String>,
+    support_behavior: Option<String>,
+}
+
 async fn insert_play_event_detail_rows(
     pool: &PgPool,
     events: &[PreparedIndexedEvent<'_>],
@@ -2304,6 +2405,8 @@ async fn insert_play_event_detail_rows(
     let mut goal_tag_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut touch_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut rotation_player_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut kickoff_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut kickoff_player_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
 
     for prepared in events {
         match prepared.event.source_stream.as_str() {
@@ -2342,6 +2445,19 @@ async fn insert_play_event_detail_rows(
                     rotation_player_rows.clear();
                 }
             }
+            "kickoff" => {
+                kickoff_rows.push(kickoff_detail_row(prepared.id, prepared.event)?);
+                kickoff_player_rows
+                    .extend(kickoff_player_detail_rows(prepared.id, prepared.event)?);
+                if kickoff_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_kickoff_detail_rows(pool, &kickoff_rows).await?;
+                    kickoff_rows.clear();
+                }
+                if kickoff_player_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_kickoff_player_detail_rows(pool, &kickoff_player_rows).await?;
+                    kickoff_player_rows.clear();
+                }
+            }
             _ => {}
         }
     }
@@ -2351,6 +2467,8 @@ async fn insert_play_event_detail_rows(
     insert_goal_tag_detail_rows(pool, &goal_tag_rows).await?;
     insert_touch_detail_rows(pool, &touch_rows).await?;
     insert_rotation_player_detail_rows(pool, &rotation_player_rows).await?;
+    insert_kickoff_detail_rows(pool, &kickoff_rows).await?;
+    insert_kickoff_player_detail_rows(pool, &kickoff_player_rows).await?;
 
     Ok(())
 }
@@ -2426,6 +2544,133 @@ fn rotation_player_detail_row(
         became_first_man_count: int_value(&event.payload, &["became_first_man_count"]),
         lost_first_man_count: int_value(&event.payload, &["lost_first_man_count"]),
     })
+}
+
+fn kickoff_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<KickoffDetailRow> {
+    Ok(KickoffDetailRow {
+        event_id,
+        outcome: normalized_payload_field(&event.payload, "outcome"),
+        winning_team: team_bool(&event.payload, "winning_team_is_team_0"),
+        win_strength: float_value(&event.payload, &["win_strength"]),
+        win_strength_band: normalized_payload_field(&event.payload, "win_strength_band"),
+        kickoff_possession_outcome: normalized_payload_field(
+            &event.payload,
+            "kickoff_possession_outcome",
+        ),
+        kickoff_possession_team: team_bool(&event.payload, "kickoff_possession_team_is_team_0"),
+        kickoff_goal: bool_value(&event.payload, &["kickoff_goal"]).unwrap_or(false),
+        scoring_team: team_bool(&event.payload, "scoring_team_is_team_0"),
+        time_to_goal: float_value(&event.payload, &["time_to_goal"]),
+        taker_touch_delay_seconds: float_value(&event.payload, &["taker_touch_delay_seconds"]),
+        exit_speed: float_value(&event.payload, &["exit_speed"]),
+        exit_y_velocity: float_value(&event.payload, &["exit_y_velocity"]),
+        first_touch_subject_id: player_subject_id_from_field(&event.payload, "first_touch_player")?,
+        first_touch_team: team_bool(&event.payload, "first_touch_team_is_team_0"),
+        first_touch_time: float_value(&event.payload, &["first_touch_time"]),
+        first_touch_frame: int_value(&event.payload, &["first_touch_frame"]),
+        first_follow_up_touch_subject_id: player_subject_id_from_field(
+            &event.payload,
+            "first_follow_up_touch_player",
+        )?,
+        first_follow_up_touch_team: team_bool(
+            &event.payload,
+            "first_follow_up_touch_team_is_team_0",
+        ),
+        first_follow_up_touch_time: float_value(&event.payload, &["first_follow_up_touch_time"]),
+        first_follow_up_touch_frame: int_value(&event.payload, &["first_follow_up_touch_frame"]),
+    })
+}
+
+fn kickoff_player_detail_rows(
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<Vec<KickoffPlayerDetailRow>> {
+    let mut rows = Vec::new();
+    for (field, team, team_role) in [
+        ("team_zero_taker", 0, "team_zero_taker"),
+        ("team_one_taker", 1, "team_one_taker"),
+    ] {
+        if let Some(row) =
+            kickoff_player_detail_row(event_id, &event.payload, field, team, "taker", team_role, 0)?
+        {
+            rows.push(row);
+        }
+    }
+    for (field, team, team_role) in [
+        ("team_zero_non_takers", 0, "team_zero_support"),
+        ("team_one_non_takers", 1, "team_one_support"),
+    ] {
+        let Some(players) = event.payload.get(field).and_then(Value::as_array) else {
+            continue;
+        };
+        for (index, player) in players.iter().enumerate() {
+            if let Some(row) = kickoff_player_detail_row_from_payload(
+                event_id,
+                player,
+                team,
+                "support",
+                team_role,
+                index as i32,
+            )? {
+                rows.push(row);
+            }
+        }
+    }
+    Ok(rows)
+}
+
+fn kickoff_player_detail_row(
+    event_id: Uuid,
+    event_payload: &Value,
+    field: &str,
+    fallback_team: i32,
+    role: &'static str,
+    team_role: &'static str,
+    player_index: i32,
+) -> Result<Option<KickoffPlayerDetailRow>> {
+    let Some(payload) = event_payload.get(field) else {
+        return Ok(None);
+    };
+    kickoff_player_detail_row_from_payload(
+        event_id,
+        payload,
+        fallback_team,
+        role,
+        team_role,
+        player_index,
+    )
+}
+
+fn kickoff_player_detail_row_from_payload(
+    event_id: Uuid,
+    payload: &Value,
+    fallback_team: i32,
+    role: &'static str,
+    team_role: &'static str,
+    player_index: i32,
+) -> Result<Option<KickoffPlayerDetailRow>> {
+    if payload.is_null() {
+        return Ok(None);
+    }
+    let Some(player_subject_id) = player_subject_id_from_field(payload, "player")? else {
+        return Ok(None);
+    };
+    Ok(Some(KickoffPlayerDetailRow {
+        event_id,
+        player_subject_id,
+        team: team_bool(payload, "is_team_0").unwrap_or(fallback_team),
+        role,
+        team_role,
+        player_index,
+        spawn_position: normalized_payload_field(payload, "spawn_position"),
+        start_boost: float_value(payload, &["start_boost"]),
+        boost_after: float_value(payload, &["boost_after"]),
+        first_touch_time: float_value(payload, &["first_touch_time"]),
+        first_touch_frame: int_value(payload, &["first_touch_frame"]),
+        taker_outcome: normalized_payload_field(payload, "outcome"),
+        approach: normalized_payload_field(payload, "approach"),
+        support_behavior: normalized_payload_field(payload, "support_behavior"),
+    }))
 }
 
 async fn insert_timeline_detail_rows(pool: &PgPool, rows: &[TimelineDetailRow]) -> Result<()> {
@@ -2626,6 +2871,125 @@ async fn insert_rotation_player_detail_rows(
     Ok(())
 }
 
+async fn insert_kickoff_detail_rows(pool: &PgPool, rows: &[KickoffDetailRow]) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_kickoff_details (
+            event_id,
+            outcome,
+            winning_team,
+            win_strength,
+            win_strength_band,
+            kickoff_possession_outcome,
+            kickoff_possession_team,
+            kickoff_goal,
+            scoring_team,
+            time_to_goal,
+            taker_touch_delay_seconds,
+            exit_speed,
+            exit_y_velocity,
+            first_touch_subject_id,
+            first_touch_team,
+            first_touch_time,
+            first_touch_frame,
+            first_follow_up_touch_subject_id,
+            first_follow_up_touch_team,
+            first_follow_up_touch_time,
+            first_follow_up_touch_frame
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(&detail.outcome)
+            .push_bind(detail.winning_team)
+            .push_bind(detail.win_strength)
+            .push_bind(&detail.win_strength_band)
+            .push_bind(&detail.kickoff_possession_outcome)
+            .push_bind(detail.kickoff_possession_team)
+            .push_bind(detail.kickoff_goal)
+            .push_bind(detail.scoring_team)
+            .push_bind(detail.time_to_goal)
+            .push_bind(detail.taker_touch_delay_seconds)
+            .push_bind(detail.exit_speed)
+            .push_bind(detail.exit_y_velocity)
+            .push_bind(&detail.first_touch_subject_id)
+            .push_bind(detail.first_touch_team)
+            .push_bind(detail.first_touch_time)
+            .push_bind(detail.first_touch_frame)
+            .push_bind(&detail.first_follow_up_touch_subject_id)
+            .push_bind(detail.first_follow_up_touch_team)
+            .push_bind(detail.first_follow_up_touch_time)
+            .push_bind(detail.first_follow_up_touch_frame);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert kickoff event details")?;
+
+    Ok(())
+}
+
+async fn insert_kickoff_player_detail_rows(
+    pool: &PgPool,
+    rows: &[KickoffPlayerDetailRow],
+) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_kickoff_player_details (
+            event_id,
+            player_subject_id,
+            team,
+            role,
+            team_role,
+            player_index,
+            spawn_position,
+            start_boost,
+            boost_after,
+            first_touch_time,
+            first_touch_frame,
+            taker_outcome,
+            approach,
+            support_behavior
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(&detail.player_subject_id)
+            .push_bind(detail.team)
+            .push_bind(detail.role)
+            .push_bind(detail.team_role)
+            .push_bind(detail.player_index)
+            .push_bind(&detail.spawn_position)
+            .push_bind(detail.start_boost)
+            .push_bind(detail.boost_after)
+            .push_bind(detail.first_touch_time)
+            .push_bind(detail.first_touch_frame)
+            .push_bind(&detail.taker_outcome)
+            .push_bind(&detail.approach)
+            .push_bind(&detail.support_behavior);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert kickoff player event details")?;
+
+    Ok(())
+}
+
 async fn insert_play_event_payload(pool: &PgPool, event_id: Uuid, payload: &Value) -> Result<()> {
     sqlx::query(
         r#"
@@ -2721,6 +3085,7 @@ async fn insert_play_event_details(
         "goal_tags" => insert_goal_tag_event_details(pool, event_id, event).await,
         "touch" => insert_touch_event_details(pool, event_id, event).await,
         "rotation_player" => insert_rotation_player_event_details(pool, event_id, event).await,
+        "kickoff" => insert_kickoff_event_details(pool, event_id, event).await,
         _ => Ok(()),
     }
 }
@@ -2917,6 +3282,16 @@ async fn insert_rotation_player_event_details(
     Ok(())
 }
 
+async fn insert_kickoff_event_details(
+    pool: &PgPool,
+    event_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<()> {
+    insert_kickoff_detail_rows(pool, &[kickoff_detail_row(event_id, event)?]).await?;
+    insert_kickoff_player_detail_rows(pool, &kickoff_player_detail_rows(event_id, event)?).await?;
+    Ok(())
+}
+
 fn build_indexed_events(timeline: &ReplayStatsTimelineScaffold) -> Result<Vec<IndexedEvent>> {
     let mut events = Vec::new();
     append_serialized_timeline_events(&mut events, timeline)?;
@@ -2933,8 +3308,12 @@ fn append_serialized_timeline_events(
         return Ok(());
     };
 
+    let should_derive_rotation_spans = serialized_rotation_derived_streams_are_empty(&streams);
     let mut goal_tag_index = 0;
     for (stream, stream_events) in streams {
+        if !should_index_timeline_stream(&stream) {
+            continue;
+        }
         let Some(stream_events) = stream_events.as_array() else {
             continue;
         };
@@ -2944,12 +3323,31 @@ fn append_serialized_timeline_events(
                 append_goal_context_goal_tags(events, index, payload, &mut goal_tag_index)?;
             }
         }
-        if stream == "rotation_player" {
+        if stream == "rotation_player" && should_derive_rotation_spans {
             append_rotation_derived_events(events, stream_events)?;
         }
     }
 
     Ok(())
+}
+
+fn should_index_timeline_stream(stream: &str) -> bool {
+    !NON_INDEXED_TIMELINE_STREAMS.contains(&stream)
+}
+
+fn serialized_rotation_derived_streams_are_empty(streams: &Map<String, Value>) -> bool {
+    [
+        "rotation_role_span",
+        "rotation_depth_span",
+        "rotation_first_man_stint",
+    ]
+    .into_iter()
+    .all(|stream| {
+        streams
+            .get(stream)
+            .and_then(Value::as_array)
+            .is_none_or(Vec::is_empty)
+    })
 }
 
 fn append_goal_context_goal_tags(
@@ -3310,6 +3708,7 @@ fn ensure_object_payload(payload: &Value) -> Value {
 
 fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String) {
     let kind = payload.get("kind").and_then(normalized_variant_name);
+    let metadata = direct_timeline_event_metadata(stream);
     let event_type_key = match stream {
         "mechanics" => kind.as_deref().unwrap_or("unknown").to_owned(),
         "goal_tags" => kind
@@ -3319,9 +3718,21 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
         "touch" => "touch".to_owned(),
         "timeline" => kind.as_deref().unwrap_or("event").to_owned(),
         "rotation_player" => "rotation_player_state_span".to_owned(),
-        "rotation_role_span" => format!("rotation_role_{}", kind.as_deref().unwrap_or("unknown")),
+        "rotation_role_span" => format!(
+            "rotation_role_{}",
+            normalized_payload_field(payload, "current_role_state")
+                .as_deref()
+                .or(kind.as_deref())
+                .unwrap_or("unknown")
+        ),
         "rotation_depth_span" => {
-            format!("rotation_depth_{}", kind.as_deref().unwrap_or("unknown"))
+            format!(
+                "rotation_depth_{}",
+                normalized_payload_field(payload, "current_depth_state")
+                    .as_deref()
+                    .or(kind.as_deref())
+                    .unwrap_or("unknown")
+            )
         }
         "rotation_first_man_stint" => "rotation_first_man_stint".to_owned(),
         "boost_pickups" => format!(
@@ -3341,19 +3752,116 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
                 .unwrap_or("event")
         ),
         "boost_state" => "boost_state".to_owned(),
-        _ => stream.to_owned(),
+        _ => metadata
+            .map(|metadata| metadata.id.to_owned())
+            .unwrap_or_else(|| stream.to_owned()),
     };
-    let category = "event".to_owned();
+    let category = match stream {
+        "mechanics" => "mechanic",
+        "goal_tags" => "goal_type",
+        "rotation_role_span" | "rotation_depth_span" | "rotation_first_man_stint" => "positioning",
+        _ => metadata
+            .map(|metadata| metadata.category)
+            .unwrap_or("event"),
+    }
+    .to_owned();
     let display_name = match stream {
-        "mechanics" | "goal_tags" | "timeline" => {
+        "goal_tags" => kind
+            .as_deref()
+            .and_then(goal_tag_display_name)
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))),
+        "mechanics" | "timeline" => {
             display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))
         }
         "rotation_first_man_stint" => display_name_from_key("first_man_stint"),
         "rotation_player" => display_name_from_key("player_state_span"),
+        "rotation_role_span" | "rotation_depth_span" => display_name_from_key(&event_type_key),
+        _ if metadata.is_some_and(|metadata| metadata.id == event_type_key) => metadata
+            .map(|metadata| metadata.label.to_owned())
+            .unwrap_or_else(|| display_name_from_key(&event_type_key)),
         _ => display_name_from_key(&event_type_key),
     };
 
     (event_type_key, display_name, category)
+}
+
+#[derive(Clone, Copy)]
+struct EventDefinitionMetadata {
+    id: &'static str,
+    label: &'static str,
+    category: &'static str,
+}
+
+fn direct_timeline_event_metadata(stream: &str) -> Option<EventDefinitionMetadata> {
+    let id = match stream {
+        "backboard" => "backboard_bounce",
+        "core_player" => "core_player_scoreboard",
+        _ => stream,
+    };
+    if let Some(metadata) = rocket_sense_timeline_event_metadata(id) {
+        return Some(metadata);
+    }
+    subtr_actor::ALL_EVENT_DEFINITIONS
+        .iter()
+        .copied()
+        .find(|definition| definition.id == id)
+        .map(|definition| EventDefinitionMetadata {
+            id: definition.id,
+            label: definition.label,
+            category: event_category_key(definition.category),
+        })
+}
+
+fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetadata> {
+    let (id, label, category) = match id {
+        "core_player_goal_context" => (
+            "core_player_goal_context",
+            "Core Player Goal Context",
+            "context",
+        ),
+        "controlled_play" => ("controlled_play", "Controlled Play", "possession"),
+        "core_player_scoreboard" => (
+            "core_player_scoreboard",
+            "Core Player Scoreboard",
+            "context",
+        ),
+        "goal_context" => ("goal_context", "Goal Context", "context"),
+        "kickoff" => ("kickoff", "Kickoff", "possession"),
+        "touch" => ("touch", "Touch", "other"),
+        "touch_ball_movement" => ("touch_ball_movement", "Touch Ball Movement", "other"),
+        "whiff" => ("whiff", "Whiff", "other"),
+        _ => return None,
+    };
+    Some(EventDefinitionMetadata {
+        id,
+        label,
+        category,
+    })
+}
+
+fn goal_tag_display_name(kind: &str) -> Option<&'static str> {
+    subtr_actor::ALL_GOAL_TAG_DEFINITIONS
+        .iter()
+        .find(|definition| definition.id == kind)
+        .map(|definition| definition.label)
+}
+
+fn normalized_payload_field(payload: &Value, field: &str) -> Option<String> {
+    payload.get(field).and_then(normalized_variant_name)
+}
+
+fn event_category_key(category: EventCategory) -> &'static str {
+    match category {
+        EventCategory::Core => "core",
+        EventCategory::Mechanic => "mechanic",
+        EventCategory::Possession => "possession",
+        EventCategory::Positioning => "positioning",
+        EventCategory::Boost => "boost",
+        EventCategory::Contact => "contact",
+        EventCategory::Movement => "movement",
+        EventCategory::Annotation => "annotation",
+    }
 }
 
 fn timeline_event_duration(payload: &Value) -> Option<f64> {
@@ -3510,17 +4018,29 @@ fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
         ("initiator", "initiator"),
         ("victim", "victim"),
         ("attacker", "attacker"),
+        ("first_touch_player", "first_touch"),
+        ("first_follow_up_touch_player", "first_follow_up_touch"),
     ] {
         if let Some(subject) = player_subject_from_field(payload, field, role)? {
             push_unique_subject(&mut subjects, subject);
         }
     }
+    append_nested_player_subjects(payload, &mut subjects)?;
     for (field, role) in [
         ("is_team_0", "team"),
         ("team_is_team_0", "team"),
         ("scoring_team_is_team_0", "scoring_team"),
         ("winning_team_is_team_0", "winning_team"),
         ("possession_team_is_team_0", "possession_team"),
+        ("first_touch_team_is_team_0", "first_touch_team"),
+        (
+            "first_follow_up_touch_team_is_team_0",
+            "first_follow_up_touch_team",
+        ),
+        (
+            "kickoff_possession_team_is_team_0",
+            "kickoff_possession_team",
+        ),
         ("initiator_is_team_0", "initiator_team"),
         ("victim_is_team_0", "victim_team"),
     ] {
@@ -3546,6 +4066,41 @@ fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
         );
     }
     Ok(subjects)
+}
+
+fn append_nested_player_subjects(payload: &Value, subjects: &mut Vec<EventSubject>) -> Result<()> {
+    for (field, role) in [
+        ("team_zero_taker", "team_zero_taker"),
+        ("team_one_taker", "team_one_taker"),
+    ] {
+        if let Some(subject) = nested_player_subject_from_field(payload, field, role)? {
+            push_unique_subject(subjects, subject);
+        }
+    }
+    for (field, role) in [
+        ("team_zero_non_takers", "team_zero_support"),
+        ("team_one_non_takers", "team_one_support"),
+    ] {
+        if let Some(players) = payload.get(field).and_then(Value::as_array) {
+            for player in players {
+                if let Some(subject) = player_subject_from_field(player, "player", role)? {
+                    push_unique_subject(subjects, subject);
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn nested_player_subject_from_field(
+    payload: &Value,
+    field: &str,
+    role: &str,
+) -> Result<Option<EventSubject>> {
+    let Some(value) = payload.get(field) else {
+        return Ok(None);
+    };
+    player_subject_from_field(value, "player", role)
 }
 
 fn push_unique_subject(subjects: &mut Vec<EventSubject>, subject: EventSubject) {
@@ -3912,6 +4467,10 @@ fn required_bool(value: &Value, key: &str) -> Result<bool> {
 
 fn required_team_bool(value: &Value, key: &str) -> Result<i32> {
     required_bool(value, key).map(|is_team_0| if is_team_0 { 0 } else { 1 })
+}
+
+fn team_bool(value: &Value, key: &str) -> Option<i32> {
+    bool_value(value, &[key]).map(|is_team_0| if is_team_0 { 0 } else { 1 })
 }
 
 fn json_array_or_empty(value: &Value, key: &str) -> Value {

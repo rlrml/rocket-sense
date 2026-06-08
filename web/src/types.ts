@@ -54,6 +54,10 @@ export interface ReplayPlaylistMetadata {
   ranked: boolean | null;
   casual: boolean | null;
   soccar: boolean | null;
+  replay_game_type: string | null;
+  header_match_type: string | null;
+  game_playlist_id: number | null;
+  match_type_class: string | null;
 }
 
 export interface ListReplaysResponse {
@@ -174,5 +178,16 @@ export interface PlayerProfileResponse {
   }>;
   replay_count: number;
   is_pro: boolean;
-  latest_replays: ReplayResponse[];
+  latest_replays: PlayerProfileReplayResponse[];
+}
+
+export interface PlayerProfileReplayResponse {
+  id: string;
+  original_file_name: string | null;
+  replay_date: string | null;
+  created_at: string;
+  team_scores: {
+    blue: number | null;
+    orange: number | null;
+  };
 }

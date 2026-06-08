@@ -1,12 +1,16 @@
-import { BatteryCharging, Gauge, Hand, type LucideIcon, Map as MapIcon, MapPinned, RotateCw, Sparkles } from "lucide-react";
+import { BatteryCharging, CircleDotDashed, Gauge, Hand, type LucideIcon, Map as MapIcon, MapPinned, RotateCw, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { BoostDetail, boostEventTypes } from "./boost";
+import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
+import { PositioningDetail, positioningEventTypes } from "./positioning";
+import { PossessionDetail, possessionEventTypes } from "./possession";
 
 export interface StatDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  replayId: string;
 }
 
 export interface StatGroup {
@@ -34,6 +38,17 @@ export const statGroups: StatGroup[] = [
     Detail: BoostDetail,
   },
   {
+    id: "kickoffs",
+    label: "Kickoffs",
+    icon: CircleDotDashed,
+    description: "Kickoff outcomes, taker approach, support behavior, first touches, and kickoff goals.",
+    terms: ["kickoff"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: kickoffEventTypes,
+    Detail: KickoffDetail,
+  },
+  {
     id: "movement",
     label: "Movement",
     icon: Gauge,
@@ -49,9 +64,10 @@ export const statGroups: StatGroup[] = [
     icon: MapPinned,
     description: "Field position, team depth, offensive/defensive half time, and forward/back roles.",
     terms: ["position", "offensive", "defensive", "half", "most back", "most forward", "depth"],
-    completed: false,
-    usesAggregateStats: true,
-    eventTypes: [],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: positioningEventTypes,
+    Detail: PositioningDetail,
   },
   {
     id: "mechanics",
@@ -79,9 +95,10 @@ export const statGroups: StatGroup[] = [
     icon: MapIcon,
     description: "Ball control, zone control, pressure, possession, and territory share.",
     terms: ["possession", "territory", "pressure", "control", "offensive", "defensive", "zone"],
-    completed: false,
-    usesAggregateStats: true,
-    eventTypes: [],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: possessionEventTypes,
+    Detail: PossessionDetail,
   },
   {
     id: "rotation",
