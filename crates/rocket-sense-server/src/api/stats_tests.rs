@@ -169,3 +169,13 @@ fn aggregate_hidden_event_source_streams_cover_state_and_context_rows() {
         );
     }
 }
+
+#[test]
+fn player_profile_stat_indexes_cover_appearance_subject_and_teammate_joins() {
+    let migration = include_str!("../../../../migrations/0026_player_profile_stats_indexes.sql");
+
+    assert!(migration.contains("replay_players_platform_player_profile_cover_idx"));
+    assert!(migration.contains("INCLUDE"));
+    assert!(migration.contains("replay_players_replay_team_id_idx"));
+    assert!(migration.contains("play_event_subjects_replay_player_event_idx"));
+}

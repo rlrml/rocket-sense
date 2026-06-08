@@ -178,8 +178,9 @@ for building follow-up review playlists after a detector change.
 An event review playlist is a query over `play_events` plus latest review
 state. It does not need materialized rows for every queue at first.
 The default review picker should focus on event types; label/context classes
-such as goal types, goal context, and core-player context are separate metadata
-surfaces even when they are indexed in `play_events`.
+such as goal context and core-player context are separate metadata surfaces even
+when they are indexed in `play_events`. Goal tags are not part of this review
+taxonomy for now.
 
 Example filters:
 

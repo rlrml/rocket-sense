@@ -2348,6 +2348,15 @@ async fn find_mechanic_events(
         "#,
     );
 
+    if filters.event_ids.is_empty() && filters.mechanics.is_empty() {
+        let context_event_types = context_event_type_keys_for_filter();
+        builder
+            .push(" AND event_type.key NOT LIKE 'goal_tag\\_%' ESCAPE '\\'")
+            .push(" AND event_type.key <> ALL(")
+            .push_bind(context_event_types)
+            .push(")");
+    }
+
     if let Some(pattern) = &filters.search_pattern {
         builder
             .push(" AND (replay.original_file_name ILIKE ")
@@ -2926,9 +2935,6 @@ const CODE_DEFINED_EVENT_TYPE_VARIANTS: &[CodeDefinedEventTypeVariant] = &[
 ];
 
 fn canonical_event_type_category(event_type: &str, stored_category: &str) -> &'static str {
-    if event_type.starts_with("goal_tag_") {
-        return "goal_type";
-    }
     if context_event_type_keys(event_type) {
         return "context";
     }
@@ -2987,6 +2993,7 @@ fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
         subtr_actor::EventCategory::Boost => "boost",
         subtr_actor::EventCategory::Contact => "contact",
         subtr_actor::EventCategory::Movement => "movement",
+        subtr_actor::EventCategory::Other => "other",
         subtr_actor::EventCategory::Annotation => "annotation",
     }
 }
@@ -3017,7 +3024,6 @@ fn display_name_from_key(key: &str) -> String {
 fn event_category_alias(category: &str) -> &'static str {
     match category {
         "context" => "context",
-        "goal_type" | "goal_types" | "goal_label" | "goal_labels" => "goal_type",
         "mechanics" => "mechanic",
         "touch" => "contact",
         "goal_context" => "context",
@@ -3063,15 +3069,23 @@ fn mechanic_event_type_keys(event_type: &str) -> bool {
 }
 
 fn context_event_type_keys(event_type: &str) -> bool {
-    matches!(
-        event_type,
-        "core_player"
-            | "core_player_goal_context"
-            | "core_player_scoreboard"
-            | "goal_context"
-            | "player"
-    )
+    CONTEXT_EVENT_TYPE_KEYS.contains(&event_type)
 }
+
+fn context_event_type_keys_for_filter() -> Vec<String> {
+    CONTEXT_EVENT_TYPE_KEYS
+        .iter()
+        .map(|event_type| (*event_type).to_owned())
+        .collect()
+}
+
+const CONTEXT_EVENT_TYPE_KEYS: &[&str] = &[
+    "core_player",
+    "core_player_goal_context",
+    "core_player_scoreboard",
+    "goal_context",
+    "player",
+];
 
 fn validate_review_request(request: &CreateReviewRequest) -> Result<(), ApiError> {
     if let Some(confidence) = request.confidence {
