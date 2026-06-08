@@ -492,16 +492,11 @@ pub async fn list_replays(
     ),
     responses(
         (status = 200, description = "Replay metadata", body = ReplayResponse),
-        (status = 401, description = "Authentication required"),
         (status = 404, description = "Replay was not found"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn get_replay(
-    _auth_user: AuthUser,
     State(state): State<AppState>,
     Path(replay_id): Path<Uuid>,
 ) -> Result<Json<ReplayResponse>, ApiError> {
@@ -530,16 +525,11 @@ pub async fn get_replay(
     responses(
         (status = 200, description = "Replay metadata", body = ReplayResponse),
         (status = 400, description = "SHA-256 digest was invalid"),
-        (status = 401, description = "Authentication required"),
         (status = 404, description = "Replay was not found"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn get_replay_by_sha256(
-    _auth_user: AuthUser,
     State(state): State<AppState>,
     Path(file_sha256): Path<String>,
 ) -> Result<Json<ReplayResponse>, ApiError> {
@@ -559,15 +549,10 @@ pub async fn get_replay_by_sha256(
     tag = "replay-groups",
     responses(
         (status = 200, description = "Replay groups", body = ListReplayGroupsResponse),
-        (status = 401, description = "Authentication required"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn list_replay_groups(
-    _auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<ListReplayGroupsResponse>, ApiError> {
     let db = require_db(&state)?;
@@ -641,16 +626,11 @@ pub async fn create_replay_group(
     ),
     responses(
         (status = 200, description = "Replay group", body = ReplayGroupResponse),
-        (status = 401, description = "Authentication required"),
         (status = 404, description = "Replay group was not found"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn get_replay_group(
-    _auth_user: AuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<ReplayGroupResponse>, ApiError> {
@@ -672,16 +652,11 @@ pub async fn get_replay_group(
     ),
     responses(
         (status = 200, description = "Replay group replays", body = ListReplaysResponse),
-        (status = 401, description = "Authentication required"),
         (status = 404, description = "Replay group was not found"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn list_replay_group_replays(
-    _auth_user: AuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<ListReplaysResponse>, ApiError> {

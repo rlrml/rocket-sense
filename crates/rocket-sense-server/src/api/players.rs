@@ -1,4 +1,4 @@
-use crate::{app::AppState, auth::AuthUser};
+use crate::app::AppState;
 use axum::{
     extract::{Path, RawQuery, State},
     http::StatusCode,
@@ -179,16 +179,11 @@ pub struct PlayerProfileQuery {
     responses(
         (status = 200, description = "Player profile built from indexed replay appearances", body = PlayerProfileResponse),
         (status = 400, description = "Player identity was invalid"),
-        (status = 401, description = "Authentication required"),
         (status = 404, description = "Player was not found"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn get_player_profile(
-    _auth_user: AuthUser,
     State(state): State<AppState>,
     Path((platform, platform_player_id)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,

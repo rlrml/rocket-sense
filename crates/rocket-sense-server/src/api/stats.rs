@@ -1,4 +1,4 @@
-use crate::{app::AppState, auth::AuthUser};
+use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -411,21 +411,17 @@ impl PlayerStatFilter {
     responses(
         (status = 200, description = "Aggregate indexed replay stats", body = StatAggregateSetResponse),
         (status = 400, description = "Stats filters were invalid"),
-        (status = 401, description = "Authentication required"),
         (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
     )
 )]
 pub async fn get_stat_aggregates(
-    auth_user: AuthUser,
+    OptionalAuthUser(auth_user): OptionalAuthUser,
     State(state): State<AppState>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<StatAggregateSetResponse>, ApiError> {
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
-    let filters = StatAggregateFilters::from_query(query, Some(auth_user.id))?;
+    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
     let aggregates = load_stat_aggregates(db, &filters)
         .await
         .map_err(ApiError::internal)?;

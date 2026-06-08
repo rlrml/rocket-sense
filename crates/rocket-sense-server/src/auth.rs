@@ -178,18 +178,11 @@ impl FromRequestParts<AppState> for OptionalAuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let has_bearer_token = bearer_token(parts)?.is_some();
-        let has_session_cookie = session_cookie(parts).is_some();
-        let has_dev_user =
-            matches!(state.auth_mode, AuthMode::Dev) && dev_user_header(parts)?.is_some();
-
-        if !(has_bearer_token || has_session_cookie || has_dev_user) {
-            return Ok(Self(None));
+        match AuthUser::from_request_parts(parts, state).await {
+            Ok(user) => Ok(Self(Some(user))),
+            Err(error) if error.status == StatusCode::UNAUTHORIZED => Ok(Self(None)),
+            Err(error) => Err(error),
         }
-
-        AuthUser::from_request_parts(parts, state)
-            .await
-            .map(|user| Self(Some(user)))
     }
 }
 
