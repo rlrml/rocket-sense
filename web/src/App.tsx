@@ -1740,7 +1740,7 @@ function isReviewSelectableEventType(eventType: EventTypeResponse): boolean {
   return !labelLikeEventCategories.has(eventTypeReviewCategory(eventType));
 }
 
-const labelLikeEventCategories = new Set(["context", "goal_type"]);
+const labelLikeEventCategories = new Set(["context"]);
 
 function normalizeEventCategory(value: string | null | undefined): string {
   const category = value?.trim();
@@ -1750,15 +1750,12 @@ function normalizeEventCategory(value: string | null | undefined): string {
   if (category === "mechanics") {
     return "mechanic";
   }
-  if (category === "goal_types" || category === "goal_label" || category === "goal_labels") {
-    return "goal_type";
-  }
   return category;
 }
 
 function derivedEventCategoryFromKey(key: string): string {
   if (key.startsWith("goal_tag_")) {
-    return "goal_type";
+    return "context";
   }
   if (contextEventTypeKeys.has(key)) {
     return "context";
@@ -1842,7 +1839,6 @@ function eventCategorySortRank(category: string): number {
     "contact",
     "other",
     "core",
-    "goal_type",
     "context",
     "boost",
     "movement",
@@ -1863,7 +1859,6 @@ function eventCategoryLabel(category: string): string {
     touch: "Touches",
     core: "Core",
     context: "Context metadata",
-    goal_type: "Goal types",
     goal_context: "Goal context",
     team: "Team events",
     boost: "Boost",

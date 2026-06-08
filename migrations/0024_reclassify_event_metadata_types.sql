@@ -1,12 +1,5 @@
 UPDATE event_types
 SET
-    category = 'goal_type',
-    updated_at = now()
-WHERE key LIKE 'goal_tag\_%' ESCAPE '\'
-  AND category <> 'goal_type';
-
-UPDATE event_types
-SET
     category = 'context',
     updated_at = now()
 WHERE key IN (

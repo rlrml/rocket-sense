@@ -663,10 +663,6 @@ fn stale_event_categories_are_canonicalized_by_event_type_key() {
         "mechanic"
     );
     assert_eq!(
-        canonical_event_type_category("goal_tag_air_dribble_goal", "mechanic"),
-        "goal_type"
-    );
-    assert_eq!(
         canonical_event_type_category("goal_context", "core"),
         "context"
     );

@@ -86,10 +86,10 @@ Event type metadata should follow `subtr-actor`'s static event definitions when
 available. Rocket Sense keeps explicit fallbacks for serialized streams that do
 not yet have upstream definitions, and special-cases review-friendly flat keys
 for mechanic tags, boost pickup outcomes, boost ledger transactions, and derived
-rotation role/depth/stint events. Goal tags are indexed as `goal_type` labels,
-not mechanics, because they describe a goal event rather than being independent
-events. Goal context and core-player scoreboard/context rows are indexed as
-`context` metadata and should not appear in the default event-review type picker.
+rotation role/depth/stint events. Goal tags are left in the serialized event
+stream and are not expanded into separate `play_events` review rows for now.
+Goal context and core-player scoreboard/context rows are indexed as `context`
+metadata and should not appear in the default event-review type picker.
 Touches, touch-ball-movement rows, and whiffs are indexed as `other`, not
 `mechanic`, because they are low-level ball-interaction signals rather than
 repeatable mechanical executions.

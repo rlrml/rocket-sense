@@ -36,7 +36,7 @@ const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
-const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["touch_last_touch"];
+const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["goal_tags", "touch_last_touch"];
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -3309,7 +3309,6 @@ fn append_serialized_timeline_events(
     };
 
     let should_derive_rotation_spans = serialized_rotation_derived_streams_are_empty(&streams);
-    let mut goal_tag_index = 0;
     for (stream, stream_events) in streams {
         if !should_index_timeline_stream(&stream) {
             continue;
@@ -3319,9 +3318,6 @@ fn append_serialized_timeline_events(
         };
         for (index, payload) in stream_events.iter().enumerate() {
             events.push(indexed_timeline_payload_event(&stream, index, payload)?);
-            if stream == "goal_context" {
-                append_goal_context_goal_tags(events, index, payload, &mut goal_tag_index)?;
-            }
         }
         if stream == "rotation_player" && should_derive_rotation_spans {
             append_rotation_derived_events(events, stream_events)?;
@@ -3348,50 +3344,6 @@ fn serialized_rotation_derived_streams_are_empty(streams: &Map<String, Value>) -
             .and_then(Value::as_array)
             .is_none_or(Vec::is_empty)
     })
-}
-
-fn append_goal_context_goal_tags(
-    events: &mut Vec<IndexedEvent>,
-    goal_index: usize,
-    goal_payload: &Value,
-    goal_tag_index: &mut usize,
-) -> Result<()> {
-    let Some(tags) = goal_payload.get("tags").and_then(Value::as_array) else {
-        return Ok(());
-    };
-
-    for tag in tags {
-        let Some(kind) = tag.get("kind") else {
-            continue;
-        };
-        let metadata = tag
-            .get("metadata")
-            .and_then(Value::as_object)
-            .cloned()
-            .unwrap_or_default();
-        let mut payload = Map::new();
-        payload.insert("goal_index".to_owned(), Value::from(goal_index));
-        payload.insert("kind".to_owned(), kind.clone());
-        for field in ["time", "frame", "scoring_team_is_team_0", "scorer"] {
-            if let Some(value) = goal_payload.get(field) {
-                payload.insert(field.to_owned(), value.clone());
-            }
-        }
-        for field in ["confidence", "modifiers", "related_events", "evidence"] {
-            if let Some(value) = metadata.get(field) {
-                payload.insert(field.to_owned(), value.clone());
-            }
-        }
-
-        events.push(indexed_timeline_payload_event(
-            "goal_tags",
-            *goal_tag_index,
-            &Value::Object(payload),
-        )?);
-        *goal_tag_index += 1;
-    }
-
-    Ok(())
 }
 
 fn append_rotation_derived_events(
@@ -3758,7 +3710,6 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
     };
     let category = match stream {
         "mechanics" => "mechanic",
-        "goal_tags" => "goal_type",
         "rotation_role_span" | "rotation_depth_span" | "rotation_first_man_stint" => "positioning",
         _ => metadata
             .map(|metadata| metadata.category)
@@ -3828,9 +3779,6 @@ fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetad
         ),
         "goal_context" => ("goal_context", "Goal Context", "context"),
         "kickoff" => ("kickoff", "Kickoff", "possession"),
-        "touch" => ("touch", "Touch", "other"),
-        "touch_ball_movement" => ("touch_ball_movement", "Touch Ball Movement", "other"),
-        "whiff" => ("whiff", "Whiff", "other"),
         _ => return None,
     };
     Some(EventDefinitionMetadata {
@@ -3860,6 +3808,7 @@ fn event_category_key(category: EventCategory) -> &'static str {
         EventCategory::Boost => "boost",
         EventCategory::Contact => "contact",
         EventCategory::Movement => "movement",
+        EventCategory::Other => "other",
         EventCategory::Annotation => "annotation",
     }
 }

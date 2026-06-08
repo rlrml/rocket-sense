@@ -192,7 +192,7 @@ fn normalize_playlist_returns_filter_slugs_for_common_values() {
 }
 
 #[test]
-fn indexed_goal_context_tags_use_scorer_and_goal_tag_dimensions() {
+fn indexed_goal_context_does_not_synthesize_goal_tag_events() {
     let event = subtr_actor::GoalContextEvent {
         time: 123.5,
         frame: 7410,
@@ -227,79 +227,18 @@ fn indexed_goal_context_tags_use_scorer_and_goal_tag_dimensions() {
         ..Default::default()
     });
 
-    let indexed = build_indexed_events(&timeline).expect("goal tag should index");
-    let indexed = indexed
+    let indexed = build_indexed_events(&timeline).expect("goal context should index");
+    let goal_context = indexed
         .iter()
-        .find(|event| event.event_type_key == "goal_tag_double_tap_goal")
-        .expect("goal tag row should be synthesized");
+        .find(|event| event.event_type_key == "goal_context")
+        .expect("goal context row should remain indexed");
 
-    assert_eq!(indexed.event_type_key, "goal_tag_double_tap_goal");
-    assert_eq!(indexed.display_name, "Double-Tap Goal");
-    assert_eq!(indexed.category, "goal_type");
-    assert_eq!(indexed.source_event_id, "goal_tag:0:double_tap_goal:0");
-    assert_eq!(indexed.event_frame, Some(7410));
-    assert_eq!(indexed.event_time, Some(123.5));
-    assert_eq!(indexed.confidence, Some(0.8500000238418579));
-    assert_eq!(
-        indexed.primary_subject.as_ref().map(|subject| (
-            subject.kind.as_str(),
-            subject.id.as_str(),
-            subject.role.as_str()
-        )),
-        Some(("player", "steam:76561198000000001", "scorer"))
-    );
-    assert!(indexed.subjects.iter().any(|subject| {
-        subject.kind == "team" && subject.id == "1" && subject.role == "scoring_team"
-    }));
-    assert_eq!(indexed.attributes["goal_index"], 0);
-    assert_eq!(indexed.attributes["team"], 1);
-    assert_eq!(indexed.attributes["kind"], "double_tap_goal");
-    assert_eq!(indexed.attributes["modifiers"][0], "by_scorer");
-    assert_eq!(indexed.attributes["evidence_kinds"][0], "double_tap");
-}
-
-#[test]
-fn indexed_goal_context_tags_cover_upstream_goal_tag_catalog() {
-    let metadata = subtr_actor::GoalTagMetadata {
-        confidence: 0.7,
-        performer: None,
-        modifiers: vec![],
-        related_events: vec![],
-        evidence: vec![],
-    };
-    let event = subtr_actor::GoalContextEvent {
-        time: 90.0,
-        frame: 5400,
-        scoring_team_is_team_0: true,
-        scorer: Some(RemoteId::Steam(76561198000000001)),
-        scoring_team_most_back_player: None,
-        defending_team_most_back_player: None,
-        ball_position: None,
-        ball_speed_at_goal: None,
-        ball_air_time_before_goal: None,
-        goal_buildup: subtr_actor::GoalBuildupKind::Other,
-        scorer_last_touch: None,
-        players: vec![],
-        tags: subtr_actor::ALL_GOAL_TAG_DEFINITIONS
-            .iter()
-            .map(|definition| subtr_actor::GoalTag::from_parts(definition.kind, metadata.clone()))
-            .collect(),
-    };
-    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
-        goal_context: vec![event],
-        ..Default::default()
-    });
-
-    let indexed = build_indexed_events(&timeline).expect("goal tags should index");
-    for definition in subtr_actor::ALL_GOAL_TAG_DEFINITIONS {
-        let key = format!("goal_tag_{}", definition.id);
-        let event = indexed
-            .iter()
-            .find(|event| event.event_type_key == key)
-            .unwrap_or_else(|| panic!("missing indexed goal tag `{key}`"));
-        assert_eq!(event.display_name, definition.label);
-        assert_eq!(event.category, "goal_type");
-    }
+    assert_eq!(goal_context.category, "context");
+    assert_eq!(goal_context.event_frame, Some(7410));
+    assert_eq!(goal_context.event_time, Some(123.5));
+    assert!(!indexed
+        .iter()
+        .any(|event| event.event_type_key.starts_with("goal_tag_")));
 }
 
 #[test]
@@ -343,6 +282,7 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
 #[test]
 fn touch_last_touch_is_not_an_indexed_event_stream() {
     assert!(should_index_timeline_stream("touch"));
+    assert!(!should_index_timeline_stream("goal_tags"));
     assert!(!should_index_timeline_stream("touch_last_touch"));
 }
 
