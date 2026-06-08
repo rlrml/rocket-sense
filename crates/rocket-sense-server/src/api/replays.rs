@@ -1,7 +1,7 @@
 use crate::{
     app::AppState,
     auth::{AuthUser, OptionalAuthUser},
-    processing::spawn_replay_processing,
+    processing::{spawn_replay_processing, upsert_replay_preflight_metadata},
 };
 use axum::{
     extract::{Multipart, Path, RawQuery, State},
@@ -13,6 +13,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use rocket_sense_storage::{raw_replay_key, replay_mime_type, sha256_hex, StorageError};
 use serde::{Deserialize, Serialize};
@@ -459,6 +460,8 @@ pub async fn create_replay(
         .await
         .map_err(ApiError::internal)?
     {
+        let replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
+        maybe_spawn_replay_processing(&state, db, &replay);
         return Ok((
             StatusCode::OK,
             Json(CreateReplayResponse {
@@ -473,7 +476,7 @@ pub async fn create_replay(
         .storage
         .put(
             &raw_replay_key(&file_sha256),
-            bytes,
+            bytes.clone(),
             Some(replay_mime_type()),
         )
         .await
@@ -490,6 +493,8 @@ pub async fn create_replay(
     .await
     .map_err(ApiError::internal)?;
     let replay = insert_result.replay;
+
+    let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
 
     if insert_result.created {
         maybe_spawn_replay_processing(&state, db, &replay);
@@ -508,6 +513,35 @@ pub async fn create_replay(
             deduplicated: !insert_result.created,
         }),
     ))
+}
+
+async fn maybe_upsert_preflight_metadata(
+    db: &PgPool,
+    replay: ReplayResponse,
+    replay_bytes: Bytes,
+) -> Result<ReplayResponse, ApiError> {
+    let needs_preflight = replay.players.is_empty()
+        || matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed);
+    if !needs_preflight {
+        return Ok(replay);
+    }
+
+    let replay_id = replay.id;
+    let file_sha256 = replay.file_sha256.clone();
+    match upsert_replay_preflight_metadata(db, replay_id, replay_bytes).await {
+        Ok(()) => find_replay_by_sha256(db, &file_sha256)
+            .await
+            .map_err(ApiError::internal)?
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found")),
+        Err(error) => {
+            tracing::warn!(
+                %replay_id,
+                error = %error,
+                "failed to extract replay preflight metadata"
+            );
+            Ok(replay)
+        }
+    }
 }
 
 #[utoipa::path(

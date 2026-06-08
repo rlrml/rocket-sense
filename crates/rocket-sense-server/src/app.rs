@@ -1,4 +1,4 @@
-use crate::{api, settings};
+use crate::{api, processing, settings};
 use anyhow::Result;
 use axum::{extract::DefaultBodyLimit, Router};
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
@@ -43,6 +43,29 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
             settings.background_processing_concurrency,
         )),
     };
+
+    if state.process_replays_in_background {
+        if let Some(pool) = &state.db {
+            match processing::enqueue_unfinished_replay_processing(
+                pool.clone(),
+                state.storage.clone(),
+                state.background_processing_permits.clone(),
+            )
+            .await
+            {
+                Ok(count) if count > 0 => {
+                    tracing::info!(count, "enqueued unfinished replay processing on startup");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::error!(
+                        error = %error,
+                        "failed to enqueue unfinished replay processing on startup"
+                    );
+                }
+            }
+        }
+    }
 
     Ok(api::router(state)
         .layer(DefaultBodyLimit::max(MAX_REPLAY_UPLOAD_BYTES))
