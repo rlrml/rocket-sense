@@ -59,11 +59,28 @@
             let
               name = baseNameOf path;
               parentName = baseNameOf (dirOf path);
+              excludedDirectories = [
+                ".direnv"
+                ".kube"
+                ".terraform"
+                ".worktrees"
+                "dist"
+                "node_modules"
+                "target"
+              ];
+              excludedFiles = [
+                "terraform.tfstate"
+                "terraform.tfstate.backup"
+                "tsconfig.node.tsbuildinfo"
+                "tsconfig.tsbuildinfo"
+                "vite.config.d.ts"
+                "vite.config.js"
+              ];
             in
             pkgs.lib.cleanSourceFilter path type
             && !(name == "subtr-actor" && parentName == "vendor")
-            && !(name == "target" && type == "directory")
-            && !(name == ".worktrees" && type == "directory")
+            && !(type == "directory" && builtins.elem name excludedDirectories)
+            && !(type == "regular" && builtins.elem name excludedFiles)
             && !(pkgs.lib.hasPrefix "result" name);
         };
         sourceWithSubtrActor = pkgs.runCommandLocal "rocket-sense-source" { } ''
