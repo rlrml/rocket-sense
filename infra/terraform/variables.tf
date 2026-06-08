@@ -46,6 +46,18 @@ variable "server_node_port" {
   default     = 30080
 }
 
+variable "worker_replicas" {
+  description = "Number of replay processing worker pods."
+  type        = number
+  default     = 1
+}
+
+variable "worker_processing_concurrency" {
+  description = "Number of replay processing jobs each worker pod can run concurrently."
+  type        = number
+  default     = 1
+}
+
 variable "public_base_url" {
   description = "Public HTTPS origin used for OAuth redirect URI construction."
   type        = string

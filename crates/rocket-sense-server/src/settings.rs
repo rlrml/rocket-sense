@@ -46,6 +46,22 @@ impl OAuthProviderKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServiceMode {
+    Server,
+    Worker,
+}
+
+impl ServiceMode {
+    fn from_env_value(value: &str) -> Result<Self> {
+        match value {
+            "server" => Ok(Self::Server),
+            "worker" => Ok(Self::Worker),
+            _ => anyhow::bail!("ROCKET_SENSE_SERVICE_MODE must be `server` or `worker`"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct OAuthProviderSettings {
     pub kind: OAuthProviderKind,
@@ -66,6 +82,7 @@ impl OAuthProviderSettings {
 
 #[derive(Debug, Clone)]
 pub struct Settings {
+    pub service_mode: ServiceMode,
     pub bind_addr: SocketAddr,
     pub auth_mode: AuthMode,
     pub app_jwt_secret: String,
@@ -74,11 +91,15 @@ pub struct Settings {
     pub run_migrations: bool,
     pub storage_root: PathBuf,
     pub process_replays_in_background: bool,
+    pub run_replay_processing_workers: bool,
     pub background_processing_concurrency: usize,
 }
 
 impl Settings {
     pub fn from_env() -> Result<Self> {
+        let service_mode = ServiceMode::from_env_value(
+            &env::var("ROCKET_SENSE_SERVICE_MODE").unwrap_or_else(|_| "server".to_owned()),
+        )?;
         let bind_addr = env::var("ROCKET_SENSE_BIND_ADDR")
             .unwrap_or_else(|_| "127.0.0.1:8080".to_owned())
             .parse()
@@ -106,6 +127,9 @@ impl Settings {
         let process_replays_in_background = env::var("ROCKET_SENSE_PROCESS_REPLAYS_IN_BACKGROUND")
             .map(|value| value != "0" && value.to_lowercase() != "false")
             .unwrap_or(true);
+        let run_replay_processing_workers = env::var("ROCKET_SENSE_RUN_REPLAY_PROCESSING_WORKERS")
+            .map(|value| value != "0" && value.to_lowercase() != "false")
+            .unwrap_or(true);
         let background_processing_concurrency =
             env::var("ROCKET_SENSE_BACKGROUND_PROCESSING_CONCURRENCY")
                 .ok()
@@ -114,6 +138,7 @@ impl Settings {
                 .clamp(1, 4);
 
         Ok(Self {
+            service_mode,
             bind_addr,
             auth_mode,
             app_jwt_secret,
@@ -122,6 +147,7 @@ impl Settings {
             run_migrations,
             storage_root,
             process_replays_in_background,
+            run_replay_processing_workers,
             background_processing_concurrency,
         })
     }

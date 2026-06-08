@@ -6,6 +6,10 @@ output "server_service_name" {
   value = kubernetes_service_v1.server.metadata[0].name
 }
 
+output "worker_deployment_name" {
+  value = kubernetes_deployment_v1.worker.metadata[0].name
+}
+
 output "postgres_service_name" {
   value = kubernetes_service_v1.postgres.metadata[0].name
 }

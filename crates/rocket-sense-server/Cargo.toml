@@ -9,6 +9,8 @@ edition.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+apalis.workspace = true
+apalis-postgres.workspace = true
 axum.workspace = true
 boxcars.workspace = true
 bytes.workspace = true

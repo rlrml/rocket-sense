@@ -6,6 +6,11 @@ locals {
     "app.kubernetes.io/component" = "server"
   }
 
+  worker_labels = {
+    "app.kubernetes.io/name"      = local.app_name
+    "app.kubernetes.io/component" = "worker"
+  }
+
   postgres_labels = {
     "app.kubernetes.io/name"      = local.app_name
     "app.kubernetes.io/component" = "postgres"
@@ -201,6 +206,16 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name  = "ROCKET_SENSE_SERVICE_MODE"
+            value = "server"
+          }
+
+          env {
+            name  = "ROCKET_SENSE_RUN_REPLAY_PROCESSING_WORKERS"
+            value = "false"
+          }
+
+          env {
             name  = "ROCKET_SENSE_STORAGE_ROOT"
             value = "/var/lib/rocket-sense/storage"
           }
@@ -329,6 +344,166 @@ resource "kubernetes_deployment_v1" "server" {
             http_get {
               path = "/api/v1/health"
               port = "http"
+            }
+          }
+
+          volume_mount {
+            name       = "rocket-sense-storage"
+            mount_path = "/var/lib/rocket-sense/storage"
+          }
+        }
+
+        volume {
+          name = "rocket-sense-storage"
+          persistent_volume_claim {
+            claim_name = kubernetes_persistent_volume_claim_v1.replay_storage.metadata[0].name
+          }
+        }
+      }
+    }
+  }
+}
+
+resource "kubernetes_deployment_v1" "worker" {
+  metadata {
+    name      = "rocket-sense-worker"
+    namespace = kubernetes_namespace_v1.rocket_sense.metadata[0].name
+    labels    = local.worker_labels
+  }
+
+  spec {
+    replicas = var.worker_replicas
+
+    selector {
+      match_labels = local.worker_labels
+    }
+
+    template {
+      metadata {
+        labels = local.worker_labels
+      }
+
+      spec {
+        container {
+          name              = "worker"
+          image             = var.image
+          image_pull_policy = "Always"
+
+          env {
+            name  = "ROCKET_SENSE_SERVICE_MODE"
+            value = "worker"
+          }
+
+          env {
+            name  = "ROCKET_SENSE_STORAGE_ROOT"
+            value = "/var/lib/rocket-sense/storage"
+          }
+
+          env {
+            name  = "ROCKET_SENSE_BACKGROUND_PROCESSING_CONCURRENCY"
+            value = tostring(var.worker_processing_concurrency)
+          }
+
+          env {
+            name  = "ROCKET_SENSE_PUBLIC_BASE_URL"
+            value = var.public_base_url
+          }
+
+          env {
+            name = "ROCKET_SENSE_AUTH_MODE"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "ROCKET_SENSE_AUTH_MODE"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "ROCKET_SENSE_APP_JWT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "ROCKET_SENSE_APP_JWT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "GOOGLE_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "GOOGLE_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "GOOGLE_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "GOOGLE_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "GITHUB_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "GITHUB_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "GITHUB_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "GITHUB_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "DISCORD_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "DISCORD_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "DISCORD_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "DISCORD_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "DATABASE_URL"
+            value_from {
+              secret_key_ref {
+                name = "rocket-sense-secrets"
+                key  = "DATABASE_URL"
+              }
             }
           }
 

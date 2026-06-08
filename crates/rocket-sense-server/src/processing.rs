@@ -1,8 +1,11 @@
 use anyhow::{anyhow, Context, Result};
+use apalis::prelude::*;
+use apalis_postgres::{Config as ApalisPostgresConfig, PostgresStorage};
 use boxcars::{HeaderProp, RemoteId};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
 use rocket_sense_storage::{sha256_hex, ObjectStorage};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::{
@@ -24,6 +27,7 @@ mod tests;
 
 const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v2";
+const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const FIRST_MAN_STINT_END_GRACE_SECONDS: f64 = 0.35;
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
@@ -216,6 +220,17 @@ struct ReplayProcessingTarget {
     storage_key: String,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReplayProcessingJob {
+    replay_id: Uuid,
+}
+
+#[derive(Clone)]
+struct ReplayProcessingWorkerState {
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+}
+
 #[derive(Debug, Clone)]
 pub struct ReplayProfileTimingBackfillOptions {
     pub replay_ids: Vec<Uuid>,
@@ -241,39 +256,94 @@ struct ReplayProfileTimingBackfillTarget {
     needs_rotation_player: bool,
 }
 
-pub fn spawn_replay_processing(
-    pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    permits: Arc<Semaphore>,
-    replay_id: Uuid,
-    file_sha256: String,
-    storage_key: String,
-) {
-    tokio::spawn(async move {
-        tracing::info!(%replay_id, "queued replay background processing");
-        let Ok(_permit) = permits.acquire_owned().await else {
-            tracing::warn!(%replay_id, "replay background processing was cancelled before start");
-            return;
-        };
-        tracing::info!(%replay_id, "started replay background processing");
-        if let Err(error) = process_replay(pool, storage, replay_id, file_sha256, storage_key).await
-        {
-            tracing::error!(%replay_id, error = %error, "replay background processing failed");
-        } else {
-            tracing::info!(%replay_id, "finished replay background processing");
-        }
-    });
+pub async fn setup_replay_processing_queue(pool: &PgPool) -> Result<()> {
+    let row = sqlx::query("SELECT to_regclass('apalis.jobs')::text AS jobs_table")
+        .fetch_one(pool)
+        .await
+        .context("failed to verify Apalis replay processing queue schema")?;
+    let jobs_table: Option<String> = row.try_get("jobs_table")?;
+    if jobs_table.is_none() {
+        anyhow::bail!("Apalis replay processing queue schema is missing");
+    }
+    Ok(())
 }
 
-pub async fn enqueue_unfinished_replay_processing(
+pub fn start_replay_processing_workers(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
-    permits: Arc<Semaphore>,
-) -> Result<usize> {
-    let targets = unfinished_replay_processing_targets(&pool).await?;
+    worker_count: usize,
+) {
+    let worker_count = worker_count.clamp(1, 4);
+    let state = ReplayProcessingWorkerState { pool, storage };
+
+    for worker_index in 0..worker_count {
+        let backend = replay_processing_storage(&state.pool);
+        let state = state.clone();
+        let worker_name = format!("replay-processing-{worker_index}");
+        let worker = WorkerBuilder::new(worker_name.clone())
+            .backend(backend)
+            .data(state)
+            .build(process_replay_job);
+
+        tokio::spawn(async move {
+            if let Err(error) = worker.run().await {
+                tracing::error!(
+                    worker = worker_name,
+                    error = %error,
+                    "replay processing worker stopped"
+                );
+            }
+        });
+    }
+}
+
+pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
+    let mut backend = replay_processing_storage(pool);
+    backend
+        .push(ReplayProcessingJob { replay_id })
+        .await
+        .with_context(|| format!("failed to enqueue replay processing job for {replay_id}"))?;
+    Ok(())
+}
+
+fn replay_processing_storage(pool: &PgPool) -> PostgresStorage<ReplayProcessingJob> {
+    let config = ApalisPostgresConfig::new(REPLAY_PROCESSING_QUEUE_NAME);
+    PostgresStorage::new_with_config(pool, &config)
+}
+
+async fn process_replay_job(
+    job: ReplayProcessingJob,
+    state: Data<ReplayProcessingWorkerState>,
+) -> Result<(), BoxDynError> {
+    let replay_id = job.replay_id;
+    tracing::info!(%replay_id, "started queued replay processing job");
+
+    let Some(target) = replay_processing_job_target(&state.pool, replay_id).await? else {
+        tracing::info!(
+            %replay_id,
+            "skipping replay processing job because replay is missing or already parsed"
+        );
+        return Ok(());
+    };
+
+    process_replay(
+        state.pool.clone(),
+        state.storage.clone(),
+        target.replay_id,
+        target.file_sha256,
+        target.storage_key,
+    )
+    .await?;
+
+    tracing::info!(%replay_id, "finished queued replay processing job");
+    Ok(())
+}
+
+pub async fn enqueue_unfinished_replay_processing(pool: &PgPool) -> Result<usize> {
+    let targets = unfinished_replay_processing_targets(pool).await?;
     let enqueued_replays = targets.len();
-    if !targets.is_empty() {
-        spawn_reprocess_worker(pool, storage, permits, targets, 1);
+    for target in targets {
+        enqueue_replay_processing_job(pool, target.replay_id).await?;
     }
 
     Ok(enqueued_replays)
@@ -568,6 +638,38 @@ async fn unfinished_replay_processing_targets(
         })
     })
     .collect()
+}
+
+async fn replay_processing_job_target(
+    pool: &PgPool,
+    replay_id: Uuid,
+) -> Result<Option<ReplayProcessingTarget>> {
+    let Some(row) = sqlx::query(
+        r#"
+        SELECT id, file_sha256, storage_key, parse_status, canonical_analysis_run_id
+        FROM replays
+        WHERE id = $1
+        "#,
+    )
+    .bind(replay_id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to load replay processing job target")?
+    else {
+        return Ok(None);
+    };
+
+    let parse_status: String = row.try_get("parse_status")?;
+    let canonical_analysis_run_id: Option<Uuid> = row.try_get("canonical_analysis_run_id")?;
+    if parse_status == "parsed" && canonical_analysis_run_id.is_some() {
+        return Ok(None);
+    }
+
+    Ok(Some(ReplayProcessingTarget {
+        replay_id: row.try_get("id")?,
+        file_sha256: row.try_get("file_sha256")?,
+        storage_key: row.try_get("storage_key")?,
+    }))
 }
 
 async fn reprocess_targets(

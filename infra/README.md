@@ -6,7 +6,8 @@ Terraform manages non-secret Kubernetes resources:
 
 - namespace
 - Postgres Deployment/PVC/Service
-- Rocket Sense Deployment/PVC/Service
+- Rocket Sense server Deployment/PVC/Service
+- Rocket Sense replay processing worker Deployment
 
 Secrets are deliberately not Terraform-managed because Kubernetes Secret values
 are persisted into Terraform state. Instead, encrypted agenix files live under
@@ -89,6 +90,8 @@ For now:
 
 - Kubernetes resources are deployed by Terraform.
 - The server container is built by Nix via `.#rocket-sense-server-image`.
+- The replay processing worker uses the same image as the server with
+  `ROCKET_SENSE_SERVICE_MODE=worker`.
 - Host nginx should proxy `rbsf.tplinkdns.com` to `http://127.0.0.1:30080`.
 - OAuth providers should use these redirect URIs:
   - Google: `https://rocket-sense.duckdns.org/auth/google/callback`

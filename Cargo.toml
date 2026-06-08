@@ -17,6 +17,8 @@ edition = "2021"
 
 [workspace.dependencies]
 anyhow = "1"
+apalis = "1.0.0-rc.9"
+apalis-postgres = "1.0.0-rc.8"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["multipart"] }
 boxcars = ">=0.11.1, <1.0.0"

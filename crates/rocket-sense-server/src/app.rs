@@ -25,6 +25,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         let pool = rocket_sense_db::connect(database_url).await?;
         if settings.run_migrations {
             rocket_sense_db::run_migrations(&pool).await?;
+            processing::setup_replay_processing_queue(&pool).await?;
         }
         Some(pool)
     } else {
@@ -46,22 +47,23 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
 
     if state.process_replays_in_background {
         if let Some(pool) = &state.db {
-            match processing::enqueue_unfinished_replay_processing(
-                pool.clone(),
-                state.storage.clone(),
-                state.background_processing_permits.clone(),
-            )
-            .await
-            {
-                Ok(count) if count > 0 => {
-                    tracing::info!(count, "enqueued unfinished replay processing on startup");
-                }
-                Ok(_) => {}
-                Err(error) => {
-                    tracing::error!(
-                        error = %error,
-                        "failed to enqueue unfinished replay processing on startup"
-                    );
+            if settings.run_replay_processing_workers {
+                processing::start_replay_processing_workers(
+                    pool.clone(),
+                    state.storage.clone(),
+                    settings.background_processing_concurrency,
+                );
+                match processing::enqueue_unfinished_replay_processing(pool).await {
+                    Ok(count) if count > 0 => {
+                        tracing::info!(count, "enqueued unfinished replay processing on startup");
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        tracing::error!(
+                            error = %error,
+                            "failed to enqueue unfinished replay processing on startup"
+                        );
+                    }
                 }
             }
         }
@@ -71,4 +73,46 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         .layer(DefaultBodyLimit::max(MAX_REPLAY_UPLOAD_BYTES))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http()))
+}
+
+pub async fn run_worker(settings: settings::Settings) -> Result<()> {
+    let database_url = settings
+        .database_url
+        .as_deref()
+        .ok_or_else(|| anyhow::anyhow!("DATABASE_URL is required in worker mode"))?;
+    let pool = rocket_sense_db::connect(database_url).await?;
+    if settings.run_migrations {
+        rocket_sense_db::run_migrations(&pool).await?;
+        processing::setup_replay_processing_queue(&pool).await?;
+    }
+
+    let storage: Arc<dyn ObjectStorage> = Arc::new(LocalStorage::new(settings.storage_root));
+    processing::start_replay_processing_workers(
+        pool.clone(),
+        storage,
+        settings.background_processing_concurrency,
+    );
+
+    match processing::enqueue_unfinished_replay_processing(&pool).await {
+        Ok(count) if count > 0 => {
+            tracing::info!(
+                count,
+                "enqueued unfinished replay processing on worker startup"
+            );
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::error!(
+                error = %error,
+                "failed to enqueue unfinished replay processing on worker startup"
+            );
+        }
+    }
+
+    tracing::info!(
+        concurrency = settings.background_processing_concurrency,
+        "replay processing worker started"
+    );
+    std::future::pending::<()>().await;
+    Ok(())
 }

@@ -1,7 +1,7 @@
 use crate::{
     app::AppState,
     auth::{AuthUser, OptionalAuthUser},
-    processing::{spawn_replay_processing, upsert_replay_preflight_metadata},
+    processing::{enqueue_replay_processing_job, upsert_replay_preflight_metadata},
 };
 use axum::{
     extract::{Multipart, Path, RawQuery, State},
@@ -461,7 +461,7 @@ pub async fn create_replay(
         .map_err(ApiError::internal)?
     {
         let replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
-        maybe_spawn_replay_processing(&state, db, &replay);
+        maybe_enqueue_replay_processing(&state, db, &replay).await?;
         return Ok((
             StatusCode::OK,
             Json(CreateReplayResponse {
@@ -497,7 +497,7 @@ pub async fn create_replay(
     let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
 
     if insert_result.created {
-        maybe_spawn_replay_processing(&state, db, &replay);
+        maybe_enqueue_replay_processing(&state, db, &replay).await?;
     }
 
     let status = if insert_result.created {
@@ -1562,19 +1562,19 @@ fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupRespon
     })
 }
 
-fn maybe_spawn_replay_processing(state: &AppState, db: &PgPool, replay: &ReplayResponse) {
+async fn maybe_enqueue_replay_processing(
+    state: &AppState,
+    db: &PgPool,
+    replay: &ReplayResponse,
+) -> Result<(), ApiError> {
     if state.process_replays_in_background
         && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
     {
-        spawn_replay_processing(
-            db.clone(),
-            state.storage.clone(),
-            state.background_processing_permits.clone(),
-            replay.id,
-            replay.file_sha256.clone(),
-            replay.storage_key.clone(),
-        );
+        enqueue_replay_processing_job(db, replay.id)
+            .await
+            .map_err(ApiError::internal)?;
     }
+    Ok(())
 }
 
 async fn insert_replay_metadata(
