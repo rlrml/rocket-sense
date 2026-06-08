@@ -135,7 +135,7 @@ export function BoostDetail({
         </section>
 
         <section className="chart-panel full-span">
-          <PadPickupMaps comparisonMode={comparisonMode} players={players} points={pickupMapPoints} showPadControl={isOneVOne} />
+          <PadPickupMaps comparisonMode={comparisonMode} players={players} points={pickupMapPoints} />
         </section>
 
         <section className="chart-panel full-span">
@@ -889,15 +889,13 @@ function PadPickupMaps({
   comparisonMode,
   players,
   points,
-  showPadControl,
 }: {
   comparisonMode: BoostComparisonMode;
   players: ReplayPlayer[];
   points: BoostPickupMapPoint[];
-  showPadControl: boolean;
 }) {
   const playerIndexByKey = teamLocalPlayerIndexByKey(players);
-  const shouldShowPadControl = showPadControl && comparisonMode === "players";
+  const shouldShowPadControl = comparisonMode === "teams";
   const subjects =
     comparisonMode === "players"
       ? players.map((player): PickupMapSubject => {
