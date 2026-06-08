@@ -1521,7 +1521,7 @@ function EventsReviewPage() {
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const activeFilters = useMemo(() => eventReviewFiltersFromParams(searchParams), [searchParams]);
   const [filters, setFilters] = useState(activeFilters);
-  const [eventTypes, setEventTypes] = useState<EventTypeResponse[]>(fallbackEventTypes);
+  const [eventTypes, setEventTypes] = useState<EventTypeResponse[]>([]);
   const [loadingEventTypes, setLoadingEventTypes] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const filterOptions = useReplayFilterOptions();
@@ -1536,9 +1536,7 @@ function EventsReviewPage() {
     listEventTypes()
       .then((response) => {
         if (cancelled) return;
-        if (response.event_types.length > 0) {
-          setEventTypes(response.event_types);
-        }
+        setEventTypes(response.event_types);
         setError(null);
       })
       .catch((err: Error) => {
@@ -1907,22 +1905,6 @@ interface EventReviewFilterForm {
   project: string;
   count: string;
 }
-
-const fallbackEventTypes: EventTypeResponse[] = [
-  { key: "air_dribble", display_name: "Air dribble", category: "mechanic", description: null },
-  { key: "ball_carry", display_name: "Ball carry", category: "mechanic", description: null },
-  { key: "ceiling_shot", display_name: "Ceiling shot", category: "mechanic", description: null },
-  { key: "double_tap", display_name: "Double tap", category: "mechanic", description: null },
-  { key: "flick", display_name: "Flick", category: "mechanic", description: null },
-  { key: "flip_reset", display_name: "Flip reset", category: "mechanic", description: null },
-  { key: "half_flip", display_name: "Half flip", category: "mechanic", description: null },
-  { key: "half_volley", display_name: "Half volley", category: "mechanic", description: null },
-  { key: "musty_flick", display_name: "Musty flick", category: "mechanic", description: null },
-  { key: "one_timer", display_name: "One timer", category: "mechanic", description: null },
-  { key: "pass", display_name: "Pass", category: "mechanic", description: null },
-  { key: "speed_flip", display_name: "Speed flip", category: "mechanic", description: null },
-  { key: "wavedash", display_name: "Wavedash", category: "mechanic", description: null },
-];
 
 interface EventTypeGroup {
   category: string;
