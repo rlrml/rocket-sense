@@ -43,6 +43,7 @@ import type {
   EventTypeResponse,
   MechanicEventResponse,
   PlayerProfileResponse,
+  PlayerProfileReplayResponse,
   ReplayFilterOption,
   ReplayPlayer,
   ReplayPlaylistMetadata,
@@ -1022,7 +1023,7 @@ function ReplayStatsPage() {
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
             {ActiveDetail ? (
-              <ActiveDetail events={activeEvents} players={replay.players} durationSeconds={replay.summary.duration_seconds} />
+              <ActiveDetail events={activeEvents} players={replay.players} durationSeconds={replay.summary.duration_seconds} replayId={replayId} />
             ) : (
               <>
                 <div className="stat-section-grid">
@@ -1286,7 +1287,7 @@ function PlayerProfilePage() {
                         {replay.original_file_name || replay.id}
                       </Link>
                     </td>
-                    <td>{formatScore(replay)}</td>
+                    <td>{formatPlayerReplayScore(replay)}</td>
                     <td>{formatDate(replay.replay_date || replay.created_at)}</td>
                   </tr>
                 ))}
@@ -1352,14 +1353,36 @@ function EventsReviewPage() {
     });
   }
 
+  function toggleEventTypeGroup(eventTypeKeys: string[]) {
+    setFilters((current) => {
+      const selected = new Set(current.eventTypes);
+      const allSelected = eventTypeKeys.every((eventType) => selected.has(eventType));
+      for (const eventType of eventTypeKeys) {
+        if (allSelected) {
+          selected.delete(eventType);
+        } else {
+          selected.add(eventType);
+        }
+      }
+      return { ...current, eventTypes: Array.from(selected) };
+    });
+  }
+
   function clearFilters() {
     setFilters(defaultEventReviewFilters());
     navigate("/events/review");
   }
 
   const selectedEventTypes = new Set(filters.eventTypes);
+  const eventTypeGroups = useMemo(
+    () => groupEventTypesByCategory(eventTypes.filter(isReviewSelectableEventType)),
+    [eventTypes],
+  );
   const manifestUrl = `/api/v1/events/review-playlist?${eventReviewFiltersToParams(filters).toString()}`;
   const selectedCount = selectedEventTypes.size;
+  const selectedGroupCount = eventTypeGroups.filter((group) =>
+    group.eventTypes.some((eventType) => selectedEventTypes.has(eventType.key)),
+  ).length;
   const eventMapOptions = replayOptionChoices(filters.map, filterOptions.maps);
   const eventFilterFields: FilterFieldConfig[] = [
     {
@@ -1530,7 +1553,7 @@ function EventsReviewPage() {
       onChange: (value) => updateFilter("count", value),
     },
   ];
-  const selectedEventText = selectedCount === 1 ? "1 event type" : `${selectedCount.toLocaleString()} event types`;
+  const selectedEventText = eventReviewSelectedEventText(selectedCount, selectedGroupCount);
 
   return (
     <section className="page event-review-page">
@@ -1560,22 +1583,45 @@ function EventsReviewPage() {
 
           <StatusLine loading={loadingEventTypes} error={error} />
 
-          <div className="event-type-grid" aria-label="Event types">
-            {eventTypes.map((eventType) => (
-              <label key={eventType.key} className={`check-tile ${selectedEventTypes.has(eventType.key) ? "selected" : ""}`}>
-                <input
-                  type="checkbox"
-                  name="event-type"
-                  value={eventType.key}
-                  checked={selectedEventTypes.has(eventType.key)}
-                  onChange={() => toggleEventType(eventType.key)}
-                />
-                <span>
-                  <strong>{eventType.display_name || eventType.key}</strong>
-                  <small>{eventType.key}</small>
-                </span>
-              </label>
-            ))}
+          <div className="event-type-groups" aria-label="Event types">
+            {eventTypeGroups.map((group) => {
+              const eventTypeKeys = group.eventTypes.map((eventType) => eventType.key);
+              const selectedInGroup = eventTypeKeys.filter((eventType) => selectedEventTypes.has(eventType)).length;
+              const allSelected = selectedInGroup === eventTypeKeys.length && eventTypeKeys.length > 0;
+              return (
+                <section key={group.category} className="event-type-group">
+                  <div className="event-type-group-heading">
+                    <label className="event-type-group-toggle">
+                      <input type="checkbox" checked={allSelected} onChange={() => toggleEventTypeGroup(eventTypeKeys)} />
+                      <span>
+                        <strong>{group.label}</strong>
+                        <small>
+                          {selectedInGroup > 0 ? `${selectedInGroup} of ` : ""}
+                          {eventTypeKeys.length} types
+                        </small>
+                      </span>
+                    </label>
+                  </div>
+                  <div className="event-type-grid">
+                    {group.eventTypes.map((eventType) => (
+                      <label key={eventType.key} className={`check-tile ${selectedEventTypes.has(eventType.key) ? "selected" : ""}`}>
+                        <input
+                          type="checkbox"
+                          name="event-type"
+                          value={eventType.key}
+                          checked={selectedEventTypes.has(eventType.key)}
+                          onChange={() => toggleEventType(eventType.key)}
+                        />
+                        <span>
+                          <strong>{eventType.display_name || eventType.key}</strong>
+                          <small>{eventType.key}</small>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
           </div>
 
           <FilterGrid className="event-filter-grid" fields={eventFilterFields} />
@@ -1662,6 +1708,193 @@ const fallbackEventTypes: EventTypeResponse[] = [
   { key: "speed_flip", display_name: "Speed flip", category: "mechanic", description: null },
   { key: "wavedash", display_name: "Wavedash", category: "mechanic", description: null },
 ];
+
+interface EventTypeGroup {
+  category: string;
+  label: string;
+  eventTypes: EventTypeResponse[];
+}
+
+function groupEventTypesByCategory(eventTypes: EventTypeResponse[]): EventTypeGroup[] {
+  const groups = new Map<string, EventTypeResponse[]>();
+  for (const eventType of eventTypes) {
+    const category = eventTypeReviewCategory(eventType);
+    const group = groups.get(category) ?? [];
+    group.push(eventType);
+    groups.set(category, group);
+  }
+
+  return Array.from(groups, ([category, groupEventTypes]) => ({
+    category,
+    label: eventCategoryLabel(category),
+    eventTypes: groupEventTypes.slice().sort(compareEventTypes),
+  })).sort(compareEventTypeGroups);
+}
+
+function eventTypeReviewCategory(eventType: EventTypeResponse): string {
+  const category = normalizeEventCategory(eventType.category);
+  return category === "event" ? derivedEventCategoryFromKey(eventType.key) : category;
+}
+
+function isReviewSelectableEventType(eventType: EventTypeResponse): boolean {
+  return !labelLikeEventCategories.has(eventTypeReviewCategory(eventType));
+}
+
+const labelLikeEventCategories = new Set(["context", "goal_type"]);
+
+function normalizeEventCategory(value: string | null | undefined): string {
+  const category = value?.trim();
+  if (!category) {
+    return "uncategorized";
+  }
+  if (category === "mechanics") {
+    return "mechanic";
+  }
+  if (category === "goal_types" || category === "goal_label" || category === "goal_labels") {
+    return "goal_type";
+  }
+  return category;
+}
+
+function derivedEventCategoryFromKey(key: string): string {
+  if (key.startsWith("goal_tag_")) {
+    return "goal_type";
+  }
+  if (contextEventTypeKeys.has(key)) {
+    return "context";
+  }
+  if (mechanicEventTypeKeys.has(key) || key.startsWith("mechanic.")) {
+    return "mechanic";
+  }
+  if (key === "touch" || key === "touch_ball_movement" || key === "whiff") {
+    return "other";
+  }
+  if (key === "bump" || key === "kill" || key === "death" || key === "core.demo") {
+    return "contact";
+  }
+  if (key.startsWith("boost") || key === "boost.pad_event") {
+    return "boost";
+  }
+  if (
+    key.startsWith("rotation_") ||
+    key.startsWith("rotation.") ||
+    key === "positioning" ||
+    key.startsWith("positioning_")
+  ) {
+    return "positioning";
+  }
+  if (["possession", "pressure", "territorial_pressure", "controlled_play", "kickoff", "fifty_fifty", "rush"].includes(key)) {
+    return "possession";
+  }
+  if (["movement", "flip_impulse", "powerslide", "movement.dodge_refresh"].includes(key)) {
+    return "movement";
+  }
+  if (["goal"].includes(key)) {
+    return "core";
+  }
+  return "event";
+}
+
+const mechanicEventTypeKeys = new Set([
+  "air_dribble",
+  "backboard",
+  "backboard_bounce",
+  "ball_carry",
+  "ceiling_shot",
+  "center",
+  "dodge_reset",
+  "double_tap",
+  "flick",
+  "flip_reset",
+  "half_flip",
+  "half_volley",
+  "musty_flick",
+  "one_timer",
+  "pass",
+  "speed_flip",
+  "wall_aerial",
+  "wall_aerial_shot",
+  "wavedash",
+  "post_wall_dodge",
+  "flip_reset_followup_dodge",
+]);
+
+const contextEventTypeKeys = new Set([
+  "core_player",
+  "core_player_goal_context",
+  "core_player_scoreboard",
+  "goal_context",
+  "player",
+]);
+
+function compareEventTypeGroups(left: EventTypeGroup, right: EventTypeGroup): number {
+  return eventCategorySortRank(left.category) - eventCategorySortRank(right.category) || left.label.localeCompare(right.label);
+}
+
+function compareEventTypes(left: EventTypeResponse, right: EventTypeResponse): number {
+  return (left.display_name || left.key).localeCompare(right.display_name || right.key) || left.key.localeCompare(right.key);
+}
+
+function eventCategorySortRank(category: string): number {
+  const rank = [
+    "mechanic",
+    "mechanics",
+    "contact",
+    "other",
+    "core",
+    "goal_type",
+    "context",
+    "boost",
+    "movement",
+    "rotation",
+    "possession",
+    "event",
+    "uncategorized",
+  ].indexOf(category);
+  return rank === -1 ? 100 : rank;
+}
+
+function eventCategoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    mechanic: "Mechanics",
+    mechanics: "Mechanics",
+    contact: "Contact",
+    other: "Other",
+    touch: "Touches",
+    core: "Core",
+    context: "Context metadata",
+    goal_type: "Goal types",
+    goal_context: "Goal context",
+    team: "Team events",
+    boost: "Boost",
+    movement: "Movement",
+    rotation: "Rotation",
+    possession: "Possession",
+    event: "General events",
+    uncategorized: "Uncategorized",
+  };
+  return labels[category] ?? startCase(category);
+}
+
+function startCase(value: string): string {
+  return value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function eventReviewSelectedEventText(selectedCount: number, selectedGroupCount: number): string {
+  if (selectedCount === 0) {
+    return "All event types";
+  }
+  const typeText = selectedCount === 1 ? "1 event type" : `${selectedCount.toLocaleString()} event types`;
+  if (selectedGroupCount === 0) {
+    return typeText;
+  }
+  const groupText = selectedGroupCount === 1 ? "1 group" : `${selectedGroupCount.toLocaleString()} groups`;
+  return `${typeText} across ${groupText}`;
+}
 
 const reviewStatusOptions = [
   { value: "unreviewed", label: "Unreviewed" },
@@ -2324,6 +2557,12 @@ function eventSearchText(event: MechanicEventResponse): string {
 function formatScore(replay: ReplayResponse): string {
   const blue = replay.summary.team_scores.blue;
   const orange = replay.summary.team_scores.orange;
+  return blue == null || orange == null ? "Unknown" : `${blue} - ${orange}`;
+}
+
+function formatPlayerReplayScore(replay: PlayerProfileReplayResponse): string {
+  const blue = replay.team_scores.blue;
+  const orange = replay.team_scores.orange;
   return blue == null || orange == null ? "Unknown" : `${blue} - ${orange}`;
 }
 

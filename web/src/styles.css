@@ -17,6 +17,7 @@
   --team-blue: #2563eb;
   --team-orange: #ea580c;
   --team-unknown: #64748b;
+  --possession-neutral: #64748b;
   --blue: var(--team-blue);
   --orange: var(--team-orange);
   --chart-grid: #e4e9ef;
@@ -650,6 +651,418 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.kickoff-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.kickoff-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
+  gap: 16px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.kickoff-hero h2 {
+  margin: 2px 0 6px;
+  font-size: 24px;
+}
+
+.kickoff-hero p:last-child {
+  max-width: 680px;
+  margin: 0;
+  color: var(--muted);
+}
+
+.kickoff-hero-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.kickoff-metric,
+.kickoff-fact {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 8px;
+  align-items: center;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d7e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.kickoff-metric svg,
+.kickoff-fact svg {
+  color: #475569;
+}
+
+.kickoff-metric span,
+.kickoff-fact span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.kickoff-metric strong,
+.kickoff-fact strong {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  color: #17202a;
+  font-size: 17px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kickoff-preview {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.85fr) minmax(420px, 1.25fr);
+  gap: 14px;
+  min-width: 0;
+}
+
+.kickoff-preview-copy {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.selected-kickoff-summary,
+.kickoff-outcome-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.kickoff-preview-frame {
+  width: 100%;
+  min-width: 0;
+  height: 420px;
+  border: 1px solid #17202a;
+  border-radius: 8px;
+  background: #0b1020;
+}
+
+.kickoff-flow {
+  display: grid;
+  gap: 12px;
+}
+
+.kickoff-flow-track {
+  position: relative;
+  height: 46px;
+  border: 1px solid #d7e0ec;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(15, 23, 42, 0.03) 50%, rgba(234, 88, 12, 0.08)),
+    #f8fafc;
+}
+
+.kickoff-flow-marker {
+  position: absolute;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 850;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
+}
+
+.kickoff-flow-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.kickoff-flow-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.team-marker-blue,
+.legend-dot.team-marker-blue {
+  background: #2563eb;
+}
+
+.team-marker-orange,
+.legend-dot.team-marker-orange {
+  background: #ea580c;
+}
+
+.team-marker-neutral,
+.legend-dot.team-marker-neutral {
+  background: #64748b;
+}
+
+.team-soft-blue {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.team-soft-orange {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.team-soft-neutral {
+  border-color: #d7e0ec;
+  background: #f8fafc;
+}
+
+.kickoff-player-table th,
+.kickoff-player-table td {
+  white-space: nowrap;
+}
+
+.kickoff-player-cell {
+  display: grid;
+  gap: 2px;
+  min-width: 150px;
+  padding-left: 9px;
+  border-left: 3px solid #94a3b8;
+}
+
+.kickoff-player-cell span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kickoff-goal-balance {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.kickoff-card-list {
+  display: grid;
+  gap: 12px;
+}
+
+.kickoff-card {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.kickoff-card.selected {
+  border-color: #64748b;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.12);
+}
+
+.kickoff-card.winner-blue {
+  border-left-color: #2563eb;
+}
+
+.kickoff-card.winner-orange {
+  border-left-color: #ea580c;
+}
+
+.kickoff-card.winner-neutral {
+  border-left-color: #64748b;
+}
+
+.kickoff-card-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.kickoff-index {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.kickoff-card h4 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+
+.kickoff-goal-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.team-chip-blue {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.team-chip-orange {
+  background: #ffedd5;
+  color: #c2410c;
+}
+
+.team-chip-neutral {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+.kickoff-time-block {
+  display: grid;
+  gap: 2px;
+  text-align: right;
+}
+
+.kickoff-time-block strong {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 16px;
+}
+
+.kickoff-time-block span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kickoff-view-button {
+  width: 34px;
+  height: 34px;
+}
+
+.kickoff-team-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kickoff-team-column {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d7e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.team-column-blue {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.team-column-orange {
+  border-color: #fed7aa;
+  background: #fff7ed;
+}
+
+.kickoff-team-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.kickoff-team-title strong {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kickoff-behavior-list {
+  display: grid;
+  gap: 8px;
+}
+
+.kickoff-behavior-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid rgba(100, 116, 139, 0.18);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.kickoff-behavior-row > div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kickoff-behavior-row strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kickoff-behavior-row span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.kickoff-behavior-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: flex-end;
+}
+
+.kickoff-behavior-tags span {
+  min-height: 22px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.kickoff-behavior-tags .boost-positive {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.kickoff-behavior-tags .boost-negative {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .boost-page-controls {
   display: flex;
   justify-content: flex-start;
@@ -722,6 +1135,294 @@ tbody tr:last-child td {
 .chart-label {
   fill: var(--muted);
   font-size: 12px;
+}
+
+.possession-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.positioning-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.positioning-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.positioning-metric {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.positioning-metric span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.positioning-metric strong {
+  color: var(--text-strong);
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.positioning-bar-rows {
+  display: grid;
+  gap: 9px;
+}
+
+.positioning-bar-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.positioning-track {
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.source-segment.positioning-segment-defensive,
+.source-segment.positioning-segment-behind,
+.source-segment.positioning-segment-role-most_back {
+  background: #2563eb;
+}
+
+.source-segment.positioning-segment-neutral,
+.source-segment.positioning-segment-level,
+.source-segment.positioning-segment-role-mid,
+.source-segment.positioning-segment-role-other,
+.source-segment.positioning-segment-role-no_teammates {
+  background: #64748b;
+}
+
+.source-segment.positioning-segment-offensive,
+.source-segment.positioning-segment-ahead,
+.source-segment.positioning-segment-role-most_forward {
+  background: #ea580c;
+}
+
+.positioning-table th,
+.positioning-table td {
+  white-space: nowrap;
+}
+
+.possession-detail .chart-panel {
+  align-content: start;
+}
+
+.possession-share-chart {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+.stat-segmented-track {
+  height: 36px;
+}
+
+.stat-segmented-track .source-bar-fill {
+  width: 100%;
+}
+
+.stat-segmented-track .source-segment-label {
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.possession-share-track,
+.ball-zone-track {
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.ball-zone-track {
+  height: 42px;
+}
+
+.possession-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.possession-metric {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 4px solid transparent;
+}
+
+.possession-metric span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.possession-metric strong {
+  color: var(--text-strong);
+  font-size: 22px;
+  line-height: 1.05;
+}
+
+.possession-state-team_zero {
+  background: var(--blue);
+  fill: var(--blue);
+}
+
+.possession-state-accent-team_zero {
+  border-left-color: var(--blue);
+}
+
+.possession-state-team_one {
+  background: var(--orange);
+  fill: var(--orange);
+}
+
+.possession-state-accent-team_one {
+  border-left-color: var(--orange);
+}
+
+.possession-state-neutral {
+  background: var(--possession-neutral);
+  fill: var(--possession-neutral);
+}
+
+.possession-state-accent-neutral {
+  border-left-color: var(--possession-neutral);
+}
+
+.ball-zone-chart,
+.possession-timeline-wrap {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ball-zone-side-team-zero {
+  background: var(--blue);
+  fill: var(--blue);
+}
+
+.ball-zone-side-team-one {
+  background: var(--orange);
+  fill: var(--orange);
+}
+
+.ball-zone-side-neutral {
+  background: var(--possession-neutral);
+  fill: var(--possession-neutral);
+}
+
+.ball-zone-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ball-zone-row {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 4px solid transparent;
+  background: transparent;
+}
+
+.ball-zone-row.ball-zone-side-team-zero {
+  border-left-color: var(--blue);
+}
+
+.ball-zone-row.ball-zone-side-team-one {
+  border-left-color: var(--orange);
+}
+
+.ball-zone-row.ball-zone-side-neutral {
+  border-left-color: var(--possession-neutral);
+}
+
+.ball-zone-row span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ball-zone-row strong {
+  color: var(--text-strong);
+  font-size: 18px;
+  line-height: 1.05;
+}
+
+.possession-player-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.possession-player-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 170px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.possession-player-track {
+  height: 18px;
+}
+
+.possession-timeline {
+  width: 100%;
+  min-height: 160px;
+}
+
+.possession-timeline-bg {
+  fill: var(--surface-subtle);
+  stroke: var(--border);
+}
+
+.possession-timeline-grid {
+  stroke: var(--chart-grid);
+  stroke-width: 1;
+}
+
+.possession-timeline-label {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.possession-timeline-segment {
+  stroke: rgba(255, 255, 255, 0.42);
+  stroke-width: 0.6;
+}
+
+.possession-legend .legend-neutral::before {
+  background: var(--possession-neutral);
 }
 
 .team-boost-chart {
@@ -960,6 +1661,11 @@ tbody tr:last-child td {
 .boost-comparison-tabs button.active {
   background: var(--surface);
   color: var(--text-strong);
+}
+
+.boost-comparison-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
 }
 
 .boost-comparison-group {
@@ -1917,6 +2623,59 @@ tbody tr:last-child td {
   font-size: 18px;
 }
 
+.event-type-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.event-type-group {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.event-type-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.event-type-group-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--text-strong);
+  cursor: pointer;
+}
+
+.event-type-group-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--blue);
+}
+
+.event-type-group-toggle span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.event-type-group-toggle strong {
+  font-size: 14px;
+}
+
+.event-type-group-toggle small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .event-type-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -2347,6 +3106,37 @@ tbody tr:last-child td {
     flex-direction: column;
   }
 
+  .kickoff-hero,
+  .kickoff-preview,
+  .selected-kickoff-summary,
+  .kickoff-outcome-grid,
+  .kickoff-team-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kickoff-preview-frame {
+    height: 320px;
+  }
+
+  .kickoff-card-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .kickoff-time-block {
+    grid-column: 1 / -1;
+    order: 3;
+    text-align: left;
+  }
+
+  .kickoff-behavior-row {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .kickoff-behavior-tags {
+    justify-content: flex-start;
+  }
+
   .chart-panel-header {
     align-items: start;
     flex-direction: column;
@@ -2391,8 +3181,17 @@ tbody tr:last-child td {
 
   .player-metric-row,
   .metric-bar-line,
+  .possession-player-row,
   .team-boost-lane {
     grid-template-columns: 1fr;
+  }
+
+  .possession-metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .positioning-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .metric-bar-line strong {
@@ -2416,6 +3215,10 @@ tbody tr:last-child td {
   .team-margin-map {
     min-height: 300px;
     max-height: min(72vh, 360px);
+  }
+
+  .possession-timeline {
+    min-height: 120px;
   }
 
   .subtr-player-frame.visible {
@@ -2495,6 +3298,41 @@ tbody tr:last-child td {
     min-width: 0;
   }
 
+  .positioning-summary-grid,
+  .positioning-bar-row {
+    grid-template-columns: 1fr;
+  }
+
+  .kickoff-hero {
+    padding: 12px;
+  }
+
+  .kickoff-hero-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .kickoff-preview-frame {
+    height: 260px;
+  }
+
+  .kickoff-flow-track {
+    height: 40px;
+  }
+
+  .kickoff-flow-marker {
+    width: 24px;
+    height: 24px;
+    font-size: 10px;
+  }
+
+  .kickoff-card {
+    padding: 11px;
+  }
+
+  .kickoff-card h4 {
+    font-size: 16px;
+  }
+
   .boost-comparison-row {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
@@ -2528,6 +3366,14 @@ tbody tr:last-child td {
 
   .distribution-legend {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ball-zone-list {
+    grid-template-columns: 1fr;
+  }
+
+  .possession-metric strong {
+    font-size: 19px;
   }
 
   .pickup-map-header {

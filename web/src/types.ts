@@ -178,5 +178,16 @@ export interface PlayerProfileResponse {
   }>;
   replay_count: number;
   is_pro: boolean;
-  latest_replays: ReplayResponse[];
+  latest_replays: PlayerProfileReplayResponse[];
+}
+
+export interface PlayerProfileReplayResponse {
+  id: string;
+  original_file_name: string | null;
+  replay_date: string | null;
+  created_at: string;
+  team_scores: {
+    blue: number | null;
+    orange: number | null;
+  };
 }

@@ -90,22 +90,21 @@ fn player_profile_filters_reject_invalid_sha() {
 }
 
 #[test]
-fn player_replay_query_uses_replay_player_identity() {
-    let sql = replay_select_sql(
-        r#"
-        WHERE EXISTS (
-            SELECT 1
-            FROM replay_players profile_player
-            WHERE profile_player.replay_id = r.id
-              AND profile_player.platform = $1
-              AND profile_player.platform_player_id = $2
-        )
-        ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC
-        LIMIT $3
-        "#,
-    );
+fn player_replay_query_uses_compact_replay_preview() {
+    let identity = PlayerIdentity::new("epic".to_owned(), "abc123".to_owned()).unwrap();
+    let filters = PlayerProfileFilters::default();
+    let query = player_replays_query(&identity, &filters, 10);
+    let sql = query.sql();
 
+    assert!(sql.contains("SELECT"));
+    assert!(sql.contains("r.id"));
+    assert!(sql.contains("r.original_file_name"));
+    assert!(sql.contains("r.team_zero_score"));
+    assert!(sql.contains("r.team_one_score"));
     assert!(sql.contains("FROM replay_players profile_player"));
     assert!(sql.contains("profile_player.platform = $1"));
     assert!(sql.contains("profile_player.platform_player_id = $2"));
+    assert!(sql.contains("LIMIT $3"));
+    assert!(!sql.contains("jsonb_agg"));
+    assert!(!sql.contains("FROM replay_players player"));
 }

@@ -16,11 +16,7 @@ use super::{
         deserialize_string_vec, deserialize_uuid_vec, parse_datetime_filter, parse_uuid_values,
         QueryParams,
     },
-    replays::{replay_from_row, replay_select_sql, require_db, ApiError, ReplayResponse},
-    stats::{
-        load_stat_aggregates, PlayerStatFilter, RotationDurationBucketResponse,
-        StatAggregateFilters, StatAggregateResponse, ROTATION_DURATION_BUCKET_SECONDS,
-    },
+    replays::{require_db, ApiError},
 };
 
 #[cfg(test)]
@@ -41,20 +37,10 @@ pub struct PlayerProfileResponse {
     pub display_name: Option<String>,
     pub names: Vec<PlayerProfileNameResponse>,
     pub replay_count: u64,
-    pub active_time_seconds: Option<f64>,
-    pub time_demolished_seconds: Option<f64>,
-    pub non_demo_active_time_seconds: Option<f64>,
-    pub time_most_back_seconds: Option<f64>,
-    pub time_most_forward_seconds: Option<f64>,
-    pub rotation_duration_bucket_seconds: f64,
-    pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
-    pub second_man_to_first_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
-    pub timing_comparison: PlayerTimingComparisonResponse,
-    pub stats: Vec<PlayerStatAggregateResponse>,
     pub first_seen_at: Option<DateTime<Utc>>,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub is_pro: bool,
-    pub latest_replays: Vec<ReplayResponse>,
+    pub latest_replays: Vec<PlayerProfileReplayResponse>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -65,40 +51,18 @@ pub struct PlayerProfileNameResponse {
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct PlayerStatAggregateResponse {
-    pub key: String,
-    pub display_name: String,
-    pub category: String,
-    pub event_count: u64,
-    pub count_per_game: f64,
-    pub per_active_minute: Option<f64>,
-    pub per_non_demo_active_minute: Option<f64>,
-    pub teammate_event_count: u64,
-    pub teammate_appearance_count: u64,
-    pub teammate_count_per_game: Option<f64>,
-    pub teammate_per_active_minute: Option<f64>,
-    pub teammate_per_non_demo_active_minute: Option<f64>,
+pub struct PlayerProfileReplayResponse {
+    pub id: Uuid,
+    pub original_file_name: Option<String>,
+    pub replay_date: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub team_scores: PlayerProfileReplayTeamScoresResponse,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
-pub struct PlayerTimingComparisonResponse {
-    pub player: PlayerTimingStatsResponse,
-    pub teammates: Option<PlayerTimingStatsResponse>,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct PlayerTimingStatsResponse {
-    pub replay_count: u64,
-    pub appearance_count: u64,
-    pub active_time_seconds: Option<f64>,
-    pub time_most_forward_seconds: Option<f64>,
-    pub time_most_forward_percent: Option<f64>,
-    pub time_most_back_seconds: Option<f64>,
-    pub time_most_back_percent: Option<f64>,
-    pub offensive_half_seconds: Option<f64>,
-    pub offensive_half_percent: Option<f64>,
-    pub defensive_half_seconds: Option<f64>,
-    pub defensive_half_percent: Option<f64>,
+pub struct PlayerProfileReplayTeamScoresResponse {
+    pub blue: Option<i32>,
+    pub orange: Option<i32>,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -240,34 +204,6 @@ impl PlayerProfileFilters {
             replay_date_before: query.replay_date_before,
         })
     }
-
-    fn to_stat_aggregate_filters(&self, identity: &PlayerIdentity) -> StatAggregateFilters {
-        StatAggregateFilters {
-            search_pattern: None,
-            player_name_patterns: Vec::new(),
-            playlists: self.playlists.clone(),
-            replay_ids: self.replay_ids.clone(),
-            file_sha256s: self.file_sha256s.clone(),
-            group_id: self.group_id,
-            project_id: self.project_id,
-            maps: Vec::new(),
-            pro: None,
-            uploader_user_id: None,
-            status: None,
-            player: Some(PlayerStatFilter {
-                platform: identity.platform.clone(),
-                platform_player_id: identity.platform_player_id.clone(),
-            }),
-            include_teammates: true,
-            created_after: self.created_after,
-            created_before: self.created_before,
-            replay_date_after: self.replay_date_after,
-            replay_date_before: self.replay_date_before,
-            limit: 50,
-            group_by: None,
-            playlist_group_key: None,
-        }
-    }
 }
 
 impl PlayerProfileQuery {
@@ -331,11 +267,6 @@ async fn load_player_profile(
             COUNT(DISTINCT rp.replay_id) AS replay_count,
             MIN(COALESCE(r.replay_date, r.created_at)) AS first_seen_at,
             MAX(COALESCE(r.replay_date, r.created_at)) AS last_seen_at,
-            SUM(rp.active_time_seconds) AS active_time_seconds,
-            SUM(rp.time_demolished_seconds) AS time_demolished_seconds,
-            SUM(GREATEST(rp.active_time_seconds - COALESCE(rp.time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
-            SUM(rp.time_most_back_seconds) AS time_most_back_seconds,
-            SUM(rp.time_most_forward_seconds) AS time_most_forward_seconds,
             BOOL_OR(rp.is_pro) AS is_pro,
             (
                 ARRAY_REMOVE(
@@ -356,14 +287,7 @@ async fn load_player_profile(
     }
 
     let names = load_player_names(pool, identity, filters).await?;
-    let latest_replays = load_player_replays(pool, identity, filters, 25).await?;
-    let rotation_duration_histogram =
-        load_player_rotation_duration_histogram(pool, identity, filters).await?;
-    let second_man_to_first_rotation_duration_histogram =
-        load_player_second_man_to_first_rotation_duration_histogram(pool, identity, filters)
-            .await?;
-    let timing_comparison = load_player_timing_comparison(pool, identity, filters).await?;
-    let stats = load_player_stat_aggregates(pool, identity, filters).await?;
+    let latest_replays = load_player_replays(pool, identity, filters, 10).await?;
 
     Ok(Some(PlayerProfileResponse {
         platform: identity.platform.clone(),
@@ -371,20 +295,6 @@ async fn load_player_profile(
         display_name: summary.try_get("display_name")?,
         names,
         replay_count: replay_count as u64,
-        active_time_seconds: finite_nonnegative(summary.try_get("active_time_seconds")?),
-        time_demolished_seconds: finite_nonnegative(summary.try_get("time_demolished_seconds")?),
-        non_demo_active_time_seconds: finite_nonnegative(
-            summary.try_get("non_demo_active_time_seconds")?,
-        ),
-        time_most_back_seconds: finite_nonnegative(summary.try_get("time_most_back_seconds")?),
-        time_most_forward_seconds: finite_nonnegative(
-            summary.try_get("time_most_forward_seconds")?,
-        ),
-        rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
-        rotation_duration_histogram,
-        second_man_to_first_rotation_duration_histogram,
-        timing_comparison,
-        stats,
         first_seen_at: summary.try_get("first_seen_at")?,
         last_seen_at: summary.try_get("last_seen_at")?,
         is_pro: summary
@@ -392,378 +302,6 @@ async fn load_player_profile(
             .unwrap_or(false),
         latest_replays,
     }))
-}
-
-async fn load_player_stat_aggregates(
-    pool: &sqlx::PgPool,
-    identity: &PlayerIdentity,
-    filters: &PlayerProfileFilters,
-) -> Result<Vec<PlayerStatAggregateResponse>, sqlx::Error> {
-    let aggregates =
-        load_stat_aggregates(pool, &filters.to_stat_aggregate_filters(identity)).await?;
-
-    Ok(aggregates
-        .stats
-        .into_iter()
-        .map(PlayerStatAggregateResponse::from)
-        .collect())
-}
-
-async fn load_player_rotation_duration_histogram(
-    pool: &sqlx::PgPool,
-    identity: &PlayerIdentity,
-    filters: &PlayerProfileFilters,
-) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS (
-            SELECT rp.id, rp.replay_id
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-        "#,
-    );
-    append_target_player_filters(&mut query, identity, filters);
-    query.push(
-        r#"
-        ),
-        rotation_events AS (
-            SELECT event.duration_seconds
-            FROM target_appearances appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-             AND subject.role = 'actor'
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
-             AND event.source_stream = 'rotation_first_man_stint'
-            JOIN event_types et
-              ON et.id = event.event_type_id
-             AND et.key = 'rotation_first_man_stint'
-        ),
-        bucketed AS (
-            SELECT floor(duration_seconds /
-        "#,
-    );
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(") * ");
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(
-        r#" AS bucket_start_seconds
-            FROM rotation_events
-            WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
-        )
-        SELECT bucket_start_seconds, COUNT(*) AS count
-        FROM bucketed
-        GROUP BY bucket_start_seconds
-        ORDER BY bucket_start_seconds
-        "#,
-    );
-
-    let rows = query.build().fetch_all(pool).await?;
-    rows.into_iter()
-        .map(|row| {
-            let min_seconds: f64 = row.try_get("bucket_start_seconds")?;
-            let count: i64 = row.try_get("count")?;
-            Ok(RotationDurationBucketResponse {
-                min_seconds,
-                max_seconds: min_seconds + ROTATION_DURATION_BUCKET_SECONDS,
-                count: count.max(0) as u64,
-            })
-        })
-        .collect()
-}
-
-async fn load_player_timing_comparison(
-    pool: &sqlx::PgPool,
-    identity: &PlayerIdentity,
-    filters: &PlayerProfileFilters,
-) -> Result<PlayerTimingComparisonResponse, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS (
-            SELECT
-                rp.id,
-                rp.replay_id,
-                rp.team,
-                rp.active_time_seconds,
-                rp.time_most_forward_seconds,
-                rp.time_most_back_seconds
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-        "#,
-    );
-    append_target_player_filters(&mut query, identity, filters);
-    query.push(
-        r#"
-        ),
-        teammate_appearances AS (
-            SELECT DISTINCT
-                teammate.id,
-                teammate.replay_id,
-                teammate.team,
-                teammate.active_time_seconds,
-                teammate.time_most_forward_seconds,
-                teammate.time_most_back_seconds
-            FROM target_appearances target
-            JOIN replay_players teammate
-              ON teammate.replay_id = target.replay_id
-             AND teammate.team = target.team
-             AND teammate.id <> target.id
-        ),
-        appearance_groups AS (
-            SELECT 'player'::text AS group_label, *
-            FROM target_appearances
-            UNION ALL
-            SELECT 'teammates'::text AS group_label, *
-            FROM teammate_appearances
-        ),
-        role_timing AS (
-            SELECT
-                group_label,
-                COUNT(DISTINCT replay_id) AS replay_count,
-                COUNT(*) AS appearance_count,
-                SUM(active_time_seconds) AS active_time_seconds,
-                SUM(time_most_forward_seconds) AS time_most_forward_seconds,
-                SUM(time_most_back_seconds) AS time_most_back_seconds
-            FROM appearance_groups
-            GROUP BY group_label
-        ),
-        half_timing AS (
-            SELECT
-                appearance.group_label,
-                SUM(
-                    event.duration_seconds
-                    * COALESCE((payload.payload->>'offensive_half_fraction')::double precision, 0.0)
-                ) AS offensive_half_seconds,
-                SUM(
-                    event.duration_seconds
-                    * COALESCE((payload.payload->>'defensive_half_fraction')::double precision, 0.0)
-                ) AS defensive_half_seconds
-            FROM appearance_groups appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-             AND subject.role = 'actor'
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
-             AND event.source_stream = 'positioning'
-             AND event.duration_seconds IS NOT NULL
-            JOIN play_event_payloads payload
-              ON payload.event_id = event.id
-            WHERE COALESCE((payload.payload->>'active')::boolean, false)
-            GROUP BY appearance.group_label
-        )
-        SELECT
-            role_timing.group_label,
-            role_timing.replay_count,
-            role_timing.appearance_count,
-            role_timing.active_time_seconds,
-            role_timing.time_most_forward_seconds,
-            role_timing.time_most_back_seconds,
-            half_timing.offensive_half_seconds,
-            half_timing.defensive_half_seconds
-        FROM role_timing
-        LEFT JOIN half_timing
-          ON half_timing.group_label = role_timing.group_label
-        ORDER BY role_timing.group_label
-        "#,
-    );
-
-    let mut player = None;
-    let mut teammates = None;
-    for row in query.build().fetch_all(pool).await? {
-        let group_label: String = row.try_get("group_label")?;
-        let stats = timing_stats_from_row(&row)?;
-        match group_label.as_str() {
-            "player" => player = Some(stats),
-            "teammates" => teammates = Some(stats),
-            _ => {}
-        }
-    }
-
-    Ok(PlayerTimingComparisonResponse {
-        player: player.unwrap_or_else(empty_timing_stats),
-        teammates,
-    })
-}
-
-async fn load_player_second_man_to_first_rotation_duration_histogram(
-    pool: &sqlx::PgPool,
-    identity: &PlayerIdentity,
-    filters: &PlayerProfileFilters,
-) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS (
-            SELECT rp.id, rp.replay_id
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-        "#,
-    );
-    append_target_player_filters(&mut query, identity, filters);
-    query.push(
-        r#"
-        ),
-        ordered_role_spans AS (
-            SELECT
-                appearance.id AS replay_player_id,
-                event.start_time,
-                event.start_frame,
-                event.source_index,
-                et.key AS role_event_type_key,
-                event.duration_seconds,
-                LAG(et.key) OVER (
-                    PARTITION BY appearance.id
-                    ORDER BY
-                        event.start_time NULLS LAST,
-                        event.start_frame NULLS LAST,
-                        event.source_index
-                ) AS previous_role_event_type_key,
-                LAG(event.duration_seconds) OVER (
-                    PARTITION BY appearance.id
-                    ORDER BY
-                        event.start_time NULLS LAST,
-                        event.start_frame NULLS LAST,
-                        event.source_index
-                ) AS previous_duration_seconds
-            FROM target_appearances appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-             AND subject.role = 'actor'
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
-             AND event.source_stream = 'rotation_role_span'
-            JOIN event_types et
-              ON et.id = event.event_type_id
-             AND et.key IN ('rotation_role_first_man', 'rotation_role_second_man')
-        ),
-        rotation_events AS (
-            SELECT previous_duration_seconds AS duration_seconds
-            FROM ordered_role_spans
-            WHERE role_event_type_key = 'rotation_role_first_man'
-              AND previous_role_event_type_key = 'rotation_role_second_man'
-        ),
-        bucketed AS (
-            SELECT floor(duration_seconds /
-        "#,
-    );
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(") * ");
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(
-        r#" AS bucket_start_seconds
-            FROM rotation_events
-            WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
-        )
-        SELECT bucket_start_seconds, COUNT(*) AS count
-        FROM bucketed
-        GROUP BY bucket_start_seconds
-        ORDER BY bucket_start_seconds
-        "#,
-    );
-
-    let rows = query.build().fetch_all(pool).await?;
-    rows.into_iter()
-        .map(|row| {
-            let min_seconds: f64 = row.try_get("bucket_start_seconds")?;
-            let count: i64 = row.try_get("count")?;
-            Ok(RotationDurationBucketResponse {
-                min_seconds,
-                max_seconds: min_seconds + ROTATION_DURATION_BUCKET_SECONDS,
-                count: count.max(0) as u64,
-            })
-        })
-        .collect()
-}
-
-impl From<StatAggregateResponse> for PlayerStatAggregateResponse {
-    fn from(stat: StatAggregateResponse) -> Self {
-        Self {
-            key: stat.key,
-            display_name: stat.display_name,
-            category: stat.category,
-            event_count: stat.event_count,
-            count_per_game: stat.count_per_game,
-            per_active_minute: stat.per_active_minute,
-            per_non_demo_active_minute: stat.per_non_demo_active_minute,
-            teammate_event_count: stat.teammate_event_count,
-            teammate_appearance_count: stat.teammate_appearance_count,
-            teammate_count_per_game: stat.teammate_count_per_game,
-            teammate_per_active_minute: stat.teammate_per_active_minute,
-            teammate_per_non_demo_active_minute: stat.teammate_per_non_demo_active_minute,
-        }
-    }
-}
-
-fn finite_nonnegative(value: Option<f64>) -> Option<f64> {
-    value.filter(|seconds| seconds.is_finite() && *seconds >= 0.0)
-}
-
-fn timing_stats_from_row(
-    row: &sqlx::postgres::PgRow,
-) -> Result<PlayerTimingStatsResponse, sqlx::Error> {
-    let replay_count: i64 = row.try_get("replay_count")?;
-    let appearance_count: i64 = row.try_get("appearance_count")?;
-    let active_time_seconds = finite_nonnegative(row.try_get("active_time_seconds")?);
-    let time_most_forward_seconds = finite_nonnegative(row.try_get("time_most_forward_seconds")?);
-    let time_most_back_seconds = finite_nonnegative(row.try_get("time_most_back_seconds")?);
-    let offensive_half_seconds = finite_nonnegative(row.try_get("offensive_half_seconds")?);
-    let defensive_half_seconds = finite_nonnegative(row.try_get("defensive_half_seconds")?);
-    let half_denominator_seconds = match (offensive_half_seconds, defensive_half_seconds) {
-        (Some(offensive), Some(defensive)) if offensive + defensive > 0.0 => {
-            Some(offensive + defensive)
-        }
-        _ => active_time_seconds,
-    };
-
-    Ok(PlayerTimingStatsResponse {
-        replay_count: replay_count.max(0) as u64,
-        appearance_count: appearance_count.max(0) as u64,
-        active_time_seconds,
-        time_most_forward_seconds,
-        time_most_forward_percent: percent_of(time_most_forward_seconds, active_time_seconds),
-        time_most_back_seconds,
-        time_most_back_percent: percent_of(time_most_back_seconds, active_time_seconds),
-        offensive_half_seconds,
-        offensive_half_percent: percent_of(offensive_half_seconds, half_denominator_seconds),
-        defensive_half_seconds,
-        defensive_half_percent: percent_of(defensive_half_seconds, half_denominator_seconds),
-    })
-}
-
-fn empty_timing_stats() -> PlayerTimingStatsResponse {
-    PlayerTimingStatsResponse {
-        replay_count: 0,
-        appearance_count: 0,
-        active_time_seconds: None,
-        time_most_forward_seconds: None,
-        time_most_forward_percent: None,
-        time_most_back_seconds: None,
-        time_most_back_percent: None,
-        offensive_half_seconds: None,
-        offensive_half_percent: None,
-        defensive_half_seconds: None,
-        defensive_half_percent: None,
-    }
-}
-
-fn percent_of(numerator: Option<f64>, denominator: Option<f64>) -> Option<f64> {
-    numerator
-        .zip(denominator)
-        .and_then(|(numerator, denominator)| {
-            (denominator.is_finite() && denominator > 0.0 && numerator.is_finite())
-                .then(|| (numerator / denominator) * 100.0)
-        })
 }
 
 async fn load_player_names(
@@ -810,12 +348,45 @@ async fn load_player_replays(
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
     limit: i64,
-) -> Result<Vec<ReplayResponse>, sqlx::Error> {
-    let sql = replay_select_sql(
+) -> Result<Vec<PlayerProfileReplayResponse>, sqlx::Error> {
+    let rows = player_replays_query(identity, filters, limit)
+        .build()
+        .fetch_all(pool)
+        .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(PlayerProfileReplayResponse {
+                id: row.try_get("id")?,
+                original_file_name: row.try_get("original_file_name")?,
+                replay_date: row.try_get("replay_date")?,
+                created_at: row.try_get("created_at")?,
+                team_scores: PlayerProfileReplayTeamScoresResponse {
+                    blue: row.try_get("team_zero_score")?,
+                    orange: row.try_get("team_one_score")?,
+                },
+            })
+        })
+        .collect()
+}
+
+fn player_replays_query<'args>(
+    identity: &'args PlayerIdentity,
+    filters: &'args PlayerProfileFilters,
+    limit: i64,
+) -> QueryBuilder<'args, Postgres> {
+    let mut query = QueryBuilder::<Postgres>::new(
         r#"
+        SELECT
+            r.id,
+            r.original_file_name,
+            r.replay_date,
+            r.created_at,
+            r.team_zero_score,
+            r.team_one_score
+        FROM replays r
         "#,
     );
-    let mut query = QueryBuilder::<Postgres>::new(sql);
     query.push(" WHERE EXISTS (SELECT 1 FROM replay_players profile_player WHERE profile_player.replay_id = r.id AND profile_player.platform = ");
     query.push_bind(&identity.platform);
     query.push(" AND profile_player.platform_player_id = ");
@@ -826,10 +397,7 @@ async fn load_player_replays(
         " ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC LIMIT ",
     );
     query.push_bind(limit);
-
-    let rows = query.build().fetch_all(pool).await?;
-
-    rows.into_iter().map(replay_from_row).collect()
+    query
 }
 
 fn append_target_player_filters<'args>(

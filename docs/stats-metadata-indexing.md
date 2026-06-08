@@ -75,11 +75,24 @@ or objects involved.
 
 ## Indexing Policy
 
-The current policy indexes exact gameplay events, stats-timeline touches, and
-mechanic detections as lean rows. Replay-data `touch_events` are intentionally
-not indexed because they are a narrow replay signal rather than the canonical
-player touch count. Full payloads remain in the serialized event stream unless a
-product query needs a compact copy in Postgres.
+The current policy indexes serialized stats-timeline streams as lean rows,
+including core, possession, positioning, movement, contact, boost, and mechanic
+events. Replay-data `touch_events` are intentionally not indexed because they
+are a narrow replay signal rather than the canonical player touch count. Full
+payloads remain in the serialized event stream unless a product query needs a
+compact copy in Postgres.
+
+Event type metadata should follow `subtr-actor`'s static event definitions when
+available. Rocket Sense keeps explicit fallbacks for serialized streams that do
+not yet have upstream definitions, and special-cases review-friendly flat keys
+for mechanic tags, boost pickup outcomes, boost ledger transactions, and derived
+rotation role/depth/stint events. Goal tags are indexed as `goal_type` labels,
+not mechanics, because they describe a goal event rather than being independent
+events. Goal context and core-player scoreboard/context rows are indexed as
+`context` metadata and should not appear in the default event-review type picker.
+Touches, touch-ball-movement rows, and whiffs are indexed as `other`, not
+`mechanic`, because they are low-level ball-interaction signals rather than
+repeatable mechanical executions.
 
 Measured fixture volumes from `subtr-actor` v0.8.14 support indexing touches by
 default: touches averaged about 124 per replay, with a fixture maximum of 209.
