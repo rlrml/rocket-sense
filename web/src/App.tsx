@@ -28,6 +28,7 @@ import {
   getAccessToken,
   getAuthOptions,
   getPlayerProfile,
+  getPlayerStatAggregates,
   getReplay,
   getReplayStatAggregates,
   listEventTypes,
@@ -37,7 +38,8 @@ import {
   setAccessToken,
   uploadReplay,
 } from "./api";
-import { completedStatGroups, eventTypesForGroup } from "./stats/registry";
+import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/registry";
+import type { StatGroup } from "./stats/registry";
 import type {
   AuthOptionsResponse,
   EventTypeResponse,
@@ -57,6 +59,8 @@ const navItems = [
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/profile", label: "Profile", icon: CircleUser },
 ];
+
+const playerStatsSectionGroups: StatGroup[] = statGroups;
 
 export function App() {
   const location = useLocation();
@@ -89,7 +93,9 @@ export function App() {
             <Route path="/replays/:replayId" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />
-            <Route path="/players/:platform/:platformPlayerId" element={<PlayerProfilePage />} />
+            <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
+            <Route path="/players/:platform/:platformPlayerId/stats" element={<PlayerStatsPage />} />
+            <Route path="/players/:platform/:platformPlayerId/stats/:statGroup" element={<PlayerStatsPage />} />
             <Route path="/events/review" element={<EventsReviewPage />} />
             <Route path="/mechanics/review" element={<EventsReviewPage />} />
             <Route path="/profile" element={<ProfilePage />} />
@@ -1233,17 +1239,30 @@ function friendlyApiMessage(message: string): string {
   return message;
 }
 
-function PlayerProfilePage() {
-  const { platform = "", platformPlayerId = "" } = useParams();
+function PlayerStatsPage() {
+  const { platform = "", platformPlayerId = "", statGroup } = useParams();
   const location = useLocation();
+  const playerReplayParams = useMemo(
+    () => playerReplaySetParams(platform, platformPlayerId, location.search),
+    [location.search, platform, platformPlayerId],
+  );
+  const activeGroup = useMemo(
+    () => playerStatsSectionGroups.find((group) => group.id === statGroup) ?? playerStatsSectionGroups[0]!,
+    [statGroup],
+  );
   const [profile, setProfile] = useState<PlayerProfileResponse | null>(null);
+  const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setStatsLoading(true);
     setError(null);
+    setStatsError(null);
     getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setProfile(response);
@@ -1254,17 +1273,33 @@ function PlayerProfilePage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    getPlayerStatAggregates(platform, platformPlayerId, new URLSearchParams(location.search))
+      .then((response) => {
+        if (!cancelled) setStats(response);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setStatsError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setStatsLoading(false);
+      });
     return () => {
       cancelled = true;
     };
   }, [location.search, platform, platformPlayerId]);
 
   return (
-    <section className="page">
+    <section className="page player-stats-page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Player</p>
+          <p className="eyebrow">Player stats</p>
           <h1>{profile?.display_name || platformPlayerId}</h1>
+        </div>
+        <div className="button-row">
+          <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
+            <FileVideo size={16} />
+            Replays
+          </Link>
         </div>
       </header>
       <StatusLine loading={loading} error={error} />
@@ -1272,32 +1307,212 @@ function PlayerProfilePage() {
         <>
           <div className="summary-grid">
             <Metric label="Replays" value={profile.replay_count.toLocaleString()} />
-            <Metric label="Platform" value={profile.platform} />
+            <Metric label="Active" value={formatDuration(stats?.active_time_seconds ?? null)} />
+            <Metric label="First seen" value={formatShortDate(profile.first_seen_at)} />
+            <Metric label="Last seen" value={formatShortDate(profile.last_seen_at)} />
+            <Metric label="Platform" value={platformLabel(profile.platform)} />
             <Metric label="Player id" value={profile.platform_player_id} />
+            <Metric label="Names" value={profile.names.length.toLocaleString()} />
             <Metric label="Pro" value={profile.is_pro ? "Yes" : "No"} />
           </div>
-          <h2>Latest replays</h2>
-          <div className="table-frame">
-            <table>
-              <tbody>
-                {profile.latest_replays.map((replay) => (
-                  <tr key={replay.id}>
-                    <td>
-                      <Link className="primary-link" to={`/replays/${replay.id}`}>
-                        {replay.original_file_name || replay.id}
-                      </Link>
-                    </td>
-                    <td>{formatPlayerReplayScore(replay)}</td>
-                    <td>{formatDate(replay.replay_date || replay.created_at)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {profile.names.length > 0 ? (
+            <div className="profile-name-list">
+              {profile.names.map((name) => (
+                <span key={name.name} title={`${name.replay_count.toLocaleString()} replays`}>
+                  {name.name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          <StatusLine loading={statsLoading} error={null} />
+          {statsError ? <ApiNotice label="Player stats" message={statsError} /> : null}
+          {stats ? (
+            <PlayerAggregateStatsSections
+              activeGroup={activeGroup}
+              platform={platform}
+              platformPlayerId={platformPlayerId}
+              search={location.search}
+              stats={stats}
+            />
+          ) : null}
+
+          <section className="stat-panel">
+            <h2>Latest replays</h2>
+            <div className="table-frame">
+              <table>
+                <tbody>
+                  {profile.latest_replays.map((replay) => (
+                    <tr key={replay.id}>
+                      <td>
+                        <Link className="primary-link" to={`/replays/${replay.id}`}>
+                          {replay.original_file_name || replay.id}
+                        </Link>
+                      </td>
+                      <td>{formatPlayerReplayScore(replay)}</td>
+                      <td>{formatDate(replay.replay_date || replay.created_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         </>
       ) : null}
     </section>
   );
+}
+
+function playerReplaySetParams(platform: string, platformPlayerId: string, search: string): URLSearchParams {
+  const params = new URLSearchParams(search);
+  params.delete("offset");
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return params;
+}
+
+function playerStatGroupPath(platform: string, platformPlayerId: string, groupId: string, search: string): string {
+  const query = new URLSearchParams(search).toString();
+  const path = `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/${groupId}`;
+  return query ? `${path}?${query}` : path;
+}
+
+function PlayerAggregateStatsSections({
+  activeGroup,
+  platform,
+  platformPlayerId,
+  search,
+  stats,
+}: {
+  activeGroup: StatGroup;
+  platform: string;
+  platformPlayerId: string;
+  search: string;
+  stats: StatAggregateSetResponse;
+}) {
+  const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms).slice().sort(compareProfileStatRates);
+  const topStats = sectionStats.slice(0, 20);
+  const playlistGroups = stats.groups
+    .map((group) => ({
+      group,
+      stats: filterStatsForGroup(group.stats, activeGroup.terms).slice().sort(compareProfileStatRates),
+    }))
+    .filter((group) => group.stats.length > 0)
+    .slice(0, 8);
+  const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
+  const Icon = activeGroup.icon;
+
+  return (
+    <section className="stat-detail player-aggregate-stats">
+      <nav className="stat-group-nav" aria-label="Player stat sections">
+        {playerStatsSectionGroups.map((group) => {
+          const GroupIcon = group.icon;
+          return (
+            <Link
+              key={group.id}
+              className={`stat-group-link ${group.id === activeGroup.id ? "active" : ""}`}
+              to={playerStatGroupPath(platform, platformPlayerId, group.id, search)}
+            >
+              <GroupIcon size={16} />
+              <span>{group.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <header className="stat-detail-header">
+        <div>
+          <p className="eyebrow">Stats section</p>
+          <h2>
+            <Icon size={20} />
+            {activeGroup.label}
+          </h2>
+          <p>{activeGroup.description}</p>
+        </div>
+        <div className="stat-detail-counts">
+          <Metric label="Stats" value={sectionStats.length.toLocaleString()} />
+          <Metric label="Events" value={sectionEventCount.toLocaleString()} />
+        </div>
+      </header>
+
+      <div className="profile-stats-grid stat-section-grid">
+        <section className="stat-panel">
+          <h3>Player rates</h3>
+          <div className="table-frame compact-table">
+            <table className="profile-stat-table">
+              <thead>
+                <tr>
+                  <th>Stat</th>
+                  <th>Per active min</th>
+                  <th>Count</th>
+                  <th>Teammates / min</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topStats.map((stat) => (
+                  <tr key={stat.key}>
+                    <td>
+                      <strong>{stat.display_name}</strong>
+                      <div className="subtle">{stat.category}</div>
+                    </td>
+                    <td>{formatNumber(stat.per_active_minute)}</td>
+                    <td>{stat.event_count.toLocaleString()}</td>
+                    <td>{formatNumber(stat.teammate_per_active_minute)}</td>
+                  </tr>
+                ))}
+                {topStats.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>No aggregate stats are available for this section yet.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section className="stat-panel">
+          <h3>Playlist splits</h3>
+          <div className="table-frame compact-table">
+            <table>
+              <thead>
+                <tr>
+                  <th>Playlist</th>
+                  <th>Replays</th>
+                  <th>Active</th>
+                  <th>Top rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {playlistGroups.map((group) => {
+                  const topRate = group.stats[0];
+                  return (
+                    <tr key={group.group.key}>
+                      <td>
+                        <strong>{group.group.display_name}</strong>
+                      </td>
+                      <td>{group.group.replay_count.toLocaleString()}</td>
+                      <td>{formatDuration(group.group.active_time_seconds)}</td>
+                      <td>{topRate ? `${topRate.display_name}: ${formatNumber(topRate.per_active_minute)}` : "Unknown"}</td>
+                    </tr>
+                  );
+                })}
+                {playlistGroups.length === 0 ? (
+                  <tr>
+                    <td colSpan={4}>No playlist splits are available for this section yet.</td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+  );
+}
+
+function compareProfileStatRates(left: StatAggregateResponse, right: StatAggregateResponse): number {
+  const leftRate = left.per_active_minute ?? -1;
+  const rightRate = right.per_active_minute ?? -1;
+  return rightRate - leftRate || right.event_count - left.event_count || left.display_name.localeCompare(right.display_name);
 }
 
 function EventsReviewPage() {
@@ -2611,8 +2826,9 @@ function rankLabel(tier: number | null | undefined, division: number | null | un
 
 function formatDuration(value: number | null): string {
   if (value == null) return "Duration unknown";
-  const minutes = Math.floor(value / 60);
-  const seconds = value % 60;
+  const totalSeconds = Math.round(value);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
@@ -2624,6 +2840,15 @@ function formatDate(value: string | null): string {
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function formatShortDate(value: string | null): string {
+  if (!value) return "Unknown";
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
   }).format(new Date(value));
 }
 

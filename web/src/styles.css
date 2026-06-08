@@ -518,6 +518,45 @@ tbody tr:last-child td {
   gap: 12px;
 }
 
+.player-stats-page .summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.profile-name-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-name-list span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: #344255;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.profile-stats-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.player-aggregate-stats .stat-detail-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-stat-table th:nth-child(n + 2),
+.profile-stat-table td:nth-child(n + 2) {
+  white-space: nowrap;
+}
+
 .metric {
   display: grid;
   gap: 6px;
@@ -3083,6 +3122,10 @@ tbody tr:last-child td {
   }
 
   .summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .player-stats-page .summary-grid {
     grid-template-columns: 1fr;
   }
 

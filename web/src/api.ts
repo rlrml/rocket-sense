@@ -96,6 +96,19 @@ export function getReplayStatAggregates(replayId: string): Promise<StatAggregate
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
 }
 
+export function getPlayerStatAggregates(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<StatAggregateSetResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  params.set("include-teammates", "true");
+  params.set("group-by", "playlist");
+  params.set("count", "200");
+  return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
+}
+
 export async function listReplayEvents(replayId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
   const cacheKey = replayEventsKey(replayId, eventTypes);
   const cached = getCachedReplayEvents(cacheKey);

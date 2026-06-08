@@ -101,12 +101,36 @@ export interface StatAggregateSetResponse {
   non_demo_active_time_seconds: number | null;
   time_most_back_seconds: number | null;
   time_most_forward_seconds: number | null;
+  teammate_appearance_count: number | null;
+  teammate_active_time_seconds: number | null;
+  teammate_non_demo_active_time_seconds: number | null;
+  teammate_time_most_back_seconds: number | null;
+  teammate_time_most_forward_seconds: number | null;
   rotation_duration_bucket_seconds: number;
   rotation_duration_histogram: Array<{
     min_seconds: number;
     max_seconds: number;
     count: number;
   }>;
+  stats: StatAggregateResponse[];
+  groups: StatAggregateGroupResponse[];
+}
+
+export interface StatAggregateGroupResponse {
+  group_by: string;
+  key: string;
+  display_name: string;
+  replay_count: number;
+  player_appearance_count: number | null;
+  active_time_seconds: number | null;
+  non_demo_active_time_seconds: number | null;
+  time_most_back_seconds: number | null;
+  time_most_forward_seconds: number | null;
+  teammate_appearance_count: number | null;
+  teammate_active_time_seconds: number | null;
+  teammate_non_demo_active_time_seconds: number | null;
+  teammate_time_most_back_seconds: number | null;
+  teammate_time_most_forward_seconds: number | null;
   stats: StatAggregateResponse[];
 }
 
@@ -177,6 +201,8 @@ export interface PlayerProfileResponse {
     latest_seen_at: string | null;
   }>;
   replay_count: number;
+  first_seen_at: string | null;
+  last_seen_at: string | null;
   is_pro: boolean;
   latest_replays: PlayerProfileReplayResponse[];
 }
