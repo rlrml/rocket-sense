@@ -2014,12 +2014,13 @@ tbody tr:last-child td {
 }
 
 .team-pickup-map-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
 }
 
 .team-margin-map-grid {
   display: grid;
-  grid-column: 1 / -1;
+  align-content: start;
+  min-width: 0;
   width: 100%;
 }
 
@@ -2072,7 +2073,7 @@ tbody tr:last-child td {
 }
 
 .team-margin-map-card {
-  max-width: 520px;
+  max-width: none;
   justify-self: center;
   width: 100%;
 }
@@ -2084,10 +2085,6 @@ tbody tr:last-child td {
 .team-margin-map-card .pickup-map-header > div {
   gap: 4px;
   width: min(420px, 100%);
-}
-
-.team-margin-map {
-  min-height: 420px;
 }
 
 .pad-control-summary-row {
@@ -3052,9 +3049,6 @@ tbody tr:last-child td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .team-pickup-map-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 @media (max-width: 820px) {
@@ -3255,11 +3249,6 @@ tbody tr:last-child td {
     max-height: min(68vh, 360px);
   }
 
-  .team-margin-map {
-    min-height: 300px;
-    max-height: min(72vh, 360px);
-  }
-
   .possession-timeline {
     min-height: 120px;
   }
@@ -3445,11 +3434,6 @@ tbody tr:last-child td {
   .pickup-map {
     min-height: 150px;
     max-height: min(62vh, 320px);
-  }
-
-  .team-margin-map {
-    min-height: 260px;
-    max-height: min(66vh, 320px);
   }
 
   .inline-token-form {
