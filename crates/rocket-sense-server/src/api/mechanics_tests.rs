@@ -243,7 +243,33 @@ fn reviewed_mechanic_normalizes_to_event_type_key() {
         normalize_reviewed_event_type_key("speed_flip").unwrap(),
         "speed_flip"
     );
+    assert_eq!(
+        normalize_reviewed_event_type_key("mechanic.center").unwrap(),
+        "center"
+    );
     assert_eq!(normalize_reviewed_event_type_key("touch").unwrap(), "touch");
+}
+
+#[test]
+fn event_type_catalog_is_code_defined_and_canonical() {
+    let event_types = code_defined_event_types();
+    let event_type = |key: &str| event_types.iter().find(|event_type| event_type.key == key);
+
+    assert_eq!(event_type("center").unwrap().category, "mechanic");
+    assert!(event_type("mechanic.center").is_none());
+    assert_eq!(event_type("air_dribble").unwrap().category, "mechanic");
+    assert!(event_type("goal_tag_air_dribble_goal").is_none());
+    assert_eq!(event_type("boost_pickup_both").unwrap().category, "boost");
+    assert_eq!(
+        event_type("rotation_role_first_man").unwrap().category,
+        "positioning"
+    );
+    assert_eq!(event_type("goal").unwrap().category, "core");
+
+    assert!(event_type("timeline").is_none());
+    assert!(event_type("mechanics").is_none());
+    assert!(event_type("boost_pickups").is_none());
+    assert!(event_type("rotation_role_span").is_none());
 }
 
 #[test]
@@ -296,7 +322,11 @@ fn mechanic_events_query_still_accepts_legacy_mechanic_fields() {
 fn event_type_filters_include_exact_flat_keys() {
     let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
         event_ids: Vec::new(),
-        mechanic: vec!["touch".to_owned(), "speed_flip".to_owned()],
+        mechanic: vec![
+            "touch".to_owned(),
+            "speed_flip".to_owned(),
+            "mechanic.center".to_owned(),
+        ],
         event_category: vec!["event".to_owned()],
         detector: Vec::new(),
         review_status: None,
@@ -309,7 +339,7 @@ fn event_type_filters_include_exact_flat_keys() {
     })
     .unwrap();
 
-    assert_eq!(filters.event_type_keys(), ["speed_flip", "touch"]);
+    assert_eq!(filters.event_type_keys(), ["center", "speed_flip", "touch"]);
     assert_eq!(filters.event_categories, ["event"]);
 }
 
@@ -528,6 +558,7 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
     assert_eq!(item.label, "Fast Player - Speed Flip review item 1");
+    assert_eq!(item.meta.event_category, "mechanic");
     assert_eq!(item.meta.player_name.as_deref(), Some("Fast Player"));
     assert_eq!(item.meta.clip.start_time, 8.5);
     assert_eq!(item.meta.clip.end_time, 16.5);
@@ -618,7 +649,47 @@ fn review_playlist_items_support_non_mechanic_events() {
     assert_eq!(item.label, "Toucher - Ball Touch review item 1");
     assert_eq!(item.meta.event_type, "touch");
     assert_eq!(item.meta.event_type_label, "Ball Touch");
+    assert_eq!(item.meta.event_category, "other");
     assert_eq!(item.meta.mechanic, "touch");
     assert_eq!(item.meta.mechanic_label, "Ball Touch");
     assert_eq!(item.meta.team.as_deref(), Some("orange"));
+}
+
+#[test]
+fn stale_event_categories_are_canonicalized_by_event_type_key() {
+    assert_eq!(canonical_event_type_key("mechanic.center"), "center");
+    assert_eq!(
+        canonical_event_type_category("speed_flip", "event"),
+        "mechanic"
+    );
+    assert_eq!(
+        canonical_event_type_category("goal_tag_air_dribble_goal", "mechanic"),
+        "goal_type"
+    );
+    assert_eq!(
+        canonical_event_type_category("goal_context", "core"),
+        "context"
+    );
+    assert_eq!(
+        canonical_event_type_category("core_player_scoreboard", "core"),
+        "context"
+    );
+    assert_eq!(canonical_event_type_category("whiff", "mechanic"), "other");
+    assert_eq!(
+        canonical_event_type_category("boost_ledger_collected", "event"),
+        "boost"
+    );
+    assert_eq!(
+        canonical_event_type_category("rotation_role_first_man", "event"),
+        "positioning"
+    );
+    assert_eq!(canonical_event_type_category("touch", "event"), "other");
+    assert_eq!(
+        canonical_event_type_category("touch_ball_movement", "contact"),
+        "other"
+    );
+    assert_eq!(
+        canonical_event_type_category("controlled_play", "event"),
+        "possession"
+    );
 }

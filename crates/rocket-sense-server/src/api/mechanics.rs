@@ -10,6 +10,7 @@ use chrono::{DateTime, Utc};
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 #[cfg(test)]
@@ -640,6 +641,7 @@ pub struct PlaylistItemMeta {
     pub event_id: Uuid,
     pub event_type: String,
     pub event_type_label: String,
+    pub event_category: String,
     pub mechanic: String,
     pub mechanic_label: String,
     pub detector: String,
@@ -780,34 +782,10 @@ pub async fn list_mechanic_events(
     }))
 }
 
-pub async fn list_event_types(
-    State(state): State<AppState>,
-) -> Result<Json<EventTypesResponse>, ApiError> {
-    let db = require_db(&state)?;
-    let rows = sqlx::query(
-        r#"
-        SELECT key, display_name, category, description
-        FROM event_types
-        ORDER BY display_name, key
-        "#,
-    )
-    .fetch_all(db)
-    .await
-    .map_err(ApiError::internal)?;
-    let event_types = rows
-        .into_iter()
-        .map(|row| {
-            Ok(EventTypeResponse {
-                key: row.try_get("key")?,
-                display_name: row.try_get("display_name")?,
-                category: row.try_get("category")?,
-                description: row.try_get("description")?,
-            })
-        })
-        .collect::<Result<Vec<_>, sqlx::Error>>()
-        .map_err(ApiError::internal)?;
-
-    Ok(Json(EventTypesResponse { event_types }))
+pub async fn list_event_types() -> Result<Json<EventTypesResponse>, ApiError> {
+    Ok(Json(EventTypesResponse {
+        event_types: code_defined_event_types(),
+    }))
 }
 
 pub async fn event_review_playlist(
@@ -1309,7 +1287,7 @@ impl MechanicEventFilters {
         Ok(Self {
             search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
             event_ids: query.event_ids,
-            mechanics: normalize_terms(query.mechanic),
+            mechanics: normalize_event_type_keys(query.mechanic),
             event_categories: normalize_terms(query.event_category),
             detectors: normalize_terms(query.detector),
             player_name_patterns: normalize_terms(query.player_names)
@@ -1564,7 +1542,7 @@ impl MechanicEventFilters {
         Ok(Self {
             search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
             event_ids,
-            mechanics: normalize_terms(mechanics),
+            mechanics: normalize_event_type_keys(mechanics),
             event_categories: normalize_terms(event_categories),
             detectors: normalize_terms(detectors),
             player_name_patterns: normalize_terms(player_names)
@@ -2515,14 +2493,16 @@ async fn find_mechanic_events(
 fn mechanic_event_from_row(
     row: sqlx::postgres::PgRow,
 ) -> Result<MechanicEventResponse, sqlx::Error> {
+    let event_type: String = row.try_get("event_type")?;
+    let event_category: String = row.try_get("event_category")?;
     Ok(MechanicEventResponse {
         id: row.try_get("id")?,
         replay_id: row.try_get("replay_id")?,
         replay_label: row.try_get("replay_label")?,
         analysis_run_id: row.try_get("analysis_run_id")?,
-        event_type: row.try_get("event_type")?,
+        event_category: canonical_event_type_category(&event_type, &event_category).to_owned(),
+        event_type,
         event_type_label: row.try_get("event_type_label")?,
-        event_category: row.try_get("event_category")?,
         mechanic: row.try_get("mechanic")?,
         detector: row.try_get("detector")?,
         player_id: row.try_get("player_id")?,
@@ -2638,6 +2618,8 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
             event_id: event.id,
             event_type: event.event_type,
             event_type_label,
+            event_category: canonical_event_type_category(&event.mechanic, &event.event_category)
+                .to_owned(),
             mechanic: event.mechanic,
             mechanic_label,
             detector: event.detector,
@@ -2684,6 +2666,410 @@ fn playlist_playback_bounds(clip_start: f64, clip_end: f64) -> (PlaylistBound, P
             kind: "time",
             value: clip_end,
         },
+    )
+}
+
+fn code_defined_event_types() -> Vec<EventTypeResponse> {
+    let mut event_types = BTreeMap::new();
+
+    for definition in subtr_actor::ALL_EVENT_DEFINITIONS {
+        if is_expanded_event_definition(definition.id) {
+            continue;
+        }
+        insert_code_defined_event_type(
+            &mut event_types,
+            definition.id,
+            definition.label,
+            event_category_key(definition.category),
+            Some(definition.summary),
+        );
+    }
+
+    for mechanic in subtr_actor::stats::analysis_graph::STATS_TIMELINE_MECHANIC_KINDS {
+        insert_code_defined_event_type(
+            &mut event_types,
+            mechanic,
+            &display_name_from_key(mechanic),
+            "mechanic",
+            None,
+        );
+    }
+
+    for event_type in CODE_DEFINED_EVENT_TYPE_VARIANTS {
+        insert_code_defined_event_type(
+            &mut event_types,
+            event_type.key,
+            event_type.label,
+            event_type.category,
+            event_type.description,
+        );
+    }
+
+    let mut event_types = event_types
+        .into_iter()
+        .map(|(_, event_type)| event_type)
+        .collect::<Vec<_>>();
+    event_types.sort_by(|left, right| {
+        left.display_name
+            .cmp(&right.display_name)
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    event_types
+}
+
+fn insert_code_defined_event_type(
+    event_types: &mut BTreeMap<String, EventTypeResponse>,
+    key: &str,
+    display_name: &str,
+    category: &str,
+    description: Option<&str>,
+) {
+    let key = canonical_event_type_key(key).to_owned();
+    event_types.insert(
+        key.clone(),
+        EventTypeResponse {
+            category: canonical_event_type_category(&key, category).to_owned(),
+            key,
+            display_name: display_name.to_owned(),
+            description: description
+                .filter(|description| {
+                    !description.is_empty() && *description != "Definition pending."
+                })
+                .map(ToOwned::to_owned),
+        },
+    );
+}
+
+fn is_expanded_event_definition(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "timeline"
+            | "mechanics"
+            | "boost_pickups"
+            | "boost_ledger"
+            | "rotation_player"
+            | "rotation_role_span"
+            | "rotation_depth_span"
+    )
+}
+
+struct CodeDefinedEventTypeVariant {
+    key: &'static str,
+    label: &'static str,
+    category: &'static str,
+    description: Option<&'static str>,
+}
+
+const CODE_DEFINED_EVENT_TYPE_VARIANTS: &[CodeDefinedEventTypeVariant] = &[
+    CodeDefinedEventTypeVariant {
+        key: "assist",
+        label: "Assist",
+        category: "core",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "death",
+        label: "Death",
+        category: "core",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "goal",
+        label: "Goal",
+        category: "core",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "kill",
+        label: "Demolition",
+        category: "core",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "save",
+        label: "Save",
+        category: "core",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "shot",
+        label: "Shot",
+        category: "core",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "core_player_goal_context",
+        label: "Core Player Goal Context",
+        category: "context",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "goal_context",
+        label: "Goal Context",
+        category: "context",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_pickup_both",
+        label: "Boost Pickup Both",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_pickup_ghost",
+        label: "Boost Pickup Ghost",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_pickup_missed",
+        label: "Boost Pickup Missed",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_ledger_collected",
+        label: "Boost Ledger Collected",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_ledger_overfill",
+        label: "Boost Ledger Overfill",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_ledger_respawn",
+        label: "Boost Ledger Respawn",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_ledger_stolen",
+        label: "Boost Ledger Stolen",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_ledger_used",
+        label: "Boost Ledger Used",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "boost_ledger_used_allocation",
+        label: "Boost Ledger Used Allocation",
+        category: "boost",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_player_state_span",
+        label: "Player State Span",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_role_ambiguous",
+        label: "Rotation Role Ambiguous",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_role_first_man",
+        label: "Rotation Role First Man",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_role_second_man",
+        label: "Rotation Role Second Man",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_role_third_man",
+        label: "Rotation Role Third Man",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_role_unknown",
+        label: "Rotation Role Unknown",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_depth_ahead_of_play",
+        label: "Rotation Depth Ahead Of Play",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_depth_behind_play",
+        label: "Rotation Depth Behind Play",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_depth_level_with_play",
+        label: "Rotation Depth Level With Play",
+        category: "positioning",
+        description: None,
+    },
+    CodeDefinedEventTypeVariant {
+        key: "rotation_depth_unknown",
+        label: "Rotation Depth Unknown",
+        category: "positioning",
+        description: None,
+    },
+];
+
+fn canonical_event_type_category(event_type: &str, stored_category: &str) -> &'static str {
+    if event_type.starts_with("goal_tag_") {
+        return "goal_type";
+    }
+    if context_event_type_keys(event_type) {
+        return "context";
+    }
+    if matches!(event_type, "touch" | "touch_ball_movement" | "whiff") {
+        return "other";
+    }
+    if stored_category != "event" {
+        return event_category_alias(stored_category);
+    }
+    if mechanic_event_type_keys(event_type) || event_type.starts_with("mechanic.") {
+        return "mechanic";
+    }
+    if matches!(event_type, "bump" | "kill" | "death" | "core.demo") {
+        return "contact";
+    }
+    if event_type.starts_with("boost") || event_type == "boost.pad_event" {
+        return "boost";
+    }
+    if event_type.starts_with("rotation_")
+        || event_type.starts_with("rotation.")
+        || event_type == "positioning"
+        || event_type.starts_with("positioning_")
+    {
+        return "positioning";
+    }
+    if matches!(
+        event_type,
+        "possession"
+            | "pressure"
+            | "territorial_pressure"
+            | "controlled_play"
+            | "kickoff"
+            | "fifty_fifty"
+            | "rush"
+    ) {
+        return "possession";
+    }
+    if matches!(
+        event_type,
+        "movement" | "flip_impulse" | "powerslide" | "movement.dodge_refresh"
+    ) {
+        return "movement";
+    }
+    if matches!(event_type, "goal") {
+        return "core";
+    }
+    "event"
+}
+
+fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
+    match category {
+        subtr_actor::EventCategory::Core => "core",
+        subtr_actor::EventCategory::Mechanic => "mechanic",
+        subtr_actor::EventCategory::Possession => "possession",
+        subtr_actor::EventCategory::Positioning => "positioning",
+        subtr_actor::EventCategory::Boost => "boost",
+        subtr_actor::EventCategory::Contact => "contact",
+        subtr_actor::EventCategory::Movement => "movement",
+        subtr_actor::EventCategory::Annotation => "annotation",
+    }
+}
+
+fn canonical_event_type_key(event_type: &str) -> &str {
+    if let Some(mechanic_key) = event_type.strip_prefix("mechanic.") {
+        if mechanic_event_type_keys(mechanic_key) {
+            return mechanic_key;
+        }
+    }
+    event_type
+}
+
+fn display_name_from_key(key: &str) -> String {
+    key.split(['.', '_', '-'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn event_category_alias(category: &str) -> &'static str {
+    match category {
+        "context" => "context",
+        "goal_type" | "goal_types" | "goal_label" | "goal_labels" => "goal_type",
+        "mechanics" => "mechanic",
+        "touch" => "contact",
+        "goal_context" => "context",
+        "team" => "core",
+        "boost" => "boost",
+        "contact" => "contact",
+        "core" => "core",
+        "mechanic" => "mechanic",
+        "movement" => "movement",
+        "possession" => "possession",
+        "positioning" => "positioning",
+        "other" => "other",
+        "annotation" => "annotation",
+        _ => "event",
+    }
+}
+
+fn mechanic_event_type_keys(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "air_dribble"
+            | "backboard"
+            | "backboard_bounce"
+            | "ball_carry"
+            | "ceiling_shot"
+            | "center"
+            | "dodge_reset"
+            | "double_tap"
+            | "flick"
+            | "flip_reset"
+            | "half_flip"
+            | "half_volley"
+            | "musty_flick"
+            | "one_timer"
+            | "pass"
+            | "speed_flip"
+            | "wall_aerial"
+            | "wall_aerial_shot"
+            | "wavedash"
+            | "post_wall_dodge"
+            | "flip_reset_followup_dodge"
+    )
+}
+
+fn context_event_type_keys(event_type: &str) -> bool {
+    matches!(
+        event_type,
+        "core_player"
+            | "core_player_goal_context"
+            | "core_player_scoreboard"
+            | "goal_context"
+            | "player"
     )
 }
 
@@ -2759,7 +3145,16 @@ fn normalize_reviewed_event_type_key(value: &str) -> Result<String, ApiError> {
             "reviewed_mechanic must not be empty when provided",
         ));
     }
-    Ok(value.to_owned())
+    Ok(canonical_event_type_key(value).to_owned())
+}
+
+fn normalize_event_type_keys(values: Vec<String>) -> Vec<String> {
+    values
+        .into_iter()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(|value| canonical_event_type_key(&value).to_owned())
+        .collect()
 }
 
 fn normalize_terms(values: Vec<String>) -> Vec<String> {
