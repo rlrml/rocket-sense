@@ -11,7 +11,8 @@ use std::{
     sync::Arc,
 };
 use subtr_actor::{
-    EventCategory, PlayerInfo, ReplayMeta, ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
+    EventCategory, PlayerInfo, ReplayMeta, ReplayProcessor, ReplayStatsTimelineScaffold,
+    StatsTimelineEventCollector,
 };
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -264,6 +265,35 @@ pub fn spawn_replay_processing(
     });
 }
 
+pub async fn enqueue_unfinished_replay_processing(
+    pool: PgPool,
+    storage: Arc<dyn ObjectStorage>,
+    permits: Arc<Semaphore>,
+) -> Result<usize> {
+    let targets = unfinished_replay_processing_targets(&pool).await?;
+    let enqueued_replays = targets.len();
+    if !targets.is_empty() {
+        spawn_reprocess_worker(pool, storage, permits, targets, 1);
+    }
+
+    Ok(enqueued_replays)
+}
+
+pub async fn upsert_replay_preflight_metadata(
+    pool: &PgPool,
+    replay_id: Uuid,
+    replay_bytes: Bytes,
+) -> Result<()> {
+    let metadata = tokio::task::spawn_blocking(move || {
+        collect_replay_preflight_metadata(replay_bytes.to_vec())
+    })
+    .await
+    .context("replay preflight metadata task panicked")??;
+    upsert_replay_search_metadata(pool, replay_id, &metadata).await?;
+
+    Ok(())
+}
+
 pub async fn enqueue_replay_reprocessing(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
@@ -512,6 +542,32 @@ fn spawn_reprocess_worker(
             "replay reprocessing batch finished"
         );
     });
+}
+
+async fn unfinished_replay_processing_targets(
+    pool: &PgPool,
+) -> Result<Vec<ReplayProcessingTarget>> {
+    sqlx::query(
+        r#"
+        SELECT id, file_sha256, storage_key
+        FROM replays
+        WHERE canonical_analysis_run_id IS NULL
+          AND parse_status IN ('pending', 'parsing')
+        ORDER BY created_at, id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list unfinished replay processing targets")?
+    .into_iter()
+    .map(|row| {
+        Ok(ReplayProcessingTarget {
+            replay_id: row.try_get("id")?,
+            file_sha256: row.try_get("file_sha256")?,
+            storage_key: row.try_get("storage_key")?,
+        })
+    })
+    .collect()
 }
 
 async fn reprocess_targets(
@@ -1184,6 +1240,21 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
     })
 }
 
+fn collect_replay_preflight_metadata(replay_bytes: Vec<u8>) -> Result<ReplaySearchMetadata> {
+    let replay = boxcars::ParserBuilder::new(&replay_bytes)
+        .must_parse_network_data()
+        .on_error_check_crc()
+        .parse()
+        .context("failed to parse replay")?;
+    let mut processor = ReplayProcessor::new(&replay)
+        .map_err(|error| anyhow!("failed to inspect replay: {error:?}"))?;
+    let replay_meta = processor
+        .process_and_get_replay_meta()
+        .map_err(|error| anyhow!("failed to collect replay metadata: {error:?}"))?;
+
+    Ok(replay_search_metadata_from_meta(&replay_meta))
+}
+
 fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearchMetadata {
     let replay_meta = &timeline.replay_meta;
     let playlist = replay_playlist(replay_meta);
@@ -1219,7 +1290,6 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
     }
 }
 
-#[cfg(test)]
 fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMetadata {
     let playlist = replay_playlist(replay_meta);
     let map_code = header_text(&replay_meta.all_headers, &["MapName", "Map", "LevelName"])
@@ -1247,7 +1317,7 @@ fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMet
         game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
-        summary: ReplaySummaryMetadata::default(),
+        summary: replay_summary_metadata_from_meta(replay_meta),
         has_pro_player,
         players,
     }
@@ -1311,6 +1381,18 @@ fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySumm
         )
         .map(normalize_header_value)
         .filter(|value| !value.trim().is_empty()),
+    }
+}
+
+fn replay_summary_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySummaryMetadata {
+    ReplaySummaryMetadata {
+        match_guid: header_text(
+            &replay_meta.all_headers,
+            &["Id", "MatchGuid", "MatchGUID", "ReplayId"],
+        )
+        .map(normalize_header_value)
+        .filter(|value| !value.trim().is_empty()),
+        ..ReplaySummaryMetadata::default()
     }
 }
 
