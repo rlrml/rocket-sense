@@ -7,6 +7,7 @@ mod openapi;
 mod players;
 mod query;
 mod replays;
+mod spa;
 mod stats;
 
 use crate::app::AppState;
@@ -20,10 +21,10 @@ pub fn router(state: AppState) -> Router {
         .route("/api", get(api_index))
         .merge(auth::public_router().with_state(state.clone()))
         .merge(mechanics::public_router().with_state(state.clone()))
-        .merge(players::public_router().with_state(state.clone()))
         .merge(replays::public_router().with_state(state.clone()))
-        .nest("/api/v1", api_v1_router(state))
+        .nest("/api/v1", api_v1_router(state.clone()))
         .route("/api-docs/openapi.json", get(openapi_json))
+        .merge(spa::router().with_state(state))
 }
 
 fn api_v1_router(state: AppState) -> Router {

@@ -6,8 +6,20 @@ railbird_registry := env_var_or_default("ROCKET_SENSE_RAILBIRD_REGISTRY", "192.1
 default:
     @just --list
 
-build:
+build: web-build
     {{nix_develop}} cargo build --workspace
+
+web-dev:
+    cd web && npm run dev
+
+web-dev-lan:
+    cd web && npm run dev:lan
+
+web-build:
+    cd web && npm run build
+
+web-typecheck:
+    cd web && npm run typecheck
 
 build-image:
     nix build .#rocket-sense-server-image
@@ -31,13 +43,13 @@ deploy-railbird-sf: push-image
 sync-subtr-actor rev='':
     ./scripts/sync-subtr-actor {{rev}}
 
-test:
+test: web-build
     {{nix_develop}} cargo test --workspace
 
-dev:
+dev: web-build
     {{nix_develop}} cargo run -p rocket-sense-server
 
-watch:
+watch: web-build
     {{nix_develop}} cargo watch -x "run -p rocket-sense-server"
 
 fmt:
@@ -46,5 +58,5 @@ fmt:
 fmt-check:
     {{nix_develop}} cargo fmt -- --check
 
-clippy:
+clippy: web-build
     {{nix_develop}} cargo clippy --workspace -- -D warnings

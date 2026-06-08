@@ -1,37 +1,29 @@
 use super::*;
-use axum::http::{header::LOCATION, StatusCode};
-
-#[tokio::test]
-async fn root_page_redirects_to_replay_search() {
-    let response = root_page().await.into_response();
-
-    assert_eq!(response.status(), StatusCode::TEMPORARY_REDIRECT);
-    assert_eq!(response.headers().get(LOCATION).unwrap(), "/replays");
-}
 
 #[test]
-fn profile_page_uses_replay_app_shell() {
-    let page = render_profile_page(AuthMode::Dev);
+fn auth_options_reports_mode_and_configured_oauth_providers() {
+    let response = auth_options_response(
+        AuthMode::OAuth,
+        &[OAuthProviderSettings {
+            kind: OAuthProviderKind::GitHub,
+            client_id: "client-id".to_owned(),
+            client_secret: "client-secret".to_owned(),
+            public_base_url: "https://rocket-sense.example".to_owned(),
+        }],
+    );
 
-    assert!(page.contains(r#"<link rel="icon" href="data:,"#));
-    assert!(page.contains(r#"<header>"#));
-    assert!(page.contains(r#"<a class="nav-item" href="/replays">Replays</a>"#));
-    assert!(page.contains(r#"<a class="nav-item" href="/events/review">Events Review</a>"#));
-    assert!(page.contains(r#"<a class="nav-item active" href="/profile">Profile</a>"#));
-    assert!(page.contains(r#".header-inner, main"#));
-    assert!(page.contains(r#"background: #ffffff;"#));
-}
-
-#[test]
-fn profile_page_offers_replay_upload() {
-    let page = render_profile_page(AuthMode::OAuth);
-
-    assert!(page.contains(r#"<h2>Upload replay</h2>"#));
-    assert!(page.contains(r#"<form id="upload-form" class="upload-form">"#));
-    assert!(page
-        .contains(r#"<input id="upload-file" name="file" type="file" accept=".replay" required>"#));
-    assert!(page.contains(r#"<button id="upload-submit" type="submit">Upload replay</button>"#));
-    assert!(page.contains(r#"async function uploadReplay(event)"#));
-    assert!(page.contains(r#"await fetch("/api/v1/replays", {"#));
-    assert!(page.contains(r#"body.append("file", file, file.name);"#));
+    assert_eq!(response.mode, "oauth");
+    assert_eq!(response.login_url, "/login");
+    let github = response
+        .providers
+        .iter()
+        .find(|provider| provider.id == "github")
+        .expect("GitHub should be listed");
+    assert_eq!(github.label, "GitHub");
+    assert!(github.configured);
+    assert_eq!(github.start_url, "/auth/github/start");
+    assert!(response
+        .providers
+        .iter()
+        .any(|provider| provider.id == "google" && !provider.configured));
 }

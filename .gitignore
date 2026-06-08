@@ -1,4 +1,9 @@
 /target/
+/web/dist/
+/web/node_modules/
+/web/*.tsbuildinfo
+/web/vite.config.d.ts
+/web/vite.config.js
 /.direnv/
 /.envrc.local
 /.pre-commit-config.yaml

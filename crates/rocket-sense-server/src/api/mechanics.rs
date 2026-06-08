@@ -2,7 +2,7 @@ use crate::{app::AppState, auth::AuthUser};
 use axum::{
     extract::{Path, RawQuery, State},
     http::StatusCode,
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -23,9 +23,7 @@ const MAX_EVENT_REVIEW_PAGE_SIZE: u32 = 5_000;
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
-        .route("/events/review", get(event_review_page))
         .route("/events/review/open", get(open_event_review))
-        .route("/mechanics/review", get(event_review_page))
         .route("/mechanics/review/open", get(open_event_review))
 }
 
@@ -283,10 +281,6 @@ impl MechanicEventsQuery {
 
 fn non_empty_string(value: &str) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
-}
-
-async fn event_review_page() -> Html<&'static str> {
-    Html(EVENT_REVIEW_PAGE)
 }
 
 async fn open_event_review(RawQuery(raw_query): RawQuery) -> Result<Redirect, ApiError> {
@@ -2887,5 +2881,3 @@ impl IntoResponse for ApiError {
             .into_response()
     }
 }
-
-const EVENT_REVIEW_PAGE: &str = include_str!("events_review_page.html");

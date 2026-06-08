@@ -2,7 +2,6 @@ use crate::app::AppState;
 use axum::{
     extract::{Path, RawQuery, State},
     http::StatusCode,
-    response::Html,
     routing::get,
     Json, Router,
 };
@@ -32,13 +31,6 @@ pub fn router() -> Router<AppState> {
     Router::new().route(
         "/players/{platform}/{platform_player_id}",
         get(get_player_profile),
-    )
-}
-
-pub fn public_router() -> Router<AppState> {
-    Router::new().route(
-        "/players/{platform}/{platform_player_id}",
-        get(player_profile_page),
     )
 }
 
@@ -199,10 +191,6 @@ pub async fn get_player_profile(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))?;
 
     Ok(Json(profile))
-}
-
-async fn player_profile_page() -> Html<&'static str> {
-    Html(PLAYER_PROFILE_PAGE)
 }
 
 struct PlayerIdentity {
@@ -952,5 +940,3 @@ fn normalize_sha256_hex(value: &str) -> Result<String, ApiError> {
 
     Ok(value.to_ascii_lowercase())
 }
-
-const PLAYER_PROFILE_PAGE: &str = include_str!("players_page.html");

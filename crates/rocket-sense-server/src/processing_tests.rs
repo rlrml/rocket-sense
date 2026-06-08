@@ -113,11 +113,14 @@ fn parse_replay_date_accepts_common_replay_header_formats() {
 
 #[test]
 fn normalize_playlist_returns_filter_slugs_for_common_values() {
+    assert_eq!(normalize_playlist("2".to_owned()), "unranked-doubles");
     assert_eq!(normalize_playlist("11".to_owned()), "ranked-doubles");
+    assert_eq!(normalize_playlist("13".to_owned()), "ranked-standard");
     assert_eq!(
         normalize_playlist("Ranked Snow Day".to_owned()),
         "ranked-snowday"
     );
+    assert_eq!(normalize_playlist("Doubles".to_owned()), "Doubles");
     assert_eq!(
         normalize_playlist("Unrecognized Playlist".to_owned()),
         "Unrecognized Playlist"
@@ -142,6 +145,7 @@ fn indexed_goal_context_tags_use_scorer_and_goal_tag_dimensions() {
         tags: vec![subtr_actor::GoalTag::DoubleTapGoal(
             subtr_actor::GoalTagMetadata {
                 confidence: 0.85,
+                performer: None,
                 modifiers: vec![subtr_actor::GoalTagModifier::ByScorer],
                 related_events: vec![],
                 evidence: vec![subtr_actor::GoalTagEvidence {

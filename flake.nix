@@ -16,6 +16,7 @@
 
   outputs =
     {
+      self,
       nixpkgs,
       flake-utils,
       fenix,
@@ -45,6 +46,7 @@
             pkgs.curl
             pkgs.just
             pkgs.kubectl
+            pkgs.nodejs
             pkgs.opentofu
             pkgs.skopeo
           ]
@@ -72,10 +74,26 @@
           mkdir -p "$out/vendor"
           cp -R ${subtr-actor-src} "$out/vendor/subtr-actor"
         '';
+        rocketSenseWeb = pkgs.buildNpmPackage {
+          pname = "rocket-sense-web";
+          version = "0.1.0";
+          src = ./web;
+          npmDeps = pkgs.importNpmLock { npmRoot = ./web; };
+          npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+          npmBuildScript = "build";
+          installPhase = ''
+            runHook preInstall
+            cp -R dist "$out"
+            runHook postInstall
+          '';
+        };
         rocketSenseServer = rustPlatform.buildRustPackage {
           pname = "rocket-sense-server";
           version = "0.1.0";
           src = sourceWithSubtrActor;
+          ROCKET_SENSE_GIT_SHA = self.rev or self.dirtyRev or "unknown";
+          SUBTR_ACTOR_GIT_SHA = subtr-actor-src.rev or "unknown";
+          ROCKET_SENSE_WEB_DIST = rocketSenseWeb;
           cargoBuildFlags = [
             "-p"
             "rocket-sense-server"

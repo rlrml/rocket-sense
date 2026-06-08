@@ -1,20 +1,6 @@
 use super::*;
 
 #[test]
-fn hosted_replay_app_urls_point_at_local_subtr_actor_apps() {
-    let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
-
-    assert_eq!(
-        hosted_replay_app_url("/subtr-actor/", replay_id),
-        "/subtr-actor/?replayUrl=%2Fapi%2Fv1%2Freplays%2F0196f449-e997-7413-af77-28082e6478f0%2Ffile"
-    );
-    assert_eq!(
-        hosted_replay_app_url("/subtr-actor/stats/", replay_id),
-        "/subtr-actor/stats/?replayUrl=%2Fapi%2Fv1%2Freplays%2F0196f449-e997-7413-af77-28082e6478f0%2Ffile"
-    );
-}
-
-#[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
     assert_index_assets_are_embedded(SUBTR_ACTOR_VIEWER_INDEX, subtr_actor_static_asset);
     assert!(subtr_actor_static_asset("missing.js").is_none());
@@ -95,103 +81,6 @@ fn subtr_actor_review_without_trailing_slash_redirects_to_slash() {
 }
 
 #[test]
-fn replay_list_page_uses_playlist_dropdown_values() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="filter-group-title">Ranked</div>"#));
-    assert!(REPLAY_LIST_PAGE
-        .contains(r#"<input type="checkbox" name="playlist" value="ranked-duels"> Ranked Duels"#));
-    assert!(REPLAY_LIST_PAGE.contains(
-        r#"<input type="checkbox" name="playlist" value="ranked-doubles"> Ranked Doubles"#
-    ));
-    assert!(REPLAY_LIST_PAGE
-        .contains(r#"<input type="checkbox" name="playlist" value="private"> Private"#));
-}
-
-#[test]
-fn replay_list_page_preserves_hidden_api_filters() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"<input type="hidden" name="group">"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<input type="hidden" name="player-id">"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<input type="hidden" name="project">"#));
-}
-
-#[test]
-fn replay_list_page_links_replay_name_to_stats() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"const replayHref = statsUrl(replay);"#));
-    assert!(!REPLAY_LIST_PAGE.contains(r#"const replayHref = viewerUrl(replay);"#));
-    assert!(REPLAY_LIST_PAGE.contains(
-        r#"<a href="${replayHref}" target="_blank" rel="noopener">${escapeHtml(name)}</a>"#
-    ));
-}
-
-#[test]
-fn replay_list_page_uses_ballchasing_style_replay_rows() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"<ol class="replay-list">${rows}</ol>"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="score-side blue">"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="score-side orange">"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"sortButton("Replay Date", "replay-date")"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"content.addEventListener("click", (event) => {"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"<div class="keyboard-hint">"#));
-    assert!(REPLAY_LIST_PAGE.contains("function iconDownload()"));
-    assert!(REPLAY_LIST_PAGE.contains("function iconPlay()"));
-    assert!(REPLAY_LIST_PAGE.contains("function platformIcon(player)"));
-    assert!(REPLAY_LIST_PAGE.contains("function renderTeam(players, teamClass)"));
-    assert!(REPLAY_LIST_PAGE.contains("function updateSelectedReplay"));
-    assert!(REPLAY_LIST_PAGE.contains(r#"document.addEventListener("keydown", (event) => {"#));
-    assert!(REPLAY_LIST_PAGE.contains("function openRandomReplay"));
-    assert!(
-        REPLAY_LIST_PAGE.contains(r#"randomButton.addEventListener("click", openRandomReplay);"#)
-    );
-    assert_eq!(
-        REPLAY_LIST_PAGE
-            .matches(r#"if (replay) location.href = statsUrl(replay);"#)
-            .count(),
-        2
-    );
-    assert!(REPLAY_LIST_PAGE.contains(
-        r#"<a href="${viewerUrl(replay)}" target="_blank" rel="noopener" title="Open replay player" aria-label="Open replay player">${iconPlay()}</a>"#
-    ));
-}
-
-#[test]
-fn replay_list_header_only_links_rocket_sense_destinations() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"<a class="nav-item active" href="/replays">Replays</a>"#));
-    assert!(
-        REPLAY_LIST_PAGE.contains(r#"<a class="nav-item" href="/events/review">Events Review</a>"#)
-    );
-    assert!(REPLAY_LIST_PAGE.contains(r#"<a class="nav-item" href="/profile">Profile</a>"#));
-    assert!(!REPLAY_LIST_PAGE.contains("Patreon"));
-    assert!(!REPLAY_LIST_PAGE.contains("Help"));
-    assert!(!REPLAY_LIST_PAGE.contains("Community"));
-    assert!(!REPLAY_LIST_PAGE.contains("Replay Groups"));
-    assert!(!REPLAY_LIST_PAGE.contains(">Top<"));
-}
-
-#[test]
-fn replay_list_header_can_show_authenticated_account() {
-    assert!(REPLAY_LIST_PAGE.contains(r#"id="account-link""#));
-    assert!(REPLAY_LIST_PAGE.contains("function renderHeaderAccount()"));
-    assert!(REPLAY_LIST_PAGE.contains("function setHeaderAccountFromToken(token)"));
-    assert!(REPLAY_LIST_PAGE.contains("function hydrateHeaderAccount()"));
-    assert!(REPLAY_LIST_PAGE.contains(r#"/api/v1/auth/profile-token"#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"class="account-avatar""#));
-}
-
-#[test]
-fn replay_list_page_links_indexed_players_to_profiles() {
-    assert!(REPLAY_LIST_PAGE.contains("function playerProfileUrl(player)"));
-    assert!(REPLAY_LIST_PAGE
-        .contains("`/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platform_player_id)}`"));
-    assert!(REPLAY_LIST_PAGE.contains("href ? `<a href=\"${href}\">${label}</a>` : label"));
-}
-
-#[test]
-fn replay_list_page_shows_uploader_metadata_line() {
-    assert!(REPLAY_LIST_PAGE.contains("function uploaderName(replay)"));
-    assert!(REPLAY_LIST_PAGE.contains("Uploaded by"));
-    assert!(REPLAY_LIST_PAGE.contains(r#"class="uploader-avatar""#));
-    assert!(REPLAY_LIST_PAGE.contains(r#"title="${escapeHtml(uploader)}""#));
-}
-
-#[test]
 fn replay_select_includes_uploader_profile() {
     let sql = replay_select_sql("WHERE r.id = $1");
 
@@ -206,8 +95,118 @@ fn replay_select_includes_players_without_stats_blob_join() {
 
     assert!(sql.contains("jsonb_build_object"));
     assert!(sql.contains("FROM replay_players player"));
+    assert!(sql.contains("'rank_tier', player.rank_tier"));
+    assert!(sql.contains("'rank_division', player.rank_division"));
     assert!(!sql.contains("replay_stat_blobs"));
     assert!(!sql.contains("latest_stats"));
+}
+
+#[test]
+fn replay_select_includes_parse_version_metadata() {
+    let sql = replay_select_sql("WHERE r.id = $1");
+
+    assert!(sql.contains("r.parsed_at"));
+    assert!(sql.contains("r.parsed_with_extractor_name"));
+    assert!(sql.contains("r.parsed_with_extractor_version"));
+    assert!(sql.contains("r.parsed_with_event_stream_schema_version"));
+    assert!(sql.contains("r.parsed_with_rocket_sense_git_sha"));
+    assert!(sql.contains("r.parsed_with_subtr_actor_version"));
+    assert!(sql.contains("r.parsed_with_subtr_actor_git_sha"));
+}
+
+#[test]
+fn playlist_metadata_classifies_ranked_casual_and_soccar_playlists() {
+    let ranked = playlist_metadata(Some("ranked-doubles"));
+    assert_eq!(ranked.label.as_deref(), Some("Ranked Soccar Doubles"));
+    assert_eq!(ranked.category.as_deref(), Some("ranked"));
+    assert_eq!(ranked.ruleset.as_deref(), Some("soccar"));
+    assert_eq!(ranked.team_size, Some(2));
+    assert_eq!(ranked.ranked, Some(true));
+    assert_eq!(ranked.casual, Some(false));
+    assert_eq!(ranked.soccar, Some(true));
+
+    let casual = playlist_metadata(Some("unranked-standard"));
+    assert_eq!(casual.label.as_deref(), Some("Casual Soccar Standard"));
+    assert_eq!(casual.category.as_deref(), Some("casual"));
+    assert_eq!(casual.team_size, Some(3));
+    assert_eq!(casual.ranked, Some(false));
+    assert_eq!(casual.casual, Some(true));
+    assert_eq!(casual.soccar, Some(true));
+
+    let hoops = playlist_metadata(Some("ranked-hoops"));
+    assert_eq!(hoops.label.as_deref(), Some("Ranked Hoops"));
+    assert_eq!(hoops.ruleset.as_deref(), Some("hoops"));
+    assert_eq!(hoops.ranked, Some(true));
+    assert_eq!(hoops.soccar, Some(false));
+}
+
+#[test]
+fn playlist_metadata_does_not_invent_ranked_status_for_generic_online() {
+    let metadata = playlist_metadata(Some("online-2v2"));
+
+    assert_eq!(metadata.label.as_deref(), Some("Online Soccar 2v2"));
+    assert_eq!(metadata.category.as_deref(), Some("online"));
+    assert_eq!(metadata.ruleset.as_deref(), Some("soccar"));
+    assert_eq!(metadata.team_size, Some(2));
+    assert_eq!(metadata.ranked, None);
+    assert_eq!(metadata.casual, None);
+    assert_eq!(metadata.soccar, Some(true));
+}
+
+#[test]
+fn replay_list_query_pages_replay_ids_before_hydrating_rows() {
+    use sqlx::Execute;
+
+    let filters =
+        ReplayFilters::from_query(ListReplaysQuery::default(), None).expect("filters should parse");
+    let mut query_builder = find_replays_query(&filters);
+    let query = query_builder.build();
+    let sql = query.sql();
+    let filtered_replays_position = sql
+        .find("WITH filtered_replays AS (SELECT r.id FROM replays r")
+        .expect("list query should page replay ids first");
+    let hydrate_position = sql
+        .find("LEFT JOIN users uploader ON uploader.id = r.uploaded_by_user_id")
+        .expect("list query should hydrate replay rows");
+    let players_position = sql
+        .find("FROM replay_players player")
+        .expect("list query should include player hydration");
+
+    assert!(filtered_replays_position < hydrate_position);
+    assert!(hydrate_position < players_position);
+    assert!(sql.contains("JOIN filtered_replays filtered_replay ON filtered_replay.id = r.id"));
+    assert_eq!(sql.matches(" LIMIT ").count(), 1);
+    assert_eq!(sql.matches(" OFFSET ").count(), 1);
+}
+
+#[test]
+fn replay_filter_indexes_include_trigram_search_and_sort_pagination_support() {
+    let migration = include_str!("../../../../migrations/0020_replay_filter_query_indexes.sql");
+
+    assert!(migration.contains("CREATE EXTENSION IF NOT EXISTS pg_trgm"));
+    assert!(migration.contains("replays_created_at_id_idx"));
+    assert!(migration.contains("replays_replay_date_id_idx"));
+    assert!(migration.contains("replays_original_file_name_trgm_idx"));
+    assert!(migration.contains("replays_external_replay_id_trgm_idx"));
+    assert!(migration.contains("replays_file_sha256_trgm_idx"));
+    assert!(migration.contains("replay_players_name_trgm_idx"));
+    assert!(migration.contains("replay_players_platform_player_replay_idx"));
+}
+
+#[test]
+fn replay_filter_options_query_sources_maps_and_seasons() {
+    assert!(ReplayFilterOptionKind::Map
+        .sql()
+        .contains("SELECT map_code AS value"));
+    assert!(ReplayFilterOptionKind::Map
+        .sql()
+        .contains("GROUP BY map_code"));
+    assert!(ReplayFilterOptionKind::Season
+        .sql()
+        .contains("SELECT season AS value"));
+    assert!(ReplayFilterOptionKind::Season
+        .sql()
+        .contains("GROUP BY season"));
 }
 
 #[test]
@@ -267,13 +266,55 @@ fn list_replays_query_accepts_bracketed_array_filters() {
 #[test]
 fn list_replays_query_accepts_repeated_array_filters() {
     let query = ListReplaysQuery::from_raw_query(Some(
-        "player-name=colonelpanic8&player-name=teammate&player-id=epic%3Aabc&player-id=steam%3Adef&playlist=Online&playlist=Private",
+        "player-name=colonelpanic8&player-name=teammate&player-id=epic%3Aabc&player-id=steam%3Adef&playlist=Online&playlist=Private&season=f17&season=f18",
     ))
     .expect("repeated array filters should deserialize");
 
     assert_eq!(query.player_names, ["colonelpanic8", "teammate"]);
     assert_eq!(query.player_ids, ["epic:abc", "steam:def"]);
     assert_eq!(query.playlist, ["Online", "Private"]);
+    assert_eq!(query.season, ["f17", "f18"]);
+}
+
+#[test]
+fn replay_filters_parse_rank_range_slugs() {
+    let filters = ReplayFilters::from_query(
+        ListReplaysQuery {
+            min_rank: Some("champion-1".to_owned()),
+            max_rank: Some("ssl".to_owned()),
+            ..ListReplaysQuery::default()
+        },
+        None,
+    )
+    .expect("rank filters should parse");
+
+    assert_eq!(filters.min_rank_tier, Some(16));
+    assert_eq!(filters.max_rank_tier, Some(22));
+}
+
+#[test]
+fn replay_list_query_searches_players_and_rank_ranges() {
+    use sqlx::Execute;
+
+    let filters = ReplayFilters::from_query(
+        ListReplaysQuery {
+            q: Some("colonelpanic8".to_owned()),
+            season: vec!["f18".to_owned()],
+            min_rank: Some("diamond-1".to_owned()),
+            max_rank: Some("grand-champion-3".to_owned()),
+            ..ListReplaysQuery::default()
+        },
+        None,
+    )
+    .expect("filters should parse");
+    let mut query_builder = find_replays_query(&filters);
+    let query = query_builder.build();
+    let sql = query.sql();
+
+    assert!(sql.contains("replay_players.name ILIKE"));
+    assert!(sql.contains("r.season = ANY("));
+    assert!(sql.contains("rank_player.rank_tier >="));
+    assert!(sql.contains("rank_player.rank_tier <="));
 }
 
 #[test]

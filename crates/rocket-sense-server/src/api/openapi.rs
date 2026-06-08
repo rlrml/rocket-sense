@@ -9,6 +9,7 @@ use utoipa::{
     paths(
         admin::backfill_profile_timing,
         admin::reprocess_replays,
+        auth::auth_options,
         auth::create_dev_token,
         auth::create_profile_token,
         ballchasing::load_ballchasing_replay,
@@ -18,6 +19,7 @@ use utoipa::{
         stats::get_stat_aggregates,
         replays::create_replay,
         replays::list_replays,
+        replays::list_replay_filter_options,
         replays::get_replay_by_sha256,
         replays::list_replay_groups,
         replays::create_replay_group,
@@ -31,6 +33,8 @@ use utoipa::{
     components(
         schemas(
             auth::CreateDevTokenRequest,
+            auth::AuthOptionsResponse,
+            auth::AuthProviderResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
             admin::ReprocessReplaysRequest,
@@ -45,6 +49,8 @@ use utoipa::{
             replays::CreateReplayGroupRequest,
             replays::CreateReplayResponse,
             replays::ListReplaysResponse,
+            replays::ReplayFilterOptionResponse,
+            replays::ReplayFilterOptionsResponse,
             replays::ListReplayGroupsResponse,
             replays::ReplayGroupReplayUpdateRequest,
             replays::ReplayGroupReplayUpdateResponse,

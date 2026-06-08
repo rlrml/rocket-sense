@@ -314,56 +314,6 @@ fn event_type_filters_include_exact_flat_keys() {
 }
 
 #[test]
-fn event_review_page_exposes_current_event_type_filters() {
-    for mechanic in [
-        "air_dribble",
-        "ball_carry",
-        "ceiling_shot",
-        "double_tap",
-        "flick",
-        "flip_reset",
-        "half_flip",
-        "half_volley",
-        "musty_flick",
-        "one_timer",
-        "pass",
-        "speed_flip",
-        "wavedash",
-    ] {
-        assert!(EVENT_REVIEW_PAGE.contains(&format!(
-            r#"<input type="checkbox" name="event-type" value="{mechanic}">"#
-        )));
-    }
-
-    assert!(EVENT_REVIEW_PAGE.contains("<title>Events review</title>"));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"<h1>Events review</h1>"#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"<h2>Event filters</h2>"#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-type""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="q""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="player-name""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="player-id""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"<select name="playlist">"#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"<option value="" selected>Any playlist</option>"#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"<option value="ranked-doubles">Ranked Doubles</option>"#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"<option value="private">Private</option>"#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="map""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="pro""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="created-after""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="created-before""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="replay-date-after""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="replay-date-before""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-created-after""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="event-created-before""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="uploader""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="group""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"name="project""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"action="/events/review/open""#));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"autocomplete="off""#));
-    assert!(EVENT_REVIEW_PAGE.contains("resetEventTypeFilters"));
-    assert!(EVENT_REVIEW_PAGE.contains(r#"href="/api/v1/events?review-status=unreviewed""#));
-}
-
-#[test]
 fn saved_playlist_spec_normalizes_flat_legacy_filters() {
     let spec = normalize_saved_playlist_spec(serde_json::json!({
         "mechanics": ["double_tap"],

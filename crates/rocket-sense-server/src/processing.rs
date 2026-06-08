@@ -888,8 +888,7 @@ async fn process_replay(
             );
         }
         mark_analysis_run_succeeded(&pool, analysis_run_id).await?;
-        set_canonical_analysis_run(&pool, replay_id, analysis_run_id).await?;
-        set_replay_status(&pool, replay_id, "parsed").await?;
+        mark_replay_parse_succeeded(&pool, replay_id, analysis_run_id).await?;
 
         Ok::<_, anyhow::Error>(())
     }
@@ -1297,7 +1296,7 @@ fn apply_player_timing_metadata(
     timeline: &ReplayStatsTimelineScaffold,
 ) {
     let mut timing_by_key = HashMap::<String, PlayerTimingMetadata>::new();
-    for event in &timeline.events.positioning {
+    for event in &timeline.events.positioning_activity {
         let (platform, platform_player_id) = remote_id_parts(&event.player);
         let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
             continue;
@@ -1310,6 +1309,15 @@ fn apply_player_timing_metadata(
         if event.demolished {
             timing.time_demolished += duration;
         }
+    }
+
+    for event in &timeline.events.positioning_teammate_role {
+        let (platform, platform_player_id) = remote_id_parts(&event.player);
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let timing = timing_by_key.entry(key).or_default();
+        let duration = f64::from(event.duration);
         match event.teammate_role {
             subtr_actor::PositioningTeammateRoleState::MostBack => {
                 timing.time_most_back += duration;
@@ -1459,31 +1467,34 @@ fn normalize_playlist(value: String) -> String {
         .join(" ");
 
     match key.as_str() {
-        "1" | "duel" | "duels" | "casual duel" | "casual duels" | "unranked duel"
-        | "unranked duels" => "unranked-duels".to_owned(),
-        "2" | "doubles" | "casual doubles" | "unranked doubles" => "unranked-doubles".to_owned(),
-        "3" | "standard" | "casual standard" | "unranked standard" => {
-            "unranked-standard".to_owned()
+        "1" | "casual duel" | "casual duels" | "unranked duel" | "unranked duels" => {
+            "unranked-duels".to_owned()
         }
+        "2" | "casual doubles" | "unranked doubles" => "unranked-doubles".to_owned(),
+        "3" | "casual standard" | "unranked standard" => "unranked-standard".to_owned(),
         "4" | "chaos" | "casual chaos" | "unranked chaos" => "unranked-chaos".to_owned(),
-        "10" | "ranked duel" | "ranked duels" => "ranked-duels".to_owned(),
+        "10" | "duel" | "duels" | "ranked duel" | "ranked duels" => "ranked-duels".to_owned(),
         "11" | "ranked doubles" => "ranked-doubles".to_owned(),
         "12" | "ranked solo standard" => "ranked-solo-standard".to_owned(),
-        "13" | "ranked standard" => "ranked-standard".to_owned(),
+        "13" | "standard" | "ranked standard" => "ranked-standard".to_owned(),
+        "15" => "snowday".to_owned(),
+        "16" | "rocket labs" | "rocketlabs" => "rocketlabs".to_owned(),
+        "17" => "hoops".to_owned(),
+        "22" | "tournament" => "tournament".to_owned(),
+        "25" => "dropshot".to_owned(),
         "27" | "hoops" | "ranked hoops" => "ranked-hoops".to_owned(),
         "28" | "rumble" | "ranked rumble" => "ranked-rumble".to_owned(),
         "29" | "dropshot" | "ranked dropshot" => "ranked-dropshot".to_owned(),
         "30" | "snowday" | "snow day" | "ranked snowday" | "ranked snow day" => {
             "ranked-snowday".to_owned()
         }
+        "34" | "tournament ranked" | "ranked tournament" => "tournament".to_owned(),
+        "37" | "dropshot rumble" => "dropshot-rumble".to_owned(),
+        "38" | "heatseeker" => "heatseeker".to_owned(),
         "online" => "online".to_owned(),
         "private" => "private".to_owned(),
         "season" => "season".to_owned(),
         "offline" => "offline".to_owned(),
-        "tournament" => "tournament".to_owned(),
-        "rocket labs" | "rocketlabs" => "rocketlabs".to_owned(),
-        "dropshot rumble" => "dropshot-rumble".to_owned(),
-        "heatseeker" => "heatseeker".to_owned(),
         _ => trimmed.to_owned(),
     }
 }
@@ -1617,19 +1628,21 @@ async fn insert_analysis_run(
             status,
             extractor_name,
             extractor_version,
+            extractor_git_sha,
             subtr_actor_version,
             subtr_actor_git_sha,
             rocket_sense_git_sha,
             input_file_sha256,
             event_stream_schema_version
         )
-        VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
     )
     .bind(analysis_run_id)
     .bind(replay_id)
     .bind(DEFAULT_EXTRACTOR_NAME)
     .bind(env!("CARGO_PKG_VERSION"))
+    .bind(option_env!("GIT_SHA"))
     .bind(subtr_actor_version())
     .bind(option_env!("SUBTR_ACTOR_GIT_SHA"))
     .bind(option_env!("GIT_SHA"))
@@ -4006,24 +4019,37 @@ async fn mark_analysis_run_failed(
     Ok(())
 }
 
-async fn set_canonical_analysis_run(
+async fn mark_replay_parse_succeeded(
     pool: &PgPool,
     replay_id: Uuid,
     analysis_run_id: Uuid,
 ) -> Result<()> {
     sqlx::query(
         r#"
-        UPDATE replays
-        SET canonical_analysis_run_id = $2,
+        UPDATE replays replay
+        SET canonical_analysis_run_id = analysis_run.id,
+            parse_status = 'parsed',
+            parsed_at = COALESCE(analysis_run.finished_at, now()),
+            parsed_with_extractor_name = analysis_run.extractor_name,
+            parsed_with_extractor_version = analysis_run.extractor_version,
+            parsed_with_event_stream_schema_version = analysis_run.event_stream_schema_version,
+            parsed_with_rocket_sense_git_sha = COALESCE(
+                analysis_run.rocket_sense_git_sha,
+                analysis_run.extractor_git_sha
+            ),
+            parsed_with_subtr_actor_version = analysis_run.subtr_actor_version,
+            parsed_with_subtr_actor_git_sha = analysis_run.subtr_actor_git_sha,
             updated_at = now()
-        WHERE id = $1
+        FROM analysis_runs analysis_run
+        WHERE replay.id = $1
+          AND analysis_run.id = $2
         "#,
     )
     .bind(replay_id)
     .bind(analysis_run_id)
     .execute(pool)
     .await
-    .context("failed to set canonical analysis run")?;
+    .context("failed to mark replay parse succeeded")?;
 
     Ok(())
 }

@@ -17,6 +17,20 @@ just build
 The development environment is provided by Nix and fenix. The flake tracks
 current `nixos-unstable` and fenix's latest Rust toolchain.
 
+The React/Vite SPA in `web/` is the canonical web app. The Axum server embeds
+`web/dist` for deployed and standalone use, while Vite remains useful for local
+frontend iteration against the production backend:
+
+```sh
+just web-dev
+```
+
+Vite serves the SPA at `http://127.0.0.1:5173` and proxies `/api`, `/auth`,
+`/login`, and `/subtr-actor` to `https://rocket-sense.duckdns.org`.
+Set `ROCKET_SENSE_WEB_API_TARGET=http://127.0.0.1:8080` before `just web-dev`
+when you want to point the SPA at a local Axum server instead. Use
+`just web-build` or `just web-typecheck` to validate the client.
+
 ## Initial architecture
 
 This repository starts as a small Cargo workspace:
@@ -60,11 +74,10 @@ ROCKET_SENSE_AUTH_MODE=dev
 just dev
 ```
 
-Open `/` in the browser for replay search, or `/login` for authentication. In
-`ROCKET_SENSE_AUTH_MODE=oauth` or the legacy-compatible
-`ROCKET_SENSE_AUTH_MODE=google`, the login page shows configured OAuth provider
-buttons. In development mode, the login page offers a token form for local API
-upload testing.
+Open `/` in the browser for the SPA. In `ROCKET_SENSE_AUTH_MODE=oauth` or the
+legacy-compatible `ROCKET_SENSE_AUTH_MODE=google`, the SPA login modal shows
+configured OAuth provider buttons. In development mode, the modal offers a token
+form for local API upload testing.
 
 You can request a non-expiring development token from the API:
 

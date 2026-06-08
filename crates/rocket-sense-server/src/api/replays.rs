@@ -32,6 +32,7 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/replays", get(list_replays).post(create_replay))
+        .route("/replays/filter-options", get(list_replay_filter_options))
         .route(
             "/replays/by-sha256/{file_sha256}",
             get(get_replay_by_sha256),
@@ -53,9 +54,6 @@ pub fn router() -> Router<AppState> {
 
 pub fn public_router() -> Router<AppState> {
     Router::new()
-        .route("/replays", get(replay_list_page))
-        .route("/replays/{replay_id}/stats", get(open_replay_stats))
-        .route("/replays/{replay_id}", get(open_replay_viewer))
         .route("/subtr-actor", get(subtr_actor_viewer))
         .route("/subtr-actor/", get(subtr_actor_viewer))
         .route("/subtr-actor/assets/{asset_path}", get(subtr_actor_asset))
@@ -92,11 +90,13 @@ pub struct ReplayResponse {
     pub original_file_name: Option<String>,
     pub external_replay_id: Option<String>,
     pub playlist: Option<String>,
+    pub playlist_metadata: ReplayPlaylistResponse,
     pub map_code: Option<String>,
     pub replay_date: Option<DateTime<Utc>>,
     pub has_pro_player: bool,
     pub players: Vec<ReplayPlayerResponse>,
     pub summary: ReplaySummaryResponse,
+    pub parse_version: ReplayParseVersionResponse,
     pub status: ReplayStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -109,12 +109,37 @@ pub struct ReplayUploaderResponse {
     pub display_name: Option<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct ReplayParseVersionResponse {
+    pub parsed_at: Option<DateTime<Utc>>,
+    pub extractor_name: Option<String>,
+    pub extractor_version: Option<String>,
+    pub event_stream_schema_version: Option<String>,
+    pub rocket_sense_git_sha: Option<String>,
+    pub subtr_actor_version: Option<String>,
+    pub subtr_actor_git_sha: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct ReplayPlaylistResponse {
+    pub id: Option<String>,
+    pub label: Option<String>,
+    pub category: Option<String>,
+    pub ruleset: Option<String>,
+    pub team_size: Option<i32>,
+    pub ranked: Option<bool>,
+    pub casual: Option<bool>,
+    pub soccar: Option<bool>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct ReplayPlayerResponse {
     pub name: Option<String>,
     pub platform: Option<String>,
     pub platform_player_id: Option<String>,
     pub team: Option<i32>,
+    pub rank_tier: Option<i32>,
+    pub rank_division: Option<i32>,
     pub is_pro: bool,
     pub active_time_seconds: Option<f64>,
     pub time_demolished_seconds: Option<f64>,
@@ -169,6 +194,19 @@ pub struct ListReplaysResponse {
     pub offset: u32,
     pub total: u64,
     pub next_offset: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayFilterOptionsResponse {
+    pub maps: Vec<ReplayFilterOptionResponse>,
+    pub seasons: Vec<ReplayFilterOptionResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayFilterOptionResponse {
+    pub value: String,
+    pub label: String,
+    pub count: u64,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -244,6 +282,19 @@ pub struct ListReplaysQuery {
         deserialize_with = "deserialize_string_vec"
     )]
     pub playlist: Vec<String>,
+    /// Filter by one or more season codes.
+    #[serde(
+        default,
+        alias = "season[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub season: Vec<String>,
+    /// Only include replays where at least one player is at or above this rank tier.
+    #[serde(rename = "min-rank")]
+    pub min_rank: Option<String>,
+    /// Only include replays where at least one player is at or below this rank tier.
+    #[serde(rename = "max-rank")]
+    pub max_rank: Option<String>,
     /// Only include replays containing at least one pro player.
     pub pro: Option<bool>,
     /// `me` for the authenticated user, or a Rocket Sense user UUID.
@@ -297,6 +348,9 @@ impl ListReplaysQuery {
             player_names: params.values(&["player-name", "player_names"]),
             player_ids: params.values(&["player-id", "player_ids"]),
             playlist: params.values(&["playlist"]),
+            season: params.values(&["season"]),
+            min_rank: params.first(&["min-rank", "min_rank"]),
+            max_rank: params.first(&["max-rank", "max_rank"]),
             pro: params
                 .first(&["pro"])
                 .map(|value| parse_bool_filter("pro", &value))
@@ -481,6 +535,29 @@ pub async fn list_replays(
         total,
         next_offset,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/replays/filter-options",
+    tag = "replays",
+    responses(
+        (status = 200, description = "Replay search filter options", body = ReplayFilterOptionsResponse),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn list_replay_filter_options(
+    State(state): State<AppState>,
+) -> Result<Json<ReplayFilterOptionsResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let maps = load_replay_filter_options(db, ReplayFilterOptionKind::Map)
+        .await
+        .map_err(ApiError::internal)?;
+    let seasons = load_replay_filter_options(db, ReplayFilterOptionKind::Season)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(ReplayFilterOptionsResponse { maps, seasons }))
 }
 
 #[utoipa::path(
@@ -844,18 +921,6 @@ pub async fn download_replay_file(
         .into_response())
 }
 
-async fn replay_list_page() -> Html<&'static str> {
-    Html(REPLAY_LIST_PAGE)
-}
-
-async fn open_replay_viewer(Path(replay_id): Path<Uuid>) -> Redirect {
-    Redirect::temporary(&hosted_replay_app_url("/subtr-actor/", replay_id))
-}
-
-async fn open_replay_stats(Path(replay_id): Path<Uuid>) -> Redirect {
-    Redirect::temporary(&hosted_replay_app_url("/subtr-actor/stats/", replay_id))
-}
-
 async fn subtr_actor_viewer() -> Html<&'static str> {
     Html(SUBTR_ACTOR_VIEWER_INDEX)
 }
@@ -944,7 +1009,10 @@ struct ReplayFilters {
     player_name_patterns: Vec<String>,
     player_ids: Vec<PlayerIdFilter>,
     playlists: Vec<String>,
+    seasons: Vec<String>,
     maps: Vec<String>,
+    min_rank_tier: Option<i32>,
+    max_rank_tier: Option<i32>,
     pro: Option<bool>,
     uploader_user_id: Option<Uuid>,
     group_id: Option<Uuid>,
@@ -991,7 +1059,16 @@ impl ReplayFilters {
                 .map(|player_id| parse_player_id_filter(&player_id))
                 .collect::<Result<Vec<_>, _>>()?,
             playlists: normalize_terms(query.playlist),
+            seasons: normalize_terms(query.season),
             maps: normalize_terms(query.maps),
+            min_rank_tier: query
+                .min_rank
+                .map(|rank| parse_rank_filter("min-rank", &rank))
+                .transpose()?,
+            max_rank_tier: query
+                .max_rank
+                .map(|rank| parse_rank_filter("max-rank", &rank))
+                .transpose()?,
             pro: query.pro,
             uploader_user_id,
             group_id,
@@ -1109,6 +1186,51 @@ fn parse_project_filter(value: &str) -> Result<Uuid, ApiError> {
         .map_err(|_| ApiError::bad_request("project must be a Rocket Sense project UUID"))
 }
 
+fn parse_rank_filter(name: &str, value: &str) -> Result<i32, ApiError> {
+    let normalized = value.trim().to_lowercase().replace('_', "-");
+    if normalized.is_empty() {
+        return Err(ApiError::bad_request(format!("{name} must not be empty")));
+    }
+    if let Ok(tier) = normalized.parse::<i32>() {
+        if (0..=22).contains(&tier) {
+            return Ok(tier);
+        }
+    }
+
+    let tier = match normalized.as_str() {
+        "unranked" => 0,
+        "bronze-1" | "bronze-i" => 1,
+        "bronze-2" | "bronze-ii" => 2,
+        "bronze-3" | "bronze-iii" => 3,
+        "silver-1" | "silver-i" => 4,
+        "silver-2" | "silver-ii" => 5,
+        "silver-3" | "silver-iii" => 6,
+        "gold-1" | "gold-i" => 7,
+        "gold-2" | "gold-ii" => 8,
+        "gold-3" | "gold-iii" => 9,
+        "platinum-1" | "platinum-i" => 10,
+        "platinum-2" | "platinum-ii" => 11,
+        "platinum-3" | "platinum-iii" => 12,
+        "diamond-1" | "diamond-i" => 13,
+        "diamond-2" | "diamond-ii" => 14,
+        "diamond-3" | "diamond-iii" => 15,
+        "champion-1" | "champion-i" => 16,
+        "champion-2" | "champion-ii" => 17,
+        "champion-3" | "champion-iii" => 18,
+        "grand-champion" | "grand-champion-1" | "grand-champion-i" => 19,
+        "grand-champion-2" | "grand-champion-ii" => 20,
+        "grand-champion-3" | "grand-champion-iii" => 21,
+        "supersonic-legend" | "ssl" => 22,
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "{name} must be a rank slug or tier number"
+            )))
+        }
+    };
+
+    Ok(tier)
+}
+
 fn parse_player_id_filter(value: &str) -> Result<PlayerIdFilter, ApiError> {
     let (platform, player_id) = value
         .split_once(':')
@@ -1160,14 +1282,6 @@ fn normalize_sha256_hex(value: &str) -> Result<String, ApiError> {
     }
 
     Ok(value.to_ascii_lowercase())
-}
-
-fn hosted_replay_app_url(app_path: &str, replay_id: Uuid) -> String {
-    let replay_url = format!("/api/v1/replays/{replay_id}/file");
-    let mut query = url::form_urlencoded::Serializer::new(String::new());
-    query.append_pair("replayUrl", &replay_url);
-
-    format!("{app_path}?{}", query.finish())
 }
 
 struct StaticAsset {
@@ -1485,8 +1599,14 @@ async fn find_replays(
     pool: &PgPool,
     filters: &ReplayFilters,
 ) -> Result<Vec<ReplayResponse>, sqlx::Error> {
-    let select_sql = replay_select_sql("");
-    let mut builder = QueryBuilder::<Postgres>::new(select_sql);
+    let mut builder = find_replays_query(filters);
+    let rows = builder.build().fetch_all(pool).await?;
+    rows.into_iter().map(replay_from_row).collect()
+}
+
+fn find_replays_query<'args>(filters: &'args ReplayFilters) -> QueryBuilder<'args, Postgres> {
+    let mut builder =
+        QueryBuilder::<Postgres>::new("WITH filtered_replays AS (SELECT r.id FROM replays r");
     append_replay_filters(&mut builder, filters);
     builder
         .push(" ORDER BY ")
@@ -1499,10 +1619,71 @@ async fn find_replays(
         .push(" LIMIT ")
         .push_bind(filters.count as i64)
         .push(" OFFSET ")
-        .push_bind(filters.offset as i64);
+        .push_bind(filters.offset as i64)
+        .push(") ")
+        .push(replay_select_sql(
+            "JOIN filtered_replays filtered_replay ON filtered_replay.id = r.id",
+        ))
+        .push(" ORDER BY ")
+        .push(filters.sort_by.sql())
+        .push(" ")
+        .push(filters.sort_dir.sql())
+        .push(" NULLS LAST")
+        .push(", r.id ")
+        .push(filters.sort_dir.sql());
 
-    let rows = builder.build().fetch_all(pool).await?;
-    rows.into_iter().map(replay_from_row).collect()
+    builder
+}
+
+#[derive(Clone, Copy)]
+enum ReplayFilterOptionKind {
+    Map,
+    Season,
+}
+
+impl ReplayFilterOptionKind {
+    fn sql(self) -> &'static str {
+        match self {
+            Self::Map => {
+                r#"
+                SELECT map_code AS value, count(*) AS replay_count
+                FROM replays
+                WHERE map_code IS NOT NULL AND btrim(map_code) <> ''
+                GROUP BY map_code
+                ORDER BY replay_count DESC, map_code ASC
+                LIMIT 500
+                "#
+            }
+            Self::Season => {
+                r#"
+                SELECT season AS value, count(*) AS replay_count
+                FROM replays
+                WHERE season IS NOT NULL AND btrim(season) <> ''
+                GROUP BY season
+                ORDER BY replay_count DESC, season ASC
+                LIMIT 200
+                "#
+            }
+        }
+    }
+}
+
+async fn load_replay_filter_options(
+    pool: &PgPool,
+    kind: ReplayFilterOptionKind,
+) -> Result<Vec<ReplayFilterOptionResponse>, sqlx::Error> {
+    let rows = sqlx::query(kind.sql()).fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| {
+            let value: String = row.try_get("value")?;
+            let count: i64 = row.try_get("replay_count")?;
+            Ok(ReplayFilterOptionResponse {
+                label: value.clone(),
+                value,
+                count: count.max(0) as u64,
+            })
+        })
+        .collect()
 }
 
 fn append_replay_filters<'args>(
@@ -1519,7 +1700,13 @@ fn append_replay_filters<'args>(
             .push_bind(pattern)
             .push(" ESCAPE '\\' OR r.external_replay_id ILIKE ")
             .push_bind(pattern)
-            .push(" ESCAPE '\\')");
+            .push(" ESCAPE '\\' OR r.map_code ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\' OR r.match_guid ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\' OR EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = r.id AND replay_players.name ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\'))");
     }
 
     for pattern in &filters.player_name_patterns {
@@ -1545,11 +1732,35 @@ fn append_replay_filters<'args>(
             .push(")");
     }
 
+    if !filters.seasons.is_empty() {
+        builder
+            .push(" AND r.season = ANY(")
+            .push_bind(&filters.seasons)
+            .push(")");
+    }
+
     if !filters.maps.is_empty() {
         builder
             .push(" AND r.map_code = ANY(")
             .push_bind(&filters.maps)
             .push(")");
+    }
+
+    if filters.min_rank_tier.is_some() || filters.max_rank_tier.is_some() {
+        builder.push(
+            " AND EXISTS (SELECT 1 FROM replay_players rank_player WHERE rank_player.replay_id = r.id AND rank_player.rank_tier IS NOT NULL",
+        );
+        if let Some(min_rank_tier) = filters.min_rank_tier {
+            builder
+                .push(" AND rank_player.rank_tier >= ")
+                .push_bind(min_rank_tier);
+        }
+        if let Some(max_rank_tier) = filters.max_rank_tier {
+            builder
+                .push(" AND rank_player.rank_tier <= ")
+                .push_bind(max_rank_tier);
+        }
+        builder.push(")");
     }
 
     if let Some(pro) = filters.pro {
@@ -1633,6 +1844,13 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.match_guid,
             r.has_pro_player,
             COALESCE(players.players, '[]'::jsonb) AS players,
+            r.parsed_at,
+            r.parsed_with_extractor_name,
+            r.parsed_with_extractor_version,
+            r.parsed_with_event_stream_schema_version,
+            r.parsed_with_rocket_sense_git_sha,
+            r.parsed_with_subtr_actor_version,
+            r.parsed_with_subtr_actor_git_sha,
             r.parse_status,
             r.created_at,
             r.updated_at
@@ -1645,6 +1863,8 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
                     'platform', player.platform,
                     'platform_player_id', player.platform_player_id,
                     'team', player.team,
+                    'rank_tier', player.rank_tier,
+                    'rank_division', player.rank_division,
                     'is_pro', player.is_pro,
                     'active_time_seconds', player.active_time_seconds,
                     'time_demolished_seconds', player.time_demolished_seconds,
@@ -1680,6 +1900,23 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
     let playlist = row.try_get::<Option<String>, _>("playlist")?;
     let map_code = row.try_get::<Option<String>, _>("map_code")?;
     let replay_date = row.try_get::<Option<DateTime<Utc>>, _>("replay_date")?;
+    let parse_version = ReplayParseVersionResponse {
+        parsed_at: row.try_get("parsed_at").unwrap_or(None),
+        extractor_name: row.try_get("parsed_with_extractor_name").unwrap_or(None),
+        extractor_version: row.try_get("parsed_with_extractor_version").unwrap_or(None),
+        event_stream_schema_version: row
+            .try_get("parsed_with_event_stream_schema_version")
+            .unwrap_or(None),
+        rocket_sense_git_sha: row
+            .try_get("parsed_with_rocket_sense_git_sha")
+            .unwrap_or(None),
+        subtr_actor_version: row
+            .try_get("parsed_with_subtr_actor_version")
+            .unwrap_or(None),
+        subtr_actor_git_sha: row
+            .try_get("parsed_with_subtr_actor_git_sha")
+            .unwrap_or(None),
+    };
     let uploaded_by = row
         .try_get::<Option<Uuid>, _>("uploader_id")?
         .map(|id| -> Result<ReplayUploaderResponse, sqlx::Error> {
@@ -1701,12 +1938,14 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         uploaded_by,
         storage_key: row.try_get("storage_key")?,
         external_replay_id: row.try_get("external_replay_id")?,
-        playlist,
+        playlist: playlist.clone(),
+        playlist_metadata: playlist_metadata(playlist.as_deref()),
         map_code,
         replay_date,
         has_pro_player: row.try_get("has_pro_player")?,
         players,
         summary,
+        parse_version,
         status: ReplayStatus::from_db(parse_status),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
@@ -1726,8 +1965,192 @@ fn optional_seconds_to_u32(value: Option<f64>) -> Option<u32> {
         .map(|seconds| seconds.round().min(f64::from(u32::MAX)) as u32)
 }
 
+fn playlist_metadata(playlist: Option<&str>) -> ReplayPlaylistResponse {
+    let Some(playlist) = playlist
+        .map(str::trim)
+        .filter(|playlist| !playlist.is_empty())
+    else {
+        return ReplayPlaylistResponse::default();
+    };
+    let key = playlist
+        .to_ascii_lowercase()
+        .replace(['_', ' '], "-")
+        .split('-')
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+    let descriptor = playlist_descriptor(&key);
+    ReplayPlaylistResponse {
+        id: Some(key),
+        label: Some(
+            descriptor
+                .map(|descriptor| descriptor.label)
+                .map(str::to_owned)
+                .unwrap_or_else(|| humanize_playlist(playlist)),
+        ),
+        category: descriptor.and_then(|descriptor| descriptor.category.map(str::to_owned)),
+        ruleset: descriptor.and_then(|descriptor| descriptor.ruleset.map(str::to_owned)),
+        team_size: descriptor.and_then(|descriptor| descriptor.team_size),
+        ranked: descriptor.and_then(|descriptor| descriptor.ranked),
+        casual: descriptor.and_then(|descriptor| descriptor.casual),
+        soccar: descriptor.and_then(|descriptor| descriptor.soccar),
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PlaylistDescriptor {
+    label: &'static str,
+    category: Option<&'static str>,
+    ruleset: Option<&'static str>,
+    team_size: Option<i32>,
+    ranked: Option<bool>,
+    casual: Option<bool>,
+    soccar: Option<bool>,
+}
+
+fn playlist_descriptor(key: &str) -> Option<PlaylistDescriptor> {
+    let descriptor = match key {
+        "unranked-duels" | "casual-duels" => soccar_playlist("Casual Soccar Duel", "casual", 1),
+        "unranked-doubles" | "casual-doubles" => {
+            soccar_playlist("Casual Soccar Doubles", "casual", 2)
+        }
+        "unranked-standard" | "casual-standard" => {
+            soccar_playlist("Casual Soccar Standard", "casual", 3)
+        }
+        "unranked-chaos" | "casual-chaos" => soccar_playlist("Casual Soccar Chaos", "casual", 4),
+        "ranked-duels" | "ranked-duel" => soccar_playlist("Ranked Soccar Duel", "ranked", 1),
+        "ranked-doubles" => soccar_playlist("Ranked Soccar Doubles", "ranked", 2),
+        "ranked-solo-standard" => soccar_playlist("Ranked Soccar Solo Standard", "ranked", 3),
+        "ranked-standard" => soccar_playlist("Ranked Soccar Standard", "ranked", 3),
+        "online-1v1" => online_soccar_playlist("Online Soccar 1v1", 1),
+        "online-2v2" => online_soccar_playlist("Online Soccar 2v2", 2),
+        "online-3v3" => online_soccar_playlist("Online Soccar 3v3", 3),
+        "online-4v4" => online_soccar_playlist("Online Soccar 4v4", 4),
+        "private" => playlist(
+            "Private Match",
+            Some("private"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        "season" => playlist(
+            "Season",
+            Some("offline"),
+            Some("soccar"),
+            None,
+            None,
+            None,
+            Some(true),
+        ),
+        "offline" => playlist("Offline", Some("offline"), None, None, None, None, None),
+        "tournament" => playlist(
+            "Tournament",
+            Some("tournament"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        ),
+        "ranked-hoops" | "hoops" => extra_playlist("Ranked Hoops", "hoops", Some(true)),
+        "ranked-rumble" | "rumble" => extra_playlist("Ranked Rumble", "rumble", Some(true)),
+        "ranked-dropshot" | "dropshot" => extra_playlist("Ranked Dropshot", "dropshot", Some(true)),
+        "ranked-snowday" | "ranked-snow-day" | "snowday" | "snow-day" => {
+            extra_playlist("Ranked Snow Day", "snow_day", Some(true))
+        }
+        "rocketlabs" | "rocket-labs" => extra_playlist("Rocket Labs", "soccar", None),
+        "dropshot-rumble" => extra_playlist("Dropshot Rumble", "dropshot_rumble", None),
+        "heatseeker" => extra_playlist("Heatseeker", "heatseeker", None),
+        "online" => playlist("Online", Some("online"), None, None, None, None, None),
+        _ => return None,
+    };
+    Some(descriptor)
+}
+
+fn soccar_playlist(
+    label: &'static str,
+    category: &'static str,
+    team_size: i32,
+) -> PlaylistDescriptor {
+    playlist(
+        label,
+        Some(category),
+        Some("soccar"),
+        Some(team_size),
+        Some(category == "ranked"),
+        Some(category == "casual"),
+        Some(true),
+    )
+}
+
+fn online_soccar_playlist(label: &'static str, team_size: i32) -> PlaylistDescriptor {
+    playlist(
+        label,
+        Some("online"),
+        Some("soccar"),
+        Some(team_size),
+        None,
+        None,
+        Some(true),
+    )
+}
+
+fn extra_playlist(
+    label: &'static str,
+    ruleset: &'static str,
+    ranked: Option<bool>,
+) -> PlaylistDescriptor {
+    playlist(
+        label,
+        Some("extra"),
+        Some(ruleset),
+        None,
+        ranked,
+        ranked.map(|ranked| !ranked),
+        Some(ruleset == "soccar"),
+    )
+}
+
+fn playlist(
+    label: &'static str,
+    category: Option<&'static str>,
+    ruleset: Option<&'static str>,
+    team_size: Option<i32>,
+    ranked: Option<bool>,
+    casual: Option<bool>,
+    soccar: Option<bool>,
+) -> PlaylistDescriptor {
+    PlaylistDescriptor {
+        label,
+        category,
+        ruleset,
+        team_size,
+        ranked,
+        casual,
+        soccar,
+    }
+}
+
+fn humanize_playlist(value: &str) -> String {
+    value
+        .replace(['_', '-'], " ")
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first
+                    .to_uppercase()
+                    .chain(chars.flat_map(char::to_lowercase))
+                    .collect(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 const SUBTR_ACTOR_VIEWER_INDEX: &str = include_str!("../../static/subtr-actor/index.html");
 const SUBTR_ACTOR_STATS_INDEX: &str = include_str!("../../static/subtr-actor/stats/index.html");
 const SUBTR_ACTOR_REVIEW_INDEX: &str = include_str!("../../static/subtr-actor/review/index.html");
-
-const REPLAY_LIST_PAGE: &str = include_str!("replays_page.html");
