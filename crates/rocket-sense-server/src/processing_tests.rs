@@ -33,6 +33,7 @@ fn replay_search_metadata_extracts_headers_and_players() {
                 HeaderProp::Str("2026-05-23 05-50-00".to_owned()),
             ),
         ],
+        game_type: subtr_actor::ReplayGameTypeDetails::default(),
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
@@ -67,6 +68,7 @@ fn replay_search_metadata_prefers_specific_playlist_name_over_online_match_type(
                 HeaderProp::Str("Ranked Standard".to_owned()),
             ),
         ],
+        game_type: subtr_actor::ReplayGameTypeDetails::default(),
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
@@ -88,11 +90,71 @@ fn replay_search_metadata_splits_online_playlist_by_team_size() {
         team_zero: vec![player(), player()],
         team_one: vec![player(), player()],
         all_headers: vec![("Playlist".to_owned(), HeaderProp::Str("Online".to_owned()))],
+        game_type: subtr_actor::ReplayGameTypeDetails::default(),
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
 
     assert_eq!(metadata.playlist.as_deref(), Some("online-2v2"));
+}
+
+#[test]
+fn replay_search_metadata_prefers_network_playlist_id_over_ambiguous_online_header() {
+    let player = || PlayerInfo {
+        remote_id: RemoteId::Epic("player".to_owned()),
+        stats: None,
+        name: "Player".to_owned(),
+        car_body_id: None,
+        car_body_name: None,
+        car_hitbox_family: None,
+    };
+    let replay_meta = ReplayMeta {
+        team_zero: vec![player(), player()],
+        team_one: vec![player(), player()],
+        all_headers: vec![("MatchType".to_owned(), HeaderProp::Str("Online".to_owned()))],
+        game_type: subtr_actor::ReplayGameTypeDetails::from_signals(
+            Some("Online".to_owned()),
+            Some(11),
+            Some("TAGame.MatchType_PublicRanked_TA".to_owned()),
+        ),
+    };
+
+    let metadata = replay_search_metadata_from_meta(&replay_meta);
+
+    assert_eq!(metadata.playlist.as_deref(), Some("ranked-doubles"));
+    assert_eq!(
+        metadata.game_type.replay_game_type.as_deref(),
+        Some("ranked")
+    );
+    assert_eq!(
+        metadata.game_type.header_match_type.as_deref(),
+        Some("Online")
+    );
+    assert_eq!(metadata.game_type.game_playlist_id, Some(11));
+    assert_eq!(
+        metadata.game_type.match_type_class.as_deref(),
+        Some("TAGame.MatchType_PublicRanked_TA")
+    );
+}
+
+#[test]
+fn replay_search_metadata_uses_game_type_when_playlist_id_is_ambiguous() {
+    let replay_meta = ReplayMeta {
+        team_zero: vec![],
+        team_one: vec![],
+        all_headers: vec![("MatchType".to_owned(), HeaderProp::Str("LAN".to_owned()))],
+        game_type: subtr_actor::ReplayGameTypeDetails::from_signals(
+            Some("LAN".to_owned()),
+            Some(6),
+            Some("TAGame.MatchType_Lan_TA".to_owned()),
+        ),
+    };
+
+    let metadata = replay_search_metadata_from_meta(&replay_meta);
+
+    assert_eq!(metadata.playlist.as_deref(), Some("lan"));
+    assert_eq!(metadata.game_type.replay_game_type.as_deref(), Some("lan"));
+    assert_eq!(metadata.game_type.game_playlist_id, Some(6));
 }
 
 #[test]
@@ -116,6 +178,8 @@ fn normalize_playlist_returns_filter_slugs_for_common_values() {
     assert_eq!(normalize_playlist("2".to_owned()), "unranked-doubles");
     assert_eq!(normalize_playlist("11".to_owned()), "ranked-doubles");
     assert_eq!(normalize_playlist("13".to_owned()), "ranked-standard");
+    assert_eq!(normalize_playlist("6".to_owned()), "private");
+    assert_eq!(normalize_playlist("8".to_owned()), "offline");
     assert_eq!(
         normalize_playlist("Ranked Snow Day".to_owned()),
         "ranked-snowday"
@@ -612,6 +676,7 @@ fn stats_timeline_with_events(
         replay_meta: ReplayMeta {
             team_zero: vec![],
             team_one: vec![],
+            game_type: subtr_actor::ReplayGameTypeDetails::default(),
             all_headers: vec![],
         },
         events,

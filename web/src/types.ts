@@ -54,6 +54,10 @@ export interface ReplayPlaylistMetadata {
   ranked: boolean | null;
   casual: boolean | null;
   soccar: boolean | null;
+  replay_game_type: string | null;
+  header_match_type: string | null;
+  game_playlist_id: number | null;
+  match_type_class: string | null;
 }
 
 export interface ListReplaysResponse {
