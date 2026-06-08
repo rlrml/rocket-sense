@@ -83,11 +83,11 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1780909543,
-        "narHash": "sha256-rG5uklNIYkFEOKMz7WhHeKw60m2/sFy+yOXJewcB33s=",
-        "ref": "refs/heads/colonelpanic/possession-player-review-metadata",
-        "rev": "c794acbdfe6274818d4005432e3bdaca054edbd7",
-        "revCount": 1404,
+        "lastModified": 1780919569,
+        "narHash": "sha256-bFOxiaOP0ryPeyMbS8DwLd2f1hXDoGkIzzamfC7VMKw=",
+        "ref": "refs/heads/master",
+        "rev": "283772abbe5d102e87767ef44828ea77bdad8f49",
+        "revCount": 1421,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },
