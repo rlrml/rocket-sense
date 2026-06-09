@@ -222,10 +222,12 @@ fn indexed_goal_context_does_not_synthesize_goal_tag_events() {
             },
         )],
     };
-    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
-        goal_context: vec![event],
-        ..Default::default()
-    });
+    let timeline = stats_timeline_with_events(timeline_events_from(vec![moment_event(
+        "goal_context",
+        event.frame,
+        event.time,
+        subtr_actor::EventPayload::GoalContext(event),
+    )]));
 
     let indexed = build_indexed_events(&timeline).expect("goal context should index");
     let goal_context = indexed
@@ -247,10 +249,19 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
         touch_stats_event(2.0, 120, RemoteId::Steam(76561198000000002), true),
         touch_stats_event(3.0, 180, RemoteId::Epic("epic-player".to_owned()), false),
     ];
-    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
-        touch: touch_events,
-        ..Default::default()
-    });
+    let timeline = stats_timeline_with_events(timeline_events_from(
+        touch_events
+            .into_iter()
+            .map(|event| {
+                moment_event(
+                    "touch",
+                    event.frame,
+                    event.time,
+                    subtr_actor::EventPayload::Touch(event),
+                )
+            })
+            .collect(),
+    ));
 
     let indexed = build_indexed_events(&timeline).expect("touch events should index");
     let touch_rows = indexed
@@ -752,27 +763,40 @@ fn remote_id_value_to_subject_id_extracts_platform_online_id_objects() {
 #[test]
 fn build_indexed_events_does_not_duplicate_serialized_rotation_span_streams() {
     let player = RemoteId::Steam(76561198000000001);
-    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
-        rotation_player: vec![rotation_player_event(
-            0.0,
+    let timeline = stats_timeline_with_events(timeline_events_from(vec![
+        moment_event(
+            "rotation_player",
             0,
-            player.clone(),
-            true,
-            subtr_actor::RoleState::FirstMan,
-        )],
-        rotation_role_span: vec![subtr_actor::RotationRoleSpanEvent {
-            time: 0.0,
-            frame: 0,
-            end_time: 1.0,
-            end_frame: 60,
-            duration: 1.0,
-            player,
-            player_position: None,
-            is_team_0: true,
-            current_role_state: subtr_actor::RoleState::FirstMan,
-        }],
-        ..Default::default()
-    });
+            0.0,
+            subtr_actor::EventPayload::RotationPlayer(rotation_player_event(
+                0.0,
+                0,
+                player.clone(),
+                true,
+                subtr_actor::RoleState::FirstMan,
+            )),
+        ),
+        envelope_event(
+            "rotation_role_span",
+            subtr_actor::EventTiming::Span {
+                start_frame: 0,
+                end_frame: 60,
+                start_time: 0.0,
+                end_time: 1.0,
+            },
+            subtr_actor::EventPayload::RotationRoleSpan(subtr_actor::RotationRoleSpanEvent {
+                time: 0.0,
+                frame: 0,
+                end_time: 1.0,
+                end_frame: 60,
+                duration: 1.0,
+                player,
+                player_position: None,
+                is_team_0: true,
+                current_role_state: subtr_actor::RoleState::FirstMan,
+            }),
+        ),
+    ]));
 
     let indexed = build_indexed_events(&timeline).expect("rotation should index");
     let role_spans = indexed
@@ -791,42 +815,31 @@ fn build_indexed_events_does_not_duplicate_serialized_rotation_span_streams() {
 }
 
 #[test]
-fn build_indexed_events_emits_rotation_first_man_stint_durations() {
+fn build_indexed_events_indexes_rotation_first_man_stint_durations() {
+    // subtr-actor emits rotation_first_man_stint spans directly; rocket-sense just
+    // indexes them.
     let player = RemoteId::Steam(76561198000000001);
-    let mut first_man_span = rotation_player_event(
-        0.0,
-        0,
-        player.clone(),
-        true,
-        subtr_actor::RoleState::FirstMan,
-    );
-    first_man_span.end_time = 1.0;
-    first_man_span.end_frame = 2;
-    first_man_span.duration = 1.5;
-    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
-        rotation_player: vec![
-            first_man_span,
-            rotation_player_event(
-                1.5,
-                3,
-                player.clone(),
-                true,
-                subtr_actor::RoleState::SecondMan,
-            ),
-        ],
-        ..Default::default()
-    });
+    let timeline = stats_timeline_with_events(timeline_events_from(vec![envelope_event(
+        "rotation_first_man_stint",
+        subtr_actor::EventTiming::Span {
+            start_frame: 0,
+            end_frame: 2,
+            start_time: 0.0,
+            end_time: 1.0,
+        },
+        subtr_actor::EventPayload::RotationFirstManStint(subtr_actor::RotationFirstManStintEvent {
+            time: 0.0,
+            frame: 0,
+            end_time: 1.0,
+            end_frame: 2,
+            duration: 1.5,
+            player,
+            player_position: None,
+            is_team_0: true,
+        }),
+    )]));
 
     let indexed = build_indexed_events(&timeline).expect("rotation should index");
-    let raw_rotation_rows = indexed
-        .iter()
-        .filter(|event| event.source_stream == "rotation_player")
-        .collect::<Vec<_>>();
-    assert_eq!(raw_rotation_rows.len(), 2);
-    assert!(raw_rotation_rows
-        .iter()
-        .all(|event| event.event_type_key == "rotation_player_state_span"));
-
     let rotation_rows = indexed
         .iter()
         .filter(|event| event.event_type_key == "rotation_first_man_stint")
@@ -845,59 +858,6 @@ fn build_indexed_events_emits_rotation_first_man_stint_durations() {
             .map(|subject| subject.id.as_str()),
         Some("steam:76561198000000001")
     );
-}
-
-#[test]
-fn build_indexed_events_derives_role_level_rotation_events() {
-    let player = RemoteId::Steam(76561198000000001);
-    let mut first_man_behind = rotation_player_event_with_depth(
-        0.0,
-        0,
-        player.clone(),
-        true,
-        subtr_actor::RoleState::FirstMan,
-        subtr_actor::PlayDepthState::BehindPlay,
-    );
-    first_man_behind.end_time = 0.5;
-    first_man_behind.end_frame = 5;
-    first_man_behind.duration = 0.5;
-    let mut first_man_ahead = rotation_player_event_with_depth(
-        0.5,
-        5,
-        player.clone(),
-        true,
-        subtr_actor::RoleState::FirstMan,
-        subtr_actor::PlayDepthState::AheadOfPlay,
-    );
-    first_man_ahead.end_time = 1.25;
-    first_man_ahead.end_frame = 12;
-    first_man_ahead.duration = 0.75;
-    let timeline = stats_timeline_with_events(subtr_actor::ReplayStatsTimelineEvents {
-        rotation_player: vec![first_man_behind, first_man_ahead],
-        ..Default::default()
-    });
-
-    let indexed = build_indexed_events(&timeline).expect("rotation should index");
-    let first_man_stints = indexed
-        .iter()
-        .filter(|event| event.event_type_key == "rotation_first_man_stint")
-        .collect::<Vec<_>>();
-    let first_man_role_spans = indexed
-        .iter()
-        .filter(|event| event.event_type_key == "rotation_role_first_man")
-        .collect::<Vec<_>>();
-    let depth_spans = indexed
-        .iter()
-        .filter(|event| event.source_stream == "rotation_depth_span")
-        .collect::<Vec<_>>();
-
-    assert_eq!(first_man_stints.len(), 1);
-    assert_eq!(first_man_stints[0].start_time, Some(0.0));
-    assert_eq!(first_man_stints[0].end_time, Some(1.25));
-    assert_eq!(first_man_stints[0].duration_seconds, Some(1.25));
-    assert_eq!(first_man_role_spans.len(), 1);
-    assert_eq!(first_man_role_spans[0].duration_seconds, Some(1.25));
-    assert_eq!(depth_spans.len(), 2);
 }
 
 #[test]
@@ -958,6 +918,46 @@ fn stats_timeline_with_events(
         frames: vec![],
         positioning_summary: vec![],
     }
+}
+
+fn timeline_events_from(events: Vec<subtr_actor::Event>) -> subtr_actor::ReplayStatsTimelineEvents {
+    subtr_actor::ReplayStatsTimelineEvents { events }
+}
+
+fn envelope_event(
+    stream: &str,
+    timing: subtr_actor::EventTiming,
+    payload: subtr_actor::EventPayload,
+) -> subtr_actor::Event {
+    subtr_actor::Event {
+        meta: subtr_actor::EventMeta {
+            id: format!("{stream}:0"),
+            stream: stream.to_owned(),
+            label: stream.to_owned(),
+            timing,
+            primary_player: None,
+            secondary_player: None,
+            player_position: None,
+            ball_position: None,
+            team_is_team_0: None,
+            confidence: None,
+            properties: vec![],
+        },
+        payload,
+    }
+}
+
+fn moment_event(
+    stream: &str,
+    frame: usize,
+    time: f32,
+    payload: subtr_actor::EventPayload,
+) -> subtr_actor::Event {
+    envelope_event(
+        stream,
+        subtr_actor::EventTiming::Moment { frame, time },
+        payload,
+    )
 }
 
 fn rotation_player_event(

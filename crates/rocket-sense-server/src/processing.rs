@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::{
-    cmp::Ordering,
     collections::{BTreeMap, HashMap, HashSet},
     sync::Arc,
 };
@@ -29,7 +28,6 @@ const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v2";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
-const FIRST_MAN_STINT_END_GRACE_SECONDS: f64 = 0.35;
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
     "rotation_player",
     "rotation_role_span",
@@ -78,35 +76,6 @@ struct EventSubject {
     kind: String,
     id: String,
     role: String,
-}
-
-#[derive(Debug, Clone)]
-struct RotationSpanPayload {
-    source_index: usize,
-    payload: Value,
-    player_subject: EventSubject,
-    start_frame: Option<i32>,
-    end_frame: Option<i32>,
-    start_time: Option<f64>,
-    end_time: Option<f64>,
-    duration_seconds: f64,
-    active: bool,
-    role_state: Option<String>,
-    depth_state: Option<String>,
-    is_team_0: Option<bool>,
-}
-
-#[derive(Debug, Clone)]
-struct RotationDerivedSpan {
-    kind: String,
-    state: String,
-    player_payload: Value,
-    is_team_0: Option<bool>,
-    start_frame: Option<i32>,
-    end_frame: Option<i32>,
-    start_time: Option<f64>,
-    end_time: Option<f64>,
-    duration_seconds: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1501,8 +1470,12 @@ fn replay_summary_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySummaryM
 fn team_score_from_events(timeline: &ReplayStatsTimelineScaffold, is_team_0: bool) -> i32 {
     timeline
         .events
-        .core_player
+        .events
         .iter()
+        .filter_map(|event| match &event.payload {
+            subtr_actor::EventPayload::CorePlayer(event) => Some(event),
+            _ => None,
+        })
         .filter(|event| event.is_team_0 == is_team_0)
         .map(|event| event.goals_delta)
         .sum()
@@ -1513,7 +1486,15 @@ fn apply_player_timing_metadata(
     timeline: &ReplayStatsTimelineScaffold,
 ) {
     let mut timing_by_key = HashMap::<String, PlayerTimingMetadata>::new();
-    for event in &timeline.events.positioning_activity {
+    for event in timeline
+        .events
+        .events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            subtr_actor::EventPayload::PositioningActivity(event) => Some(event),
+            _ => None,
+        })
+    {
         let (platform, platform_player_id) = remote_id_parts(&event.player);
         let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
             continue;
@@ -1528,7 +1509,15 @@ fn apply_player_timing_metadata(
         }
     }
 
-    for event in &timeline.events.positioning_teammate_role {
+    for event in timeline
+        .events
+        .events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            subtr_actor::EventPayload::PositioningTeammateRole(event) => Some(event),
+            _ => None,
+        })
+    {
         let (platform, platform_player_id) = remote_id_parts(&event.player);
         let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
             continue;
@@ -3476,339 +3465,91 @@ async fn insert_kickoff_event_details(
     Ok(())
 }
 
+/// Index the stats-timeline event envelope.
+///
+/// `ReplayStatsTimelineEvents` serializes as a single flat `{ "events": [ {
+/// "meta": { "stream", "timing", "confidence", "properties", ... }, "payload": {
+/// "kind", "payload" } } ] }` array. We walk it in order — events arrive globally
+/// sorted by start time, so each stream stays time-ordered — assigning a
+/// per-stream `source_index` and indexing each envelope from its `meta` plus the
+/// inner typed payload (`payload.payload`).
 fn build_indexed_events(timeline: &ReplayStatsTimelineScaffold) -> Result<Vec<IndexedEvent>> {
+    let serialized =
+        serde_json::to_value(&timeline.events).context("failed to serialize timeline events")?;
     let mut events = Vec::new();
-    append_serialized_timeline_events(&mut events, timeline)?;
+    let Some(envelopes) = serialized.get("events").and_then(Value::as_array) else {
+        return Ok(events);
+    };
+    let mut indices: HashMap<&str, usize> = HashMap::new();
+    for envelope in envelopes {
+        let Some(stream) = envelope
+            .get("meta")
+            .and_then(|meta| meta.get("stream"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        if !should_index_timeline_stream(stream) {
+            continue;
+        }
+        let index = indices.entry(stream).or_insert(0);
+        events.push(indexed_timeline_envelope_event(envelope, stream, *index)?);
+        *index += 1;
+    }
     Ok(events)
 }
 
-fn append_serialized_timeline_events(
-    events: &mut Vec<IndexedEvent>,
-    timeline: &ReplayStatsTimelineScaffold,
-) -> Result<()> {
-    let Value::Object(streams) =
-        serde_json::to_value(&timeline.events).context("failed to serialize timeline events")?
-    else {
-        return Ok(());
-    };
-
-    let should_derive_rotation_spans = serialized_rotation_derived_streams_are_empty(&streams);
-    for (stream, stream_events) in streams {
-        if !should_index_timeline_stream(&stream) {
-            continue;
-        }
-        let Some(stream_events) = stream_events.as_array() else {
-            continue;
-        };
-        for (index, payload) in stream_events.iter().enumerate() {
-            events.push(indexed_timeline_payload_event(&stream, index, payload)?);
-        }
-        if stream == "rotation_player" && should_derive_rotation_spans {
-            append_rotation_derived_events(events, stream_events)?;
-        }
-    }
-
-    Ok(())
+fn indexed_timeline_envelope_event(
+    envelope: &Value,
+    stream: &str,
+    index: usize,
+) -> Result<IndexedEvent> {
+    let payload = envelope
+        .get("payload")
+        .and_then(|payload| payload.get("payload"))
+        .map(ensure_object_payload)
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    indexed_timeline_event(stream, index, &payload, envelope.get("meta"))
 }
 
 fn should_index_timeline_stream(stream: &str) -> bool {
     !NON_INDEXED_TIMELINE_STREAMS.contains(&stream)
 }
 
-fn serialized_rotation_derived_streams_are_empty(streams: &Map<String, Value>) -> bool {
-    [
-        "rotation_role_span",
-        "rotation_depth_span",
-        "rotation_first_man_stint",
-    ]
-    .into_iter()
-    .all(|stream| {
-        streams
-            .get(stream)
-            .and_then(Value::as_array)
-            .is_none_or(Vec::is_empty)
-    })
-}
-
-fn append_rotation_derived_events(
-    events: &mut Vec<IndexedEvent>,
-    payloads: &[Value],
-) -> Result<()> {
-    let mut spans_by_player = BTreeMap::<String, Vec<RotationSpanPayload>>::new();
-    for (index, payload) in payloads.iter().enumerate() {
-        let payload = ensure_object_payload(payload);
-        let Some(span) = rotation_span_payload(index, payload)? else {
-            continue;
-        };
-        spans_by_player
-            .entry(span.player_subject.id.clone())
-            .or_default()
-            .push(span);
-    }
-
-    let mut role_spans = Vec::new();
-    let mut depth_spans = Vec::new();
-    let mut first_man_stints = Vec::new();
-
-    for spans in spans_by_player.values_mut() {
-        spans.sort_by(compare_rotation_spans);
-        role_spans.extend(derive_rotation_state_spans(
-            spans,
-            RotationStateSpanKind::Role,
-        ));
-        depth_spans.extend(derive_rotation_state_spans(
-            spans,
-            RotationStateSpanKind::Depth,
-        ));
-        first_man_stints.extend(derive_first_man_stints(spans));
-    }
-
-    role_spans.sort_by(compare_rotation_derived_spans);
-    depth_spans.sort_by(compare_rotation_derived_spans);
-    first_man_stints.sort_by(compare_rotation_derived_spans);
-
-    for (index, span) in role_spans.into_iter().enumerate() {
-        events.push(indexed_timeline_payload_event(
-            "rotation_role_span",
-            index,
-            &rotation_derived_span_payload(span, "current_role_state"),
-        )?);
-    }
-    for (index, span) in depth_spans.into_iter().enumerate() {
-        events.push(indexed_timeline_payload_event(
-            "rotation_depth_span",
-            index,
-            &rotation_derived_span_payload(span, "current_depth_state"),
-        )?);
-    }
-    for (index, span) in first_man_stints.into_iter().enumerate() {
-        events.push(indexed_timeline_payload_event(
-            "rotation_first_man_stint",
-            index,
-            &rotation_derived_span_payload(span, "current_role_state"),
-        )?);
-    }
-
-    Ok(())
-}
-
-fn rotation_span_payload(index: usize, payload: Value) -> Result<Option<RotationSpanPayload>> {
-    let Some(player_subject) = rotation_player_subject(&payload)? else {
-        return Ok(None);
-    };
-    let (start_frame, end_frame, _, start_time, end_time, _) = timeline_event_timing(&payload);
-    let duration_seconds = float_value(&payload, &["duration"])
-        .filter(|duration| *duration > 0.0)
-        .unwrap_or(0.0);
-    let active = bool_value(&payload, &["active"]).unwrap_or(false);
-    let role_state = payload
-        .get("current_role_state")
-        .and_then(normalized_variant_name);
-    let depth_state = payload
-        .get("current_depth_state")
-        .and_then(normalized_variant_name);
-    let is_team_0 = bool_value(&payload, &["is_team_0", "team_is_team_0"]);
-    Ok(Some(RotationSpanPayload {
-        source_index: index,
-        player_subject,
-        payload,
-        start_frame,
-        end_frame,
-        start_time,
-        end_time,
-        duration_seconds,
-        active,
-        role_state,
-        depth_state,
-        is_team_0,
-    }))
-}
-
-fn rotation_player_subject(payload: &Value) -> Result<Option<EventSubject>> {
-    if let Some(subject) = player_subject_from_field(payload, "player", "actor")? {
-        return Ok(Some(subject));
-    }
-    player_subject_from_field(payload, "player_id", "actor")
-}
-
-#[derive(Debug, Clone, Copy)]
-enum RotationStateSpanKind {
-    Role,
-    Depth,
-}
-
-impl RotationStateSpanKind {
-    fn state<'a>(&self, span: &'a RotationSpanPayload) -> Option<&'a str> {
-        match self {
-            Self::Role => span.role_state.as_deref(),
-            Self::Depth => span.depth_state.as_deref(),
-        }
-    }
-}
-
-fn derive_rotation_state_spans(
-    spans: &[RotationSpanPayload],
-    kind: RotationStateSpanKind,
-) -> Vec<RotationDerivedSpan> {
-    let mut derived = Vec::new();
-    let mut current: Option<RotationDerivedSpan> = None;
-
-    for span in spans {
-        let eligible = span.active && span.duration_seconds > 0.0;
-        let Some(state) = kind.state(span).filter(|_| eligible) else {
-            if let Some(span) = current.take() {
-                derived.push(span);
-            }
-            continue;
-        };
-
-        if let Some(current_span) = current.as_mut() {
-            if current_span.kind == state {
-                extend_rotation_derived_span(current_span, span);
-                continue;
-            }
-            derived.push(current.take().expect("current span must exist"));
-        }
-
-        current = Some(new_rotation_derived_span(state, span));
-    }
-
-    if let Some(span) = current {
-        derived.push(span);
-    }
-
-    derived
-}
-
-fn derive_first_man_stints(spans: &[RotationSpanPayload]) -> Vec<RotationDerivedSpan> {
-    let mut stints = Vec::new();
-    let mut current: Option<RotationDerivedSpan> = None;
-    let mut non_first_man_seconds = 0.0;
-
-    for span in spans {
-        let is_first_man = span.active
-            && span.duration_seconds > 0.0
-            && span.role_state.as_deref() == Some("first_man");
-
-        if is_first_man {
-            match current.as_mut() {
-                Some(current_span) => extend_rotation_derived_span(current_span, span),
-                None => current = Some(new_first_man_stint_span(span)),
-            }
-            non_first_man_seconds = 0.0;
-            continue;
-        }
-
-        if current.is_some() {
-            non_first_man_seconds += span.duration_seconds;
-            if non_first_man_seconds > FIRST_MAN_STINT_END_GRACE_SECONDS {
-                stints.push(current.take().expect("current stint must exist"));
-                non_first_man_seconds = 0.0;
-            }
-        }
-    }
-
-    if let Some(stint) = current {
-        stints.push(stint);
-    }
-
-    stints
-}
-
-fn new_rotation_derived_span(kind: &str, span: &RotationSpanPayload) -> RotationDerivedSpan {
-    RotationDerivedSpan {
-        kind: kind.to_owned(),
-        state: kind.to_owned(),
-        player_payload: rotation_player_payload(span),
-        is_team_0: span.is_team_0,
-        start_frame: span.start_frame,
-        end_frame: span.end_frame,
-        start_time: span.start_time,
-        end_time: span.end_time,
-        duration_seconds: span.duration_seconds,
-    }
-}
-
-fn new_first_man_stint_span(span: &RotationSpanPayload) -> RotationDerivedSpan {
-    let mut derived = new_rotation_derived_span("first_man", span);
-    derived.kind = "first_man_stint".to_owned();
-    derived
-}
-
-fn extend_rotation_derived_span(derived: &mut RotationDerivedSpan, span: &RotationSpanPayload) {
-    derived.end_frame = span.end_frame.or(derived.end_frame);
-    derived.end_time = span.end_time.or(derived.end_time);
-    derived.duration_seconds += span.duration_seconds;
-}
-
-fn rotation_player_payload(span: &RotationSpanPayload) -> Value {
-    span.payload
-        .get("player")
-        .or_else(|| span.payload.get("player_id"))
-        .cloned()
-        .unwrap_or_else(|| Value::String(span.player_subject.id.clone()))
-}
-
-fn rotation_derived_span_payload(span: RotationDerivedSpan, state_field: &str) -> Value {
-    let mut payload = Map::new();
-    payload.insert("kind".to_owned(), Value::String(span.kind.clone()));
-    payload.insert("player".to_owned(), span.player_payload);
-    payload.insert("active".to_owned(), Value::Bool(true));
-    payload.insert(state_field.to_owned(), Value::String(span.state));
-    payload.insert("duration".to_owned(), Value::from(span.duration_seconds));
-    if let Some(is_team_0) = span.is_team_0 {
-        payload.insert("is_team_0".to_owned(), Value::Bool(is_team_0));
-    }
-    if let Some(frame) = span.start_frame {
-        payload.insert("frame".to_owned(), Value::from(frame));
-    }
-    if let Some(frame) = span.end_frame {
-        payload.insert("end_frame".to_owned(), Value::from(frame));
-    }
-    if let Some(time) = span.start_time {
-        payload.insert("time".to_owned(), Value::from(time));
-    }
-    if let Some(time) = span.end_time {
-        payload.insert("end_time".to_owned(), Value::from(time));
-    }
-    Value::Object(payload)
-}
-
-fn compare_rotation_spans(left: &RotationSpanPayload, right: &RotationSpanPayload) -> Ordering {
-    compare_optional_f64(left.start_time, right.start_time)
-        .then_with(|| left.start_frame.cmp(&right.start_frame))
-        .then_with(|| left.source_index.cmp(&right.source_index))
-}
-
-fn compare_rotation_derived_spans(
-    left: &RotationDerivedSpan,
-    right: &RotationDerivedSpan,
-) -> Ordering {
-    compare_optional_f64(left.start_time, right.start_time)
-        .then_with(|| left.start_frame.cmp(&right.start_frame))
-        .then_with(|| left.kind.cmp(&right.kind))
-}
-
-fn compare_optional_f64(left: Option<f64>, right: Option<f64>) -> Ordering {
-    left.unwrap_or(f64::INFINITY)
-        .partial_cmp(&right.unwrap_or(f64::INFINITY))
-        .unwrap_or(Ordering::Equal)
-}
-
+/// Index a bare inner payload with no envelope metadata. Used by unit tests that
+/// exercise the per-payload derivation directly.
+#[cfg(test)]
 fn indexed_timeline_payload_event(
     stream: &str,
     index: usize,
     payload: &Value,
 ) -> Result<IndexedEvent> {
     let payload = ensure_object_payload(payload);
-    let (event_type_key, display_name, category) = timeline_event_type(stream, &payload);
+    indexed_timeline_event(stream, index, &payload, None)
+}
+
+/// Build an [`IndexedEvent`] from the inner typed payload and, when available, the
+/// envelope `meta`. `meta` is the canonical source for envelope-level fields
+/// (`confidence`, `properties`); everything else is derived from the typed
+/// payload, falling back to payload fields when `meta` is absent.
+fn indexed_timeline_event(
+    stream: &str,
+    index: usize,
+    payload: &Value,
+    meta: Option<&Value>,
+) -> Result<IndexedEvent> {
+    let (event_type_key, display_name, category) = timeline_event_type(stream, payload);
     let (start_frame, end_frame, event_frame, start_time, end_time, event_time) =
-        timeline_event_timing(&payload);
-    let subjects = timeline_event_subjects(&payload)?;
+        timeline_event_timing(payload);
+    let subjects = timeline_event_subjects(payload)?;
     let primary_subject = subjects.first().cloned();
-    let source_event_id = timeline_source_event_id(stream, index, &payload, &event_type_key);
-    let duration_seconds = timeline_event_duration(&payload);
-    let team = timeline_event_team(&payload);
+    let source_event_id = timeline_source_event_id(stream, index, payload, &event_type_key);
+    let duration_seconds = timeline_event_duration(payload);
+    let team = timeline_event_team(payload);
+    let confidence = meta
+        .and_then(|meta| meta.get("confidence"))
+        .and_then(Value::as_f64)
+        .or_else(|| float_value(payload, &["confidence"]));
 
     Ok(IndexedEvent {
         event_type_key,
@@ -3828,9 +3569,9 @@ fn indexed_timeline_payload_event(
         end_time,
         event_time,
         duration_seconds,
-        confidence: float_value(&payload, &["confidence"]),
-        attributes: timeline_event_attributes(stream, &payload),
-        payload,
+        confidence,
+        attributes: timeline_event_attributes(stream, payload, meta),
+        payload: payload.clone(),
     })
 }
 
@@ -4243,7 +3984,7 @@ fn push_unique_subject(subjects: &mut Vec<EventSubject>, subject: EventSubject) 
     }
 }
 
-fn timeline_event_attributes(stream: &str, payload: &Value) -> Value {
+fn timeline_event_attributes(stream: &str, payload: &Value, meta: Option<&Value>) -> Value {
     let mut attributes = Map::new();
     attributes.insert("source_stream".to_owned(), Value::String(stream.to_owned()));
     if let Some(object) = payload.as_object() {
@@ -4275,7 +4016,12 @@ fn timeline_event_attributes(stream: &str, payload: &Value) -> Value {
     if let Some(duration) = timeline_event_duration(payload) {
         attributes.insert("duration_seconds".to_owned(), Value::from(duration));
     }
-    append_mechanic_property_attributes(payload, &mut attributes);
+    if let Some(properties) = meta
+        .and_then(|meta| meta.get("properties"))
+        .or_else(|| payload.get("properties"))
+    {
+        append_mechanic_property_attributes(properties, &mut attributes);
+    }
     append_goal_tag_attributes(payload, &mut attributes);
     Value::Object(attributes)
 }
@@ -4384,8 +4130,8 @@ fn serialized_unit_variant(object: &Map<String, Value>) -> Option<&str> {
     }
 }
 
-fn append_mechanic_property_attributes(payload: &Value, attributes: &mut Map<String, Value>) {
-    let Some(properties) = payload.get("properties").and_then(Value::as_array) else {
+fn append_mechanic_property_attributes(properties: &Value, attributes: &mut Map<String, Value>) {
+    let Some(properties) = properties.as_array() else {
         return;
     };
     for property in properties {
