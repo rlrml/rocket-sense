@@ -8,8 +8,13 @@ use uuid::Uuid;
 
 use super::{
     query::{
-        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_datetime_filter,
-        parse_u32_filter, parse_uuid_values, QueryParams,
+        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_u32_filter,
+        QueryParams,
+    },
+    replay_set::{
+        append_replay_set_filters, append_target_player_replay_set_filters,
+        push_playlist_group_key_expression, PlayerStatFilter, ReplaySetFilterInput,
+        ReplaySetFilters,
     },
     replays::{require_db, ApiError},
 };
@@ -184,32 +189,11 @@ pub struct StatAggregatesQuery {
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct StatAggregateFilters {
-    pub(crate) search_pattern: Option<String>,
-    pub(crate) player_name_patterns: Vec<String>,
-    pub(crate) playlists: Vec<String>,
-    pub(crate) replay_ids: Vec<Uuid>,
-    pub(crate) file_sha256s: Vec<String>,
-    pub(crate) group_id: Option<Uuid>,
-    pub(crate) project_id: Option<Uuid>,
-    pub(crate) maps: Vec<String>,
-    pub(crate) pro: Option<bool>,
-    pub(crate) uploader_user_id: Option<Uuid>,
-    pub(crate) status: Option<String>,
+    pub(crate) replay_set: ReplaySetFilters,
     pub(crate) player: Option<PlayerStatFilter>,
     pub(crate) include_teammates: bool,
-    pub(crate) created_after: Option<DateTime<Utc>>,
-    pub(crate) created_before: Option<DateTime<Utc>>,
-    pub(crate) replay_date_after: Option<DateTime<Utc>>,
-    pub(crate) replay_date_before: Option<DateTime<Utc>>,
     pub(crate) limit: u32,
     pub(crate) group_by: Option<StatAggregateGroupBy>,
-    pub(crate) playlist_group_key: Option<String>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct PlayerStatFilter {
-    pub(crate) platform: String,
-    pub(crate) platform_player_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -261,63 +245,41 @@ impl StatAggregateFilters {
         query: StatAggregatesQuery,
         auth_user_id: Option<Uuid>,
     ) -> Result<Self, ApiError> {
-        let search = query
-            .q
-            .or(query.title)
-            .map(|term| term.trim().to_owned())
-            .filter(|term| !term.is_empty());
-        let mut playlists = normalize_terms(query.playlist);
-        playlists.extend(normalize_terms(query.game_modes));
-        playlists.sort();
-        playlists.dedup();
-        let file_sha256s = normalize_terms(query.file_sha256s)
-            .into_iter()
-            .map(|value| normalize_sha256_hex(&value))
-            .collect::<Result<Vec<_>, _>>()?;
-        let uploader_user_id = query
-            .uploader
-            .map(|uploader| parse_uploader_filter(&uploader, auth_user_id))
-            .transpose()?;
+        let replay_set = ReplaySetFilters::from_input(
+            ReplaySetFilterInput {
+                q: query.q,
+                title: query.title,
+                player_names: query.player_names,
+                playlists: query.playlist,
+                game_modes: query.game_modes,
+                replay_ids: query.replay_ids,
+                file_sha256s: query.file_sha256s,
+                group: query.group,
+                project: query.project,
+                maps: query.maps,
+                pro: query.pro,
+                uploader: query.uploader,
+                status: query.status,
+                created_after: query.created_after,
+                created_before: query.created_before,
+                replay_date_after: query.replay_date_after,
+                replay_date_before: query.replay_date_before,
+            },
+            auth_user_id,
+        )?;
 
         Ok(Self {
-            search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
-            player_name_patterns: normalize_terms(query.player_names)
-                .into_iter()
-                .map(|term| format!("%{}%", escape_like_term(&term)))
-                .collect(),
-            playlists,
-            replay_ids: query.replay_ids,
-            file_sha256s,
-            group_id: query
-                .group
-                .map(|group| parse_uuid_filter("group", &group))
-                .transpose()?,
-            project_id: query
-                .project
-                .map(|project| parse_uuid_filter("project", &project))
-                .transpose()?,
-            maps: normalize_terms(query.maps),
-            pro: query.pro,
-            uploader_user_id,
-            status: query
-                .status
-                .map(|status| status.trim().to_lowercase())
-                .filter(|status| !status.is_empty()),
+            replay_set,
             player: query
                 .player_id
                 .map(|player_id| PlayerStatFilter::from_query(&player_id))
                 .transpose()?,
             include_teammates: query.include_teammates.unwrap_or(false),
-            created_after: query.created_after,
-            created_before: query.created_before,
-            replay_date_after: query.replay_date_after,
-            replay_date_before: query.replay_date_before,
             limit: query.count.unwrap_or(50).clamp(1, 200),
             group_by: query
                 .group_by
                 .map(|group_by| parse_stat_group_by(&group_by))
                 .transpose()?,
-            playlist_group_key: None,
         })
     }
 }
@@ -325,80 +287,36 @@ impl StatAggregateFilters {
 impl StatAggregatesQuery {
     fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
+        let replay_set = ReplaySetFilterInput::from_query_params(&params)?;
         Ok(Self {
-            q: params.first(&["q"]),
-            title: params.first(&["title"]),
-            player_names: params.values(&["player-name", "player_names"]),
-            playlist: params.values(&["playlist"]),
-            game_modes: params.values(&["game-mode", "game_modes"]),
-            replay_ids: parse_uuid_values(
-                "replay-id",
-                params.values(&["replay-id", "replay_ids"]),
-            )?,
-            file_sha256s: params.values(&["sha256", "file_sha256s"]),
-            group: params.first(&["group"]),
-            project: params.first(&["project"]),
-            maps: params.values(&["map", "maps"]),
-            pro: params
-                .first(&["pro"])
-                .map(|value| parse_bool_filter("pro", &value))
-                .transpose()?,
-            uploader: params.first(&["uploader"]),
-            status: params.first(&["status"]),
+            q: replay_set.q,
+            title: replay_set.title,
+            player_names: replay_set.player_names,
+            playlist: replay_set.playlists,
+            game_modes: replay_set.game_modes,
+            replay_ids: replay_set.replay_ids,
+            file_sha256s: replay_set.file_sha256s,
+            group: replay_set.group,
+            project: replay_set.project,
+            maps: replay_set.maps,
+            pro: replay_set.pro,
+            uploader: replay_set.uploader,
+            status: replay_set.status,
             player_id: params.first(&["player-id", "player_id"]),
             include_teammates: params
                 .first(&["include-teammates", "include_teammates"])
                 .map(|value| parse_bool_filter("include-teammates", &value))
                 .transpose()?,
-            created_after: params
-                .first(&["created-after", "created_after"])
-                .map(|value| parse_datetime_filter("created-after", &value))
-                .transpose()?,
-            created_before: params
-                .first(&["created-before", "created_before"])
-                .map(|value| parse_datetime_filter("created-before", &value))
-                .transpose()?,
-            replay_date_after: params
-                .first(&["replay-date-after", "replay_date_after"])
-                .map(|value| parse_datetime_filter("replay-date-after", &value))
-                .transpose()?,
-            replay_date_before: params
-                .first(&["replay-date-before", "replay_date_before"])
-                .map(|value| parse_datetime_filter("replay-date-before", &value))
-                .transpose()?,
+            created_after: replay_set.created_after,
+            created_before: replay_set.created_before,
+            replay_date_after: replay_set.replay_date_after,
+            replay_date_before: replay_set.replay_date_before,
             count: params
                 .first(&["count"])
                 .map(|value| parse_u32_filter("count", &value))
                 .transpose()?,
             group_by: params.first(&["group-by", "group_by"]),
         })
-    }
-}
-
-impl PlayerStatFilter {
-    pub(crate) fn new(
-        platform: impl Into<String>,
-        platform_player_id: impl Into<String>,
-    ) -> Result<Self, ApiError> {
-        let platform = platform.into().trim().to_ascii_lowercase();
-        let platform_player_id = platform_player_id.into().trim().to_owned();
-        if platform.is_empty() || platform_player_id.is_empty() {
-            return Err(ApiError::bad_request(
-                "player filter must include both platform and id",
-            ));
-        }
-
-        Ok(Self {
-            platform,
-            platform_player_id,
-        })
-    }
-
-    fn from_query(value: &str) -> Result<Self, ApiError> {
-        let (platform, player_id) = value
-            .split_once(':')
-            .ok_or_else(|| ApiError::bad_request("player-id must use `platform:id` format"))?;
-        Self::new(platform, player_id)
     }
 }
 
@@ -538,7 +456,7 @@ async fn load_playlist_stat_aggregate_groups(
     for playlist in playlists {
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
-        group_filters.playlist_group_key = Some(playlist.clone());
+        group_filters.replay_set.playlist_group_key = Some(playlist.clone());
         let aggregates = load_stat_aggregates_base(pool, &group_filters).await?;
         groups.push(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
@@ -1025,11 +943,7 @@ fn append_target_player_filters<'args>(
         .player
         .as_ref()
         .expect("target player filters require a player");
-    builder.push(" WHERE rp.platform = ");
-    builder.push_bind(&player.platform);
-    builder.push(" AND rp.platform_player_id = ");
-    builder.push_bind(&player.platform_player_id);
-    append_replay_filters(builder, filters, "r");
+    append_target_player_replay_set_filters(builder, &filters.replay_set, player);
 }
 
 fn append_replay_filters<'args>(
@@ -1037,136 +951,7 @@ fn append_replay_filters<'args>(
     filters: &'args StatAggregateFilters,
     replay_alias: &str,
 ) {
-    if let Some(pattern) = &filters.search_pattern {
-        builder
-            .push(" AND (")
-            .push(replay_alias)
-            .push(".original_file_name ILIKE ")
-            .push_bind(pattern)
-            .push(" ESCAPE '\\' OR ")
-            .push(replay_alias)
-            .push(".file_sha256 ILIKE ")
-            .push_bind(pattern)
-            .push(" ESCAPE '\\' OR ")
-            .push(replay_alias)
-            .push(".external_replay_id ILIKE ")
-            .push_bind(pattern)
-            .push(" ESCAPE '\\')");
-    }
-    for pattern in &filters.player_name_patterns {
-        builder.push(" AND EXISTS (SELECT 1 FROM replay_players stats_name_player WHERE stats_name_player.replay_id = ");
-        builder.push(replay_alias);
-        builder.push(".id AND stats_name_player.name ILIKE ");
-        builder.push_bind(pattern);
-        builder.push(" ESCAPE '\\')");
-    }
-    if !filters.playlists.is_empty() {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".playlist = ANY(")
-            .push_bind(&filters.playlists)
-            .push(")");
-    }
-    if let Some(playlist_group_key) = &filters.playlist_group_key {
-        builder.push(" AND ");
-        push_playlist_group_key_expression(builder, replay_alias);
-        builder.push(" = ");
-        builder.push_bind(playlist_group_key);
-    }
-    if !filters.replay_ids.is_empty() {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".id = ANY(")
-            .push_bind(&filters.replay_ids)
-            .push(")");
-    }
-    if !filters.file_sha256s.is_empty() {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".file_sha256 = ANY(")
-            .push_bind(&filters.file_sha256s)
-            .push(")");
-    }
-    if !filters.maps.is_empty() {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".map_code = ANY(")
-            .push_bind(&filters.maps)
-            .push(")");
-    }
-    if let Some(pro) = filters.pro {
-        if pro {
-            builder
-                .push(" AND ")
-                .push(replay_alias)
-                .push(".has_pro_player");
-        } else {
-            builder
-                .push(" AND NOT ")
-                .push(replay_alias)
-                .push(".has_pro_player");
-        }
-    }
-    if let Some(uploader_user_id) = filters.uploader_user_id {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".uploaded_by_user_id = ")
-            .push_bind(uploader_user_id);
-    }
-    if let Some(group_id) = filters.group_id {
-        builder.push(" AND EXISTS (SELECT 1 FROM replay_group_replays stats_group WHERE stats_group.replay_id = ");
-        builder.push(replay_alias);
-        builder.push(".id AND stats_group.group_id = ");
-        builder.push_bind(group_id);
-        builder.push(")");
-    }
-    if let Some(project_id) = filters.project_id {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".project_id = ")
-            .push_bind(project_id);
-    }
-    if let Some(status) = &filters.status {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".parse_status = ")
-            .push_bind(status);
-    }
-    if let Some(created_after) = filters.created_after {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".created_at >= ")
-            .push_bind(created_after);
-    }
-    if let Some(created_before) = filters.created_before {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".created_at <= ")
-            .push_bind(created_before);
-    }
-    if let Some(replay_date_after) = filters.replay_date_after {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".replay_date >= ")
-            .push_bind(replay_date_after);
-    }
-    if let Some(replay_date_before) = filters.replay_date_before {
-        builder
-            .push(" AND ")
-            .push(replay_alias)
-            .push(".replay_date <= ")
-            .push_bind(replay_date_before);
-    }
+    append_replay_set_filters(builder, &filters.replay_set, replay_alias);
 }
 
 fn finite_nonnegative(value: Option<f64>) -> Option<f64> {
@@ -1177,61 +962,6 @@ fn per_minute(count: u64, denominator_seconds: Option<f64>) -> Option<f64> {
     denominator_seconds
         .filter(|seconds| *seconds > 0.0)
         .map(|seconds| count as f64 * 60.0 / seconds)
-}
-
-fn push_playlist_group_key_expression<'args>(
-    builder: &mut QueryBuilder<'args, Postgres>,
-    replay_alias: &str,
-) {
-    builder
-        .push("CASE WHEN lower(btrim(COALESCE(")
-        .push(replay_alias)
-        .push(".playlist, ''))) = 'online' THEN COALESCE(CASE (");
-    push_replay_team_size_expression(builder, replay_alias);
-    builder
-        .push(") WHEN 1 THEN 'online-1v1' WHEN 2 THEN 'online-2v2' WHEN 3 THEN 'online-3v3' WHEN 4 THEN 'online-4v4' END, NULLIF(btrim(")
-        .push(replay_alias)
-        .push(".playlist), '')) ELSE NULLIF(btrim(")
-        .push(replay_alias)
-        .push(".playlist), '') END");
-}
-
-fn push_replay_team_size_expression<'args>(
-    builder: &mut QueryBuilder<'args, Postgres>,
-    replay_alias: &str,
-) {
-    builder
-        .push("SELECT MAX(team_player_count)::integer FROM (SELECT COUNT(*) AS team_player_count FROM replay_players stats_mode_player WHERE stats_mode_player.replay_id = ")
-        .push(replay_alias)
-        .push(".id AND stats_mode_player.team IS NOT NULL GROUP BY stats_mode_player.team) stats_mode_team_counts");
-}
-
-fn normalize_terms(terms: Vec<String>) -> Vec<String> {
-    terms
-        .into_iter()
-        .map(|term| term.trim().to_owned())
-        .filter(|term| !term.is_empty())
-        .collect()
-}
-
-fn parse_uploader_filter(value: &str, auth_user_id: Option<Uuid>) -> Result<Uuid, ApiError> {
-    let value = value.trim();
-    if value == "me" {
-        return auth_user_id.ok_or_else(|| {
-            ApiError::new(
-                axum::http::StatusCode::UNAUTHORIZED,
-                "uploader=me requires authentication",
-            )
-        });
-    }
-
-    Uuid::parse_str(value)
-        .map_err(|_| ApiError::bad_request("uploader must be `me` or a Rocket Sense user UUID"))
-}
-
-fn parse_uuid_filter(name: &str, value: &str) -> Result<Uuid, ApiError> {
-    Uuid::parse_str(value.trim())
-        .map_err(|_| ApiError::bad_request(format!("{name} must be a UUID")))
 }
 
 fn parse_stat_group_by(value: &str) -> Result<StatAggregateGroupBy, ApiError> {
@@ -1254,21 +984,4 @@ fn playlist_label(value: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
-}
-
-fn escape_like_term(term: &str) -> String {
-    term.replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
-}
-
-fn normalize_sha256_hex(value: &str) -> Result<String, ApiError> {
-    let value = value.trim();
-    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err(ApiError::bad_request(
-            "sha256 must be a 64-character hexadecimal SHA-256 digest",
-        ));
-    }
-
-    Ok(value.to_ascii_lowercase())
 }

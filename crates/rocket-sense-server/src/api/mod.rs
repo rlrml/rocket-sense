@@ -6,6 +6,7 @@ mod mechanics;
 mod openapi;
 mod players;
 mod query;
+mod replay_set;
 mod replays;
 mod spa;
 mod stats;

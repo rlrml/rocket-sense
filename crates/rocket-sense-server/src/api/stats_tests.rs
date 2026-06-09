@@ -30,19 +30,25 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
     )
     .expect("filters should parse");
 
-    assert_eq!(filters.search_pattern, Some("%replay\\_100\\%%".to_owned()));
-    assert_eq!(filters.player_name_patterns, ["%Zen%"]);
-    assert_eq!(filters.playlists, ["ranked-doubles", "ranked-duels"]);
     assert_eq!(
-        filters.file_sha256s,
+        filters.replay_set.search_pattern,
+        Some("%replay\\_100\\%%".to_owned())
+    );
+    assert_eq!(filters.replay_set.player_name_patterns, ["%Zen%"]);
+    assert_eq!(
+        filters.replay_set.playlists,
+        ["ranked-doubles", "ranked-duels"]
+    );
+    assert_eq!(
+        filters.replay_set.file_sha256s,
         ["0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]
     );
-    assert_eq!(filters.group_id, Some(group_id));
-    assert_eq!(filters.project_id, Some(project_id));
-    assert_eq!(filters.maps, ["Stadium_P"]);
-    assert_eq!(filters.pro, Some(true));
-    assert_eq!(filters.uploader_user_id, Some(uploader_id));
-    assert_eq!(filters.status, Some("parsed".to_owned()));
+    assert_eq!(filters.replay_set.group_id, Some(group_id));
+    assert_eq!(filters.replay_set.project_id, Some(project_id));
+    assert_eq!(filters.replay_set.maps, ["Stadium_P"]);
+    assert_eq!(filters.replay_set.pro, Some(true));
+    assert_eq!(filters.replay_set.uploader_user_id, Some(uploader_id));
+    assert_eq!(filters.replay_set.status, Some("parsed".to_owned()));
     assert_eq!(filters.limit, 200);
     assert_eq!(filters.group_by, Some(StatAggregateGroupBy::Playlist));
     assert!(filters.include_teammates);
