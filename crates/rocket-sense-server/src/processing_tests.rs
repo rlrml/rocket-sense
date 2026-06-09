@@ -426,7 +426,7 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
         "boost_pickups",
         0,
         &serde_json::json!({
-            "comparison": "both",
+            "detection": "both",
             "time": 40.0,
             "frame": 2400,
             "player_id": { "Steam": 76561198000000001_u64 },
@@ -434,6 +434,9 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
             "pad_type": "big",
             "field_half": "opponent",
             "activity": "active",
+            "is_steal": true,
+            "collected_amount": 88.0,
+            "overfill_amount": 0.0,
             "boost_before": 12.0,
             "boost_after": 100.0
         }),
@@ -451,6 +454,46 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
         )),
         Some(("player", "steam:76561198000000001", "actor"))
     );
+
+    let inferred = indexed_timeline_payload_event(
+        "boost_pickups",
+        1,
+        &serde_json::json!({
+            "detection": "inferred_only",
+            "time": 41.0,
+            "frame": 2460,
+            "player_id": { "Steam": 76561198000000001_u64 },
+            "is_team_0": true,
+            "pad_type": "small",
+            "field_half": "own",
+            "activity": "active",
+            "is_steal": false,
+            "collected_amount": 12.0,
+            "overfill_amount": 0.0
+        }),
+    )
+    .expect("boost pickup event should index");
+    assert_eq!(inferred.event_type_key, "boost_pickup_ghost");
+
+    let reported = indexed_timeline_payload_event(
+        "boost_pickups",
+        2,
+        &serde_json::json!({
+            "detection": "reported_only",
+            "time": 42.0,
+            "frame": 2520,
+            "player_id": { "Steam": 76561198000000001_u64 },
+            "is_team_0": true,
+            "pad_type": "small",
+            "field_half": "own",
+            "activity": "active",
+            "is_steal": false,
+            "collected_amount": 0.0,
+            "overfill_amount": 0.0
+        }),
+    )
+    .expect("boost pickup event should index");
+    assert_eq!(reported.event_type_key, "boost_pickup_missed");
 }
 
 #[test]
