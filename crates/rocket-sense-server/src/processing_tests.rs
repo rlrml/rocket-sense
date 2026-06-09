@@ -616,6 +616,8 @@ fn indexed_kickoff_events_capture_nested_player_subjects() {
 #[test]
 fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
     let event_id = Uuid::now_v7();
+    let replay_id = Uuid::now_v7();
+    let blue_taker_replay_player_id = Uuid::now_v7();
     let kickoff = indexed_timeline_payload_event(
         "kickoff",
         4,
@@ -689,9 +691,15 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
         }),
     )
     .expect("kickoff event should index");
+    let replay_players = HashMap::from([(
+        "steam:76561198000000001".to_owned(),
+        blue_taker_replay_player_id,
+    )]);
 
-    let detail = kickoff_detail_row(event_id, &kickoff).expect("kickoff detail should parse");
+    let detail =
+        kickoff_detail_row(event_id, replay_id, &kickoff).expect("kickoff detail should parse");
     assert_eq!(detail.event_id, event_id);
+    assert_eq!(detail.replay_id, replay_id);
     assert_eq!(detail.outcome.as_deref(), Some("team_zero_win"));
     assert_eq!(detail.winning_team, Some(0));
     assert_eq!(detail.win_strength, Some(0.72));
@@ -712,13 +720,19 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
         Some("epic:follow-up")
     );
 
-    let player_rows =
-        kickoff_player_detail_rows(event_id, &kickoff).expect("kickoff player rows should parse");
+    let player_rows = kickoff_player_detail_rows(event_id, replay_id, &kickoff, &replay_players)
+        .expect("kickoff player rows should parse");
     assert_eq!(player_rows.len(), 4);
     let blue_taker = player_rows
         .iter()
         .find(|row| row.team_role == "team_zero_taker")
         .expect("blue taker should be captured");
+    assert_eq!(blue_taker.event_id, event_id);
+    assert_eq!(blue_taker.replay_id, replay_id);
+    assert_eq!(
+        blue_taker.replay_player_id,
+        Some(blue_taker_replay_player_id)
+    );
     assert_eq!(blue_taker.player_subject_id, "steam:76561198000000001");
     assert_eq!(blue_taker.role, "taker");
     assert_eq!(blue_taker.team, 0);
@@ -733,6 +747,8 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
         .expect("orange support should be captured");
     assert_eq!(orange_support.player_subject_id, "epic:orange-support");
     assert_eq!(orange_support.role, "support");
+    assert_eq!(orange_support.replay_id, replay_id);
+    assert_eq!(orange_support.replay_player_id, None);
     assert_eq!(orange_support.team, 1);
     assert_eq!(orange_support.support_behavior.as_deref(), Some("cheat"));
 }

@@ -2076,7 +2076,7 @@ async fn insert_play_events_batched(
     insert_play_event_payload_rows(pool, &inserted_events).await?;
     insert_play_event_attribute_rows(pool, &inserted_events).await?;
     insert_play_event_scalar_field_rows_for_events(pool, &inserted_events).await?;
-    insert_play_event_detail_rows(pool, &inserted_events).await?;
+    insert_play_event_detail_rows(pool, replay_id, &inserted_events, replay_players).await?;
     insert_play_event_subject_rows(pool, &inserted_events, replay_players).await?;
 
     Ok(inserted_events.len())
@@ -2444,7 +2444,8 @@ async fn insert_play_events_row_by_row(
             insert_play_event_scalar_fields(pool, play_event_id, event).await?;
         }
         if options.details {
-            insert_play_event_details(pool, play_event_id, event).await?;
+            insert_play_event_details(pool, play_event_id, replay_id, event, replay_players)
+                .await?;
         }
 
         if options.subjects {
@@ -2534,6 +2535,7 @@ struct RotationPlayerDetailRow {
 
 struct KickoffDetailRow {
     event_id: Uuid,
+    replay_id: Uuid,
     outcome: Option<String>,
     winning_team: Option<i32>,
     win_strength: Option<f64>,
@@ -2558,6 +2560,8 @@ struct KickoffDetailRow {
 
 struct KickoffPlayerDetailRow {
     event_id: Uuid,
+    replay_id: Uuid,
+    replay_player_id: Option<Uuid>,
     player_subject_id: String,
     team: i32,
     role: &'static str,
@@ -2575,7 +2579,9 @@ struct KickoffPlayerDetailRow {
 
 async fn insert_play_event_detail_rows(
     pool: &PgPool,
+    replay_id: Uuid,
     events: &[PreparedIndexedEvent<'_>],
+    replay_players: &HashMap<String, Uuid>,
 ) -> Result<()> {
     let mut timeline_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut mechanic_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
@@ -2623,9 +2629,13 @@ async fn insert_play_event_detail_rows(
                 }
             }
             "kickoff" => {
-                kickoff_rows.push(kickoff_detail_row(prepared.id, prepared.event)?);
-                kickoff_player_rows
-                    .extend(kickoff_player_detail_rows(prepared.id, prepared.event)?);
+                kickoff_rows.push(kickoff_detail_row(prepared.id, replay_id, prepared.event)?);
+                kickoff_player_rows.extend(kickoff_player_detail_rows(
+                    prepared.id,
+                    replay_id,
+                    prepared.event,
+                    replay_players,
+                )?);
                 if kickoff_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
                     insert_kickoff_detail_rows(pool, &kickoff_rows).await?;
                     kickoff_rows.clear();
@@ -2723,9 +2733,14 @@ fn rotation_player_detail_row(
     })
 }
 
-fn kickoff_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<KickoffDetailRow> {
+fn kickoff_detail_row(
+    event_id: Uuid,
+    replay_id: Uuid,
+    event: &IndexedEvent,
+) -> Result<KickoffDetailRow> {
     Ok(KickoffDetailRow {
         event_id,
+        replay_id,
         outcome: normalized_payload_field(&event.payload, "outcome"),
         winning_team: team_bool(&event.payload, "winning_team_is_team_0"),
         win_strength: float_value(&event.payload, &["win_strength"]),
@@ -2760,16 +2775,26 @@ fn kickoff_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<KickoffDet
 
 fn kickoff_player_detail_rows(
     event_id: Uuid,
+    replay_id: Uuid,
     event: &IndexedEvent,
+    replay_players: &HashMap<String, Uuid>,
 ) -> Result<Vec<KickoffPlayerDetailRow>> {
     let mut rows = Vec::new();
     for (field, team, team_role) in [
         ("team_zero_taker", 0, "team_zero_taker"),
         ("team_one_taker", 1, "team_one_taker"),
     ] {
-        if let Some(row) =
-            kickoff_player_detail_row(event_id, &event.payload, field, team, "taker", team_role, 0)?
-        {
+        if let Some(row) = kickoff_player_detail_row(
+            event_id,
+            replay_id,
+            &event.payload,
+            field,
+            team,
+            "taker",
+            team_role,
+            0,
+            replay_players,
+        )? {
             rows.push(row);
         }
     }
@@ -2783,11 +2808,13 @@ fn kickoff_player_detail_rows(
         for (index, player) in players.iter().enumerate() {
             if let Some(row) = kickoff_player_detail_row_from_payload(
                 event_id,
+                replay_id,
                 player,
                 team,
                 "support",
                 team_role,
                 index as i32,
+                replay_players,
             )? {
                 rows.push(row);
             }
@@ -2798,33 +2825,39 @@ fn kickoff_player_detail_rows(
 
 fn kickoff_player_detail_row(
     event_id: Uuid,
+    replay_id: Uuid,
     event_payload: &Value,
     field: &str,
     fallback_team: i32,
     role: &'static str,
     team_role: &'static str,
     player_index: i32,
+    replay_players: &HashMap<String, Uuid>,
 ) -> Result<Option<KickoffPlayerDetailRow>> {
     let Some(payload) = event_payload.get(field) else {
         return Ok(None);
     };
     kickoff_player_detail_row_from_payload(
         event_id,
+        replay_id,
         payload,
         fallback_team,
         role,
         team_role,
         player_index,
+        replay_players,
     )
 }
 
 fn kickoff_player_detail_row_from_payload(
     event_id: Uuid,
+    replay_id: Uuid,
     payload: &Value,
     fallback_team: i32,
     role: &'static str,
     team_role: &'static str,
     player_index: i32,
+    replay_players: &HashMap<String, Uuid>,
 ) -> Result<Option<KickoffPlayerDetailRow>> {
     if payload.is_null() {
         return Ok(None);
@@ -2834,6 +2867,8 @@ fn kickoff_player_detail_row_from_payload(
     };
     Ok(Some(KickoffPlayerDetailRow {
         event_id,
+        replay_id,
+        replay_player_id: replay_players.get(&player_subject_id).copied(),
         player_subject_id,
         team: team_bool(payload, "is_team_0").unwrap_or(fallback_team),
         role,
@@ -3057,6 +3092,7 @@ async fn insert_kickoff_detail_rows(pool: &PgPool, rows: &[KickoffDetailRow]) ->
         r#"
         INSERT INTO play_event_kickoff_details (
             event_id,
+            replay_id,
             outcome,
             winning_team,
             win_strength,
@@ -3082,6 +3118,7 @@ async fn insert_kickoff_detail_rows(pool: &PgPool, rows: &[KickoffDetailRow]) ->
     );
     query.push_values(rows, |mut row, detail| {
         row.push_bind(detail.event_id)
+            .push_bind(detail.replay_id)
             .push_bind(&detail.outcome)
             .push_bind(detail.winning_team)
             .push_bind(detail.win_strength)
@@ -3125,6 +3162,8 @@ async fn insert_kickoff_player_detail_rows(
         r#"
         INSERT INTO play_event_kickoff_player_details (
             event_id,
+            replay_id,
+            replay_player_id,
             player_subject_id,
             team,
             role,
@@ -3143,6 +3182,8 @@ async fn insert_kickoff_player_detail_rows(
     );
     query.push_values(rows, |mut row, detail| {
         row.push_bind(detail.event_id)
+            .push_bind(detail.replay_id)
+            .push_bind(detail.replay_player_id)
             .push_bind(&detail.player_subject_id)
             .push_bind(detail.team)
             .push_bind(detail.role)
@@ -3254,7 +3295,9 @@ async fn insert_play_event_scalar_fields(
 async fn insert_play_event_details(
     pool: &PgPool,
     event_id: Uuid,
+    replay_id: Uuid,
     event: &IndexedEvent,
+    replay_players: &HashMap<String, Uuid>,
 ) -> Result<()> {
     match event.source_stream.as_str() {
         "timeline" => insert_timeline_event_details(pool, event_id, event).await,
@@ -3262,7 +3305,9 @@ async fn insert_play_event_details(
         "goal_tags" => insert_goal_tag_event_details(pool, event_id, event).await,
         "touch" => insert_touch_event_details(pool, event_id, event).await,
         "rotation_player" => insert_rotation_player_event_details(pool, event_id, event).await,
-        "kickoff" => insert_kickoff_event_details(pool, event_id, event).await,
+        "kickoff" => {
+            insert_kickoff_event_details(pool, event_id, replay_id, event, replay_players).await
+        }
         _ => Ok(()),
     }
 }
@@ -3462,10 +3507,16 @@ async fn insert_rotation_player_event_details(
 async fn insert_kickoff_event_details(
     pool: &PgPool,
     event_id: Uuid,
+    replay_id: Uuid,
     event: &IndexedEvent,
+    replay_players: &HashMap<String, Uuid>,
 ) -> Result<()> {
-    insert_kickoff_detail_rows(pool, &[kickoff_detail_row(event_id, event)?]).await?;
-    insert_kickoff_player_detail_rows(pool, &kickoff_player_detail_rows(event_id, event)?).await?;
+    insert_kickoff_detail_rows(pool, &[kickoff_detail_row(event_id, replay_id, event)?]).await?;
+    insert_kickoff_player_detail_rows(
+        pool,
+        &kickoff_player_detail_rows(event_id, replay_id, event, replay_players)?,
+    )
+    .await?;
     Ok(())
 }
 
