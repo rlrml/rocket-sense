@@ -25,6 +25,8 @@ export type EventClipCamera =
 export interface EventClip {
   start: number;
   end: number;
+  /** Optional resolver for starts that can be determined more accurately after replay parsing. */
+  startResolver?: "kickoff-live-action";
   /** Optional exact frame to seek to for the beginning of the clip. */
   startFrame?: number | null;
   /** Optional exact frame to use as the end of the loop. */
@@ -183,8 +185,14 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
       target.anchorFrame != null
         ? player.replay.frames[target.anchorFrame]?.time
         : undefined;
+    const resolvedStartTime =
+      target.startResolver === "kickoff-live-action"
+        ? kickoffLiveActionStartTime(player.replay, target.start)
+        : null;
     const start =
-      startFrameTime != null
+      resolvedStartTime != null
+        ? resolvedStartTime
+        : startFrameTime != null
         ? startFrameTime
         : anchorTime != null
         ? Math.max(0, anchorTime - (target.prerollSeconds ?? 0))
@@ -347,4 +355,32 @@ function normalizePlayerKey(value: string): string {
   const platform = value.slice(0, separator).trim().toLowerCase();
   const id = value.slice(separator + 1).trim();
   return `${platform === "psynet" ? "epic" : platform === "playstation" ? "ps4" : platform}:${id}`;
+}
+
+function kickoffLiveActionStartTime(replay: ReplayModel, kickoffStart: number): number | null {
+  const searchStart = Math.max(0, kickoffStart - 0.1);
+  const searchEnd = Math.min(replay.duration, kickoffStart + 8);
+  let fallbackZeroCountdown: number | null = null;
+  for (let index = 0; index < replay.frames.length; index += 1) {
+    const frame = replay.frames[index];
+    if (!frame || frame.time < searchStart) {
+      continue;
+    }
+    if (frame.time > searchEnd) {
+      break;
+    }
+    const previous = replay.frames[index - 1];
+    if (
+      frame.kickoffCountdown === 0 &&
+      previous &&
+      previous.kickoffCountdown > 0 &&
+      previous.kickoffCountdown <= 3
+    ) {
+      return frame.time;
+    }
+    if (fallbackZeroCountdown == null && frame.kickoffCountdown === 0 && frame.time >= kickoffStart + 2) {
+      fallbackZeroCountdown = frame.time;
+    }
+  }
+  return fallbackZeroCountdown;
 }

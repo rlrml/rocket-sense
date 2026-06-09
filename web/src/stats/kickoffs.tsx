@@ -7,7 +7,6 @@ import { useEventPreviewSelection } from "./eventPreview";
 export const kickoffEventTypes = ["kickoff"];
 
 const KICKOFF_CLIP_POSTROLL_SECONDS = 5;
-const LEGACY_KICKOFF_COUNTDOWN_SECONDS = 3;
 
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
@@ -109,6 +108,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
     return {
       start: previewStart.time,
       end: (endTime ?? previewStart.time) + KICKOFF_CLIP_POSTROLL_SECONDS,
+      startResolver: previewStart.startResolver,
       startFrame: previewStart.frame,
       camera: winnerPlayer
         ? { kind: "follow-player", playerKey: winnerPlayer.playerKey, playerName: winnerPlayer.playerName, ballCam: true }
@@ -552,7 +552,7 @@ function kickoffPreviewLabel(kickoff: KickoffRow): string {
     : formatSeconds(kickoff.startTime);
 }
 
-function kickoffPreviewStart(kickoff: KickoffRow): { time: number; frame: number | null } | null {
+function kickoffPreviewStart(kickoff: KickoffRow): { time: number; frame: number | null; startResolver?: EventClip["startResolver"] } | null {
   if (kickoff.liveActionStartTime != null) {
     return { time: kickoff.liveActionStartTime, frame: kickoff.liveActionStartFrame };
   }
@@ -563,7 +563,7 @@ function kickoffPreviewStart(kickoff: KickoffRow): { time: number; frame: number
     return { time: kickoff.movementStartTime, frame: kickoff.movementStartFrame };
   }
   if (kickoff.startTime != null) {
-    return { time: kickoff.startTime + LEGACY_KICKOFF_COUNTDOWN_SECONDS, frame: null };
+    return { time: kickoff.startTime, frame: null, startResolver: "kickoff-live-action" };
   }
   return null;
 }
