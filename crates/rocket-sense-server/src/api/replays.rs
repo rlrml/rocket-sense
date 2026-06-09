@@ -564,12 +564,11 @@ pub async fn list_replays(
     let db = require_db(&state)?;
     let query = ListReplaysQuery::from_raw_query(raw_query.as_deref())?;
     let filters = ReplayFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
-    let total = count_replays(db, &filters)
-        .await
-        .map_err(ApiError::internal)?;
-    let replays = find_replays(db, &filters)
-        .await
-        .map_err(ApiError::internal)?;
+    let (total, replays) = tokio::try_join!(
+        count_replays(db, &filters),
+        find_replays(db, &filters),
+    )
+    .map_err(ApiError::internal)?;
     let count = replays.len() as u32;
     let returned_through = filters.offset.saturating_add(count);
     let next_offset = (u64::from(returned_through) < total).then_some(returned_through);
@@ -1172,6 +1171,26 @@ impl SortBy {
             Self::ReplayDate => "r.replay_date",
         }
     }
+
+    /// NULLS placement for this column's ORDER BY, chosen so the planner can
+    /// satisfy the sort from the backing index instead of scanning + sorting
+    /// the whole table.
+    ///
+    /// `created_at` is NOT NULL and indexed as `(created_at DESC, id DESC)`
+    /// (i.e. NULLS FIRST). Emitting an explicit `NULLS LAST` here makes the
+    /// ORDER BY not match the index, forcing a full Seq Scan + Sort on every
+    /// page load even with a small LIMIT. Using the default placement lets a
+    /// forward index scan serve DESC and a backward scan serve ASC.
+    ///
+    /// `replay_date` is nullable and indexed as
+    /// `(replay_date DESC NULLS LAST, id DESC)`, so it must keep `NULLS LAST`
+    /// to match.
+    fn nulls_sql(&self) -> &'static str {
+        match self {
+            Self::UploadDate => "",
+            Self::ReplayDate => " NULLS LAST",
+        }
+    }
 }
 
 enum SortDir {
@@ -1659,7 +1678,7 @@ fn find_replays_query<'args>(filters: &'args ReplayFilters) -> QueryBuilder<'arg
         .push(filters.sort_by.sql())
         .push(" ")
         .push(filters.sort_dir.sql())
-        .push(" NULLS LAST")
+        .push(filters.sort_by.nulls_sql())
         .push(", r.id ")
         .push(filters.sort_dir.sql())
         .push(" LIMIT ")
@@ -1674,7 +1693,7 @@ fn find_replays_query<'args>(filters: &'args ReplayFilters) -> QueryBuilder<'arg
         .push(filters.sort_by.sql())
         .push(" ")
         .push(filters.sort_dir.sql())
-        .push(" NULLS LAST")
+        .push(filters.sort_by.nulls_sql())
         .push(", r.id ")
         .push(filters.sort_dir.sql());
 
