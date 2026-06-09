@@ -81,6 +81,9 @@ interface KickoffPlayerBehavior {
   supportBehavior: string | null;
   startBoost: number | null;
   boostAfter: number | null;
+  timeToBall: number | null;
+  boostCollected: number | null;
+  boostUsed: number | null;
   firstTouchTime: number | null;
 }
 
@@ -95,6 +98,12 @@ interface PlayerKickoffSummary {
   missed: number;
   kickoffGoalsFor: number;
   kickoffGoalsAgainst: number;
+  timeToBallSum: number;
+  timeToBallCount: number;
+  boostCollectedSum: number;
+  boostCollectedCount: number;
+  boostUsedSum: number;
+  boostUsedCount: number;
   approaches: Map<string, number>;
   supportBehaviors: Map<string, number>;
 }
@@ -253,6 +262,9 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
             <th>Touches</th>
             <th>Fakes</th>
             <th>Misses</th>
+            <th>Avg to ball</th>
+            <th>Avg boost +</th>
+            <th>Avg boost used</th>
             <th>Common approach</th>
             <th>Support habit</th>
             <th>Goals</th>
@@ -272,6 +284,9 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
               <td>{summary.touched}</td>
               <td>{summary.faked}</td>
               <td>{summary.missed}</td>
+              <td>{formatAverageDuration(summary.timeToBallSum, summary.timeToBallCount)}</td>
+              <td>{formatAverageBoost(summary.boostCollectedSum, summary.boostCollectedCount)}</td>
+              <td>{formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount)}</td>
               <td>{topMapLabel(summary.approaches)}</td>
               <td>{topMapLabel(summary.supportBehaviors)}</td>
               <td>
@@ -394,6 +409,7 @@ function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
   const primary = behavior.role === "taker" ? behavior.outcome : behavior.supportBehavior;
   const secondary = behavior.role === "taker" ? behavior.approach : behavior.spawn;
   const boostDelta = behavior.startBoost == null || behavior.boostAfter == null ? null : behavior.boostAfter - behavior.startBoost;
+  const showTakerBoost = behavior.role === "taker" && (behavior.boostCollected != null || behavior.boostUsed != null);
 
   return (
     <div className="kickoff-behavior-row">
@@ -404,12 +420,19 @@ function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
       <div className="kickoff-behavior-tags">
         <span>{formatLabel(primary) || "Unknown"}</span>
         {secondary ? <span>{formatLabel(secondary)}</span> : null}
-        {boostDelta == null ? null : (
+        {behavior.role === "taker" && behavior.timeToBall != null ? <span>{formatDuration(behavior.timeToBall)} to ball</span> : null}
+        {showTakerBoost && behavior.boostCollected != null ? (
+          <span className="boost-positive">+{formatBoostAmount(behavior.boostCollected)} boost</span>
+        ) : null}
+        {showTakerBoost && behavior.boostUsed != null ? (
+          <span className="boost-negative">{formatBoostAmount(behavior.boostUsed)} used</span>
+        ) : null}
+        {!showTakerBoost && boostDelta != null ? (
           <span className={boostDelta >= 0 ? "boost-positive" : "boost-negative"}>
             {boostDelta >= 0 ? "+" : ""}
             {Math.round(boostDelta)} boost
           </span>
-        )}
+        ) : null}
       </div>
     </div>
   );
@@ -485,6 +508,9 @@ function kickoffPlayerBehavior(
     supportBehavior: stringField(payload, "support_behavior"),
     startBoost: numberField(payload, "start_boost"),
     boostAfter: numberField(payload, "boost_after"),
+    timeToBall: numberField(payload, "time_to_ball"),
+    boostCollected: numberField(payload, "boost_collected"),
+    boostUsed: numberField(payload, "boost_used"),
     firstTouchTime: numberField(payload, "first_touch_time"),
   };
 }
@@ -764,6 +790,12 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         missed: 0,
         kickoffGoalsFor: 0,
         kickoffGoalsAgainst: 0,
+        timeToBallSum: 0,
+        timeToBallCount: 0,
+        boostCollectedSum: 0,
+        boostCollectedCount: 0,
+        boostUsedSum: 0,
+        boostUsedCount: 0,
         approaches: new Map(),
         supportBehaviors: new Map(),
       });
@@ -780,6 +812,18 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         if (behavior.outcome === "touched") summary.touched += 1;
         if (behavior.outcome === "fake") summary.faked += 1;
         if (behavior.outcome === "missed") summary.missed += 1;
+        if (behavior.timeToBall != null) {
+          summary.timeToBallSum += behavior.timeToBall;
+          summary.timeToBallCount += 1;
+        }
+        if (behavior.boostCollected != null) {
+          summary.boostCollectedSum += behavior.boostCollected;
+          summary.boostCollectedCount += 1;
+        }
+        if (behavior.boostUsed != null) {
+          summary.boostUsedSum += behavior.boostUsed;
+          summary.boostUsedCount += 1;
+        }
       } else {
         summary.supportCount += 1;
         incrementMap(summary.supportBehaviors, behavior.supportBehavior);
@@ -805,6 +849,12 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         missed: 0,
         kickoffGoalsFor: 0,
         kickoffGoalsAgainst: 0,
+        timeToBallSum: 0,
+        timeToBallCount: 0,
+        boostCollectedSum: 0,
+        boostCollectedCount: 0,
+        boostUsedSum: 0,
+        boostUsedCount: 0,
         approaches: new Map(),
         supportBehaviors: new Map(),
       });
