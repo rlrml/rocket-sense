@@ -1,6 +1,7 @@
 import type {
   AccessTokenResponse,
   AuthOptionsResponse,
+  BoostTracksResponse,
   EventTypesResponse,
   ListReplaysResponse,
   MechanicEventsResponse,
@@ -156,6 +157,12 @@ export async function listReplayEvents(replayId: string, eventTypes: string[] = 
 
 export function listEventTypes(): Promise<EventTypesResponse> {
   return request<EventTypesResponse>("/api/v1/events/types");
+}
+
+export function listBoostTracks(replayId: string): Promise<BoostTracksResponse> {
+  return request<BoostTracksResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/stats/boost-tracks`,
+  );
 }
 
 export function getPlayerProfile(

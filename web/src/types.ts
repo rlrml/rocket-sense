@@ -280,3 +280,23 @@ export interface PlayerProfileReplayResponse {
     orange: number | null;
   };
 }
+
+export interface BoostTrackPoint {
+  frame: number;
+  time: number | null;
+  value: number;
+}
+
+export interface BoostTrack {
+  player_id: string | null;
+  is_team_0: boolean;
+  // subtr-actor AccumulationQuantity (snake_case): "boost_amount", "boost_used",
+  // "boost_used_grounded", "boost_used_airborne", "boost_used_supersonic",
+  // "boost_collected", "boost_stolen", "boost_overfill".
+  quantity: string;
+  points: BoostTrackPoint[];
+}
+
+export interface BoostTracksResponse {
+  tracks: BoostTrack[];
+}

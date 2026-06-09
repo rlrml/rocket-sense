@@ -39,6 +39,10 @@ pub fn router() -> Router<AppState> {
             get(get_replay_by_sha256),
         )
         .route("/replays/{replay_id}/file", get(download_replay_file))
+        .route(
+            "/replays/{replay_id}/stats/boost-tracks",
+            get(get_replay_boost_tracks),
+        )
         .route("/replays/{replay_id}", get(get_replay))
         .route(
             "/replay-groups",
@@ -964,6 +968,63 @@ pub async fn download_replay_file(
         bytes,
     )
         .into_response())
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BoostTrackPoint {
+    pub frame: i64,
+    #[serde(default)]
+    pub time: Option<f64>,
+    pub value: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BoostTrack {
+    #[serde(default)]
+    pub player_id: Option<String>,
+    pub is_team_0: bool,
+    /// subtr-actor `AccumulationQuantity`, snake_case (e.g. `boost_amount`,
+    /// `boost_used`, `boost_used_supersonic`, `boost_collected`, ...).
+    pub quantity: String,
+    pub points: Vec<BoostTrackPoint>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct BoostTracksResponse {
+    pub tracks: Vec<BoostTrack>,
+}
+
+/// Per-player continuous boost quantities (instantaneous amount + cumulative
+/// totals) for the replay's canonical analysis run. Returns an empty list when
+/// the replay has not been (re)processed with boost accumulation tracks yet.
+pub async fn get_replay_boost_tracks(
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<Json<BoostTracksResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let row = sqlx::query(
+        r#"
+        SELECT t.tracks AS tracks
+        FROM replay_boost_tracks t
+        JOIN replays r ON r.canonical_analysis_run_id = t.analysis_run_id
+        WHERE r.id = $1
+        "#,
+    )
+    .bind(replay_id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let response = match row {
+        Some(row) => {
+            let SqlxJson(tracks): SqlxJson<BoostTracksResponse> =
+                row.try_get("tracks").map_err(ApiError::internal)?;
+            tracks
+        }
+        None => BoostTracksResponse { tracks: Vec::new() },
+    };
+
+    Ok(Json(response))
 }
 
 async fn subtr_actor_viewer() -> Html<&'static str> {
