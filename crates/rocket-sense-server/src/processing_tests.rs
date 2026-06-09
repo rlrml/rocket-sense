@@ -541,7 +541,7 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
 
     assert_eq!(flip_impulse.event_type_key, "flip_impulse");
     assert_eq!(flip_impulse.display_name, "Flip Impulse");
-    assert_eq!(flip_impulse.category, "movement");
+    assert_eq!(flip_impulse.category, "event");
     assert_eq!(flip_impulse.end_time, Some(20.18));
 }
 
@@ -956,6 +956,7 @@ fn stats_timeline_with_events(
         },
         events,
         frames: vec![],
+        positioning_summary: vec![],
     }
 }
 
@@ -1018,5 +1019,6 @@ fn touch_stats_event(
         surface: "floor".to_owned(),
         dodge_state: "none".to_owned(),
         ball_speed_change: 250.0,
+        ball_movement: None,
     }
 }
