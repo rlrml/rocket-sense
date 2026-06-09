@@ -1,3 +1,4 @@
+import type { ReplayModel } from "@rlrml/player";
 import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy } from "lucide-react";
 import { lazy, Suspense, useCallback, useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
@@ -6,7 +7,19 @@ import { useEventPreviewSelection } from "./eventPreview";
 
 export const kickoffEventTypes = ["kickoff"];
 
-const KICKOFF_CLIP_POSTROLL_SECONDS = 5;
+// Kickoff clips are driven entirely by frame indices, which align between the
+// upstream event payload and the parsed replay. (Absolute event timestamps do
+// NOT: the player rebases frame times to start at 0.) Start and end are resolved
+// against the parsed frames inside the player; these seconds-based postrolls add
+// breathing room after the resolving beat, with a max-duration cap so the loop
+// always terminates promptly.
+const KICKOFF_CLIP_FOLLOW_UP_POSTROLL_SECONDS = 1;
+const KICKOFF_CLIP_FIRST_TOUCH_POSTROLL_SECONDS = 2.5;
+const KICKOFF_CLIP_MAX_DURATION_SECONDS = 7;
+const KICKOFF_CLIP_MIN_DURATION_SECONDS = 3;
+// How far past the kickoff's start frame to scan for the countdown -> 0 (live
+// action) transition when the payload has no indexed live-action frame.
+const KICKOFF_LIVE_ACTION_SEARCH_FRAMES = 240;
 
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
@@ -103,16 +116,25 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
     if (!previewStart) {
       return null;
     }
-    const endTime = kickoff.endTime ?? kickoff.startTime;
     const winnerPlayer = kickoffWinnerPreviewPlayer(kickoff);
     return {
-      start: previewStart.time,
-      end: (endTime ?? previewStart.time) + KICKOFF_CLIP_POSTROLL_SECONDS,
-      startResolver: previewStart.startResolver,
+      // start/end are inert fallbacks: startFrame + resolveStart/resolveEnd drive
+      // playback against the parsed frames (frame indices are rebase-safe; absolute
+      // event timestamps are not).
+      start: 0,
+      end: 0,
       startFrame: previewStart.frame,
+      resolveStart: previewStart.resolveStart,
+      resolveEnd: (replay) => kickoffClipEndTime(replay, kickoff, previewStart.frame),
       camera: winnerPlayer
-        ? { kind: "follow-player", playerKey: winnerPlayer.playerKey, playerName: winnerPlayer.playerName, ballCam: true }
-        : { kind: "free", preset: "side" },
+        ? (cam) => {
+            if (!cam.followPlayer({ playerKey: winnerPlayer.playerKey, playerName: winnerPlayer.playerName, ballCam: true })) {
+              cam.freeCamera("side");
+            }
+          }
+        : (cam) => {
+            cam.freeCamera("side");
+          },
       key: `${kickoff.event.id}:${replayNonce}`,
     };
   }, []);
@@ -554,20 +576,83 @@ function kickoffPreviewLabel(kickoff: KickoffRow): string {
   return followedPlayer?.playerName ? `${base} · Following ${followedPlayer.playerName}` : base;
 }
 
-function kickoffPreviewStart(kickoff: KickoffRow): { time: number; frame: number | null; startResolver?: EventClip["startResolver"] } | null {
-  if (kickoff.liveActionStartTime != null) {
-    return { time: kickoff.liveActionStartTime, frame: kickoff.liveActionStartFrame };
+function kickoffPreviewStart(kickoff: KickoffRow): { frame: number | null; resolveStart?: EventClip["resolveStart"] } | null {
+  // Indexed live-action frame (reprocessed replays): rebase-safe, seek straight to it.
+  if (kickoff.liveActionStartFrame != null) {
+    return { frame: kickoff.liveActionStartFrame };
   }
   if (
+    kickoff.movementStartFrame != null &&
     kickoff.movementStartTime != null &&
-    (kickoff.startTime == null || kickoff.movementStartTime > kickoff.startTime + 0.05)
+    kickoff.startTime != null &&
+    kickoff.movementStartTime > kickoff.startTime + 0.05
   ) {
-    return { time: kickoff.movementStartTime, frame: kickoff.movementStartFrame };
+    return { frame: kickoff.movementStartFrame };
   }
-  if (kickoff.startTime != null) {
-    return { time: kickoff.startTime, frame: null, startResolver: "kickoff-live-action" };
+  // No indexed live-action timing (legacy replays, and the opening kickoff that
+  // subtr-actor never tags): scan forward from the start frame for the countdown.
+  const startFrame = kickoff.event.start_frame;
+  if (startFrame != null) {
+    return {
+      frame: startFrame,
+      resolveStart: (replay) => kickoffLiveActionFrameTime(replay, startFrame),
+    };
   }
   return null;
+}
+
+// Scan forward from the kickoff's start frame for the frame where the countdown
+// transitions to zero (live action begins), returning that frame's player-clock
+// time. Index-based so it is immune to the player's frame-time rebasing.
+function kickoffLiveActionFrameTime(replay: ReplayModel, startFrame: number): number | null {
+  const frames = replay.frames;
+  const from = Math.max(1, startFrame);
+  const limit = Math.min(frames.length, startFrame + KICKOFF_LIVE_ACTION_SEARCH_FRAMES);
+  let fallbackZeroCountdown: number | null = null;
+  for (let index = from; index < limit; index += 1) {
+    const frame = frames[index];
+    const previous = frames[index - 1];
+    if (!frame) {
+      break;
+    }
+    if (frame.kickoffCountdown === 0 && previous && previous.kickoffCountdown > 0) {
+      return frame.time;
+    }
+    if (fallbackZeroCountdown == null && frame.kickoffCountdown === 0) {
+      fallbackZeroCountdown = frame.time;
+    }
+  }
+  return fallbackZeroCountdown;
+}
+
+// Decide where a kickoff clip should stop looping, in player-clock time. Ends on
+// the first "non-kickoff" touch (the follow-up touch), else a fixed beat after the
+// taker's first touch, clamped to a [min, max] window from the clip's start frame
+// so the loop never overshoots into open play or feels too abrupt. All bounds come
+// from frame indices (rebase-safe), resolved against the parsed frames.
+function kickoffClipEndTime(replay: ReplayModel, kickoff: KickoffRow, startFrame: number | null): number {
+  const frames = replay.frames;
+  const timeAtFrame = (frameIndex: number | null): number | null =>
+    frameIndex != null && frameIndex >= 0 && frameIndex < frames.length ? frames[frameIndex].time : null;
+
+  const startTime = timeAtFrame(startFrame) ?? 0;
+  const cap = Math.min(startTime + KICKOFF_CLIP_MAX_DURATION_SECONDS, replay.duration);
+  const floor = startTime + KICKOFF_CLIP_MIN_DURATION_SECONDS;
+
+  const followUpTime = timeAtFrame(kickoff.followUpTouch.frame);
+  const firstTouchTime = timeAtFrame(kickoff.firstTouch.frame);
+
+  let end: number | null = null;
+  if (followUpTime != null) {
+    end = followUpTime + KICKOFF_CLIP_FOLLOW_UP_POSTROLL_SECONDS;
+  } else if (firstTouchTime != null) {
+    end = firstTouchTime + KICKOFF_CLIP_FIRST_TOUCH_POSTROLL_SECONDS;
+  }
+
+  if (end == null) {
+    return cap;
+  }
+  return Math.min(cap, Math.max(floor, end));
 }
 
 function kickoffWinnerPreviewPlayer(kickoff: KickoffRow): { playerKey: string | null; playerName: string | null } | null {

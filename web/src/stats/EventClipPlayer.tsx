@@ -10,23 +10,56 @@ import * as subtrActor from "@rlrml/subtr-actor";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-export type EventClipCamera =
-  | {
-      kind: "follow-player";
-      playerKey?: string | null;
-      playerName: string | null;
-      ballCam?: boolean;
-    }
-  | {
-      kind: "free";
-      preset?: ReplayFreeCameraPreset;
-    };
+/**
+ * Imperative camera controls handed to an {@link EventClipCamera} each time a clip
+ * is applied. Backed by the live player and its track lookup, so callers can drive
+ * the camera without knowing about player internals or track ids.
+ */
+export interface EventClipCameraControls {
+  /**
+   * Attach the camera to a player identified by remote key and/or display name.
+   * Returns true if a matching track was found and the camera was attached, false
+   * otherwise (so the caller can decide on a fallback).
+   */
+  followPlayer(target: { playerKey?: string | null; playerName?: string | null; ballCam?: boolean }): boolean;
+  /** Switch to a free-roaming camera preset (defaults to "side"). */
+  freeCamera(preset?: ReplayFreeCameraPreset): void;
+}
+
+/**
+ * Caller-defined camera setup, invoked each time a clip is applied. Receives
+ * {@link EventClipCameraControls} and is free to compose them however it likes.
+ */
+export type EventClipCamera = (controls: EventClipCameraControls) => void;
+
+/**
+ * Resolves a clip's start time once the replay has been parsed, for starts that
+ * can only be determined accurately from frame data (e.g. the moment a kickoff
+ * countdown reaches zero). Receives the parsed replay and the clip's nominal
+ * start, and returns an absolute time in seconds, or null to fall back to the
+ * clip's other start hints (startFrame, anchorFrame, then start).
+ */
+export type EventClipStartResolver = (replay: ReplayModel, nominalStart: number) => number | null;
+
+/**
+ * Resolves a clip's end time once the replay has been parsed. Same contract as
+ * {@link EventClipStartResolver}: returns an absolute time in the player's clock,
+ * or null to fall back to the clip's other end hints (endFrame, anchorFrame, end).
+ *
+ * Prefer resolving from frame indices (replay.frames[i].time) rather than raw
+ * event timestamps: the player rebases frame times to start at 0, so absolute
+ * timestamps from upstream event data do not match the player clock, while frame
+ * indices do.
+ */
+export type EventClipEndResolver = (replay: ReplayModel, nominalEnd: number) => number | null;
 
 export interface EventClip {
   start: number;
   end: number;
-  /** Optional resolver for starts that can be determined more accurately after replay parsing. */
-  startResolver?: "kickoff-live-action";
+  /** Optional caller-defined resolver for starts that can only be pinned down after the replay is parsed. */
+  resolveStart?: EventClipStartResolver;
+  /** Optional caller-defined resolver for ends that can only be pinned down after the replay is parsed. */
+  resolveEnd?: EventClipEndResolver;
   /** Optional exact frame to seek to for the beginning of the clip. */
   startFrame?: number | null;
   /** Optional exact frame to use as the end of the loop. */
@@ -173,22 +206,25 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
     if (!player) {
       return;
     }
-    const startFrameTime =
-      target.startFrame != null
-        ? player.replay.frames[target.startFrame]?.time
-        : undefined;
-    const endFrameTime =
-      target.endFrame != null
-        ? player.replay.frames[target.endFrame]?.time
-        : undefined;
-    const anchorTime =
-      target.anchorFrame != null
-        ? player.replay.frames[target.anchorFrame]?.time
-        : undefined;
-    const resolvedStartTime =
-      target.startResolver === "kickoff-live-action"
-        ? kickoffLiveActionStartTime(player.replay, target.start)
-        : null;
+    // Frame indices align between upstream event data and the parsed replay, but
+    // the player rebases frame times to start at 0. Always resolve a frame index
+    // through the parsed frames (clamped to range) so we use the player clock.
+    const frameTime = (frameIndex: number | null | undefined): number | undefined => {
+      if (frameIndex == null) {
+        return undefined;
+      }
+      const clamped = Math.min(Math.max(frameIndex, 0), player.replay.frames.length - 1);
+      return player.replay.frames[clamped]?.time;
+    };
+    const startFrameTime = frameTime(target.startFrame);
+    const endFrameTime = frameTime(target.endFrame);
+    const anchorTime = frameTime(target.anchorFrame);
+    const resolvedStartTime = target.resolveStart
+      ? target.resolveStart(player.replay, target.start)
+      : null;
+    const resolvedEndTime = target.resolveEnd
+      ? target.resolveEnd(player.replay, target.end)
+      : null;
     const start =
       resolvedStartTime != null
         ? resolvedStartTime
@@ -198,29 +234,31 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
         ? Math.max(0, anchorTime - (target.prerollSeconds ?? 0))
         : target.start;
     const end =
-      endFrameTime != null
+      resolvedEndTime != null
+        ? resolvedEndTime
+        : endFrameTime != null
         ? endFrameTime
         : anchorTime != null
         ? Math.min(player.replay.duration, anchorTime + (target.postrollSeconds ?? 0))
         : target.end;
     loopRef.current = { start, end };
-    if (target.camera.kind === "follow-player") {
-      const trackId =
-        (target.camera.playerKey
-          ? trackByPlayerKeyRef.current.get(normalizePlayerKey(target.camera.playerKey))
-          : undefined) ??
-        (target.camera.playerName
-          ? trackByNameRef.current.get(target.camera.playerName.trim().toLowerCase())
-          : undefined);
-      if (trackId) {
+    const cameraControls: EventClipCameraControls = {
+      followPlayer({ playerKey, playerName, ballCam }) {
+        const trackId =
+          (playerKey ? trackByPlayerKeyRef.current.get(normalizePlayerKey(playerKey)) : undefined) ??
+          (playerName ? trackByNameRef.current.get(playerName.trim().toLowerCase()) : undefined);
+        if (trackId == null) {
+          return false;
+        }
         player.setAttachedPlayer(trackId);
-        player.setBallCamEnabled(target.camera.ballCam ?? true);
-      } else {
-        player.setFreeCameraPreset("side");
-      }
-    } else {
-      player.setFreeCameraPreset(target.camera.preset ?? "side");
-    }
+        player.setBallCamEnabled(ballCam ?? true);
+        return true;
+      },
+      freeCamera(preset) {
+        player.setFreeCameraPreset(preset ?? "side");
+      },
+    };
+    target.camera(cameraControls);
     player.seek(start);
     player.play();
   }, []);
@@ -357,30 +395,3 @@ function normalizePlayerKey(value: string): string {
   return `${platform === "psynet" ? "epic" : platform === "playstation" ? "ps4" : platform}:${id}`;
 }
 
-function kickoffLiveActionStartTime(replay: ReplayModel, kickoffStart: number): number | null {
-  const searchStart = Math.max(0, kickoffStart - 0.1);
-  const searchEnd = Math.min(replay.duration, kickoffStart + 8);
-  let fallbackZeroCountdown: number | null = null;
-  for (let index = 0; index < replay.frames.length; index += 1) {
-    const frame = replay.frames[index];
-    if (!frame || frame.time < searchStart) {
-      continue;
-    }
-    if (frame.time > searchEnd) {
-      break;
-    }
-    const previous = replay.frames[index - 1];
-    if (
-      frame.kickoffCountdown === 0 &&
-      previous &&
-      previous.kickoffCountdown > 0 &&
-      previous.kickoffCountdown <= 3
-    ) {
-      return frame.time;
-    }
-    if (fallbackZeroCountdown == null && frame.kickoffCountdown === 0 && frame.time >= kickoffStart + 2) {
-      fallbackZeroCountdown = frame.time;
-    }
-  }
-  return fallbackZeroCountdown;
-}

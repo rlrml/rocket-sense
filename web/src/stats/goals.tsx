@@ -63,10 +63,10 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
       anchorFrame: goal.anchorFrame,
       prerollSeconds: GOAL_CLIP_PREROLL_SECONDS,
       postrollSeconds: GOAL_CLIP_POSTROLL_SECONDS,
-      camera: {
-        kind: "follow-player",
-        playerName: goal.scorerName,
-        ballCam: true,
+      camera: (cam) => {
+        if (!cam.followPlayer({ playerName: goal.scorerName, ballCam: true })) {
+          cam.freeCamera("side");
+        }
       },
       key: `${goal.event.id}:${replayNonce}`,
     };
