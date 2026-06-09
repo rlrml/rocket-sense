@@ -1,24 +1,17 @@
-// Canonical place for converting raw Rocket League boost amounts into the
-// 0-100 display scale.
+// Boost display-unit helpers for the web UI.
 //
-// subtr-actor stores boost in raw replay units (0-255, where a full tank is
-// 255 and a standard kickoff starts at 85). Values are kept raw all the way
-// through storage and the bindings; the 0-255 -> 0-100 rescale must happen at
-// the last moment, here at display time. Every boost number shown in the UI
-// should go through these helpers so the conversion lives in exactly one spot.
-//
-// This is a local mirror of `boostAmountToPercent` from `@rlrml/player` (see
-// subtr-actor `js/player/src/boost-units.ts`, which itself mirrors
-// `boost_amount_to_percent` in `src/domain/boost_units.rs`). Once the web app
-// consumes an `@rlrml/player` that exports it, drop this file and import the
-// shared helper instead.
+// subtr-actor stores boost in raw replay units (0-255, where a full tank is 255
+// and a standard kickoff starts at 85), kept raw all the way through storage
+// and the bindings. The raw 0-255 -> 0-100 rescale lives in `@rlrml/player`
+// (`boostAmountToPercent`, from subtr-actor `js/player/src/boost-units.ts`,
+// which mirrors `boost_amount_to_percent` in `src/domain/boost_units.rs`) and
+// is imported here via the `@rlrml/player/boost-units` subpath so the
+// conversion has a single home shared across subtr-actor and this app. This
+// module only layers the web's presentation conventions on top.
 
-export const BOOST_RAW_MAX = 255;
+export { boostAmountToPercent } from "@rlrml/player/boost-units";
 
-export function boostAmountToPercent(value: number | null | undefined): number | null {
-  if (value == null) return null;
-  return (value * 100) / BOOST_RAW_MAX;
-}
+import { boostAmountToPercent } from "@rlrml/player/boost-units";
 
 /** Formats a raw boost amount as a rounded, localized display percentage. */
 export function formatBoostPercent(value: number | null | undefined): string {
