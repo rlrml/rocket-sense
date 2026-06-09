@@ -26,8 +26,8 @@ interface KickoffRow {
   index: number;
   startTime: number | null;
   endTime: number | null;
-  movementStartTime: number | null;
-  movementStartFrame: number | null;
+  liveActionStartTime: number | null;
+  liveActionStartFrame: number | null;
   outcome: string | null;
   possessionOutcome: string | null;
   winningTeam: number | null;
@@ -97,7 +97,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
   const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
   const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
   const buildClip = useCallback((kickoff: KickoffRow, replayNonce: number): EventClip | null => {
-    const clipStart = kickoff.movementStartTime;
+    const clipStart = kickoff.liveActionStartTime;
     if (clipStart == null) {
       return null;
     }
@@ -106,7 +106,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
     return {
       start: clipStart,
       end: (endTime ?? clipStart) + KICKOFF_CLIP_POSTROLL_SECONDS,
-      startFrame: kickoff.movementStartFrame,
+      startFrame: kickoff.liveActionStartFrame,
       camera: winnerPlayerName
         ? { kind: "follow-player", playerName: winnerPlayerName, ballCam: true }
         : { kind: "free", preset: "side" },
@@ -393,15 +393,15 @@ function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
 function kickoffRow(event: MechanicEventResponse, index: number, players: ReplayPlayer[]): KickoffRow {
   const payload = event.payload;
   const startTime = numberField(payload, "start_time") ?? event.start_time;
-  const movementStartTime = numberField(payload, "movement_start_time");
-  const movementStartFrame = numberField(payload, "movement_start_frame");
+  const liveActionStartTime = numberField(payload, "live_action_start_time");
+  const liveActionStartFrame = numberField(payload, "live_action_start_frame");
   return {
     event,
     index,
     startTime,
     endTime: numberField(payload, "end_time") ?? event.end_time,
-    movementStartTime,
-    movementStartFrame,
+    liveActionStartTime,
+    liveActionStartFrame,
     outcome: stringField(payload, "outcome"),
     possessionOutcome: stringField(payload, "kickoff_possession_outcome"),
     winningTeam: teamField(payload, "winning_team_is_team_0"),
