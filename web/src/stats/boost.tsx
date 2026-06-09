@@ -1,18 +1,17 @@
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import { listBoostTracks } from "../api";
+import type { BoostTrack, MechanicEventResponse, ReplayPlayer } from "../types";
 
+// subtr-actor's consolidated boost model emits one rich pickup event per pad
+// collection (keyed by detection: both/ghost/missed) plus respawn events.
+// Continuous boost amount and cumulative totals come from accumulation tracks
+// fetched separately (see useBoostTracks), not from discrete events.
 export const boostEventTypes = [
-  "boost_state",
   "boost_pickup_both",
-  "boost_pickup_big",
-  "boost_pickup_small",
-  "boost_ledger_collected",
-  "boost_ledger_overfill",
-  "boost_ledger_respawn",
-  "boost_ledger_stolen",
-  "boost_ledger_used",
-  "boost_ledger_used_allocation",
+  "boost_pickup_ghost",
+  "boost_pickup_missed",
+  "boost_respawn",
 ];
 interface BoostPlayerSummary {
   key: string;
@@ -48,7 +47,8 @@ interface BoostPlayerSummary {
 }
 
 interface BoostStateSample {
-  event: MechanicEventResponse;
+  playerId: string | null;
+  team: number | null;
   time: number;
   amount: number;
 }
@@ -93,24 +93,24 @@ export function BoostDetail({
   events,
   players,
   durationSeconds,
+  replayId,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  replayId: string;
 }) {
+  const tracks = useBoostTracks(replayId);
   const boostEvents = events.filter((event) => event.event_type.includes("boost"));
-  const stateSamples = boostEvents
-    .filter((event) => event.event_type === "boost_state")
-    .map((event) => ({
-      event,
-      time: event.event_time ?? event.start_time ?? numericPayload(event.payload, "time") ?? 0,
-      amount: boostAmountToPercent(numericPayload(event.payload, "boost_amount")),
-    }))
-    .filter((sample): sample is BoostStateSample => sample.amount != null);
-  const ledgerEvents = boostEvents.filter((event) => event.event_type.startsWith("boost_ledger"));
   const pickupEvents = boostEvents.filter((event) => event.event_type.startsWith("boost_pickup"));
-  const summaries = boostPlayerSummaries(players, stateSamples, ledgerEvents, pickupEvents);
-  const pickupMapPoints = boostPickupMapPoints(players, pickupEvents, ledgerEvents);
+  const respawnEvents = boostEvents.filter((event) => event.event_type === "boost_respawn");
+  const stateSamples = useMemo(() => boostAmountSamplesFromTracks(tracks), [tracks]);
+  const trackTotals = useMemo(() => cumulativeTrackTotals(tracks), [tracks]);
+  const summaries = useMemo(
+    () => boostPlayerSummaries(players, stateSamples, pickupEvents, respawnEvents, trackTotals),
+    [players, stateSamples, pickupEvents, respawnEvents, trackTotals],
+  );
+  const pickupMapPoints = boostPickupMapPoints(players, pickupEvents);
   const chartDuration = durationSeconds ?? Math.max(60, ...stateSamples.map((sample) => sample.time), ...boostEvents.map((event) => event.event_time ?? 0));
   const isOneVOne = isOneVOneMatch(players);
   const [selectedComparisonMode, setSelectedComparisonMode] = useState<BoostComparisonMode>("players");
@@ -1330,63 +1330,141 @@ function boostStatSortValue(summary: BoostPlayerSummary, key: BoostStatSortKey):
   return summary[key] ?? Number.NEGATIVE_INFINITY;
 }
 
+// React hook: load the replay's boost accumulation tracks. Returns [] until the
+// fetch resolves (or if the replay has not been reprocessed with tracks yet).
+function useBoostTracks(replayId: string): BoostTrack[] {
+  const [tracks, setTracks] = useState<BoostTrack[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    setTracks([]);
+    listBoostTracks(replayId)
+      .then((response) => {
+        if (!cancelled) setTracks(response.tracks);
+      })
+      .catch(() => {
+        if (!cancelled) setTracks([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [replayId]);
+  return tracks;
+}
+
+// Flatten the per-player `boost_amount` accumulation track into instantaneous
+// boost-amount samples (converted from raw 0-255 units to 0-100 percent).
+function boostAmountSamplesFromTracks(tracks: BoostTrack[]): BoostStateSample[] {
+  const samples: BoostStateSample[] = [];
+  for (const track of tracks) {
+    if (track.quantity !== "boost_amount") continue;
+    const team = track.is_team_0 ? 0 : 1;
+    for (const point of track.points) {
+      if (point.time == null) continue;
+      samples.push({
+        playerId: track.player_id,
+        team,
+        time: point.time,
+        amount: boostAmountToPercent(point.value) ?? 0,
+      });
+    }
+  }
+  return samples;
+}
+
+// Final cumulative value of each `${playerId}:${quantity}` monotonic track, in
+// 0-100 percent units (e.g. total boost used, used-while-supersonic, ...).
+function cumulativeTrackTotals(tracks: BoostTrack[]): Map<string, number> {
+  const totals = new Map<string, number>();
+  for (const track of tracks) {
+    if (track.player_id == null || track.quantity === "boost_amount") continue;
+    const last = track.points.at(-1);
+    if (!last) continue;
+    totals.set(`${track.player_id}:${track.quantity}`, boostAmountToPercent(last.value) ?? 0);
+  }
+  return totals;
+}
+
+// Time-weighted mean boost amount over the tracked window. The change-point
+// samples are irregularly spaced, so weight each by the time it holds.
+function timeWeightedBoostAverage(samples: BoostStateSample[], durationSeconds: number): number | null {
+  const sorted = samples.slice().sort((left, right) => left.time - right.time);
+  let weightedSum = 0;
+  let trackedSeconds = 0;
+  for (let index = 0; index < sorted.length; index += 1) {
+    const sample = sorted[index];
+    const nextTime = sorted[index + 1]?.time ?? durationSeconds;
+    const seconds = Math.max(0, Math.min(durationSeconds, nextTime) - Math.max(0, sample.time));
+    if (seconds === 0) continue;
+    weightedSum += sample.amount * seconds;
+    trackedSeconds += seconds;
+  }
+  return trackedSeconds > 0 ? weightedSum / trackedSeconds : null;
+}
+
+function sumPickupAmounts(events: MechanicEventResponse[], field: string): number {
+  return events.reduce((total, event) => total + (boostAmountToPercent(numericPayload(event.payload, field)) ?? 0), 0);
+}
+
+function isStealPickup(event: MechanicEventResponse): boolean {
+  return event.payload.is_steal === true;
+}
+
 function boostPlayerSummaries(
   players: ReplayPlayer[],
   stateSamples: BoostStateSample[],
-  ledgerEvents: MechanicEventResponse[],
   pickupEvents: MechanicEventResponse[],
+  respawnEvents: MechanicEventResponse[],
+  trackTotals: Map<string, number>,
 ): BoostPlayerSummary[] {
   const durationSeconds = Math.max(1, ...stateSamples.map((sample) => sample.time));
   return players.map((player) => {
     const key = playerKey(player);
-    const matchingSamples = stateSamples.filter((sample) => eventMatchesPlayer(sample.event, player));
-    const amounts = matchingSamples.map((sample) => sample.amount);
-    const matchingLedger = ledgerEvents.filter((event) => eventMatchesPlayer(event, player));
+    const matchingSamples = stateSamples.filter((sample) => sample.playerId === key);
     const matchingPickups = pickupEvents.filter((event) => eventMatchesPlayer(event, player));
-    const collectedLedger = matchingLedger.filter((event) => event.event_type === "boost_ledger_collected");
-    const grantLedger = matchingLedger.filter((event) => event.event_type === "boost_ledger_respawn");
-    const collectedGrant = sumAmounts(grantLedger);
-    const collected = sumAmounts(collectedLedger) + collectedGrant;
-    const collectedBig = sumAmounts(collectedLedger.filter((event) => boostPadSize(event) === "big"));
-    const collectedSmall = sumAmounts(collectedLedger.filter((event) => boostPadSize(event) === "small"));
-    const stolenLedger = matchingLedger.filter((event) => event.event_type === "boost_ledger_stolen");
-    const used = sumAmounts(matchingLedger.filter((event) => event.event_type === "boost_ledger_used"));
-    const usedWhileSupersonic = sumAmounts(
-      matchingLedger.filter((event) => event.event_type === "boost_ledger_used_allocation" && labelValue(event, "supersonic") === "true"),
-    );
-    const overfillLedger = matchingLedger.filter((event) => event.event_type === "boost_ledger_overfill");
-    const overfill = sumAmounts(overfillLedger);
-    const stolenOverfill = sumAmounts(overfillLedger.filter((event) => labelValue(event, "field_half") === "opponent"));
-    const stolenBigLedger = stolenLedger.filter((event) => boostPadSize(event) === "big");
-    const stolenSmallLedger = stolenLedger.filter((event) => boostPadSize(event) === "small");
-    const stolenBigBoost = sumAmounts(stolenBigLedger);
-    const stolenSmallBoost = sumAmounts(stolenSmallLedger);
-    const stolen = stolenBigBoost + stolenSmallBoost;
-    const stolenBig = stolenBigLedger.length;
-    const stolenSmall = stolenSmallLedger.length;
+    const matchingRespawns = respawnEvents.filter((event) => eventMatchesPlayer(event, player));
+
+    const collectedPads = sumPickupAmounts(matchingPickups, "collected_amount");
+    const collectedBig = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "big"), "collected_amount");
+    const collectedSmall = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "small"), "collected_amount");
+    const collectedGrant = sumPickupAmounts(matchingRespawns, "boost_granted");
+    const collected = collectedPads + collectedGrant;
+
+    const stealPickups = matchingPickups.filter(isStealPickup);
+    const stolenBigPickups = stealPickups.filter((event) => boostPadSize(event) === "big");
+    const stolenSmallPickups = stealPickups.filter((event) => boostPadSize(event) === "small");
+    const stolenBigBoost = sumPickupAmounts(stolenBigPickups, "collected_amount");
+    const stolenSmallBoost = sumPickupAmounts(stolenSmallPickups, "collected_amount");
+    const stolen = sumPickupAmounts(stealPickups, "collected_amount");
+
+    const overfill = sumPickupAmounts(matchingPickups, "overfill_amount");
+    const stolenOverfill = sumPickupAmounts(stealPickups, "overfill_amount");
+
     const bigPads = matchingPickups.filter((event) => boostPadSize(event) === "big").length;
     const smallPads = matchingPickups.filter((event) => boostPadSize(event) === "small").length;
+
+    const used = trackTotals.get(`${key}:boost_used`) ?? 0;
+    const usedWhileSupersonic = trackTotals.get(`${key}:boost_used_supersonic`) ?? 0;
     const bandDurations = boostBandDurations(matchingSamples, durationSeconds);
 
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
       team: player.team,
-      average: average(amounts),
+      average: timeWeightedBoostAverage(matchingSamples, durationSeconds),
       bpm: perMinute(used, durationSeconds),
       bcpm: perMinute(collected, durationSeconds),
       collected,
       collectedBig,
       collectedSmall,
       collectedGrant,
-      collectedUnknown: Math.max(0, collected - collectedBig - collectedSmall - collectedGrant),
+      collectedUnknown: Math.max(0, collectedPads - collectedBig - collectedSmall),
       used,
       stolen,
       stolenBigBoost,
-      stolenBig,
-      stolenSmall,
+      stolenBig: stolenBigPickups.length,
+      stolenSmall: stolenSmallPickups.length,
       stolenSmallBoost,
-      stolenCount: stolenBigLedger.length,
+      stolenCount: stealPickups.length,
       bigPads,
       smallPads,
       usedWhileSupersonic,
@@ -1450,9 +1528,7 @@ function smallPadPotentialBoost(summary: BoostPlayerSummary): number {
 function boostPickupMapPoints(
   players: ReplayPlayer[],
   pickupEvents: MechanicEventResponse[],
-  ledgerEvents: MechanicEventResponse[],
 ): BoostPickupMapPoint[] {
-  const stolenEvents = ledgerEvents.filter((event) => event.event_type === "boost_ledger_stolen");
   const aggregates = new Map<string, BoostPickupMapPoint>();
 
   const addEvent = (event: MechanicEventResponse, stealKind: "big" | "small" | null) => {
@@ -1490,14 +1566,7 @@ function boostPickupMapPoints(
   };
 
   for (const event of pickupEvents) {
-    const stolenEvent = stolenEvents.find((candidate) => eventsDescribeSamePickup(event, candidate));
-    const stolenPadSize = stolenEvent ? boostPadSize(stolenEvent) : null;
-    addEvent(event, stolenPadSize === "big" ? "big" : stolenPadSize === "small" ? "small" : null);
-  }
-
-  for (const event of stolenEvents) {
-    if (pickupEvents.some((pickupEvent) => eventsDescribeSamePickup(pickupEvent, event))) continue;
-    const stolenPadSize = boostPadSize(event);
+    const stolenPadSize = isStealPickup(event) ? boostPadSize(event) : null;
     addEvent(event, stolenPadSize === "big" ? "big" : stolenPadSize === "small" ? "small" : null);
   }
 
@@ -1556,25 +1625,11 @@ function createBoostPadLocations(): BoostPadLocation[] {
   return pads;
 }
 
-function eventsDescribeSamePickup(left: MechanicEventResponse, right: MechanicEventResponse): boolean {
-  if (left.player_name !== right.player_name && left.player_id !== right.player_id) return false;
-  const leftTime = eventTime(left);
-  const rightTime = eventTime(right);
-  if (leftTime == null || rightTime == null || Math.abs(leftTime - rightTime) > 0.35) return false;
-  const leftPad = boostPadSize(left);
-  const rightPad = boostPadSize(right);
-  return leftPad == null || rightPad == null || leftPad === rightPad;
-}
-
 function eventPosition(event: MechanicEventResponse): { x: number; y: number } | null {
   const position = event.payload.player_position;
   if (!Array.isArray(position) || position.length < 2) return null;
   const [x, y] = position;
   return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
-}
-
-function eventTime(event: MechanicEventResponse): number | null {
-  return event.event_time ?? event.start_time ?? numericPayload(event.payload, "time");
 }
 
 function projectFieldPosition(x: number, y: number): { x: number; y: number } {
@@ -1627,7 +1682,7 @@ function teamBoostContributionsOverTime(
     .sort((left, right) => left.time - right.time)
     .map((sample) => ({
       ...sample,
-      playerKey: eventPlayerKey(sample.event),
+      playerKey: sample.playerId,
   }));
   let sampleIndex = 0;
   const latestByPlayer = new Map<string, number>();
@@ -1751,7 +1806,7 @@ function boostLevelDistribution(samples: BoostStateSample[], players: ReplayPlay
   return players.map((player) => {
     const key = playerKey(player);
     const matchingSamples = samples
-      .filter((sample) => eventMatchesPlayer(sample.event, player))
+      .filter((sample) => sample.playerId === playerKey(player))
       .slice()
       .sort((left, right) => left.time - right.time);
     const secondsByBand = new Map(boostLevelBands.map((band) => [band.id, 0]));
@@ -1845,16 +1900,8 @@ function eventMatchesPlayer(event: MechanicEventResponse, player: ReplayPlayer):
   return Boolean(player.name && event.player_name === player.name);
 }
 
-function eventPlayerKey(event: MechanicEventResponse): string | null {
-  return event.player_id ?? (event.player_name ? `name:${event.player_name}` : null);
-}
-
 function playerKey(player: ReplayPlayer): string {
   return player.platform && player.platform_player_id ? `${player.platform}:${player.platform_player_id}` : `name:${player.name || "unknown"}`;
-}
-
-function sumAmounts(events: MechanicEventResponse[]): number {
-  return events.reduce((total, event) => total + (boostAmountToPercent(numericPayload(event.payload, "amount")) ?? 0), 0);
 }
 
 function average(values: number[]): number | null {
@@ -1869,17 +1916,6 @@ function isNumber(value: number | null): value is number {
 function numericPayload(payload: Record<string, unknown>, key: string): number | null {
   const value = payload[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function labelValue(event: MechanicEventResponse, key: string): string | null {
-  const labels = event.payload.labels;
-  if (!Array.isArray(labels)) return null;
-  const label = labels.find((candidate): candidate is { key: string; value: string } => {
-    if (typeof candidate !== "object" || candidate == null) return false;
-    const record = candidate as Record<string, unknown>;
-    return record.key === key && typeof record.value === "string";
-  });
-  return label?.value ?? null;
 }
 
 function boostAmountToPercent(value: number | null): number | null {

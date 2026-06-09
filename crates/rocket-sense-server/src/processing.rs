@@ -29,7 +29,12 @@ const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // previously every goal recorded 0 because the explosion frame carries no ball
 // velocity. Bumping marks prior analyses stale so reprocessing re-emits the
 // event stream with real speeds.
-const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v3";
+// Bumped v3 -> v4 for the subtr-actor boost-model rewrite: the `boost_ledger`
+// and `boost_state` timeline streams were removed in favor of consolidated
+// `boost_pickups`/`boost_respawn` events plus per-frame accumulation tracks.
+// Bumping marks prior analyses stale so reprocessing re-keys pickups and
+// persists the new boost accumulation tracks.
+const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v4";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
@@ -49,6 +54,10 @@ struct ReplayAnalysisOutput {
     event_stream: Value,
     indexed_events: Vec<IndexedEvent>,
     metadata: ReplaySearchMetadata,
+    /// Continuous boost quantities (instantaneous amount + cumulative
+    /// used/collected/stolen/overfill) resolved to player subject ids and frame
+    /// times, ready to persist and serve to the boost stats page.
+    boost_tracks: Value,
 }
 
 #[derive(Debug, Clone)]
@@ -1018,6 +1027,13 @@ async fn process_replay(
             &replay_players,
         )
         .await?;
+        insert_boost_accumulation_tracks(
+            &pool,
+            analysis_run_id,
+            replay_id,
+            &output.boost_tracks,
+        )
+        .await?;
         let carried_reviews =
             carry_forward_event_reviews(&pool, replay_id, analysis_run_id).await?;
         if carried_reviews > 0 {
@@ -1307,12 +1323,54 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         "timeline_events": timeline_events_value
     });
     let indexed_events = build_indexed_events(&timeline)?;
+    let boost_tracks = collect_boost_accumulation_tracks(&timeline);
 
     Ok(ReplayAnalysisOutput {
         event_stream,
         indexed_events,
         metadata,
+        boost_tracks,
     })
+}
+
+/// Resolve subtr-actor's per-player boost [`AccumulationTrack`]s into a
+/// frontend-friendly shape: each player keyed by the same `platform:id` subject
+/// id used by indexed events, each change-point carrying a wall-clock `time`
+/// (seconds) alongside its `frame` so the boost page can plot it directly.
+fn collect_boost_accumulation_tracks(timeline: &ReplayStatsTimelineScaffold) -> Value {
+    let frame_times: HashMap<usize, f32> = timeline
+        .frames
+        .iter()
+        .map(|frame| (frame.frame_number, frame.time))
+        .collect();
+
+    let tracks = timeline
+        .accumulation_tracks
+        .iter()
+        .map(|track| {
+            let (platform, platform_player_id) = remote_id_parts(&track.player_id);
+            let player_id = player_lookup_key(&platform, &platform_player_id);
+            let points = track
+                .points
+                .iter()
+                .map(|point| {
+                    serde_json::json!({
+                        "frame": point.frame,
+                        "time": frame_times.get(&point.frame).copied(),
+                        "value": point.value,
+                    })
+                })
+                .collect::<Vec<_>>();
+            serde_json::json!({
+                "player_id": player_id,
+                "is_team_0": track.is_team_0,
+                "quantity": track.quantity,
+                "points": points,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    serde_json::json!({ "tracks": tracks })
 }
 
 fn collect_replay_preflight_metadata(replay_bytes: Vec<u8>) -> Result<ReplaySearchMetadata> {
@@ -1923,6 +1981,32 @@ async fn insert_replay_object(
     .execute(pool)
     .await
     .context("failed to insert replay object")?;
+
+    Ok(())
+}
+
+async fn insert_boost_accumulation_tracks(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    tracks: &Value,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO replay_boost_tracks (analysis_run_id, replay_id, tracks)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (analysis_run_id) DO UPDATE
+        SET replay_id = EXCLUDED.replay_id,
+            tracks = EXCLUDED.tracks,
+            created_at = now()
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .bind(tracks)
+    .execute(pool)
+    .await
+    .context("failed to insert boost accumulation tracks")?;
 
     Ok(())
 }
@@ -3667,23 +3751,23 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             )
         }
         "rotation_first_man_stint" => "rotation_first_man_stint".to_owned(),
-        "boost_pickups" => format!(
-            "boost_pickup_{}",
-            payload
-                .get("comparison")
+        "boost_pickups" => {
+            // subtr-actor's consolidated `BoostPickupEvent` carries a `detection` field
+            // (`both` | `inferred_only` | `reported_only`). Map it to the canonical
+            // review keys declared in subtr-actor's event-definition registry
+            // (`boost_pickup_both` | `boost_pickup_ghost` | `boost_pickup_missed`).
+            let suffix = match payload
+                .get("detection")
                 .and_then(normalized_variant_name)
                 .as_deref()
-                .unwrap_or("event")
-        ),
-        "boost_ledger" => format!(
-            "boost_ledger_{}",
-            payload
-                .get("transaction")
-                .and_then(normalized_variant_name)
-                .as_deref()
-                .unwrap_or("event")
-        ),
-        "boost_state" => "boost_state".to_owned(),
+            {
+                Some("both") => "both",
+                Some("inferred_only") => "ghost",
+                Some("reported_only") => "missed",
+                _ => "event",
+            };
+            format!("boost_pickup_{suffix}")
+        }
         _ => metadata
             .map(|metadata| metadata.id.to_owned())
             .unwrap_or_else(|| stream.to_owned()),
