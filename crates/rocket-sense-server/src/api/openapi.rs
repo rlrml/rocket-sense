@@ -8,6 +8,7 @@ use utoipa::{
 #[openapi(
     paths(
         admin::backfill_profile_timing,
+        admin::list_replay_processing_diagnostics,
         admin::reprocess_replays,
         auth::auth_options,
         auth::create_dev_token,
@@ -37,6 +38,13 @@ use utoipa::{
             auth::AuthProviderResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
+            admin::AnalysisRunDiagnosticResponse,
+            admin::ReplayProcessingDiagnosticResponse,
+            admin::ReplayProcessingDiagnosticsResponse,
+            admin::ReplayProcessingDiagnosticsSummaryResponse,
+            admin::ReplayProcessingQueueCountResponse,
+            admin::ReplayProcessingStatusCountResponse,
+            admin::ReplayProcessingDiagnosticsQuery,
             admin::ReprocessReplaysRequest,
             admin::ReprocessReplaysResponse,
             crate::auth::AccessToken,

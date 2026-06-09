@@ -20,6 +20,7 @@ pub fn router() -> Router<AppState> {
         .route("/players/{platform}/{platform_player_id}", get(spa_index))
         .route("/events/review", get(spa_index))
         .route("/mechanics/review", get(spa_index))
+        .route("/admin/processing", get(spa_index))
         .route("/assets/{*asset_path}", get(spa_asset))
         .route("/favicon.ico", get(favicon))
 }
