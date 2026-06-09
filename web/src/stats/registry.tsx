@@ -57,7 +57,7 @@ export const statGroups: StatGroup[] = [
     terms: ["kickoff"],
     completed: true,
     usesAggregateStats: false,
-    eventTypes: kickoffEventTypes,
+    eventTypes: [...kickoffEventTypes, "possession"],
     Detail: KickoffDetail,
   },
   {

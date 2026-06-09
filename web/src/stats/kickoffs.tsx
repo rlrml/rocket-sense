@@ -47,13 +47,15 @@ interface KickoffRow {
   possessionOutcome: string | null;
   winningTeam: number | null;
   possessionTeam: number | null;
+  nextPossession: KickoffPossession | null;
   scoringTeam: number | null;
   kickoffGoal: boolean;
   kickoffType: KickoffType;
   kickoffDirection: KickoffDirection;
   timeToGoal: number | null;
-  takerDelay: number | null;
+  takerDelayFrames: number | null;
   exitSpeed: number | null;
+  winStrengthBand: KickoffStrengthBand;
   firstTouch: KickoffTouch;
   followUpTouch: KickoffTouch;
   teamZeroTaker: KickoffPlayerBehavior | null;
@@ -70,6 +72,23 @@ interface KickoffTouch {
   frame: number | null;
 }
 
+interface KickoffPossession {
+  playerKey: string | null;
+  playerName: string;
+  team: number | null;
+  startTime: number | null;
+  frame: number | null;
+}
+
+interface PossessionSpan {
+  playerKey: string | null;
+  playerName: string;
+  team: number | null;
+  startTime: number | null;
+  endTime: number | null;
+  frame: number | null;
+}
+
 interface KickoffPlayerBehavior {
   playerKey: string | null;
   playerName: string;
@@ -81,10 +100,13 @@ interface KickoffPlayerBehavior {
   supportBehavior: string | null;
   startBoost: number | null;
   boostAfter: number | null;
+  boostAtFirstTouch: number | null;
   timeToBall: number | null;
   boostCollected: number | null;
   boostUsed: number | null;
   firstTouchTime: number | null;
+  startPosition: [number, number, number] | null;
+  distanceToBallAtFirstTouch: number | null;
 }
 
 interface PlayerKickoffSummary {
@@ -106,16 +128,34 @@ interface PlayerKickoffSummary {
   boostUsedCount: number;
   approaches: Map<string, number>;
   supportBehaviors: Map<string, number>;
+  strengthOutcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
+}
+
+type KickoffStrengthBand = "narrow" | "clear" | "strong" | "unknown";
+
+interface KickoffStrengthOutcome {
+  wins: number;
+  losses: number;
+  neutral: number;
 }
 
 export function KickoffDetail({ events, players, replayId }: KickoffDetailProps) {
+  const possessionSpans = useMemo(
+    () =>
+      events
+        .filter((event) => event.event_type === "possession")
+        .map((event) => possessionSpan(event, players))
+        .filter((span): span is PossessionSpan => Boolean(span))
+        .sort((left, right) => (left.startTime ?? Number.POSITIVE_INFINITY) - (right.startTime ?? Number.POSITIVE_INFINITY)),
+    [events, players],
+  );
   const kickoffs = useMemo(
     () =>
       events
         .filter((event) => event.event_type === "kickoff")
-        .map((event, index) => kickoffRow(event, index, players))
+        .map((event, index) => kickoffRow(event, index, players, possessionSpans))
         .sort((left, right) => (left.startTime ?? Number.POSITIVE_INFINITY) - (right.startTime ?? Number.POSITIVE_INFINITY)),
-    [events, players],
+    [events, players, possessionSpans],
   );
   const playerSummaries = useMemo(() => kickoffPlayerSummaries(kickoffs, players), [kickoffs, players]);
   const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
@@ -267,6 +307,7 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
             <th>Avg boost used</th>
             <th>Common approach</th>
             <th>Support habit</th>
+            <th>Outcomes by strength</th>
             <th>Goals</th>
           </tr>
         </thead>
@@ -289,6 +330,7 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
               <td>{formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount)}</td>
               <td>{topMapLabel(summary.approaches)}</td>
               <td>{topMapLabel(summary.supportBehaviors)}</td>
+              <td><KickoffStrengthSummary outcomes={summary.strengthOutcomes} /></td>
               <td>
                 <span className="kickoff-goal-balance">
                   +{summary.kickoffGoalsFor} / -{summary.kickoffGoalsAgainst}
@@ -311,8 +353,8 @@ function KickoffCard({
   active: boolean;
   onActivate: (force: boolean) => void;
 }) {
-  const blueBehaviors = [kickoff.teamZeroTaker, ...kickoff.teamZeroSupport].filter(Boolean) as KickoffPlayerBehavior[];
-  const orangeBehaviors = [kickoff.teamOneTaker, ...kickoff.teamOneSupport].filter(Boolean) as KickoffPlayerBehavior[];
+  const blueSupport = kickoff.teamZeroSupport;
+  const orangeSupport = kickoff.teamOneSupport;
 
   return (
     <button
@@ -336,20 +378,25 @@ function KickoffCard({
         </div>
         <div className="kickoff-time-block">
           <strong>{formatSeconds(kickoff.startTime)}</strong>
-          <span>{kickoff.takerDelay == null ? "No taker delay" : `${formatSeconds(kickoff.takerDelay)} taker gap`}</span>
+          <span>{kickoff.takerDelayFrames == null ? "No taker gap" : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}</span>
         </div>
       </header>
 
       <div className="kickoff-outcome-grid">
         <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
         <KickoffFact icon={ShieldCheck} label="Possession" value={kickoffPossessionLabel(kickoff)} team={kickoff.possessionTeam} />
+        <KickoffFact icon={ShieldCheck} label="Next possession" value={formatNextPossession(kickoff.nextPossession)} team={kickoff.nextPossession?.team ?? kickoff.possessionTeam} />
         <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
         <KickoffFact icon={Gauge} label="Exit speed" value={formatSpeed(kickoff.exitSpeed)} team={null} />
       </div>
 
+      <KickoffMiniDiagram kickoff={kickoff} />
+
+      <KickoffTakerSection kickoff={kickoff} />
+
       <div className="kickoff-team-grid">
-        <KickoffTeamColumn label="Blue" team={0} behaviors={blueBehaviors} />
-        <KickoffTeamColumn label="Orange" team={1} behaviors={orangeBehaviors} />
+        <KickoffTeamColumn label="Blue support" team={0} behaviors={blueSupport} kickoff={kickoff} />
+        <KickoffTeamColumn label="Orange support" team={1} behaviors={orangeSupport} kickoff={kickoff} />
       </div>
     </button>
   );
@@ -389,7 +436,114 @@ function KickoffFact({
   );
 }
 
-function KickoffTeamColumn({ label, team, behaviors }: { label: string; team: number; behaviors: KickoffPlayerBehavior[] }) {
+function KickoffMiniDiagram({ kickoff }: { kickoff: KickoffRow }) {
+  const players = [
+    kickoff.teamZeroTaker,
+    kickoff.teamOneTaker,
+    ...kickoff.teamZeroSupport,
+    ...kickoff.teamOneSupport,
+  ].filter(Boolean) as KickoffPlayerBehavior[];
+
+  return (
+    <section className="kickoff-diagram-panel">
+      <div className="kickoff-section-title">
+        <span>Shape</span>
+        <strong>{kickoffShapeLabel(kickoff)}</strong>
+      </div>
+      <svg className="kickoff-mini-diagram" viewBox="0 0 360 220" role="img" aria-label={`Kickoff ${kickoff.index + 1} shape`}>
+        <rect className="kickoff-field-bg" x="8" y="8" width="344" height="204" rx="8" />
+        <line className="kickoff-field-line" x1="8" x2="352" y1="110" y2="110" />
+        <line className="kickoff-field-line muted" x1="180" x2="180" y1="8" y2="212" />
+        <circle className="kickoff-field-circle" cx="180" cy="110" r="34" />
+        <circle className="kickoff-ball-dot" cx="180" cy="110" r="6" />
+        {players.map((player, index) => {
+          const point = diagramPoint(player);
+          const isWinner = player.team != null && player.team === kickoff.winningTeam;
+          return (
+            <g className={`kickoff-diagram-player team-diagram-${teamClass(player.team)} ${player.role === "taker" ? "taker" : "support"} ${isWinner ? "winner" : ""}`} key={`${player.playerKey ?? player.playerName}:${player.role}:${index}`}>
+              {player.role === "taker" ? <line className="kickoff-diagram-lane" x1={point.x} y1={point.y} x2="180" y2="110" /> : null}
+              <circle cx={point.x} cy={point.y} r={player.role === "taker" ? 12 : 8} />
+              <text x={point.x} y={point.y + 4}>{player.role === "taker" ? "T" : "S"}</text>
+            </g>
+          );
+        })}
+      </svg>
+    </section>
+  );
+}
+
+function KickoffTakerSection({ kickoff }: { kickoff: KickoffRow }) {
+  return (
+    <section className="kickoff-taker-section">
+      <div className="kickoff-section-title">
+        <span>Takers</span>
+        <strong>{strengthBandLabel(kickoff.winStrengthBand)} win</strong>
+      </div>
+      <div className="kickoff-taker-grid">
+        <KickoffTakerTile behavior={kickoff.teamZeroTaker} team={0} kickoff={kickoff} />
+        <KickoffTakerTile behavior={kickoff.teamOneTaker} team={1} kickoff={kickoff} />
+      </div>
+    </section>
+  );
+}
+
+function KickoffTakerTile({
+  behavior,
+  team,
+  kickoff,
+}: {
+  behavior: KickoffPlayerBehavior | null;
+  team: number;
+  kickoff: KickoffRow;
+}) {
+  const won = kickoff.winningTeam === team;
+  const className = [
+    "kickoff-taker-tile",
+    `team-taker-${teamClass(team)}`,
+    won ? `winner strength-${kickoff.winStrengthBand}` : "",
+  ].filter(Boolean).join(" ");
+  const boostAfter = behavior?.boostAfter == null ? "-" : `${formatBoostAmount(behavior.boostAfter)} after`;
+  const boostUsed = behavior?.boostUsed == null ? "-" : `${formatBoostAmount(behavior.boostUsed)} used`;
+  const touchTime = behavior ? playerKickoffTime(kickoff, behavior) : null;
+
+  return (
+    <div className={className}>
+      <div className="kickoff-taker-heading">
+        <div>
+          <span>{teamLabel(team)}</span>
+          <strong>{behavior?.playerName ?? "Unknown taker"}</strong>
+        </div>
+        <span className={`kickoff-taker-result ${won ? "won" : "lost"}`}>
+          {won ? "Won" : kickoff.winningTeam == null ? "Neutral" : "Lost"}
+        </span>
+      </div>
+      <div className="kickoff-taker-details">
+        <span>
+          <strong>Strategy</strong>
+          {formatLabel(behavior?.approach ?? null) || "Unknown"}
+        </span>
+        <span>
+          <strong>Result</strong>
+          {formatLabel(behavior?.outcome ?? null) || "Unknown"}
+        </span>
+        <span>
+          <strong>Boost used</strong>
+          {boostUsed}
+        </span>
+        <span>
+          <strong>Boost after</strong>
+          {boostAfter}
+        </span>
+        <span>
+          <strong>Time to ball</strong>
+          {formatDuration(touchTime)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function KickoffTeamColumn({ label, team, behaviors, kickoff }: { label: string; team: number; behaviors: KickoffPlayerBehavior[]; kickoff: KickoffRow }) {
   return (
     <section className={`kickoff-team-column team-column-${teamClass(team)}`}>
       <div className="kickoff-team-title">
@@ -398,18 +552,20 @@ function KickoffTeamColumn({ label, team, behaviors }: { label: string; team: nu
       </div>
       <div className="kickoff-behavior-list">
         {behaviors.map((behavior, index) => (
-          <KickoffBehaviorRow behavior={behavior} key={`${behavior.playerKey ?? behavior.playerName}:${behavior.role}:${index}`} />
+          <KickoffBehaviorRow behavior={behavior} kickoff={kickoff} key={`${behavior.playerKey ?? behavior.playerName}:${behavior.role}:${index}`} />
         ))}
       </div>
     </section>
   );
 }
 
-function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
+function KickoffBehaviorRow({ behavior, kickoff }: { behavior: KickoffPlayerBehavior; kickoff: KickoffRow }) {
   const primary = behavior.role === "taker" ? behavior.outcome : behavior.supportBehavior;
   const secondary = behavior.role === "taker" ? behavior.approach : behavior.spawn;
   const boostDelta = behavior.startBoost == null || behavior.boostAfter == null ? null : behavior.boostAfter - behavior.startBoost;
   const showTakerBoost = behavior.role === "taker" && (behavior.boostCollected != null || behavior.boostUsed != null);
+  const ballDistance = behavior.distanceToBallAtFirstTouch ?? startDistanceToCenteredBall(behavior.startPosition);
+  const boostAtFifty = behavior.boostAtFirstTouch ?? behavior.boostAfter;
 
   return (
     <div className="kickoff-behavior-row">
@@ -434,13 +590,62 @@ function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
           </span>
         ) : null}
       </div>
+      {behavior.role === "support" ? (
+        <div className="kickoff-support-details">
+          <span>
+            <strong>Ball dist {behavior.distanceToBallAtFirstTouch == null ? "start" : "50/50"}</strong>
+            {formatDistance(ballDistance)}
+          </span>
+          <span>
+            <strong>Boost {behavior.boostAtFirstTouch == null ? "after" : "50/50"}</strong>
+            {formatBoostValue(boostAtFifty)}
+          </span>
+          <span>
+            <strong>Start boost</strong>
+            {formatBoostValue(behavior.startBoost)}
+          </span>
+          <span>
+            <strong>Time to ball</strong>
+            {formatDuration(playerKickoffTime(kickoff, behavior))}
+          </span>
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function kickoffRow(event: MechanicEventResponse, index: number, players: ReplayPlayer[]): KickoffRow {
+function KickoffStrengthSummary({ outcomes }: { outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome> }) {
+  const bands: KickoffStrengthBand[] = ["narrow", "clear", "strong", "unknown"];
+  const visibleBands = bands.filter((band) => {
+    const outcome = outcomes[band];
+    return outcome.wins > 0 || outcome.losses > 0 || outcome.neutral > 0;
+  });
+
+  if (visibleBands.length === 0) return <span>-</span>;
+
+  return (
+    <div className="kickoff-strength-summary">
+      {visibleBands.map((band) => {
+        const outcome = outcomes[band];
+        return (
+          <span className={`kickoff-strength-chip strength-${band}`} key={band}>
+            <strong>{strengthBandLabel(band)}</strong>
+            {outcome.wins}W/{outcome.losses}L{outcome.neutral > 0 ? `/${outcome.neutral}N` : ""}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function kickoffRow(event: MechanicEventResponse, index: number, players: ReplayPlayer[], possessionSpans: PossessionSpan[]): KickoffRow {
   const payload = event.payload;
+  const teamZeroTouchFrame = numberField(payload, "team_zero_taker_touch_frame");
+  const teamOneTouchFrame = numberField(payload, "team_one_taker_touch_frame");
+  const takerDelayFrames = teamZeroTouchFrame == null || teamOneTouchFrame == null ? null : Math.abs(teamZeroTouchFrame - teamOneTouchFrame);
   const startTime = numberField(payload, "start_time") ?? event.start_time;
+  const endTime = numberField(payload, "end_time") ?? event.end_time;
+  const possessionTeam = teamField(payload, "kickoff_possession_team_is_team_0");
   const liveActionStartTime = numberField(payload, "live_action_start_time");
   const liveActionStartFrame = numberField(payload, "live_action_start_frame");
   const movementStartTime = numberField(payload, "movement_start_time");
@@ -449,7 +654,7 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     event,
     index,
     startTime,
-    endTime: numberField(payload, "end_time") ?? event.end_time,
+    endTime,
     liveActionStartTime,
     liveActionStartFrame,
     movementStartTime,
@@ -457,20 +662,61 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     outcome: stringField(payload, "outcome"),
     possessionOutcome: stringField(payload, "kickoff_possession_outcome"),
     winningTeam: teamField(payload, "winning_team_is_team_0"),
-    possessionTeam: teamField(payload, "kickoff_possession_team_is_team_0"),
+    possessionTeam,
+    nextPossession: nextKickoffPossession(startTime, endTime, possessionTeam, possessionSpans),
     scoringTeam: teamField(payload, "scoring_team_is_team_0"),
     kickoffGoal: booleanField(payload, "kickoff_goal") ?? false,
     kickoffType: kickoffType(payload),
     kickoffDirection: kickoffDirection(payload),
     timeToGoal: numberField(payload, "time_to_goal"),
-    takerDelay: numberField(payload, "taker_touch_delay_seconds"),
+    takerDelayFrames,
     exitSpeed: numberField(payload, "exit_speed"),
+    winStrengthBand: strengthBand(stringField(payload, "win_strength_band")),
     firstTouch: kickoffTouch(payload, "first_touch", players),
     followUpTouch: kickoffTouch(payload, "first_follow_up_touch", players),
     teamZeroTaker: kickoffPlayerBehavior(objectField(payload, "team_zero_taker"), 0, "taker", players),
     teamOneTaker: kickoffPlayerBehavior(objectField(payload, "team_one_taker"), 1, "taker", players),
     teamZeroSupport: arrayField(payload, "team_zero_non_takers").map((item) => kickoffPlayerBehavior(item, 0, "support", players)).filter(Boolean) as KickoffPlayerBehavior[],
     teamOneSupport: arrayField(payload, "team_one_non_takers").map((item) => kickoffPlayerBehavior(item, 1, "support", players)).filter(Boolean) as KickoffPlayerBehavior[],
+  };
+}
+
+function possessionSpan(event: MechanicEventResponse, players: ReplayPlayer[]): PossessionSpan | null {
+  const payload = event.payload;
+  const playerKey = remoteIdKey(payload.player_id) ?? normalizedRemoteKey(event.player_id);
+  const player = playerKey ? playerByRemoteKey(players, playerKey) : null;
+  const team = possessionStateTeam(stringField(payload, "possession_state")) ?? event.team ?? player?.team ?? null;
+  return {
+    playerKey,
+    playerName: player?.name || event.player_name || playerKey || teamLabel(team),
+    team,
+    startTime: numberField(payload, "time") ?? event.start_time ?? event.event_time,
+    endTime: numberField(payload, "end_time") ?? event.end_time,
+    frame: numberField(payload, "frame"),
+  };
+}
+
+function nextKickoffPossession(
+  startTime: number | null,
+  endTime: number | null,
+  possessionTeam: number | null,
+  possessionSpans: PossessionSpan[],
+): KickoffPossession | null {
+  const cutoff = endTime ?? startTime;
+  if (cutoff == null) return null;
+  const matchingSpan = possessionSpans.find((span) => {
+    if (span.startTime == null) return false;
+    if (span.playerKey == null && span.team == null) return false;
+    if (possessionTeam != null && span.team != null && span.team !== possessionTeam) return false;
+    return span.startTime >= cutoff - 0.1 || (span.endTime != null && span.endTime >= cutoff && span.startTime >= (startTime ?? cutoff) - 0.1);
+  });
+  if (!matchingSpan) return null;
+  return {
+    playerKey: matchingSpan.playerKey,
+    playerName: matchingSpan.playerName,
+    team: matchingSpan.team,
+    startTime: matchingSpan.startTime,
+    frame: matchingSpan.frame,
   };
 }
 
@@ -508,10 +754,13 @@ function kickoffPlayerBehavior(
     supportBehavior: stringField(payload, "support_behavior"),
     startBoost: numberField(payload, "start_boost"),
     boostAfter: numberField(payload, "boost_after"),
+    boostAtFirstTouch: numberField(payload, "boost_at_first_touch") ?? numberField(payload, "boost_at_kickoff_50"),
     timeToBall: numberField(payload, "time_to_ball"),
     boostCollected: numberField(payload, "boost_collected"),
     boostUsed: numberField(payload, "boost_used"),
     firstTouchTime: numberField(payload, "first_touch_time"),
+    startPosition: vector3Field(payload, "start_position"),
+    distanceToBallAtFirstTouch: numberField(payload, "distance_to_ball_at_first_touch") ?? numberField(payload, "distance_to_ball_at_kickoff_50"),
   };
 }
 
@@ -798,6 +1047,7 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         boostUsedCount: 0,
         approaches: new Map(),
         supportBehaviors: new Map(),
+        strengthOutcomes: emptyStrengthOutcomes(),
       });
     }
     return summaries.get(key)!;
@@ -832,6 +1082,7 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         if (behavior.team === kickoff.scoringTeam) summary.kickoffGoalsFor += 1;
         else summary.kickoffGoalsAgainst += 1;
       }
+      incrementStrengthOutcome(summary.strengthOutcomes, kickoff.winStrengthBand, kickoff.winningTeam, behavior.team);
     }
   }
 
@@ -857,6 +1108,7 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         boostUsedCount: 0,
         approaches: new Map(),
         supportBehaviors: new Map(),
+        strengthOutcomes: emptyStrengthOutcomes(),
       });
     }
   }
@@ -897,11 +1149,103 @@ function remoteIdKey(value: unknown): string | null {
   return null;
 }
 
+function normalizedRemoteKey(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const separatorIndex = value.indexOf(":");
+  if (separatorIndex < 0) return value;
+  return `${normalizePlatform(value.slice(0, separatorIndex))}:${value.slice(separatorIndex + 1)}`;
+}
+
 function normalizePlatform(value: string): string {
   const lower = value.toLowerCase();
   if (lower === "psynet") return "epic";
   if (lower === "playstation") return "ps4";
   return lower;
+}
+
+function possessionStateTeam(value: string | null): number | null {
+  if (value === "team_zero") return 0;
+  if (value === "team_one") return 1;
+  return null;
+}
+
+function strengthBand(value: string | null): KickoffStrengthBand {
+  return value === "narrow" || value === "clear" || value === "strong" ? value : "unknown";
+}
+
+function strengthBandLabel(value: KickoffStrengthBand): string {
+  if (value === "unknown") return "Unknown";
+  return formatLabel(value);
+}
+
+function kickoffShapeLabel(kickoff: KickoffRow): string {
+  const blue = shortSpawnLabel(kickoff.teamZeroTaker?.spawn ?? null);
+  const orange = shortSpawnLabel(kickoff.teamOneTaker?.spawn ?? null);
+  if (!blue && !orange) return "Unknown setup";
+  if (blue && orange && blue === orange) return `${blue} mirror`;
+  return `${blue || "Unknown"} vs ${orange || "Unknown"}`;
+}
+
+function shortSpawnLabel(value: string | null): string {
+  if (!value) return "";
+  if (value.includes("diagonal")) return "Diagonal";
+  if (value.includes("straight") || value.includes("center")) return "Center";
+  if (value.includes("off")) return "Off-center";
+  return formatLabel(value);
+}
+
+function diagramPoint(player: KickoffPlayerBehavior): { x: number; y: number } {
+  if (player.startPosition) {
+    return mapFieldPoint(player.startPosition);
+  }
+  const teamOnBottom = player.team !== 1;
+  const bottomY = 184;
+  const topY = 36;
+  const y = teamOnBottom ? bottomY : topY;
+  const spawn = player.spawn ?? "";
+  if (spawn.includes("diagonal")) {
+    return { x: spawn.includes("left") ? 132 : 228, y };
+  }
+  if (spawn.includes("off")) {
+    return { x: spawn.includes("left") ? 154 : 206, y: teamOnBottom ? 170 : 50 };
+  }
+  return { x: 180, y: teamOnBottom ? 176 : 44 };
+}
+
+function mapFieldPoint(position: [number, number, number]): { x: number; y: number } {
+  const x = 180 + (Math.max(-4096, Math.min(4096, position[0])) / 4096) * 160;
+  const y = 110 - (Math.max(-5120, Math.min(5120, position[1])) / 5120) * 94;
+  return { x, y };
+}
+
+function playerKickoffTime(kickoff: KickoffRow, behavior: KickoffPlayerBehavior): number | null {
+  if (behavior.timeToBall != null) return behavior.timeToBall;
+  if (behavior.firstTouchTime == null) return null;
+  return kickoff.startTime == null ? behavior.firstTouchTime : Math.max(0, behavior.firstTouchTime - kickoff.startTime);
+}
+
+function emptyStrengthOutcomes(): Record<KickoffStrengthBand, KickoffStrengthOutcome> {
+  return {
+    narrow: { wins: 0, losses: 0, neutral: 0 },
+    clear: { wins: 0, losses: 0, neutral: 0 },
+    strong: { wins: 0, losses: 0, neutral: 0 },
+    unknown: { wins: 0, losses: 0, neutral: 0 },
+  };
+}
+
+function incrementStrengthOutcome(
+  outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>,
+  band: KickoffStrengthBand,
+  winningTeam: number | null,
+  playerTeam: number | null,
+): void {
+  if (winningTeam == null || playerTeam == null) {
+    outcomes[band].neutral += 1;
+  } else if (winningTeam === playerTeam) {
+    outcomes[band].wins += 1;
+  } else {
+    outcomes[band].losses += 1;
+  }
 }
 
 function objectField(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
@@ -912,6 +1256,13 @@ function objectField(payload: Record<string, unknown>, key: string): Record<stri
 function arrayField(payload: Record<string, unknown>, key: string): Record<string, unknown>[] {
   const value = payload[key];
   return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+}
+
+function vector3Field(payload: Record<string, unknown>, key: string): [number, number, number] | null {
+  const value = payload[key];
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const [x, y, z] = value;
+  return typeof x === "number" && typeof y === "number" && typeof z === "number" ? [x, y, z] : null;
 }
 
 function numberField(payload: Record<string, unknown>, key: string): number | null {
@@ -961,5 +1312,46 @@ function formatSeconds(value: number | null): string {
 }
 
 function formatSpeed(value: number | null): string {
-  return value == null ? "-" : `${Math.round(value).toLocaleString()} uu/s`;
+  if (value == null) return "-";
+  const kph = value * 0.036;
+  const mph = value * 0.0223694;
+  return `${Math.round(mph).toLocaleString()} mph / ${Math.round(kph).toLocaleString()} km/h`;
+}
+
+function formatFrames(value: number | null): string {
+  return value == null ? "-" : `${Math.round(value).toLocaleString()} ${Math.round(value) === 1 ? "frame" : "frames"}`;
+}
+
+function formatNextPossession(value: KickoffPossession | null): string {
+  if (!value) return "Unknown";
+  return value.playerName || teamLabel(value.team);
+}
+
+function formatDuration(value: number | null): string {
+  return value == null ? "-" : `${value.toFixed(1)}s`;
+}
+
+function formatBoostAmount(value: number): string {
+  return Math.round(value).toLocaleString();
+}
+
+function formatBoostValue(value: number | null): string {
+  return value == null ? "-" : formatBoostAmount(value);
+}
+
+function startDistanceToCenteredBall(position: [number, number, number] | null): number | null {
+  if (!position) return null;
+  return Math.hypot(position[0], position[1], position[2]);
+}
+
+function formatDistance(value: number | null): string {
+  return value == null ? "-" : `${Math.round(value).toLocaleString()} uu`;
+}
+
+function formatAverageDuration(sum: number, count: number): string {
+  return count > 0 ? formatDuration(sum / count) : "-";
+}
+
+function formatAverageBoost(sum: number, count: number): string {
+  return count > 0 ? formatBoostAmount(sum / count) : "-";
 }

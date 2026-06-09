@@ -989,7 +989,7 @@ tbody tr:last-child td {
 .selected-kickoff-summary,
 .kickoff-outcome-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 10px;
 }
 
@@ -1037,6 +1037,46 @@ tbody tr:last-child td {
 
 .kickoff-goal-balance {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.kickoff-strength-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 230px;
+}
+
+.kickoff-strength-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.kickoff-strength-chip strong {
+  color: #17202a;
+}
+
+.kickoff-strength-chip.strength-narrow {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.kickoff-strength-chip.strength-clear {
+  border-color: #fde68a;
+  background: #fffbeb;
+}
+
+.kickoff-strength-chip.strength-strong {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
 }
 
 .kickoff-card-list {
@@ -1203,6 +1243,255 @@ tbody tr:last-child td {
   height: 34px;
 }
 
+.kickoff-diagram-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #d7e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.kickoff-mini-diagram {
+  width: 100%;
+  height: auto;
+  min-height: 150px;
+}
+
+.kickoff-field-bg {
+  fill: #eef2f7;
+  stroke: #cbd5e1;
+}
+
+.kickoff-field-line,
+.kickoff-field-circle {
+  fill: none;
+  stroke: #cbd5e1;
+  stroke-width: 2;
+}
+
+.kickoff-field-line.muted {
+  stroke-dasharray: 8 8;
+}
+
+.kickoff-ball-dot {
+  fill: #f8fafc;
+  stroke: #17202a;
+  stroke-width: 2;
+}
+
+.kickoff-diagram-lane {
+  stroke: rgba(15, 23, 42, 0.24);
+  stroke-dasharray: 5 5;
+  stroke-width: 2;
+}
+
+.kickoff-diagram-player circle {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.kickoff-diagram-player text {
+  fill: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  text-anchor: middle;
+}
+
+.kickoff-diagram-player.support text {
+  font-size: 8px;
+}
+
+.team-diagram-blue circle {
+  fill: #2563eb;
+}
+
+.team-diagram-orange circle {
+  fill: #ea580c;
+}
+
+.team-diagram-neutral circle {
+  fill: #64748b;
+}
+
+.kickoff-diagram-player.winner circle {
+  stroke: #111827;
+  stroke-width: 3;
+}
+
+.kickoff-taker-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kickoff-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.kickoff-section-title strong {
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.kickoff-taker-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.kickoff-taker-tile {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d7e0ec;
+  border-left-width: 5px;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.kickoff-taker-tile.team-taker-blue {
+  border-left-color: #2563eb;
+}
+
+.kickoff-taker-tile.team-taker-orange {
+  border-left-color: #ea580c;
+}
+
+.kickoff-taker-tile.team-taker-blue.winner.strength-narrow {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.kickoff-taker-tile.team-taker-blue.winner.strength-clear {
+  border-color: #60a5fa;
+  background: #dbeafe;
+}
+
+.kickoff-taker-tile.team-taker-blue.winner.strength-strong {
+  border-color: #1d4ed8;
+  background: #2563eb;
+  color: #fff;
+}
+
+.kickoff-taker-tile.team-taker-orange.winner.strength-narrow {
+  border-color: #fdba74;
+  background: #fff7ed;
+}
+
+.kickoff-taker-tile.team-taker-orange.winner.strength-clear {
+  border-color: #fb923c;
+  background: #ffedd5;
+}
+
+.kickoff-taker-tile.team-taker-orange.winner.strength-strong {
+  border-color: #c2410c;
+  background: #ea580c;
+  color: #fff;
+}
+
+.kickoff-taker-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kickoff-taker-heading > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kickoff-taker-heading span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+}
+
+.kickoff-taker-heading strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-heading span,
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-details strong {
+  color: rgba(255, 255, 255, 0.78);
+}
+
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-heading strong,
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-details span {
+  color: #fff;
+}
+
+.kickoff-taker-result {
+  flex: 0 0 auto;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.kickoff-taker-result.won {
+  background: rgba(34, 197, 94, 0.18);
+  color: #166534;
+}
+
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-result.won {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.kickoff-taker-details {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(96px, 1fr));
+  gap: 8px;
+}
+
+.kickoff-taker-details span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.64);
+  color: var(--text-strong);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.kickoff-taker-details strong {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-details span {
+  background: rgba(255, 255, 255, 0.14);
+}
+
 .kickoff-team-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1303,6 +1592,35 @@ tbody tr:last-child td {
 .kickoff-behavior-tags .boost-negative {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.kickoff-support-details {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 6px;
+}
+
+.kickoff-support-details span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 7px;
+  border-radius: 6px;
+  background: rgba(226, 232, 240, 0.62);
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.kickoff-support-details strong {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .boost-page-controls {
@@ -3481,9 +3799,31 @@ tbody tr:last-child td {
     height: 320px;
   }
 
+  .kickoff-card-header {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .kickoff-taker-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kickoff-taker-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kickoff-time-block {
+    grid-column: 1 / -1;
+    order: 3;
+    text-align: left;
+  }
+
   .kickoff-behavior-row {
     grid-template-columns: 1fr;
     align-items: stretch;
+  }
+
+  .kickoff-support-details {
+    grid-template-columns: 1fr;
   }
 
   .kickoff-behavior-tags {
@@ -3687,6 +4027,10 @@ tbody tr:last-child td {
 
   .kickoff-card h4 {
     font-size: 16px;
+  }
+
+  .kickoff-taker-details {
+    grid-template-columns: 1fr;
   }
 
   .boost-comparison-row {
