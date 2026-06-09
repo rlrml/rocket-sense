@@ -3499,16 +3499,10 @@ tbody tr:last-child td {
   align-items: center;
   padding: 2px 9px;
   border-radius: 999px;
-  background: #ede9fe;
-  color: #6d28d9;
+  background: #e2e8f0;
+  color: #334155;
   font-size: 12px;
   font-weight: 800;
-}
-
-.goal-type-chip.muted {
-  background: #e2e8f0;
-  color: #475569;
-  font-weight: 700;
 }
 
 .goal-card-stats {

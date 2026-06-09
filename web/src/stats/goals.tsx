@@ -39,7 +39,7 @@ interface GoalRow {
   scorerName: string;
   scoringTeam: number | null;
   ballSpeed: number | null;
-  airTime: number | null;
+  timeInOffensiveHalf: number | null;
   anchorFrame: number | null;
   types: GoalType[];
 }
@@ -152,20 +152,22 @@ function GoalCard({
         </div>
         <strong>{formatSeconds(goal.time)}</strong>
       </div>
-      <div className="goal-card-types">
-        {goal.types.length ? (
-          goal.types.map((type) => (
+      {goal.types.length ? (
+        <div className="goal-card-types">
+          {goal.types.map((type) => (
             <span className="goal-type-chip" key={type.key} title={type.confidence == null ? type.label : `${type.label} — ${(type.confidence * 100).toFixed(0)}% confidence`}>
               {type.label}
             </span>
-          ))
-        ) : (
-          <span className="goal-type-chip muted">Standard goal</span>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : null}
       <div className="goal-card-stats">
         <span>{formatSpeed(goal.ballSpeed)}</span>
-        <span>{goal.airTime == null ? "Ground" : `${goal.airTime.toFixed(1)}s air`}</span>
+        {goal.timeInOffensiveHalf != null ? (
+          <span title="Time the ball spent in the scoring team's attacking half in the ~12s before the goal">
+            {formatZoneTime(goal.timeInOffensiveHalf)} in att. half
+          </span>
+        ) : null}
       </div>
     </button>
   );
@@ -185,7 +187,7 @@ function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
         scorerName: event.player_name?.trim() || "Unknown scorer",
         scoringTeam: event.team ?? teamField(payload, "scoring_team_is_team_0"),
         ballSpeed: numberField(payload, "ball_speed_at_goal"),
-        airTime: numberField(payload, "ball_air_time_before_goal"),
+        timeInOffensiveHalf: numberField(payload, "time_in_offensive_half_before_goal"),
         anchorFrame: eventAnchorFrame(event, ["scorer_last_touch.frame"]),
         types: goalTypes(payload),
       };
@@ -256,6 +258,19 @@ function formatSeconds(value: number | null): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}${tenths}`;
 }
 
+function formatZoneTime(value: number): string {
+  return `${value.toFixed(1)}s`;
+}
+
+// Rocket League positions/velocities are in unreal units (uu) where 1 uu = 1 cm,
+// so a uu/s value converts to real-world speed the same way the in-game
+// speedometer does: km/h = uu/s * 3.6 / 100, mph = uu/s / 100 * 2.2369363.
+const UU_PER_SECOND_TO_KMH = 0.036;
+const UU_PER_SECOND_TO_MPH = 0.022369363;
+
 function formatSpeed(value: number | null): string {
-  return value == null ? "-" : `${Math.round(value).toLocaleString()} uu/s`;
+  if (value == null) return "-";
+  const kmh = Math.round(value * UU_PER_SECOND_TO_KMH);
+  const mph = Math.round(value * UU_PER_SECOND_TO_MPH);
+  return `${kmh} km/h · ${mph} mph`;
 }
