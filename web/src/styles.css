@@ -3531,6 +3531,52 @@ tbody tr:last-child td {
   font-weight: 700;
 }
 
+.goal-touch-panel {
+  gap: 10px;
+}
+
+.goal-touch-map,
+.goal-touch-map-skeleton,
+.goal-touch-map-empty {
+  width: 100%;
+  min-height: 340px;
+  aspect-ratio: 16 / 7;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f8fafc;
+}
+
+.goal-touch-map canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.goal-touch-map-skeleton {
+  background:
+    linear-gradient(90deg, rgba(226, 232, 240, 0.72), rgba(248, 250, 252, 0.9), rgba(226, 232, 240, 0.72));
+  background-size: 220% 100%;
+  animation: panel-sheen 1.1s ease-in-out infinite;
+}
+
+.goal-touch-map-empty {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+@keyframes panel-sheen {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
 /* Leave room so the docked picture-in-picture preview never permanently hides
    the last goal cards. */
 /* Picture-in-picture event preview: one floating player that loops whichever

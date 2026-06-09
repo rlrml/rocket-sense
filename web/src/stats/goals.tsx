@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
+import type { GoalTouchLocation } from "./GoalTouchMap";
 import {
   eventAnchorFrame,
   eventDisplayTime,
@@ -18,6 +19,9 @@ const GOAL_CLIP_POSTROLL_SECONDS = 2.5;
 // Goals tab is actually opened, instead of bloating the main bundle.
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
+);
+const GoalTouchMap = lazy(() =>
+  import("./GoalTouchMap").then((module) => ({ default: module.GoalTouchMap })),
 );
 
 interface GoalsDetailProps {
@@ -42,6 +46,7 @@ interface GoalRow {
   ballSpeed: number | null;
   airTime: number | null;
   anchorFrame: number | null;
+  touchPosition: GoalTouchLocation["position"] | null;
   types: GoalType[];
 }
 
@@ -73,11 +78,38 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
     clip,
     activateItem: activateGoal,
   } = useEventPreviewSelection(goals, goalKey, buildClip);
+  const touchLocations = useMemo(() => goalTouchLocations(goals), [goals]);
+  const activateGoalById = useCallback(
+    (goalId: string, force: boolean) => {
+      const goal = goals.find((candidate) => candidate.event.id === goalId);
+      if (goal) {
+        activateGoal(goal, force);
+      }
+    },
+    [activateGoal, goals],
+  );
 
   return (
     <div className="goals-detail kickoff-detail">
       {goals.length ? (
         <div className="stat-section-grid">
+          {touchLocations.length ? (
+            <section className="chart-panel full-span goal-touch-panel">
+              <div className="chart-panel-header">
+                <div>
+                  <h3>Scoring touches</h3>
+                </div>
+              </div>
+              <Suspense fallback={<div className="goal-touch-map-skeleton" />}>
+                <GoalTouchMap
+                  goals={touchLocations}
+                  activeId={activeId}
+                  onActivate={activateGoalById}
+                />
+              </Suspense>
+            </section>
+          ) : null}
+
           <section className="chart-panel full-span">
             <div className="chart-panel-header">
               <div>
@@ -188,6 +220,7 @@ function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
         ballSpeed: numberField(payload, "ball_speed_at_goal"),
         airTime: numberField(payload, "ball_air_time_before_goal"),
         anchorFrame: eventAnchorFrame(event, ["scorer_last_touch.frame"]),
+        touchPosition: goalTouchPosition(payload),
         types: goalTypes(payload),
       };
     });
@@ -207,6 +240,38 @@ function goalTypes(payload: Record<string, unknown>): GoalType[] {
       confidence: numberField(metadata, "confidence"),
     };
   });
+}
+
+function goalTouchLocations(goals: GoalRow[]): GoalTouchLocation[] {
+  return goals.flatMap((goal) =>
+    goal.touchPosition
+      ? [
+          {
+            id: goal.event.id,
+            index: goal.index,
+            scorerName: goal.scorerName,
+            team: goal.scoringTeam,
+            time: goal.time,
+            position: goal.touchPosition,
+          },
+        ]
+      : [],
+  );
+}
+
+function goalTouchPosition(payload: Record<string, unknown>): GoalTouchLocation["position"] | null {
+  const scorerLastTouch = objectField(payload, "scorer_last_touch");
+  return positionField(scorerLastTouch, "ball_position") ?? positionField(payload, "ball_position");
+}
+
+function positionField(payload: Record<string, unknown> | null, key: string): GoalTouchLocation["position"] | null {
+  if (!payload) return null;
+  const value = objectField(payload, key);
+  if (!value) return null;
+  const x = numberField(value, "x");
+  const y = numberField(value, "y");
+  const z = numberField(value, "z");
+  return x == null || y == null || z == null ? null : { x, y, z };
 }
 
 function objectField(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
