@@ -97,7 +97,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
   const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
   const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
   const buildClip = useCallback((kickoff: KickoffRow, replayNonce: number): EventClip | null => {
-    const clipStart = kickoff.movementStartTime ?? kickoff.startTime;
+    const clipStart = kickoff.movementStartTime;
     if (clipStart == null) {
       return null;
     }
@@ -393,7 +393,6 @@ function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
 function kickoffRow(event: MechanicEventResponse, index: number, players: ReplayPlayer[]): KickoffRow {
   const payload = event.payload;
   const startTime = numberField(payload, "start_time") ?? event.start_time;
-  const startFrame = numberField(payload, "start_frame") ?? event.start_frame;
   const movementStartTime = numberField(payload, "movement_start_time");
   const movementStartFrame = numberField(payload, "movement_start_frame");
   return {
@@ -401,8 +400,8 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     index,
     startTime,
     endTime: numberField(payload, "end_time") ?? event.end_time,
-    movementStartTime: movementStartTime ?? startTime,
-    movementStartFrame: movementStartFrame ?? (movementStartTime == null ? startFrame : null),
+    movementStartTime,
+    movementStartFrame,
     outcome: stringField(payload, "outcome"),
     possessionOutcome: stringField(payload, "kickoff_possession_outcome"),
     winningTeam: teamField(payload, "winning_team_is_team_0"),

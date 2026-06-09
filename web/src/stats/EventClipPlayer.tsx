@@ -201,10 +201,10 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
         player.setAttachedPlayer(trackId);
         player.setBallCamEnabled(target.camera.ballCam ?? true);
       } else {
-        player.setFreeCameraPreset("overhead");
+        player.setFreeCameraPreset("side");
       }
     } else {
-      player.setFreeCameraPreset(target.camera.preset ?? "overhead");
+      player.setFreeCameraPreset(target.camera.preset ?? "side");
     }
     player.seek(start);
     player.play();
@@ -258,7 +258,7 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
           initialSkipKickoffsEnabled: false,
           initialSkipPostGoalTransitionsEnabled: false,
         });
-        player.setFreeCameraPreset("overhead");
+        player.setFreeCameraPreset("side");
         unsubscribeBeforeRender = player.onBeforeRender((info) => {
           renderStatsRef.current = {
             count: renderStatsRef.current.count + 1,
