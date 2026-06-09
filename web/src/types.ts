@@ -1,4 +1,5 @@
 export type ReplayStatus = "pending" | "parsing" | "parsed" | "failed";
+export type ReplayProcessingStatus = "pending" | "processing" | "processed" | "failed";
 
 export interface ReplayPlayer {
   name: string | null;
@@ -77,6 +78,65 @@ export interface ReplayFilterOption {
 export interface ReplayFilterOptionsResponse {
   maps: ReplayFilterOption[];
   seasons: ReplayFilterOption[];
+}
+
+export interface ReplayProcessingDiagnosticsResponse {
+  replays: ReplayProcessingDiagnostic[];
+  summary: ReplayProcessingDiagnosticsSummary;
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+}
+
+export interface ReplayProcessingDiagnosticsSummary {
+  total_replays: number;
+  problem_replays: number;
+  status_counts: Array<{
+    status: string;
+    count: number;
+  }>;
+  queue_counts: Array<{
+    status: string;
+    count: number;
+  }>;
+}
+
+export interface ReplayProcessingDiagnostic {
+  replay_id: string;
+  original_file_name: string | null;
+  file_sha256: string;
+  processing_status: ReplayProcessingStatus;
+  created_at: string;
+  updated_at: string;
+  canonical_analysis_run_id: string | null;
+  canonical_analysis_run: AnalysisRunDiagnostic | null;
+  latest_analysis_run: AnalysisRunDiagnostic | null;
+  canonical_event_count: number;
+  needs_reanalysis: boolean;
+  needs_reindex: boolean;
+  stale_reasons: string[];
+  queued_jobs: number;
+  running_jobs: number;
+  failed_jobs: number;
+  finished_jobs: number;
+  next_queue_run_at: string | null;
+  last_queue_started_at: string | null;
+  last_queue_done_at: string | null;
+  last_queue_error: string | null;
+  reasons: string[];
+}
+
+export interface AnalysisRunDiagnostic {
+  id: string;
+  status: string;
+  extractor_name: string;
+  extractor_version: string;
+  event_stream_schema_version: string | null;
+  event_stream_object_key: string | null;
+  started_at: string;
+  finished_at: string | null;
+  error_message: string | null;
 }
 
 export interface StatAggregateResponse {

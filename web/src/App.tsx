@@ -1,5 +1,6 @@
 import {
   Activity,
+  AlertTriangle,
   BarChart3,
   Check,
   ChevronLeft,
@@ -12,6 +13,7 @@ import {
   LogIn,
   RefreshCw,
   RotateCcw,
+  ServerCog,
   SlidersHorizontal,
   X,
   Trash2,
@@ -34,6 +36,7 @@ import {
   listEventTypes,
   listReplayEvents,
   listReplayFilterOptions,
+  listReplayProcessingDiagnostics,
   listReplays,
   setAccessToken,
   uploadReplay,
@@ -46,6 +49,8 @@ import type {
   MechanicEventResponse,
   PlayerProfileResponse,
   PlayerProfileReplayResponse,
+  ReplayProcessingDiagnostic,
+  ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
   ReplayPlayer,
   ReplayPlaylistMetadata,
@@ -57,6 +62,7 @@ import type {
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
+  { to: "/admin/processing", label: "Admin", icon: ServerCog },
   { to: "/account", label: "Account", icon: CircleUser },
 ];
 
@@ -100,6 +106,7 @@ export function App() {
             <Route path="/players/:platform/:platformPlayerId/stats/:statGroup" element={<PlayerStatsPage />} />
             <Route path="/events/review" element={<EventsReviewPage />} />
             <Route path="/mechanics/review" element={<EventsReviewPage />} />
+            <Route path="/admin/processing" element={<AdminProcessingPage />} />
             <Route path="/account" element={<AccountPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
@@ -506,8 +513,8 @@ const replayOrderOptions: Array<{ value: ReplayOrder; label: string }> = [
 
 const replayStatusOptions = [
   { value: "", label: "Any" },
-  { value: "parsed", label: "Parsed" },
-  { value: "parsing", label: "Parsing" },
+  { value: "parsed", label: "Processed" },
+  { value: "parsing", label: "Processing" },
   { value: "pending", label: "Pending" },
   { value: "failed", label: "Failed" },
 ];
@@ -964,6 +971,7 @@ function ReplayStatsPage() {
   const activeStats = useMemo(() => filterStatsForGroup(stats?.stats ?? [], activeGroup.terms), [activeGroup, stats]);
   const activeEvents = useMemo(() => filterEventsForGroup(events, activeGroup.terms), [activeGroup, events]);
   const ActiveDetail = activeGroup.Detail;
+  const detailEvents = ActiveDetail ? events : activeEvents;
 
   return (
     <section className="page stats-page">
@@ -1038,7 +1046,7 @@ function ReplayStatsPage() {
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
             {ActiveDetail ? (
-              <ActiveDetail events={activeEvents} players={replay.players} durationSeconds={replay.summary.duration_seconds} replayId={replayId} />
+              <ActiveDetail events={detailEvents} players={replay.players} durationSeconds={replay.summary.duration_seconds} replayId={replayId} />
             ) : (
               <>
                 <div className="stat-section-grid">
@@ -2701,6 +2709,254 @@ function legacyAuthOptions(): AuthOptionsResponse {
   };
 }
 
+function AdminProcessingPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const [response, setResponse] = useState<ReplayProcessingDiagnosticsResponse | null>(null);
+  const [status, setStatus] = useState(searchParams.get("status") ?? "");
+  const [includeHealthy, setIncludeHealthy] = useState(searchParams.get("include_healthy") === "true");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setStatus(searchParams.get("status") ?? "");
+    setIncludeHealthy(searchParams.get("include_healthy") === "true");
+  }, [searchParams]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listReplayProcessingDiagnostics(searchParams)
+      .then((nextResponse) => {
+        if (!cancelled) setResponse(nextResponse);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
+
+  function submitFilters(event: FormEvent) {
+    event.preventDefault();
+    const params = new URLSearchParams(searchParams);
+    setTrimmedParam(params, "status", status);
+    if (includeHealthy) {
+      params.set("include_healthy", "true");
+    } else {
+      params.delete("include_healthy");
+    }
+    params.delete("offset");
+    navigate(`/admin/processing?${params.toString()}`);
+  }
+
+  function updatePageSize(value: string) {
+    const params = new URLSearchParams(searchParams);
+    params.set("count", value);
+    params.delete("offset");
+    navigate(`/admin/processing?${params.toString()}`);
+  }
+
+  function goToOffset(offset: number) {
+    const params = new URLSearchParams(searchParams);
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    } else {
+      params.delete("offset");
+    }
+    navigate(`/admin/processing?${params.toString()}`);
+  }
+
+  const diagnostics = response?.replays ?? [];
+  const total = response?.total ?? null;
+  const offset = positiveIntegerParam(searchParams, "offset", 0);
+  const pageSize = positiveIntegerParam(searchParams, "count", 100);
+  const canPageBackward = offset > 0;
+  const canPageForward = response?.next_offset != null;
+  const previousOffset = Math.max(0, offset - pageSize);
+  const nextOffset = response?.next_offset ?? offset + pageSize;
+  const visiblePageSizeOptions = [50, 100, 200, 500].includes(pageSize) ? [50, 100, 200, 500] : [50, 100, 200, 500, pageSize].sort((a, b) => a - b);
+
+  return (
+    <section className="page admin-processing-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>Replay Processing</h1>
+        </div>
+        <a className="secondary-button" href="/api/v1/admin/replays/processing-diagnostics">
+          <ExternalLink size={16} />
+          JSON
+        </a>
+      </header>
+
+      {response ? (
+        <div className="summary-grid admin-summary-grid">
+          <Metric label="Problem replays" value={response.summary.problem_replays.toLocaleString()} />
+          <Metric label="Total replays" value={response.summary.total_replays.toLocaleString()} />
+          <Metric label="Processing status" value={formatCounts(response.summary.status_counts)} />
+          <Metric label="Queue counts" value={formatCounts(response.summary.queue_counts)} />
+        </div>
+      ) : null}
+
+      <form className="admin-filter-panel" onSubmit={submitFilters}>
+        <FilterGrid
+          fields={[
+            {
+              id: "admin-status",
+              label: "Processing status",
+              value: status,
+              options: replayStatusOptions,
+              onChange: setStatus,
+            },
+          ]}
+          className="admin-filter-grid"
+        />
+        <label className="toggle-row">
+          <input type="checkbox" checked={includeHealthy} onChange={(event) => setIncludeHealthy(event.currentTarget.checked)} />
+          <span>Show fully processed replays</span>
+        </label>
+        <button type="submit">
+          <Search size={16} />
+          Apply
+        </button>
+      </form>
+
+      <div className="replay-list-controls">
+        <div className="results-readout">
+          <AlertTriangle size={16} />
+          <span>
+            {loading
+              ? "Loading diagnostics"
+              : total == null
+                ? `${diagnostics.length.toLocaleString()} diagnostics`
+                : `${diagnostics.length.toLocaleString()} of ${total.toLocaleString()} diagnostics`}
+          </span>
+        </div>
+        <div className="pagination-controls">
+          <label>
+            Page size
+            <select value={String(pageSize)} onChange={(event) => updatePageSize(event.currentTarget.value)}>
+              {visiblePageSizeOptions.map((value) => (
+                <option key={value} value={value}>
+                  {value}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" className="icon-button" title="Previous page" disabled={!canPageBackward || loading} onClick={() => goToOffset(previousOffset)}>
+            <ChevronLeft size={17} />
+          </button>
+          <button type="button" className="icon-button" title="Next page" disabled={!canPageForward || loading} onClick={() => goToOffset(nextOffset)}>
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <StatusLine loading={loading} error={error} />
+
+      <div className="table-frame admin-diagnostics-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Replay</th>
+              <th>Reasons</th>
+              <th>Runs</th>
+              <th>Queue</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>
+            {diagnostics.map((diagnostic) => (
+              <tr key={diagnostic.replay_id}>
+                <td className="admin-replay-cell">
+                  <Link className="primary-link" to={`/replays/${diagnostic.replay_id}`}>
+                    {diagnostic.original_file_name || diagnostic.replay_id}
+                  </Link>
+                  <div className="subtle">{diagnostic.file_sha256.slice(0, 16)}</div>
+                  <StatusBadge status={diagnostic.processing_status} />
+                </td>
+                <td>
+                  <ul className="admin-reason-list">
+                    {diagnostic.reasons.map((reason) => (
+                      <li key={reason}>{reason}</li>
+                    ))}
+                  </ul>
+                </td>
+                <td className="admin-run-cell">
+                  <RunSummary label="Canonical" run={diagnostic.canonical_analysis_run} eventCount={diagnostic.canonical_event_count} />
+                  <RunSummary label="Latest" run={diagnostic.latest_analysis_run} />
+                  {diagnostic.needs_reanalysis || diagnostic.needs_reindex ? (
+                    <div className="admin-flag-row">
+                      {diagnostic.needs_reanalysis ? <span>needs reanalysis</span> : null}
+                      {diagnostic.needs_reindex ? <span>needs reindex</span> : null}
+                    </div>
+                  ) : null}
+                </td>
+                <td className="admin-queue-cell">
+                  <div>Queued {diagnostic.queued_jobs.toLocaleString()}</div>
+                  <div>Running {diagnostic.running_jobs.toLocaleString()}</div>
+                  <div>Failed {diagnostic.failed_jobs.toLocaleString()}</div>
+                  <div>Done {diagnostic.finished_jobs.toLocaleString()}</div>
+                  {diagnostic.next_queue_run_at ? <small>Next {formatDate(diagnostic.next_queue_run_at)}</small> : null}
+                </td>
+                <td className="admin-date-cell">
+                  <div>{formatDate(diagnostic.updated_at)}</div>
+                  <small>Created {formatDate(diagnostic.created_at)}</small>
+                </td>
+              </tr>
+            ))}
+            {!loading && diagnostics.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="empty-cell">
+                  No replay processing diagnostics matched.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function RunSummary({
+  label,
+  run,
+  eventCount,
+}: {
+  label: string;
+  run: ReplayProcessingDiagnostic["canonical_analysis_run"];
+  eventCount?: number;
+}) {
+  if (!run) {
+    return (
+      <div className="admin-run-summary">
+        <strong>{label}</strong>
+        <span>Missing</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="admin-run-summary">
+      <strong>{label}</strong>
+      <span>
+        {run.status}
+        {eventCount != null ? `, ${eventCount.toLocaleString()} events` : ""}
+      </span>
+      <small>{run.event_stream_schema_version || "schema missing"}</small>
+      <small>{formatDate(run.started_at)}</small>
+    </div>
+  );
+}
+
 function NotFoundPage() {
   return (
     <section className="page">
@@ -2727,7 +2983,24 @@ function StatusLine({ loading, error, count, label }: { loading: boolean; error:
 }
 
 function StatusBadge({ status }: { status: string }) {
-  return <span className={`status-badge status-${status}`}>{status}</span>;
+  return <span className={`status-badge status-${status}`}>{statusLabel(status)}</span>;
+}
+
+function statusLabel(status: string): string {
+  switch (status) {
+    case "parsed":
+    case "processed":
+      return "Processed";
+    case "parsing":
+    case "processing":
+      return "Processing";
+    case "pending":
+      return "Pending";
+    case "failed":
+      return "Failed";
+    default:
+      return status;
+  }
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -2853,6 +3126,11 @@ function formatNumber(value: number | null): string {
   const absoluteValue = Math.abs(value);
   if (absoluteValue >= 100) return value.toFixed(0);
   return value.toFixed(absoluteValue >= 10 ? 1 : 2);
+}
+
+function formatCounts(counts: Array<{ status: string; count: number }>): string {
+  if (counts.length === 0) return "None";
+  return counts.map((count) => `${statusLabel(count.status)} ${count.count.toLocaleString()}`).join(", ");
 }
 
 function formatPercent(value: number | null): string {

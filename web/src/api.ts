@@ -5,6 +5,7 @@ import type {
   ListReplaysResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
+  ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
   ReplayResponse,
   StatAggregateSetResponse,
@@ -74,6 +75,16 @@ export function listReplays(searchParams: URLSearchParams): Promise<ListReplaysR
 
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
+}
+
+export function listReplayProcessingDiagnostics(searchParams: URLSearchParams): Promise<ReplayProcessingDiagnosticsResponse> {
+  const params = new URLSearchParams(searchParams);
+  if (!params.has("count")) {
+    params.set("count", "100");
+  }
+  return request<ReplayProcessingDiagnosticsResponse>(`/api/v1/admin/replays/processing-diagnostics?${params.toString()}`, {
+    includeAccessToken: false,
+  });
 }
 
 export async function getReplay(replayId: string): Promise<ReplayResponse> {
