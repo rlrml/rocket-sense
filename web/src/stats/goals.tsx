@@ -39,7 +39,7 @@ interface GoalRow {
   scorerName: string;
   scoringTeam: number | null;
   ballSpeed: number | null;
-  timeInOffensiveHalf: number | null;
+  pressureBeforeGoal: number | null;
   anchorFrame: number | null;
   types: GoalType[];
 }
@@ -163,9 +163,9 @@ function GoalCard({
       ) : null}
       <div className="goal-card-stats">
         <span>{formatSpeed(goal.ballSpeed)}</span>
-        {goal.timeInOffensiveHalf != null ? (
-          <span title="Time the ball spent in the scoring team's attacking half in the ~12s before the goal">
-            {formatZoneTime(goal.timeInOffensiveHalf)} in att. half
+        {goal.pressureBeforeGoal != null ? (
+          <span title="How long the scoring team had sustained territorial pressure when they scored">
+            {formatPressureTime(goal.pressureBeforeGoal)} pressure
           </span>
         ) : null}
       </div>
@@ -187,7 +187,7 @@ function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
         scorerName: event.player_name?.trim() || "Unknown scorer",
         scoringTeam: event.team ?? teamField(payload, "scoring_team_is_team_0"),
         ballSpeed: numberField(payload, "ball_speed_at_goal"),
-        timeInOffensiveHalf: numberField(payload, "time_in_offensive_half_before_goal"),
+        pressureBeforeGoal: numberField(payload, "pressure_duration_before_goal"),
         anchorFrame: eventAnchorFrame(event, ["scorer_last_touch.frame"]),
         types: goalTypes(payload),
       };
@@ -258,7 +258,7 @@ function formatSeconds(value: number | null): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}${tenths}`;
 }
 
-function formatZoneTime(value: number): string {
+function formatPressureTime(value: number): string {
   return `${value.toFixed(1)}s`;
 }
 
