@@ -1,7 +1,8 @@
-import { BatteryCharging, CircleDotDashed, Gauge, Hand, type LucideIcon, Map as MapIcon, MapPinned, RotateCw, Sparkles } from "lucide-react";
+import { BatteryCharging, CircleDotDashed, Gauge, Goal, Hand, type LucideIcon, Map as MapIcon, MapPinned, RotateCw, Sparkles } from "lucide-react";
 import type { ComponentType } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { BoostDetail, boostEventTypes } from "./boost";
+import { GoalsDetail, goalEventTypes } from "./goals";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
@@ -26,6 +27,17 @@ export interface StatGroup {
 }
 
 export const statGroups: StatGroup[] = [
+  {
+    id: "goals",
+    label: "Goals",
+    icon: Goal,
+    description: "Every goal with scorer, scoring team, ball speed, air time, and detected goal types, with clip preview.",
+    terms: ["goal", "score", "finish", "aerial", "flick", "double tap"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: goalEventTypes,
+    Detail: GoalsDetail,
+  },
   {
     id: "boost",
     label: "Boost",

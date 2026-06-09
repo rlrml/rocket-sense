@@ -145,6 +145,9 @@ export interface MechanicEventResponse {
   player_id: string | null;
   player_name: string | null;
   team: number | null;
+  start_frame: number | null;
+  end_frame: number | null;
+  event_frame: number | null;
   start_time: number | null;
   end_time: number | null;
   event_time: number | null;

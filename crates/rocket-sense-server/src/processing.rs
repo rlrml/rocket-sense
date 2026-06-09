@@ -3990,10 +3990,10 @@ fn event_category_key(category: EventCategory) -> &'static str {
         EventCategory::Possession => "possession",
         EventCategory::Positioning => "positioning",
         EventCategory::Boost => "boost",
-        EventCategory::Contact => "contact",
         EventCategory::Movement => "movement",
         EventCategory::Other => "other",
         EventCategory::Annotation => "annotation",
+        EventCategory::Other => "other",
     }
 }
 
