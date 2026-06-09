@@ -547,9 +547,11 @@ function isKickoffDirection(value: string | null): value is KickoffDirection {
 
 function kickoffPreviewLabel(kickoff: KickoffRow): string {
   const typeLabel = kickoffTypeName(kickoff.kickoffType);
-  return typeLabel
+  const base = typeLabel
     ? `${typeLabel} · ${kickoffDirectionName(kickoff.kickoffDirection)} · ${formatSeconds(kickoff.startTime)}`
     : formatSeconds(kickoff.startTime);
+  const followedPlayer = kickoffWinnerPreviewPlayer(kickoff);
+  return followedPlayer?.playerName ? `${base} · Following ${followedPlayer.playerName}` : base;
 }
 
 function kickoffPreviewStart(kickoff: KickoffRow): { time: number; frame: number | null; startResolver?: EventClip["startResolver"] } | null {
