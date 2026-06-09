@@ -13,6 +13,7 @@ import { type ReactNode, useCallback, useEffect, useRef, useState } from "react"
 export type EventClipCamera =
   | {
       kind: "follow-player";
+      playerKey?: string | null;
       playerName: string | null;
       ballCam?: boolean;
     }
@@ -113,6 +114,8 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
   const clipRef = useRef<EventClip | null>(clip);
   clipRef.current = clip;
   const renderStatsRef = useRef({ count: 0, frameIndex: -1, time: -1 });
+  // Lower-cased player remote id -> player track id, for event-focused camera targets.
+  const trackByPlayerKeyRef = useRef<Map<string, string>>(new Map());
   // Lower-cased player name -> player track id, for event-focused camera targets.
   const trackByNameRef = useRef<Map<string, string>>(new Map());
   const [status, setStatus] = useState<LoadStatus>("loading");
@@ -194,9 +197,13 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
         : target.end;
     loopRef.current = { start, end };
     if (target.camera.kind === "follow-player") {
-      const trackId = target.camera.playerName
-        ? trackByNameRef.current.get(target.camera.playerName.trim().toLowerCase())
-        : undefined;
+      const trackId =
+        (target.camera.playerKey
+          ? trackByPlayerKeyRef.current.get(normalizePlayerKey(target.camera.playerKey))
+          : undefined) ??
+        (target.camera.playerName
+          ? trackByNameRef.current.get(target.camera.playerName.trim().toLowerCase())
+          : undefined);
       if (trackId) {
         player.setAttachedPlayer(trackId);
         player.setBallCamEnabled(target.camera.ballCam ?? true);
@@ -240,11 +247,14 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
           return;
         }
         const trackByName = new Map<string, string>();
+        const trackByPlayerKey = new Map<string, string>();
         for (const track of replay.players) {
+          trackByPlayerKey.set(normalizePlayerKey(track.id), track.id);
           if (track.name) {
             trackByName.set(track.name.trim().toLowerCase(), track.id);
           }
         }
+        trackByPlayerKeyRef.current = trackByPlayerKey;
         trackByNameRef.current = trackByName;
         player = new ReplayPlayer(containerRef.current, replay, {
           initialCameraViewMode: "free",
@@ -327,4 +337,14 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
       ) : null}
     </div>
   );
+}
+
+function normalizePlayerKey(value: string): string {
+  const separator = value.indexOf(":");
+  if (separator < 0) {
+    return value.trim().toLowerCase();
+  }
+  const platform = value.slice(0, separator).trim().toLowerCase();
+  const id = value.slice(separator + 1).trim();
+  return `${platform === "psynet" ? "epic" : platform === "playstation" ? "ps4" : platform}:${id}`;
 }

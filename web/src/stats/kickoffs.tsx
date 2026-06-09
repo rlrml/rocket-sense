@@ -7,6 +7,7 @@ import { useEventPreviewSelection } from "./eventPreview";
 export const kickoffEventTypes = ["kickoff"];
 
 const KICKOFF_CLIP_POSTROLL_SECONDS = 5;
+const LEGACY_KICKOFF_COUNTDOWN_SECONDS = 3;
 
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
@@ -28,6 +29,8 @@ interface KickoffRow {
   endTime: number | null;
   liveActionStartTime: number | null;
   liveActionStartFrame: number | null;
+  movementStartTime: number | null;
+  movementStartFrame: number | null;
   outcome: string | null;
   possessionOutcome: string | null;
   winningTeam: number | null;
@@ -97,18 +100,18 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
   const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
   const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
   const buildClip = useCallback((kickoff: KickoffRow, replayNonce: number): EventClip | null => {
-    const clipStart = kickoff.liveActionStartTime;
-    if (clipStart == null) {
+    const previewStart = kickoffPreviewStart(kickoff);
+    if (!previewStart) {
       return null;
     }
     const endTime = kickoff.endTime ?? kickoff.startTime;
-    const winnerPlayerName = kickoffWinnerPreviewPlayerName(kickoff);
+    const winnerPlayer = kickoffWinnerPreviewPlayer(kickoff);
     return {
-      start: clipStart,
-      end: (endTime ?? clipStart) + KICKOFF_CLIP_POSTROLL_SECONDS,
-      startFrame: kickoff.liveActionStartFrame,
-      camera: winnerPlayerName
-        ? { kind: "follow-player", playerName: winnerPlayerName, ballCam: true }
+      start: previewStart.time,
+      end: (endTime ?? previewStart.time) + KICKOFF_CLIP_POSTROLL_SECONDS,
+      startFrame: previewStart.frame,
+      camera: winnerPlayer
+        ? { kind: "follow-player", playerKey: winnerPlayer.playerKey, playerName: winnerPlayer.playerName, ballCam: true }
         : { kind: "free", preset: "side" },
       key: `${kickoff.event.id}:${replayNonce}`,
     };
@@ -395,6 +398,8 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
   const startTime = numberField(payload, "start_time") ?? event.start_time;
   const liveActionStartTime = numberField(payload, "live_action_start_time");
   const liveActionStartFrame = numberField(payload, "live_action_start_frame");
+  const movementStartTime = numberField(payload, "movement_start_time");
+  const movementStartFrame = numberField(payload, "movement_start_frame");
   return {
     event,
     index,
@@ -402,6 +407,8 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     endTime: numberField(payload, "end_time") ?? event.end_time,
     liveActionStartTime,
     liveActionStartFrame,
+    movementStartTime,
+    movementStartFrame,
     outcome: stringField(payload, "outcome"),
     possessionOutcome: stringField(payload, "kickoff_possession_outcome"),
     winningTeam: teamField(payload, "winning_team_is_team_0"),
@@ -545,14 +552,36 @@ function kickoffPreviewLabel(kickoff: KickoffRow): string {
     : formatSeconds(kickoff.startTime);
 }
 
-function kickoffWinnerPreviewPlayerName(kickoff: KickoffRow): string | null {
+function kickoffPreviewStart(kickoff: KickoffRow): { time: number; frame: number | null } | null {
+  if (kickoff.liveActionStartTime != null) {
+    return { time: kickoff.liveActionStartTime, frame: kickoff.liveActionStartFrame };
+  }
+  if (
+    kickoff.movementStartTime != null &&
+    (kickoff.startTime == null || kickoff.movementStartTime > kickoff.startTime + 0.05)
+  ) {
+    return { time: kickoff.movementStartTime, frame: kickoff.movementStartFrame };
+  }
+  if (kickoff.startTime != null) {
+    return { time: kickoff.startTime + LEGACY_KICKOFF_COUNTDOWN_SECONDS, frame: null };
+  }
+  return null;
+}
+
+function kickoffWinnerPreviewPlayer(kickoff: KickoffRow): { playerKey: string | null; playerName: string | null } | null {
+  const perspectiveTeam = kickoff.winningTeam ?? kickoff.possessionTeam;
   const winningTaker =
-    kickoff.winningTeam === 0 ? kickoff.teamZeroTaker : kickoff.winningTeam === 1 ? kickoff.teamOneTaker : null;
-  return (
-    winningTaker?.playerName ??
-    (kickoff.firstTouch.team === kickoff.winningTeam ? kickoff.firstTouch.playerName : null) ??
-    (kickoff.followUpTouch.team === kickoff.winningTeam ? kickoff.followUpTouch.playerName : null)
-  );
+    perspectiveTeam === 0 ? kickoff.teamZeroTaker : perspectiveTeam === 1 ? kickoff.teamOneTaker : null;
+  if (winningTaker?.playerKey || winningTaker?.playerName) {
+    return { playerKey: winningTaker.playerKey, playerName: winningTaker.playerName };
+  }
+  if (kickoff.firstTouch.team === perspectiveTeam && (kickoff.firstTouch.playerKey || kickoff.firstTouch.playerName)) {
+    return { playerKey: kickoff.firstTouch.playerKey, playerName: kickoff.firstTouch.playerName };
+  }
+  if (kickoff.followUpTouch.team === perspectiveTeam && (kickoff.followUpTouch.playerKey || kickoff.followUpTouch.playerName)) {
+    return { playerKey: kickoff.followUpTouch.playerKey, playerName: kickoff.followUpTouch.playerName };
+  }
+  return null;
 }
 
 function kickoffTypeChips(kickoff: KickoffRow): Array<{ key: string; value: string; muted?: boolean }> {
