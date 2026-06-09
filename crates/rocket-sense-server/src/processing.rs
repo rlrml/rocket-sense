@@ -3678,7 +3678,7 @@ fn direct_timeline_event_metadata(stream: &str) -> Option<EventDefinitionMetadat
     if let Some(metadata) = rocket_sense_timeline_event_metadata(id) {
         return Some(metadata);
     }
-    subtr_actor::ALL_EVENT_DEFINITIONS
+    subtr_actor::all_event_definitions()
         .iter()
         .copied()
         .find(|definition| definition.id == id)
@@ -3734,6 +3734,7 @@ fn event_category_key(category: EventCategory) -> &'static str {
         EventCategory::Movement => "movement",
         EventCategory::Other => "other",
         EventCategory::Annotation => "annotation",
+        EventCategory::Context => "context",
     }
 }
 

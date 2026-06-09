@@ -203,6 +203,7 @@ fn indexed_goal_context_does_not_synthesize_goal_tag_events() {
         ball_position: None,
         ball_speed_at_goal: None,
         ball_air_time_before_goal: None,
+        pressure_duration_before_goal: None,
         goal_buildup: subtr_actor::GoalBuildupKind::Other,
         scorer_last_touch: None,
         players: vec![],

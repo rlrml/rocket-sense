@@ -2681,43 +2681,29 @@ fn playlist_playback_bounds(clip_start: f64, clip_end: f64) -> (PlaylistBound, P
 fn code_defined_event_types() -> Vec<EventTypeResponse> {
     let mut event_types = BTreeMap::new();
 
-    for definition in subtr_actor::ALL_EVENT_DEFINITIONS {
-        if is_expanded_event_definition(definition.id) {
-            continue;
+    for definition in subtr_actor::all_event_definitions() {
+        for variant in definition.variants {
+            insert_code_defined_event_type(
+                &mut event_types,
+                variant.key,
+                variant.label,
+                event_category_key(variant.category),
+                None,
+            );
         }
-        insert_code_defined_event_type(
-            &mut event_types,
-            definition.id,
-            definition.label,
-            event_category_key(definition.category),
-            Some(definition.summary),
-        );
+
+        if !definition.hidden_from_review {
+            insert_code_defined_event_type(
+                &mut event_types,
+                definition.id,
+                definition.label,
+                event_category_key(definition.category),
+                Some(definition.summary),
+            );
+        }
     }
 
-    for mechanic in subtr_actor::stats::analysis_graph::STATS_TIMELINE_MECHANIC_KINDS {
-        insert_code_defined_event_type(
-            &mut event_types,
-            mechanic,
-            &display_name_from_key(mechanic),
-            "mechanic",
-            None,
-        );
-    }
-
-    for event_type in CODE_DEFINED_EVENT_TYPE_VARIANTS {
-        insert_code_defined_event_type(
-            &mut event_types,
-            event_type.key,
-            event_type.label,
-            event_type.category,
-            event_type.description,
-        );
-    }
-
-    let mut event_types = event_types
-        .into_iter()
-        .map(|(_, event_type)| event_type)
-        .collect::<Vec<_>>();
+    let mut event_types = event_types.into_values().collect::<Vec<_>>();
     event_types.sort_by(|left, right| {
         left.display_name
             .cmp(&right.display_name)
@@ -2749,191 +2735,6 @@ fn insert_code_defined_event_type(
     );
 }
 
-fn is_expanded_event_definition(event_type: &str) -> bool {
-    matches!(
-        event_type,
-        "timeline"
-            | "mechanics"
-            | "boost_pickups"
-            | "boost_ledger"
-            | "rotation_player"
-            | "rotation_role_span"
-            | "rotation_depth_span"
-    )
-}
-
-struct CodeDefinedEventTypeVariant {
-    key: &'static str,
-    label: &'static str,
-    category: &'static str,
-    description: Option<&'static str>,
-}
-
-const CODE_DEFINED_EVENT_TYPE_VARIANTS: &[CodeDefinedEventTypeVariant] = &[
-    CodeDefinedEventTypeVariant {
-        key: "assist",
-        label: "Assist",
-        category: "core",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "death",
-        label: "Death",
-        category: "core",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "goal",
-        label: "Goal",
-        category: "core",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "kill",
-        label: "Demolition",
-        category: "core",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "save",
-        label: "Save",
-        category: "core",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "shot",
-        label: "Shot",
-        category: "core",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "core_player_goal_context",
-        label: "Core Player Goal Context",
-        category: "context",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "goal_context",
-        label: "Goal Context",
-        category: "context",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_pickup_both",
-        label: "Boost Pickup Both",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_pickup_ghost",
-        label: "Boost Pickup Ghost",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_pickup_missed",
-        label: "Boost Pickup Missed",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_ledger_collected",
-        label: "Boost Ledger Collected",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_ledger_overfill",
-        label: "Boost Ledger Overfill",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_ledger_respawn",
-        label: "Boost Ledger Respawn",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_ledger_stolen",
-        label: "Boost Ledger Stolen",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_ledger_used",
-        label: "Boost Ledger Used",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "boost_ledger_used_allocation",
-        label: "Boost Ledger Used Allocation",
-        category: "boost",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_player_state_span",
-        label: "Player State Span",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_role_ambiguous",
-        label: "Rotation Role Ambiguous",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_role_first_man",
-        label: "Rotation Role First Man",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_role_second_man",
-        label: "Rotation Role Second Man",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_role_third_man",
-        label: "Rotation Role Third Man",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_role_unknown",
-        label: "Rotation Role Unknown",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_depth_ahead_of_play",
-        label: "Rotation Depth Ahead Of Play",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_depth_behind_play",
-        label: "Rotation Depth Behind Play",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_depth_level_with_play",
-        label: "Rotation Depth Level With Play",
-        category: "positioning",
-        description: None,
-    },
-    CodeDefinedEventTypeVariant {
-        key: "rotation_depth_unknown",
-        label: "Rotation Depth Unknown",
-        category: "positioning",
-        description: None,
-    },
-];
-
 fn canonical_event_type_category(event_type: &str, stored_category: &str) -> &'static str {
     if context_event_type_keys(event_type) {
         return "context";
@@ -2943,6 +2744,9 @@ fn canonical_event_type_category(event_type: &str, stored_category: &str) -> &'s
     }
     if stored_category != "event" {
         return event_category_alias(stored_category);
+    }
+    if let Some(category) = registered_event_type_category(event_type) {
+        return category;
     }
     if mechanic_event_type_keys(event_type) || event_type.starts_with("mechanic.") {
         return "mechanic";
@@ -2984,6 +2788,21 @@ fn canonical_event_type_category(event_type: &str, stored_category: &str) -> &'s
     "event"
 }
 
+fn registered_event_type_category(event_type: &str) -> Option<&'static str> {
+    subtr_actor::all_event_definitions()
+        .iter()
+        .find_map(|definition| {
+            if definition.id == event_type {
+                return Some(event_category_key(definition.category));
+            }
+            definition
+                .variants
+                .iter()
+                .find(|variant| variant.key == event_type)
+                .map(|variant| event_category_key(variant.category))
+        })
+}
+
 fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
     match category {
         subtr_actor::EventCategory::Core => "core",
@@ -2994,6 +2813,7 @@ fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
         subtr_actor::EventCategory::Movement => "movement",
         subtr_actor::EventCategory::Other => "other",
         subtr_actor::EventCategory::Annotation => "annotation",
+        subtr_actor::EventCategory::Context => "context",
     }
 }
 
@@ -3004,20 +2824,6 @@ fn canonical_event_type_key(event_type: &str) -> &str {
         }
     }
     event_type
-}
-
-fn display_name_from_key(key: &str) -> String {
-    key.split(['.', '_', '-'])
-        .filter(|part| !part.is_empty())
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
-                None => String::new(),
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(" ")
 }
 
 fn event_category_alias(category: &str) -> &'static str {
@@ -3041,30 +2847,7 @@ fn event_category_alias(category: &str) -> &'static str {
 }
 
 fn mechanic_event_type_keys(event_type: &str) -> bool {
-    matches!(
-        event_type,
-        "air_dribble"
-            | "backboard"
-            | "backboard_bounce"
-            | "ball_carry"
-            | "ceiling_shot"
-            | "center"
-            | "dodge_reset"
-            | "double_tap"
-            | "flick"
-            | "flip_reset"
-            | "half_flip"
-            | "half_volley"
-            | "musty_flick"
-            | "one_timer"
-            | "pass"
-            | "speed_flip"
-            | "wall_aerial"
-            | "wall_aerial_shot"
-            | "wavedash"
-            | "post_wall_dodge"
-            | "flip_reset_followup_dodge"
-    )
+    registered_event_type_category(event_type) == Some("mechanic")
 }
 
 fn context_event_type_keys(event_type: &str) -> bool {
