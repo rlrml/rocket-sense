@@ -25,7 +25,11 @@ use uuid::Uuid;
 mod tests;
 
 const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
-const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v2";
+// Bumped v2 -> v3 when goal ball speed (`ball_speed_at_goal`) was corrected:
+// previously every goal recorded 0 because the explosion frame carries no ball
+// velocity. Bumping marks prior analyses stale so reprocessing re-emits the
+// event stream with real speeds.
+const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v3";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
