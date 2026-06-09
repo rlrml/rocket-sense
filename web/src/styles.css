@@ -839,6 +839,8 @@ tbody tr:last-child td {
 .kickoff-card {
   appearance: none;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  justify-content: stretch;
   gap: 12px;
   width: 100%;
   padding: 14px;
@@ -875,9 +877,8 @@ tbody tr:last-child td {
 
 .kickoff-card-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: start;
+  gap: 8px;
+  justify-items: start;
 }
 
 .kickoff-card-heading {
@@ -927,18 +928,18 @@ tbody tr:last-child td {
   align-items: center;
   min-height: 24px;
   padding: 0 9px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid #ddd6fe;
   border-radius: 999px;
-  background: #eff6ff;
-  color: #1d4ed8;
+  background: #f5f3ff;
+  color: #6d28d9;
   font-size: 12px;
   font-weight: 850;
 }
 
 .kickoff-type-pill:nth-child(2) {
-  border-color: #fed7aa;
-  background: #fff7ed;
-  color: #c2410c;
+  border-color: #99f6e4;
+  background: #f0fdfa;
+  color: #0f766e;
 }
 
 .kickoff-type-pill.muted {
@@ -975,7 +976,7 @@ tbody tr:last-child td {
 .kickoff-time-block {
   display: grid;
   gap: 2px;
-  text-align: right;
+  text-align: left;
 }
 
 .kickoff-time-block strong {
@@ -3147,16 +3148,6 @@ tbody tr:last-child td {
 
   .kickoff-preview-frame {
     height: 320px;
-  }
-
-  .kickoff-card-header {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .kickoff-time-block {
-    grid-column: 1 / -1;
-    order: 3;
-    text-align: left;
   }
 
   .kickoff-behavior-row {
