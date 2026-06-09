@@ -2,6 +2,7 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { listBoostTracks } from "../api";
 import type { BoostTrack, MechanicEventResponse, ReplayPlayer } from "../types";
+import { boostAmountToPercent } from "./boostUnits";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
 // collection (keyed by detection: both/ghost/missed) plus respawn events.
@@ -1916,11 +1917,6 @@ function isNumber(value: number | null): value is number {
 function numericPayload(payload: Record<string, unknown>, key: string): number | null {
   const value = payload[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function boostAmountToPercent(value: number | null): number | null {
-  if (value == null) return null;
-  return (value * 100) / 255;
 }
 
 function teamClass(team: number | null): "blue" | "orange" | "unknown" {

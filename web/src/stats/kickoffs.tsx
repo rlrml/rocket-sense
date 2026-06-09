@@ -2,6 +2,7 @@ import type { ReplayModel } from "@rlrml/player";
 import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy } from "lucide-react";
 import { lazy, Suspense, useCallback, useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
 import { useEventPreviewSelection } from "./eventPreview";
 
@@ -1331,12 +1332,14 @@ function formatDuration(value: number | null): string {
   return value == null ? "-" : `${value.toFixed(1)}s`;
 }
 
+// Kickoff taker/support boost fields arrive in raw 0-255 units; rescale to the
+// 0-100 display scale via the shared converter (see ./boostUnits).
 function formatBoostAmount(value: number): string {
-  return Math.round(value).toLocaleString();
+  return formatBoostPercent(value);
 }
 
 function formatBoostValue(value: number | null): string {
-  return value == null ? "-" : formatBoostAmount(value);
+  return formatBoostPercent(value);
 }
 
 function startDistanceToCenteredBall(position: [number, number, number] | null): number | null {
