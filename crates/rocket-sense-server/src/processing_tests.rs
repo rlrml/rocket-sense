@@ -918,6 +918,7 @@ fn stats_timeline_with_events(
         events,
         frames: vec![],
         positioning_summary: vec![],
+        accumulation_tracks: vec![],
     }
 }
 
