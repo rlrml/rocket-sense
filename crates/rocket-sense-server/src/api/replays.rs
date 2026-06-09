@@ -15,7 +15,10 @@ use axum::{
 };
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use rocket_sense_storage::{raw_replay_key, replay_mime_type, sha256_hex, StorageError};
+use rocket_sense_storage::{
+    decode_bytes, encode_bytes, raw_replay_key, replay_mime_type, sha256_hex, StorageEncoding,
+    StorageError, DEFAULT_STORAGE_ENCODING,
+};
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -432,10 +435,21 @@ struct ErrorResponse {
 pub async fn create_replay(
     auth_user: AuthUser,
     State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<CreateReplayResponse>), ApiError> {
     tracing::debug!(user_id = %auth_user.id, email = %auth_user.email, "authenticated replay upload");
     let db = require_db(&state)?;
+    let upload_encoding = parse_encoding_query(
+        raw_query.as_deref(),
+        &["upload-encoding", "upload_encoding"],
+        StorageEncoding::Identity,
+    )?;
+    let storage_encoding = parse_encoding_query(
+        raw_query.as_deref(),
+        &["storage-encoding", "storage_encoding"],
+        DEFAULT_STORAGE_ENCODING,
+    )?;
 
     let mut replay_bytes = None;
     let mut original_file_name = None;
@@ -446,14 +460,17 @@ pub async fn create_replay(
         .map_err(ApiError::bad_request)?
     {
         if field.name() == Some("file") {
-            original_file_name = field.file_name().map(ToOwned::to_owned);
+            original_file_name = field
+                .file_name()
+                .map(|name| normalize_uploaded_file_name(name, upload_encoding));
             replay_bytes = Some(field.bytes().await.map_err(ApiError::bad_request)?);
             break;
         }
     }
 
-    let bytes =
+    let uploaded_bytes =
         replay_bytes.ok_or_else(|| ApiError::bad_request("missing multipart field `file`"))?;
+    let bytes = decode_transfer_bytes(uploaded_bytes, upload_encoding)?;
     let replay_id = Uuid::now_v7();
     let file_sha256 = sha256_hex(&bytes);
     upsert_user(db, &auth_user)
@@ -478,21 +495,26 @@ pub async fn create_replay(
 
     let stored = state
         .storage
-        .put(
+        .put_with_encoding(
             &raw_replay_key(&file_sha256),
             bytes.clone(),
             Some(replay_mime_type()),
+            storage_encoding,
         )
         .await
         .map_err(ApiError::internal)?;
     let insert_result = insert_replay_metadata(
         db,
-        replay_id,
-        &file_sha256,
-        original_file_name.as_deref(),
-        stored.byte_size,
-        &stored.key,
-        auth_user.id,
+        NewReplayMetadata {
+            replay_id,
+            file_sha256: &file_sha256,
+            original_file_name: original_file_name.as_deref(),
+            byte_size: stored.byte_size,
+            storage_key: &stored.key,
+            storage_encoding: stored.storage_encoding,
+            storage_byte_size: stored.storage_byte_size,
+            uploaded_by_user_id: auth_user.id,
+        },
     )
     .await
     .map_err(ApiError::internal)?;
@@ -517,6 +539,17 @@ pub async fn create_replay(
             deduplicated: !insert_result.created,
         }),
     ))
+}
+
+struct NewReplayMetadata<'a> {
+    replay_id: Uuid,
+    file_sha256: &'a str,
+    original_file_name: Option<&'a str>,
+    byte_size: u64,
+    storage_key: &'a str,
+    storage_encoding: StorageEncoding,
+    storage_byte_size: u64,
+    uploaded_by_user_id: Uuid,
 }
 
 async fn maybe_upsert_preflight_metadata(
@@ -585,7 +618,6 @@ pub async fn list_replays(
         next_offset,
     }))
 }
-
 #[utoipa::path(
     get,
     path = "/api/v1/replays/filter-options",
@@ -938,8 +970,14 @@ pub async fn remove_replay_group_replays(
 pub async fn download_replay_file(
     State(state): State<AppState>,
     Path(replay_id): Path<Uuid>,
+    RawQuery(raw_query): RawQuery,
 ) -> Result<Response, ApiError> {
     let db = require_db(&state)?;
+    let download_encoding = parse_encoding_query(
+        raw_query.as_deref(),
+        &["download-encoding", "download_encoding", "encoding"],
+        StorageEncoding::Identity,
+    )?;
     let file = get_replay_file_record(db, replay_id)
         .await
         .map_err(ApiError::internal)?
@@ -953,19 +991,24 @@ pub async fn download_replay_file(
         .original_file_name
         .filter(|name| !name.trim().is_empty())
         .unwrap_or_else(|| format!("{replay_id}.replay"));
+    let response_bytes = encode_transfer_bytes(bytes, download_encoding)?;
+    let response_file_name = encoded_file_name(&file_name, download_encoding);
 
     Ok((
         [
-            (CONTENT_TYPE, replay_mime_type().as_ref().to_owned()),
+            (
+                CONTENT_TYPE,
+                replay_download_content_type(download_encoding).to_owned(),
+            ),
             (
                 CONTENT_DISPOSITION,
                 format!(
                     "attachment; filename=\"{}\"",
-                    sanitize_file_name(&file_name)
+                    sanitize_file_name(&response_file_name)
                 ),
             ),
         ],
-        bytes,
+        response_bytes,
     )
         .into_response())
 }
@@ -1410,6 +1453,74 @@ fn normalize_sha256_hex(value: &str) -> Result<String, ApiError> {
     Ok(value.to_ascii_lowercase())
 }
 
+fn parse_encoding_query(
+    raw_query: Option<&str>,
+    names: &[&str],
+    default: StorageEncoding,
+) -> Result<StorageEncoding, ApiError> {
+    let params = QueryParams::from_raw(raw_query);
+    params
+        .first(names)
+        .map(|value| parse_encoding(names[0], &value))
+        .transpose()
+        .map(|value| value.unwrap_or(default))
+}
+
+fn parse_encoding(name: &str, value: &str) -> Result<StorageEncoding, ApiError> {
+    value.parse::<StorageEncoding>().map_err(|_| {
+        ApiError::bad_request(format!("{name} must be one of: identity, raw, gzip, zstd"))
+    })
+}
+
+fn decode_transfer_bytes(bytes: Bytes, encoding: StorageEncoding) -> Result<Bytes, ApiError> {
+    decode_bytes(&bytes, encoding).map_err(|error| {
+        ApiError::bad_request(format!("failed to decode {encoding} upload: {error}"))
+    })
+}
+
+fn encode_transfer_bytes(bytes: Bytes, encoding: StorageEncoding) -> Result<Bytes, ApiError> {
+    encode_bytes(&bytes, encoding).map_err(ApiError::internal)
+}
+
+fn replay_download_content_type(encoding: StorageEncoding) -> &'static str {
+    match encoding {
+        StorageEncoding::Identity => "application/vnd.rocketleague.replay",
+        StorageEncoding::Gzip => "application/gzip",
+        StorageEncoding::Zstd => "application/zstd",
+    }
+}
+
+fn normalize_uploaded_file_name(name: &str, upload_encoding: StorageEncoding) -> String {
+    if upload_encoding.compressed() {
+        strip_encoding_extension(name, upload_encoding).to_owned()
+    } else {
+        name.to_owned()
+    }
+}
+
+fn encoded_file_name(name: &str, encoding: StorageEncoding) -> String {
+    let extension = encoding.extension();
+    if extension.is_empty() || name.to_ascii_lowercase().ends_with(extension) {
+        name.to_owned()
+    } else {
+        format!("{name}{extension}")
+    }
+}
+
+fn strip_encoding_extension(name: &str, encoding: StorageEncoding) -> &str {
+    let extension = encoding.extension();
+    if extension.is_empty() {
+        return name;
+    }
+
+    let lower_name = name.to_ascii_lowercase();
+    if lower_name.ends_with(extension) {
+        &name[..name.len() - extension.len()]
+    } else {
+        name
+    }
+}
+
 struct StaticAsset {
     content_type: &'static str,
     bytes: &'static [u8],
@@ -1659,12 +1770,7 @@ async fn maybe_enqueue_replay_processing(
 
 async fn insert_replay_metadata(
     pool: &PgPool,
-    replay_id: Uuid,
-    file_sha256: &str,
-    original_file_name: Option<&str>,
-    byte_size: u64,
-    storage_key: &str,
-    uploaded_by_user_id: Uuid,
+    metadata: NewReplayMetadata<'_>,
 ) -> Result<InsertReplayMetadataResult, sqlx::Error> {
     let row = sqlx::query(
         r#"
@@ -1675,9 +1781,11 @@ async fn insert_replay_metadata(
                 file_sha256,
                 original_file_name,
                 byte_size,
-                storage_key
+                storage_key,
+                storage_encoding,
+                storage_byte_size
             )
-            VALUES ($1, $2, $3, $4, $5, $6)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT (file_sha256) DO NOTHING
             RETURNING id, TRUE AS created
         )
@@ -1691,12 +1799,14 @@ async fn insert_replay_metadata(
         LIMIT 1
         "#,
     )
-    .bind(replay_id)
-    .bind(uploaded_by_user_id)
-    .bind(file_sha256)
-    .bind(original_file_name)
-    .bind(byte_size as i64)
-    .bind(storage_key)
+    .bind(metadata.replay_id)
+    .bind(metadata.uploaded_by_user_id)
+    .bind(metadata.file_sha256)
+    .bind(metadata.original_file_name)
+    .bind(metadata.byte_size as i64)
+    .bind(metadata.storage_key)
+    .bind(metadata.storage_encoding.as_str())
+    .bind(metadata.storage_byte_size as i64)
     .fetch_one(pool)
     .await?;
     let stored_replay_id: Uuid = row.try_get("id")?;

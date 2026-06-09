@@ -24,6 +24,7 @@ axum = { version = "0.8", features = ["multipart"] }
 boxcars = ">=0.11.1, <1.0.0"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
+flate2 = "1"
 hex = "0.4"
 jsonwebtoken = "9"
 mime = "0.3"
@@ -41,6 +42,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 url = "2"
 uuid = { version = "1", features = ["serde", "v4", "v5", "v7"] }
+zstd = "0.13"
 
 rocket-sense-db = { path = "crates/rocket-sense-db" }
 rocket-sense-storage = { path = "crates/rocket-sense-storage" }

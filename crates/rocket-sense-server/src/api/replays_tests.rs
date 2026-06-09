@@ -138,6 +138,95 @@ fn replay_game_type_migration_stores_normalized_and_raw_game_type_signals() {
 }
 
 #[test]
+fn object_storage_compression_migration_tracks_raw_and_stored_sizes() {
+    let migration = include_str!("../../../../migrations/0027_object_storage_compression.sql");
+
+    assert!(migration.contains("ADD COLUMN storage_encoding text"));
+    assert!(migration.contains("ADD COLUMN storage_byte_size bigint"));
+    assert!(migration.contains("event_stream_storage_encoding"));
+    assert!(migration.contains("event_stream_storage_byte_size"));
+}
+
+#[test]
+fn replay_transfer_encoding_query_defaults_to_identity() {
+    let encoding = parse_encoding_query(None, &["download-encoding"], StorageEncoding::Identity)
+        .expect("missing query should use default");
+
+    assert_eq!(encoding, StorageEncoding::Identity);
+}
+
+#[test]
+fn replay_transfer_encoding_query_accepts_aliases() {
+    let upload = parse_encoding_query(
+        Some("upload-encoding=gz"),
+        &["upload-encoding", "upload_encoding"],
+        StorageEncoding::Identity,
+    )
+    .expect("gzip alias should parse");
+    let download = parse_encoding_query(
+        Some("download_encoding=zst"),
+        &["download-encoding", "download_encoding"],
+        StorageEncoding::Identity,
+    )
+    .expect("zstd alias should parse");
+    let raw = parse_encoding_query(
+        Some("download-encoding=raw"),
+        &["download-encoding"],
+        StorageEncoding::Zstd,
+    )
+    .expect("raw alias should parse");
+
+    assert_eq!(upload, StorageEncoding::Gzip);
+    assert_eq!(download, StorageEncoding::Zstd);
+    assert_eq!(raw, StorageEncoding::Identity);
+}
+
+#[test]
+fn replay_transfer_encoding_query_rejects_unknown_values() {
+    let error = parse_encoding_query(
+        Some("download-encoding=br"),
+        &["download-encoding"],
+        StorageEncoding::Identity,
+    )
+    .unwrap_err();
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("download-encoding must be one of"));
+}
+
+#[test]
+fn compressed_upload_file_names_are_normalized_to_raw_replay_names() {
+    assert_eq!(
+        normalize_uploaded_file_name("match.replay.gz", StorageEncoding::Gzip),
+        "match.replay"
+    );
+    assert_eq!(
+        normalize_uploaded_file_name("match.replay.zst", StorageEncoding::Zstd),
+        "match.replay"
+    );
+    assert_eq!(
+        normalize_uploaded_file_name("match.replay", StorageEncoding::Identity),
+        "match.replay"
+    );
+}
+
+#[test]
+fn compressed_download_file_names_get_encoding_suffix_once() {
+    assert_eq!(
+        encoded_file_name("match.replay", StorageEncoding::Gzip),
+        "match.replay.gz"
+    );
+    assert_eq!(
+        encoded_file_name("match.replay.gz", StorageEncoding::Gzip),
+        "match.replay.gz"
+    );
+    assert_eq!(
+        encoded_file_name("match.replay", StorageEncoding::Identity),
+        "match.replay"
+    );
+}
+
+#[test]
 fn playlist_metadata_classifies_ranked_casual_and_soccar_playlists() {
     let ranked = playlist_metadata(
         Some("ranked-doubles"),

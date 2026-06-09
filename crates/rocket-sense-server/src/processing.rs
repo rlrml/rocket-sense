@@ -4,7 +4,7 @@ use apalis_postgres::{Config as ApalisPostgresConfig, PostgresStorage};
 use boxcars::{HeaderProp, RemoteId};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
-use rocket_sense_storage::{sha256_hex, ObjectStorage};
+use rocket_sense_storage::{sha256_hex, ObjectStorage, StorageEncoding};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -1013,6 +1013,8 @@ async fn process_replay(
             &stored_event_stream.key,
             &event_stream_sha256,
             stored_event_stream.byte_size,
+            stored_event_stream.storage_encoding,
+            stored_event_stream.storage_byte_size,
         )
         .await?;
         let replay_players =
@@ -1965,9 +1967,11 @@ async fn insert_replay_object(
             storage_key,
             content_type,
             byte_size,
-            sha256
+            sha256,
+            storage_encoding,
+            storage_byte_size
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (replay_id, kind, storage_key) DO NOTHING
         "#,
     )
@@ -1978,6 +1982,8 @@ async fn insert_replay_object(
     .bind(stored.content_type.as_ref().map(ToString::to_string))
     .bind(stored.byte_size as i64)
     .bind(&stored.sha256)
+    .bind(stored.storage_encoding.as_str())
+    .bind(stored.storage_byte_size as i64)
     .execute(pool)
     .await
     .context("failed to insert replay object")?;
@@ -2017,6 +2023,8 @@ async fn update_analysis_run_event_stream(
     event_stream_object_key: &str,
     event_stream_sha256: &str,
     event_stream_byte_size: u64,
+    event_stream_storage_encoding: StorageEncoding,
+    event_stream_storage_byte_size: u64,
 ) -> Result<()> {
     sqlx::query(
         r#"
@@ -2024,6 +2032,8 @@ async fn update_analysis_run_event_stream(
         SET event_stream_object_key = $2,
             event_stream_sha256 = $3,
             event_stream_byte_size = $4,
+            event_stream_storage_encoding = $5,
+            event_stream_storage_byte_size = $6,
             updated_at = now()
         WHERE id = $1
         "#,
@@ -2032,6 +2042,8 @@ async fn update_analysis_run_event_stream(
     .bind(event_stream_object_key)
     .bind(event_stream_sha256)
     .bind(event_stream_byte_size as i64)
+    .bind(event_stream_storage_encoding.as_str())
+    .bind(event_stream_storage_byte_size as i64)
     .execute(pool)
     .await
     .context("failed to update analysis run event stream metadata")?;
