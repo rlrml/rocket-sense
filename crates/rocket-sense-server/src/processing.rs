@@ -3993,7 +3993,6 @@ fn event_category_key(category: EventCategory) -> &'static str {
         EventCategory::Movement => "movement",
         EventCategory::Other => "other",
         EventCategory::Annotation => "annotation",
-        EventCategory::Other => "other",
     }
 }
 
