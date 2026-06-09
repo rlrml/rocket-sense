@@ -693,6 +693,7 @@ tbody tr:last-child td {
 .kickoff-detail {
   display: grid;
   gap: 14px;
+  padding-bottom: 340px;
 }
 
 .kickoff-hero {
@@ -793,74 +794,6 @@ tbody tr:last-child td {
   background: #0b1020;
 }
 
-.kickoff-flow {
-  display: grid;
-  gap: 12px;
-}
-
-.kickoff-flow-track {
-  position: relative;
-  height: 46px;
-  border: 1px solid #d7e0ec;
-  border-radius: 8px;
-  background:
-    linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(15, 23, 42, 0.03) 50%, rgba(234, 88, 12, 0.08)),
-    #f8fafc;
-}
-
-.kickoff-flow-marker {
-  position: absolute;
-  top: 50%;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  transform: translate(-50%, -50%);
-  border: 2px solid #fff;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 850;
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.18);
-}
-
-.kickoff-flow-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.kickoff-flow-legend span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.legend-dot {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-}
-
-.team-marker-blue,
-.legend-dot.team-marker-blue {
-  background: #2563eb;
-}
-
-.team-marker-orange,
-.legend-dot.team-marker-orange {
-  background: #ea580c;
-}
-
-.team-marker-neutral,
-.legend-dot.team-marker-neutral {
-  background: #64748b;
-}
-
 .team-soft-blue {
   border-color: #bfdbfe;
   background: #eff6ff;
@@ -904,13 +837,23 @@ tbody tr:last-child td {
 }
 
 .kickoff-card {
+  appearance: none;
   display: grid;
   gap: 12px;
+  width: 100%;
   padding: 14px;
   border: 1px solid var(--border);
   border-left-width: 4px;
   border-radius: 8px;
   background: #fff;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.kickoff-card:hover {
+  box-shadow: 0 12px 24px rgba(15, 23, 42, 0.1);
 }
 
 .kickoff-card.selected {
@@ -932,25 +875,76 @@ tbody tr:last-child td {
 
 .kickoff-card-header {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
-  align-items: center;
+  align-items: start;
 }
 
-.kickoff-index {
+.kickoff-card-heading {
+  display: grid;
+  justify-items: start;
+  gap: 7px;
+  min-width: 0;
+  text-align: left;
+}
+
+.kickoff-taker-versus {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 6px 9px;
+  align-items: center;
+  margin: 0;
+  font-size: 18px;
+  text-align: left;
+}
+
+.kickoff-taker-name {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 4px solid transparent;
+  line-height: 1.15;
+}
+
+.kickoff-versus {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 850;
   text-transform: uppercase;
 }
 
-.kickoff-card h4 {
+.kickoff-type-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.kickoff-type-pill {
+  display: inline-flex;
   align-items: center;
-  margin: 2px 0 0;
-  font-size: 18px;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.kickoff-type-pill:nth-child(2) {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.kickoff-type-pill.muted {
+  border-color: #d7e0ec;
+  background: #f8fafc;
+  color: #64748b;
 }
 
 .kickoff-goal-chip {
@@ -1079,7 +1073,7 @@ tbody tr:last-child td {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  justify-content: flex-end;
+  justify-content: flex-start;
 }
 
 .kickoff-behavior-tags span {
@@ -3347,16 +3341,6 @@ tbody tr:last-child td {
     height: 260px;
   }
 
-  .kickoff-flow-track {
-    height: 40px;
-  }
-
-  .kickoff-flow-marker {
-    width: 24px;
-    height: 24px;
-    font-size: 10px;
-  }
-
   .kickoff-card {
     padding: 11px;
   }
@@ -3460,7 +3444,11 @@ tbody tr:last-child td {
 }
 
 .goal-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   cursor: pointer;
+  width: 100%;
   text-align: left;
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
@@ -3476,6 +3464,19 @@ tbody tr:last-child td {
   gap: 8px;
   align-items: center;
   min-width: 0;
+}
+
+.goal-card .kickoff-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px 12px;
+  width: 100%;
+}
+
+.goal-card .kickoff-card-header > strong {
+  flex-shrink: 0;
 }
 
 .goal-card-heading h4 {
@@ -3498,6 +3499,8 @@ tbody tr:last-child td {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
+  justify-content: flex-start;
+  width: 100%;
 }
 
 .goal-type-chip {
@@ -3521,7 +3524,114 @@ tbody tr:last-child td {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
+  justify-content: flex-start;
+  width: 100%;
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;
+}
+
+/* Leave room so the docked picture-in-picture preview never permanently hides
+   the last goal cards. */
+/* Picture-in-picture event preview: one floating player that loops whichever
+   event is being hovered. */
+.event-preview-pip {
+  position: fixed;
+  left: 20px;
+  bottom: 20px;
+  z-index: 60;
+  width: 480px;
+  max-width: calc(100vw - 32px);
+  border: 1px solid #17202a;
+  border-radius: 10px;
+  background: #0b1020;
+  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.4);
+}
+
+.event-preview-pip-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 9px 9px 0 0;
+  background: #111827;
+  color: #e5e7eb;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.event-preview-pip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.event-preview-pip-open {
+  display: inline-flex;
+  align-items: center;
+  color: #94a3b8;
+  flex-shrink: 0;
+}
+
+.event-preview-pip-open:hover {
+  color: #e5e7eb;
+}
+
+@media (max-width: 640px) {
+  .event-preview-pip {
+    bottom: 12px;
+    left: 12px;
+    right: 12px;
+    width: auto;
+  }
+}
+
+.event-clip-player {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  height: 208px;
+  border-radius: 0 0 9px 9px;
+  background: #0b1020;
+}
+
+.event-clip-canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 0 0 9px 9px;
+}
+
+.event-clip-canvas canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0 0 9px 9px;
+}
+
+.event-clip-status {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.event-clip-debug {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: rgba(2, 6, 23, 0.78);
+  color: #6ee7b7;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  text-align: right;
+  pointer-events: none;
+  z-index: 2;
 }

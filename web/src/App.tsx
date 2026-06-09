@@ -65,7 +65,9 @@ const playerStatsSectionGroups: StatGroup[] = statGroups;
 export function App() {
   const location = useLocation();
   const playerReplayId = replayPlayerRouteId(location.pathname);
-  const warmReplayId = replayContextRouteId(location.pathname);
+  const warmReplayId = shouldWarmSubtrActorPlayer(location.pathname)
+    ? replayContextRouteId(location.pathname)
+    : null;
 
   return (
     <div className="app-shell">
@@ -114,6 +116,13 @@ function replayPlayerRouteId(pathname: string): string | null {
 
 function replayContextRouteId(pathname: string): string | null {
   return /^\/replays\/([^/]+)(?:\/(?:stats(?:\/[^/]+)?|player))?\/?$/.exec(pathname)?.[1] ?? null;
+}
+
+function shouldWarmSubtrActorPlayer(pathname: string): boolean {
+  // The goals detail view embeds its own replay player. Keeping the offscreen
+  // full-player iframe alive there means two WebGL replay players render at
+  // once, which can make Chrome/Wayland show a stale canvas layer.
+  return !/^\/replays\/[^/]+(?:\/stats(?:\/goals)?)?\/?$/.test(pathname);
 }
 
 function ReplayListPage() {

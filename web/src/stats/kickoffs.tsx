@@ -1,13 +1,23 @@
-import { CircleDotDashed, ExternalLink, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy } from "lucide-react";
-import { useState } from "react";
+import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy } from "lucide-react";
+import { lazy, Suspense, useCallback, useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import type { EventClip } from "./EventClipPlayer";
+import { useEventPreviewSelection } from "./eventPreview";
 
 export const kickoffEventTypes = ["kickoff"];
+
+const KICKOFF_CLIP_POSTROLL_SECONDS = 5;
+
+const EventClipPreview = lazy(() =>
+  import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
+);
+
+type KickoffType = "diagonal" | "center_offset" | "center" | "unknown";
+type KickoffDirection = "left" | "right" | "center" | "unknown";
 
 interface KickoffDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
-  durationSeconds: number | null;
   replayId: string;
 }
 
@@ -16,12 +26,16 @@ interface KickoffRow {
   index: number;
   startTime: number | null;
   endTime: number | null;
+  movementStartTime: number | null;
+  movementStartFrame: number | null;
   outcome: string | null;
   possessionOutcome: string | null;
   winningTeam: number | null;
   possessionTeam: number | null;
   scoringTeam: number | null;
   kickoffGoal: boolean;
+  kickoffType: KickoffType;
+  kickoffDirection: KickoffDirection;
   timeToGoal: number | null;
   takerDelay: number | null;
   exitSpeed: number | null;
@@ -70,15 +84,41 @@ interface PlayerKickoffSummary {
   supportBehaviors: Map<string, number>;
 }
 
-export function KickoffDetail({ events, players, durationSeconds, replayId }: KickoffDetailProps) {
-  const kickoffs = events
-    .filter((event) => event.event_type === "kickoff")
-    .map((event, index) => kickoffRow(event, index, players))
-    .sort((left, right) => (left.startTime ?? Number.POSITIVE_INFINITY) - (right.startTime ?? Number.POSITIVE_INFINITY));
-  const playerSummaries = kickoffPlayerSummaries(kickoffs, players);
-  const summary = kickoffSummary(kickoffs);
-  const [selectedKickoffId, setSelectedKickoffId] = useState<string | null>(null);
-  const selectedKickoff = kickoffs.find((kickoff) => kickoff.event.id === selectedKickoffId) ?? kickoffs[0] ?? null;
+export function KickoffDetail({ events, players, replayId }: KickoffDetailProps) {
+  const kickoffs = useMemo(
+    () =>
+      events
+        .filter((event) => event.event_type === "kickoff")
+        .map((event, index) => kickoffRow(event, index, players))
+        .sort((left, right) => (left.startTime ?? Number.POSITIVE_INFINITY) - (right.startTime ?? Number.POSITIVE_INFINITY)),
+    [events, players],
+  );
+  const playerSummaries = useMemo(() => kickoffPlayerSummaries(kickoffs, players), [kickoffs, players]);
+  const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
+  const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
+  const buildClip = useCallback((kickoff: KickoffRow, replayNonce: number): EventClip | null => {
+    const clipStart = kickoff.movementStartTime ?? kickoff.startTime;
+    if (clipStart == null) {
+      return null;
+    }
+    const endTime = kickoff.endTime ?? kickoff.startTime;
+    const winnerPlayerName = kickoffWinnerPreviewPlayerName(kickoff);
+    return {
+      start: clipStart,
+      end: (endTime ?? clipStart) + KICKOFF_CLIP_POSTROLL_SECONDS,
+      startFrame: kickoff.movementStartFrame,
+      camera: winnerPlayerName
+        ? { kind: "follow-player", playerName: winnerPlayerName, ballCam: true }
+        : { kind: "free", preset: "side" },
+      key: `${kickoff.event.id}:${replayNonce}`,
+    };
+  }, []);
+  const {
+    activeItem: activeKickoff,
+    activeKey: activeKickoffId,
+    clip,
+    activateItem: activateKickoff,
+  } = useEventPreviewSelection(kickoffs, kickoffKey, buildClip);
 
   return (
     <div className="kickoff-detail">
@@ -98,43 +138,6 @@ export function KickoffDetail({ events, players, durationSeconds, replayId }: Ki
 
       {kickoffs.length ? (
         <div className="stat-section-grid">
-          <section className="chart-panel full-span">
-            <div className="kickoff-preview">
-              <div className="kickoff-preview-copy">
-                <div className="chart-panel-header">
-                  <div>
-                    <h3>Replay preview</h3>
-                    <span>
-                      {selectedKickoff
-                        ? `Selected kickoff ${selectedKickoff.index + 1} at ${formatSeconds(selectedKickoff.startTime)}`
-                        : "Select a kickoff below"}
-                    </span>
-                  </div>
-                  <a className="secondary-button" href={`/replays/${encodeURIComponent(replayId)}/player`}>
-                    <ExternalLink size={15} />
-                    Open player
-                  </a>
-                </div>
-                {selectedKickoff ? <SelectedKickoffSummary kickoff={selectedKickoff} /> : null}
-              </div>
-              <iframe
-                className="kickoff-preview-frame"
-                title="Kickoff replay preview"
-                src={subtrActorViewerUrl(replayId)}
-              />
-            </div>
-          </section>
-
-          <section className="chart-panel full-span">
-            <div className="chart-panel-header">
-              <div>
-                <h3>Kickoff flow</h3>
-                <span>{durationSeconds ? `Spread across ${formatSeconds(durationSeconds)}` : "Ordered by game clock"}</span>
-              </div>
-            </div>
-            <KickoffFlow kickoffs={kickoffs} durationSeconds={durationSeconds} />
-          </section>
-
           <section className="chart-panel full-span">
             <div className="chart-panel-header">
               <div>
@@ -157,12 +160,36 @@ export function KickoffDetail({ events, players, durationSeconds, replayId }: Ki
                 <KickoffCard
                   kickoff={kickoff}
                   key={kickoff.event.id}
-                  selected={kickoff.event.id === selectedKickoff?.event.id}
-                  onSelect={() => setSelectedKickoffId(kickoff.event.id)}
+                  active={kickoff.event.id === activeKickoffId}
+                  onActivate={(force) => activateKickoff(kickoff, force)}
                 />
               ))}
             </div>
           </section>
+
+          <Suspense
+            fallback={
+              <aside className="event-preview-pip">
+                <div className="event-preview-pip-bar">
+                  <span className="event-preview-pip-label">Loading…</span>
+                </div>
+                <div className="event-clip-player">
+                  <div className="event-clip-status">Loading player…</div>
+                </div>
+              </aside>
+            }
+          >
+            <EventClipPreview
+              replayId={replayId}
+              clip={clip}
+              label={
+                activeKickoff
+                  ? kickoffPreviewLabel(activeKickoff)
+                  : "Loading…"
+              }
+              openHref={`/replays/${encodeURIComponent(replayId)}/player`}
+            />
+          </Suspense>
         </div>
       ) : (
         <div className="stat-empty">No kickoff events are available for this replay yet.</div>
@@ -185,36 +212,6 @@ function KickoffMetric({
       <Icon size={17} />
       <span>{label}</span>
       <strong>{value}</strong>
-    </div>
-  );
-}
-
-function KickoffFlow({ kickoffs, durationSeconds }: { kickoffs: KickoffRow[]; durationSeconds: number | null }) {
-  const maxTime = Math.max(durationSeconds ?? 0, ...kickoffs.map((kickoff) => kickoff.startTime ?? 0), 1);
-
-  return (
-    <div className="kickoff-flow" aria-label="Kickoff timeline">
-      <div className="kickoff-flow-track">
-        {kickoffs.map((kickoff) => {
-          const position = Math.max(0, Math.min(100, (((kickoff.startTime ?? 0) / maxTime) * 100)));
-          return (
-            <div
-              className={`kickoff-flow-marker team-marker-${teamClass(kickoff.winningTeam)}`}
-              key={kickoff.event.id}
-              style={{ left: `${position}%` }}
-              title={`Kickoff ${kickoff.index + 1}: ${formatLabel(kickoff.outcome)}`}
-            >
-              {kickoff.kickoffGoal ? <Goal size={12} /> : <span>{kickoff.index + 1}</span>}
-            </div>
-          );
-        })}
-      </div>
-      <div className="kickoff-flow-legend">
-        <span><i className="legend-dot team-marker-blue" />Blue win</span>
-        <span><i className="legend-dot team-marker-orange" />Orange win</span>
-        <span><i className="legend-dot team-marker-neutral" />Neutral</span>
-        <span><Goal size={13} />Kickoff goal</span>
-      </div>
     </div>
   );
 }
@@ -265,43 +262,47 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
   );
 }
 
-function SelectedKickoffSummary({ kickoff }: { kickoff: KickoffRow }) {
-  return (
-    <div className="selected-kickoff-summary">
-      <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
-      <KickoffFact icon={ShieldCheck} label="Possession" value={formatLabel(kickoff.possessionOutcome) || teamLabel(kickoff.possessionTeam)} team={kickoff.possessionTeam} />
-      <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
-      <KickoffFact icon={Goal} label="Goal" value={kickoff.kickoffGoal ? `${teamLabel(kickoff.scoringTeam)} ${formatSeconds(kickoff.timeToGoal)}` : "No"} team={kickoff.scoringTeam} />
-    </div>
-  );
-}
-
-function KickoffCard({ kickoff, selected, onSelect }: { kickoff: KickoffRow; selected: boolean; onSelect: () => void }) {
+function KickoffCard({
+  kickoff,
+  active,
+  onActivate,
+}: {
+  kickoff: KickoffRow;
+  active: boolean;
+  onActivate: (force: boolean) => void;
+}) {
   const blueBehaviors = [kickoff.teamZeroTaker, ...kickoff.teamZeroSupport].filter(Boolean) as KickoffPlayerBehavior[];
   const orangeBehaviors = [kickoff.teamOneTaker, ...kickoff.teamOneSupport].filter(Boolean) as KickoffPlayerBehavior[];
 
   return (
-    <article className={`kickoff-card winner-${teamClass(kickoff.winningTeam)} ${selected ? "selected" : ""}`}>
+    <button
+      type="button"
+      className={`kickoff-card winner-${teamClass(kickoff.winningTeam)} ${active ? "selected" : ""}`}
+      onClick={() => onActivate(true)}
+      onMouseEnter={() => onActivate(false)}
+      onFocus={() => onActivate(false)}
+    >
       <header className="kickoff-card-header">
-        <div>
-          <span className="kickoff-index">Kickoff {kickoff.index + 1}</span>
-          <h4>
-            <span>{formatLabel(kickoff.outcome) || "Unknown outcome"}</span>
+        <div className="kickoff-card-heading">
+          <KickoffTakerVersus kickoff={kickoff} />
+          <div className="kickoff-type-row">
+            {kickoffTypeChips(kickoff).map((chip) => (
+              <span className={`kickoff-type-pill ${chip.muted ? "muted" : ""}`} key={chip.key}>
+                {chip.value}
+              </span>
+            ))}
             {kickoff.kickoffGoal ? <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>Goal in {formatSeconds(kickoff.timeToGoal)}</span> : null}
-          </h4>
+          </div>
         </div>
         <div className="kickoff-time-block">
           <strong>{formatSeconds(kickoff.startTime)}</strong>
           <span>{kickoff.takerDelay == null ? "No taker delay" : `${formatSeconds(kickoff.takerDelay)} taker gap`}</span>
         </div>
-        <button className="icon-button kickoff-view-button" type="button" onClick={onSelect} title="Show kickoff in preview">
-          <CircleDotDashed size={16} />
-        </button>
       </header>
 
       <div className="kickoff-outcome-grid">
         <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
-        <KickoffFact icon={ShieldCheck} label="Possession" value={formatLabel(kickoff.possessionOutcome) || teamLabel(kickoff.possessionTeam)} team={kickoff.possessionTeam} />
+        <KickoffFact icon={ShieldCheck} label="Possession" value={kickoffPossessionLabel(kickoff)} team={kickoff.possessionTeam} />
         <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
         <KickoffFact icon={Gauge} label="Exit speed" value={formatSpeed(kickoff.exitSpeed)} team={null} />
       </div>
@@ -310,7 +311,21 @@ function KickoffCard({ kickoff, selected, onSelect }: { kickoff: KickoffRow; sel
         <KickoffTeamColumn label="Blue" team={0} behaviors={blueBehaviors} />
         <KickoffTeamColumn label="Orange" team={1} behaviors={orangeBehaviors} />
       </div>
-    </article>
+    </button>
+  );
+}
+
+function KickoffTakerVersus({ kickoff }: { kickoff: KickoffRow }) {
+  return (
+    <h4 className="kickoff-taker-versus">
+      <span className={`kickoff-taker-name team-accent-${teamClass(0)}`}>
+        {kickoff.teamZeroTaker?.playerName ?? "Blue taker"}
+      </span>
+      <span className="kickoff-versus">vs</span>
+      <span className={`kickoff-taker-name team-accent-${teamClass(1)}`}>
+        {kickoff.teamOneTaker?.playerName ?? "Orange taker"}
+      </span>
+    </h4>
   );
 }
 
@@ -377,17 +392,25 @@ function KickoffBehaviorRow({ behavior }: { behavior: KickoffPlayerBehavior }) {
 
 function kickoffRow(event: MechanicEventResponse, index: number, players: ReplayPlayer[]): KickoffRow {
   const payload = event.payload;
+  const startTime = numberField(payload, "start_time") ?? event.start_time;
+  const startFrame = numberField(payload, "start_frame") ?? event.start_frame;
+  const movementStartTime = numberField(payload, "movement_start_time");
+  const movementStartFrame = numberField(payload, "movement_start_frame");
   return {
     event,
     index,
-    startTime: numberField(payload, "start_time") ?? event.start_time,
+    startTime,
     endTime: numberField(payload, "end_time") ?? event.end_time,
+    movementStartTime: movementStartTime ?? startTime,
+    movementStartFrame: movementStartFrame ?? (movementStartTime == null ? startFrame : null),
     outcome: stringField(payload, "outcome"),
     possessionOutcome: stringField(payload, "kickoff_possession_outcome"),
     winningTeam: teamField(payload, "winning_team_is_team_0"),
     possessionTeam: teamField(payload, "kickoff_possession_team_is_team_0"),
     scoringTeam: teamField(payload, "scoring_team_is_team_0"),
     kickoffGoal: booleanField(payload, "kickoff_goal") ?? false,
+    kickoffType: kickoffType(payload),
+    kickoffDirection: kickoffDirection(payload),
     timeToGoal: numberField(payload, "time_to_goal"),
     takerDelay: numberField(payload, "taker_touch_delay_seconds"),
     exitSpeed: numberField(payload, "exit_speed"),
@@ -436,6 +459,159 @@ function kickoffPlayerBehavior(
     boostAfter: numberField(payload, "boost_after"),
     firstTouchTime: numberField(payload, "first_touch_time"),
   };
+}
+
+function kickoffType(payload: Record<string, unknown>): KickoffType {
+  const emittedType = stringField(payload, "kickoff_type");
+  if (isKickoffType(emittedType)) {
+    return emittedType;
+  }
+  if (emittedType === "center_offset_left" || emittedType === "center_offset_right") {
+    return "center_offset";
+  }
+  return kickoffTypeFromSpawns(
+    stringField(objectField(payload, "team_zero_taker") ?? {}, "spawn_position"),
+    stringField(objectField(payload, "team_one_taker") ?? {}, "spawn_position"),
+  );
+}
+
+function kickoffTypeFromSpawns(teamZeroSpawn: string | null, teamOneSpawn: string | null): KickoffType {
+  if (isSymmetricSpawn(teamZeroSpawn, teamOneSpawn, "diagonal")) {
+    return "diagonal";
+  }
+  if (isSymmetricSpawn(teamZeroSpawn, teamOneSpawn, "off_center")) {
+    return "center_offset";
+  }
+  if (teamZeroSpawn === "center" && teamOneSpawn === "center") {
+    return "center";
+  }
+  return "unknown";
+}
+
+function isSymmetricSpawn(teamZeroSpawn: string | null, teamOneSpawn: string | null, family: "diagonal" | "off_center"): boolean {
+  return (
+    (teamZeroSpawn === `${family}_left` && teamOneSpawn === `${family}_left`) ||
+    (teamZeroSpawn === `${family}_right` && teamOneSpawn === `${family}_right`)
+  );
+}
+
+function isKickoffType(value: string | null): value is KickoffType {
+  return (
+    value === "diagonal" ||
+    value === "center_offset" ||
+    value === "center" ||
+    value === "unknown"
+  );
+}
+
+function kickoffDirection(payload: Record<string, unknown>): KickoffDirection {
+  const emittedDirection = stringField(payload, "kickoff_direction");
+  if (isKickoffDirection(emittedDirection)) {
+    return emittedDirection;
+  }
+  const legacyType = stringField(payload, "kickoff_type");
+  if (legacyType === "center_offset_left") {
+    return "left";
+  }
+  if (legacyType === "center_offset_right") {
+    return "right";
+  }
+  return kickoffDirectionFromSpawns(
+    stringField(objectField(payload, "team_zero_taker") ?? {}, "spawn_position"),
+    stringField(objectField(payload, "team_one_taker") ?? {}, "spawn_position"),
+  );
+}
+
+function kickoffDirectionFromSpawns(teamZeroSpawn: string | null, teamOneSpawn: string | null): KickoffDirection {
+  if ((teamZeroSpawn === "diagonal_left" && teamOneSpawn === "diagonal_left") || (teamZeroSpawn === "off_center_left" && teamOneSpawn === "off_center_left")) {
+    return "left";
+  }
+  if ((teamZeroSpawn === "diagonal_right" && teamOneSpawn === "diagonal_right") || (teamZeroSpawn === "off_center_right" && teamOneSpawn === "off_center_right")) {
+    return "right";
+  }
+  if (teamZeroSpawn === "center" && teamOneSpawn === "center") {
+    return "center";
+  }
+  return "unknown";
+}
+
+function isKickoffDirection(value: string | null): value is KickoffDirection {
+  return value === "left" || value === "right" || value === "center" || value === "unknown";
+}
+
+function kickoffPreviewLabel(kickoff: KickoffRow): string {
+  const typeLabel = kickoffTypeName(kickoff.kickoffType);
+  return typeLabel
+    ? `${typeLabel} · ${kickoffDirectionName(kickoff.kickoffDirection)} · ${formatSeconds(kickoff.startTime)}`
+    : formatSeconds(kickoff.startTime);
+}
+
+function kickoffWinnerPreviewPlayerName(kickoff: KickoffRow): string | null {
+  const winningTaker =
+    kickoff.winningTeam === 0 ? kickoff.teamZeroTaker : kickoff.winningTeam === 1 ? kickoff.teamOneTaker : null;
+  return (
+    winningTaker?.playerName ??
+    (kickoff.firstTouch.team === kickoff.winningTeam ? kickoff.firstTouch.playerName : null) ??
+    (kickoff.followUpTouch.team === kickoff.winningTeam ? kickoff.followUpTouch.playerName : null)
+  );
+}
+
+function kickoffTypeChips(kickoff: KickoffRow): Array<{ key: string; value: string; muted?: boolean }> {
+  return [
+    {
+      key: "type",
+      value: kickoffTypeName(kickoff.kickoffType) ?? "Other",
+      muted: kickoff.kickoffType === "unknown",
+    },
+    {
+      key: "direction",
+      value: kickoffDirectionName(kickoff.kickoffDirection),
+      muted: kickoff.kickoffDirection === "unknown",
+    },
+  ];
+}
+
+function kickoffTypeName(type: KickoffType): string | null {
+  switch (type) {
+    case "diagonal":
+      return "Diagonal";
+    case "center_offset":
+      return "Center offset";
+    case "center":
+      return "Center";
+    case "unknown":
+      return null;
+  }
+}
+
+function kickoffDirectionName(direction: KickoffDirection): string {
+  switch (direction) {
+    case "left":
+      return "Left";
+    case "right":
+      return "Right";
+    case "center":
+      return "Center";
+    case "unknown":
+      return "Mixed";
+  }
+}
+
+function kickoffPossessionLabel(kickoff: KickoffRow): string {
+  switch (kickoff.possessionOutcome) {
+    case "team_zero_possession":
+      return "Blue possession";
+    case "team_one_possession":
+      return "Orange possession";
+    case "team_zero_advantage":
+      return "Blue advantage";
+    case "team_one_advantage":
+      return "Orange advantage";
+    case "contested":
+      return "Contested";
+    default:
+      return teamLabel(kickoff.possessionTeam);
+  }
 }
 
 function kickoffSummary(kickoffs: KickoffRow[]) {
@@ -621,12 +797,4 @@ function formatSeconds(value: number | null): string {
 
 function formatSpeed(value: number | null): string {
   return value == null ? "-" : `${Math.round(value).toLocaleString()} uu/s`;
-}
-
-function subtrActorViewerUrl(replayId: string): string {
-  const params = new URLSearchParams({
-    replayUrl: `/api/v1/replays/${encodeURIComponent(replayId)}/file`,
-    mode: "viewer",
-  });
-  return `/subtr-actor/?${params.toString()}`;
 }

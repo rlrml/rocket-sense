@@ -1,8 +1,24 @@
-import { ExternalLink, Gauge, Goal, type LucideIcon, Timer, Trophy, Wind } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import type { EventClip } from "./EventClipPlayer";
+import {
+  eventAnchorFrame,
+  eventDisplayTime,
+  numberField,
+  useEventPreviewSelection,
+} from "./eventPreview";
 
 export const goalEventTypes = ["goal_context"];
+
+// Seconds of context shown around each goal when previewing its clip.
+const GOAL_CLIP_PREROLL_SECONDS = 6;
+const GOAL_CLIP_POSTROLL_SECONDS = 2.5;
+
+// Lazily loaded so the three.js / wasm replay player is only fetched when the
+// Goals tab is actually opened, instead of bloating the main bundle.
+const EventClipPreview = lazy(() =>
+  import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
+);
 
 interface GoalsDetailProps {
   events: MechanicEventResponse[];
@@ -25,108 +41,47 @@ interface GoalRow {
   scoringTeam: number | null;
   ballSpeed: number | null;
   airTime: number | null;
-  buildup: string | null;
+  anchorFrame: number | null;
   types: GoalType[];
 }
 
-interface GoalsSummary {
-  total: number;
-  blue: number;
-  orange: number;
-  fastest: number | null;
-  averageSpeed: number | null;
-}
-
-export function GoalsDetail({ events, durationSeconds, replayId }: GoalsDetailProps) {
+export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
   const goals = useMemo(() => buildGoalRows(events), [events]);
-  const summary = useMemo(() => buildSummary(goals), [goals]);
-  const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
-  const selectedGoal = goals.find((goal) => goal.event.id === selectedGoalId) ?? goals[0] ?? null;
-
-  const frameRef = useRef<HTMLIFrameElement>(null);
-  const reviewUrl = useMemo(() => subtrActorGoalsReviewUrl(replayId), [replayId]);
-
-  const activateClip = useCallback((index: number) => {
-    const frame = frameRef.current?.contentWindow;
-    if (!frame) return;
-    // Handled by the subtr-actor player's postMessage listener; ignored by older builds.
-    frame.postMessage({ source: "rocket-sense", type: "activateReviewItem", index }, window.location.origin);
+  const goalKey = useCallback((goal: GoalRow) => goal.event.id, []);
+  const buildClip = useCallback((goal: GoalRow, replayNonce: number): EventClip | null => {
+    if (goal.time == null) {
+      return null;
+    }
+    return {
+      start: Math.max(0, goal.time - GOAL_CLIP_PREROLL_SECONDS),
+      end: goal.time + GOAL_CLIP_POSTROLL_SECONDS,
+      anchorFrame: goal.anchorFrame,
+      prerollSeconds: GOAL_CLIP_PREROLL_SECONDS,
+      postrollSeconds: GOAL_CLIP_POSTROLL_SECONDS,
+      camera: {
+        kind: "follow-player",
+        playerName: goal.scorerName,
+        ballCam: true,
+      },
+      key: `${goal.event.id}:${replayNonce}`,
+    };
   }, []);
 
-  const selectGoal = useCallback(
-    (goal: GoalRow) => {
-      setSelectedGoalId(goal.event.id);
-      activateClip(goal.index);
-    },
-    [activateClip],
-  );
+  const {
+    activeItem: activeGoal,
+    activeKey: activeId,
+    clip,
+    activateItem: activateGoal,
+  } = useEventPreviewSelection(goals, goalKey, buildClip);
 
   return (
     <div className="goals-detail kickoff-detail">
-      <section className="kickoff-hero">
-        <div>
-          <p className="eyebrow">Goal report</p>
-          <h2>Goals</h2>
-          <p>
-            {goals.length
-              ? goalReportSentence(summary)
-              : "No goals have been indexed for this replay yet."}
-          </p>
-        </div>
-        <div className="kickoff-hero-metrics">
-          <GoalMetric icon={Goal} label="Goals" value={summary.total.toLocaleString()} />
-          <GoalMetric icon={Trophy} label="Blue" value={summary.blue.toLocaleString()} />
-          <GoalMetric icon={Trophy} label="Orange" value={summary.orange.toLocaleString()} />
-          <GoalMetric icon={Gauge} label="Top speed" value={formatSpeed(summary.fastest)} />
-        </div>
-      </section>
-
       {goals.length ? (
         <div className="stat-section-grid">
-          <section className="chart-panel full-span">
-            <div className="kickoff-preview">
-              <div className="kickoff-preview-copy">
-                <div className="chart-panel-header">
-                  <div>
-                    <h3>Goal preview</h3>
-                    <span>
-                      {selectedGoal
-                        ? `Goal ${selectedGoal.index + 1} — ${selectedGoal.scorerName} at ${formatSeconds(selectedGoal.time)}`
-                        : "Hover or select a goal below"}
-                    </span>
-                  </div>
-                  <a className="secondary-button" href={`/replays/${encodeURIComponent(replayId)}/player`}>
-                    <ExternalLink size={15} />
-                    Open player
-                  </a>
-                </div>
-                {selectedGoal ? <SelectedGoalSummary goal={selectedGoal} /> : null}
-                <p className="goal-preview-hint">Hover a goal to scrub its clip in the player.</p>
-              </div>
-              <iframe
-                ref={frameRef}
-                className="kickoff-preview-frame"
-                title="Goal replay preview"
-                src={reviewUrl}
-              />
-            </div>
-          </section>
-
-          <section className="chart-panel full-span">
-            <div className="chart-panel-header">
-              <div>
-                <h3>Goal flow</h3>
-                <span>{durationSeconds ? `Spread across ${formatSeconds(durationSeconds)}` : "Ordered by game clock"}</span>
-              </div>
-            </div>
-            <GoalFlow goals={goals} durationSeconds={durationSeconds} selectedId={selectedGoal?.event.id ?? null} onSelect={selectGoal} onHover={activateClip} />
-          </section>
-
           <section className="chart-panel full-span">
             <div className="chart-panel-header">
               <div>
                 <h3>Goal by goal</h3>
-                <span>Scorer, scoring team, ball speed, air time, and detected goal types.</span>
               </div>
             </div>
             <div className="goal-card-list kickoff-card-list">
@@ -134,13 +89,37 @@ export function GoalsDetail({ events, durationSeconds, replayId }: GoalsDetailPr
                 <GoalCard
                   key={goal.event.id}
                   goal={goal}
-                  selected={goal.event.id === selectedGoal?.event.id}
-                  onSelect={() => selectGoal(goal)}
-                  onHover={() => activateClip(goal.index)}
+                  active={goal.event.id === activeId}
+                  onActivate={(force) => activateGoal(goal, force)}
                 />
               ))}
             </div>
           </section>
+
+          <Suspense
+            fallback={
+              <aside className="event-preview-pip">
+                <div className="event-preview-pip-bar">
+                  <span className="event-preview-pip-label">Loading…</span>
+                </div>
+                <div className="event-clip-player">
+                  <div className="event-clip-status">Loading player…</div>
+                </div>
+              </aside>
+            }
+          >
+            <EventClipPreview
+              replayId={replayId}
+              clip={clip}
+              label={
+                activeGoal
+                  ? `Goal ${activeGoal.index + 1} · ${activeGoal.scorerName} · ${formatSeconds(activeGoal.time)}`
+                  : "Loading…"
+              }
+              openHref={`/replays/${encodeURIComponent(replayId)}/player`}
+              showDebug={false}
+            />
+          </Suspense>
         </div>
       ) : (
         <div className="stat-empty">No goal events are available for this replay yet.</div>
@@ -149,94 +128,22 @@ export function GoalsDetail({ events, durationSeconds, replayId }: GoalsDetailPr
   );
 }
 
-function GoalMetric({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
-  return (
-    <div className="kickoff-metric">
-      <Icon size={17} />
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function SelectedGoalSummary({ goal }: { goal: GoalRow }) {
-  return (
-    <div className="selected-kickoff-summary">
-      <GoalFact icon={Trophy} label="Scored by" value={goal.scorerName} team={goal.scoringTeam} />
-      <GoalFact icon={Timer} label="Game clock" value={formatSeconds(goal.time)} team={null} />
-      <GoalFact icon={Gauge} label="Ball speed" value={formatSpeed(goal.ballSpeed)} team={null} />
-      <GoalFact icon={Wind} label="Air time" value={goal.airTime == null ? "-" : `${goal.airTime.toFixed(1)}s`} team={null} />
-    </div>
-  );
-}
-
-function GoalFact({ icon: Icon, label, value, team }: { icon: LucideIcon; label: string; value: string; team: number | null }) {
-  return (
-    <div className={`kickoff-fact team-soft-${teamClass(team)}`}>
-      <Icon size={15} />
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function GoalFlow({
-  goals,
-  durationSeconds,
-  selectedId,
-  onSelect,
-  onHover,
-}: {
-  goals: GoalRow[];
-  durationSeconds: number | null;
-  selectedId: string | null;
-  onSelect: (goal: GoalRow) => void;
-  onHover: (index: number) => void;
-}) {
-  const maxTime = Math.max(durationSeconds ?? 0, ...goals.map((goal) => goal.time ?? 0), 1);
-
-  return (
-    <div className="kickoff-flow" aria-label="Goal timeline">
-      <div className="kickoff-flow-track">
-        {goals.map((goal) => {
-          const position = Math.max(0, Math.min(100, ((goal.time ?? 0) / maxTime) * 100));
-          return (
-            <button
-              type="button"
-              key={goal.event.id}
-              className={`kickoff-flow-marker goal-flow-marker team-marker-${teamClass(goal.scoringTeam)} ${goal.event.id === selectedId ? "selected" : ""}`}
-              style={{ left: `${position}%` }}
-              title={`Goal ${goal.index + 1}: ${goal.scorerName} (${teamLabel(goal.scoringTeam)}) at ${formatSeconds(goal.time)}`}
-              onClick={() => onSelect(goal)}
-              onMouseEnter={() => onHover(goal.index)}
-            >
-              {goal.index + 1}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 function GoalCard({
   goal,
-  selected,
-  onSelect,
-  onHover,
+  active,
+  onActivate,
 }: {
   goal: GoalRow;
-  selected: boolean;
-  onSelect: () => void;
-  onHover: () => void;
+  active: boolean;
+  onActivate: (force: boolean) => void;
 }) {
   return (
     <button
       type="button"
-      className={`goal-card kickoff-card winner-${teamClass(goal.scoringTeam)} ${selected ? "selected" : ""}`}
-      onClick={onSelect}
-      onMouseEnter={onHover}
-      onFocus={onHover}
+      className={`goal-card kickoff-card winner-${teamClass(goal.scoringTeam)} ${active ? "selected" : ""}`}
+      onClick={() => onActivate(true)}
+      onMouseEnter={() => onActivate(false)}
+      onFocus={() => onActivate(false)}
     >
       <div className="kickoff-card-header">
         <div className="goal-card-heading">
@@ -260,21 +167,9 @@ function GoalCard({
       <div className="goal-card-stats">
         <span>{formatSpeed(goal.ballSpeed)}</span>
         <span>{goal.airTime == null ? "Ground" : `${goal.airTime.toFixed(1)}s air`}</span>
-        {goal.buildup ? <span>{formatLabel(goal.buildup)}</span> : null}
       </div>
     </button>
   );
-}
-
-function goalReportSentence(summary: GoalsSummary): string {
-  const lead =
-    summary.blue === summary.orange
-      ? `${summary.total} goals, evenly split`
-      : summary.blue > summary.orange
-        ? `${summary.total} goals, Blue ahead ${summary.blue}-${summary.orange}`
-        : `${summary.total} goals, Orange ahead ${summary.orange}-${summary.blue}`;
-  const speed = summary.fastest != null ? `, hardest hit ${formatSpeed(summary.fastest)}` : "";
-  return `${lead}${speed}.`;
 }
 
 function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
@@ -292,17 +187,14 @@ function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
         scoringTeam: event.team ?? teamField(payload, "scoring_team_is_team_0"),
         ballSpeed: numberField(payload, "ball_speed_at_goal"),
         airTime: numberField(payload, "ball_air_time_before_goal"),
-        buildup: stringField(payload, "goal_buildup"),
+        anchorFrame: eventAnchorFrame(event, ["scorer_last_touch.frame"]),
         types: goalTypes(payload),
       };
     });
 }
 
 function goalTime(event: MechanicEventResponse): number | null {
-  if (event.event_time != null) return event.event_time;
-  if (event.start_time != null) return event.start_time;
-  const payload = (event.payload ?? {}) as Record<string, unknown>;
-  return numberField(payload, "time");
+  return eventDisplayTime(event);
 }
 
 function goalTypes(payload: Record<string, unknown>): GoalType[] {
@@ -317,26 +209,6 @@ function goalTypes(payload: Record<string, unknown>): GoalType[] {
   });
 }
 
-function buildSummary(goals: GoalRow[]): GoalsSummary {
-  const speeds = goals.map((goal) => goal.ballSpeed).filter((speed): speed is number => speed != null);
-  return {
-    total: goals.length,
-    blue: goals.filter((goal) => goal.scoringTeam === 0).length,
-    orange: goals.filter((goal) => goal.scoringTeam === 1).length,
-    fastest: speeds.length ? Math.max(...speeds) : null,
-    averageSpeed: speeds.length ? speeds.reduce((sum, speed) => sum + speed, 0) / speeds.length : null,
-  };
-}
-
-function subtrActorGoalsReviewUrl(replayId: string): string {
-  const manifestParams = new URLSearchParams({ "replay-id": replayId });
-  for (const eventType of goalEventTypes) {
-    manifestParams.append("event-type", eventType);
-  }
-  const manifestUrl = `/api/v1/events/review-playlist?${manifestParams.toString()}`;
-  return `/subtr-actor/?reviewPlaylist=${encodeURIComponent(manifestUrl)}`;
-}
-
 function objectField(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
   const value = payload[key];
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -347,11 +219,6 @@ function arrayField(payload: Record<string, unknown>, key: string): Record<strin
   return Array.isArray(value)
     ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
     : [];
-}
-
-function numberField(payload: Record<string, unknown>, key: string): number | null {
-  const value = payload[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function stringField(payload: Record<string, unknown>, key: string): string | null {

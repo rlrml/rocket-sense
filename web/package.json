@@ -11,11 +11,14 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@rlrml/player": "^0.12.0",
+    "@rlrml/subtr-actor": "^0.12.0",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.0.0",
-    "recharts": "^3.8.1"
+    "recharts": "^3.8.1",
+    "three": "^0.180.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",
