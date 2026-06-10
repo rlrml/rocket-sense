@@ -7,6 +7,10 @@ use super::{
     replays::ApiError,
 };
 
+#[cfg(test)]
+#[path = "replay_set_tests.rs"]
+mod tests;
+
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ReplaySetFilterInput {
     pub(crate) q: Option<String>,
@@ -14,6 +18,8 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) player_names: Vec<String>,
     pub(crate) playlists: Vec<String>,
     pub(crate) game_modes: Vec<String>,
+    pub(crate) game_types: Vec<String>,
+    pub(crate) team_sizes: Vec<String>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group: Option<String>,
@@ -36,6 +42,8 @@ impl ReplaySetFilterInput {
             player_names: params.values(&["player-name", "player_names"]),
             playlists: params.values(&["playlist"]),
             game_modes: params.values(&["game-mode", "game_modes"]),
+            game_types: params.values(&["game-type", "game_types", "replay-game-type"]),
+            team_sizes: params.values(&["team-size", "team_sizes"]),
             replay_ids: parse_uuid_values(
                 "replay-id",
                 params.values(&["replay-id", "replay_ids"]),
@@ -75,6 +83,8 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) search_pattern: Option<String>,
     pub(crate) player_name_patterns: Vec<String>,
     pub(crate) playlists: Vec<String>,
+    pub(crate) game_types: Vec<String>,
+    pub(crate) team_sizes: Vec<i32>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group_id: Option<Uuid>,
@@ -110,6 +120,18 @@ impl ReplaySetFilters {
         playlists.extend(normalize_terms(input.game_modes));
         playlists.sort();
         playlists.dedup();
+        let mut game_types = normalize_terms(input.game_types)
+            .into_iter()
+            .map(|value| parse_game_type_filter(&value))
+            .collect::<Result<Vec<_>, _>>()?;
+        game_types.sort();
+        game_types.dedup();
+        let mut team_sizes = normalize_terms(input.team_sizes)
+            .into_iter()
+            .map(|value| parse_team_size_filter(&value))
+            .collect::<Result<Vec<_>, _>>()?;
+        team_sizes.sort_unstable();
+        team_sizes.dedup();
         let file_sha256s = normalize_terms(input.file_sha256s)
             .into_iter()
             .map(|value| normalize_sha256_hex(&value))
@@ -126,6 +148,8 @@ impl ReplaySetFilters {
                 .map(|term| format!("%{}%", escape_like_term(&term)))
                 .collect(),
             playlists,
+            game_types,
+            team_sizes,
             replay_ids: input.replay_ids,
             file_sha256s,
             group_id: input
@@ -225,6 +249,22 @@ pub(crate) fn append_replay_set_filters<'args>(
             .push(replay_alias)
             .push(".playlist = ANY(")
             .push_bind(&filters.playlists)
+            .push(")");
+    }
+    if !filters.game_types.is_empty() {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".replay_game_type = ANY(")
+            .push_bind(&filters.game_types)
+            .push(")");
+    }
+    if !filters.team_sizes.is_empty() {
+        builder.push(" AND (");
+        push_replay_team_size_expression(builder, replay_alias);
+        builder
+            .push(") = ANY(")
+            .push_bind(&filters.team_sizes)
             .push(")");
     }
     if let Some(playlist_group_key) = &filters.playlist_group_key {
@@ -328,23 +368,40 @@ pub(crate) fn append_replay_set_filters<'args>(
     }
 }
 
+/// Canonical playlist group key combining the two orthogonal segmentation
+/// dimensions described in `docs/stats-principles.md`: competitive context
+/// (from `replay_game_type`, with a textual-playlist fallback) and team size
+/// (derived from active players). Produces keys like `ranked-2v2`,
+/// `casual-3v3`, or `tournament-1v1`, falling back to the raw playlist text
+/// when team size cannot be derived.
 pub(crate) fn push_playlist_group_key_expression<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     replay_alias: &str,
 ) {
-    builder
-        .push("CASE WHEN lower(btrim(COALESCE(")
-        .push(replay_alias)
-        .push(".playlist, ''))) = 'online' THEN COALESCE(CASE (");
+    builder.push("(SELECT CASE WHEN stats_mode_size.size_label IS NULL THEN NULLIF(btrim(");
+    builder.push(replay_alias);
+    builder.push(".playlist), '') ELSE COALESCE(");
+    builder.push(replay_alias);
+    builder.push(".replay_game_type, CASE WHEN lower(btrim(COALESCE(");
+    builder.push(replay_alias);
+    builder.push(".playlist, ''))) LIKE 'ranked%' THEN 'ranked' WHEN lower(btrim(COALESCE(");
+    builder.push(replay_alias);
+    builder.push(".playlist, ''))) LIKE 'casual%' THEN 'casual' WHEN lower(btrim(COALESCE(");
+    builder.push(replay_alias);
+    builder.push(
+        ".playlist, ''))) LIKE 'tournament%' THEN 'tournament' ELSE 'unknown' END) || '-' || stats_mode_size.size_label END FROM (SELECT CASE (",
+    );
     push_replay_team_size_expression(builder, replay_alias);
-    builder
-        .push(") WHEN 1 THEN 'online-1v1' WHEN 2 THEN 'online-2v2' WHEN 3 THEN 'online-3v3' WHEN 4 THEN 'online-4v4' END, NULLIF(btrim(")
-        .push(replay_alias)
-        .push(".playlist), '')) ELSE NULLIF(btrim(")
-        .push(replay_alias)
-        .push(".playlist), '') END");
+    builder.push(
+        ") WHEN 1 THEN '1v1' WHEN 2 THEN '2v2' WHEN 3 THEN '3v3' WHEN 4 THEN '4v4' END AS size_label) stats_mode_size)",
+    );
 }
 
+/// Derives the per-team player count for a replay from the players that
+/// actually participated, not from header metadata. Players with a recorded
+/// active time of zero (e.g. spectating referees in private/RLCS lobbies that
+/// still appear on a team roster) are excluded; players with no recorded
+/// active time (legacy rows) are counted.
 fn push_replay_team_size_expression<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     replay_alias: &str,
@@ -352,7 +409,45 @@ fn push_replay_team_size_expression<'args>(
     builder
         .push("SELECT MAX(team_player_count)::integer FROM (SELECT COUNT(*) AS team_player_count FROM replay_players stats_mode_player WHERE stats_mode_player.replay_id = ")
         .push(replay_alias)
-        .push(".id AND stats_mode_player.team IS NOT NULL GROUP BY stats_mode_player.team) stats_mode_team_counts");
+        .push(".id AND stats_mode_player.team IS NOT NULL AND (stats_mode_player.active_time_seconds IS NULL OR stats_mode_player.active_time_seconds > 0) GROUP BY stats_mode_player.team) stats_mode_team_counts");
+}
+
+const ALLOWED_GAME_TYPE_FILTERS: &[&str] = &[
+    "ranked",
+    "casual",
+    "private",
+    "offline",
+    "lan",
+    "tournament",
+    "unknown",
+];
+
+fn parse_game_type_filter(value: &str) -> Result<String, ApiError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    if ALLOWED_GAME_TYPE_FILTERS.contains(&normalized.as_str()) {
+        Ok(normalized)
+    } else {
+        Err(ApiError::bad_request(format!(
+            "game-type must be one of: {}",
+            ALLOWED_GAME_TYPE_FILTERS.join(", ")
+        )))
+    }
+}
+
+fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    let digits = match normalized.as_str() {
+        "1v1" => "1",
+        "2v2" => "2",
+        "3v3" => "3",
+        "4v4" => "4",
+        other => other,
+    };
+    digits
+        .parse::<i32>()
+        .ok()
+        .filter(|size| (1..=4).contains(size))
+        .ok_or_else(|| ApiError::bad_request("team-size must be 1-4 (or 1v1, 2v2, 3v3, 4v4)"))
 }
 
 pub(crate) fn normalize_terms(terms: Vec<String>) -> Vec<String> {

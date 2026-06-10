@@ -8,6 +8,10 @@ statistics built with `subtr-actor`.
 
 - Treat `subtr-actor` as the source of truth for replay parsing and frame/stat
   extraction. Keep replay-domain logic there unless it is clearly service-specific.
+- When working on statistics (computing, aggregating, or presenting them), follow
+  the principles in [`docs/stats-principles.md`](docs/stats-principles.md). Most
+  importantly: segment stats by player count / playlist by default — pooling
+  different player counts is the exception, not the baseline.
 - Keep tests in separate files from production code. For Rust unit tests, prefer
   adjacent `*_tests.rs` files included with `#[cfg(test)] #[path = "..."] mod tests;`.
 - Use `cargo fmt`, `cargo test`, and `just` recipes for local validation.

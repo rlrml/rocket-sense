@@ -108,7 +108,38 @@ fn stat_aggregate_query_accepts_repeated_array_filters() {
 }
 
 #[test]
+fn stat_aggregate_query_parses_game_type_and_team_size_filters() {
+    let raw_query = "game-type=ranked&game-type=tournament&team-size=2v2&team-size=3";
+    let query = StatAggregatesQuery::from_raw_query(Some(raw_query))
+        .expect("game-type and team-size filters should deserialize");
+    assert_eq!(query.game_types, ["ranked", "tournament"]);
+    assert_eq!(query.team_sizes, ["2v2", "3"]);
+
+    let filters = StatAggregateFilters::from_query(query, None).expect("filters should parse");
+    assert_eq!(filters.replay_set.game_types, ["ranked", "tournament"]);
+    assert_eq!(filters.replay_set.team_sizes, [2, 3]);
+}
+
+#[test]
 fn stat_aggregate_filters_reject_invalid_inputs() {
+    assert!(StatAggregateFilters::from_query(
+        StatAggregatesQuery {
+            game_types: vec!["scrimmage".to_owned()],
+            ..StatAggregatesQuery::default()
+        },
+        None
+    )
+    .is_err());
+
+    assert!(StatAggregateFilters::from_query(
+        StatAggregatesQuery {
+            team_sizes: vec!["5".to_owned()],
+            ..StatAggregatesQuery::default()
+        },
+        None
+    )
+    .is_err());
+
     assert!(StatAggregateFilters::from_query(
         StatAggregatesQuery {
             file_sha256s: vec!["abc".to_owned()],

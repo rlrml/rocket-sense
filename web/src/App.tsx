@@ -1430,6 +1430,7 @@ function PlayerStatsPage() {
             </div>
           ) : null}
 
+          <PlayerStatsSegmentBar />
           <StatusLine loading={statsLoading} error={null} />
           {statsError ? <ApiNotice label="Player stats" message={statsError} /> : null}
           {stats ? (
@@ -1481,6 +1482,76 @@ function playerStatGroupPath(platform: string, platformPlayerId: string, groupId
   const query = new URLSearchParams(search).toString();
   const path = `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/${groupId}`;
   return query ? `${path}?${query}` : path;
+}
+
+// Top-level career segmentation: team size and competitive context are
+// orthogonal dimensions (see docs/stats-principles.md) and govern every
+// panel on the player stats page through the shared replay-set params.
+const teamSizeSegmentOptions = [
+  { value: "", label: "All modes" },
+  { value: "1", label: "1v1" },
+  { value: "2", label: "2v2" },
+  { value: "3", label: "3v3" },
+  { value: "4", label: "4v4" },
+];
+
+const gameTypeSegmentOptions = [
+  { value: "", label: "Any context" },
+  { value: "ranked", label: "Ranked" },
+  { value: "casual", label: "Casual" },
+  { value: "tournament", label: "Tournament" },
+];
+
+function segmentParamPath(pathname: string, search: string, key: string, value: string): string {
+  const params = new URLSearchParams(search);
+  if (value) {
+    params.set(key, value);
+  } else {
+    params.delete(key);
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+function PlayerStatsSegmentBar() {
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const teamSize = params.get("team-size") ?? "";
+  const gameType = params.get("game-type") ?? "";
+
+  return (
+    <div className="player-segment-bar">
+      <nav className="stat-group-nav" aria-label="Mode segment">
+        <span className="segment-bar-label">Mode</span>
+        {teamSizeSegmentOptions.map((option) => (
+          <Link
+            key={option.value || "all"}
+            className={`stat-group-link ${teamSize === option.value ? "active" : ""}`}
+            to={segmentParamPath(location.pathname, location.search, "team-size", option.value)}
+          >
+            {option.label}
+          </Link>
+        ))}
+      </nav>
+      <nav className="stat-group-nav" aria-label="Competitive context segment">
+        <span className="segment-bar-label">Context</span>
+        {gameTypeSegmentOptions.map((option) => (
+          <Link
+            key={option.value || "all"}
+            className={`stat-group-link ${gameType === option.value ? "active" : ""}`}
+            to={segmentParamPath(location.pathname, location.search, "game-type", option.value)}
+          >
+            {option.label}
+          </Link>
+        ))}
+      </nav>
+      {teamSize === "" ? (
+        <p className="muted-text segment-bar-note">
+          Showing all modes blended — rates mix 1v1/2v2/3v3 dynamics. Pick a mode for cleaner numbers.
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function PlayerAggregateStatsSections({
