@@ -94,7 +94,8 @@
         rocketSenseWeb = pkgs.buildNpmPackage {
           pname = "rocket-sense-web";
           version = "0.1.0";
-          src = ./web;
+          src = sourceWithSubtrActor;
+          sourceRoot = "rocket-sense-source/web";
           npmDeps = pkgs.importNpmLock { npmRoot = ./web; };
           npmConfigHook = pkgs.importNpmLock.npmConfigHook;
           npmBuildScript = "build";
