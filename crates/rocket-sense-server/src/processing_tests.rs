@@ -117,6 +117,7 @@ fn replay_search_metadata_prefers_network_playlist_id_over_ambiguous_online_head
             Some(11),
             Some("TAGame.MatchType_PublicRanked_TA".to_owned()),
         ),
+        season: None,
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
@@ -148,6 +149,7 @@ fn replay_search_metadata_uses_game_type_when_playlist_id_is_ambiguous() {
             Some(6),
             Some("TAGame.MatchType_Lan_TA".to_owned()),
         ),
+        season: None,
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
@@ -972,6 +974,7 @@ fn stats_timeline_with_events(
             team_zero: vec![],
             team_one: vec![],
             game_type: subtr_actor::ReplayGameTypeDetails::default(),
+            season: None,
             all_headers: vec![],
         },
         events,
@@ -1081,5 +1084,8 @@ fn touch_stats_event(
         dodge_state: "none".to_owned(),
         ball_speed_change: 250.0,
         ball_movement: None,
+        intention: "unclear".to_owned(),
+        first_touch: false,
+        contested: false,
     }
 }
