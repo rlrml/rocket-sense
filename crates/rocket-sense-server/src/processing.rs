@@ -141,6 +141,7 @@ struct ReplaySearchMetadata {
     game_type: ReplayGameTypeMetadata,
     map_code: Option<String>,
     replay_date: Option<DateTime<Utc>>,
+    season: Option<String>,
     summary: ReplaySummaryMetadata,
     has_pro_player: bool,
     players: Vec<ReplaySearchPlayer>,
@@ -1419,6 +1420,7 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
         game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
+        season: replay_meta.season.map(|season| season.code()),
         summary: replay_summary_metadata(timeline),
         has_pro_player,
         players,
@@ -1452,6 +1454,7 @@ fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMet
         game_type: replay_game_type_metadata(replay_meta),
         map_code,
         replay_date,
+        season: replay_meta.season.map(|season| season.code()),
         summary: replay_summary_metadata_from_meta(replay_meta),
         has_pro_player,
         players,
@@ -1861,6 +1864,7 @@ async fn upsert_replay_search_metadata(
             team_one_score = COALESCE($12, team_one_score),
             match_guid = COALESCE($13, match_guid),
             has_pro_player = has_pro_player OR $14,
+            season = COALESCE($15, season),
             updated_at = now()
         WHERE id = $1
         "#,
@@ -1879,6 +1883,7 @@ async fn upsert_replay_search_metadata(
     .bind(metadata.summary.team_one_score)
     .bind(&metadata.summary.match_guid)
     .bind(metadata.has_pro_player)
+    .bind(&metadata.season)
     .execute(pool)
     .await
     .context("failed to update replay search metadata")?;
