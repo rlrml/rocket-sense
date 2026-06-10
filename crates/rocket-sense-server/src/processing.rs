@@ -2981,6 +2981,7 @@ fn kickoff_player_detail_rows(
     Ok(rows)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn kickoff_player_detail_row(
     event_id: Uuid,
     replay_id: Uuid,
@@ -3007,6 +3008,7 @@ fn kickoff_player_detail_row(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn kickoff_player_detail_row_from_payload(
     event_id: Uuid,
     replay_id: Uuid,
