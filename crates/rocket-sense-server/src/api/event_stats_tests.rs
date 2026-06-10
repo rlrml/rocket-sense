@@ -29,3 +29,35 @@ fn event_stats_adapter_accepts_kickoff_aliases() {
     assert_eq!(event_stats_adapter("kickoffs").unwrap().family, "kickoff");
     assert!(event_stats_adapter("unknown").is_err());
 }
+
+#[test]
+fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
+    let metrics = kickoff_metrics(KickoffSummaryRow {
+        replay_count: 1,
+        event_count: 1,
+        row_count: 1,
+        taker_count: 1,
+        support_count: 0,
+        touched_count: 1,
+        missed_count: 0,
+        fake_count: 0,
+        win_count: 1,
+        loss_count: 0,
+        neutral_count: 0,
+        kickoff_goals_for: 0,
+        kickoff_goals_against: 0,
+        avg_taker_time_to_touch: Some(2.1),
+        avg_boost_after: None,
+        avg_boost_delta: None,
+    });
+
+    let time_to_touch = metrics
+        .iter()
+        .find(|metric| metric.key == "avg_taker_time_to_touch")
+        .expect("taker time-to-touch metric should be exposed");
+    assert_eq!(time_to_touch.value, Some(2.1));
+    // The old key averaged absolute replay timestamps pooled across roles.
+    assert!(metrics
+        .iter()
+        .all(|metric| metric.key != "avg_first_touch_time"));
+}

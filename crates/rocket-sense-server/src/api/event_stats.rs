@@ -122,7 +122,7 @@ struct KickoffSummaryRow {
     neutral_count: u64,
     kickoff_goals_for: u64,
     kickoff_goals_against: u64,
-    avg_first_touch_time: Option<f64>,
+    avg_taker_time_to_touch: Option<f64>,
     avg_boost_after: Option<f64>,
     avg_boost_delta: Option<f64>,
 }
@@ -304,7 +304,16 @@ async fn load_kickoff_summary(
             COUNT(*) FILTER (WHERE kickoff.winning_team IS NULL) AS neutral_count,
             COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team = detail.team) AS kickoff_goals_for,
             COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team IS NOT NULL AND kickoff.scoring_team <> detail.team) AS kickoff_goals_against,
-            AVG(detail.first_touch_time) FILTER (WHERE detail.first_touch_time IS NOT NULL) AS avg_first_touch_time,
+            -- detail.first_touch_time is an absolute replay timestamp; subtract the
+            -- kickoff's start to get a duration. Taker-scoped and touch-conditional:
+            -- misses have no finite time-to-touch and support touches are a
+            -- different distribution (see docs/stats-principles.md §2).
+            AVG(detail.first_touch_time - event.start_time) FILTER (
+                WHERE detail.role = 'taker'
+                  AND detail.first_touch_time IS NOT NULL
+                  AND event.start_time IS NOT NULL
+                  AND detail.first_touch_time >= event.start_time
+            ) AS avg_taker_time_to_touch,
             AVG(detail.boost_after) FILTER (WHERE detail.boost_after IS NOT NULL) AS avg_boost_after,
             AVG(detail.boost_after - detail.start_boost) FILTER (WHERE detail.boost_after IS NOT NULL AND detail.start_boost IS NOT NULL) AS avg_boost_delta
         "#,
@@ -327,7 +336,7 @@ async fn load_kickoff_summary(
         neutral_count: count_column(&row, "neutral_count")?,
         kickoff_goals_for: count_column(&row, "kickoff_goals_for")?,
         kickoff_goals_against: count_column(&row, "kickoff_goals_against")?,
-        avg_first_touch_time: finite_value(row.try_get("avg_first_touch_time")?),
+        avg_taker_time_to_touch: finite_value(row.try_get("avg_taker_time_to_touch")?),
         avg_boost_after: finite_value(row.try_get("avg_boost_after")?),
         avg_boost_delta: finite_value(row.try_get("avg_boost_delta")?),
     })
@@ -484,9 +493,9 @@ fn kickoff_metrics(summary: KickoffSummaryRow) -> Vec<EventStatMetricResponse> {
             summary.kickoff_goals_against,
         ),
         average_metric(
-            "avg_first_touch_time",
-            "Avg first touch time",
-            summary.avg_first_touch_time,
+            "avg_taker_time_to_touch",
+            "Avg taker time to touch",
+            summary.avg_taker_time_to_touch,
         ),
         average_metric(
             "avg_boost_after",

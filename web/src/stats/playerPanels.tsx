@@ -272,6 +272,10 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
   const losses = metric("loss_count") ?? 0;
   const neutral = metric("neutral_count") ?? 0;
   const outcomeTotal = wins + losses + neutral;
+  // Avg time to touch is conditional on the taker touching at all; show the
+  // touch rate alongside so the conditioning is visible.
+  const takerCount = metric("taker_count") ?? 0;
+  const takerTouchRate = takerCount > 0 ? (metric("touched_count") ?? 0) / takerCount : null;
   const dimensions = kickoffDimensionKeys
     .map((key) => summary.dimensions.find((dimension) => dimension.key === key))
     .filter((dimension): dimension is EventStatDimensionResponse => Boolean(dimension && dimension.values.length > 0));
@@ -301,7 +305,8 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
       <div className="kickoff-headline-metrics">
         <KickoffMetric label="Kickoff goals for" value={formatCount(metric("kickoff_goals_for"))} />
         <KickoffMetric label="Kickoff goals against" value={formatCount(metric("kickoff_goals_against"))} />
-        <KickoffMetric label="Avg first touch" value={formatSecondsValue(metric("avg_first_touch_time"))} />
+        <KickoffMetric label="Avg time to touch (taker)" value={formatSecondsValue(metric("avg_taker_time_to_touch"))} />
+        <KickoffMetric label="Taker touch rate" value={formatShare(takerTouchRate)} />
         <KickoffMetric label="Avg boost delta" value={formatSigned(metric("avg_boost_delta"))} />
         <KickoffMetric label="Taker rows" value={formatCount(metric("taker_count"))} />
         <KickoffMetric label="Support rows" value={formatCount(metric("support_count"))} />
