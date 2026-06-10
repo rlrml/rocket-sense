@@ -601,11 +601,9 @@ pub async fn list_replays(
     let db = require_db(&state)?;
     let query = ListReplaysQuery::from_raw_query(raw_query.as_deref())?;
     let filters = ReplayFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
-    let (total, replays) = tokio::try_join!(
-        count_replays(db, &filters),
-        find_replays(db, &filters),
-    )
-    .map_err(ApiError::internal)?;
+    let (total, replays) =
+        tokio::try_join!(count_replays(db, &filters), find_replays(db, &filters),)
+            .map_err(ApiError::internal)?;
     let count = replays.len() as u32;
     let returned_through = filters.offset.saturating_add(count);
     let next_offset = (u64::from(returned_through) < total).then_some(returned_through);

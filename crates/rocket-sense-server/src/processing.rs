@@ -1030,13 +1030,8 @@ async fn process_replay(
             &replay_players,
         )
         .await?;
-        insert_boost_accumulation_tracks(
-            &pool,
-            analysis_run_id,
-            replay_id,
-            &output.boost_tracks,
-        )
-        .await?;
+        insert_boost_accumulation_tracks(&pool, analysis_run_id, replay_id, &output.boost_tracks)
+            .await?;
         let carried_reviews =
             carry_forward_event_reviews(&pool, replay_id, analysis_run_id).await?;
         if carried_reviews > 0 {
@@ -2946,6 +2941,7 @@ fn kickoff_player_detail_rows(
     Ok(rows)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn kickoff_player_detail_row(
     event_id: Uuid,
     replay_id: Uuid,
@@ -2972,6 +2968,7 @@ fn kickoff_player_detail_row(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn kickoff_player_detail_row_from_payload(
     event_id: Uuid,
     replay_id: Uuid,
