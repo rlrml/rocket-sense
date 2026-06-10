@@ -34,6 +34,7 @@ fn replay_search_metadata_extracts_headers_and_players() {
             ),
         ],
         game_type: subtr_actor::ReplayGameTypeDetails::default(),
+        season: None,
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
@@ -69,6 +70,7 @@ fn replay_search_metadata_prefers_specific_playlist_name_over_online_match_type(
             ),
         ],
         game_type: subtr_actor::ReplayGameTypeDetails::default(),
+        season: None,
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
@@ -91,6 +93,7 @@ fn replay_search_metadata_splits_online_playlist_by_team_size() {
         team_one: vec![player(), player()],
         all_headers: vec![("Playlist".to_owned(), HeaderProp::Str("Online".to_owned()))],
         game_type: subtr_actor::ReplayGameTypeDetails::default(),
+        season: None,
     };
 
     let metadata = replay_search_metadata_from_meta(&replay_meta);
