@@ -10,9 +10,12 @@ use utoipa::{
         admin::backfill_profile_timing,
         admin::list_replay_processing_diagnostics,
         admin::reprocess_replays,
+        admin::list_users,
+        admin::set_user_admin,
         auth::auth_options,
         auth::create_dev_token,
         auth::create_profile_token,
+        auth::get_current_user,
         ballchasing::load_ballchasing_replay,
         ballchasing::proxy_ballchasing_replay_file,
         health::health,
@@ -31,6 +34,7 @@ use utoipa::{
         replays::remove_replay_group_replays,
         replays::download_replay_file,
         replays::get_replay,
+        replays::reprocess_replay,
     ),
     components(
         schemas(
@@ -48,6 +52,10 @@ use utoipa::{
             admin::ReplayProcessingDiagnosticsQuery,
             admin::ReprocessReplaysRequest,
             admin::ReprocessReplaysResponse,
+            admin::AdminUserResponse,
+            admin::AdminUsersResponse,
+            admin::SetUserAdminRequest,
+            auth::CurrentUserResponse,
             crate::auth::AccessToken,
             health::HealthResponse,
             players::PlayerProfileNameResponse,
@@ -74,6 +82,7 @@ use utoipa::{
             replays::ReplaySummaryResponse,
             replays::ReplayTeamScoresResponse,
             replays::ReplayUploaderResponse,
+            replays::ReprocessReplayResponse,
         )
     ),
     tags(

@@ -93,6 +93,10 @@ pub struct Settings {
     pub process_replays_in_background: bool,
     pub run_replay_processing_workers: bool,
     pub background_processing_concurrency: usize,
+    /// Normalized (trimmed, lowercased) email addresses that are automatically
+    /// promoted to admin when they authenticate. Bootstraps the first admin(s);
+    /// further admins are then granted through the admin API.
+    pub admin_emails: Vec<String>,
 }
 
 impl Settings {
@@ -136,6 +140,7 @@ impl Settings {
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(1)
                 .clamp(1, 4);
+        let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
 
         Ok(Self {
             service_mode,
@@ -149,8 +154,20 @@ impl Settings {
             process_replays_in_background,
             run_replay_processing_workers,
             background_processing_concurrency,
+            admin_emails,
         })
     }
+}
+
+fn parse_admin_emails(value: Option<String>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    value
+        .split([',', ';', ' ', '\n'])
+        .map(|email| email.trim().to_lowercase())
+        .filter(|email| !email.is_empty())
+        .collect()
 }
 
 fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {

@@ -304,6 +304,18 @@ export interface AccessTokenResponse {
   expires_in_seconds: number | null;
 }
 
+export interface CurrentUserResponse {
+  id: string;
+  email: string;
+  provider_name: string;
+  is_admin: boolean;
+}
+
+export interface ReprocessReplayResponse {
+  replay_id: string;
+  enqueued: boolean;
+}
+
 export interface AuthProviderResponse {
   id: string;
   label: string;

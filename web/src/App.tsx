@@ -29,6 +29,7 @@ import {
   createAccountToken,
   getAccessToken,
   getAuthOptions,
+  getCurrentUser,
   getPlayerKickoffSummary,
   getPlayerProfile,
   getPlayerStatAggregates,
@@ -40,6 +41,7 @@ import {
   listReplayFilterOptions,
   listReplayProcessingDiagnostics,
   listReplays,
+  reprocessReplay,
   setAccessToken,
   uploadReplay,
 } from "./api";
@@ -53,6 +55,7 @@ import {
 } from "./stats/playerPanels";
 import type {
   AuthOptionsResponse,
+  CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypeResponse,
   MechanicEventResponse,
@@ -909,8 +912,35 @@ function PlayerLine({ player }: { player: ReplayPlayer }) {
   return <div className="player-line">{contents}</div>;
 }
 
+function useCurrentUser(): CurrentUserResponse | null {
+  const [user, setUser] = useState<CurrentUserResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!getAccessToken()) {
+      setUser(null);
+      return;
+    }
+    getCurrentUser()
+      .then((response) => {
+        if (!cancelled) setUser(response);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return user;
+}
+
 function ReplayStatsPage() {
   const { replayId = "", statGroup } = useParams();
+  const currentUser = useCurrentUser();
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessStatus, setReprocessStatus] = useState<string | null>(null);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
@@ -983,6 +1013,27 @@ function ReplayStatsPage() {
   const ActiveDetail = activeGroup.Detail;
   const detailEvents = ActiveDetail ? events : activeEvents;
 
+  const canReprocess = Boolean(
+    replay &&
+      currentUser &&
+      (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
+  );
+
+  async function handleReprocess() {
+    setReprocessing(true);
+    setReprocessStatus(null);
+    try {
+      const result = await reprocessReplay(replayId);
+      setReprocessStatus(
+        result.enqueued ? "Reprocessing requested." : "Replay is already up to date.",
+      );
+    } catch (err) {
+      setReprocessStatus(err instanceof Error ? err.message : "Reprocess request failed.");
+    } finally {
+      setReprocessing(false);
+    }
+  }
+
   return (
     <section className="page stats-page">
       <header className="page-header">
@@ -991,10 +1042,22 @@ function ReplayStatsPage() {
           <h1>{replay?.original_file_name || "Replay stats"}</h1>
         </div>
         <div className="button-row">
+          {canReprocess ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleReprocess()}
+              disabled={reprocessing}
+            >
+              <RefreshCw size={16} />
+              {reprocessing ? "Requesting" : "Reprocess"}
+            </button>
+          ) : null}
           <Link className="secondary-button" to={`/replays/${replayId}/player`}>
             <Zap size={16} />
             Player
           </Link>
+          {reprocessStatus ? <span className="inline-status">{reprocessStatus}</span> : null}
         </div>
       </header>
 
@@ -2285,6 +2348,7 @@ function AccountPage() {
   const [copied, setCopied] = useState(false);
   const attemptedSessionHydration = useRef(false);
   const claims = useMemo(() => parseAccessTokenClaims(token), [token]);
+  const currentUser = useCurrentUser();
 
   useEffect(() => {
     if (token.trim()) return;
@@ -2414,6 +2478,10 @@ function AccountPage() {
             <div>
               <dt>Provider</dt>
               <dd>{claims?.provider_name ? providerLabel(claims.provider_name) : "-"}</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd>{currentUser ? (currentUser.is_admin ? "Admin" : "User") : "-"}</dd>
             </div>
             <div>
               <dt>Token expiration</dt>
