@@ -426,7 +426,7 @@ fn indexed_timeline_events_keep_pass_start_and_receiver_subject() {
 }
 
 #[test]
-fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
+fn indexed_timeline_events_give_boost_pickups_one_review_type_with_detection_attribute() {
     let boost_pickup = indexed_timeline_payload_event(
         "boost_pickups",
         0,
@@ -448,9 +448,16 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
     )
     .expect("boost pickup event should index");
 
-    assert_eq!(boost_pickup.event_type_key, "boost_pickup_both");
-    assert_eq!(boost_pickup.display_name, "Boost Pickup Both");
+    assert_eq!(boost_pickup.event_type_key, "boost_pickup");
+    assert_eq!(boost_pickup.display_name, "Boost Pickup");
     assert_eq!(boost_pickup.category, "boost");
+    assert_eq!(
+        boost_pickup
+            .attributes
+            .get("detection")
+            .and_then(|value| value.as_str()),
+        Some("both")
+    );
     assert_eq!(
         boost_pickup.primary_subject.as_ref().map(|subject| (
             subject.kind.as_str(),
@@ -478,7 +485,14 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
         }),
     )
     .expect("boost pickup event should index");
-    assert_eq!(inferred.event_type_key, "boost_pickup_ghost");
+    assert_eq!(inferred.event_type_key, "boost_pickup");
+    assert_eq!(
+        inferred
+            .attributes
+            .get("detection")
+            .and_then(|value| value.as_str()),
+        Some("inferred_only")
+    );
 
     let reported = indexed_timeline_payload_event(
         "boost_pickups",
@@ -498,7 +512,14 @@ fn indexed_timeline_events_give_boost_pickups_specific_review_types() {
         }),
     )
     .expect("boost pickup event should index");
-    assert_eq!(reported.event_type_key, "boost_pickup_missed");
+    assert_eq!(reported.event_type_key, "boost_pickup");
+    assert_eq!(
+        reported
+            .attributes
+            .get("detection")
+            .and_then(|value| value.as_str()),
+        Some("reported_only")
+    );
 }
 
 #[test]
@@ -1090,5 +1111,7 @@ fn touch_stats_event(
         intention: "unclear".to_owned(),
         first_touch: false,
         contested: false,
+        role: subtr_actor::RoleState::default(),
+        play_depth: subtr_actor::PlayDepthState::default(),
     }
 }

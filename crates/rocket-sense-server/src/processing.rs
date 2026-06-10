@@ -1030,13 +1030,8 @@ async fn process_replay(
             &replay_players,
         )
         .await?;
-        insert_boost_accumulation_tracks(
-            &pool,
-            analysis_run_id,
-            replay_id,
-            &output.boost_tracks,
-        )
-        .await?;
+        insert_boost_accumulation_tracks(&pool, analysis_run_id, replay_id, &output.boost_tracks)
+            .await?;
         let carried_reviews =
             carry_forward_event_reviews(&pool, replay_id, analysis_run_id).await?;
         if carried_reviews > 0 {
@@ -3790,23 +3785,11 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             )
         }
         "rotation_first_man_stint" => "rotation_first_man_stint".to_owned(),
-        "boost_pickups" => {
-            // subtr-actor's consolidated `BoostPickupEvent` carries a `detection` field
-            // (`both` | `inferred_only` | `reported_only`). Map it to the canonical
-            // review keys declared in subtr-actor's event-definition registry
-            // (`boost_pickup_both` | `boost_pickup_ghost` | `boost_pickup_missed`).
-            let suffix = match payload
-                .get("detection")
-                .and_then(normalized_variant_name)
-                .as_deref()
-            {
-                Some("both") => "both",
-                Some("inferred_only") => "ghost",
-                Some("reported_only") => "missed",
-                _ => "event",
-            };
-            format!("boost_pickup_{suffix}")
-        }
+        // All boost pickups share one review key (matching subtr-actor's registry); the
+        // payload's `detection` field (`both` | `inferred_only` | `reported_only`) records
+        // corroboration provenance and is indexed as a filterable attribute, not an
+        // event-type split.
+        "boost_pickups" => "boost_pickup".to_owned(),
         _ => metadata
             .map(|metadata| metadata.id.to_owned())
             .unwrap_or_else(|| stream.to_owned()),
