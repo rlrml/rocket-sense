@@ -139,7 +139,7 @@ fn replay_game_type_migration_stores_normalized_and_raw_game_type_signals() {
 
 #[test]
 fn object_storage_compression_migration_tracks_raw_and_stored_sizes() {
-    let migration = include_str!("../../../../migrations/0027_object_storage_compression.sql");
+    let migration = include_str!("../../../../migrations/0030_object_storage_compression.sql");
 
     assert!(migration.contains("ADD COLUMN storage_encoding text"));
     assert!(migration.contains("ADD COLUMN storage_byte_size bigint"));
