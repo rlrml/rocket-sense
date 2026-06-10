@@ -122,6 +122,26 @@ pub struct StatAggregatesQuery {
         deserialize_with = "deserialize_string_vec"
     )]
     pub game_modes: Vec<String>,
+    /// Filter by competitive context: ranked, casual, tournament, private, offline, lan, unknown.
+    #[serde(
+        default,
+        rename = "game-type",
+        alias = "game-type[]",
+        alias = "game_types",
+        alias = "game_types[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub game_types: Vec<String>,
+    /// Filter by team size / player count: 1-4 or 1v1, 2v2, 3v3, 4v4.
+    #[serde(
+        default,
+        rename = "team-size",
+        alias = "team-size[]",
+        alias = "team_sizes",
+        alias = "team_sizes[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub team_sizes: Vec<String>,
     /// Filter to one or more Rocket Sense replay ids.
     #[serde(
         default,
@@ -252,6 +272,8 @@ impl StatAggregateFilters {
                 player_names: query.player_names,
                 playlists: query.playlist,
                 game_modes: query.game_modes,
+                game_types: query.game_types,
+                team_sizes: query.team_sizes,
                 replay_ids: query.replay_ids,
                 file_sha256s: query.file_sha256s,
                 group: query.group,
@@ -294,6 +316,8 @@ impl StatAggregatesQuery {
             player_names: replay_set.player_names,
             playlist: replay_set.playlists,
             game_modes: replay_set.game_modes,
+            game_types: replay_set.game_types,
+            team_sizes: replay_set.team_sizes,
             replay_ids: replay_set.replay_ids,
             file_sha256s: replay_set.file_sha256s,
             group: replay_set.group,

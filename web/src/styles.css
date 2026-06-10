@@ -636,6 +636,27 @@ tbody tr:last-child td {
   color: #1d4ed8;
 }
 
+.player-segment-bar {
+  display: grid;
+  gap: 8px;
+}
+
+.segment-bar-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  min-width: 64px;
+  color: #5d6b80;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.segment-bar-note {
+  margin: 0;
+}
+
 .stat-detail {
   display: grid;
   gap: 16px;
