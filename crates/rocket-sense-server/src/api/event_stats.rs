@@ -603,16 +603,16 @@ where
     }
 }
 
-fn count_column(row: &sqlx::postgres::PgRow, column: &str) -> Result<u64, sqlx::Error> {
+pub(crate) fn count_column(row: &sqlx::postgres::PgRow, column: &str) -> Result<u64, sqlx::Error> {
     let count: i64 = row.try_get(column)?;
     Ok(count.max(0) as u64)
 }
 
-fn finite_value(value: Option<f64>) -> Option<f64> {
+pub(crate) fn finite_value(value: Option<f64>) -> Option<f64> {
     value.filter(|value| value.is_finite())
 }
 
-fn display_label(value: &str) -> String {
+pub(crate) fn display_label(value: &str) -> String {
     value
         .split(['-', '_'])
         .filter(|part| !part.is_empty())

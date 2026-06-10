@@ -29,8 +29,10 @@ import {
   createAccountToken,
   getAccessToken,
   getAuthOptions,
+  getPlayerKickoffSummary,
   getPlayerProfile,
   getPlayerStatAggregates,
+  getPlayerStatOverview,
   getReplay,
   getReplayStatAggregates,
   listEventTypes,
@@ -43,12 +45,20 @@ import {
 } from "./api";
 import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
+import {
+  GoalTagSharePanel,
+  KickoffSummaryPanel,
+  PlayerRateComparisonChart,
+  RotationTimeSharePanel,
+} from "./stats/playerPanels";
 import type {
   AuthOptionsResponse,
+  EventStatSummaryResponse,
   EventTypeResponse,
   MechanicEventResponse,
   PlayerProfileResponse,
   PlayerProfileReplayResponse,
+  PlayerStatOverviewResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
@@ -1269,6 +1279,8 @@ function PlayerStatsPage() {
   );
   const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
+  const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
+  const [kickoffSummary, setKickoffSummary] = useState<EventStatSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1280,6 +1292,8 @@ function PlayerStatsPage() {
     setStatsLoading(true);
     setError(null);
     setStatsError(null);
+    setOverview(null);
+    setKickoffSummary(null);
     getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
@@ -1300,6 +1314,17 @@ function PlayerStatsPage() {
       .finally(() => {
         if (!cancelled) setStatsLoading(false);
       });
+    // Supplemental visualizations degrade gracefully when these fail.
+    getPlayerStatOverview(platform, platformPlayerId, new URLSearchParams(location.search))
+      .then((response) => {
+        if (!cancelled) setOverview(response);
+      })
+      .catch(() => {});
+    getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search))
+      .then((response) => {
+        if (!cancelled) setKickoffSummary(response);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -1347,6 +1372,8 @@ function PlayerStatsPage() {
           {stats ? (
             <PlayerAggregateStatsSections
               activeGroup={activeGroup}
+              kickoffSummary={kickoffSummary}
+              overview={overview}
               platform={platform}
               platformPlayerId={platformPlayerId}
               search={location.search}
@@ -1395,12 +1422,16 @@ function playerStatGroupPath(platform: string, platformPlayerId: string, groupId
 
 function PlayerAggregateStatsSections({
   activeGroup,
+  kickoffSummary,
+  overview,
   platform,
   platformPlayerId,
   search,
   stats,
 }: {
   activeGroup: StatGroup;
+  kickoffSummary: EventStatSummaryResponse | null;
+  overview: PlayerStatOverviewResponse | null;
   platform: string;
   platformPlayerId: string;
   search: string;
@@ -1450,6 +1481,14 @@ function PlayerAggregateStatsSections({
           <Metric label="Events" value={sectionEventCount.toLocaleString()} />
         </div>
       </header>
+
+      <PlayerRateComparisonChart stats={topStats} />
+
+      {activeGroup.id === "goals" && overview ? <GoalTagSharePanel overview={overview} /> : null}
+      {activeGroup.id === "kickoffs" && kickoffSummary ? <KickoffSummaryPanel summary={kickoffSummary} /> : null}
+      {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
+        <RotationTimeSharePanel overview={overview} stats={stats} />
+      ) : null}
 
       <div className="player-stats-section-grid stat-section-grid">
         <section className="stat-panel">

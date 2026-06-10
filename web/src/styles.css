@@ -4313,3 +4313,246 @@ tbody tr:last-child td {
   pointer-events: none;
   z-index: 2;
 }
+
+/* Player profile visualization panels */
+
+.player-aggregate-stats > .chart-panel {
+  margin-bottom: 14px;
+}
+
+.rate-chart-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.rate-chart-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 200px) minmax(0, 1fr) minmax(90px, auto);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rate-chart-label {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rate-chart-track {
+  position: relative;
+  height: 18px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.rate-chart-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  border-radius: 5px;
+  background: #2563eb;
+}
+
+.goal-tag-fill {
+  background: #16a34a;
+}
+
+.kickoff-dimension-fill {
+  background: #7c3aed;
+}
+
+.rate-chart-teammate-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: #0f172a;
+}
+
+.rate-chart-value {
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.rate-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.rate-chart-legend-fill {
+  display: inline-block;
+  width: 18px;
+  height: 10px;
+  border-radius: 3px;
+  background: #2563eb;
+}
+
+.rate-chart-legend-marker {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  margin-left: 10px;
+  border-radius: 2px;
+  background: #0f172a;
+}
+
+.rotation-share-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 16px;
+}
+
+.rotation-share-block {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+
+.rotation-share-block h4,
+.kickoff-dimension h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rotation-share-legend {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.rotation-share-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rotation-share-legend strong {
+  margin-left: auto;
+}
+
+.rotation-legend-swatch {
+  display: inline-block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 4px;
+}
+
+.source-segment.rotation-role-segment-first_man {
+  background: #2563eb;
+}
+
+.source-segment.rotation-role-segment-second_man {
+  background: #0ea5e9;
+}
+
+.source-segment.rotation-role-segment-third_man {
+  background: #14b8a6;
+}
+
+.source-segment.rotation-role-segment-ambiguous,
+.source-segment.rotation-role-segment-unknown {
+  background: #94a3b8;
+}
+
+.rotation-histogram {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 110px;
+}
+
+.rotation-histogram-bar {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  height: 100%;
+  min-width: 0;
+}
+
+.rotation-histogram-fill {
+  display: block;
+  min-height: 2px;
+  border-radius: 3px 3px 0 0;
+  background: #2563eb;
+}
+
+.rotation-histogram-label {
+  overflow: hidden;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.source-segment.kickoff-outcome-segment-win {
+  background: #16a34a;
+}
+
+.source-segment.kickoff-outcome-segment-neutral {
+  background: #94a3b8;
+}
+
+.source-segment.kickoff-outcome-segment-loss {
+  background: #dc2626;
+}
+
+.kickoff-headline-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.kickoff-headline-metric {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.kickoff-headline-metric span {
+  font-size: 12px;
+}
+
+.kickoff-headline-metric strong {
+  font-size: 16px;
+}
+
+.kickoff-dimension-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.kickoff-dimension {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+
+.kickoff-dimension-row {
+  grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) minmax(80px, auto);
+}

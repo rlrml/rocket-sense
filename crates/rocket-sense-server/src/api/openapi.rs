@@ -1,4 +1,4 @@
-use super::{admin, auth, ballchasing, health, players, replays, stats};
+use super::{admin, auth, ballchasing, health, player_overview, players, replays, stats};
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
@@ -17,6 +17,7 @@ use utoipa::{
         ballchasing::proxy_ballchasing_replay_file,
         health::health,
         players::get_player_profile,
+        player_overview::get_player_stat_overview,
         stats::get_stat_aggregates,
         replays::create_replay,
         replays::list_replays,
@@ -53,6 +54,9 @@ use utoipa::{
             players::PlayerProfileResponse,
             players::PlayerProfileReplayResponse,
             players::PlayerProfileReplayTeamScoresResponse,
+            player_overview::PlayerStatOverviewResponse,
+            player_overview::GoalTagAggregateResponse,
+            player_overview::RotationTimeShareResponse,
             stats::StatAggregateResponse,
             stats::StatAggregateSetResponse,
             replays::CreateReplayGroupRequest,
