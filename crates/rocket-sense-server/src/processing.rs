@@ -1460,9 +1460,14 @@ fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMet
 
 fn replay_search_player(player: &PlayerInfo, team: i32) -> ReplaySearchPlayer {
     let (platform, platform_player_id) = remote_id_parts(&player.remote_id);
+    let name = clean_player_display_name(
+        &player.name,
+        &player.remote_id,
+        platform_player_id.as_deref(),
+    );
 
     ReplaySearchPlayer {
-        name: player.name.clone(),
+        name,
         platform,
         platform_player_id,
         team,
@@ -1642,6 +1647,23 @@ struct PlayerTimingMetadata {
 
 fn finite_nonnegative(value: f64) -> Option<f64> {
     value.is_finite().then_some(value.max(0.0))
+}
+
+/// subtr-actor falls back to the Rust `Debug` representation of the remote id
+/// (e.g. `Epic("3f67e5d2349f491c8b99825ec396a2…")`) whenever a player has no
+/// resolvable in-game name. That debug string is ugly in the UI, so replace it
+/// with the bare platform id when the stored name is exactly that fallback.
+fn clean_player_display_name(
+    name: &str,
+    remote_id: &RemoteId,
+    platform_player_id: Option<&str>,
+) -> String {
+    if name == format!("{remote_id:?}") {
+        if let Some(id) = platform_player_id {
+            return id.to_owned();
+        }
+    }
+    name.to_owned()
 }
 
 fn remote_id_parts(remote_id: &RemoteId) -> (Option<String>, Option<String>) {
