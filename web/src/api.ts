@@ -2,10 +2,12 @@ import type {
   AccessTokenResponse,
   AuthOptionsResponse,
   BoostTracksResponse,
+  EventStatSummaryResponse,
   EventTypesResponse,
   ListReplaysResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
+  PlayerStatOverviewResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
   ReplayResponse,
@@ -119,6 +121,27 @@ export function getPlayerStatAggregates(
   params.set("group-by", "playlist");
   params.set("count", "200");
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
+}
+
+export function getPlayerStatOverview(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<PlayerStatOverviewResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<PlayerStatOverviewResponse>(`/api/v1/stats/player-overview?${params.toString()}`);
+}
+
+export function getPlayerKickoffSummary(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<EventStatSummaryResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  params.set("include-samples", "false");
+  return request<EventStatSummaryResponse>(`/api/v1/stats/events/kickoff/summary?${params.toString()}`);
 }
 
 export async function listReplayEvents(replayId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {

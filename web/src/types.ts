@@ -194,6 +194,69 @@ export interface StatAggregateGroupResponse {
   stats: StatAggregateResponse[];
 }
 
+export interface GoalTagAggregateResponse {
+  kind: string;
+  display_name: string;
+  count: number;
+  share_of_goals: number | null;
+  avg_confidence: number | null;
+}
+
+export interface RotationTimeShareResponse {
+  key: string;
+  display_name: string;
+  seconds: number;
+  span_count: number;
+}
+
+export interface PlayerStatOverviewResponse {
+  replay_count: number;
+  goals_scored: number;
+  goal_tags: GoalTagAggregateResponse[];
+  rotation_roles: RotationTimeShareResponse[];
+  rotation_depths: RotationTimeShareResponse[];
+}
+
+export interface EventStatMetricResponse {
+  key: string;
+  label: string;
+  value: number | null;
+  kind: string;
+}
+
+export interface EventStatDimensionValueResponse {
+  key: string | null;
+  display_name: string;
+  count: number;
+}
+
+export interface EventStatDimensionResponse {
+  key: string;
+  label: string;
+  values: EventStatDimensionValueResponse[];
+}
+
+export interface EventStatSampleResponse {
+  replay_id: string;
+  event_id: string;
+  replay_player_id: string | null;
+  player_subject_id: string | null;
+  event_time: number | null;
+  role: string | null;
+  team: number | null;
+  fields: Record<string, unknown>;
+}
+
+export interface EventStatSummaryResponse {
+  family: string;
+  replay_count: number;
+  event_count: number;
+  row_count: number;
+  metrics: EventStatMetricResponse[];
+  dimensions: EventStatDimensionResponse[];
+  samples: EventStatSampleResponse[];
+}
+
 export interface MechanicEventResponse {
   id: string;
   replay_id: string;
