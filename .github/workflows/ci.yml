@@ -17,6 +17,11 @@ jobs:
         with:
           submodules: recursive
 
+      # Cheap fail-fast guard: parallel PRs can each pick the same next
+      # migration number, which silently breaks deploys once one is applied.
+      - name: Check migration versions are unique
+        run: ./scripts/check-migration-versions.sh
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
