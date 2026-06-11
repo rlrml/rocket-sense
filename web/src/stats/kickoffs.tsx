@@ -1,6 +1,6 @@
 import type { ReplayModel } from "@rlrml/player";
 import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -244,7 +244,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
             <div className="chart-panel-header">
               <div>
                 <h3>Player behavior</h3>
-                <span>Taker results, support choices, and kickoff goal context.</span>
+                <span>Takers and support split out, with kickoff goal context.</span>
               </div>
             </div>
             <KickoffPlayerTable summaries={playerSummaries} />
@@ -321,56 +321,111 @@ function KickoffMetric({
   );
 }
 
+interface KickoffPlayerColumn {
+  key: string;
+  label: string;
+  render: (summary: PlayerKickoffSummary) => ReactNode;
+}
+
+const PLAYER_COLUMN: KickoffPlayerColumn = {
+  key: "player",
+  label: "Player",
+  render: (summary) => (
+    <div className={`kickoff-player-cell team-accent-${teamClass(summary.team)}`}>
+      <strong>{summary.name}</strong>
+      <span>{teamLabel(summary.team)}</span>
+    </div>
+  ),
+};
+
+const GOALS_COLUMN: KickoffPlayerColumn = {
+  key: "goals",
+  label: "Goals",
+  render: (summary) => (
+    <span className="kickoff-goal-balance">
+      +{summary.kickoffGoalsFor} / -{summary.kickoffGoalsAgainst}
+    </span>
+  ),
+};
+
+// Win strength is a property of the kickoff a player took, so it belongs with the
+// taker table only; support rows stay lean.
+const STRENGTH_COLUMN: KickoffPlayerColumn = {
+  key: "strength",
+  label: "Outcomes",
+  render: (summary) => <KickoffStrengthSummary outcomes={summary.strengthOutcomes} />,
+};
+
+const TAKER_COLUMNS: KickoffPlayerColumn[] = [
+  PLAYER_COLUMN,
+  { key: "takes", label: "Takes", render: (summary) => summary.takerCount },
+  { key: "touched", label: "Touch", render: (summary) => summary.touched },
+  { key: "faked", label: "Fake", render: (summary) => summary.faked },
+  { key: "missed", label: "Miss", render: (summary) => summary.missed },
+  { key: "toBall", label: "To ball", render: (summary) => formatAverageDuration(summary.timeToBallSum, summary.timeToBallCount) },
+  { key: "boostPlus", label: "Boost +", render: (summary) => formatAverageBoost(summary.boostCollectedSum, summary.boostCollectedCount) },
+  { key: "boostUsed", label: "Boost used", render: (summary) => formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount) },
+  { key: "approach", label: "Approach", render: (summary) => topMapLabel(summary.approaches) },
+  GOALS_COLUMN,
+  STRENGTH_COLUMN,
+];
+
+const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
+  PLAYER_COLUMN,
+  { key: "plays", label: "Plays", render: (summary) => summary.supportCount },
+  { key: "habit", label: "Habit", render: (summary) => topMapLabel(summary.supportBehaviors) },
+  GOALS_COLUMN,
+];
+
 function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }) {
+  const takers = summaries.filter((summary) => summary.takerCount > 0);
+  const supports = summaries.filter((summary) => summary.supportCount > 0);
   return (
-    <div className="table-frame compact-table kickoff-player-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>Taker</th>
-            <th>Support</th>
-            <th>Touches</th>
-            <th>Fakes</th>
-            <th>Misses</th>
-            <th>Avg to ball</th>
-            <th>Avg boost +</th>
-            <th>Avg boost used</th>
-            <th>Common approach</th>
-            <th>Support habit</th>
-            <th>Outcomes by strength</th>
-            <th>Goals</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summaries.map((summary) => (
-            <tr className={`team-row-${teamClass(summary.team)}`} key={summary.key}>
-              <td>
-                <div className={`kickoff-player-cell team-accent-${teamClass(summary.team)}`}>
-                  <strong>{summary.name}</strong>
-                  <span>{teamLabel(summary.team)}</span>
-                </div>
-              </td>
-              <td>{summary.takerCount}</td>
-              <td>{summary.supportCount}</td>
-              <td>{summary.touched}</td>
-              <td>{summary.faked}</td>
-              <td>{summary.missed}</td>
-              <td>{formatAverageDuration(summary.timeToBallSum, summary.timeToBallCount)}</td>
-              <td>{formatAverageBoost(summary.boostCollectedSum, summary.boostCollectedCount)}</td>
-              <td>{formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount)}</td>
-              <td>{topMapLabel(summary.approaches)}</td>
-              <td>{topMapLabel(summary.supportBehaviors)}</td>
-              <td><KickoffStrengthSummary outcomes={summary.strengthOutcomes} /></td>
-              <td>
-                <span className="kickoff-goal-balance">
-                  +{summary.kickoffGoalsFor} / -{summary.kickoffGoalsAgainst}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="kickoff-player-tables">
+      <KickoffRoleTable label="Takers" columns={TAKER_COLUMNS} summaries={takers} emptyLabel="No taker data yet." />
+      <KickoffRoleTable label="Support" columns={SUPPORT_COLUMNS} summaries={supports} emptyLabel="No support data yet." />
+    </div>
+  );
+}
+
+function KickoffRoleTable({
+  label,
+  columns,
+  summaries,
+  emptyLabel,
+}: {
+  label: string;
+  columns: KickoffPlayerColumn[];
+  summaries: PlayerKickoffSummary[];
+  emptyLabel: string;
+}) {
+  return (
+    <div className="kickoff-player-table-group">
+      <div className="kickoff-player-table-label">{label}</div>
+      {summaries.length ? (
+        <div className="table-frame compact-table kickoff-player-table">
+          <table>
+            <thead>
+              <tr>
+                {columns.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {summaries.map((summary) => (
+                <tr className={`team-row-${teamClass(summary.team)}`} key={summary.key}>
+                  {columns.map((column) => (
+                    <td key={column.key}>{column.render(summary)}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="kickoff-player-table-empty">{emptyLabel}</div>
+      )}
     </div>
   );
 }

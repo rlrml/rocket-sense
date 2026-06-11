@@ -1140,7 +1140,40 @@ button.status-stale:hover {
   background: #f8fafc;
 }
 
-.kickoff-player-table th,
+.kickoff-player-tables {
+  display: grid;
+  gap: 16px;
+}
+
+.kickoff-player-table-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kickoff-player-table-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.kickoff-player-table-empty {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Let multi-word headers wrap onto two lines instead of forcing the column wide;
+   data cells stay on one line so numbers/labels read cleanly. */
+.kickoff-player-table th {
+  white-space: normal;
+  line-height: 1.2;
+}
+
 .kickoff-player-table td {
   white-space: nowrap;
 }
@@ -1166,7 +1199,7 @@ button.status-stale:hover {
   display: flex;
   flex-wrap: wrap;
   gap: 5px;
-  min-width: 230px;
+  min-width: 170px;
 }
 
 .kickoff-strength-chip {
