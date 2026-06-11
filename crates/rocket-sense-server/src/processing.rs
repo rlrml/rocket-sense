@@ -344,7 +344,7 @@ async fn process_replay_job(
     let Some(target) = replay_processing_job_target(&state.pool, replay_id).await? else {
         tracing::info!(
             %replay_id,
-            "skipping replay processing job because replay is missing or already parsed"
+            "skipping replay processing job because replay is missing or already processed"
         );
         return Ok(());
     };
@@ -645,7 +645,7 @@ async fn unfinished_replay_processing_targets(
         SELECT id, file_sha256, storage_key
         FROM replays
         WHERE canonical_analysis_run_id IS NULL
-          AND parse_status IN ('pending', 'parsing')
+          AND processing_status IN ('pending', 'processing')
         ORDER BY created_at, id
         "#,
     )
@@ -669,7 +669,7 @@ async fn replay_processing_job_target(
 ) -> Result<Option<ReplayProcessingTarget>> {
     let Some(row) = sqlx::query(
         r#"
-        SELECT id, file_sha256, storage_key, parse_status, canonical_analysis_run_id
+        SELECT id, file_sha256, storage_key, processing_status, canonical_analysis_run_id
         FROM replays
         WHERE id = $1
         "#,
@@ -682,9 +682,9 @@ async fn replay_processing_job_target(
         return Ok(None);
     };
 
-    let parse_status: String = row.try_get("parse_status")?;
+    let processing_status: String = row.try_get("processing_status")?;
     let canonical_analysis_run_id: Option<Uuid> = row.try_get("canonical_analysis_run_id")?;
-    if parse_status == "parsed" && canonical_analysis_run_id.is_some() {
+    if processing_status == "processed" && canonical_analysis_run_id.is_some() {
         return Ok(None);
     }
 
@@ -1024,7 +1024,7 @@ async fn process_replay(
     file_sha256: String,
     storage_key: String,
 ) -> Result<()> {
-    set_replay_status(&pool, replay_id, "parsing").await?;
+    set_replay_status(&pool, replay_id, "processing").await?;
 
     let analysis_run_id = Uuid::now_v7();
     insert_analysis_run(&pool, analysis_run_id, replay_id, &file_sha256).await?;
@@ -4728,17 +4728,17 @@ async fn mark_replay_parse_succeeded(
         r#"
         UPDATE replays replay
         SET canonical_analysis_run_id = analysis_run.id,
-            parse_status = 'parsed',
-            parsed_at = COALESCE(analysis_run.finished_at, now()),
-            parsed_with_extractor_name = analysis_run.extractor_name,
-            parsed_with_extractor_version = analysis_run.extractor_version,
-            parsed_with_event_stream_schema_version = analysis_run.event_stream_schema_version,
-            parsed_with_rocket_sense_git_sha = COALESCE(
+            processing_status = 'processed',
+            processed_at = COALESCE(analysis_run.finished_at, now()),
+            processed_with_extractor_name = analysis_run.extractor_name,
+            processed_with_extractor_version = analysis_run.extractor_version,
+            processed_with_event_stream_schema_version = analysis_run.event_stream_schema_version,
+            processed_with_rocket_sense_git_sha = COALESCE(
                 analysis_run.rocket_sense_git_sha,
                 analysis_run.extractor_git_sha
             ),
-            parsed_with_subtr_actor_version = analysis_run.subtr_actor_version,
-            parsed_with_subtr_actor_git_sha = analysis_run.subtr_actor_git_sha,
+            processed_with_subtr_actor_version = analysis_run.subtr_actor_version,
+            processed_with_subtr_actor_git_sha = analysis_run.subtr_actor_git_sha,
             updated_at = now()
         FROM analysis_runs analysis_run
         WHERE replay.id = $1
@@ -4758,7 +4758,7 @@ async fn set_replay_status(pool: &PgPool, replay_id: Uuid, status: &str) -> Resu
     sqlx::query(
         r#"
         UPDATE replays
-        SET parse_status = $2,
+        SET processing_status = $2,
             updated_at = now()
         WHERE id = $1
         "#,

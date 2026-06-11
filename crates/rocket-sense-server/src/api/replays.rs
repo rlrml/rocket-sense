@@ -108,7 +108,7 @@ pub struct ReplayResponse {
     pub has_pro_player: bool,
     pub players: Vec<ReplayPlayerResponse>,
     pub summary: ReplaySummaryResponse,
-    pub parse_version: ReplayParseVersionResponse,
+    pub processing_version: ReplayProcessingVersionResponse,
     pub status: ReplayStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -122,8 +122,8 @@ pub struct ReplayUploaderResponse {
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
-pub struct ReplayParseVersionResponse {
-    pub parsed_at: Option<DateTime<Utc>>,
+pub struct ReplayProcessingVersionResponse {
+    pub processed_at: Option<DateTime<Utc>>,
     pub extractor_name: Option<String>,
     pub extractor_version: Option<String>,
     pub event_stream_schema_version: Option<String>,
@@ -191,8 +191,8 @@ pub struct ReplayTeamScoresResponse {
 #[serde(rename_all = "snake_case")]
 pub enum ReplayStatus {
     Pending,
-    Parsing,
-    Parsed,
+    Processing,
+    Processed,
     Failed,
 }
 
@@ -200,11 +200,11 @@ impl ReplayStatus {
     fn from_db(value: String) -> Self {
         match value.as_str() {
             "pending" => Self::Pending,
-            "parsing" => Self::Parsing,
-            "parsed" => Self::Parsed,
+            "processing" => Self::Processing,
+            "processed" => Self::Processed,
             "failed" => Self::Failed,
             unknown => {
-                tracing::warn!(status = unknown, "unknown replay parse status");
+                tracing::warn!(status = unknown, "unknown replay processing status");
                 Self::Pending
             }
         }
@@ -337,7 +337,7 @@ pub struct ListReplaysQuery {
         deserialize_with = "deserialize_string_vec"
     )]
     pub maps: Vec<String>,
-    /// Replay parsing status.
+    /// Replay processing status.
     pub status: Option<String>,
     /// Only include replays uploaded after this RFC3339 timestamp.
     #[serde(rename = "created-after")]
@@ -2098,7 +2098,7 @@ fn append_replay_filters<'args>(
     }
 
     if let Some(status) = &filters.status {
-        builder.push(" AND r.parse_status = ").push_bind(status);
+        builder.push(" AND r.processing_status = ").push_bind(status);
     }
 
     if let Some(created_after) = filters.created_after {
@@ -2156,14 +2156,14 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.match_guid,
             r.has_pro_player,
             COALESCE(players.players, '[]'::jsonb) AS players,
-            r.parsed_at,
-            r.parsed_with_extractor_name,
-            r.parsed_with_extractor_version,
-            r.parsed_with_event_stream_schema_version,
-            r.parsed_with_rocket_sense_git_sha,
-            r.parsed_with_subtr_actor_version,
-            r.parsed_with_subtr_actor_git_sha,
-            r.parse_status,
+            r.processed_at,
+            r.processed_with_extractor_name,
+            r.processed_with_extractor_version,
+            r.processed_with_event_stream_schema_version,
+            r.processed_with_rocket_sense_git_sha,
+            r.processed_with_subtr_actor_version,
+            r.processed_with_subtr_actor_git_sha,
+            r.processing_status,
             r.created_at,
             r.updated_at
         FROM replays r
@@ -2197,7 +2197,7 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
 
 pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayResponse, sqlx::Error> {
     let byte_size: i64 = row.try_get("byte_size")?;
-    let parse_status: String = row.try_get("parse_status")?;
+    let processing_status: String = row.try_get("processing_status")?;
     let players = replay_players_from_row(&row)?;
     let summary = ReplaySummaryResponse {
         season: row.try_get("season").unwrap_or(None),
@@ -2218,21 +2218,21 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
     };
     let map_code = row.try_get::<Option<String>, _>("map_code")?;
     let replay_date = row.try_get::<Option<DateTime<Utc>>, _>("replay_date")?;
-    let parse_version = ReplayParseVersionResponse {
-        parsed_at: row.try_get("parsed_at").unwrap_or(None),
-        extractor_name: row.try_get("parsed_with_extractor_name").unwrap_or(None),
-        extractor_version: row.try_get("parsed_with_extractor_version").unwrap_or(None),
+    let processing_version = ReplayProcessingVersionResponse {
+        processed_at: row.try_get("processed_at").unwrap_or(None),
+        extractor_name: row.try_get("processed_with_extractor_name").unwrap_or(None),
+        extractor_version: row.try_get("processed_with_extractor_version").unwrap_or(None),
         event_stream_schema_version: row
-            .try_get("parsed_with_event_stream_schema_version")
+            .try_get("processed_with_event_stream_schema_version")
             .unwrap_or(None),
         rocket_sense_git_sha: row
-            .try_get("parsed_with_rocket_sense_git_sha")
+            .try_get("processed_with_rocket_sense_git_sha")
             .unwrap_or(None),
         subtr_actor_version: row
-            .try_get("parsed_with_subtr_actor_version")
+            .try_get("processed_with_subtr_actor_version")
             .unwrap_or(None),
         subtr_actor_git_sha: row
-            .try_get("parsed_with_subtr_actor_git_sha")
+            .try_get("processed_with_subtr_actor_git_sha")
             .unwrap_or(None),
     };
     let uploaded_by = row
@@ -2263,8 +2263,8 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         has_pro_player: row.try_get("has_pro_player")?,
         players,
         summary,
-        parse_version,
-        status: ReplayStatus::from_db(parse_status),
+        processing_version,
+        status: ReplayStatus::from_db(processing_status),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })

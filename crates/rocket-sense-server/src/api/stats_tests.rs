@@ -19,7 +19,7 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
             maps: vec![" Stadium_P ".to_owned()],
             pro: Some(true),
             uploader: Some("me".to_owned()),
-            status: Some(" Parsed ".to_owned()),
+            status: Some(" Processed ".to_owned()),
             player_id: Some(" Steam : 76561198000000000 ".to_owned()),
             include_teammates: Some(true),
             count: Some(500),
@@ -48,7 +48,7 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
     assert_eq!(filters.replay_set.maps, ["Stadium_P"]);
     assert_eq!(filters.replay_set.pro, Some(true));
     assert_eq!(filters.replay_set.uploader_user_id, Some(uploader_id));
-    assert_eq!(filters.replay_set.status, Some("parsed".to_owned()));
+    assert_eq!(filters.replay_set.status, Some("processed".to_owned()));
     assert_eq!(filters.limit, 200);
     assert_eq!(filters.group_by, Some(StatAggregateGroupBy::Playlist));
     assert!(filters.include_teammates);
