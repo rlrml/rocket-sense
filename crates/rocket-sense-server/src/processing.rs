@@ -1084,6 +1084,15 @@ async fn process_replay(
         }
         mark_analysis_run_succeeded(&pool, analysis_run_id).await?;
         mark_replay_parse_succeeded(&pool, replay_id, analysis_run_id).await?;
+        let pruned_events = prune_superseded_run_events(&pool, replay_id, analysis_run_id).await?;
+        if pruned_events > 0 {
+            tracing::info!(
+                %replay_id,
+                %analysis_run_id,
+                pruned_events,
+                "pruned play events from superseded analysis runs"
+            );
+        }
 
         Ok::<_, anyhow::Error>(())
     }
@@ -1097,6 +1106,52 @@ async fn process_replay(
     }
 
     Ok(())
+}
+
+/// Delete the play events (and boost tracks) left behind by this replay's
+/// superseded analysis runs once a new run is canonical. Child event tables
+/// are removed via `ON DELETE CASCADE`; `event_reviews.event_id` becomes NULL
+/// while the review's `event_snapshot` and `reviewed_*` columns preserve the
+/// human labeling. Must run after `carry_forward_event_reviews`, which still
+/// reads the previous canonical run's events. The `analysis_runs` rows
+/// themselves are kept as an audit trail (they also reference the per-run
+/// event stream objects in storage).
+async fn prune_superseded_run_events(
+    pool: &PgPool,
+    replay_id: Uuid,
+    canonical_analysis_run_id: Uuid,
+) -> Result<u64> {
+    sqlx::query(
+        r#"
+        DELETE FROM replay_boost_tracks track
+        USING analysis_runs run
+        WHERE run.id = track.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded replay boost tracks")?;
+
+    let result = sqlx::query(
+        r#"
+        DELETE FROM play_events event
+        USING analysis_runs run
+        WHERE run.id = event.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded play events")?;
+
+    Ok(result.rows_affected())
 }
 
 struct CarryForwardEventReview {
