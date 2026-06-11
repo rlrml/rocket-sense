@@ -118,11 +118,10 @@
           ];
           cargoLock = {
             lockFile = ./Cargo.lock;
-            # Hash for the [patch.crates-io] boxcars fork (World Cup update
-            # network objects); see the patch note in Cargo.toml.
-            outputHashes = {
-              "boxcars-0.11.1" = "sha256-G6uUsXLqlZr2g3x8sIbrTx2Z3TX7shXxBqIPfQe/9Xo=";
-            };
+            # Fetch git dependencies (e.g. the patched boxcars pinned by
+            # vendored subtr-actor) via builtins.fetchGit so Cargo.lock stays
+            # the single source of truth — no outputHashes to maintain.
+            allowBuiltinFetchGit = true;
           };
           auditable = false;
           RUST_MIN_STACK = "268435456";
