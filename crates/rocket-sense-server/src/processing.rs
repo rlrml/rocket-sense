@@ -34,7 +34,13 @@ const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // `boost_pickups`/`boost_respawn` events plus per-frame accumulation tracks.
 // Bumping marks prior analyses stale so reprocessing re-keys pickups and
 // persists the new boost accumulation tracks.
-const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v4";
+// Bumped v4 -> v5 for the kickoff win-strength redesign: `win_strength` is now
+// the velocity-projected ball depth as a fraction of the half-field length
+// (0..=1) instead of a ratio over the minimal-win threshold, and the
+// narrow/clear/strong bands were recalibrated (previously ~82% of decided
+// kickoffs landed in "strong"). Bumping marks prior analyses stale so
+// reprocessing re-emits kickoff events on the new scale.
+const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v5";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
