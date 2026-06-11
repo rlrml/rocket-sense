@@ -66,7 +66,7 @@ fn emit_build_metadata(repo_root: &Path) -> io::Result<()> {
 
     if let Some(value) = env::var("ROCKET_SENSE_GIT_SHA")
         .ok()
-        .filter(|value| !value.trim().is_empty())
+        .and_then(meaningful_sha)
         .or_else(|| git_rev_parse(repo_root))
     {
         println!("cargo:rustc-env=GIT_SHA={value}");
@@ -75,7 +75,7 @@ fn emit_build_metadata(repo_root: &Path) -> io::Result<()> {
     let subtr_actor_root = repo_root.join("vendor/subtr-actor");
     if let Some(value) = env::var("SUBTR_ACTOR_GIT_SHA")
         .ok()
-        .filter(|value| !value.trim().is_empty())
+        .and_then(meaningful_sha)
         .or_else(|| git_rev_parse(&subtr_actor_root))
     {
         println!("cargo:rustc-env=SUBTR_ACTOR_GIT_SHA={value}");
@@ -93,6 +93,22 @@ fn emit_build_metadata(repo_root: &Path) -> io::Result<()> {
     }
 
     Ok(())
+}
+
+/// A build-provided sha is meaningful only when it is non-empty and not the
+/// `"unknown"` sentinel `flake.nix` falls back to for non-git builds. Baking the
+/// sentinel as `GIT_SHA`/`SUBTR_ACTOR_GIT_SHA` would defeat the
+/// `option_env!(...) -> Option<&str>` semantics downstream: the API would report
+/// `"unknown"` instead of `null`, and the web UI would render it as a real sha —
+/// a broken GitHub commit link (`/commit/unknown`). Treat it as "not recorded"
+/// so we fall back to `git rev-parse` or emit nothing at all.
+fn meaningful_sha(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown") {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
 }
 
 fn git_rev_parse(repo_root: &Path) -> Option<String> {
