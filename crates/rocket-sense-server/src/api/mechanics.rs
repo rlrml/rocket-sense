@@ -2863,7 +2863,6 @@ fn context_event_type_keys_for_filter() -> Vec<String> {
 
 const CONTEXT_EVENT_TYPE_KEYS: &[&str] = &[
     "core_player",
-    "core_player_goal_context",
     "core_player_scoreboard",
     "goal_context",
     "player",

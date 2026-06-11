@@ -2272,7 +2272,6 @@ const mechanicEventTypeKeys = new Set([
 
 const contextEventTypeKeys = new Set([
   "core_player",
-  "core_player_goal_context",
   "core_player_scoreboard",
   "goal_context",
   "player",
