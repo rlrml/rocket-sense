@@ -1223,8 +1223,11 @@ button.status-stale:hover {
   background: #22c55e;
 }
 
+/* Narrow results are outlined rather than filled so they read as a weaker
+   version of the clear/strong fills instead of a slightly different shade. */
 .source-segment.kickoff-tug-win-narrow {
-  background: #86efac;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px #22c55e;
 }
 
 .source-segment.kickoff-tug-win-unknown {
@@ -1241,7 +1244,8 @@ button.status-stale:hover {
 }
 
 .source-segment.kickoff-tug-loss-narrow {
-  background: #fca5a5;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px #ef4444;
 }
 
 .source-segment.kickoff-tug-loss-clear {
@@ -1713,9 +1717,11 @@ button.status-stale:hover {
   border-left-color: #ea580c;
 }
 
+/* Narrow wins keep a white background and only get a team-colored outline,
+   so they look "selected" rather than a paler version of a clear win. */
 .kickoff-taker-tile.team-taker-blue.winner.strength-narrow {
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: #2563eb;
+  background: #fff;
 }
 
 .kickoff-taker-tile.team-taker-blue.winner.strength-clear {
@@ -1730,8 +1736,8 @@ button.status-stale:hover {
 }
 
 .kickoff-taker-tile.team-taker-orange.winner.strength-narrow {
-  border-color: #fdba74;
-  background: #fff7ed;
+  border-color: #ea580c;
+  background: #fff;
 }
 
 .kickoff-taker-tile.team-taker-orange.winner.strength-clear {
