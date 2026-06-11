@@ -1195,44 +1195,76 @@ button.status-stale:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
-.kickoff-strength-summary {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
+.kickoff-outcome-tug {
+  display: grid;
+  gap: 4px;
   min-width: 170px;
 }
 
-.kickoff-strength-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 24px;
-  padding: 3px 7px;
-  border: 1px solid #cbd5e1;
-  border-radius: 999px;
-  background: #f8fafc;
-  color: #475569;
-  font-size: 12px;
+.kickoff-outcome-tug-track.stat-segmented-track {
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.kickoff-outcome-tug-track .source-segment {
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+/* Win side: darker green = more decisive win. */
+.source-segment.kickoff-tug-win-strong {
+  background: #15803d;
+}
+
+.source-segment.kickoff-tug-win-clear {
+  background: #22c55e;
+}
+
+.source-segment.kickoff-tug-win-narrow {
+  background: #86efac;
+}
+
+.source-segment.kickoff-tug-win-unknown {
+  background: #bbf7d0;
+}
+
+.source-segment.kickoff-tug-neutral {
+  background: #94a3b8;
+}
+
+/* Loss side: darker red = more decisive loss. */
+.source-segment.kickoff-tug-loss-unknown {
+  background: #fecaca;
+}
+
+.source-segment.kickoff-tug-loss-narrow {
+  background: #fca5a5;
+}
+
+.source-segment.kickoff-tug-loss-clear {
+  background: #ef4444;
+}
+
+.source-segment.kickoff-tug-loss-strong {
+  background: #b91c1c;
+}
+
+.kickoff-outcome-tug-caption {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
   font-weight: 750;
 }
 
-.kickoff-strength-chip strong {
-  color: #17202a;
+.kickoff-outcome-tug-wins {
+  color: #15803d;
 }
 
-.kickoff-strength-chip.strength-narrow {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-}
-
-.kickoff-strength-chip.strength-clear {
-  border-color: #fde68a;
-  background: #fffbeb;
-}
-
-.kickoff-strength-chip.strength-strong {
-  border-color: #bbf7d0;
-  background: #f0fdf4;
+.kickoff-outcome-tug-losses {
+  color: #b91c1c;
 }
 
 .kickoff-card-list {
