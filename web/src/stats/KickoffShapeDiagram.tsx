@@ -121,16 +121,6 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
           </g>
         ))}
       </svg>
-
-      <ul className="kickoff-path-legend">
-        {paths.map((path, index) => (
-          <li key={`${path.playerName}-legend-${index}`} className={`team-${path.team === 0 ? "blue" : "orange"}`}>
-            <span className="kickoff-path-swatch" />
-            <span className="kickoff-path-name">{path.playerName}</span>
-            <span className="kickoff-path-role">{path.role === "taker" ? "Taker" : "Support"}{path.isWinner ? " · won" : ""}</span>
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
