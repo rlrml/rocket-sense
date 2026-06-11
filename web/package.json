@@ -11,8 +11,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@rlrml/player": "^0.12.0",
-    "@rlrml/subtr-actor": "^0.12.0",
+    "@rlrml/player": "file:vendor/@rlrml/player",
+    "@rlrml/subtr-actor": "file:vendor/@rlrml/subtr-actor",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -1,0 +1,9 @@
+/**
+ * Which competitive-season numbering era a replay belongs to.
+ *
+ * Rocket League restarted its season counter at 1 when it went free-to-play in
+ * September 2020, so the era is required to disambiguate (e.g. legacy Season 8
+ * vs free-to-play Season 8).
+ */
+export type SeasonEra = "Legacy" | "FreeToPlay";
+//# sourceMappingURL=SeasonEra.d.ts.map

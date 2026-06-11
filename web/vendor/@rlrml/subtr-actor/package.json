@@ -1,0 +1,33 @@
+{
+  "name": "@rlrml/subtr-actor",
+  "version": "0.12.0",
+  "description": "WebAssembly bindings for subtr-actor - Rocket League replay processing and analysis",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rlrml/subtr-actor.git",
+    "directory": "js"
+  },
+  "keywords": [
+    "rocket-league",
+    "replay",
+    "wasm",
+    "webassembly",
+    "parsing"
+  ],
+  "author": "Ivan Malison <ivanmalison@gmail.com>",
+  "license": "MIT",
+  "files": [
+    "rl_replay_subtr_actor_bg.wasm",
+    "rl_replay_subtr_actor.js",
+    "rl_replay_subtr_actor.d.ts"
+  ],
+  "main": "rl_replay_subtr_actor.js",
+  "types": "rl_replay_subtr_actor.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

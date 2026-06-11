@@ -1,0 +1,56 @@
+{
+  "name": "@rlrml/player",
+  "version": "0.12.0",
+  "description": "Replay player library for subtr-actor Rocket League replay workflows",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/lib.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/lib.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./boost-units": {
+      "types": "./dist/boost-units.d.ts",
+      "import": "./dist/boost-units.js"
+    },
+    "./generated/*": {
+      "types": "./dist/generated/*.d.ts"
+    },
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rlrml/subtr-actor.git",
+    "directory": "js/player"
+  },
+  "bugs": {
+    "url": "https://github.com/rlrml/subtr-actor/issues"
+  },
+  "homepage": "https://github.com/rlrml/subtr-actor/tree/master/js/player#readme",
+  "keywords": [
+    "rocket-league",
+    "replay",
+    "player",
+    "threejs",
+    "wasm"
+  ],
+  "author": "Ivan Malison <ivanmalison@gmail.com>",
+  "license": "MIT",
+  "peerDependencies": {
+    "three": "^0.180.0"
+  },
+  "dependencies": {
+    "@rlrml/subtr-actor": "0.12.0"
+  }
+}
