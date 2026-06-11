@@ -11,8 +11,8 @@ pub enum DbError {
 
 pub async fn connect(database_url: &str) -> Result<PgPool, DbError> {
     PgPoolOptions::new()
-        .max_connections(5)
-        .acquire_timeout(Duration::from_secs(5))
+        .max_connections(20)
+        .acquire_timeout(Duration::from_secs(10))
         .connect(database_url)
         .await
         .map_err(DbError::Connect)

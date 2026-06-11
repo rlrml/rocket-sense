@@ -139,8 +139,8 @@ fn push_target_appearances_cte<'args>(
 ) {
     builder.push(
         r#"
-        WITH target_appearances AS (
-            SELECT rp.id, rp.replay_id
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
         "#,
@@ -158,18 +158,15 @@ fn push_target_appearances_cte<'args>(
 fn push_goal_events_cte(builder: &mut QueryBuilder<'_, Postgres>) {
     builder.push(
         r#"
-        , goal_events AS (
+        , goal_events AS MATERIALIZED (
             SELECT event.id, appearance.replay_id
             FROM target_appearances appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
             JOIN play_event_subjects subject
               ON subject.replay_player_id = appearance.id
              AND subject.role = 'scorer'
             JOIN play_events event
               ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
+             AND event.analysis_run_id = appearance.run_id
             JOIN event_types et
               ON et.id = event.event_type_id
              AND et.key = 'goal_context'
@@ -266,15 +263,12 @@ async fn load_rotation_time_shares(
             SUM(event.duration_seconds) AS seconds,
             COUNT(*) AS span_count
         FROM target_appearances appearance
-        JOIN replays r
-          ON r.id = appearance.replay_id
-         AND r.canonical_analysis_run_id IS NOT NULL
         JOIN play_event_subjects subject
           ON subject.replay_player_id = appearance.id
          AND subject.role = 'actor'
         JOIN play_events event
           ON event.id = subject.event_id
-         AND event.analysis_run_id = r.canonical_analysis_run_id
+         AND event.analysis_run_id = appearance.run_id
          AND event.source_stream IN ('rotation_role_span', 'rotation_depth_span')
         JOIN event_types et
           ON et.id = event.event_type_id

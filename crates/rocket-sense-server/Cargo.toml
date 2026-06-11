@@ -15,6 +15,7 @@ axum.workspace = true
 boxcars.workspace = true
 bytes.workspace = true
 chrono.workspace = true
+futures.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
 rocket-sense-db.workspace = true
