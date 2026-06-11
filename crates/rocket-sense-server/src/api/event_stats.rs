@@ -122,9 +122,9 @@ struct KickoffSummaryRow {
     neutral_count: u64,
     kickoff_goals_for: u64,
     kickoff_goals_against: u64,
-    settlements_for: u64,
-    settlements_against: u64,
-    unsettled_count: u64,
+    advantages_for: u64,
+    advantages_against: u64,
+    no_advantage_count: u64,
     avg_taker_time_to_touch: Option<f64>,
     avg_boost_after: Option<f64>,
     avg_boost_delta: Option<f64>,
@@ -166,14 +166,14 @@ const KICKOFF_DIMENSIONS: &[EventStatsDimension] = &[
         label: "Player result",
         expression: "CASE WHEN kickoff.winning_team IS NULL THEN 'neutral' WHEN kickoff.winning_team = detail.team THEN 'win' ELSE 'loss' END",
     },
-    // Player-relative settlement: who the kickoff ended up being good for
-    // (possession run, established pressure, or kickoff goal) and whether
+    // Player-relative kickoff advantage: who the kickoff ended up being good
+    // for (possession run, established pressure, or kickoff goal) and whether
     // that was this player's team, e.g. `won_possession` / `lost_pressure`.
-    // NULL (pre-settlement analysis runs) is distinct from `unsettled`.
+    // NULL (pre-advantage analysis runs) is distinct from `no_advantage`.
     EventStatsDimension {
-        key: "settlement_result",
-        label: "Settlement",
-        expression: "CASE WHEN kickoff.settlement IS NULL THEN NULL WHEN kickoff.settlement_team IS NULL THEN kickoff.settlement ELSE concat(CASE WHEN kickoff.settlement_team = detail.team THEN 'won_' ELSE 'lost_' END, regexp_replace(kickoff.settlement, '^team_(zero|one)_', '')) END",
+        key: "advantage_result",
+        label: "Advantage",
+        expression: "CASE WHEN kickoff.advantage IS NULL THEN NULL WHEN kickoff.advantage_team IS NULL THEN kickoff.advantage ELSE concat(CASE WHEN kickoff.advantage_team = detail.team THEN 'won_' ELSE 'lost_' END, regexp_replace(kickoff.advantage, '^team_(zero|one)_', '')) END",
     },
 ];
 
@@ -316,9 +316,9 @@ async fn load_kickoff_summary(
             COUNT(*) FILTER (WHERE kickoff.winning_team IS NULL) AS neutral_count,
             COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team = detail.team) AS kickoff_goals_for,
             COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team IS NOT NULL AND kickoff.scoring_team <> detail.team) AS kickoff_goals_against,
-            COUNT(*) FILTER (WHERE kickoff.settlement_team = detail.team) AS settlements_for,
-            COUNT(*) FILTER (WHERE kickoff.settlement_team IS NOT NULL AND kickoff.settlement_team <> detail.team) AS settlements_against,
-            COUNT(*) FILTER (WHERE kickoff.settlement = 'unsettled') AS unsettled_count,
+            COUNT(*) FILTER (WHERE kickoff.advantage_team = detail.team) AS advantages_for,
+            COUNT(*) FILTER (WHERE kickoff.advantage_team IS NOT NULL AND kickoff.advantage_team <> detail.team) AS advantages_against,
+            COUNT(*) FILTER (WHERE kickoff.advantage = 'no_advantage') AS no_advantage_count,
             -- time_to_ball is subtr-actor's duration from movement start to the
             -- taker's first touch (countdown excluded). Taker-scoped and
             -- touch-conditional: misses have no finite time-to-touch and support
@@ -349,9 +349,9 @@ async fn load_kickoff_summary(
         neutral_count: count_column(&row, "neutral_count")?,
         kickoff_goals_for: count_column(&row, "kickoff_goals_for")?,
         kickoff_goals_against: count_column(&row, "kickoff_goals_against")?,
-        settlements_for: count_column(&row, "settlements_for")?,
-        settlements_against: count_column(&row, "settlements_against")?,
-        unsettled_count: count_column(&row, "unsettled_count")?,
+        advantages_for: count_column(&row, "advantages_for")?,
+        advantages_against: count_column(&row, "advantages_against")?,
+        no_advantage_count: count_column(&row, "no_advantage_count")?,
         avg_taker_time_to_touch: finite_value(row.try_get("avg_taker_time_to_touch")?),
         avg_boost_after: finite_value(row.try_get("avg_boost_after")?),
         avg_boost_delta: finite_value(row.try_get("avg_boost_delta")?),
@@ -426,9 +426,9 @@ async fn load_event_stat_samples(
             kickoff.kickoff_goal,
             kickoff.scoring_team,
             kickoff.time_to_goal,
-            kickoff.settlement,
-            kickoff.settlement_team,
-            kickoff.settlement_seconds_after_first_touch
+            kickoff.advantage,
+            kickoff.advantage_team,
+            kickoff.advantage_seconds_after_first_touch
         "#,
     );
     push_event_stats_from(&mut query, adapter);
@@ -512,17 +512,17 @@ fn kickoff_metrics(summary: KickoffSummaryRow) -> Vec<EventStatMetricResponse> {
             "Kickoff goals against",
             summary.kickoff_goals_against,
         ),
+        count_metric("advantages_for", "Advantage gained", summary.advantages_for),
         count_metric(
-            "settlements_for",
-            "Settled for team",
-            summary.settlements_for,
+            "advantages_against",
+            "Advantage conceded",
+            summary.advantages_against,
         ),
         count_metric(
-            "settlements_against",
-            "Settled against team",
-            summary.settlements_against,
+            "no_advantage_count",
+            "No advantage",
+            summary.no_advantage_count,
         ),
-        count_metric("unsettled_count", "Unsettled", summary.unsettled_count),
         average_metric(
             "avg_taker_time_to_touch",
             "Avg taker time to touch",
@@ -628,18 +628,18 @@ fn sample_from_row(row: sqlx::postgres::PgRow) -> Result<EventStatSampleResponse
     );
     insert_optional(
         &mut fields,
-        "settlement",
-        row.try_get::<Option<String>, _>("settlement")?,
+        "advantage",
+        row.try_get::<Option<String>, _>("advantage")?,
     );
     insert_optional(
         &mut fields,
-        "settlement_team",
-        row.try_get::<Option<i32>, _>("settlement_team")?,
+        "advantage_team",
+        row.try_get::<Option<i32>, _>("advantage_team")?,
     );
     insert_optional(
         &mut fields,
-        "settlement_seconds_after_first_touch",
-        row.try_get::<Option<f64>, _>("settlement_seconds_after_first_touch")?,
+        "advantage_seconds_after_first_touch",
+        row.try_get::<Option<f64>, _>("advantage_seconds_after_first_touch")?,
     );
 
     Ok(EventStatSampleResponse {

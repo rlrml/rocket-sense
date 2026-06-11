@@ -67,10 +67,10 @@ interface KickoffRow {
   winStrengthBand: KickoffStrengthBand;
   firstTouch: KickoffTouch;
   followUpTouch: KickoffTouch;
-  settlement: string | null;
-  settlementTeam: number | null;
-  settlementPlayerName: string | null;
-  settlementSecondsAfterFirstTouch: number | null;
+  advantage: string | null;
+  advantageTeam: number | null;
+  advantagePlayerName: string | null;
+  advantageSecondsAfterFirstTouch: number | null;
   teamZeroTaker: KickoffPlayerBehavior | null;
   teamOneTaker: KickoffPlayerBehavior | null;
   teamZeroSupport: KickoffPlayerBehavior[];
@@ -546,7 +546,7 @@ function KickoffCard({
             <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
             <KickoffFact icon={ShieldCheck} label="Possession" value={kickoffPossessionLabel(kickoff)} team={kickoff.possessionTeam} />
             <KickoffFact icon={ShieldCheck} label="Next possession" value={formatNextPossession(kickoff.nextPossession)} team={kickoff.nextPossession?.team ?? kickoff.possessionTeam} />
-            <KickoffFact icon={Anchor} label="Settled" value={kickoffSettlementLabel(kickoff)} team={kickoff.settlementTeam} />
+            <KickoffFact icon={Anchor} label="Advantage" value={kickoffAdvantageLabel(kickoff)} team={kickoff.advantageTeam} />
             <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
             <KickoffFact icon={Gauge} label="Exit speed" value={formatSpeed(kickoff.exitSpeed)} team={null} />
           </div>
@@ -967,10 +967,10 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     winStrengthBand: strengthBand(stringField(payload, "win_strength_band")),
     firstTouch: kickoffTouch(payload, "first_touch", players),
     followUpTouch: kickoffTouch(payload, "first_follow_up_touch", players),
-    settlement: stringField(payload, "settlement"),
-    settlementTeam: teamField(payload, "settlement_team_is_team_0"),
-    settlementPlayerName: settlementPlayerName(payload, players),
-    settlementSecondsAfterFirstTouch: numberField(payload, "settlement_seconds_after_first_touch"),
+    advantage: stringField(payload, "advantage"),
+    advantageTeam: teamField(payload, "advantage_team_is_team_0"),
+    advantagePlayerName: advantagePlayerName(payload, players),
+    advantageSecondsAfterFirstTouch: numberField(payload, "advantage_seconds_after_first_touch"),
     teamZeroTaker: kickoffPlayerBehavior(objectField(payload, "team_zero_taker"), 0, "taker", players),
     teamOneTaker: kickoffPlayerBehavior(objectField(payload, "team_one_taker"), 1, "taker", players),
     teamZeroSupport: arrayField(payload, "team_zero_non_takers").map((item) => kickoffPlayerBehavior(item, 0, "support", players)).filter(Boolean) as KickoffPlayerBehavior[],
@@ -1017,24 +1017,24 @@ function nextKickoffPossession(
   };
 }
 
-function settlementPlayerName(payload: Record<string, unknown>, players: ReplayPlayer[]): string | null {
-  const playerKey = remoteIdKey(payload.settlement_player);
+function advantagePlayerName(payload: Record<string, unknown>, players: ReplayPlayer[]): string | null {
+  const playerKey = remoteIdKey(payload.advantage_player);
   if (!playerKey) return null;
   return playerByRemoteKey(players, playerKey)?.name || playerKey;
 }
 
 /**
- * Who the kickoff actually ended up being good for: the settlement verdict
+ * Who the kickoff actually ended up being good for: the advantage verdict
  * (possession run, established pressure, or kickoff goal) with how long after
  * the first touch it took. Distinct from "Winner" (the immediate exchange) —
- * a lost first touch that the other team cleanly collects settles for them.
+ * a lost first touch that the other team cleanly collects is their advantage.
  */
-function kickoffSettlementLabel(kickoff: KickoffRow): string {
-  if (!kickoff.settlement) return "Unknown";
-  if (kickoff.settlement === "unsettled") return "Unsettled";
-  const kind = kickoff.settlement.replace(/^team_(zero|one)_/, "");
-  const kindLabel = kind === "possession" ? (kickoff.settlementPlayerName ?? "Possession") : formatLabel(kind);
-  const seconds = kickoff.settlementSecondsAfterFirstTouch;
+function kickoffAdvantageLabel(kickoff: KickoffRow): string {
+  if (!kickoff.advantage) return "Unknown";
+  if (kickoff.advantage === "no_advantage") return "None";
+  const kind = kickoff.advantage.replace(/^team_(zero|one)_/, "");
+  const kindLabel = kind === "possession" ? (kickoff.advantagePlayerName ?? "Possession") : formatLabel(kind);
+  const seconds = kickoff.advantageSecondsAfterFirstTouch;
   return seconds == null ? kindLabel : `${kindLabel} · ${seconds.toFixed(1)}s`;
 }
 
