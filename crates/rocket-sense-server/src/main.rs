@@ -1,3 +1,7 @@
+// Large serde_json::json! literals in tests (kickoff detail payloads) exceed
+// the default macro recursion limit.
+#![recursion_limit = "256"]
+
 mod api;
 mod app;
 mod auth;

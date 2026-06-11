@@ -2894,6 +2894,12 @@ struct KickoffDetailRow {
     first_follow_up_touch_team: Option<i32>,
     first_follow_up_touch_time: Option<f64>,
     first_follow_up_touch_frame: Option<i32>,
+    settlement: Option<String>,
+    settlement_team: Option<i32>,
+    settlement_subject_id: Option<String>,
+    settlement_time: Option<f64>,
+    settlement_frame: Option<i32>,
+    settlement_seconds_after_first_touch: Option<f64>,
 }
 
 struct KickoffPlayerDetailRow {
@@ -3072,6 +3078,15 @@ fn kickoff_detail_row(
         ),
         first_follow_up_touch_time: float_value(&event.payload, &["first_follow_up_touch_time"]),
         first_follow_up_touch_frame: int_value(&event.payload, &["first_follow_up_touch_frame"]),
+        settlement: normalized_payload_field(&event.payload, "settlement"),
+        settlement_team: team_bool(&event.payload, "settlement_team_is_team_0"),
+        settlement_subject_id: player_subject_id_from_field(&event.payload, "settlement_player")?,
+        settlement_time: float_value(&event.payload, &["settlement_time"]),
+        settlement_frame: int_value(&event.payload, &["settlement_frame"]),
+        settlement_seconds_after_first_touch: float_value(
+            &event.payload,
+            &["settlement_seconds_after_first_touch"],
+        ),
     })
 }
 
@@ -3357,7 +3372,13 @@ async fn insert_kickoff_detail_rows(pool: &PgPool, rows: &[KickoffDetailRow]) ->
             first_follow_up_touch_subject_id,
             first_follow_up_touch_team,
             first_follow_up_touch_time,
-            first_follow_up_touch_frame
+            first_follow_up_touch_frame,
+            settlement,
+            settlement_team,
+            settlement_subject_id,
+            settlement_time,
+            settlement_frame,
+            settlement_seconds_after_first_touch
         )
         "#,
     );
@@ -3383,7 +3404,13 @@ async fn insert_kickoff_detail_rows(pool: &PgPool, rows: &[KickoffDetailRow]) ->
             .push_bind(&detail.first_follow_up_touch_subject_id)
             .push_bind(detail.first_follow_up_touch_team)
             .push_bind(detail.first_follow_up_touch_time)
-            .push_bind(detail.first_follow_up_touch_frame);
+            .push_bind(detail.first_follow_up_touch_frame)
+            .push_bind(&detail.settlement)
+            .push_bind(detail.settlement_team)
+            .push_bind(&detail.settlement_subject_id)
+            .push_bind(detail.settlement_time)
+            .push_bind(detail.settlement_frame)
+            .push_bind(detail.settlement_seconds_after_first_touch);
     });
     query.push(" ON CONFLICT DO NOTHING");
     query
@@ -4069,6 +4096,7 @@ fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
         ("attacker", "attacker"),
         ("first_touch_player", "first_touch"),
         ("first_follow_up_touch_player", "first_follow_up_touch"),
+        ("settlement_player", "settlement"),
     ] {
         if let Some(subject) = player_subject_from_field(payload, field, role)? {
             push_unique_subject(&mut subjects, subject);
@@ -4090,6 +4118,7 @@ fn timeline_event_subjects(payload: &Value) -> Result<Vec<EventSubject>> {
             "kickoff_possession_team_is_team_0",
             "kickoff_possession_team",
         ),
+        ("settlement_team_is_team_0", "settlement_team"),
         ("initiator_is_team_0", "initiator_team"),
         ("victim_is_team_0", "victim_team"),
     ] {
