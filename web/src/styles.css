@@ -582,6 +582,40 @@ tbody tr:last-child td {
   font-variant-numeric: tabular-nums;
 }
 
+/* The stale pill doubles as a button that opens the detail modal. */
+button.status-badge {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  line-height: 1.2;
+}
+
+button.status-stale:hover {
+  background: #fde68a;
+}
+
+.staleness-modal {
+  width: min(100%, 460px);
+}
+
+.staleness-detail-table th[scope="row"] {
+  font-weight: 600;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 13px;
+}
+
+.staleness-detail-table .row-changed td,
+.staleness-detail-table .row-changed th[scope="row"] {
+  background: #fef3c7;
+}
+
+.git-sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));

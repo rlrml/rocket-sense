@@ -8,10 +8,51 @@ import type {
   ReplayStaleness,
 } from "./types";
 
+const SHORT_SHA = 7;
+const GITHUB_REPO = {
+  "rocket-sense": "https://github.com/rlrml/rocket-sense",
+  "subtr-actor": "https://github.com/rlrml/subtr-actor",
+} as const;
+
+function shortSha(sha?: string | null) {
+  return sha ? sha.slice(0, SHORT_SHA) : null;
+}
+
+/** subtr-actor version with its short git sha appended when known. */
+function versionWithSha(version?: string | null, sha?: string | null) {
+  const v = version ?? "unknown";
+  const s = shortSha(sha);
+  return s ? `${v} (${s})` : v;
+}
+
+/** A git sha rendered as a link to its GitHub commit, short text + full title. */
+function GitSha({
+  repo,
+  sha,
+}: {
+  repo: keyof typeof GITHUB_REPO;
+  sha?: string | null;
+}) {
+  if (!sha) return <span className="subtle">unknown</span>;
+  return (
+    <a
+      className="git-sha"
+      href={`${GITHUB_REPO[repo]}/commit/${sha}`}
+      target="_blank"
+      rel="noreferrer"
+      title={sha}
+    >
+      {shortSha(sha)}
+    </a>
+  );
+}
+
 /**
  * Compact "stale processing" pill. Renders nothing when the replay is current,
  * so callers can drop it inline unconditionally. The tooltip explains *why* a
- * replay is stale (schema bump vs subtr-actor drift) and what is current.
+ * replay is stale (schema bump vs subtr-actor drift) and what is current;
+ * clicking opens a detail modal with the full processed-with → current diff,
+ * including commit hashes for both subtr-actor and rocket-sense.
  */
 export function StalenessBadge({
   staleness,
@@ -20,6 +61,7 @@ export function StalenessBadge({
   staleness: ReplayStaleness;
   processingVersion?: ReplayProcessingVersion | null;
 }) {
+  const [open, setOpen] = useState(false);
   if (!staleness.is_stale) return null;
 
   const reasons: string[] = [];
@@ -30,16 +72,123 @@ export function StalenessBadge({
   }
   if (staleness.subtr_actor_outdated) {
     reasons.push(
-      `subtr-actor ${processingVersion?.subtr_actor_version ?? "unknown"} → ${staleness.current_subtr_actor_version}`,
+      `subtr-actor ${versionWithSha(processingVersion?.subtr_actor_version, processingVersion?.subtr_actor_git_sha)} → ${versionWithSha(staleness.current_subtr_actor_version, staleness.current_subtr_actor_git_sha)}`,
     );
   }
-  const title = `Processed with an older pipeline (${reasons.join("; ")}). Stats may be out of date.`;
+  const title = `Processed with an older pipeline (${reasons.join("; ")}). Click for details. Stats may be out of date.`;
 
   return (
-    <span className="status-badge status-stale" title={title}>
-      <AlertTriangle size={12} />
-      Stale
-    </span>
+    <>
+      <button
+        type="button"
+        className="status-badge status-stale"
+        title={title}
+        aria-label="Show staleness details"
+        onClick={() => setOpen(true)}
+      >
+        <AlertTriangle size={12} />
+        Stale
+      </button>
+      {open ? (
+        <StalenessDetailModal
+          staleness={staleness}
+          processingVersion={processingVersion}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Per-replay version diff: how the replay was processed vs what the running
+ * pipeline produces now. Highlights the rows that actually drifted and links
+ * each commit hash to its GitHub commit.
+ */
+function StalenessDetailModal({
+  staleness,
+  processingVersion,
+  onClose,
+}: {
+  staleness: ReplayStaleness;
+  processingVersion?: ReplayProcessingVersion | null;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  const rocketSenseDrifted =
+    processingVersion?.rocket_sense_git_sha != null &&
+    staleness.current_rocket_sense_git_sha != null &&
+    processingVersion.rocket_sense_git_sha !== staleness.current_rocket_sense_git_sha;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="login-modal version-modal staleness-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="staleness-modal-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="modal-header">
+          <div>
+            <p className="eyebrow">Stale replay</p>
+            <h2 id="staleness-modal-title">Processing version</h2>
+          </div>
+          <button className="icon-button" type="button" onClick={onClose} title="Close">
+            <X size={17} />
+          </button>
+        </header>
+
+        <p className="muted-text">
+          This replay was processed with an older pipeline. Reprocessing it will
+          bring its stats up to date with the current build.
+        </p>
+
+        <table className="version-breakdown-table staleness-detail-table">
+          <thead>
+            <tr>
+              <th />
+              <th>Processed with</th>
+              <th>Current</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr className={staleness.schema_outdated ? "row-changed" : undefined}>
+              <th scope="row">Event schema</th>
+              <td>{processingVersion?.event_stream_schema_version ?? "unknown"}</td>
+              <td>{staleness.current_event_stream_schema_version}</td>
+            </tr>
+            <tr className={staleness.subtr_actor_outdated ? "row-changed" : undefined}>
+              <th scope="row">subtr-actor</th>
+              <td>
+                {processingVersion?.subtr_actor_version ?? "unknown"}{" "}
+                <GitSha repo="subtr-actor" sha={processingVersion?.subtr_actor_git_sha} />
+              </td>
+              <td>
+                {staleness.current_subtr_actor_version}{" "}
+                <GitSha repo="subtr-actor" sha={staleness.current_subtr_actor_git_sha} />
+              </td>
+            </tr>
+            <tr className={rocketSenseDrifted ? "row-changed" : undefined}>
+              <th scope="row">rocket-sense</th>
+              <td>
+                <GitSha repo="rocket-sense" sha={processingVersion?.rocket_sense_git_sha} />
+              </td>
+              <td>
+                <GitSha repo="rocket-sense" sha={staleness.current_rocket_sense_git_sha} />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </div>
   );
 }
 

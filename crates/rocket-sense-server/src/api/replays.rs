@@ -143,6 +143,12 @@ pub struct ReplayStalenessResponse {
     pub subtr_actor_outdated: bool,
     pub current_event_stream_schema_version: String,
     pub current_subtr_actor_version: String,
+    /// Git sha of subtr-actor in the running pipeline (`None` on builds that did
+    /// not record one, e.g. local dev), so the UI can show "parsed sha → current
+    /// sha" alongside the version.
+    pub current_subtr_actor_git_sha: Option<String>,
+    /// Git sha of rocket-sense in the running pipeline (`None` when unrecorded).
+    pub current_rocket_sense_git_sha: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -2266,6 +2272,8 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
             .event_stream_schema_version
             .to_string(),
         current_subtr_actor_version: current_version.subtr_actor_version.to_string(),
+        current_subtr_actor_git_sha: current_version.subtr_actor_git_sha.map(str::to_string),
+        current_rocket_sense_git_sha: current_version.rocket_sense_git_sha.map(str::to_string),
     };
     let uploaded_by = row
         .try_get::<Option<Uuid>, _>("uploader_id")?
