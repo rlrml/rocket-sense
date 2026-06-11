@@ -2229,6 +2229,13 @@ async fn upsert_replay_search_metadata(
         }
     }
 
+    // Re-apply any client-submitted ranks: the player rows above were just
+    // deleted and recreated, so durable submissions need to be copied back onto
+    // them (rank_tier / rank_division / rank_mmr).
+    crate::ranks::apply_rank_submissions_to_players(pool, replay_id)
+        .await
+        .context("failed to re-apply rank submissions after player upsert")?;
+
     Ok(replay_players)
 }
 

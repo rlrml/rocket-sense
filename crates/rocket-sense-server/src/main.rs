@@ -2,6 +2,7 @@ mod api;
 mod app;
 mod auth;
 mod processing;
+mod ranks;
 mod settings;
 
 use anyhow::Context;
