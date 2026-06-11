@@ -1113,5 +1113,6 @@ fn touch_stats_event(
         contested: false,
         role: subtr_actor::RoleState::default(),
         play_depth: subtr_actor::PlayDepthState::default(),
+        touch_id: None,
     }
 }

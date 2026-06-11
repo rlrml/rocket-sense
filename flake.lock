@@ -83,11 +83,10 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781134840,
-        "narHash": "sha256-+YJ51ME15i1HCxakkoOnC1tLomChIEu5zmhG9HjIZMI=",
-        "ref": "refs/heads/colonelpanic/dissolve-boost-pickup-variants",
-        "rev": "57f8c96c23d0ce3fc68f546cd92dec1cdd99e631",
-        "revCount": 1537,
+        "lastModified": 1781136214,
+        "narHash": "sha256-yxB5+xFTJ62J6rVCnGaswqLhTiXSewYzPb9lJNBL+Tc=",
+        "rev": "9886ebcaca0fc9d2836de403bb0c6499d3c5f4e3",
+        "revCount": 1540,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },
