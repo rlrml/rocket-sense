@@ -3959,11 +3959,6 @@ fn direct_timeline_event_metadata(stream: &str) -> Option<EventDefinitionMetadat
 
 fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetadata> {
     let (id, label, category) = match id {
-        "core_player_goal_context" => (
-            "core_player_goal_context",
-            "Core Player Goal Context",
-            "context",
-        ),
         "controlled_play" => ("controlled_play", "Controlled Play", "possession"),
         "core_player_scoreboard" => (
             "core_player_scoreboard",
