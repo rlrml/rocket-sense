@@ -3356,7 +3356,12 @@ function Metric({ label, value }: { label: string; value: string }) {
 }
 
 function filterStatsForGroup(stats: StatAggregateResponse[], terms: readonly string[]): StatAggregateResponse[] {
-  return stats.filter((stat) => terms.some((term) => statSearchText(stat).includes(term)));
+  return stats.filter(
+    (stat) =>
+      stat.category !== "context" &&
+      !contextEventTypeKeys.has(stat.key) &&
+      terms.some((term) => statSearchText(stat).includes(term)),
+  );
 }
 
 function statSearchText(stat: StatAggregateResponse): string {
