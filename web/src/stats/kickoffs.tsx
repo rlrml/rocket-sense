@@ -7,6 +7,7 @@ import type { EventClip } from "./EventClipPlayer";
 import { useEventPreviewSelection } from "./eventPreview";
 import { KickoffShapeIcon } from "./KickoffShapeIcon";
 import type { KickoffPathPlayer } from "./KickoffShapeDiagram";
+import { SegmentedBar, type SegmentedBarSegment } from "./shared";
 
 const KickoffShapeDiagram = lazy(() =>
   import("./KickoffShapeDiagram").then((module) => ({ default: module.KickoffShapeDiagram })),
@@ -819,26 +820,58 @@ function KickoffBehaviorRow({
   );
 }
 
-function KickoffStrengthSummary({ outcomes }: { outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome> }) {
-  const bands: KickoffStrengthBand[] = ["narrow", "clear", "strong", "unknown"];
-  const visibleBands = bands.filter((band) => {
-    const outcome = outcomes[band];
-    return outcome.wins > 0 || outcome.losses > 0 || outcome.neutral > 0;
-  });
+// Outcome segments ordered from the strongest win on the left to the strongest
+// loss on the right, with neutral kickoffs holding the center. Each band gets its
+// own color level so the gradient reads as "how decisively did this player's team
+// win or lose their kickoffs"; the boundary between green and red lands at the
+// win share, making the bar a tug of war between wins and losses.
+const OUTCOME_TUG_SEGMENTS: Array<{
+  key: string;
+  className: string;
+  label: string;
+  value: (outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>) => number;
+}> = [
+  { key: "win-strong", className: "kickoff-tug-win-strong", label: "Strong win", value: (o) => o.strong.wins },
+  { key: "win-clear", className: "kickoff-tug-win-clear", label: "Clear win", value: (o) => o.clear.wins },
+  { key: "win-narrow", className: "kickoff-tug-win-narrow", label: "Narrow win", value: (o) => o.narrow.wins },
+  { key: "win-unknown", className: "kickoff-tug-win-unknown", label: "Win", value: (o) => o.unknown.wins },
+  {
+    key: "neutral",
+    className: "kickoff-tug-neutral",
+    label: "Neutral",
+    value: (o) => o.narrow.neutral + o.clear.neutral + o.strong.neutral + o.unknown.neutral,
+  },
+  { key: "loss-unknown", className: "kickoff-tug-loss-unknown", label: "Loss", value: (o) => o.unknown.losses },
+  { key: "loss-narrow", className: "kickoff-tug-loss-narrow", label: "Narrow loss", value: (o) => o.narrow.losses },
+  { key: "loss-clear", className: "kickoff-tug-loss-clear", label: "Clear loss", value: (o) => o.clear.losses },
+  { key: "loss-strong", className: "kickoff-tug-loss-strong", label: "Strong loss", value: (o) => o.strong.losses },
+];
 
-  if (visibleBands.length === 0) return <span>-</span>;
+function KickoffStrengthSummary({ outcomes }: { outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome> }) {
+  const segments: SegmentedBarSegment[] = OUTCOME_TUG_SEGMENTS.map((segment) => {
+    const value = segment.value(outcomes);
+    return { key: segment.key, className: segment.className, label: segment.label, value };
+  });
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+
+  if (total === 0) return <span>-</span>;
+
+  const wins = segments.filter((segment) => segment.key.startsWith("win-")).reduce((sum, segment) => sum + segment.value, 0);
+  const losses = segments.filter((segment) => segment.key.startsWith("loss-")).reduce((sum, segment) => sum + segment.value, 0);
 
   return (
-    <div className="kickoff-strength-summary">
-      {visibleBands.map((band) => {
-        const outcome = outcomes[band];
-        return (
-          <span className={`kickoff-strength-chip strength-${band}`} key={band}>
-            <strong>{strengthBandLabel(band)}</strong>
-            {outcome.wins}W/{outcome.losses}L{outcome.neutral > 0 ? `/${outcome.neutral}N` : ""}
-          </span>
-        );
-      })}
+    <div className="kickoff-outcome-tug">
+      <SegmentedBar
+        ariaLabel="Kickoff outcomes from strong wins to strong losses"
+        className="kickoff-outcome-tug-track"
+        maxValue={total}
+        segments={segments}
+        total={total}
+      />
+      <div className="kickoff-outcome-tug-caption">
+        <span className="kickoff-outcome-tug-wins">{wins}W</span>
+        <span className="kickoff-outcome-tug-losses">{losses}L</span>
+      </div>
     </div>
   );
 }
