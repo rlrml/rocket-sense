@@ -101,7 +101,7 @@ export function PositioningDetail({
           />
         </section>
 
-        <section className="chart-panel">
+        <section className="chart-panel full-span">
           <header className="chart-panel-header">
             <h3>Teammate role</h3>
             <span>Most back, mid, most forward</span>
@@ -116,7 +116,7 @@ export function PositioningDetail({
           />
         </section>
 
-        <section className="chart-panel">
+        <section className="chart-panel full-span">
           <header className="chart-panel-header">
             <h3>Spacing & proximity</h3>
             <span>Average distances and ball priority</span>
