@@ -489,29 +489,44 @@ function KickoffCard({
 }
 
 /**
- * A player name that doubles as a camera target: hovering it switches the active
- * kickoff preview to that player's perspective; leaving restores the default view.
+ * A player name badged as a camera target. The hover handling lives on the whole
+ * enclosing tile/row (see perspectiveHoverProps) so the entire surface retargets
+ * the preview camera; the chip shows who and lights up while active.
  */
 function KickoffPerspectiveChip({
   behavior,
   perspectiveKey,
-  onPerspective,
 }: {
   behavior: KickoffPlayerBehavior;
-} & KickoffPerspectiveProps) {
+} & Pick<KickoffPerspectiveProps, "perspectiveKey">) {
   const chipKey = perspectiveChipKey(behavior.playerKey, behavior.playerName);
   const activePerspective = perspectiveKey === chipKey;
   return (
     <span
       className={`kickoff-perspective-chip team-perspective-${teamClass(behavior.team)} ${activePerspective ? "active" : ""}`}
       title={`Watch from ${behavior.playerName}'s perspective`}
-      onMouseEnter={() => onPerspective({ playerKey: behavior.playerKey, playerName: behavior.playerName })}
-      onMouseLeave={() => onPerspective(null)}
     >
       <Video size={13} aria-hidden />
       <span className="kickoff-perspective-chip-name">{behavior.playerName}</span>
     </span>
   );
+}
+
+/**
+ * Hover handlers that point the preview camera at a player while the cursor is
+ * anywhere over the element, restoring the default view on leave.
+ */
+function perspectiveHoverProps(
+  behavior: KickoffPlayerBehavior | null,
+  onPerspective: KickoffPerspectiveProps["onPerspective"],
+): { onMouseEnter?: () => void; onMouseLeave?: () => void } {
+  if (!behavior) {
+    return {};
+  }
+  return {
+    onMouseEnter: () => onPerspective({ playerKey: behavior.playerKey, playerName: behavior.playerName }),
+    onMouseLeave: () => onPerspective(null),
+  };
 }
 
 function kickoffPathStartFrame(kickoff: KickoffRow): number | null {
@@ -673,13 +688,14 @@ function KickoffTakerTile({
     <div
       className={className}
       style={winShade == null ? undefined : ({ "--win-shade": String(winShade) } as CSSProperties)}
+      {...perspectiveHoverProps(behavior, onPerspective)}
     >
       <div className="kickoff-taker-heading">
         <div>
           <span>{teamLabel(team)}</span>
           <strong>
             {behavior ? (
-              <KickoffPerspectiveChip behavior={behavior} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+              <KickoffPerspectiveChip behavior={behavior} perspectiveKey={perspectiveKey} />
             ) : (
               "Unknown taker"
             )}
@@ -774,10 +790,10 @@ function KickoffBehaviorRow({
   const boostAtFifty = behavior.boostAtFirstTouch ?? behavior.boostAfter;
 
   return (
-    <div className="kickoff-behavior-row">
+    <div className="kickoff-behavior-row" {...perspectiveHoverProps(behavior, onPerspective)}>
       <div>
         <strong>
-          <KickoffPerspectiveChip behavior={behavior} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+          <KickoffPerspectiveChip behavior={behavior} perspectiveKey={perspectiveKey} />
         </strong>
         <span>{behavior.role === "taker" ? "Taker" : "Support"}</span>
       </div>
