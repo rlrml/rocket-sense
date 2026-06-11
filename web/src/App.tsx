@@ -48,6 +48,7 @@ import {
 import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
+import { PlatformIcon, platformLabel } from "./platform";
 import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
@@ -489,50 +490,31 @@ function ReplayListPage() {
 
       <StatusLine loading={false} error={error} />
 
-      <div className="table-frame">
-        <table>
-          <thead>
-            <tr>
-              <th>Replay</th>
-              <th>Match</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            {replays.map((replay) => (
-              <tr key={replay.id}>
-                <td className="replay-title-cell">
-                  <Link className="primary-link" to={`/replays/${replay.id}`}>
-                    {replay.original_file_name || replay.id}
-                  </Link>
-                  <div className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</div>
-                </td>
-                <td>
-                  <ReplayTeams replay={replay} />
-                </td>
-                <td className="replay-details-cell">
-                  <div className="replay-badge-row">
-                    <StatusBadge status={replay.status} />
-                    <StalenessBadge
-                      staleness={replay.staleness}
-                      processingVersion={replay.processing_version}
-                    />
-                  </div>
-                  <div>{playlistLabel(replay.playlist_metadata, replay.playlist)}</div>
-                  <div>{formatDate(replay.replay_date || replay.created_at)}</div>
-                  <div className="subtle">{formatDuration(replay.summary.duration_seconds)}</div>
-                </td>
-              </tr>
-            ))}
-            {!loading && replays.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="empty-cell">
-                  No replays found.
-                </td>
-              </tr>
-            ) : null}
-          </tbody>
-        </table>
+      <div className="replay-card-list">
+        {replays.map((replay) => (
+          <article className="replay-card" key={replay.id}>
+            <header className="replay-card-header">
+              <div className="replay-card-title">
+                <Link className="primary-link" to={`/replays/${replay.id}`}>
+                  {replay.original_file_name || replay.id}
+                </Link>
+                <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
+              </div>
+              <div className="replay-card-meta">
+                <span>{playlistLabel(replay.playlist_metadata, replay.playlist)}</span>
+                <span>{formatDate(replay.replay_date || replay.created_at)}</span>
+                <span className="subtle">{formatDuration(replay.summary.duration_seconds)}</span>
+                <StatusBadge status={replay.status} />
+                <StalenessBadge
+                  staleness={replay.staleness}
+                  processingVersion={replay.processing_version}
+                />
+              </div>
+            </header>
+            <ReplayTeams replay={replay} />
+          </article>
+        ))}
+        {!loading && replays.length === 0 ? <div className="status-line">No replays found.</div> : null}
       </div>
     </section>
   );
@@ -895,17 +877,35 @@ function filterValueLabel(key: string, value: string): string {
 }
 
 function ReplayTeams({ replay }: { replay: ReplayResponse }) {
-  const blue = replay.players.filter((player) => player.team === 0);
-  const orange = replay.players.filter((player) => player.team === 1);
+  const mvp = mvpPlayer(replay);
+  const byScore = (players: ReplayPlayer[]) =>
+    [...players].sort((a, b) => (b.score ?? -1) - (a.score ?? -1));
+  const blue = byScore(replay.players.filter((player) => player.team === 0));
+  const orange = byScore(replay.players.filter((player) => player.team === 1));
   const unknown = replay.players.filter((player) => player.team !== 0 && player.team !== 1);
 
   return (
     <div className="teams-cell">
-      <TeamBlock label="Blue" players={blue} tone="blue" score={replay.summary.team_scores.blue} />
-      <TeamBlock label="Orange" players={orange} tone="orange" score={replay.summary.team_scores.orange} />
-      {unknown.length > 0 ? <TeamBlock label="Other" players={unknown} tone="neutral" /> : null}
+      <TeamBlock label="Blue" players={blue} tone="blue" score={replay.summary.team_scores.blue} mvp={mvp} />
+      <TeamBlock label="Orange" players={orange} tone="orange" score={replay.summary.team_scores.orange} mvp={mvp} />
+      {unknown.length > 0 ? <TeamBlock label="Other" players={unknown} tone="neutral" mvp={mvp} /> : null}
     </div>
   );
+}
+
+// Replay headers don't carry an MVP flag; mirror the game's rule of awarding
+// it to the highest scoreboard score on the winning team.
+function mvpPlayer(replay: ReplayResponse): ReplayPlayer | null {
+  const blue = replay.summary.team_scores.blue;
+  const orange = replay.summary.team_scores.orange;
+  if (blue == null || orange == null || blue === orange) return null;
+  const winningTeam = blue > orange ? 0 : 1;
+  let best: ReplayPlayer | null = null;
+  for (const player of replay.players) {
+    if (player.team !== winningTeam || player.score == null) continue;
+    if (!best || player.score > (best.score ?? -1)) best = player;
+  }
+  return best;
 }
 
 function TeamBlock({
@@ -913,11 +913,13 @@ function TeamBlock({
   players,
   tone,
   score,
+  mvp,
 }: {
   label: string;
   players: ReplayPlayer[];
   tone: "blue" | "orange" | "neutral";
   score?: number | null;
+  mvp?: ReplayPlayer | null;
 }) {
   return (
     <div className={`team-block replay-team-${tone}`}>
@@ -927,7 +929,9 @@ function TeamBlock({
       </div>
       <div className="player-stack">
         {players.length > 0 ? (
-          players.map((player, index) => <PlayerLine key={`${player.platform}-${player.platform_player_id}-${index}`} player={player} />)
+          players.map((player, index) => (
+            <PlayerLine key={`${player.platform}-${player.platform_player_id}-${index}`} player={player} isMvp={player === mvp} />
+          ))
         ) : (
           <span className="subtle">No players</span>
         )}
@@ -936,16 +940,49 @@ function TeamBlock({
   );
 }
 
-function PlayerLine({ player }: { player: ReplayPlayer }) {
+function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }) {
   const label = player.name || player.platform_player_id || "Unknown";
   const rank = rankLabel(player.rank_tier, player.rank_division);
+  const mmr = player.rank_mmr != null ? Math.round(player.rank_mmr) : null;
+  const hasStats = [player.goals, player.assists, player.saves, player.shots, player.score].some(
+    (value) => value != null,
+  );
   const contents = (
     <>
+      <PlatformIcon platform={player.platform} />
       <span className="player-name">{label}</span>
-      <span className="player-meta">
-        <span className="platform-chip">{platformLabel(player.platform)}</span>
-        {rank ? <span className="rank-chip">{rank}</span> : null}
-      </span>
+      {isMvp ? (
+        <span className="mvp-chip" title="MVP: highest score on the winning team">
+          MVP
+        </span>
+      ) : null}
+      {rank ? (
+        <span className="rank-chip" title={mmr != null ? `${rank} · ${mmr} MMR` : rank}>
+          {rank}
+          {mmr != null ? <span className="rank-mmr">{mmr}</span> : null}
+        </span>
+      ) : null}
+      {hasStats ? (
+        <span className="player-statline" title="Goals / Assists / Saves / Shots · Score">
+          <span className="stat-cell">
+            {player.goals ?? 0}
+            <small>G</small>
+          </span>
+          <span className="stat-cell">
+            {player.assists ?? 0}
+            <small>A</small>
+          </span>
+          <span className="stat-cell">
+            {player.saves ?? 0}
+            <small>SV</small>
+          </span>
+          <span className="stat-cell">
+            {player.shots ?? 0}
+            <small>SH</small>
+          </span>
+          <span className="stat-cell stat-score">{player.score ?? 0}</span>
+        </span>
+      ) : null}
     </>
   );
 
@@ -3453,12 +3490,6 @@ function playlistLabel(metadata: ReplayPlaylistMetadata | null | undefined, fall
     .replace(/^online-/, "Online ")
     .replaceAll("-", " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function platformLabel(value: string | null): string {
-  if (!value) return "unknown";
-  if (value.toLowerCase() === "psynet") return "Epic";
-  return value;
 }
 
 function rankLabel(tier: number | null | undefined, division: number | null | undefined): string | null {
