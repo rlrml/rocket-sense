@@ -580,7 +580,12 @@ function kickoffPathStartFrame(kickoff: KickoffRow): number | null {
 }
 
 function kickoffPathEndFrame(kickoff: KickoffRow): number | null {
-  return kickoff.followUpTouch.frame ?? kickoff.firstTouch.frame ?? null;
+  // Prefer the first non-kickoff (follow-up) touch as a clean stopping point, but
+  // most kickoffs never get one. Falling back to the first touch would cut the ball
+  // path off the instant it's struck, hiding where the ball actually goes. Use the
+  // kickoff's logical end frame (≈2s after first touch) so the post-kickoff
+  // trajectory is shown.
+  return kickoff.followUpTouch.frame ?? kickoff.event.end_frame ?? kickoff.firstTouch.frame ?? null;
 }
 
 function kickoffPathPlayers(kickoff: KickoffRow): KickoffPathPlayer[] {

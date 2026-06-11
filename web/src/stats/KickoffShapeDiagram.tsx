@@ -14,7 +14,7 @@ export interface KickoffShapeDiagramProps {
   replayId: string;
   /** Frame the live action begins (countdown -> 0); paths start here. */
   startFrame: number | null;
-  /** Frame of the first non-kickoff touch; paths end here. */
+  /** Frame the kickoff resolves (first follow-up touch, else the kickoff end); paths end here. */
   endFrame: number | null;
   winningTeam: number | null;
   players: KickoffPathPlayer[];
@@ -93,7 +93,7 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
 
         <KickoffFieldBackground projection={projection} ballRadius={projection.toUnits(120)} />
 
-        {/* Ball trajectory after the kickoff, up to the first non-kickoff touch. */}
+        {/* Ball trajectory through the kickoff, up to its resolution (follow-up touch or kickoff end). */}
         {ballPoints ? <polyline className="kickoff-ball-path" points={ballPoints} vectorEffect="non-scaling-stroke" /> : null}
         {ballEnd ? (
           <circle className="kickoff-ball-end" cx={ballEnd.x} cy={ballEnd.y} r={projection.toUnits(150)} vectorEffect="non-scaling-stroke" />
