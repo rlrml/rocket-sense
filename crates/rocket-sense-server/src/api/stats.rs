@@ -181,7 +181,7 @@ pub struct StatAggregatesQuery {
     pub pro: Option<bool>,
     /// `me` for the authenticated user, or a Rocket Sense user UUID.
     pub uploader: Option<String>,
-    /// Replay parsing status.
+    /// Replay processing status.
     pub status: Option<String>,
     /// Optional player focus in `platform:id` form.
     #[serde(rename = "player-id")]

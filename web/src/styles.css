@@ -496,7 +496,6 @@ tbody tr:last-child td {
   font-weight: 700;
 }
 
-.status-parsed,
 .status-processed {
   background: #dcfce7;
   color: #166534;
@@ -507,7 +506,6 @@ tbody tr:last-child td {
   color: #991b1b;
 }
 
-.status-parsing,
 .status-processing,
 .status-pending {
   background: #dbeafe;

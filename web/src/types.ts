@@ -1,5 +1,5 @@
-export type ReplayStatus = "pending" | "parsing" | "parsed" | "failed";
-export type ReplayProcessingStatus = "pending" | "processing" | "processed" | "failed";
+export type ReplayStatus = "pending" | "processing" | "processed" | "failed";
+export type ReplayProcessingStatus = ReplayStatus;
 
 export interface ReplayPlayer {
   name: string | null;

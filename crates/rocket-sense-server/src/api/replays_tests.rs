@@ -102,16 +102,16 @@ fn replay_select_includes_players_without_stats_blob_join() {
 }
 
 #[test]
-fn replay_select_includes_parse_version_metadata() {
+fn replay_select_includes_processing_version_metadata() {
     let sql = replay_select_sql("WHERE r.id = $1");
 
-    assert!(sql.contains("r.parsed_at"));
-    assert!(sql.contains("r.parsed_with_extractor_name"));
-    assert!(sql.contains("r.parsed_with_extractor_version"));
-    assert!(sql.contains("r.parsed_with_event_stream_schema_version"));
-    assert!(sql.contains("r.parsed_with_rocket_sense_git_sha"));
-    assert!(sql.contains("r.parsed_with_subtr_actor_version"));
-    assert!(sql.contains("r.parsed_with_subtr_actor_git_sha"));
+    assert!(sql.contains("r.processed_at"));
+    assert!(sql.contains("r.processed_with_extractor_name"));
+    assert!(sql.contains("r.processed_with_extractor_version"));
+    assert!(sql.contains("r.processed_with_event_stream_schema_version"));
+    assert!(sql.contains("r.processed_with_rocket_sense_git_sha"));
+    assert!(sql.contains("r.processed_with_subtr_actor_version"));
+    assert!(sql.contains("r.processed_with_subtr_actor_git_sha"));
 }
 
 #[test]

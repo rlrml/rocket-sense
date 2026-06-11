@@ -458,9 +458,7 @@ fn normalized_status_filter(status: Option<String>) -> Result<Option<String>, Ap
         return Ok(None);
     }
     match status.as_str() {
-        "pending" | "failed" => Ok(Some(status)),
-        "processing" | "parsing" => Ok(Some("parsing".to_owned())),
-        "processed" | "parsed" => Ok(Some("parsed".to_owned())),
+        "pending" | "processing" | "processed" | "failed" => Ok(Some(status)),
         _ => Err(ApiError::new(
             StatusCode::BAD_REQUEST,
             "status must be pending, processing, processed, or failed",
@@ -473,10 +471,10 @@ async fn load_processing_diagnostics_summary(
 ) -> Result<ReplayProcessingDiagnosticsSummaryResponse, ApiError> {
     let status_rows = sqlx::query(
         r#"
-        SELECT parse_status, COUNT(*)::bigint AS replay_count
+        SELECT processing_status, COUNT(*)::bigint AS replay_count
         FROM replays
-        GROUP BY parse_status
-        ORDER BY parse_status
+        GROUP BY processing_status
+        ORDER BY processing_status
         "#,
     )
     .fetch_all(pool)
@@ -487,11 +485,11 @@ async fn load_processing_diagnostics_summary(
     let status_counts = status_rows
         .into_iter()
         .map(|row| {
-            let status: String = row.try_get("parse_status")?;
+            let status: String = row.try_get("processing_status")?;
             let count = signed_count_to_u64(row.try_get("replay_count")?);
             total_replays += count;
             Ok(ReplayProcessingStatusCountResponse {
-                status: external_processing_status(&status),
+                status,
                 count,
             })
         })
@@ -608,9 +606,9 @@ async fn load_processing_diagnostic_rows(
         r#"
         ORDER BY
             problem DESC,
-            CASE parse_status
+            CASE processing_status
                 WHEN 'failed' THEN 0
-                WHEN 'parsing' THEN 1
+                WHEN 'processing' THEN 1
                 WHEN 'pending' THEN 2
                 ELSE 3
             END,
@@ -643,7 +641,7 @@ fn push_processing_diagnostics_rows_query<'args>(
             r.id AS replay_id,
             r.original_file_name,
             r.file_sha256,
-            r.parse_status,
+            r.processing_status,
             r.created_at,
             r.updated_at,
             r.canonical_analysis_run_id,
@@ -678,7 +676,7 @@ fn push_processing_diagnostics_rows_query<'args>(
             queue_summary.last_queue_done_at,
             queue_summary.last_queue_error,
             (
-                r.parse_status <> 'parsed'
+                r.processing_status <> 'processed'
                 OR r.canonical_analysis_run_id IS NULL
                 OR canonical_run.id IS NULL
                 OR canonical_run.status IS DISTINCT FROM 'succeeded'
@@ -729,7 +727,7 @@ fn push_processing_diagnostics_filters<'args>(
     include_healthy: bool,
 ) {
     if let Some(status) = status {
-        query.push(" AND parse_status = ");
+        query.push(" AND processing_status = ");
         query.push_bind(status.to_owned());
     }
     if !include_healthy {
@@ -755,7 +753,7 @@ fn processing_diagnostic_from_row(
         replay_id: row.try_get("replay_id")?,
         original_file_name: row.try_get("original_file_name")?,
         file_sha256: row.try_get("file_sha256")?,
-        processing_status: external_processing_status(&row.try_get::<String, _>("parse_status")?),
+        processing_status: row.try_get("processing_status")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
         canonical_analysis_run_id: row.try_get("canonical_analysis_run_id")?,
@@ -892,15 +890,6 @@ fn processing_diagnostic_reasons(diagnostic: &ReplayProcessingDiagnosticResponse
 
 fn signed_count_to_u64(count: i64) -> u64 {
     u64::try_from(count).unwrap_or(0)
-}
-
-fn external_processing_status(status: &str) -> String {
-    match status {
-        "parsed" => "processed",
-        "parsing" => "processing",
-        status => status,
-    }
-    .to_owned()
 }
 
 #[derive(Debug)]

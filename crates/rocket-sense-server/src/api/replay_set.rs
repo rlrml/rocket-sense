@@ -335,7 +335,7 @@ pub(crate) fn append_replay_set_filters<'args>(
         builder
             .push(" AND ")
             .push(replay_alias)
-            .push(".parse_status = ")
+            .push(".processing_status = ")
             .push_bind(status);
     }
     if let Some(created_after) = filters.created_after {

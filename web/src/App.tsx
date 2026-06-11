@@ -526,8 +526,8 @@ const replayOrderOptions: Array<{ value: ReplayOrder; label: string }> = [
 
 const replayStatusOptions = [
   { value: "", label: "Any" },
-  { value: "parsed", label: "Processed" },
-  { value: "parsing", label: "Processing" },
+  { value: "processed", label: "Processed" },
+  { value: "processing", label: "Processing" },
   { value: "pending", label: "Pending" },
   { value: "failed", label: "Failed" },
 ];
@@ -2034,7 +2034,7 @@ function EventsReviewPage() {
 
         <aside className="review-launch-panel">
           <div>
-            <span className="status-badge status-parsed">canonical runs</span>
+            <span className="status-badge status-processed">canonical runs</span>
             <h2>Launch review</h2>
             <p className="muted-text">The review player opens outside the SPA with this filtered playlist.</p>
           </div>
@@ -3028,7 +3028,7 @@ function AdminProcessingPage() {
                     <code>{worker.id}</code>
                   </td>
                   <td>
-                    <span className={worker.alive ? "status-badge status-parsed" : "status-badge status-failed"}>
+                    <span className={worker.alive ? "status-badge status-processed" : "status-badge status-failed"}>
                       {worker.alive ? "alive" : "dead"}
                     </span>
                   </td>
@@ -3242,10 +3242,8 @@ function StatusBadge({ status }: { status: string }) {
 
 function statusLabel(status: string): string {
   switch (status) {
-    case "parsed":
     case "processed":
       return "Processed";
-    case "parsing":
     case "processing":
       return "Processing";
     case "pending":
