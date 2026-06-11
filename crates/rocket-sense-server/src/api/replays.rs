@@ -1,7 +1,10 @@
 use crate::{
     app::AppState,
     auth::{AuthUser, OptionalAuthUser},
-    processing::{enqueue_replay_processing_job, upsert_replay_preflight_metadata},
+    processing::{
+        enqueue_replay_processing_job, enqueue_replay_reprocessing, upsert_replay_preflight_metadata,
+        ReplayReprocessOptions,
+    },
 };
 use axum::{
     extract::{Multipart, Path, RawQuery, State},
@@ -10,7 +13,7 @@ use axum::{
         StatusCode,
     },
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use bytes::Bytes;
@@ -25,6 +28,7 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+use super::admin::ReprocessReplaysResponse;
 use super::query::{
     deserialize_string_vec, parse_bool_filter, parse_datetime_filter, parse_u32_filter, QueryParams,
 };
@@ -42,6 +46,7 @@ pub fn router() -> Router<AppState> {
             get(get_replay_by_sha256),
         )
         .route("/replays/{replay_id}/file", get(download_replay_file))
+        .route("/replays/{replay_id}/reprocess", post(reprocess_replay))
         .route(
             "/replays/{replay_id}/stats/boost-tracks",
             get(get_replay_boost_tracks),
@@ -105,6 +110,7 @@ pub struct ReplayResponse {
     pub players: Vec<ReplayPlayerResponse>,
     pub summary: ReplaySummaryResponse,
     pub parse_version: ReplayParseVersionResponse,
+    pub staleness: ReplayStalenessResponse,
     pub status: ReplayStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -126,6 +132,18 @@ pub struct ReplayParseVersionResponse {
     pub rocket_sense_git_sha: Option<String>,
     pub subtr_actor_version: Option<String>,
     pub subtr_actor_git_sha: Option<String>,
+}
+
+/// Whether a replay's persisted parse version is behind the running pipeline,
+/// with the current values included so the UI can render "parsed with X /
+/// current is Y" without a second request.
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct ReplayStalenessResponse {
+    pub is_stale: bool,
+    pub schema_outdated: bool,
+    pub subtr_actor_outdated: bool,
+    pub current_event_stream_schema_version: String,
+    pub current_subtr_actor_version: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -1115,6 +1133,73 @@ async fn subtr_actor_review_asset(
     Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
 }
 
+/// Reprocess a single replay on demand. Unlike the admin batch endpoint, this
+/// is scoped to a replay the requesting user uploaded, and always forces the
+/// run: a replay can be stale due to subtr-actor drift while its event-stream
+/// schema is current, which the background reprocessor (schema-only) would skip.
+#[utoipa::path(
+    post,
+    path = "/api/v1/replays/{replay_id}/reprocess",
+    tag = "replays",
+    params(("replay_id" = Uuid, Path, description = "Replay to reprocess")),
+    responses(
+        (status = 200, description = "Replay reprocessing enqueued", body = ReprocessReplaysResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Replay is not owned by the requesting user"),
+        (status = 404, description = "Replay not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn reprocess_replay(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<Json<ReprocessReplaysResponse>, ApiError> {
+    let pool = require_db(&state)?;
+
+    let uploaded_by = match sqlx::query_scalar::<_, Option<Uuid>>(
+        "SELECT uploaded_by_user_id FROM replays WHERE id = $1",
+    )
+    .bind(replay_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::internal)?
+    {
+        Some(uploaded_by) => uploaded_by,
+        None => return Err(ApiError::not_found("replay not found")),
+    };
+
+    if uploaded_by != Some(auth_user.id) {
+        return Err(ApiError::forbidden(
+            "you can only reprocess replays you uploaded",
+        ));
+    }
+
+    let summary = enqueue_replay_reprocessing(
+        pool.clone(),
+        state.storage.clone(),
+        state.background_processing_permits.clone(),
+        ReplayReprocessOptions {
+            replay_ids: vec![replay_id],
+            force: true,
+            concurrency: 1,
+        },
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(ReprocessReplaysResponse {
+        matched_replays: summary.matched_replays,
+        enqueued_replays: summary.enqueued_replays,
+        skipped_replays: summary.skipped_replays,
+        concurrency: summary.concurrency,
+        force: summary.force,
+    }))
+}
+
 #[derive(Debug)]
 pub(super) struct ApiError {
     status: StatusCode,
@@ -1136,6 +1221,14 @@ impl ApiError {
     pub(super) fn internal(error: impl std::fmt::Display) -> Self {
         tracing::error!(error = %error, "request failed");
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
+    }
+
+    pub(super) fn not_found(error: impl std::fmt::Display) -> Self {
+        Self::new(StatusCode::NOT_FOUND, error.to_string())
+    }
+
+    pub(super) fn forbidden(error: impl std::fmt::Display) -> Self {
+        Self::new(StatusCode::FORBIDDEN, error.to_string())
     }
 }
 
@@ -2161,6 +2254,21 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
             .try_get("parsed_with_subtr_actor_git_sha")
             .unwrap_or(None),
     };
+    let current_version = crate::processing::current_processing_version();
+    let staleness_info = crate::processing::replay_staleness(
+        parse_version.event_stream_schema_version.as_deref(),
+        parse_version.subtr_actor_version.as_deref(),
+        parse_version.subtr_actor_git_sha.as_deref(),
+    );
+    let staleness = ReplayStalenessResponse {
+        is_stale: staleness_info.is_stale,
+        schema_outdated: staleness_info.schema_outdated,
+        subtr_actor_outdated: staleness_info.subtr_actor_outdated,
+        current_event_stream_schema_version: current_version
+            .event_stream_schema_version
+            .to_string(),
+        current_subtr_actor_version: current_version.subtr_actor_version.to_string(),
+    };
     let uploaded_by = row
         .try_get::<Option<Uuid>, _>("uploader_id")?
         .map(|id| -> Result<ReplayUploaderResponse, sqlx::Error> {
@@ -2190,6 +2298,7 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         players,
         summary,
         parse_version,
+        staleness,
         status: ReplayStatus::from_db(parse_status),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,

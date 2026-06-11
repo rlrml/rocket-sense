@@ -514,6 +514,76 @@ tbody tr:last-child td {
   color: #1e40af;
 }
 
+.status-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.replay-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.reprocess-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reprocess-message {
+  font-size: 12px;
+  color: #4b5563;
+}
+
+.reprocess-message.reprocess-error {
+  color: #991b1b;
+}
+
+.metric-with-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-info {
+  color: #6b7280;
+}
+
+.version-modal {
+  width: min(100%, 560px);
+}
+
+.version-breakdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.version-breakdown-table th,
+.version-breakdown-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.version-breakdown-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+}
+
+.version-breakdown-table .numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));

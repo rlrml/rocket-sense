@@ -1,4 +1,4 @@
-use super::{admin, auth, ballchasing, health, player_overview, players, replays, stats};
+use super::{admin, auth, ballchasing, health, meta, player_overview, players, replays, stats};
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
@@ -16,9 +16,11 @@ use utoipa::{
         ballchasing::load_ballchasing_replay,
         ballchasing::proxy_ballchasing_replay_file,
         health::health,
+        meta::get_processing_version,
         players::get_player_profile,
         player_overview::get_player_stat_overview,
         stats::get_stat_aggregates,
+        stats::get_processing_version_breakdown,
         replays::create_replay,
         replays::list_replays,
         replays::list_replay_filter_options,
@@ -31,6 +33,7 @@ use utoipa::{
         replays::remove_replay_group_replays,
         replays::download_replay_file,
         replays::get_replay,
+        replays::reprocess_replay,
     ),
     components(
         schemas(
@@ -50,6 +53,8 @@ use utoipa::{
             admin::ReprocessReplaysResponse,
             crate::auth::AccessToken,
             health::HealthResponse,
+            meta::ProcessingVersionResponse,
+            meta::SchemaChangelogEntry,
             players::PlayerProfileNameResponse,
             players::PlayerProfileResponse,
             players::PlayerProfileReplayResponse,
@@ -59,6 +64,8 @@ use utoipa::{
             player_overview::RotationTimeShareResponse,
             stats::StatAggregateResponse,
             stats::StatAggregateSetResponse,
+            stats::ProcessingVersionBreakdownResponse,
+            stats::ProcessingVersionBreakdownRow,
             replays::CreateReplayGroupRequest,
             replays::CreateReplayResponse,
             replays::ListReplaysResponse,
@@ -70,6 +77,7 @@ use utoipa::{
             replays::ReplayGroupResponse,
             replays::ReplayPlayerResponse,
             replays::ReplayResponse,
+            replays::ReplayStalenessResponse,
             replays::ReplayStatus,
             replays::ReplaySummaryResponse,
             replays::ReplayTeamScoresResponse,
@@ -81,6 +89,7 @@ use utoipa::{
         (name = "admin", description = "Administrative maintenance endpoints"),
         (name = "ballchasing", description = "Ballchasing replay loading and proxy endpoints"),
         (name = "health", description = "Service health endpoints"),
+        (name = "meta", description = "Service metadata endpoints"),
         (name = "players", description = "Player profile endpoints"),
         (name = "stats", description = "Aggregate replay statistics endpoints"),
         (name = "replays", description = "Replay upload and metadata endpoints"),
