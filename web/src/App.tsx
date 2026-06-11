@@ -999,7 +999,13 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
     <>
       <PlatformIcon platform={player.platform} />
       <span className="player-name">{label}</span>
-      <RankBadge tier={player.rank_tier} division={player.rank_division} mmr={player.rank_mmr} />
+      <RankBadge
+        tier={player.rank_tier}
+        division={player.rank_division}
+        mmr={player.rank_mmr}
+        approximate={player.rank_is_fallback}
+        approximateAsOf={player.rank_fallback_replay_date}
+      />
       {isMvp ? (
         <span className="mvp-chip" title="MVP: highest score on the winning team">
           MVP

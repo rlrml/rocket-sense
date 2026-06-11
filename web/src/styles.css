@@ -526,6 +526,16 @@ tbody tr:last-child td {
   object-fit: contain;
 }
 
+.rank-badge-approx img,
+.rank-badge-approx .rank-mmr {
+  opacity: 0.55;
+}
+
+.rank-approx-mark {
+  flex: none;
+  margin-left: -2px;
+}
+
 .rank-mmr {
   color: var(--muted);
   font-size: 11px;

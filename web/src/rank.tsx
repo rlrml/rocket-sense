@@ -44,20 +44,36 @@ export function RankBadge({
   tier,
   division,
   mmr,
+  approximate,
+  approximateAsOf,
 }: {
   tier: number | null | undefined;
   division: number | null | undefined;
   mmr: number | null | undefined;
+  approximate?: boolean;
+  approximateAsOf?: string | null;
 }) {
   if (tier == null) return null;
   const label = rankLabel(tier, division);
   const rounded = mmr != null ? Math.round(mmr) : null;
-  const title = rounded != null ? `${label} · ${rounded} MMR` : (label ?? undefined);
+  const ranked = rounded != null ? `${label} · ${rounded} MMR` : (label ?? "");
+  const title = approximate
+    ? `~${ranked} — no rank was submitted with this replay. This is the player's nearest known rank` +
+      (approximateAsOf ? `, from a match on ${new Date(approximateAsOf).toLocaleDateString()}.` : ".") +
+      " Their actual rank at the time of this match may have differed."
+    : ranked || undefined;
   const icon = rankIconUrl(tier);
   return (
-    <span className="rank-badge" title={title} aria-label={title}>
+    <span className={approximate ? "rank-badge rank-badge-approx" : "rank-badge"} title={title} aria-label={title}>
       {icon ? <img src={icon} alt={label ?? ""} width="20" height="20" /> : null}
       {rounded != null ? <span className="rank-mmr">{rounded}</span> : null}
+      {approximate ? (
+        <svg className="rank-approx-mark" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false">
+          <path d="M8 1.6 15.2 14H.8z" fill="#f59e0b" stroke="#b45309" strokeWidth="0.8" strokeLinejoin="round" />
+          <path d="M8 6v4" stroke="#7c2d12" strokeWidth="1.6" strokeLinecap="round" />
+          <circle cx="8" cy="12.2" r="0.9" fill="#7c2d12" />
+        </svg>
+      ) : null}
     </span>
   );
 }

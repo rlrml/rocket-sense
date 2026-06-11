@@ -95,9 +95,12 @@ fn replay_select_includes_players_without_stats_blob_join() {
 
     assert!(sql.contains("jsonb_build_object"));
     assert!(sql.contains("FROM replay_players player"));
-    assert!(sql.contains("'rank_tier', player.rank_tier"));
-    assert!(sql.contains("'rank_division', player.rank_division"));
-    assert!(sql.contains("'rank_mmr', player.rank_mmr"));
+    assert!(sql.contains("'rank_tier', COALESCE(player.rank_tier, rank_fallback.tier)"));
+    assert!(sql.contains(
+        "'rank_is_fallback', player.rank_tier IS NULL AND rank_fallback.tier IS NOT NULL"
+    ));
+    assert!(sql.contains("'rank_fallback_replay_date'"));
+    assert!(sql.contains("FROM replay_player_rank_submissions s"));
     assert!(sql.contains("'score', player.score"));
     assert!(sql.contains("'goals', player.goals"));
     assert!(sql.contains("'assists', player.assists"));
