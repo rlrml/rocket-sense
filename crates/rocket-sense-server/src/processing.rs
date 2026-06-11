@@ -48,7 +48,12 @@ pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // `ball_proximity`, `rotation_role`, `first_man_change`), and kickoff events
 // gained the advantage verdict. Bumping marks prior analyses stale so
 // reprocessing emits the new streams and kickoff advantage fields.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v6";
+// Bumped v6 -> v7 for career possession stats: subtr-actor now emits the
+// enriched `player_possession` span stream (indexed into
+// `play_event_player_possession_details`) and touch details gained the
+// intention/first-touch/contested/ball-movement facets. Bumping marks prior
+// analyses stale so reprocessing persists the new spans and touch columns.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v7";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -2918,6 +2923,33 @@ struct TouchDetailRow {
     ball_speed_change: f64,
     sample_frame: i32,
     sample_time: f64,
+    intention: Option<String>,
+    first_touch: Option<bool>,
+    contested: Option<bool>,
+    advance_distance: Option<f64>,
+    retreat_distance: Option<f64>,
+}
+
+struct PlayerPossessionDetailRow {
+    event_id: Uuid,
+    replay_id: Uuid,
+    replay_player_id: Option<Uuid>,
+    player_subject_id: String,
+    team: i32,
+    duration: f64,
+    touch_count: i32,
+    aerial_touch_count: i32,
+    wall_touch_count: i32,
+    advance_distance: f64,
+    retreat_distance: f64,
+    carry_time: f64,
+    air_dribble_time: f64,
+    carry_count: i32,
+    air_dribble_count: i32,
+    close_time: f64,
+    sustained_control: bool,
+    start_field_third: Option<String>,
+    end_field_third: Option<String>,
 }
 
 struct KickoffDetailRow {
@@ -2983,6 +3015,7 @@ async fn insert_play_event_detail_rows(
     let mut touch_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut kickoff_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut kickoff_player_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
+    let mut player_possession_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
 
     for prepared in events {
         match prepared.event.source_stream.as_str() {
@@ -3014,6 +3047,18 @@ async fn insert_play_event_detail_rows(
                     touch_rows.clear();
                 }
             }
+            "player_possession" => {
+                player_possession_rows.push(player_possession_detail_row(
+                    prepared.id,
+                    replay_id,
+                    prepared.event,
+                    replay_players,
+                )?);
+                if player_possession_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
+                    insert_player_possession_detail_rows(pool, &player_possession_rows).await?;
+                    player_possession_rows.clear();
+                }
+            }
             "kickoff" => {
                 kickoff_rows.push(kickoff_detail_row(prepared.id, replay_id, prepared.event)?);
                 kickoff_player_rows.extend(kickoff_player_detail_rows(
@@ -3041,6 +3086,7 @@ async fn insert_play_event_detail_rows(
     insert_touch_detail_rows(pool, &touch_rows).await?;
     insert_kickoff_detail_rows(pool, &kickoff_rows).await?;
     insert_kickoff_player_detail_rows(pool, &kickoff_player_rows).await?;
+    insert_player_possession_detail_rows(pool, &player_possession_rows).await?;
 
     Ok(())
 }
@@ -3087,6 +3133,52 @@ fn touch_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<TouchDetailR
         ball_speed_change: required_float(&event.payload, "ball_speed_change")?,
         sample_frame: required_int(&event.payload, "sample_frame")?,
         sample_time: required_float(&event.payload, "sample_time")?,
+        intention: normalized_payload_field(&event.payload, "intention"),
+        first_touch: bool_value(&event.payload, &["first_touch"]),
+        contested: bool_value(&event.payload, &["contested"]),
+        advance_distance: nested_float(&event.payload, "ball_movement", "advance_distance"),
+        retreat_distance: nested_float(&event.payload, "ball_movement", "retreat_distance"),
+    })
+}
+
+fn nested_float(payload: &Value, parent: &str, field: &str) -> Option<f64> {
+    payload
+        .get(parent)
+        .and_then(|value| value.get(field))
+        .and_then(Value::as_f64)
+}
+
+fn player_possession_detail_row(
+    event_id: Uuid,
+    replay_id: Uuid,
+    event: &IndexedEvent,
+    replay_players: &HashMap<String, Uuid>,
+) -> Result<PlayerPossessionDetailRow> {
+    let player_subject_id = player_subject_id_from_field(&event.payload, "player_id")?
+        .context("player_possession event payload is missing player_id")?;
+    let team = team_bool(&event.payload, "is_team_0")
+        .context("player_possession event payload is missing is_team_0")?;
+    Ok(PlayerPossessionDetailRow {
+        event_id,
+        replay_id,
+        replay_player_id: replay_players.get(&player_subject_id).copied(),
+        player_subject_id,
+        team,
+        duration: required_float(&event.payload, "duration")?,
+        touch_count: required_int(&event.payload, "touch_count")?,
+        aerial_touch_count: required_int(&event.payload, "aerial_touch_count")?,
+        wall_touch_count: required_int(&event.payload, "wall_touch_count")?,
+        advance_distance: required_float(&event.payload, "advance_distance")?,
+        retreat_distance: required_float(&event.payload, "retreat_distance")?,
+        carry_time: required_float(&event.payload, "carry_time")?,
+        air_dribble_time: required_float(&event.payload, "air_dribble_time")?,
+        carry_count: required_int(&event.payload, "carry_count")?,
+        air_dribble_count: required_int(&event.payload, "air_dribble_count")?,
+        close_time: required_float(&event.payload, "close_time")?,
+        sustained_control: bool_value(&event.payload, &["sustained_control"])
+            .context("player_possession event payload is missing sustained_control")?,
+        start_field_third: normalized_payload_field(&event.payload, "start_field_third"),
+        end_field_third: normalized_payload_field(&event.payload, "end_field_third"),
     })
 }
 
@@ -3368,7 +3460,12 @@ async fn insert_touch_detail_rows(pool: &PgPool, rows: &[TouchDetailRow]) -> Res
             dodge_state,
             ball_speed_change,
             sample_frame,
-            sample_time
+            sample_time,
+            intention,
+            first_touch,
+            contested,
+            advance_distance,
+            retreat_distance
         )
         "#,
     );
@@ -3380,7 +3477,12 @@ async fn insert_touch_detail_rows(pool: &PgPool, rows: &[TouchDetailRow]) -> Res
             .push_bind(&detail.dodge_state)
             .push_bind(detail.ball_speed_change)
             .push_bind(detail.sample_frame)
-            .push_bind(detail.sample_time);
+            .push_bind(detail.sample_time)
+            .push_bind(&detail.intention)
+            .push_bind(detail.first_touch)
+            .push_bind(detail.contested)
+            .push_bind(detail.advance_distance)
+            .push_bind(detail.retreat_distance);
     });
     query.push(" ON CONFLICT DO NOTHING");
     query
@@ -3388,6 +3490,70 @@ async fn insert_touch_detail_rows(pool: &PgPool, rows: &[TouchDetailRow]) -> Res
         .execute(pool)
         .await
         .context("failed to batch insert touch event details")?;
+
+    Ok(())
+}
+
+async fn insert_player_possession_detail_rows(
+    pool: &PgPool,
+    rows: &[PlayerPossessionDetailRow],
+) -> Result<()> {
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO play_event_player_possession_details (
+            event_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            team,
+            duration,
+            touch_count,
+            aerial_touch_count,
+            wall_touch_count,
+            advance_distance,
+            retreat_distance,
+            carry_time,
+            air_dribble_time,
+            carry_count,
+            air_dribble_count,
+            close_time,
+            sustained_control,
+            start_field_third,
+            end_field_third
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, detail| {
+        row.push_bind(detail.event_id)
+            .push_bind(detail.replay_id)
+            .push_bind(detail.replay_player_id)
+            .push_bind(&detail.player_subject_id)
+            .push_bind(detail.team)
+            .push_bind(detail.duration)
+            .push_bind(detail.touch_count)
+            .push_bind(detail.aerial_touch_count)
+            .push_bind(detail.wall_touch_count)
+            .push_bind(detail.advance_distance)
+            .push_bind(detail.retreat_distance)
+            .push_bind(detail.carry_time)
+            .push_bind(detail.air_dribble_time)
+            .push_bind(detail.carry_count)
+            .push_bind(detail.air_dribble_count)
+            .push_bind(detail.close_time)
+            .push_bind(detail.sustained_control)
+            .push_bind(&detail.start_field_third)
+            .push_bind(&detail.end_field_third);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to batch insert player possession event details")?;
 
     Ok(())
 }
@@ -3585,6 +3751,10 @@ async fn insert_play_event_details(
         "mechanics" => insert_mechanic_event_details(pool, event_id, event).await,
         "goal_tags" => insert_goal_tag_event_details(pool, event_id, event).await,
         "touch" => insert_touch_event_details(pool, event_id, event).await,
+        "player_possession" => {
+            let row = player_possession_detail_row(event_id, replay_id, event, replay_players)?;
+            insert_player_possession_detail_rows(pool, std::slice::from_ref(&row)).await
+        }
         "kickoff" => {
             insert_kickoff_event_details(pool, event_id, replay_id, event, replay_players).await
         }
@@ -3699,9 +3869,14 @@ async fn insert_touch_event_details(
             dodge_state,
             ball_speed_change,
             sample_frame,
-            sample_time
+            sample_time,
+            intention,
+            first_touch,
+            contested,
+            advance_distance,
+            retreat_distance
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         ON CONFLICT DO NOTHING
         "#,
     )
@@ -3713,6 +3888,19 @@ async fn insert_touch_event_details(
     .bind(required_float(&event.payload, "ball_speed_change")?)
     .bind(required_int(&event.payload, "sample_frame")?)
     .bind(required_float(&event.payload, "sample_time")?)
+    .bind(normalized_payload_field(&event.payload, "intention"))
+    .bind(bool_value(&event.payload, &["first_touch"]))
+    .bind(bool_value(&event.payload, &["contested"]))
+    .bind(nested_float(
+        &event.payload,
+        "ball_movement",
+        "advance_distance",
+    ))
+    .bind(nested_float(
+        &event.payload,
+        "ball_movement",
+        "retreat_distance",
+    ))
     .execute(pool)
     .await
     .context("failed to insert touch event details")?;
@@ -4569,6 +4757,18 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v5",
         "Kickoff win-strength redesign: win_strength is now a 0..=1 fraction of \
          half-field depth; narrow/clear/strong bands recalibrated.",
+    ),
+    (
+        "rocket-sense-event-stream:v6",
+        "subtr-actor PlayerStateSpan unification and kickoff advantage: \
+         positioning/rotation streams replaced by per-facet span streams and \
+         kickoff events gained the advantage verdict.",
+    ),
+    (
+        "rocket-sense-event-stream:v7",
+        "Career possession stats: enriched player_possession spans are indexed \
+         and touch details gained intention/first-touch/contested/ball-movement \
+         facets.",
     ),
 ];
 

@@ -31,6 +31,7 @@ import {
   getAuthOptions,
   getCurrentUser,
   getPlayerKickoffSummary,
+  getPlayerPossessionSummary,
   getPlayerProfile,
   getPlayerStatAggregates,
   getPlayerStatOverview,
@@ -53,6 +54,7 @@ import { RankBadge } from "./rank";
 import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
+  PossessionSummaryPanel,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
@@ -65,6 +67,7 @@ import type {
   PlayerProfileResponse,
   PlayerProfileReplayResponse,
   PlayerStatOverviewResponse,
+  PossessionSummaryResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
@@ -1535,6 +1538,7 @@ function PlayerStatsPage() {
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
   const [kickoffSummary, setKickoffSummary] = useState<EventStatSummaryResponse | null>(null);
+  const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -1548,6 +1552,7 @@ function PlayerStatsPage() {
     setStatsError(null);
     setOverview(null);
     setKickoffSummary(null);
+    setPossessionSummary(null);
     getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
@@ -1577,6 +1582,11 @@ function PlayerStatsPage() {
     getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setKickoffSummary(response);
+      })
+      .catch(() => {});
+    getPlayerPossessionSummary(platform, platformPlayerId, new URLSearchParams(location.search))
+      .then((response) => {
+        if (!cancelled) setPossessionSummary(response);
       })
       .catch(() => {});
     return () => {
@@ -1638,6 +1648,7 @@ function PlayerStatsPage() {
             <PlayerAggregateStatsSections
               activeGroup={activeGroup}
               kickoffSummary={kickoffSummary}
+              possessionSummary={possessionSummary}
               overview={overview}
               platform={platform}
               platformPlayerId={platformPlayerId}
@@ -1759,6 +1770,7 @@ function PlayerAggregateStatsSections({
   activeGroup,
   kickoffSummary,
   overview,
+  possessionSummary,
   platform,
   platformPlayerId,
   search,
@@ -1767,6 +1779,7 @@ function PlayerAggregateStatsSections({
   activeGroup: StatGroup;
   kickoffSummary: EventStatSummaryResponse | null;
   overview: PlayerStatOverviewResponse | null;
+  possessionSummary: PossessionSummaryResponse | null;
   platform: string;
   platformPlayerId: string;
   search: string;
@@ -1831,6 +1844,9 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
       {activeGroup.id === "kickoffs" && kickoffSummary ? <KickoffSummaryPanel summary={kickoffSummary} /> : null}
+      {activeGroup.id === "possession-territory" && possessionSummary ? (
+        <PossessionSummaryPanel summary={possessionSummary} />
+      ) : null}
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
         <RotationTimeSharePanel overview={overview} stats={stats} />
       ) : null}

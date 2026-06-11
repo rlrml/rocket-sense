@@ -8,6 +8,7 @@ mod meta;
 mod openapi;
 mod player_overview;
 mod players;
+mod possession_stats;
 mod query;
 mod replay_set;
 mod replays;
@@ -41,6 +42,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(mechanics::router())
         .merge(meta::router())
         .merge(player_overview::router())
+        .merge(possession_stats::router())
         .merge(players::router())
         .merge(replays::router())
         .merge(stats::router())
