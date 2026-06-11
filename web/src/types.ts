@@ -8,7 +8,13 @@ export interface ReplayPlayer {
   team: number | null;
   rank_tier?: number | null;
   rank_division?: number | null;
+  rank_mmr?: number | null;
   is_pro: boolean;
+  score?: number | null;
+  goals?: number | null;
+  assists?: number | null;
+  saves?: number | null;
+  shots?: number | null;
   active_time_seconds: number | null;
   time_demolished_seconds: number | null;
   non_demo_active_time_seconds: number | null;

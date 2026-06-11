@@ -188,6 +188,11 @@ struct ReplaySearchPlayer {
     platform_player_id: Option<String>,
     team: i32,
     is_pro: bool,
+    score: Option<i32>,
+    goals: Option<i32>,
+    assists: Option<i32>,
+    saves: Option<i32>,
+    shots: Option<i32>,
     active_time_seconds: Option<OrderedFloat>,
     time_demolished_seconds: Option<OrderedFloat>,
     time_most_back_seconds: Option<OrderedFloat>,
@@ -1786,10 +1791,26 @@ fn replay_search_player(player: &PlayerInfo, team: i32) -> ReplaySearchPlayer {
         platform_player_id,
         team,
         is_pro: false,
+        score: player_header_stat(player, "Score"),
+        goals: player_header_stat(player, "Goals"),
+        assists: player_header_stat(player, "Assists"),
+        saves: player_header_stat(player, "Saves"),
+        shots: player_header_stat(player, "Shots"),
         active_time_seconds: None,
         time_demolished_seconds: None,
         time_most_back_seconds: None,
         time_most_forward_seconds: None,
+    }
+}
+
+/// Scoreboard values from the header's `PlayerStats` entry for this player
+/// (subtr-actor surfaces it as `PlayerInfo::stats`).
+fn player_header_stat(player: &PlayerInfo, key: &str) -> Option<i32> {
+    match player.stats.as_ref()?.get(key)? {
+        HeaderProp::Int(value) => Some(*value),
+        HeaderProp::QWord(value) => i32::try_from(*value).ok(),
+        HeaderProp::Float(value) => Some(*value as i32),
+        _ => None,
     }
 }
 
@@ -2219,12 +2240,17 @@ async fn upsert_replay_search_metadata(
                 platform_player_id,
                 team,
                 is_pro,
+                score,
+                goals,
+                assists,
+                saves,
+                shots,
                 active_time_seconds,
                 time_demolished_seconds,
                 time_most_back_seconds,
                 time_most_forward_seconds
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
             "#,
         )
         .bind(replay_player_id)
@@ -2234,6 +2260,11 @@ async fn upsert_replay_search_metadata(
         .bind(&player.platform_player_id)
         .bind(player.team)
         .bind(player.is_pro)
+        .bind(player.score)
+        .bind(player.goals)
+        .bind(player.assists)
+        .bind(player.saves)
+        .bind(player.shots)
         .bind(player.active_time_seconds.map(|value| value.0))
         .bind(player.time_demolished_seconds.map(|value| value.0))
         .bind(player.time_most_back_seconds.map(|value| value.0))

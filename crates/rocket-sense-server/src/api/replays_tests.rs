@@ -97,6 +97,12 @@ fn replay_select_includes_players_without_stats_blob_join() {
     assert!(sql.contains("FROM replay_players player"));
     assert!(sql.contains("'rank_tier', player.rank_tier"));
     assert!(sql.contains("'rank_division', player.rank_division"));
+    assert!(sql.contains("'rank_mmr', player.rank_mmr"));
+    assert!(sql.contains("'score', player.score"));
+    assert!(sql.contains("'goals', player.goals"));
+    assert!(sql.contains("'assists', player.assists"));
+    assert!(sql.contains("'saves', player.saves"));
+    assert!(sql.contains("'shots', player.shots"));
     assert!(!sql.contains("replay_stat_blobs"));
     assert!(!sql.contains("latest_stats"));
 }

@@ -58,6 +58,48 @@ fn replay_search_metadata_extracts_headers_and_players() {
 }
 
 #[test]
+fn replay_search_player_extracts_scoreboard_stats_from_header() {
+    let player = PlayerInfo {
+        remote_id: RemoteId::Steam(76561198000000001),
+        stats: Some(
+            [
+                ("Score".to_owned(), HeaderProp::Int(512)),
+                ("Goals".to_owned(), HeaderProp::Int(2)),
+                ("Assists".to_owned(), HeaderProp::Int(1)),
+                ("Saves".to_owned(), HeaderProp::Int(3)),
+                ("Shots".to_owned(), HeaderProp::Int(5)),
+            ]
+            .into_iter()
+            .collect(),
+        ),
+        name: "Blue Player".to_owned(),
+        car_body_id: None,
+        car_body_name: None,
+        car_hitbox_family: None,
+    };
+
+    let search_player = replay_search_player(&player, 0);
+
+    assert_eq!(search_player.score, Some(512));
+    assert_eq!(search_player.goals, Some(2));
+    assert_eq!(search_player.assists, Some(1));
+    assert_eq!(search_player.saves, Some(3));
+    assert_eq!(search_player.shots, Some(5));
+
+    let no_stats = PlayerInfo {
+        remote_id: RemoteId::Steam(76561198000000002),
+        stats: None,
+        name: "No Stats".to_owned(),
+        car_body_id: None,
+        car_body_name: None,
+        car_hitbox_family: None,
+    };
+    let search_player = replay_search_player(&no_stats, 1);
+    assert_eq!(search_player.score, None);
+    assert_eq!(search_player.goals, None);
+}
+
+#[test]
 fn replay_search_metadata_prefers_specific_playlist_name_over_online_match_type() {
     let replay_meta = ReplayMeta {
         team_zero: vec![],
