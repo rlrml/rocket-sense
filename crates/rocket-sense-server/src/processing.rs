@@ -40,30 +40,45 @@ pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // narrow/clear/strong bands were recalibrated (previously ~82% of decided
 // kickoffs landed in "strong"). Bumping marks prior analyses stale so
 // reprocessing re-emits kickoff events on the new scale.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v5";
+// Bumped v5 -> v6 for the subtr-actor PlayerStateSpan unification and kickoff
+// advantage: the positioning/rotation streams (`positioning*`,
+// `rotation_player`, `rotation_role_span`, `rotation_depth_span`,
+// `rotation_first_man_stint`) were replaced by per-facet span streams
+// (`player_activity`, `field_third`, `field_half`, `ball_depth`, `depth_role`,
+// `ball_proximity`, `rotation_role`, `first_man_change`), and kickoff events
+// gained the advantage verdict. Bumping marks prior analyses stale so
+// reprocessing emits the new streams and kickoff advantage fields.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v6";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
-const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] = [
+const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
+    ["rotation_role", "ball_depth", "first_man_change"];
+const POSITIONING_PROFILE_TIMING_STREAMS: [&str; 5] = [
+    "player_activity",
+    "field_third",
+    "field_half",
+    "depth_role",
+    "ball_proximity",
+];
+// Retired stream names that earlier analysis runs may still have indexed;
+// backfills delete these alongside the live streams so re-running against a
+// pre-PlayerStateSpan analysis run cannot leave duplicate coverage behind.
+const RETIRED_ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] = [
     "rotation_role_span",
     "rotation_depth_span",
     "rotation_first_man_stint",
 ];
+const RETIRED_POSITIONING_PROFILE_TIMING_STREAMS: [&str; 1] = ["positioning"];
 const PLAY_EVENT_INSERT_CHUNK_SIZE: usize = 500;
 const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
-// `goal_tags`/`touch_last_touch` are annotations on other indexed events.
-// `rotation_player` and `positioning_ball_relative_depth` are per-frame
-// telemetry that nothing reads back out of the database (~1100 and ~1050
-// events per replay respectively, each fanned out into payload/attribute/
-// subject rows); they remain available in the analysis run's event stream
-// object, so skip indexing them as play events entirely.
-const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &[
-    "goal_tags",
-    "touch_last_touch",
-    "rotation_player",
-    "positioning_ball_relative_depth",
-];
+// `goal_tags`/`touch_last_touch` are annotations on other indexed events. The
+// per-frame telemetry streams this list used to exclude (`rotation_player`,
+// `positioning_ball_relative_depth`) were retired by subtr-actor's
+// PlayerStateSpan unification; the replacement facet streams coalesce
+// same-state frames into spans, so they are indexed normally.
+const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["goal_tags", "touch_last_touch"];
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -784,26 +799,20 @@ async fn profile_timing_backfill_targets(
                 SELECT 1
                 FROM play_events event
                 WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                  AND event.source_stream = 'positioning'
+                  AND event.source_stream = 'player_activity'
             ) AS needs_positioning,
             (
                 NOT EXISTS (
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_role_span'
+                      AND event.source_stream = 'rotation_role'
                 )
                 OR NOT EXISTS (
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_depth_span'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_first_man_stint'
+                      AND event.source_stream = 'ball_depth'
                 )
             ) AS needs_rotation_spans
         FROM replays r
@@ -825,25 +834,19 @@ async fn profile_timing_backfill_targets(
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'positioning'
+                      AND event.source_stream = 'player_activity'
                 )
                 OR NOT EXISTS (
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_role_span'
+                      AND event.source_stream = 'rotation_role'
                 )
                 OR NOT EXISTS (
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_depth_span'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_first_man_stint'
+                      AND event.source_stream = 'ball_depth'
                 )
             )
             "#,
@@ -888,7 +891,8 @@ async fn backfill_profile_timing_events(
         .into_iter()
         .filter(|event| {
             (target.needs_rotation_spans && is_rotation_profile_timing_stream(&event.source_stream))
-                || (target.needs_positioning && event.source_stream == "positioning")
+                || (target.needs_positioning
+                    && is_positioning_profile_timing_stream(&event.source_stream))
         })
         .collect::<Vec<_>>();
     if indexed_events.is_empty() {
@@ -896,23 +900,32 @@ async fn backfill_profile_timing_events(
     }
 
     indexed_events.sort_by_key(|event| match event.source_stream.as_str() {
-        "rotation_role_span" => 0,
-        "rotation_depth_span" => 1,
-        "rotation_first_man_stint" => 2,
-        "positioning" => 3,
-        _ => 4,
+        "rotation_role" => 0,
+        "ball_depth" => 1,
+        "first_man_change" => 2,
+        "player_activity" => 3,
+        "field_third" => 4,
+        "field_half" => 5,
+        "depth_role" => 6,
+        "ball_proximity" => 7,
+        _ => 8,
     });
 
     if target.needs_rotation_spans {
-        delete_profile_timing_streams(
-            &pool,
-            target.analysis_run_id,
-            &ROTATION_PROFILE_TIMING_STREAMS,
-        )
-        .await?;
+        let streams = ROTATION_PROFILE_TIMING_STREAMS
+            .iter()
+            .chain(RETIRED_ROTATION_PROFILE_TIMING_STREAMS.iter())
+            .copied()
+            .collect::<Vec<_>>();
+        delete_profile_timing_streams(&pool, target.analysis_run_id, &streams).await?;
     }
     if target.needs_positioning {
-        delete_profile_timing_streams(&pool, target.analysis_run_id, &["positioning"]).await?;
+        let streams = POSITIONING_PROFILE_TIMING_STREAMS
+            .iter()
+            .chain(RETIRED_POSITIONING_PROFILE_TIMING_STREAMS.iter())
+            .copied()
+            .collect::<Vec<_>>();
+        delete_profile_timing_streams(&pool, target.analysis_run_id, &streams).await?;
     }
 
     let replay_players = load_replay_player_lookup(&pool, target.replay_id).await?;
@@ -957,6 +970,10 @@ async fn delete_profile_timing_streams(
 
 fn is_rotation_profile_timing_stream(source_stream: &str) -> bool {
     ROTATION_PROFILE_TIMING_STREAMS.contains(&source_stream)
+}
+
+fn is_positioning_profile_timing_stream(source_stream: &str) -> bool {
+    POSITIONING_PROFILE_TIMING_STREAMS.contains(&source_stream)
 }
 
 async fn load_replay_player_lookup(
@@ -1857,7 +1874,7 @@ fn apply_player_timing_metadata(
         .events
         .iter()
         .filter_map(|event| match &event.payload {
-            subtr_actor::EventPayload::PositioningActivity(event) => Some(event),
+            subtr_actor::EventPayload::PlayerActivity(event) => Some(event),
             _ => None,
         })
     {
@@ -1867,10 +1884,12 @@ fn apply_player_timing_metadata(
         };
         let timing = timing_by_key.entry(key).or_default();
         let duration = f64::from(event.duration);
-        if event.active {
-            timing.active_time += duration;
-        }
-        if event.demolished {
+        // An activity span exists only while the player is tracked in the
+        // match, and demolished time still counts as active — matching the
+        // retired positioning_activity stream, which kept `active` set during
+        // demolitions.
+        timing.active_time += duration;
+        if matches!(event.state, subtr_actor::ActivityState::Demolished) {
             timing.time_demolished += duration;
         }
     }
@@ -1880,7 +1899,7 @@ fn apply_player_timing_metadata(
         .events
         .iter()
         .filter_map(|event| match &event.payload {
-            subtr_actor::EventPayload::PositioningTeammateRole(event) => Some(event),
+            subtr_actor::EventPayload::DepthRole(event) => Some(event),
             _ => None,
         })
     {
@@ -1890,17 +1909,16 @@ fn apply_player_timing_metadata(
         };
         let timing = timing_by_key.entry(key).or_default();
         let duration = f64::from(event.duration);
-        match event.teammate_role {
-            subtr_actor::PositioningTeammateRoleState::MostBack => {
+        match event.state {
+            subtr_actor::DepthRoleState::MostBack => {
                 timing.time_most_back += duration;
             }
-            subtr_actor::PositioningTeammateRoleState::MostForward => {
+            subtr_actor::DepthRoleState::MostForward => {
                 timing.time_most_forward += duration;
             }
-            subtr_actor::PositioningTeammateRoleState::NoTeammates
-            | subtr_actor::PositioningTeammateRoleState::Mid
-            | subtr_actor::PositioningTeammateRoleState::Other
-            | subtr_actor::PositioningTeammateRoleState::Unknown => {}
+            subtr_actor::DepthRoleState::NoTeammates
+            | subtr_actor::DepthRoleState::Mid
+            | subtr_actor::DepthRoleState::Other => {}
         }
     }
 
@@ -3815,23 +3833,22 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             .unwrap_or_else(|| "goal_tag_unknown".to_owned()),
         "touch" => "touch".to_owned(),
         "timeline" => kind.as_deref().unwrap_or("event").to_owned(),
-        "rotation_role_span" => format!(
+        // Role and ball-depth spans split into per-state event types (e.g.
+        // `rotation_role_first_man`) so profile timing and overview shares can
+        // group by them, like the retired rotation_role_span/rotation_depth_span
+        // streams did.
+        "rotation_role" => format!(
             "rotation_role_{}",
-            normalized_payload_field(payload, "current_role_state")
+            normalized_payload_field(payload, "state")
                 .as_deref()
-                .or(kind.as_deref())
                 .unwrap_or("unknown")
         ),
-        "rotation_depth_span" => {
-            format!(
-                "rotation_depth_{}",
-                normalized_payload_field(payload, "current_depth_state")
-                    .as_deref()
-                    .or(kind.as_deref())
-                    .unwrap_or("unknown")
-            )
-        }
-        "rotation_first_man_stint" => "rotation_first_man_stint".to_owned(),
+        "ball_depth" => format!(
+            "ball_depth_{}",
+            normalized_payload_field(payload, "state")
+                .as_deref()
+                .unwrap_or("unknown")
+        ),
         // All boost pickups share one review key (matching subtr-actor's registry); the
         // payload's `detection` field (`both` | `inferred_only` | `reported_only`) records
         // corroboration provenance and is indexed as a filterable attribute, not an
@@ -3843,7 +3860,6 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
     };
     let category = match stream {
         "mechanics" => "mechanic",
-        "rotation_role_span" | "rotation_depth_span" | "rotation_first_man_stint" => "positioning",
         _ => metadata
             .map(|metadata| metadata.category)
             .unwrap_or("event"),
@@ -3858,8 +3874,7 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
         "mechanics" | "timeline" => {
             display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))
         }
-        "rotation_first_man_stint" => display_name_from_key("first_man_stint"),
-        "rotation_role_span" | "rotation_depth_span" => display_name_from_key(&event_type_key),
+        "rotation_role" | "ball_depth" => display_name_from_key(&event_type_key),
         _ if metadata.is_some_and(|metadata| metadata.id == event_type_key) => metadata
             .map(|metadata| metadata.label.to_owned())
             .unwrap_or_else(|| display_name_from_key(&event_type_key)),
@@ -3897,15 +3912,17 @@ fn direct_timeline_event_metadata(stream: &str) -> Option<EventDefinitionMetadat
 }
 
 fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetadata> {
+    // Categories follow subtr-actor's event definitions; entries here are
+    // rocket-sense-specific overrides only. The former controlled_play and
+    // kickoff overrides were dropped when subtr-actor retired the Possession
+    // category (controlled_play is now a mechanic, kickoff is core).
     let (id, label, category) = match id {
-        "controlled_play" => ("controlled_play", "Controlled Play", "possession"),
         "core_player_scoreboard" => (
             "core_player_scoreboard",
             "Core Player Scoreboard",
             "context",
         ),
         "goal_context" => ("goal_context", "Goal Context", "context"),
-        "kickoff" => ("kickoff", "Kickoff", "possession"),
         _ => return None,
     };
     Some(EventDefinitionMetadata {
@@ -3930,9 +3947,7 @@ fn event_category_key(category: EventCategory) -> &'static str {
     match category {
         EventCategory::Core => "core",
         EventCategory::Mechanic => "mechanic",
-        EventCategory::Possession => "possession",
         EventCategory::Positioning => "positioning",
-        EventCategory::Boost => "boost",
         EventCategory::Movement => "movement",
         EventCategory::Other => "other",
         EventCategory::Annotation => "annotation",

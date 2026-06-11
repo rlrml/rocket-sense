@@ -187,7 +187,7 @@ const rotationDepthLabels: Record<string, string> = {
 /** Single tug-of-war bar: defensive (behind play) vs offensive (ahead of play), level/unknown as a neutral center band. */
 function RotationDepthTugOfWar({ depths }: { depths: RotationTimeShareResponse[] }) {
   const secondsFor = (suffix: string) =>
-    depths.find((share) => depthSuffix(share.key) === suffix)?.seconds ?? 0;
+    depths.filter((share) => depthSuffix(share.key) === suffix).reduce((total, share) => total + share.seconds, 0);
   const behind = secondsFor("behind_play");
   const level = secondsFor("level_with_play");
   const ahead = secondsFor("ahead_of_play");
@@ -240,7 +240,23 @@ function RotationDepthTugOfWar({ depths }: { depths: RotationTimeShareResponse[]
 }
 
 function depthSuffix(key: string): string {
-  return key.startsWith("rotation_depth_") ? key.slice("rotation_depth_".length) : key;
+  const suffix = key.startsWith("rotation_depth_")
+    ? key.slice("rotation_depth_".length)
+    : key.startsWith("ball_depth_")
+      ? key.slice("ball_depth_".length)
+      : key;
+  // PlayerStateSpan ball-depth states map onto the legacy play-depth buckets so
+  // replay sets mixing old and new analysis runs aggregate into one bar.
+  switch (suffix) {
+    case "behind_ball":
+      return "behind_play";
+    case "level_with_ball":
+      return "level_with_play";
+    case "ahead_of_ball":
+      return "ahead_of_play";
+    default:
+      return suffix;
+  }
 }
 
 /** First-man stint length distribution, player overlaid against teammate average. */

@@ -269,7 +269,7 @@ async fn load_rotation_time_shares(
         JOIN play_events event
           ON event.id = subject.event_id
          AND event.analysis_run_id = appearance.run_id
-         AND event.source_stream IN ('rotation_role_span', 'rotation_depth_span')
+         AND event.source_stream IN ('rotation_role_span', 'rotation_depth_span', 'rotation_role', 'ball_depth')
         JOIN event_types et
           ON et.id = event.event_type_id
         WHERE event.duration_seconds IS NOT NULL
@@ -291,8 +291,8 @@ async fn load_rotation_time_shares(
             span_count: count_column(&row, "span_count")?,
         };
         match stream.as_str() {
-            "rotation_role_span" => roles.push(share),
-            "rotation_depth_span" => depths.push(share),
+            "rotation_role_span" | "rotation_role" => roles.push(share),
+            "rotation_depth_span" | "ball_depth" => depths.push(share),
             _ => {}
         }
     }

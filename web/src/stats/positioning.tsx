@@ -2,6 +2,17 @@ import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { SegmentedBar, type SegmentedBarSegment } from "./shared";
 
 export const positioningEventTypes = [
+  // PlayerStateSpan facet streams (current analysis runs).
+  "player_activity",
+  "field_third",
+  "field_half",
+  "ball_depth_behind_ball",
+  "ball_depth_level_with_ball",
+  "ball_depth_ahead_of_ball",
+  "depth_role",
+  "ball_proximity",
+  // Retired streams kept so replays processed before the PlayerStateSpan
+  // unification still render until they are reprocessed.
   "positioning_activity",
   "positioning_distance",
   "positioning_field_zone",
@@ -219,6 +230,53 @@ function playerPositioningSummaries(players: ReplayPlayer[], events: MechanicEve
     const summary = summaryForEvent(event, summaries, byKey);
     if (!summary) continue;
     const duration = eventDuration(event);
+
+    if (event.event_type === "player_activity") {
+      // Tracked and demolished spans both count as active, matching the
+      // retired positioning_activity stream's semantics.
+      summary.activeSeconds += duration;
+      continue;
+    }
+
+    if (event.event_type === "field_third") {
+      summary.trackedSeconds += duration;
+      const state = stringPayload(event.payload, "state");
+      if (state === "defensive") summary.defensiveThirdSeconds += duration;
+      else if (state === "neutral") summary.neutralThirdSeconds += duration;
+      else if (state === "offensive") summary.offensiveThirdSeconds += duration;
+      continue;
+    }
+
+    if (event.event_type === "field_half") {
+      const state = stringPayload(event.payload, "state");
+      if (state === "defensive") summary.defensiveHalfSeconds += duration;
+      else if (state === "offensive") summary.offensiveHalfSeconds += duration;
+      continue;
+    }
+
+    if (event.event_type.startsWith("ball_depth_")) {
+      const state = stringPayload(event.payload, "state");
+      if (state === "behind_ball") summary.behindBallSeconds += duration;
+      else if (state === "level_with_ball") summary.levelWithBallSeconds += duration;
+      else if (state === "ahead_of_ball") summary.inFrontOfBallSeconds += duration;
+      continue;
+    }
+
+    if (event.event_type === "depth_role") {
+      summary.roleSeconds[rolePayload(event.payload, "state")] += duration;
+      continue;
+    }
+
+    if (event.event_type === "ball_proximity") {
+      const state = event.payload.state;
+      if (state && typeof state === "object") {
+        const flags = state as Record<string, unknown>;
+        if (flags.closest_to_ball_team === true) summary.closestTeamSeconds += duration;
+        if (flags.closest_to_ball_absolute === true) summary.closestAbsoluteSeconds += duration;
+        if (flags.farthest_from_ball === true) summary.farthestSeconds += duration;
+      }
+      continue;
+    }
 
     if (event.event_type === "positioning_activity") {
       if (booleanPayload(event.payload, "active")) summary.activeSeconds += duration;

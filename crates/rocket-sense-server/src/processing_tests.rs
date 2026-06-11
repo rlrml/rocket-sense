@@ -322,7 +322,7 @@ fn indexed_timeline_events_use_span_timing_fields_for_review_clips() {
     .expect("rush event should index");
 
     assert_eq!(rush.event_type_key, "rush");
-    assert_eq!(rush.category, "possession");
+    assert_eq!(rush.category, "other");
     assert_eq!(rush.start_time, Some(11.0));
     assert_eq!(rush.end_time, Some(14.25));
     assert_eq!(rush.event_time, Some(14.25));
@@ -451,7 +451,7 @@ fn indexed_timeline_events_give_boost_pickups_one_review_type_with_detection_att
 
     assert_eq!(boost_pickup.event_type_key, "boost_pickup");
     assert_eq!(boost_pickup.display_name, "Boost Pickup");
-    assert_eq!(boost_pickup.category, "boost");
+    assert_eq!(boost_pickup.category, "other");
     assert_eq!(
         boost_pickup
             .attributes
@@ -608,7 +608,7 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
 
     assert_eq!(controlled_play.event_type_key, "controlled_play");
     assert_eq!(controlled_play.display_name, "Controlled Play");
-    assert_eq!(controlled_play.category, "possession");
+    assert_eq!(controlled_play.category, "mechanic");
     assert_eq!(
         controlled_play
             .primary_subject
@@ -662,7 +662,7 @@ fn indexed_kickoff_events_capture_nested_player_subjects() {
 
     assert_eq!(kickoff.event_type_key, "kickoff");
     assert_eq!(kickoff.display_name, "Kickoff");
-    assert_eq!(kickoff.category, "possession");
+    assert_eq!(kickoff.category, "core");
     assert!(kickoff.subjects.iter().any(|subject| {
         subject.kind == "player"
             && subject.id == "steam:76561198000000001"
@@ -866,80 +866,52 @@ fn remote_id_value_to_subject_id_extracts_platform_online_id_objects() {
 }
 
 #[test]
-fn build_indexed_events_does_not_duplicate_serialized_rotation_span_streams() {
+fn build_indexed_events_indexes_rotation_role_spans_by_state() {
     let player = RemoteId::Steam(76561198000000001);
-    let timeline = stats_timeline_with_events(timeline_events_from(vec![
-        moment_event(
-            "rotation_player",
-            0,
-            0.0,
-            subtr_actor::EventPayload::RotationPlayer(rotation_player_event(
-                0.0,
-                0,
-                player.clone(),
-                true,
-                subtr_actor::RoleState::FirstMan,
-            )),
-        ),
-        envelope_event(
-            "rotation_role_span",
-            subtr_actor::EventTiming::Span {
-                start_frame: 0,
-                end_frame: 60,
-                start_time: 0.0,
-                end_time: 1.0,
-            },
-            subtr_actor::EventPayload::RotationRoleSpan(subtr_actor::RotationRoleSpanEvent {
-                time: 0.0,
-                frame: 0,
-                end_time: 1.0,
-                end_frame: 60,
-                duration: 1.0,
-                player,
-                player_position: None,
-                is_team_0: true,
-                current_role_state: subtr_actor::RoleState::FirstMan,
-            }),
-        ),
-    ]));
+    let timeline = stats_timeline_with_events(timeline_events_from(vec![envelope_event(
+        "rotation_role",
+        subtr_actor::EventTiming::Span {
+            start_frame: 0,
+            end_frame: 60,
+            start_time: 0.0,
+            end_time: 1.0,
+        },
+        subtr_actor::EventPayload::RotationRole(subtr_actor::RotationRoleEvent {
+            time: 0.0,
+            frame: 0,
+            end_time: 1.0,
+            end_frame: 60,
+            duration: 1.0,
+            player,
+            player_position: None,
+            is_team_0: true,
+            state: subtr_actor::RoleState::FirstMan,
+        }),
+    )]));
 
     let indexed = build_indexed_events(&timeline).expect("rotation should index");
     let role_spans = indexed
         .iter()
-        .filter(|event| event.source_stream == "rotation_role_span")
-        .collect::<Vec<_>>();
-    let first_man_stints = indexed
-        .iter()
-        .filter(|event| event.event_type_key == "rotation_first_man_stint")
-        .collect::<Vec<_>>();
-    let rotation_player_events = indexed
-        .iter()
-        .filter(|event| event.source_stream == "rotation_player")
+        .filter(|event| event.source_stream == "rotation_role")
         .collect::<Vec<_>>();
 
     assert_eq!(role_spans.len(), 1);
     assert_eq!(role_spans[0].event_type_key, "rotation_role_first_man");
     assert_eq!(role_spans[0].category, "positioning");
-    assert_eq!(first_man_stints.len(), 0);
-    // Per-frame rotation_player state spans are no longer indexed as play
-    // events; they live only in the event stream object.
-    assert_eq!(rotation_player_events.len(), 0);
 }
 
 #[test]
-fn build_indexed_events_indexes_rotation_first_man_stint_durations() {
-    // subtr-actor emits rotation_first_man_stint spans directly; rocket-sense just
-    // indexes them.
+fn build_indexed_events_indexes_ball_depth_span_durations() {
     let player = RemoteId::Steam(76561198000000001);
     let timeline = stats_timeline_with_events(timeline_events_from(vec![envelope_event(
-        "rotation_first_man_stint",
+        "ball_depth",
         subtr_actor::EventTiming::Span {
             start_frame: 0,
             end_frame: 2,
             start_time: 0.0,
             end_time: 1.0,
         },
-        subtr_actor::EventPayload::RotationFirstManStint(subtr_actor::RotationFirstManStintEvent {
+        subtr_actor::EventPayload::BallDepth(subtr_actor::BallDepthEvent {
             time: 0.0,
             frame: 0,
             end_time: 1.0,
@@ -948,17 +920,20 @@ fn build_indexed_events_indexes_rotation_first_man_stint_durations() {
             player,
             player_position: None,
             is_team_0: true,
+            state: subtr_actor::BallDepthState::BehindBall,
         }),
     )]));
 
-    let indexed = build_indexed_events(&timeline).expect("rotation should index");
-    let rotation_rows = indexed
+    let indexed = build_indexed_events(&timeline).expect("ball depth should index");
+    let depth_rows = indexed
         .iter()
-        .filter(|event| event.event_type_key == "rotation_first_man_stint")
+        .filter(|event| event.event_type_key == "ball_depth_behind_ball")
         .collect::<Vec<_>>();
 
-    assert_eq!(rotation_rows.len(), 1);
-    let row = rotation_rows[0];
+    assert_eq!(depth_rows.len(), 1);
+    let row = depth_rows[0];
+    assert_eq!(row.source_stream, "ball_depth");
+    assert_eq!(row.category, "positioning");
     assert_eq!(row.start_frame, Some(0));
     assert_eq!(row.end_frame, Some(2));
     assert_eq!(row.start_time, Some(0.0));
@@ -1029,46 +1004,6 @@ fn moment_event(
         subtr_actor::EventTiming::Moment { frame, time },
         payload,
     )
-}
-
-fn rotation_player_event(
-    time: f32,
-    frame: usize,
-    player: RemoteId,
-    is_team_0: bool,
-    current_role_state: subtr_actor::RoleState,
-) -> subtr_actor::RotationPlayerEvent {
-    rotation_player_event_with_depth(
-        time,
-        frame,
-        player,
-        is_team_0,
-        current_role_state,
-        subtr_actor::PlayDepthState::BehindPlay,
-    )
-}
-
-fn rotation_player_event_with_depth(
-    time: f32,
-    frame: usize,
-    player: RemoteId,
-    is_team_0: bool,
-    current_role_state: subtr_actor::RoleState,
-    current_depth_state: subtr_actor::PlayDepthState,
-) -> subtr_actor::RotationPlayerEvent {
-    subtr_actor::RotationPlayerEvent {
-        time,
-        frame,
-        end_time: time,
-        end_frame: frame,
-        duration: 0.0,
-        player,
-        player_position: None,
-        is_team_0,
-        active: true,
-        current_role_state,
-        current_depth_state,
-    }
 }
 
 fn touch_stats_event(

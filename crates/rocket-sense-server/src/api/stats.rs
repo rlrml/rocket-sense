@@ -275,9 +275,14 @@ const AGGREGATE_HIDDEN_EVENT_SOURCE_STREAMS: &[&str] = &[
     "rotation_player",
     "rotation_role_span",
     "rotation_depth_span",
+    "rotation_role",
+    "ball_depth",
+    "field_third",
+    "field_half",
+    "ball_proximity",
     "powerslide",
 ];
-const AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL: &str = "source_stream NOT IN ('positioning', 'boost_state', 'boost_ledger', 'movement', 'rotation_player', 'rotation_role_span', 'rotation_depth_span', 'powerslide')";
+const AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL: &str = "source_stream NOT IN ('positioning', 'boost_state', 'boost_ledger', 'movement', 'rotation_player', 'rotation_role_span', 'rotation_depth_span', 'rotation_role', 'ball_depth', 'field_third', 'field_half', 'ball_proximity', 'powerslide')";
 
 #[derive(Debug, Clone)]
 struct StatCountRow {
@@ -872,7 +877,10 @@ async fn load_rotation_duration_histogram(
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = appearance.run_id
-                 AND event.source_stream = 'rotation_first_man_stint'
+                 AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
+                JOIN event_types et
+                  ON et.id = event.event_type_id
+                 AND et.key IN ('rotation_first_man_stint', 'rotation_role_first_man')
             ),
             bucketed AS (
                 SELECT floor(duration_seconds /
@@ -888,10 +896,10 @@ async fn load_rotation_duration_histogram(
                 JOIN play_events event
                   ON event.replay_id = r.id
                  AND event.analysis_run_id = r.canonical_analysis_run_id
-                 AND event.source_stream = 'rotation_first_man_stint'
+                 AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
                 JOIN event_types et
                   ON et.id = event.event_type_id
-                 AND et.key = 'rotation_first_man_stint'
+                 AND et.key IN ('rotation_first_man_stint', 'rotation_role_first_man')
                 WHERE r.canonical_analysis_run_id IS NOT NULL
             "#,
         );
@@ -962,7 +970,10 @@ async fn load_teammate_rotation_duration_histogram(
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = appearance.run_id
-             AND event.source_stream = 'rotation_first_man_stint'
+             AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key IN ('rotation_first_man_stint', 'rotation_role_first_man')
         ),
         bucketed AS (
             SELECT floor(duration_seconds /
