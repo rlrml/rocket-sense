@@ -1195,10 +1195,22 @@ button.status-stale:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* The outcome bar rides full-width beneath each taker row, so drop the bottom
+   border between the stats row and its detail and keep the two visually joined. */
+.kickoff-player-table tr.has-row-detail td {
+  border-bottom: 0;
+}
+
+.kickoff-player-table tr.kickoff-row-detail td {
+  padding-top: 2px;
+  padding-bottom: 12px;
+  white-space: normal;
+}
+
 .kickoff-outcome-tug {
   display: grid;
   gap: 4px;
-  min-width: 170px;
+  width: 100%;
 }
 
 .kickoff-outcome-tug-track.stat-segmented-track {

@@ -1,6 +1,6 @@
 import type { ReplayModel } from "@rlrml/player";
 import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
+import { type CSSProperties, Fragment, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -349,14 +349,6 @@ const GOALS_COLUMN: KickoffPlayerColumn = {
   ),
 };
 
-// Win strength is a property of the kickoff a player took, so it belongs with the
-// taker table only; support rows stay lean.
-const STRENGTH_COLUMN: KickoffPlayerColumn = {
-  key: "strength",
-  label: "Outcomes",
-  render: (summary) => <KickoffStrengthSummary outcomes={summary.strengthOutcomes} team={summary.team} />,
-};
-
 const TAKER_COLUMNS: KickoffPlayerColumn[] = [
   PLAYER_COLUMN,
   { key: "takes", label: "Takes", render: (summary) => summary.takerCount },
@@ -368,7 +360,6 @@ const TAKER_COLUMNS: KickoffPlayerColumn[] = [
   { key: "boostUsed", label: "Boost used", render: (summary) => formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount) },
   { key: "approach", label: "Approach", render: (summary) => topMapLabel(summary.approaches) },
   GOALS_COLUMN,
-  STRENGTH_COLUMN,
 ];
 
 const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
@@ -378,12 +369,24 @@ const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
   GOALS_COLUMN,
 ];
 
+// Win strength is a property of the kickoff a player took, so the outcome bar
+// rides beneath the taker rows only; support rows stay lean.
+function takerOutcomeDetail(summary: PlayerKickoffSummary): ReactNode {
+  return <KickoffStrengthSummary outcomes={summary.strengthOutcomes} team={summary.team} />;
+}
+
 function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }) {
   const takers = summaries.filter((summary) => summary.takerCount > 0);
   const supports = summaries.filter((summary) => summary.supportCount > 0);
   return (
     <div className="kickoff-player-tables">
-      <KickoffRoleTable label="Takers" columns={TAKER_COLUMNS} summaries={takers} emptyLabel="No taker data yet." />
+      <KickoffRoleTable
+        label="Takers"
+        columns={TAKER_COLUMNS}
+        summaries={takers}
+        emptyLabel="No taker data yet."
+        renderRowDetail={takerOutcomeDetail}
+      />
       <KickoffRoleTable label="Support" columns={SUPPORT_COLUMNS} summaries={supports} emptyLabel="No support data yet." />
     </div>
   );
@@ -394,11 +397,14 @@ function KickoffRoleTable({
   columns,
   summaries,
   emptyLabel,
+  renderRowDetail,
 }: {
   label: string;
   columns: KickoffPlayerColumn[];
   summaries: PlayerKickoffSummary[];
   emptyLabel: string;
+  /** Optional full-width content rendered in a row beneath each player's stats. */
+  renderRowDetail?: (summary: PlayerKickoffSummary) => ReactNode;
 }) {
   return (
     <div className="kickoff-player-table-group">
@@ -414,13 +420,23 @@ function KickoffRoleTable({
               </tr>
             </thead>
             <tbody>
-              {summaries.map((summary) => (
-                <tr className={`team-row-${teamClass(summary.team)}`} key={summary.key}>
-                  {columns.map((column) => (
-                    <td key={column.key}>{column.render(summary)}</td>
-                  ))}
-                </tr>
-              ))}
+              {summaries.map((summary) => {
+                const detail = renderRowDetail?.(summary);
+                return (
+                  <Fragment key={summary.key}>
+                    <tr className={`team-row-${teamClass(summary.team)}${detail ? " has-row-detail" : ""}`}>
+                      {columns.map((column) => (
+                        <td key={column.key}>{column.render(summary)}</td>
+                      ))}
+                    </tr>
+                    {detail ? (
+                      <tr className={`team-row-${teamClass(summary.team)} kickoff-row-detail`}>
+                        <td colSpan={columns.length}>{detail}</td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
