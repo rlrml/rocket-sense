@@ -1,8 +1,26 @@
+import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+
+// Resolve a path to its real location, tolerating paths that don't exist yet.
+// In a git worktree, node_modules and vendor/subtr-actor are often symlinks into
+// the main checkout; vite resolves served files to their real paths before the
+// fs.allow check, so those real locations must be allowed too or assets like the
+// subtr-actor wasm module 403.
+const realPathOf = (relative: string): string => {
+  const path = fileURLToPath(new URL(relative, import.meta.url));
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+};
+const fsAllow = [repoRoot, realPathOf("node_modules"), realPathOf("../vendor/subtr-actor")].filter(
+  (path, index, all) => all.indexOf(path) === index,
+);
 
 const backendTarget = process.env.ROCKET_SENSE_WEB_API_TARGET ?? "https://rocket-sense.duckdns.org";
 
@@ -27,8 +45,9 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: apiProxy,
-    // Allow serving files from the repo root (e.g. vendored package realpaths).
-    fs: { allow: [repoRoot] },
+    // Allow serving files from the repo root (e.g. vendored package realpaths),
+    // plus the real locations of any worktree symlinks.
+    fs: { allow: fsAllow },
   },
   preview: {
     port: 5173,

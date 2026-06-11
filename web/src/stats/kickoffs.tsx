@@ -1,11 +1,10 @@
 import type { ReplayModel } from "@rlrml/player";
-import { CircleDotDashed, Gauge, Goal, type LucideIcon, Route, ShieldCheck, Trophy, Video } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, type MouseEvent as ReactMouseEvent, Suspense, useCallback, useMemo, useState } from "react";
+import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
+import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
 import { useEventPreviewSelection } from "./eventPreview";
-import { canonicalSpawn, fieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { KickoffShapeIcon } from "./KickoffShapeIcon";
 import type { KickoffPathPlayer } from "./KickoffShapeDiagram";
 
@@ -397,10 +396,9 @@ function KickoffCard({
 } & KickoffPerspectiveProps) {
   const blueSupport = kickoff.teamZeroSupport;
   const orangeSupport = kickoff.teamOneSupport;
-  const [showPaths, setShowPaths] = useState(false);
 
-  // The card is a clickable region but it now contains its own interactive
-  // controls (the "Show paths" toggle), so it can't be a <button> — nested
+  // The card is a clickable region but it contains its own interactive controls
+  // (the per-player perspective buttons), so it can't be a <button> — nested
   // buttons are invalid. It behaves as a button via role + keyboard handlers.
   const activate = (force: boolean) => onActivate(force);
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -409,11 +407,6 @@ function KickoffCard({
       event.preventDefault();
       activate(true);
     }
-  };
-  const togglePaths = (event: ReactMouseEvent) => {
-    event.stopPropagation();
-    setShowPaths((value) => !value);
-    activate(false);
   };
 
   return (
@@ -428,61 +421,59 @@ function KickoffCard({
     >
       <KickoffTakerSection kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
 
-      <header className="kickoff-card-header">
-        <div className="kickoff-card-heading">
-          <div className="kickoff-type-row">
-            <KickoffShapeIcon
-              type={kickoff.kickoffType}
-              direction={kickoff.kickoffDirection}
-              size={26}
-              className="kickoff-type-icon"
-              title={`${kickoffTypeName(kickoff.kickoffType) ?? "Other"} ${kickoffDirectionName(kickoff.kickoffDirection)} kickoff`}
-            />
-            {kickoffTypeChips(kickoff).map((chip) => (
-              <span className={`kickoff-type-pill ${chip.muted ? "muted" : ""}`} key={chip.key}>
-                {chip.value}
-              </span>
-            ))}
-            {kickoff.kickoffGoal ? <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>Goal in {formatSeconds(kickoff.timeToGoal)}</span> : null}
-          </div>
-        </div>
-        <div className="kickoff-time-block">
-          <strong>{formatSeconds(kickoff.startTime)}</strong>
-          <span>{kickoff.takerDelayFrames == null ? "No taker gap" : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}</span>
-        </div>
-      </header>
-
-      <div className="kickoff-outcome-grid">
-        <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
-        <KickoffFact icon={ShieldCheck} label="Possession" value={kickoffPossessionLabel(kickoff)} team={kickoff.possessionTeam} />
-        <KickoffFact icon={ShieldCheck} label="Next possession" value={formatNextPossession(kickoff.nextPossession)} team={kickoff.nextPossession?.team ?? kickoff.possessionTeam} />
-        <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
-        <KickoffFact icon={Gauge} label="Exit speed" value={formatSpeed(kickoff.exitSpeed)} team={null} />
-      </div>
-
-      <KickoffMiniDiagram kickoff={kickoff} />
-
-      <div className="kickoff-paths-control">
-        <button type="button" className={`kickoff-paths-toggle ${showPaths ? "active" : ""}`} onClick={togglePaths}>
-          <Route size={14} />
-          {showPaths ? "Hide paths" : "Show paths & ball trajectory"}
-        </button>
-      </div>
-      {showPaths ? (
-        <Suspense fallback={<div className="kickoff-path-status">Loading kickoff paths…</div>}>
-          <KickoffShapeDiagram
-            replayId={replayId}
-            startFrame={kickoffPathStartFrame(kickoff)}
-            endFrame={kickoffPathEndFrame(kickoff)}
-            winningTeam={kickoff.winningTeam}
-            players={kickoffPathPlayers(kickoff)}
-          />
-        </Suspense>
-      ) : null}
-
       <div className="kickoff-team-grid">
         <KickoffTeamColumn label="Blue support" team={0} behaviors={blueSupport} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
         <KickoffTeamColumn label="Orange support" team={1} behaviors={orangeSupport} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+      </div>
+
+      <div className="kickoff-card-body">
+        <section className="kickoff-diagram-panel">
+          <div className="kickoff-section-title">
+            <span>Shape</span>
+            <strong>{kickoffShapeLabel(kickoff)}</strong>
+          </div>
+          <Suspense fallback={<div className="kickoff-path-status">Loading kickoff paths…</div>}>
+            <KickoffShapeDiagram
+              replayId={replayId}
+              startFrame={kickoffPathStartFrame(kickoff)}
+              endFrame={kickoffPathEndFrame(kickoff)}
+              winningTeam={kickoff.winningTeam}
+              players={kickoffPathPlayers(kickoff)}
+            />
+          </Suspense>
+        </section>
+
+        <div className="kickoff-card-details">
+          <header className="kickoff-card-header">
+            <div className="kickoff-type-row">
+              <KickoffShapeIcon
+                type={kickoff.kickoffType}
+                direction={kickoff.kickoffDirection}
+                size={26}
+                className="kickoff-type-icon"
+                title={`${kickoffTypeName(kickoff.kickoffType) ?? "Other"} ${kickoffDirectionName(kickoff.kickoffDirection)} kickoff`}
+              />
+              {kickoffTypeChips(kickoff).map((chip) => (
+                <span className={`kickoff-type-pill ${chip.muted ? "muted" : ""}`} key={chip.key}>
+                  {chip.value}
+                </span>
+              ))}
+              <span className="kickoff-time-pill">{formatSeconds(kickoff.startTime)}</span>
+              <span className="kickoff-type-pill muted">
+                {kickoff.takerDelayFrames == null ? "No taker gap" : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}
+              </span>
+              {kickoff.kickoffGoal ? <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>Goal in {formatSeconds(kickoff.timeToGoal)}</span> : null}
+            </div>
+          </header>
+
+          <div className="kickoff-outcome-grid">
+            <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
+            <KickoffFact icon={ShieldCheck} label="Possession" value={kickoffPossessionLabel(kickoff)} team={kickoff.possessionTeam} />
+            <KickoffFact icon={ShieldCheck} label="Next possession" value={formatNextPossession(kickoff.nextPossession)} team={kickoff.nextPossession?.team ?? kickoff.possessionTeam} />
+            <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
+            <KickoffFact icon={Gauge} label="Exit speed" value={formatSpeed(kickoff.exitSpeed)} team={null} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -554,77 +545,6 @@ function KickoffFact({
       <strong>{value}</strong>
     </div>
   );
-}
-
-// A compact, scale-accurate portrait pitch showing where every player started the
-// kickoff. Positions come from real replay start coordinates when available, and
-// fall back to canonical spawn locations otherwise.
-const MINI_DIAGRAM_PROJECTION = fieldProjection(248, 30);
-
-function KickoffMiniDiagram({ kickoff }: { kickoff: KickoffRow }) {
-  const players = [
-    kickoff.teamZeroTaker,
-    kickoff.teamOneTaker,
-    ...kickoff.teamZeroSupport,
-    ...kickoff.teamOneSupport,
-  ].filter(Boolean) as KickoffPlayerBehavior[];
-
-  const projection = MINI_DIAGRAM_PROJECTION;
-  const ball = projection.project(0, 0);
-  const labelSize = projection.toUnits(620);
-
-  return (
-    <section className="kickoff-diagram-panel">
-      <div className="kickoff-section-title">
-        <span>Shape</span>
-        <strong>{kickoffShapeLabel(kickoff)}</strong>
-      </div>
-      <svg
-        className="kickoff-mini-diagram"
-        viewBox={`0 0 ${projection.width} ${projection.height}`}
-        role="img"
-        aria-label={`Kickoff ${kickoff.index + 1} shape`}
-      >
-        <KickoffFieldBackground projection={projection} />
-        {players.map((player, index) => {
-          const fieldPoint = behaviorFieldPoint(player);
-          if (!fieldPoint) return null;
-          const point = projection.project(fieldPoint.x, fieldPoint.y);
-          const isWinner = player.team != null && player.team === kickoff.winningTeam;
-          const radius = projection.toUnits(player.role === "taker" ? 470 : 360);
-          return (
-            <g
-              className={`kickoff-diagram-player team-diagram-${teamClass(player.team)} ${player.role === "taker" ? "taker" : "support"} ${isWinner ? "winner" : ""}`}
-              key={`${player.playerKey ?? player.playerName}:${player.role}:${index}`}
-            >
-              {player.role === "taker" ? (
-                <line className="kickoff-diagram-lane" x1={point.x} y1={point.y} x2={ball.x} y2={ball.y} vectorEffect="non-scaling-stroke" />
-              ) : null}
-              <circle cx={point.x} cy={point.y} r={radius} vectorEffect="non-scaling-stroke" />
-              <text x={point.x} y={point.y + labelSize * 0.35} fontSize={labelSize}>
-                {player.role === "taker" ? "T" : "S"}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </section>
-  );
-}
-
-// Resolve a player's kickoff start point in field coordinates (uu), preferring the
-// real recorded start position and falling back to the canonical spawn for their
-// labeled spawn slot, then to their team's back-center spawn.
-function behaviorFieldPoint(player: KickoffPlayerBehavior): { x: number; y: number } | null {
-  if (player.startPosition) {
-    return { x: player.startPosition[0], y: player.startPosition[1] };
-  }
-  const team = player.team ?? 0;
-  if (player.spawn) {
-    const spawn = canonicalSpawn(player.spawn, team);
-    if (spawn) return spawn;
-  }
-  return canonicalSpawn("center", team);
 }
 
 function KickoffTakerSection({ kickoff, perspectiveKey, onPerspective }: { kickoff: KickoffRow } & KickoffPerspectiveProps) {

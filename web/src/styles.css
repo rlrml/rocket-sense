@@ -1246,18 +1246,26 @@ button.status-stale:hover {
   border-left-color: #64748b;
 }
 
+/* Two-column card body: field diagram on the left, kickoff type/time and the
+   outcome facts on the right, so the card reads as a compact square instead of
+   a long vertical stack. */
+.kickoff-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+.kickoff-card-details {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
 .kickoff-card-header {
   display: grid;
   gap: 8px;
   justify-items: start;
-}
-
-.kickoff-card-heading {
-  display: grid;
-  justify-items: start;
-  gap: 7px;
-  min-width: 0;
-  text-align: left;
 }
 
 /* Player chips that retarget the kickoff preview camera on hover. */
@@ -1372,21 +1380,19 @@ button.status-stale:hover {
   color: #334155;
 }
 
-.kickoff-time-block {
-  display: grid;
-  gap: 2px;
-  text-align: left;
-}
-
-.kickoff-time-block strong {
+/* Game-clock chip, shaped like the type pills for visual consistency. */
+.kickoff-time-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid #d7e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 16px;
-}
-
-.kickoff-time-block span {
-  color: var(--muted);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 850;
 }
 
 .kickoff-view-button {
@@ -1396,6 +1402,9 @@ button.status-stale:hover {
 
 .kickoff-diagram-panel {
   display: grid;
+  /* Title row on top; the diagram row absorbs leftover height so the field
+     centers vertically when the player column is taller. */
+  grid-template-rows: auto 1fr;
   gap: 10px;
   min-width: 0;
   padding: 10px;
@@ -1404,14 +1413,7 @@ button.status-stale:hover {
   background: #f8fafc;
 }
 
-.kickoff-mini-diagram {
-  display: block;
-  height: auto;
-  max-height: 260px;
-  margin: 0 auto;
-}
-
-/* ---- Shared, scale-accurate field furniture (mini diagram + path diagram) ---- */
+/* ---- Shared, scale-accurate field furniture for the kickoff path diagram ---- */
 .kickoff-field-bounds {
   fill: #eef2f7;
   stroke: #cbd5e1;
@@ -1451,40 +1453,6 @@ button.status-stale:hover {
   fill: #f8fafc;
   stroke: #17202a;
   stroke-width: 1.5;
-}
-
-.kickoff-diagram-lane {
-  stroke: rgba(15, 23, 42, 0.24);
-  stroke-dasharray: 5 5;
-  stroke-width: 1.5;
-}
-
-.kickoff-diagram-player circle {
-  stroke: #fff;
-  stroke-width: 1.5;
-}
-
-.kickoff-diagram-player text {
-  fill: #fff;
-  font-weight: 900;
-  text-anchor: middle;
-}
-
-.team-diagram-blue circle {
-  fill: #2563eb;
-}
-
-.team-diagram-orange circle {
-  fill: #ea580c;
-}
-
-.team-diagram-neutral circle {
-  fill: #64748b;
-}
-
-.kickoff-diagram-player.winner circle {
-  stroke: #111827;
-  stroke-width: 2.5;
 }
 
 /* ---- Canonical shape icon ---- */
@@ -1539,35 +1507,6 @@ button.status-stale:hover {
 }
 
 /* ---- Large path diagram ---- */
-.kickoff-paths-control {
-  display: flex;
-  justify-content: center;
-}
-
-.kickoff-paths-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid #d7e0ec;
-  border-radius: 999px;
-  background: #fff;
-  color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.kickoff-paths-toggle:hover {
-  border-color: #94a3b8;
-  background: #f8fafc;
-}
-
-.kickoff-paths-toggle.active {
-  border-color: #2563eb;
-  color: #2563eb;
-  background: #eff6ff;
-}
 
 .kickoff-path-status {
   padding: 16px;
@@ -1576,20 +1515,18 @@ button.status-stale:hover {
   font-size: 13px;
 }
 
+/* Sits inside .kickoff-diagram-panel, which provides the border/background. */
 .kickoff-path-diagram {
   display: grid;
-  gap: 8px;
+  align-content: center;
   justify-items: center;
-  padding: 8px;
-  border: 1px solid #d7e0ec;
-  border-radius: 8px;
-  background: #f8fafc;
+  min-width: 0;
 }
 
 .kickoff-path-svg {
   display: block;
   width: 100%;
-  max-width: 460px;
+  max-width: 560px;
   height: auto;
 }
 
@@ -1662,45 +1599,6 @@ button.status-stale:hover {
 
 .kickoff-arrow.orange path {
   fill: #ea580c;
-}
-
-.kickoff-path-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 12px;
-}
-
-.kickoff-path-legend li {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.kickoff-path-swatch {
-  width: 14px;
-  height: 3px;
-  border-radius: 2px;
-}
-
-.kickoff-path-legend .team-blue .kickoff-path-swatch {
-  background: #2563eb;
-}
-
-.kickoff-path-legend .team-orange .kickoff-path-swatch {
-  background: #ea580c;
-}
-
-.kickoff-path-name {
-  font-weight: 600;
-  color: var(--text-strong);
-}
-
-.kickoff-path-role {
-  color: var(--text-muted, #64748b);
 }
 
 .kickoff-taker-section {
@@ -4290,6 +4188,7 @@ button.status-stale:hover {
   .kickoff-preview,
   .selected-kickoff-summary,
   .kickoff-outcome-grid,
+  .kickoff-card-body,
   .kickoff-team-grid {
     grid-template-columns: 1fr;
   }
@@ -4298,22 +4197,12 @@ button.status-stale:hover {
     height: 320px;
   }
 
-  .kickoff-card-header {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
   .kickoff-taker-grid {
     grid-template-columns: 1fr;
   }
 
   .kickoff-taker-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .kickoff-time-block {
-    grid-column: 1 / -1;
-    order: 3;
-    text-align: left;
   }
 
   .kickoff-behavior-row {
