@@ -1226,33 +1226,6 @@ tbody tr:last-child td {
   text-align: left;
 }
 
-.kickoff-taker-versus {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 6px 9px;
-  align-items: center;
-  margin: 0;
-  font-size: 18px;
-  text-align: left;
-}
-
-.kickoff-taker-name {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  padding-left: 8px;
-  border-left: 4px solid transparent;
-  line-height: 1.15;
-}
-
-.kickoff-versus {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 850;
-  text-transform: uppercase;
-}
-
 .kickoff-type-row {
   display: flex;
   flex-wrap: wrap;
@@ -1488,6 +1461,18 @@ tbody tr:last-child td {
   color: #fff;
 }
 
+/* Continuous winner shading: --win-shade (set inline from win_strength) mixes
+   the team color into the background, overriding the banded fallbacks above. */
+.kickoff-taker-tile.team-taker-blue.winner.shade-scaled {
+  border-color: #1d4ed8;
+  background: color-mix(in srgb, #2563eb calc(var(--win-shade, 0.5) * 100%), #fff);
+}
+
+.kickoff-taker-tile.team-taker-orange.winner.shade-scaled {
+  border-color: #c2410c;
+  background: color-mix(in srgb, #ea580c calc(var(--win-shade, 0.5) * 100%), #fff);
+}
+
 .kickoff-taker-heading {
   display: flex;
   align-items: start;
@@ -1518,11 +1503,15 @@ tbody tr:last-child td {
 }
 
 .kickoff-taker-tile.winner.strength-strong .kickoff-taker-heading span,
+.kickoff-taker-tile.winner.shade-dark .kickoff-taker-heading span,
+.kickoff-taker-tile.winner.shade-dark .kickoff-taker-details strong,
 .kickoff-taker-tile.winner.strength-strong .kickoff-taker-details strong {
   color: rgba(255, 255, 255, 0.78);
 }
 
 .kickoff-taker-tile.winner.strength-strong .kickoff-taker-heading strong,
+.kickoff-taker-tile.winner.shade-dark .kickoff-taker-heading strong,
+.kickoff-taker-tile.winner.shade-dark .kickoff-taker-details span,
 .kickoff-taker-tile.winner.strength-strong .kickoff-taker-details span {
   color: #fff;
 }
@@ -1544,7 +1533,8 @@ tbody tr:last-child td {
   color: #166534;
 }
 
-.kickoff-taker-tile.winner.strength-strong .kickoff-taker-result.won {
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-result.won,
+.kickoff-taker-tile.winner.shade-dark .kickoff-taker-result.won {
   background: rgba(255, 255, 255, 0.2);
   color: #fff;
 }
@@ -1577,7 +1567,8 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-.kickoff-taker-tile.winner.strength-strong .kickoff-taker-details span {
+.kickoff-taker-tile.winner.strength-strong .kickoff-taker-details span,
+.kickoff-taker-tile.winner.shade-dark .kickoff-taker-details span {
   background: rgba(255, 255, 255, 0.14);
 }
 

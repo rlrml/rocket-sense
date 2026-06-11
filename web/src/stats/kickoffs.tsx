@@ -1,6 +1,6 @@
 import type { ReplayModel } from "@rlrml/player";
 import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy } from "lucide-react";
-import { lazy, Suspense, useCallback, useMemo } from "react";
+import { type CSSProperties, lazy, Suspense, useCallback, useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -56,6 +56,7 @@ interface KickoffRow {
   timeToGoal: number | null;
   takerDelayFrames: number | null;
   exitSpeed: number | null;
+  winStrength: number | null;
   winStrengthBand: KickoffStrengthBand;
   firstTouch: KickoffTouch;
   followUpTouch: KickoffTouch;
@@ -365,9 +366,10 @@ function KickoffCard({
       onMouseEnter={() => onActivate(false)}
       onFocus={() => onActivate(false)}
     >
+      <KickoffTakerSection kickoff={kickoff} />
+
       <header className="kickoff-card-header">
         <div className="kickoff-card-heading">
-          <KickoffTakerVersus kickoff={kickoff} />
           <div className="kickoff-type-row">
             {kickoffTypeChips(kickoff).map((chip) => (
               <span className={`kickoff-type-pill ${chip.muted ? "muted" : ""}`} key={chip.key}>
@@ -393,27 +395,11 @@ function KickoffCard({
 
       <KickoffMiniDiagram kickoff={kickoff} />
 
-      <KickoffTakerSection kickoff={kickoff} />
-
       <div className="kickoff-team-grid">
         <KickoffTeamColumn label="Blue support" team={0} behaviors={blueSupport} kickoff={kickoff} />
         <KickoffTeamColumn label="Orange support" team={1} behaviors={orangeSupport} kickoff={kickoff} />
       </div>
     </button>
-  );
-}
-
-function KickoffTakerVersus({ kickoff }: { kickoff: KickoffRow }) {
-  return (
-    <h4 className="kickoff-taker-versus">
-      <span className={`kickoff-taker-name team-accent-${teamClass(0)}`}>
-        {kickoff.teamZeroTaker?.playerName ?? "Blue taker"}
-      </span>
-      <span className="kickoff-versus">vs</span>
-      <span className={`kickoff-taker-name team-accent-${teamClass(1)}`}>
-        {kickoff.teamOneTaker?.playerName ?? "Orange taker"}
-      </span>
-    </h4>
   );
 }
 
@@ -478,7 +464,10 @@ function KickoffTakerSection({ kickoff }: { kickoff: KickoffRow }) {
     <section className="kickoff-taker-section">
       <div className="kickoff-section-title">
         <span>Takers</span>
-        <strong>{strengthBandLabel(kickoff.winStrengthBand)} win</strong>
+        <strong>
+          {strengthBandLabel(kickoff.winStrengthBand)} win
+          {kickoff.winStrength == null ? "" : ` · ${Math.round(clampFraction(kickoff.winStrength) * 100)}%`}
+        </strong>
       </div>
       <div className="kickoff-taker-grid">
         <KickoffTakerTile behavior={kickoff.teamZeroTaker} team={0} kickoff={kickoff} />
@@ -498,17 +487,23 @@ function KickoffTakerTile({
   kickoff: KickoffRow;
 }) {
   const won = kickoff.winningTeam === team;
+  const winShade = won ? kickoffWinShade(kickoff.winStrength) : null;
   const className = [
     "kickoff-taker-tile",
     `team-taker-${teamClass(team)}`,
     won ? `winner strength-${kickoff.winStrengthBand}` : "",
+    winShade == null ? "" : "shade-scaled",
+    winShade != null && winShade >= 0.55 ? "shade-dark" : "",
   ].filter(Boolean).join(" ");
   const boostAfter = behavior?.boostAfter == null ? "-" : `${formatBoostAmount(behavior.boostAfter)} after`;
   const boostUsed = behavior?.boostUsed == null ? "-" : `${formatBoostAmount(behavior.boostUsed)} used`;
   const touchTime = behavior ? playerKickoffTime(kickoff, behavior) : null;
 
   return (
-    <div className={className}>
+    <div
+      className={className}
+      style={winShade == null ? undefined : ({ "--win-shade": String(winShade) } as CSSProperties)}
+    >
       <div className="kickoff-taker-heading">
         <div>
           <span>{teamLabel(team)}</span>
@@ -672,6 +667,7 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     timeToGoal: numberField(payload, "time_to_goal"),
     takerDelayFrames,
     exitSpeed: numberField(payload, "exit_speed"),
+    winStrength: numberField(payload, "win_strength"),
     winStrengthBand: strengthBand(stringField(payload, "win_strength_band")),
     firstTouch: kickoffTouch(payload, "first_touch", players),
     followUpTouch: kickoffTouch(payload, "first_follow_up_touch", players),
@@ -1172,6 +1168,19 @@ function possessionStateTeam(value: string | null): number | null {
 
 function strengthBand(value: string | null): KickoffStrengthBand {
   return value === "narrow" || value === "clear" || value === "strong" ? value : "unknown";
+}
+
+// win_strength is a 0..1 half-field fraction; clamping also tames values from
+// analysis runs that predate the redesigned metric.
+function clampFraction(value: number): number {
+  return Math.min(Math.max(value, 0), 1);
+}
+
+// Fraction of the winning team's color mixed into the tile background: keep a
+// visible floor for narrow wins and saturate fully at win_strength 1.0.
+function kickoffWinShade(winStrength: number | null): number | null {
+  if (winStrength == null) return null;
+  return 0.15 + 0.85 * clampFraction(winStrength);
 }
 
 function strengthBandLabel(value: KickoffStrengthBand): string {
