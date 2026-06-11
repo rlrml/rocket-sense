@@ -509,8 +509,16 @@ function KickoffTakerTile({
           <span>{teamLabel(team)}</span>
           <strong>{behavior?.playerName ?? "Unknown taker"}</strong>
         </div>
-        <span className={`kickoff-taker-result ${won ? "won" : "lost"}`}>
-          {won ? "Won" : kickoff.winningTeam == null ? "Neutral" : "Lost"}
+        <span className="kickoff-taker-badges">
+          {behavior != null && isFirstToucher(kickoff, behavior) ? (
+            <span className="kickoff-first-touch-pill">
+              <CircleDotDashed size={12} />
+              First touch
+            </span>
+          ) : null}
+          <span className={`kickoff-taker-result ${won ? "won" : "lost"}`}>
+            {won ? "Won" : kickoff.winningTeam == null ? "Neutral" : "Lost"}
+          </span>
         </span>
       </div>
       <div className="kickoff-taker-details">
@@ -570,6 +578,12 @@ function KickoffBehaviorRow({ behavior, kickoff }: { behavior: KickoffPlayerBeha
         <span>{behavior.role === "taker" ? "Taker" : "Support"}</span>
       </div>
       <div className="kickoff-behavior-tags">
+        {isFirstToucher(kickoff, behavior) ? (
+          <span className="kickoff-first-touch-pill">
+            <CircleDotDashed size={12} />
+            First touch
+          </span>
+        ) : null}
         <span>{formatLabel(primary) || "Unknown"}</span>
         {secondary ? <span>{formatLabel(secondary)}</span> : null}
         {behavior.role === "taker" && behavior.timeToBall != null ? <span>{formatDuration(behavior.timeToBall)} to ball</span> : null}
@@ -1168,6 +1182,17 @@ function possessionStateTeam(value: string | null): number | null {
 
 function strengthBand(value: string | null): KickoffStrengthBand {
   return value === "narrow" || value === "clear" || value === "strong" ? value : "unknown";
+}
+
+// The first touch can belong to a support player, so match identity rather
+// than role; player keys are missing for some platforms, hence the name
+// fallback.
+function isFirstToucher(kickoff: KickoffRow, behavior: KickoffPlayerBehavior): boolean {
+  const touch = kickoff.firstTouch;
+  if (touch.playerKey != null && behavior.playerKey != null) {
+    return touch.playerKey === behavior.playerKey;
+  }
+  return touch.playerName !== "" && touch.playerName !== "Unknown" && touch.playerName === behavior.playerName;
 }
 
 // win_strength is a 0..1 half-field fraction; clamping also tames values from
