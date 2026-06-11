@@ -716,6 +716,12 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
             "taker_touch_delay_seconds": 0.18,
             "exit_speed": 2180.0,
             "exit_y_velocity": 1320.0,
+            "advantage": "team_one_possession",
+            "advantage_team_is_team_0": false,
+            "advantage_player": { "Epic": "follow-up" },
+            "advantage_time": 4.8,
+            "advantage_frame": 288,
+            "advantage_seconds_after_first_touch": 3.35,
             "team_zero_taker": {
                 "player": { "Steam": 76561198000000001_u64 },
                 "is_team_0": true,
@@ -791,6 +797,15 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
         detail.first_follow_up_touch_subject_id.as_deref(),
         Some("epic:follow-up")
     );
+    assert_eq!(detail.advantage.as_deref(), Some("team_one_possession"));
+    assert_eq!(detail.advantage_team, Some(1));
+    assert_eq!(
+        detail.advantage_subject_id.as_deref(),
+        Some("epic:follow-up")
+    );
+    assert_eq!(detail.advantage_time, Some(4.8));
+    assert_eq!(detail.advantage_frame, Some(288));
+    assert_eq!(detail.advantage_seconds_after_first_touch, Some(3.35));
 
     let player_rows = kickoff_player_detail_rows(event_id, replay_id, &kickoff, &replay_players)
         .expect("kickoff player rows should parse");
