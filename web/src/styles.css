@@ -2558,6 +2558,10 @@ button.status-stale:hover {
   display: grid;
   gap: 8px;
   min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
 }
 
 .boost-comparison-title {
