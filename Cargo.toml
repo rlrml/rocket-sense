@@ -25,6 +25,7 @@ boxcars = ">=0.11.1, <1.0.0"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
 flate2 = "1"
+futures = "0.3"
 hex = "0.4"
 jsonwebtoken = "9"
 mime = "0.3"

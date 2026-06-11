@@ -374,22 +374,44 @@ pub(crate) async fn load_stat_aggregates(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
-    let mut aggregates = load_stat_aggregates_base(pool, filters).await?;
-    aggregates.groups = load_stat_aggregate_groups(pool, filters).await?;
+    // The base aggregate and the per-playlist breakdown are independent, so run
+    // them concurrently rather than serializing the (many) underlying queries.
+    let (mut aggregates, groups) = tokio::try_join!(
+        load_stat_aggregates_base(pool, filters, true),
+        load_stat_aggregate_groups(pool, filters),
+    )?;
+    aggregates.groups = groups;
     Ok(aggregates)
 }
 
 async fn load_stat_aggregates_base(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
+    include_rotation_histogram: bool,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
-    let target_denominators = load_target_denominators(pool, filters).await?;
-    let teammate_denominators = if filters.player.is_some() && filters.include_teammates {
-        Some(load_teammate_denominators(pool, filters).await?)
-    } else {
-        None
+    // These queries are independent; run them concurrently against the pool.
+    let teammate_fut = async {
+        if filters.player.is_some() && filters.include_teammates {
+            Ok::<_, sqlx::Error>(Some(load_teammate_denominators(pool, filters).await?))
+        } else {
+            Ok(None)
+        }
     };
-    let rows = load_stat_count_rows(pool, filters).await?;
+    // The rotation histogram is only surfaced on the top-level response, not on
+    // per-playlist groups, so skip the (expensive) query when grouping.
+    let histogram_fut = async {
+        if include_rotation_histogram {
+            load_rotation_duration_histogram(pool, filters).await
+        } else {
+            Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
+    let (target_denominators, teammate_denominators, rows, rotation_duration_histogram) = tokio::try_join!(
+        load_target_denominators(pool, filters),
+        teammate_fut,
+        load_stat_count_rows(pool, filters),
+        histogram_fut,
+    )?;
     let target_replay_count = target_denominators.replay_count.max(1) as f64;
     let teammate_appearance_count = teammate_denominators
         .as_ref()
@@ -407,7 +429,6 @@ async fn load_stat_aggregates_base(
     let teammate_time_most_forward_seconds = teammate_denominators
         .as_ref()
         .and_then(|denominator| denominator.time_most_forward_seconds);
-    let rotation_duration_histogram = load_rotation_duration_histogram(pool, filters).await?;
 
     let stats = rows
         .into_iter()
@@ -471,18 +492,29 @@ async fn load_stat_aggregate_groups(
     }
 }
 
+/// Maximum number of per-playlist aggregate groups to compute concurrently.
+///
+/// Each group runs a handful of queries (which themselves fan out), so this is
+/// kept comfortably below the connection-pool size to leave headroom for the
+/// concurrent top-level base query and other in-flight requests.
+const PLAYLIST_GROUP_CONCURRENCY: usize = 4;
+
 async fn load_playlist_stat_aggregate_groups(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    use futures::stream::{StreamExt, TryStreamExt};
+
     let playlists = load_stat_group_playlists(pool, filters).await?;
-    let mut groups = Vec::with_capacity(playlists.len());
-    for playlist in playlists {
+
+    // Compute each playlist's aggregates concurrently. `buffered` preserves the
+    // input ordering (replay_count DESC) while bounding in-flight work.
+    futures::stream::iter(playlists.into_iter().map(|playlist| async move {
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
         group_filters.replay_set.playlist_group_key = Some(playlist.clone());
-        let aggregates = load_stat_aggregates_base(pool, &group_filters).await?;
-        groups.push(StatAggregateGroupResponse {
+        let aggregates = load_stat_aggregates_base(pool, &group_filters, false).await?;
+        Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
             display_name: playlist_label(&playlist),
             key: playlist,
@@ -498,10 +530,11 @@ async fn load_playlist_stat_aggregate_groups(
             teammate_time_most_back_seconds: aggregates.teammate_time_most_back_seconds,
             teammate_time_most_forward_seconds: aggregates.teammate_time_most_forward_seconds,
             stats: aggregates.stats,
-        });
-    }
-
-    Ok(groups)
+        })
+    }))
+    .buffered(PLAYLIST_GROUP_CONCURRENCY)
+    .try_collect()
+    .await
 }
 
 async fn load_stat_group_playlists(
@@ -669,8 +702,8 @@ async fn load_rotation_duration_histogram(
     let mut query = if filters.player.is_some() {
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
-            WITH target_appearances AS (
-                SELECT rp.id, rp.replay_id
+            WITH target_appearances AS MATERIALIZED (
+                SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id
                 FROM replay_players rp
                 JOIN replays r ON r.id = rp.replay_id
             "#,
@@ -679,22 +712,16 @@ async fn load_rotation_duration_histogram(
         query.push(
             r#"
             ),
-            rotation_events AS (
+            rotation_events AS MATERIALIZED (
                 SELECT event.duration_seconds
                 FROM target_appearances appearance
-                JOIN replays r
-                  ON r.id = appearance.replay_id
-                 AND r.canonical_analysis_run_id IS NOT NULL
                 JOIN play_event_subjects subject
                   ON subject.replay_player_id = appearance.id
                  AND subject.role = 'actor'
                 JOIN play_events event
                   ON event.id = subject.event_id
-                 AND event.analysis_run_id = r.canonical_analysis_run_id
+                 AND event.analysis_run_id = appearance.run_id
                  AND event.source_stream = 'rotation_first_man_stint'
-                JOIN event_types et
-                  ON et.id = event.event_type_id
-                 AND et.key = 'rotation_first_man_stint'
             ),
             bucketed AS (
                 SELECT floor(duration_seconds /
@@ -804,13 +831,21 @@ async fn load_player_stat_count_rows(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<StatCountRow>, sqlx::Error> {
+    // Drive the scan from the player's own event subjects rather than from every
+    // event in each replay. Carrying the replay's canonical `run_id` on the
+    // appearance lets Postgres look events up by primary key (subject.event_id)
+    // and filter to the canonical analysis run inline, instead of scanning the
+    // full per-replay event stream and merge-joining it against subjects. The
+    // `MATERIALIZED` fences keep the planner from collapsing the CTEs back into
+    // that pathological plan. See `play_event_subjects_replay_player_event_idx`.
     let mut query = QueryBuilder::<Postgres>::new(
         r#"
-        WITH target_appearances AS (
+        WITH target_appearances AS MATERIALIZED (
             SELECT
                 rp.id,
                 rp.replay_id,
-                rp.team
+                rp.team,
+                r.canonical_analysis_run_id AS run_id
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
         "#,
@@ -819,28 +854,28 @@ async fn load_player_stat_count_rows(
     query.push(
         r#"
         ),
-        target_stats AS (
-            SELECT
-                et.key,
-                et.display_name,
-                et.category,
-                COUNT(DISTINCT event.id) AS event_count
+        target_events AS MATERIALIZED (
+            SELECT DISTINCT event.id, event.event_type_id
             FROM target_appearances appearance
-            JOIN replays r
-              ON r.id = appearance.replay_id
-             AND r.canonical_analysis_run_id IS NOT NULL
             JOIN play_event_subjects subject
               ON subject.replay_player_id = appearance.id
             JOIN play_events event
               ON event.id = subject.event_id
-             AND event.analysis_run_id = r.canonical_analysis_run_id
+             AND event.analysis_run_id = appearance.run_id
             "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
     query.push(
         r#"
-            JOIN event_types et
-              ON et.id = event.event_type_id
+        ),
+        target_stats AS (
+            SELECT
+                et.key,
+                et.display_name,
+                et.category,
+                COUNT(*) AS event_count
+            FROM target_events
+            JOIN event_types et ON et.id = target_events.event_type_id
             GROUP BY et.key, et.display_name, et.category
         )
         "#,
@@ -850,38 +885,39 @@ async fn load_player_stat_count_rows(
         query.push(
             r#"
             ,
-            teammate_appearances AS (
+            teammate_appearances AS MATERIALIZED (
                 SELECT DISTINCT
                     teammate.id,
-                    teammate.replay_id
+                    teammate.replay_id,
+                    target.run_id
                 FROM target_appearances target
                 JOIN replay_players teammate
                   ON teammate.replay_id = target.replay_id
                  AND teammate.team = target.team
                  AND teammate.id <> target.id
             ),
-            teammate_stats AS (
-                SELECT
-                    et.key,
-                    et.display_name,
-                    et.category,
-                    COUNT(DISTINCT event.id) AS event_count
+            teammate_events AS MATERIALIZED (
+                SELECT DISTINCT event.id, event.event_type_id
                 FROM teammate_appearances appearance
-                JOIN replays r
-                  ON r.id = appearance.replay_id
-                 AND r.canonical_analysis_run_id IS NOT NULL
                 JOIN play_event_subjects subject
                   ON subject.replay_player_id = appearance.id
                 JOIN play_events event
                   ON event.id = subject.event_id
-                 AND event.analysis_run_id = r.canonical_analysis_run_id
+                 AND event.analysis_run_id = appearance.run_id
                 "#,
         );
         append_user_facing_stat_event_join_filter(&mut query, "event");
         query.push(
             r#"
-                JOIN event_types et
-                  ON et.id = event.event_type_id
+            ),
+            teammate_stats AS (
+                SELECT
+                    et.key,
+                    et.display_name,
+                    et.category,
+                    COUNT(*) AS event_count
+                FROM teammate_events
+                JOIN event_types et ON et.id = teammate_events.event_type_id
                 GROUP BY et.key, et.display_name, et.category
             )
             SELECT
