@@ -21,7 +21,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   clearAccessToken,
@@ -73,6 +73,15 @@ import type {
   StatAggregateSetResponse,
 } from "./types";
 
+// Lazily loaded so the three.js / wasm replay player is only fetched when a
+// goal playlist page is actually opened, instead of bloating the main bundle.
+const ReplayGoalPlaylistPage = lazy(() =>
+  import("./stats/goalPlaylist").then((module) => ({ default: module.ReplayGoalPlaylistPage })),
+);
+const PlayerGoalPlaylistPage = lazy(() =>
+  import("./stats/goalPlaylist").then((module) => ({ default: module.PlayerGoalPlaylistPage })),
+);
+
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
@@ -115,9 +124,41 @@ export function App() {
             <Route path="/replays/:replayId" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />
+            <Route
+              path="/replays/:replayId/goals"
+              element={
+                <Suspense fallback={<StatusLine loading error={null} />}>
+                  <ReplayGoalPlaylistPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/replays/:replayId/goals/:goalType"
+              element={
+                <Suspense fallback={<StatusLine loading error={null} />}>
+                  <ReplayGoalPlaylistPage />
+                </Suspense>
+              }
+            />
             <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
             <Route path="/players/:platform/:platformPlayerId/stats" element={<PlayerStatsPage />} />
             <Route path="/players/:platform/:platformPlayerId/stats/:statGroup" element={<PlayerStatsPage />} />
+            <Route
+              path="/players/:platform/:platformPlayerId/goals"
+              element={
+                <Suspense fallback={<StatusLine loading error={null} />}>
+                  <PlayerGoalPlaylistPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/players/:platform/:platformPlayerId/goals/:goalType"
+              element={
+                <Suspense fallback={<StatusLine loading error={null} />}>
+                  <PlayerGoalPlaylistPage />
+                </Suspense>
+              }
+            />
             <Route path="/events/review" element={<EventsReviewPage />} />
             <Route path="/mechanics/review" element={<EventsReviewPage />} />
             <Route path="/admin/processing" element={<AdminProcessingPage />} />
@@ -1685,7 +1726,15 @@ function PlayerAggregateStatsSections({
         <PlayerRateComparisonChart stats={topStats} />
       )}
 
-      {activeGroup.id === "goals" && overview ? <GoalTagSharePanel overview={overview} /> : null}
+      {activeGroup.id === "goals" && overview ? (
+        <GoalTagSharePanel
+          overview={overview}
+          goalTypeHref={(kind) =>
+            `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals/${encodeURIComponent(kind)}`
+          }
+          allGoalsHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals`}
+        />
+      ) : null}
       {activeGroup.id === "kickoffs" && kickoffSummary ? <KickoffSummaryPanel summary={kickoffSummary} /> : null}
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
         <RotationTimeSharePanel overview={overview} stats={stats} />
