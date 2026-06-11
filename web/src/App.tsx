@@ -502,7 +502,7 @@ function ReplayListPage() {
                 <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
               </div>
               <div className="replay-card-meta">
-                <span>{playlistLabel(replay.playlist_metadata, replay.playlist)}</span>
+                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
                 <span>{formatDate(replay.replay_date || replay.created_at)}</span>
                 <span className="subtle">{formatDuration(replay.summary.duration_seconds)}</span>
                 <StatusBadge status={replay.status} />
@@ -875,6 +875,55 @@ function filterValueLabel(key: string, value: string): string {
   if (key === "playlist") return playlistLabel(null, value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
+}
+
+// One small badge per game-type parameter: competitive context
+// (Ranked/Casual/Private/...), ruleset (Soccar/Hoops/...), and team size
+// (1v1/2v2/...). Falls back to the plain playlist label when the playlist
+// isn't recognized.
+function GameTypeBadges({
+  metadata,
+  fallback,
+}: {
+  metadata: ReplayPlaylistMetadata | null;
+  fallback: string | null;
+}) {
+  const badges: Array<{ key: string; label: string; tone: string }> = [];
+  const context = metadata?.ranked
+    ? "ranked"
+    : metadata?.casual
+      ? "casual"
+      : metadata?.category;
+  if (context) {
+    const tone = context === "ranked" ? "ranked" : context === "casual" ? "casual" : "context";
+    badges.push({ key: "context", label: titleCase(context), tone });
+  }
+  if (metadata?.ruleset) {
+    badges.push({ key: "ruleset", label: titleCase(metadata.ruleset), tone: "ruleset" });
+  }
+  if (metadata?.team_size) {
+    badges.push({ key: "size", label: `${metadata.team_size}v${metadata.team_size}`, tone: "size" });
+  }
+  if (badges.length === 0) {
+    badges.push({ key: "playlist", label: playlistLabel(metadata, fallback), tone: "context" });
+  }
+  const title = playlistLabel(metadata, fallback);
+  return (
+    <span className="game-badges" title={title}>
+      {badges.map((badge) => (
+        <span key={badge.key} className={`game-badge game-badge-${badge.tone}`}>
+          {badge.label}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function titleCase(value: string): string {
+  return value
+    .replaceAll("_", " ")
+    .replaceAll("-", " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function ReplayTeams({ replay }: { replay: ReplayResponse }) {
