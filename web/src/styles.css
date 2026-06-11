@@ -1516,6 +1516,33 @@ tbody tr:last-child td {
   color: #fff;
 }
 
+.kickoff-taker-badges {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.kickoff-first-touch-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.kickoff-taker-tile.winner.strength-strong .kickoff-first-touch-pill,
+.kickoff-taker-tile.winner.shade-dark .kickoff-first-touch-pill {
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
 .kickoff-taker-result {
   flex: 0 0 auto;
   min-height: 24px;
