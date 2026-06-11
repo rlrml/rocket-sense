@@ -47,3 +47,11 @@ zstd = "0.13"
 
 rocket-sense-db = { path = "crates/rocket-sense-db" }
 rocket-sense-storage = { path = "crates/rocket-sense-storage" }
+
+# A recent Rocket League update (World Cup event ball + player-name
+# anonymization) added network objects that boxcars 0.11.1 cannot decode,
+# failing replay parsing. Until the fix lands in an upstream boxcars release,
+# point the whole build graph (including vendored subtr-actor) at the patched
+# fork. See https://github.com/colonelpanic8/boxcars/tree/fix/worldcup-ball
+[patch.crates-io]
+boxcars = { git = "https://github.com/colonelpanic8/boxcars.git", rev = "36598aa6db6ff9248502f9f762139ed3bdd94a34" }
