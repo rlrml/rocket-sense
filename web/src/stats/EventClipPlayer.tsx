@@ -83,6 +83,12 @@ interface EventClipPlayerProps {
   /** The clip to show; the player loops it using the clip's camera config. */
   clip: EventClip | null;
   showDebug?: boolean;
+  /**
+   * Called with the clip's key each time playback reaches the end of the clip
+   * window, before the player loops back to the start. Lets playlist-style
+   * consumers advance to the next clip instead of looping forever.
+   */
+  onClipEnd?: (clipKey: string) => void;
 }
 
 interface EventClipPreviewProps {
@@ -115,12 +121,14 @@ export function EventClipPreview({
   );
 }
 
-export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClipPlayerProps) {
+export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }: EventClipPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<ReplayPlayer | null>(null);
   const loopRef = useRef<{ start: number; end: number } | null>(null);
   const clipRef = useRef<EventClip | null>(clip);
   clipRef.current = clip;
+  const onClipEndRef = useRef<EventClipPlayerProps["onClipEnd"]>(onClipEnd);
+  onClipEndRef.current = onClipEnd;
   // Key of the clip most recently applied to the live player. A re-apply with the
   // same key (e.g. a perspective/camera change) keeps the playback position; only
   // a new key restarts the loop from its start.
@@ -259,6 +267,9 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
       }
       const time = active.getState().currentTime;
       if (time >= loop.end || time < loop.start - 0.05) {
+        if (time >= loop.end && appliedClipKeyRef.current != null) {
+          onClipEndRef.current?.(appliedClipKeyRef.current);
+        }
         active.seek(loop.start);
       }
       if (!active.getState().playing) {
@@ -312,6 +323,9 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
           }
           const time = active.getState().currentTime;
           if (time >= loop.end || time < loop.start - 0.05) {
+            if (time >= loop.end && appliedClipKeyRef.current != null) {
+              onClipEndRef.current?.(appliedClipKeyRef.current);
+            }
             active.seek(loop.start);
           }
           if (!active.getState().playing) {

@@ -1195,14 +1195,26 @@ button.status-stale:hover {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 
+/* The outcome bar rides full-width beneath each taker row, so drop the bottom
+   border between the stats row and its detail and keep the two visually joined. */
+.kickoff-player-table tr.has-row-detail td {
+  border-bottom: 0;
+}
+
+.kickoff-player-table tr.kickoff-row-detail td {
+  padding-top: 2px;
+  padding-bottom: 12px;
+  white-space: normal;
+}
+
 .kickoff-outcome-tug {
   display: grid;
   gap: 4px;
-  min-width: 170px;
+  width: 100%;
 }
 
 .kickoff-outcome-tug-track.stat-segmented-track {
-  height: 16px;
+  height: 20px;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -1214,42 +1226,60 @@ button.status-stale:hover {
   min-width: 0;
 }
 
-/* Win side: darker green = more decisive win. */
-.source-segment.kickoff-tug-win-strong {
-  background: #15803d;
+.kickoff-outcome-tug-track .source-segment-label {
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
 }
 
-.source-segment.kickoff-tug-win-clear {
-  background: #22c55e;
+/* Light shades need dark text for the label to stay legible. */
+.kickoff-outcome-tug-track .tug-level-narrow .source-segment-label,
+.kickoff-outcome-tug-track .tug-level-unknown .source-segment-label,
+.kickoff-outcome-tug-track .tug-neutral .source-segment-label {
+  color: #1e293b;
 }
 
-.source-segment.kickoff-tug-win-narrow {
-  background: #86efac;
+/* Blue team ramp: darker = more decisive result. */
+.source-segment.kickoff-tug-seg.tug-blue.tug-level-strong {
+  background: #1e3a8a;
 }
 
-.source-segment.kickoff-tug-win-unknown {
-  background: #bbf7d0;
+.source-segment.kickoff-tug-seg.tug-blue.tug-level-clear {
+  background: #2563eb;
 }
 
-.source-segment.kickoff-tug-neutral {
-  background: #94a3b8;
+/* Narrow results are outlined rather than filled so they read as a weaker
+   version of the clear/strong fills instead of a slightly different shade. */
+.source-segment.kickoff-tug-seg.tug-blue.tug-level-narrow {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px #2563eb;
 }
 
-/* Loss side: darker red = more decisive loss. */
-.source-segment.kickoff-tug-loss-unknown {
-  background: #fecaca;
+.source-segment.kickoff-tug-seg.tug-blue.tug-level-unknown {
+  background: #bfdbfe;
 }
 
-.source-segment.kickoff-tug-loss-narrow {
-  background: #fca5a5;
+/* Orange team ramp: darker = more decisive result. */
+.source-segment.kickoff-tug-seg.tug-orange.tug-level-strong {
+  background: #9a3412;
 }
 
-.source-segment.kickoff-tug-loss-clear {
-  background: #ef4444;
+.source-segment.kickoff-tug-seg.tug-orange.tug-level-clear {
+  background: #ea580c;
 }
 
-.source-segment.kickoff-tug-loss-strong {
-  background: #b91c1c;
+.source-segment.kickoff-tug-seg.tug-orange.tug-level-narrow {
+  background: #fff;
+  box-shadow: inset 0 0 0 2px #ea580c;
+}
+
+.source-segment.kickoff-tug-seg.tug-orange.tug-level-unknown {
+  background: #fed7aa;
+}
+
+.source-segment.kickoff-tug-seg.tug-neutral {
+  background: #cbd5e1;
 }
 
 .kickoff-outcome-tug-caption {
@@ -1257,14 +1287,6 @@ button.status-stale:hover {
   justify-content: space-between;
   font-size: 11px;
   font-weight: 750;
-}
-
-.kickoff-outcome-tug-wins {
-  color: #15803d;
-}
-
-.kickoff-outcome-tug-losses {
-  color: #b91c1c;
 }
 
 .kickoff-card-list {
@@ -1713,9 +1735,11 @@ button.status-stale:hover {
   border-left-color: #ea580c;
 }
 
+/* Narrow wins keep a white background and only get a team-colored outline,
+   so they look "selected" rather than a paler version of a clear win. */
 .kickoff-taker-tile.team-taker-blue.winner.strength-narrow {
-  border-color: #93c5fd;
-  background: #eff6ff;
+  border-color: #2563eb;
+  background: #fff;
 }
 
 .kickoff-taker-tile.team-taker-blue.winner.strength-clear {
@@ -1730,8 +1754,8 @@ button.status-stale:hover {
 }
 
 .kickoff-taker-tile.team-taker-orange.winner.strength-narrow {
-  border-color: #fdba74;
-  background: #fff7ed;
+  border-color: #ea580c;
+  background: #fff;
 }
 
 .kickoff-taker-tile.team-taker-orange.winner.strength-clear {
@@ -5119,4 +5143,115 @@ button.status-stale:hover {
 
 .kickoff-dimension-row {
   grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) minmax(80px, auto);
+}
+
+/* Goal playlist: clickable goal-type chips and the playlist watch page. */
+.goal-type-chip-link {
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.goal-type-chip-link:hover,
+.goal-type-chip-link:focus-visible {
+  background: #2563eb;
+  color: #fff;
+}
+
+.goal-tag-row-link {
+  color: inherit;
+  text-decoration: none;
+  border-radius: 8px;
+}
+
+.goal-tag-row-link:hover .rate-chart-label,
+.goal-tag-row-link:focus-visible .rate-chart-label {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+.goal-playlist-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 400px);
+  gap: 16px;
+  align-items: start;
+}
+
+.goal-playlist-player-panel {
+  position: sticky;
+  top: 16px;
+}
+
+.goal-playlist-player-panel .event-clip-player {
+  height: clamp(280px, 48vh, 520px);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.goal-playlist-player-panel .event-clip-canvas {
+  border-radius: 10px;
+}
+
+.goal-playlist-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.goal-playlist-autoplay {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.goal-playlist-list-panel .goal-card-list {
+  max-height: 70vh;
+  overflow-y: auto;
+  /* A height-capped grid squeezes auto rows below their content; pin rows to
+     their natural size so cards don't collapse on long playlists. */
+  grid-auto-rows: max-content;
+}
+
+.goal-playlist-replay-heading {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.goal-playlist-replay-heading:hover {
+  color: #2563eb;
+  text-decoration: underline;
+}
+
+@media (max-width: 960px) {
+  .goal-playlist-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .goal-playlist-player-panel {
+    position: static;
+  }
+}
+
+.goal-tag-watch-all {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.goal-tag-watch-all:hover {
+  text-decoration: underline;
 }

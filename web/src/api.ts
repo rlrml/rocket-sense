@@ -164,8 +164,12 @@ export function getPlayerKickoffSummary(
   return request<EventStatSummaryResponse>(`/api/v1/stats/events/kickoff/summary?${params.toString()}`);
 }
 
-export async function listReplayEvents(replayId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
-  const cacheKey = replayEventsKey(replayId, eventTypes);
+export async function listReplayEvents(
+  replayId: string,
+  eventTypes: string[] = [],
+  processedAt: string | null = null,
+): Promise<MechanicEventsResponse> {
+  const cacheKey = replayEventsKey(replayId, eventTypes, processedAt);
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
 
@@ -176,6 +180,42 @@ export async function listReplayEvents(replayId: string, eventTypes: string[] = 
   while (nextOffset != null && events.length < maxReplayEvents) {
     const params = new URLSearchParams({
       "replay-id": replayId,
+      count: String(eventPageSize),
+      offset: String(offset),
+    });
+    for (const eventType of eventTypes) {
+      params.append("event-type", eventType);
+    }
+    const response = await request<MechanicEventsResponse>(`/api/v1/events?${params.toString()}`);
+    events.push(...response.events);
+    nextOffset = response.next_offset;
+    offset = nextOffset ?? offset;
+  }
+
+  const response = {
+    events,
+    count: events.length,
+    offset: 0,
+    next_offset: nextOffset,
+  };
+  cacheReplayEvents(cacheKey, response);
+  return response;
+}
+
+// Cross-replay variant of listReplayEvents: every event whose primary subject is
+// the given player (platform:platform_player_id), e.g. all goals they scored.
+export async function listPlayerEvents(playerId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
+  const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes, null);
+  const cached = getCachedReplayEvents(cacheKey);
+  if (cached) return cached;
+
+  const events: MechanicEventsResponse["events"] = [];
+  let offset = 0;
+  let nextOffset: number | null = 0;
+
+  while (nextOffset != null && events.length < maxReplayEvents) {
+    const params = new URLSearchParams({
+      "player-id": playerId,
       count: String(eventPageSize),
       offset: String(offset),
     });
@@ -287,13 +327,22 @@ function readReplayCache(): Record<string, ReplayResponse> {
   }
 }
 
-function replayEventsKey(replayId: string, eventTypes: string[]): string {
-  return eventTypes.length > 0 ? `${replayId}:${eventTypes.slice().sort().join(",")}` : replayId;
+function replayEventsKey(replayId: string, eventTypes: string[], processedAt: string | null): string {
+  const scope = processedAt ? `${replayId}@${processedAt}` : replayId;
+  return eventTypes.length > 0 ? `${scope}:${eventTypes.slice().sort().join(",")}` : scope;
 }
 
 function cacheReplayEvents(cacheKey: string, response: MechanicEventsResponse): void {
   try {
     const cache = readReplayEventsCache();
+    const scope = cacheKey.split(":")[0];
+    const replayId = scope.split("@")[0];
+    for (const key of Object.keys(cache)) {
+      const keyScope = key.split(":")[0];
+      if (keyScope !== scope && keyScope.split("@")[0] === replayId) {
+        delete cache[key];
+      }
+    }
     cache[cacheKey] = response;
     sessionStorage.setItem(replayEventsCacheKey, JSON.stringify(cache));
   } catch {
