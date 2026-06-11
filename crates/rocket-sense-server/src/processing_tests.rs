@@ -706,7 +706,7 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
             "outcome": "team_zero_win",
             "winning_team_is_team_0": true,
             "win_strength": 0.72,
-            "win_strength_band": "clear",
+            "win_strength_band": "strong",
             "kickoff_possession_outcome": "team_zero_advantage",
             "kickoff_possession_team_is_team_0": true,
             "kickoff_goal": true,
@@ -774,7 +774,7 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
     assert_eq!(detail.outcome.as_deref(), Some("team_zero_win"));
     assert_eq!(detail.winning_team, Some(0));
     assert_eq!(detail.win_strength, Some(0.72));
-    assert_eq!(detail.win_strength_band.as_deref(), Some("clear"));
+    assert_eq!(detail.win_strength_band.as_deref(), Some("strong"));
     assert_eq!(
         detail.kickoff_possession_outcome.as_deref(),
         Some("team_zero_advantage")
@@ -1122,7 +1122,7 @@ fn touch_stats_event(
 
 fn version_fixture() -> CurrentProcessingVersion {
     CurrentProcessingVersion {
-        event_stream_schema_version: "rocket-sense-event-stream:v4",
+        event_stream_schema_version: "rocket-sense-event-stream:v5",
         extractor_name: "rocket-sense:event-stream",
         extractor_version: "0.1.0",
         subtr_actor_version: "0.12.0",
@@ -1136,7 +1136,7 @@ fn staleness_is_current_when_everything_matches() {
     let current = version_fixture();
     let info = compute_staleness(
         &current,
-        Some("rocket-sense-event-stream:v4"),
+        Some("rocket-sense-event-stream:v5"),
         Some("0.12.0"),
         Some("aaaaaaa"),
     );
@@ -1164,7 +1164,7 @@ fn staleness_flags_subtr_actor_version_drift() {
     let current = version_fixture();
     let info = compute_staleness(
         &current,
-        Some("rocket-sense-event-stream:v4"),
+        Some("rocket-sense-event-stream:v5"),
         Some("0.11.0"),
         Some("aaaaaaa"),
     );
@@ -1178,7 +1178,7 @@ fn staleness_flags_subtr_actor_git_drift() {
     let current = version_fixture();
     let info = compute_staleness(
         &current,
-        Some("rocket-sense-event-stream:v4"),
+        Some("rocket-sense-event-stream:v5"),
         Some("0.12.0"),
         Some("ccccccc"),
     );
@@ -1197,7 +1197,7 @@ fn staleness_ignores_unknown_current_subtr_actor_version() {
     // replay as stale just because the stored version differs.
     let info = compute_staleness(
         &current,
-        Some("rocket-sense-event-stream:v4"),
+        Some("rocket-sense-event-stream:v5"),
         Some("0.12.0"),
         Some("aaaaaaa"),
     );

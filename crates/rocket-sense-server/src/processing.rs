@@ -34,7 +34,13 @@ pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // `boost_pickups`/`boost_respawn` events plus per-frame accumulation tracks.
 // Bumping marks prior analyses stale so reprocessing re-keys pickups and
 // persists the new boost accumulation tracks.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v4";
+// Bumped v4 -> v5 for the kickoff win-strength redesign: `win_strength` is now
+// the velocity-projected ball depth as a fraction of the half-field length
+// (0..=1) instead of a ratio over the minimal-win threshold, and the
+// narrow/clear/strong bands were recalibrated (previously ~82% of decided
+// kickoffs landed in "strong"). Bumping marks prior analyses stale so
+// reprocessing re-emits kickoff events on the new scale.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v5";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
@@ -344,7 +350,7 @@ async fn process_replay_job(
     let Some(target) = replay_processing_job_target(&state.pool, replay_id).await? else {
         tracing::info!(
             %replay_id,
-            "skipping replay processing job because replay is missing or already parsed"
+            "skipping replay processing job because replay is missing or already processed"
         );
         return Ok(());
     };
@@ -645,7 +651,7 @@ async fn unfinished_replay_processing_targets(
         SELECT id, file_sha256, storage_key
         FROM replays
         WHERE canonical_analysis_run_id IS NULL
-          AND parse_status IN ('pending', 'parsing')
+          AND processing_status IN ('pending', 'processing')
         ORDER BY created_at, id
         "#,
     )
@@ -669,7 +675,7 @@ async fn replay_processing_job_target(
 ) -> Result<Option<ReplayProcessingTarget>> {
     let Some(row) = sqlx::query(
         r#"
-        SELECT id, file_sha256, storage_key, parse_status, canonical_analysis_run_id
+        SELECT id, file_sha256, storage_key, processing_status, canonical_analysis_run_id
         FROM replays
         WHERE id = $1
         "#,
@@ -682,9 +688,9 @@ async fn replay_processing_job_target(
         return Ok(None);
     };
 
-    let parse_status: String = row.try_get("parse_status")?;
+    let processing_status: String = row.try_get("processing_status")?;
     let canonical_analysis_run_id: Option<Uuid> = row.try_get("canonical_analysis_run_id")?;
-    if parse_status == "parsed" && canonical_analysis_run_id.is_some() {
+    if processing_status == "processed" && canonical_analysis_run_id.is_some() {
         return Ok(None);
     }
 
@@ -1024,7 +1030,7 @@ async fn process_replay(
     file_sha256: String,
     storage_key: String,
 ) -> Result<()> {
-    set_replay_status(&pool, replay_id, "parsing").await?;
+    set_replay_status(&pool, replay_id, "processing").await?;
 
     let analysis_run_id = Uuid::now_v7();
     insert_analysis_run(&pool, analysis_run_id, replay_id, &file_sha256).await?;
@@ -4681,6 +4687,11 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "subtr-actor boost-model rewrite: consolidated boost pickup/respawn events \
          and per-frame boost accumulation tracks.",
     ),
+    (
+        "rocket-sense-event-stream:v5",
+        "Kickoff win-strength redesign: win_strength is now a 0..=1 fraction of \
+         half-field depth; narrow/clear/strong bands recalibrated.",
+    ),
 ];
 
 /// The pipeline version the running binary produces. Compared against each
@@ -4825,17 +4836,17 @@ async fn mark_replay_parse_succeeded(
         r#"
         UPDATE replays replay
         SET canonical_analysis_run_id = analysis_run.id,
-            parse_status = 'parsed',
-            parsed_at = COALESCE(analysis_run.finished_at, now()),
-            parsed_with_extractor_name = analysis_run.extractor_name,
-            parsed_with_extractor_version = analysis_run.extractor_version,
-            parsed_with_event_stream_schema_version = analysis_run.event_stream_schema_version,
-            parsed_with_rocket_sense_git_sha = COALESCE(
+            processing_status = 'processed',
+            processed_at = COALESCE(analysis_run.finished_at, now()),
+            processed_with_extractor_name = analysis_run.extractor_name,
+            processed_with_extractor_version = analysis_run.extractor_version,
+            processed_with_event_stream_schema_version = analysis_run.event_stream_schema_version,
+            processed_with_rocket_sense_git_sha = COALESCE(
                 analysis_run.rocket_sense_git_sha,
                 analysis_run.extractor_git_sha
             ),
-            parsed_with_subtr_actor_version = analysis_run.subtr_actor_version,
-            parsed_with_subtr_actor_git_sha = analysis_run.subtr_actor_git_sha,
+            processed_with_subtr_actor_version = analysis_run.subtr_actor_version,
+            processed_with_subtr_actor_git_sha = analysis_run.subtr_actor_git_sha,
             updated_at = now()
         FROM analysis_runs analysis_run
         WHERE replay.id = $1
@@ -4855,7 +4866,7 @@ async fn set_replay_status(pool: &PgPool, replay_id: Uuid, status: &str) -> Resu
     sqlx::query(
         r#"
         UPDATE replays
-        SET parse_status = $2,
+        SET processing_status = $2,
             updated_at = now()
         WHERE id = $1
         "#,

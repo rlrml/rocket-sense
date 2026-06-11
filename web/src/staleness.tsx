@@ -4,7 +4,7 @@ import { AlertTriangle, Info, RefreshCw, X } from "lucide-react";
 import { getPlayerProcessingVersions, reprocessReplay } from "./api";
 import type {
   ProcessingVersionBreakdownResponse,
-  ReplayParseVersion,
+  ReplayProcessingVersion,
   ReplayStaleness,
 } from "./types";
 
@@ -15,22 +15,22 @@ import type {
  */
 export function StalenessBadge({
   staleness,
-  parseVersion,
+  processingVersion,
 }: {
   staleness: ReplayStaleness;
-  parseVersion?: ReplayParseVersion | null;
+  processingVersion?: ReplayProcessingVersion | null;
 }) {
   if (!staleness.is_stale) return null;
 
   const reasons: string[] = [];
   if (staleness.schema_outdated) {
     reasons.push(
-      `event schema ${parseVersion?.event_stream_schema_version ?? "unknown"} → ${staleness.current_event_stream_schema_version}`,
+      `event schema ${processingVersion?.event_stream_schema_version ?? "unknown"} → ${staleness.current_event_stream_schema_version}`,
     );
   }
   if (staleness.subtr_actor_outdated) {
     reasons.push(
-      `subtr-actor ${parseVersion?.subtr_actor_version ?? "unknown"} → ${staleness.current_subtr_actor_version}`,
+      `subtr-actor ${processingVersion?.subtr_actor_version ?? "unknown"} → ${staleness.current_subtr_actor_version}`,
     );
   }
   const title = `Processed with an older pipeline (${reasons.join("; ")}). Stats may be out of date.`;

@@ -1,5 +1,5 @@
-export type ReplayStatus = "pending" | "parsing" | "parsed" | "failed";
-export type ReplayProcessingStatus = "pending" | "processing" | "processed" | "failed";
+export type ReplayStatus = "pending" | "processing" | "processed" | "failed";
+export type ReplayProcessingStatus = ReplayStatus;
 
 export interface ReplayPlayer {
   name: string | null;
@@ -41,15 +41,15 @@ export interface ReplayResponse {
     match_guid: string | null;
     season: string | null;
   };
-  parse_version: ReplayParseVersion;
+  processing_version: ReplayProcessingVersion;
   staleness: ReplayStaleness;
   status: ReplayStatus;
   created_at: string;
   updated_at: string;
 }
 
-export interface ReplayParseVersion {
-  parsed_at: string | null;
+export interface ReplayProcessingVersion {
+  processed_at: string | null;
   extractor_name: string | null;
   extractor_version: string | null;
   event_stream_schema_version: string | null;
