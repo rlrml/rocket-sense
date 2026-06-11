@@ -63,6 +63,16 @@ pub struct ReplayProcessingDiagnosticsSummaryResponse {
     pub problem_replays: u64,
     pub status_counts: Vec<ReplayProcessingStatusCountResponse>,
     pub queue_counts: Vec<ReplayProcessingQueueCountResponse>,
+    pub workers: Vec<ReplayProcessingWorkerResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayProcessingWorkerResponse {
+    pub id: String,
+    pub last_seen: DateTime<Utc>,
+    /// Workers heartbeat every 30s; treated as dead after 90s of silence.
+    pub alive: bool,
+    pub active_jobs: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -515,11 +525,51 @@ async fn load_processing_diagnostics_summary(
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(ApiError::internal)?;
 
+    // Dead worker rows are never removed, so cap how far back we report;
+    // anything silent past the orphan-requeue window is just noise.
+    let worker_rows = sqlx::query(
+        r#"
+        SELECT
+            worker.id,
+            worker.last_seen,
+            worker.last_seen > now() - interval '90 seconds' AS alive,
+            COALESCE(active.job_count, 0)::bigint AS active_jobs
+        FROM apalis.workers worker
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS job_count
+            FROM apalis.jobs job
+            WHERE job.lock_by = worker.id
+              AND job.status IN ('Queued', 'Running')
+        ) active ON true
+        WHERE worker.worker_type = $1
+          AND worker.last_seen > now() - interval '1 hour'
+        ORDER BY worker.last_seen DESC
+        "#,
+    )
+    .bind(REPLAY_PROCESSING_QUEUE_NAME)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let workers = worker_rows
+        .into_iter()
+        .map(|row| {
+            Ok(ReplayProcessingWorkerResponse {
+                id: row.try_get("id")?,
+                last_seen: row.try_get("last_seen")?,
+                alive: row.try_get("alive")?,
+                active_jobs: signed_count_to_u64(row.try_get("active_jobs")?),
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(ApiError::internal)?;
+
     Ok(ReplayProcessingDiagnosticsSummaryResponse {
         total_replays,
         problem_replays,
         status_counts,
         queue_counts,
+        workers,
     })
 }
 

@@ -49,6 +49,7 @@ use utoipa::{
             admin::ReplayProcessingDiagnosticsSummaryResponse,
             admin::ReplayProcessingQueueCountResponse,
             admin::ReplayProcessingStatusCountResponse,
+            admin::ReplayProcessingWorkerResponse,
             admin::ReplayProcessingDiagnosticsQuery,
             admin::ReprocessReplaysRequest,
             admin::ReprocessReplaysResponse,

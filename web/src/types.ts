@@ -100,6 +100,14 @@ export interface ReplayProcessingDiagnosticsSummary {
     status: string;
     count: number;
   }>;
+  workers: ReplayProcessingWorker[];
+}
+
+export interface ReplayProcessingWorker {
+  id: string;
+  last_seen: string;
+  alive: boolean;
+  active_jobs: number;
 }
 
 export interface ReplayProcessingDiagnostic {
