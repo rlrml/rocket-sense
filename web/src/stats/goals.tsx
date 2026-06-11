@@ -27,10 +27,18 @@ interface GoalsDetailProps {
   replayId: string;
 }
 
+export interface GoalTypeDetail {
+  key: string;
+  value: string;
+}
+
 export interface GoalType {
   key: string;
   label: string;
   confidence: number | null;
+  /** Mechanic flavor shown inside the chip, e.g. "Reverse" on a flick goal. */
+  subLabel: string | null;
+  details: GoalTypeDetail[];
 }
 
 export interface GoalRow {
@@ -167,8 +175,14 @@ export function GoalCard({
       {goal.types.length ? (
         <div className="goal-card-types">
           {goal.types.map((type) => {
+            const displayLabel = type.subLabel ? `${type.subLabel} ${type.label}` : type.label;
+            const detailSuffix = type.details.length
+              ? ` (${type.details.map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`).join(", ")})`
+              : "";
             const confidenceTitle =
-              type.confidence == null ? type.label : `${type.label} — ${(type.confidence * 100).toFixed(0)}% confidence`;
+              (type.confidence == null
+                ? displayLabel
+                : `${displayLabel} — ${(type.confidence * 100).toFixed(0)}% confidence`) + detailSuffix;
             const href = typeHref?.(type);
             // The card itself is a <button>, so the chip can't be a real link;
             // route imperatively instead and keep the card's hover/click intact.
@@ -190,11 +204,11 @@ export function GoalCard({
                   }
                 }}
               >
-                {type.label}
+                {displayLabel}
               </span>
             ) : (
               <span className="goal-type-chip" key={type.key} title={confidenceTitle}>
-                {type.label}
+                {displayLabel}
               </span>
             );
           })}
@@ -245,12 +259,30 @@ function goalTypes(payload: Record<string, unknown>): GoalType[] {
   return arrayField(payload, "tags").map((tag) => {
     const key = stringField(tag, "kind") ?? "goal";
     const metadata = objectField(tag, "metadata") ?? {};
+    const details = goalTypeDetails(metadata);
     return {
       key,
       label: goalTypeLabel(key),
       confidence: numberField(metadata, "confidence"),
+      subLabel: goalTypeSubLabel(details),
+      details,
     };
   });
+}
+
+function goalTypeDetails(metadata: Record<string, unknown>): GoalTypeDetail[] {
+  return arrayField(metadata, "details").flatMap((detail) => {
+    const key = stringField(detail, "key");
+    const value = stringField(detail, "value");
+    return key && value ? [{ key, value }] : [];
+  });
+}
+
+// Tags whose source mechanic has a non-default `kind` detail (e.g. a reverse
+// flick) surface it as a sub-label inside the chip.
+function goalTypeSubLabel(details: GoalTypeDetail[]): string | null {
+  const kind = details.find((detail) => detail.key === "kind")?.value;
+  return kind && kind !== "other" && kind !== "unknown" ? formatLabel(kind) : null;
 }
 
 function objectField(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
