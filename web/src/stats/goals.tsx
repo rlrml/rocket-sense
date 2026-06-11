@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import {
@@ -26,13 +27,13 @@ interface GoalsDetailProps {
   replayId: string;
 }
 
-interface GoalType {
+export interface GoalType {
   key: string;
   label: string;
   confidence: number | null;
 }
 
-interface GoalRow {
+export interface GoalRow {
   event: MechanicEventResponse;
   index: number;
   time: number | null;
@@ -44,27 +45,33 @@ interface GoalRow {
   types: GoalType[];
 }
 
+export function buildGoalClip(goal: GoalRow, replayNonce: number): EventClip | null {
+  if (goal.time == null) {
+    return null;
+  }
+  return {
+    start: Math.max(0, goal.time - GOAL_CLIP_PREROLL_SECONDS),
+    end: goal.time + GOAL_CLIP_POSTROLL_SECONDS,
+    anchorFrame: goal.anchorFrame,
+    prerollSeconds: GOAL_CLIP_PREROLL_SECONDS,
+    postrollSeconds: GOAL_CLIP_POSTROLL_SECONDS,
+    camera: (cam) => {
+      if (!cam.followPlayer({ playerName: goal.scorerName, ballCam: true })) {
+        cam.freeCamera("side");
+      }
+    },
+    key: `${goal.event.id}:${replayNonce}`,
+  };
+}
+
 export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
   const goals = useMemo(() => buildGoalRows(events), [events]);
   const goalKey = useCallback((goal: GoalRow) => goal.event.id, []);
-  const buildClip = useCallback((goal: GoalRow, replayNonce: number): EventClip | null => {
-    if (goal.time == null) {
-      return null;
-    }
-    return {
-      start: Math.max(0, goal.time - GOAL_CLIP_PREROLL_SECONDS),
-      end: goal.time + GOAL_CLIP_POSTROLL_SECONDS,
-      anchorFrame: goal.anchorFrame,
-      prerollSeconds: GOAL_CLIP_PREROLL_SECONDS,
-      postrollSeconds: GOAL_CLIP_POSTROLL_SECONDS,
-      camera: (cam) => {
-        if (!cam.followPlayer({ playerName: goal.scorerName, ballCam: true })) {
-          cam.freeCamera("side");
-        }
-      },
-      key: `${goal.event.id}:${replayNonce}`,
-    };
-  }, []);
+  const buildClip = useCallback(buildGoalClip, []);
+  const goalTypeHref = useCallback(
+    (type: GoalType) => `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}`,
+    [replayId],
+  );
 
   const {
     activeItem: activeGoal,
@@ -90,6 +97,7 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
                   goal={goal}
                   active={goal.event.id === activeId}
                   onActivate={(force) => activateGoal(goal, force)}
+                  typeHref={goalTypeHref}
                 />
               ))}
             </div>
@@ -127,15 +135,19 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
   );
 }
 
-function GoalCard({
+export function GoalCard({
   goal,
   active,
   onActivate,
+  typeHref,
 }: {
   goal: GoalRow;
   active: boolean;
   onActivate: (force: boolean) => void;
+  /** When provided, goal type chips link to the matching goal playlist. */
+  typeHref?: (type: GoalType) => string;
 }) {
+  const navigate = useNavigate();
   return (
     <button
       type="button"
@@ -154,11 +166,38 @@ function GoalCard({
       </div>
       {goal.types.length ? (
         <div className="goal-card-types">
-          {goal.types.map((type) => (
-            <span className="goal-type-chip" key={type.key} title={type.confidence == null ? type.label : `${type.label} — ${(type.confidence * 100).toFixed(0)}% confidence`}>
-              {type.label}
-            </span>
-          ))}
+          {goal.types.map((type) => {
+            const confidenceTitle =
+              type.confidence == null ? type.label : `${type.label} — ${(type.confidence * 100).toFixed(0)}% confidence`;
+            const href = typeHref?.(type);
+            // The card itself is a <button>, so the chip can't be a real link;
+            // route imperatively instead and keep the card's hover/click intact.
+            return href ? (
+              <span
+                className="goal-type-chip goal-type-chip-link"
+                key={type.key}
+                role="link"
+                tabIndex={0}
+                title={`${confidenceTitle} — watch all ${type.label.toLowerCase()} goals`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  navigate(href);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.stopPropagation();
+                    navigate(href);
+                  }
+                }}
+              >
+                {type.label}
+              </span>
+            ) : (
+              <span className="goal-type-chip" key={type.key} title={confidenceTitle}>
+                {type.label}
+              </span>
+            );
+          })}
         </div>
       ) : null}
       <div className="goal-card-stats">
@@ -173,7 +212,7 @@ function GoalCard({
   );
 }
 
-function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
+export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
   return events
     .filter((event) => event.event_type === "goal_context")
     .map((event) => ({ event, sortKey: goalTime(event) ?? 0 }))
@@ -198,13 +237,17 @@ function goalTime(event: MechanicEventResponse): number | null {
   return eventDisplayTime(event);
 }
 
+export function goalTypeLabel(key: string): string {
+  return formatLabel(key.replace(/_goal$/, "")) || "Goal";
+}
+
 function goalTypes(payload: Record<string, unknown>): GoalType[] {
   return arrayField(payload, "tags").map((tag) => {
     const key = stringField(tag, "kind") ?? "goal";
     const metadata = objectField(tag, "metadata") ?? {};
     return {
       key,
-      label: formatLabel(key.replace(/_goal$/, "")) || "Goal",
+      label: goalTypeLabel(key),
       confidence: numberField(metadata, "confidence"),
     };
   });
@@ -250,7 +293,7 @@ function formatLabel(value: string | null): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function formatSeconds(value: number | null): string {
+export function formatSeconds(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "-";
   const minutes = Math.floor(value / 60);
   const seconds = Math.floor(value % 60);

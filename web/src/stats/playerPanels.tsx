@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
@@ -78,37 +79,71 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
 }
 
 /** Goal tag proportions over the player's goals. */
-export function GoalTagSharePanel({ overview }: { overview: PlayerStatOverviewResponse }) {
+export function GoalTagSharePanel({
+  overview,
+  goalTypeHref,
+  allGoalsHref,
+}: {
+  overview: PlayerStatOverviewResponse;
+  /** When provided, each goal type row links to a playlist of those goals. */
+  goalTypeHref?: (kind: string) => string;
+  /** When provided, the header links to a playlist of every goal. */
+  allGoalsHref?: string;
+}) {
   const tags = overview.goal_tags;
 
   return (
     <section className="chart-panel goal-tag-share-panel">
       <header className="chart-panel-header">
         <h3>Goal types</h3>
-        <span>{overview.goals_scored.toLocaleString()} goals tagged by the analyzer</span>
+        <span>
+          {overview.goals_scored.toLocaleString()} goals tagged by the analyzer
+          {goalTypeHref ? " — pick a type to watch those goals" : ""}
+        </span>
+        {allGoalsHref ? (
+          <Link className="goal-tag-watch-all" to={allGoalsHref}>
+            Watch all goals
+          </Link>
+        ) : null}
       </header>
       {tags.length === 0 ? (
         <p className="subtle">No tagged goals yet for this replay set.</p>
       ) : (
         <div className="rate-chart-rows">
-          {tags.map((tag) => (
-            <div className="rate-chart-row" key={tag.kind}>
-              <div className="rate-chart-label" title={tag.display_name}>
-                {tag.display_name}
+          {tags.map((tag) => {
+            const row = (
+              <>
+                <div className="rate-chart-label" title={tag.display_name}>
+                  {tag.display_name}
+                </div>
+                <div className="rate-chart-track" aria-label={`${tag.display_name} share of goals`}>
+                  <span
+                    className="rate-chart-fill goal-tag-fill"
+                    style={{ width: `${barPercent(tag.share_of_goals ?? 0, 1)}%` }}
+                    title={shareTitle(tag.display_name, tag.share_of_goals, tag.count)}
+                  />
+                </div>
+                <div className="rate-chart-value">
+                  <strong>{formatShare(tag.share_of_goals)}</strong>
+                  <span className="subtle"> {tag.count.toLocaleString()}×</span>
+                </div>
+              </>
+            );
+            return goalTypeHref ? (
+              <Link
+                className="rate-chart-row goal-tag-row-link"
+                key={tag.kind}
+                to={goalTypeHref(tag.kind)}
+                title={`Watch all ${tag.display_name.toLowerCase()} goals`}
+              >
+                {row}
+              </Link>
+            ) : (
+              <div className="rate-chart-row" key={tag.kind}>
+                {row}
               </div>
-              <div className="rate-chart-track" aria-label={`${tag.display_name} share of goals`}>
-                <span
-                  className="rate-chart-fill goal-tag-fill"
-                  style={{ width: `${barPercent(tag.share_of_goals ?? 0, 1)}%` }}
-                  title={shareTitle(tag.display_name, tag.share_of_goals, tag.count)}
-                />
-              </div>
-              <div className="rate-chart-value">
-                <strong>{formatShare(tag.share_of_goals)}</strong>
-                <span className="subtle"> {tag.count.toLocaleString()}×</span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </section>

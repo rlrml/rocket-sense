@@ -198,6 +198,42 @@ export async function listReplayEvents(replayId: string, eventTypes: string[] = 
   return response;
 }
 
+// Cross-replay variant of listReplayEvents: every event whose primary subject is
+// the given player (platform:platform_player_id), e.g. all goals they scored.
+export async function listPlayerEvents(playerId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
+  const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes);
+  const cached = getCachedReplayEvents(cacheKey);
+  if (cached) return cached;
+
+  const events: MechanicEventsResponse["events"] = [];
+  let offset = 0;
+  let nextOffset: number | null = 0;
+
+  while (nextOffset != null && events.length < maxReplayEvents) {
+    const params = new URLSearchParams({
+      "player-id": playerId,
+      count: String(eventPageSize),
+      offset: String(offset),
+    });
+    for (const eventType of eventTypes) {
+      params.append("event-type", eventType);
+    }
+    const response = await request<MechanicEventsResponse>(`/api/v1/events?${params.toString()}`);
+    events.push(...response.events);
+    nextOffset = response.next_offset;
+    offset = nextOffset ?? offset;
+  }
+
+  const response = {
+    events,
+    count: events.length,
+    offset: 0,
+    next_offset: nextOffset,
+  };
+  cacheReplayEvents(cacheKey, response);
+  return response;
+}
+
 export function listEventTypes(): Promise<EventTypesResponse> {
   return request<EventTypesResponse>("/api/v1/events/types");
 }
