@@ -116,7 +116,13 @@
             "-p"
             "rocket-sense-server"
           ];
-          cargoLock.lockFile = ./Cargo.lock;
+          cargoLock = {
+            lockFile = ./Cargo.lock;
+            # Fetch git dependencies (e.g. the patched boxcars pinned by
+            # vendored subtr-actor) via builtins.fetchGit so Cargo.lock stays
+            # the single source of truth — no outputHashes to maintain.
+            allowBuiltinFetchGit = true;
+          };
           auditable = false;
           RUST_MIN_STACK = "268435456";
           inherit nativeBuildInputs buildInputs;

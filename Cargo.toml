@@ -48,10 +48,19 @@ zstd = "0.13"
 rocket-sense-db = { path = "crates/rocket-sense-db" }
 rocket-sense-storage = { path = "crates/rocket-sense-storage" }
 
+# --- BEGIN synced [patch.crates-io] (managed by scripts/sync-subtr-actor) ---
+# Copied verbatim from vendor/subtr-actor/Cargo.toml so that subtr-actor is
+# the single place that controls patched crate revisions (e.g. boxcars).
+# Cargo only honors [patch] at the workspace root, hence the copy. Do not
+# edit by hand; run scripts/sync-subtr-actor instead.
 # A recent Rocket League update (World Cup event ball + player-name
 # anonymization) added network objects that boxcars 0.11.1 cannot decode,
-# failing replay parsing. Until the fix lands in an upstream boxcars release,
-# point the whole build graph (including vendored subtr-actor) at the patched
-# fork. See https://github.com/colonelpanic8/boxcars/tree/fix/worldcup-ball
+# which makes `must_parse_network_data()` fail on affected replays. Until the
+# fix lands in an upstream boxcars release, point standalone builds at the
+# patched fork. (Cargo ignores this section when subtr-actor is consumed as a
+# dependency and strips it on publish, so the crates.io version range above is
+# what downstream consumers still resolve.)
+# See https://github.com/colonelpanic8/boxcars/tree/fix/worldcup-ball
 [patch.crates-io]
 boxcars = { git = "https://github.com/colonelpanic8/boxcars.git", rev = "36598aa6db6ff9248502f9f762139ed3bdd94a34" }
+# --- END synced [patch.crates-io] ---
