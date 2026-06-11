@@ -897,11 +897,18 @@ fn build_indexed_events_does_not_duplicate_serialized_rotation_span_streams() {
         .iter()
         .filter(|event| event.event_type_key == "rotation_first_man_stint")
         .collect::<Vec<_>>();
+    let rotation_player_events = indexed
+        .iter()
+        .filter(|event| event.source_stream == "rotation_player")
+        .collect::<Vec<_>>();
 
     assert_eq!(role_spans.len(), 1);
     assert_eq!(role_spans[0].event_type_key, "rotation_role_first_man");
     assert_eq!(role_spans[0].category, "positioning");
     assert_eq!(first_man_stints.len(), 0);
+    // Per-frame rotation_player state spans are no longer indexed as play
+    // events; they live only in the event stream object.
+    assert_eq!(rotation_player_events.len(), 0);
 }
 
 #[test]
@@ -948,49 +955,6 @@ fn build_indexed_events_indexes_rotation_first_man_stint_durations() {
             .map(|subject| subject.id.as_str()),
         Some("steam:76561198000000001")
     );
-}
-
-#[test]
-fn event_scalar_fields_index_payload_and_normalized_attributes() {
-    let payload = serde_json::json!({
-        "kind": { "FirstMan": {} },
-        "player": { "Steam": 76561198000000001_u64 },
-        "time_first_man": 1.5,
-        "duration": 1.5,
-        "active": true,
-        "evidence": [
-            { "kind": { "DoubleTap": {} }, "confidence": 0.75 }
-        ]
-    });
-    let indexed = indexed_timeline_payload_event("rotation_player", 0, &payload)
-        .expect("rotation payload should index");
-
-    let scalar_fields = event_scalar_fields(&indexed);
-
-    assert!(scalar_fields.iter().any(|field| {
-        field.source == "payload"
-            && field.path == "kind"
-            && field.value_kind == "string"
-            && field.string_value.as_deref() == Some("first_man")
-    }));
-    assert!(scalar_fields.iter().any(|field| {
-        field.source == "payload"
-            && field.path == "time_first_man"
-            && field.value_kind == "number"
-            && field.numeric_value == Some(1.5)
-    }));
-    assert!(scalar_fields.iter().any(|field| {
-        field.source == "payload"
-            && field.path == "evidence[0].kind"
-            && field.value_kind == "string"
-            && field.string_value.as_deref() == Some("double_tap")
-    }));
-    assert!(scalar_fields.iter().any(|field| {
-        field.source == "attribute"
-            && field.path == "duration_seconds"
-            && field.value_kind == "number"
-            && field.numeric_value == Some(1.5)
-    }));
 }
 
 fn stats_timeline_with_events(

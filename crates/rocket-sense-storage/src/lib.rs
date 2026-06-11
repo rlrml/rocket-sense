@@ -126,6 +126,12 @@ pub enum StorageError {
         #[source]
         source: std::io::Error,
     },
+    #[error("failed to delete object at key {key}")]
+    Delete {
+        key: String,
+        #[source]
+        source: std::io::Error,
+    },
     #[error("failed to encode object with {encoding}")]
     Encode {
         encoding: StorageEncoding,
@@ -158,6 +164,10 @@ pub trait ObjectStorage: Send + Sync {
     ) -> Result<StoredObject, StorageError>;
 
     async fn get(&self, key: &str) -> Result<Bytes, StorageError>;
+
+    /// Remove the object at `key`. Deleting a key that does not exist is not
+    /// an error, so callers can safely retry after a partial failure.
+    async fn delete(&self, key: &str) -> Result<(), StorageError>;
 }
 
 #[derive(Debug, Clone)]
@@ -274,6 +284,18 @@ impl ObjectStorage for LocalStorage {
                 source: std::io::Error::new(std::io::ErrorKind::InvalidData, error),
             },
         })
+    }
+
+    async fn delete(&self, key: &str) -> Result<(), StorageError> {
+        let path = self.resolve_key(key)?;
+        match fs::remove_file(&path).await {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(source) => Err(StorageError::Delete {
+                key: key.to_owned(),
+                source,
+            }),
+        }
     }
 }
 

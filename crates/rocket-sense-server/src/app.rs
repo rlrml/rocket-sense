@@ -56,6 +56,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
                     state.storage.clone(),
                     settings.background_processing_concurrency,
                 );
+                processing::start_event_stream_gc_sweeper(pool.clone(), state.storage.clone());
                 match processing::enqueue_unfinished_replay_processing(pool).await {
                     Ok(count) if count > 0 => {
                         tracing::info!(count, "enqueued unfinished replay processing on startup");
@@ -92,9 +93,10 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
     let storage: Arc<dyn ObjectStorage> = Arc::new(LocalStorage::new(settings.storage_root));
     processing::start_replay_processing_workers(
         pool.clone(),
-        storage,
+        storage.clone(),
         settings.background_processing_concurrency,
     );
+    processing::start_event_stream_gc_sweeper(pool.clone(), storage);
 
     match processing::enqueue_unfinished_replay_processing(&pool).await {
         Ok(count) if count > 0 => {

@@ -15,6 +15,11 @@ locals {
     "app.kubernetes.io/name"      = local.app_name
     "app.kubernetes.io/component" = "postgres"
   }
+
+  watchdog_labels = {
+    "app.kubernetes.io/name"      = local.app_name
+    "app.kubernetes.io/component" = "disk-usage-watchdog"
+  }
 }
 
 resource "kubernetes_namespace_v1" "rocket_sense" {
@@ -58,6 +63,133 @@ resource "kubernetes_persistent_volume_claim_v1" "replay_storage" {
     resources {
       requests = {
         storage = var.replay_storage_size
+      }
+    }
+  }
+}
+
+# The local-path provisioner enforces no quota on these PVCs (a 10Gi claim
+# held 231G when the node filled on 2026-06-11), so the watchdog CronJob below
+# is the line of defense before kubelet DiskPressure evictions.
+resource "kubernetes_config_map_v1" "disk_usage_watchdog" {
+  metadata {
+    name      = "rocket-sense-disk-usage-watchdog"
+    namespace = kubernetes_namespace_v1.rocket_sense.metadata[0].name
+    labels    = local.watchdog_labels
+  }
+
+  data = {
+    "disk-usage-watchdog.sh" = file("${path.module}/files/disk-usage-watchdog.sh")
+  }
+}
+
+resource "kubernetes_cron_job_v1" "disk_usage_watchdog" {
+  metadata {
+    name      = "rocket-sense-disk-usage-watchdog"
+    namespace = kubernetes_namespace_v1.rocket_sense.metadata[0].name
+    labels    = local.watchdog_labels
+  }
+
+  spec {
+    schedule                      = var.disk_usage_watchdog_schedule
+    concurrency_policy            = "Forbid"
+    successful_jobs_history_limit = 3
+    failed_jobs_history_limit     = 5
+
+    job_template {
+      metadata {
+        labels = local.watchdog_labels
+      }
+
+      spec {
+        backoff_limit = 0
+
+        template {
+          metadata {
+            labels = local.watchdog_labels
+          }
+
+          spec {
+            restart_policy = "Never"
+
+            container {
+              name = "watchdog"
+              # Reuse the postgres image: it ships psql and the pgstattuple
+              # contrib extension the script relies on.
+              image   = "postgres:16-alpine"
+              command = ["/bin/sh", "/opt/rocket-sense/disk-usage-watchdog.sh"]
+
+              env {
+                name  = "PGHOST"
+                value = kubernetes_service_v1.postgres.metadata[0].name
+              }
+
+              env {
+                name  = "PGUSER"
+                value = "rocket_sense"
+              }
+
+              env {
+                name  = "PGDATABASE"
+                value = "rocket_sense"
+              }
+
+              env {
+                name = "PGPASSWORD"
+                value_from {
+                  secret_key_ref {
+                    name = "rocket-sense-secrets"
+                    key  = "POSTGRES_PASSWORD"
+                  }
+                }
+              }
+
+              env {
+                name  = "DISK_USAGE_ALERT_PERCENT"
+                value = tostring(var.disk_usage_alert_percent)
+              }
+
+              # Optional: POSTed the alert summary when set (e.g. an ntfy or
+              # Discord webhook URL).
+              env {
+                name = "ALERT_WEBHOOK_URL"
+                value_from {
+                  secret_key_ref {
+                    name     = "rocket-sense-secrets"
+                    key      = "ALERT_WEBHOOK_URL"
+                    optional = true
+                  }
+                }
+              }
+
+              volume_mount {
+                name       = "rocket-sense-storage"
+                mount_path = "/var/lib/rocket-sense/storage"
+                read_only  = true
+              }
+
+              volume_mount {
+                name       = "watchdog-script"
+                mount_path = "/opt/rocket-sense"
+                read_only  = true
+              }
+            }
+
+            volume {
+              name = "rocket-sense-storage"
+              persistent_volume_claim {
+                claim_name = kubernetes_persistent_volume_claim_v1.replay_storage.metadata[0].name
+              }
+            }
+
+            volume {
+              name = "watchdog-script"
+              config_map {
+                name = kubernetes_config_map_v1.disk_usage_watchdog.metadata[0].name
+              }
+            }
+          }
+        }
       }
     }
   }

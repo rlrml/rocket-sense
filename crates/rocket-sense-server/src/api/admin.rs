@@ -2,7 +2,7 @@ use crate::{
     app::AppState,
     auth::AuthUser,
     processing::{
-        enqueue_profile_timing_backfill, enqueue_replay_reprocessing,
+        enqueue_profile_timing_backfill, enqueue_replay_reprocessing, gc_superseded_event_streams,
         ReplayProfileTimingBackfillOptions, ReplayReprocessOptions,
     },
 };
@@ -34,6 +34,7 @@ pub fn router() -> Router<AppState> {
             "/admin/replays/backfill-profile-timing",
             post(backfill_profile_timing),
         )
+        .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
 }
@@ -160,6 +161,21 @@ pub struct BackfillProfileTimingResponse {
     pub skipped_replays: usize,
     pub concurrency: usize,
     pub force: bool,
+}
+
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct GcEventStreamsRequest {
+    /// Report what would be deleted without touching storage or the database.
+    #[serde(default)]
+    pub dry_run: bool,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct GcEventStreamsResponse {
+    pub matched_objects: u64,
+    pub deleted_objects: u64,
+    pub reclaimed_storage_bytes: u64,
+    pub dry_run: bool,
 }
 
 #[utoipa::path(
@@ -294,6 +310,43 @@ pub async fn backfill_profile_timing(
         skipped_replays: summary.skipped_replays,
         concurrency: summary.concurrency,
         force: summary.force,
+    }))
+}
+
+/// Sweep event stream objects left behind by analysis runs that were
+/// superseded before stream GC ran inline with pruning (or whose inline GC
+/// failed). Safe to re-run; deletion is idempotent.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/storage/gc-event-streams",
+    tag = "admin",
+    request_body = GcEventStreamsRequest,
+    responses(
+        (status = 200, description = "Superseded event stream objects deleted", body = GcEventStreamsResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn gc_event_streams(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<GcEventStreamsRequest>,
+) -> Result<Json<GcEventStreamsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let summary = gc_superseded_event_streams(pool, state.storage.as_ref(), request.dry_run)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(GcEventStreamsResponse {
+        matched_objects: summary.matched_objects,
+        deleted_objects: summary.deleted_objects,
+        reclaimed_storage_bytes: summary.reclaimed_storage_bytes,
+        dry_run: summary.dry_run,
     }))
 }
 
