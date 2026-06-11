@@ -707,7 +707,7 @@ fn push_processing_diagnostics_rows_query<'args>(
                 COUNT(*) FILTER (WHERE lower(job.status) = 'failed')::bigint AS failed_jobs,
                 COUNT(*) FILTER (WHERE lower(job.status) IN ('done', 'completed'))::bigint AS finished_jobs,
                 MIN(job.run_at) FILTER (WHERE lower(job.status) IN ('pending', 'queued', 'failed')) AS next_queue_run_at,
-                MAX(job.started_at) AS last_queue_started_at,
+                MAX(job.lock_at) AS last_queue_started_at,
                 MAX(job.done_at) AS last_queue_done_at,
                 MAX(job.last_result::text) FILTER (WHERE job.last_result IS NOT NULL) AS last_queue_error
             FROM apalis.jobs job
