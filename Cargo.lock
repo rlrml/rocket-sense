@@ -238,7 +238,7 @@ dependencies = [
 [[package]]
 name = "boxcars"
 version = "0.11.1"
-source = "git+https://github.com/colonelpanic8/boxcars.git?rev=36598aa6db6ff9248502f9f762139ed3bdd94a34#36598aa6db6ff9248502f9f762139ed3bdd94a34"
+source = "git+https://github.com/colonelpanic8/boxcars.git?rev=70be5375a2e6fd52e82c267d8147522659580a31#70be5375a2e6fd52e82c267d8147522659580a31"
 dependencies = [
  "bitter",
  "encoding_rs",
@@ -3033,7 +3033,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
