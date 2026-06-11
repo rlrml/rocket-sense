@@ -51,7 +51,6 @@ const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
 ];
 const PLAY_EVENT_INSERT_CHUNK_SIZE: usize = 500;
 const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
-const PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
 const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["goal_tags", "touch_last_touch"];
@@ -97,21 +96,10 @@ struct EventSubject {
     role: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-struct EventScalarField {
-    source: &'static str,
-    path: String,
-    value_kind: &'static str,
-    string_value: Option<String>,
-    numeric_value: Option<f64>,
-    boolean_value: Option<bool>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct PlayEventInsertOptions {
     payload: bool,
     attributes: bool,
-    scalar_fields: bool,
     details: bool,
     subjects: bool,
 }
@@ -120,7 +108,6 @@ impl PlayEventInsertOptions {
     const FULL: Self = Self {
         payload: true,
         attributes: true,
-        scalar_fields: true,
         details: true,
         subjects: true,
     };
@@ -128,7 +115,6 @@ impl PlayEventInsertOptions {
     const PROFILE_TIMING_BACKFILL: Self = Self {
         payload: true,
         attributes: false,
-        scalar_fields: false,
         details: true,
         subjects: true,
     };
@@ -2526,7 +2512,6 @@ async fn insert_play_events_batched(
 
     insert_play_event_payload_rows(pool, &inserted_events).await?;
     insert_play_event_attribute_rows(pool, &inserted_events).await?;
-    insert_play_event_scalar_field_rows_for_events(pool, &inserted_events).await?;
     insert_play_event_detail_rows(pool, replay_id, &inserted_events, replay_players).await?;
     insert_play_event_subject_rows(pool, &inserted_events, replay_players).await?;
 
@@ -2687,68 +2672,6 @@ async fn insert_play_event_attribute_rows(
     Ok(())
 }
 
-async fn insert_play_event_scalar_field_rows_for_events(
-    pool: &PgPool,
-    events: &[PreparedIndexedEvent<'_>],
-) -> Result<()> {
-    let mut rows =
-        Vec::<(Uuid, EventScalarField)>::with_capacity(PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE);
-    for prepared in events {
-        for field in event_scalar_fields(prepared.event) {
-            rows.push((prepared.id, field));
-            if rows.len() >= PLAY_EVENT_SCALAR_FIELD_INSERT_CHUNK_SIZE {
-                insert_play_event_scalar_field_rows(pool, &rows).await?;
-                rows.clear();
-            }
-        }
-    }
-    if !rows.is_empty() {
-        insert_play_event_scalar_field_rows(pool, &rows).await?;
-    }
-
-    Ok(())
-}
-
-async fn insert_play_event_scalar_field_rows(
-    pool: &PgPool,
-    rows: &[(Uuid, EventScalarField)],
-) -> Result<()> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        INSERT INTO play_event_scalar_fields (
-            event_id,
-            field_source,
-            field_path,
-            value_kind,
-            string_value,
-            numeric_value,
-            boolean_value
-        )
-        "#,
-    );
-    query.push_values(rows, |mut row, (event_id, field)| {
-        row.push_bind(event_id)
-            .push_bind(field.source)
-            .push_bind(&field.path)
-            .push_bind(field.value_kind)
-            .push_bind(field.string_value.as_deref())
-            .push_bind(field.numeric_value)
-            .push_bind(field.boolean_value);
-    });
-    query.push(" ON CONFLICT DO NOTHING");
-    query
-        .build()
-        .execute(pool)
-        .await
-        .context("failed to batch insert play event scalar fields")?;
-
-    Ok(())
-}
-
 async fn insert_play_event_subject_rows(
     pool: &PgPool,
     events: &[PreparedIndexedEvent<'_>],
@@ -2890,9 +2813,6 @@ async fn insert_play_events_row_by_row(
         }
         if options.attributes {
             insert_play_event_attributes(pool, play_event_id, &event.attributes).await?;
-        }
-        if options.scalar_fields {
-            insert_play_event_scalar_fields(pool, play_event_id, event).await?;
         }
         if options.details {
             insert_play_event_details(pool, play_event_id, replay_id, event, replay_players)
@@ -3707,48 +3627,6 @@ async fn insert_play_event_attributes(
     Ok(())
 }
 
-async fn insert_play_event_scalar_fields(
-    pool: &PgPool,
-    event_id: Uuid,
-    event: &IndexedEvent,
-) -> Result<()> {
-    let fields = event_scalar_fields(event);
-    if fields.is_empty() {
-        return Ok(());
-    }
-
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        INSERT INTO play_event_scalar_fields (
-            event_id,
-            field_source,
-            field_path,
-            value_kind,
-            string_value,
-            numeric_value,
-            boolean_value
-        )
-        "#,
-    );
-    query.push_values(fields, |mut row, field| {
-        row.push_bind(event_id)
-            .push_bind(field.source)
-            .push_bind(field.path)
-            .push_bind(field.value_kind)
-            .push_bind(field.string_value)
-            .push_bind(field.numeric_value)
-            .push_bind(field.boolean_value);
-    });
-    query.push(" ON CONFLICT DO NOTHING");
-    query
-        .build()
-        .execute(pool)
-        .await
-        .context("failed to insert play event scalar fields")?;
-
-    Ok(())
-}
-
 async fn insert_play_event_details(
     pool: &PgPool,
     event_id: Uuid,
@@ -4520,110 +4398,6 @@ fn timeline_event_attributes(stream: &str, payload: &Value, meta: Option<&Value>
     }
     append_goal_tag_attributes(payload, &mut attributes);
     Value::Object(attributes)
-}
-
-fn event_scalar_fields(event: &IndexedEvent) -> Vec<EventScalarField> {
-    let mut fields = Vec::new();
-    append_json_scalar_fields("payload", "", &event.payload, &mut fields);
-    append_json_scalar_fields("attribute", "", &event.attributes, &mut fields);
-    fields
-}
-
-fn append_json_scalar_fields(
-    source: &'static str,
-    path: &str,
-    value: &Value,
-    fields: &mut Vec<EventScalarField>,
-) {
-    match value {
-        Value::Object(object) => {
-            if let Some(variant) = serialized_unit_variant(object) {
-                push_string_scalar_field(
-                    source,
-                    scalar_path(path),
-                    &normalize_identifier(variant),
-                    fields,
-                );
-                return;
-            }
-            for (key, value) in object {
-                let field_path = if path.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{path}.{key}")
-                };
-                append_json_scalar_fields(source, &field_path, value, fields);
-            }
-        }
-        Value::Array(values) => {
-            for (index, value) in values.iter().enumerate() {
-                let field_path = format!("{}[{index}]", scalar_path(path));
-                append_json_scalar_fields(source, &field_path, value, fields);
-            }
-        }
-        Value::String(value) => {
-            push_string_scalar_field(source, scalar_path(path), value, fields);
-        }
-        Value::Number(value) => {
-            if let Some(value) = value.as_f64().filter(|value| value.is_finite()) {
-                fields.push(EventScalarField {
-                    source,
-                    path: scalar_path(path),
-                    value_kind: "number",
-                    string_value: None,
-                    numeric_value: Some(value),
-                    boolean_value: None,
-                });
-            }
-        }
-        Value::Bool(value) => {
-            fields.push(EventScalarField {
-                source,
-                path: scalar_path(path),
-                value_kind: "boolean",
-                string_value: None,
-                numeric_value: None,
-                boolean_value: Some(*value),
-            });
-        }
-        Value::Null => {}
-    }
-}
-
-fn push_string_scalar_field(
-    source: &'static str,
-    path: String,
-    value: &str,
-    fields: &mut Vec<EventScalarField>,
-) {
-    fields.push(EventScalarField {
-        source,
-        path,
-        value_kind: "string",
-        string_value: Some(value.to_owned()),
-        numeric_value: None,
-        boolean_value: None,
-    });
-}
-
-fn scalar_path(path: &str) -> String {
-    if path.is_empty() {
-        "value".to_owned()
-    } else {
-        path.to_owned()
-    }
-}
-
-fn serialized_unit_variant(object: &Map<String, Value>) -> Option<&str> {
-    if object.len() != 1 {
-        return None;
-    }
-    let (variant, value) = object.iter().next()?;
-    match value {
-        Value::Object(inner) if inner.is_empty() => Some(variant.as_str()),
-        Value::Null => Some(variant.as_str()),
-        _ => None,
-    }
 }
 
 fn append_mechanic_property_attributes(properties: &Value, attributes: &mut Map<String, Value>) {
