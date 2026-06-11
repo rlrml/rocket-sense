@@ -9,6 +9,8 @@ import type {
   MechanicEventsResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
+  ProcessingVersionBreakdownResponse,
+  ProcessingVersionResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
   ReplayResponse,
@@ -123,6 +125,22 @@ export function getPlayerStatAggregates(
   params.set("group-by", "playlist");
   params.set("count", "200");
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
+}
+
+export function getProcessingVersion(): Promise<ProcessingVersionResponse> {
+  return request<ProcessingVersionResponse>("/api/v1/processing-version");
+}
+
+export function getPlayerProcessingVersions(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<ProcessingVersionBreakdownResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<ProcessingVersionBreakdownResponse>(
+    `/api/v1/stats/processing-versions?${params.toString()}`,
+  );
 }
 
 export function getPlayerStatOverview(

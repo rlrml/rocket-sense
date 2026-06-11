@@ -47,6 +47,7 @@ import {
 } from "./api";
 import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
+import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
 import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
@@ -469,7 +470,13 @@ function ReplayListPage() {
                   <ReplayTeams replay={replay} />
                 </td>
                 <td className="replay-details-cell">
-                  <StatusBadge status={replay.status} />
+                  <div className="replay-badge-row">
+                    <StatusBadge status={replay.status} />
+                    <StalenessBadge
+                      staleness={replay.staleness}
+                      processingVersion={replay.processing_version}
+                    />
+                  </div>
                   <div>{playlistLabel(replay.playlist_metadata, replay.playlist)}</div>
                   <div>{formatDate(replay.replay_date || replay.created_at)}</div>
                   <div className="subtle">{formatDuration(replay.summary.duration_seconds)}</div>
@@ -1042,6 +1049,12 @@ function ReplayStatsPage() {
           <h1>{replay?.original_file_name || "Replay stats"}</h1>
         </div>
         <div className="button-row">
+          {replay?.staleness.is_stale ? (
+            <StalenessBadge
+              staleness={replay.staleness}
+              processingVersion={replay.processing_version}
+            />
+          ) : null}
           {canReprocess ? (
             <button
               className="secondary-button"
@@ -1411,7 +1424,17 @@ function PlayerStatsPage() {
       {playerSummary ? (
         <>
           <div className="summary-grid">
-            <Metric label="Replays" value={playerSummary.replay_count.toLocaleString()} />
+            <div className="metric">
+              <span>Replays</span>
+              <strong className="metric-with-action">
+                {playerSummary.replay_count.toLocaleString()}
+                <ProcessingVersionTrigger
+                  platform={platform}
+                  platformPlayerId={platformPlayerId}
+                  search={location.search}
+                />
+              </strong>
+            </div>
             <Metric label="Active" value={formatDuration(stats?.active_time_seconds ?? null)} />
             <Metric label="First seen" value={formatShortDate(playerSummary.first_seen_at)} />
             <Metric label="Last seen" value={formatShortDate(playerSummary.last_seen_at)} />

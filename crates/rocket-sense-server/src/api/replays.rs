@@ -109,6 +109,7 @@ pub struct ReplayResponse {
     pub players: Vec<ReplayPlayerResponse>,
     pub summary: ReplaySummaryResponse,
     pub processing_version: ReplayProcessingVersionResponse,
+    pub staleness: ReplayStalenessResponse,
     pub status: ReplayStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -130,6 +131,18 @@ pub struct ReplayProcessingVersionResponse {
     pub rocket_sense_git_sha: Option<String>,
     pub subtr_actor_version: Option<String>,
     pub subtr_actor_git_sha: Option<String>,
+}
+
+/// Whether a replay's persisted parse version is behind the running pipeline,
+/// with the current values included so the UI can render "parsed with X /
+/// current is Y" without a second request.
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct ReplayStalenessResponse {
+    pub is_stale: bool,
+    pub schema_outdated: bool,
+    pub subtr_actor_outdated: bool,
+    pub current_event_stream_schema_version: String,
+    pub current_subtr_actor_version: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -2098,7 +2111,9 @@ fn append_replay_filters<'args>(
     }
 
     if let Some(status) = &filters.status {
-        builder.push(" AND r.processing_status = ").push_bind(status);
+        builder
+            .push(" AND r.processing_status = ")
+            .push_bind(status);
     }
 
     if let Some(created_after) = filters.created_after {
@@ -2221,7 +2236,9 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
     let processing_version = ReplayProcessingVersionResponse {
         processed_at: row.try_get("processed_at").unwrap_or(None),
         extractor_name: row.try_get("processed_with_extractor_name").unwrap_or(None),
-        extractor_version: row.try_get("processed_with_extractor_version").unwrap_or(None),
+        extractor_version: row
+            .try_get("processed_with_extractor_version")
+            .unwrap_or(None),
         event_stream_schema_version: row
             .try_get("processed_with_event_stream_schema_version")
             .unwrap_or(None),
@@ -2234,6 +2251,21 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         subtr_actor_git_sha: row
             .try_get("processed_with_subtr_actor_git_sha")
             .unwrap_or(None),
+    };
+    let current_version = crate::processing::current_processing_version();
+    let staleness_info = crate::processing::replay_staleness(
+        processing_version.event_stream_schema_version.as_deref(),
+        processing_version.subtr_actor_version.as_deref(),
+        processing_version.subtr_actor_git_sha.as_deref(),
+    );
+    let staleness = ReplayStalenessResponse {
+        is_stale: staleness_info.is_stale,
+        schema_outdated: staleness_info.schema_outdated,
+        subtr_actor_outdated: staleness_info.subtr_actor_outdated,
+        current_event_stream_schema_version: current_version
+            .event_stream_schema_version
+            .to_string(),
+        current_subtr_actor_version: current_version.subtr_actor_version.to_string(),
     };
     let uploaded_by = row
         .try_get::<Option<Uuid>, _>("uploader_id")?
@@ -2264,6 +2296,7 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         players,
         summary,
         processing_version,
+        staleness,
         status: ReplayStatus::from_db(processing_status),
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,

@@ -41,9 +41,56 @@ export interface ReplayResponse {
     match_guid: string | null;
     season: string | null;
   };
+  processing_version: ReplayProcessingVersion;
+  staleness: ReplayStaleness;
   status: ReplayStatus;
   created_at: string;
   updated_at: string;
+}
+
+export interface ReplayProcessingVersion {
+  processed_at: string | null;
+  extractor_name: string | null;
+  extractor_version: string | null;
+  event_stream_schema_version: string | null;
+  rocket_sense_git_sha: string | null;
+  subtr_actor_version: string | null;
+  subtr_actor_git_sha: string | null;
+}
+
+export interface ReplayStaleness {
+  is_stale: boolean;
+  schema_outdated: boolean;
+  subtr_actor_outdated: boolean;
+  current_event_stream_schema_version: string;
+  current_subtr_actor_version: string;
+}
+
+export interface ProcessingVersionResponse {
+  event_stream_schema_version: string;
+  extractor_name: string;
+  extractor_version: string;
+  subtr_actor_version: string;
+  subtr_actor_git_sha: string | null;
+  rocket_sense_git_sha: string | null;
+  schema_changelog: Array<{ version: string; note: string }>;
+}
+
+export interface ProcessingVersionBreakdownRow {
+  event_stream_schema_version: string | null;
+  subtr_actor_version: string | null;
+  subtr_actor_git_sha: string | null;
+  replay_count: number;
+  is_current: boolean;
+}
+
+export interface ProcessingVersionBreakdownResponse {
+  current_event_stream_schema_version: string;
+  current_subtr_actor_version: string;
+  total_replays: number;
+  current_replays: number;
+  stale_replays: number;
+  rows: ProcessingVersionBreakdownRow[];
 }
 
 export interface ReplayPlaylistMetadata {

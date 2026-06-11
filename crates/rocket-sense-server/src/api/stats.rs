@@ -24,7 +24,34 @@ use super::{
 mod tests;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route("/stats/aggregates", get(get_stat_aggregates))
+    Router::new()
+        .route("/stats/aggregates", get(get_stat_aggregates))
+        .route(
+            "/stats/processing-versions",
+            get(get_processing_version_breakdown),
+        )
+}
+
+/// Breakdown of the replays contributing to an aggregate by the processing
+/// version they were parsed with. Lets a profile/aggregate view show how much
+/// of its data reflects the current pipeline.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProcessingVersionBreakdownResponse {
+    pub current_event_stream_schema_version: String,
+    pub current_subtr_actor_version: String,
+    pub total_replays: u64,
+    pub current_replays: u64,
+    pub stale_replays: u64,
+    pub rows: Vec<ProcessingVersionBreakdownRow>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProcessingVersionBreakdownRow {
+    pub event_stream_schema_version: Option<String>,
+    pub subtr_actor_version: Option<String>,
+    pub subtr_actor_git_sha: Option<String>,
+    pub replay_count: u64,
+    pub is_current: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -369,6 +396,113 @@ pub async fn get_stat_aggregates(
         .map_err(ApiError::internal)?;
 
     Ok(Json(aggregates))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/processing-versions",
+    tag = "stats",
+    params(StatAggregatesQuery),
+    responses(
+        (status = 200, description = "Processing-version breakdown of contributing replays", body = ProcessingVersionBreakdownResponse),
+        (status = 400, description = "Stats filters were invalid"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn get_processing_version_breakdown(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<ProcessingVersionBreakdownResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
+    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    let breakdown = load_processing_version_breakdown(db, &filters)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(breakdown))
+}
+
+pub(crate) async fn load_processing_version_breakdown(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<ProcessingVersionBreakdownResponse, sqlx::Error> {
+    let mut query = if filters.player.is_some() {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                r.parsed_with_event_stream_schema_version AS schema_version,
+                r.parsed_with_subtr_actor_version AS subtr_actor_version,
+                r.parsed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                COUNT(DISTINCT rp.replay_id) AS replay_count
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            "#,
+        );
+        append_target_player_filters(&mut query, filters);
+        query.push(" AND r.canonical_analysis_run_id IS NOT NULL");
+        query
+    } else {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT
+                r.parsed_with_event_stream_schema_version AS schema_version,
+                r.parsed_with_subtr_actor_version AS subtr_actor_version,
+                r.parsed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                COUNT(DISTINCT r.id) AS replay_count
+            FROM replays r
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+            "#,
+        );
+        append_replay_filters(&mut query, filters, "r");
+        query
+    };
+    query.push(
+        r#"
+        GROUP BY 1, 2, 3
+        ORDER BY replay_count DESC, schema_version DESC NULLS LAST, subtr_actor_version DESC NULLS LAST
+        "#,
+    );
+
+    let db_rows = query.build().fetch_all(pool).await?;
+
+    let current = crate::processing::current_processing_version();
+    let mut rows = Vec::with_capacity(db_rows.len());
+    let mut total_replays: u64 = 0;
+    let mut current_replays: u64 = 0;
+    for row in db_rows {
+        let schema_version: Option<String> = row.try_get("schema_version")?;
+        let subtr_actor_version: Option<String> = row.try_get("subtr_actor_version")?;
+        let subtr_actor_git_sha: Option<String> = row.try_get("subtr_actor_git_sha")?;
+        let replay_count = row.try_get::<i64, _>("replay_count")?.max(0) as u64;
+        let is_current = !crate::processing::replay_staleness(
+            schema_version.as_deref(),
+            subtr_actor_version.as_deref(),
+            subtr_actor_git_sha.as_deref(),
+        )
+        .is_stale;
+        total_replays += replay_count;
+        if is_current {
+            current_replays += replay_count;
+        }
+        rows.push(ProcessingVersionBreakdownRow {
+            event_stream_schema_version: schema_version,
+            subtr_actor_version,
+            subtr_actor_git_sha,
+            replay_count,
+            is_current,
+        });
+    }
+
+    Ok(ProcessingVersionBreakdownResponse {
+        current_event_stream_schema_version: current.event_stream_schema_version.to_string(),
+        current_subtr_actor_version: current.subtr_actor_version.to_string(),
+        total_replays,
+        current_replays,
+        stale_replays: total_replays - current_replays,
+        rows,
+    })
 }
 
 pub(crate) async fn load_stat_aggregates(

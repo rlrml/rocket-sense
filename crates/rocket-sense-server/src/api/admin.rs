@@ -488,10 +488,7 @@ async fn load_processing_diagnostics_summary(
             let status: String = row.try_get("processing_status")?;
             let count = signed_count_to_u64(row.try_get("replay_count")?);
             total_replays += count;
-            Ok(ReplayProcessingStatusCountResponse {
-                status,
-                count,
-            })
+            Ok(ReplayProcessingStatusCountResponse { status, count })
         })
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(ApiError::internal)?;

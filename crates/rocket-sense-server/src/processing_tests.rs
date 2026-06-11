@@ -1119,3 +1119,97 @@ fn touch_stats_event(
         touch_id: None,
     }
 }
+
+fn version_fixture() -> CurrentProcessingVersion {
+    CurrentProcessingVersion {
+        event_stream_schema_version: "rocket-sense-event-stream:v5",
+        extractor_name: "rocket-sense:event-stream",
+        extractor_version: "0.1.0",
+        subtr_actor_version: "0.12.0",
+        subtr_actor_git_sha: Some("aaaaaaa"),
+        rocket_sense_git_sha: Some("bbbbbbb"),
+    }
+}
+
+#[test]
+fn staleness_is_current_when_everything_matches() {
+    let current = version_fixture();
+    let info = compute_staleness(
+        &current,
+        Some("rocket-sense-event-stream:v5"),
+        Some("0.12.0"),
+        Some("aaaaaaa"),
+    );
+    assert!(!info.is_stale);
+    assert!(!info.schema_outdated);
+    assert!(!info.subtr_actor_outdated);
+}
+
+#[test]
+fn staleness_flags_outdated_schema() {
+    let current = version_fixture();
+    let info = compute_staleness(
+        &current,
+        Some("rocket-sense-event-stream:v3"),
+        Some("0.12.0"),
+        Some("aaaaaaa"),
+    );
+    assert!(info.is_stale);
+    assert!(info.schema_outdated);
+    assert!(!info.subtr_actor_outdated);
+}
+
+#[test]
+fn staleness_flags_subtr_actor_version_drift() {
+    let current = version_fixture();
+    let info = compute_staleness(
+        &current,
+        Some("rocket-sense-event-stream:v5"),
+        Some("0.11.0"),
+        Some("aaaaaaa"),
+    );
+    assert!(info.is_stale);
+    assert!(!info.schema_outdated);
+    assert!(info.subtr_actor_outdated);
+}
+
+#[test]
+fn staleness_flags_subtr_actor_git_drift() {
+    let current = version_fixture();
+    let info = compute_staleness(
+        &current,
+        Some("rocket-sense-event-stream:v5"),
+        Some("0.12.0"),
+        Some("ccccccc"),
+    );
+    assert!(info.is_stale);
+    assert!(info.subtr_actor_outdated);
+}
+
+#[test]
+fn staleness_ignores_unknown_current_subtr_actor_version() {
+    let current = CurrentProcessingVersion {
+        subtr_actor_version: "unknown",
+        subtr_actor_git_sha: None,
+        ..version_fixture()
+    };
+    // A build that doesn't know its subtr-actor version must not flag every
+    // replay as stale just because the stored version differs.
+    let info = compute_staleness(
+        &current,
+        Some("rocket-sense-event-stream:v5"),
+        Some("0.12.0"),
+        Some("aaaaaaa"),
+    );
+    assert!(!info.is_stale);
+    assert!(!info.subtr_actor_outdated);
+}
+
+#[test]
+fn staleness_is_not_flagged_for_unparsed_replay() {
+    let current = version_fixture();
+    let info = compute_staleness(&current, None, None, None);
+    assert!(!info.is_stale);
+    assert!(!info.schema_outdated);
+    assert!(!info.subtr_actor_outdated);
+}

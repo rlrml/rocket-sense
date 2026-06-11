@@ -1845,6 +1845,7 @@ dependencies = [
  "boxcars",
  "bytes",
  "chrono",
+ "futures",
  "jsonwebtoken",
  "reqwest",
  "rocket-sense-db",
