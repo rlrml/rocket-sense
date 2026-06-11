@@ -186,6 +186,12 @@ pub struct ReplayPlayerResponse {
     pub rank_tier: Option<i32>,
     pub rank_division: Option<i32>,
     pub rank_mmr: Option<f64>,
+    /// True when the rank was not submitted with this replay and is instead
+    /// the player's nearest known rank from another replay's submission.
+    #[serde(default)]
+    pub rank_is_fallback: bool,
+    /// Date of the match the fallback rank was taken from.
+    pub rank_fallback_replay_date: Option<DateTime<Utc>>,
     pub is_pro: bool,
     pub score: Option<i32>,
     pub goals: Option<i32>,
@@ -2336,9 +2342,11 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
                     'platform', player.platform,
                     'platform_player_id', player.platform_player_id,
                     'team', player.team,
-                    'rank_tier', player.rank_tier,
-                    'rank_division', player.rank_division,
-                    'rank_mmr', player.rank_mmr,
+                    'rank_tier', COALESCE(player.rank_tier, rank_fallback.tier),
+                    'rank_division', CASE WHEN player.rank_tier IS NULL THEN rank_fallback.division ELSE player.rank_division END,
+                    'rank_mmr', CASE WHEN player.rank_tier IS NULL THEN rank_fallback.mmr ELSE player.rank_mmr END,
+                    'rank_is_fallback', player.rank_tier IS NULL AND rank_fallback.tier IS NOT NULL,
+                    'rank_fallback_replay_date', CASE WHEN player.rank_tier IS NULL THEN rank_fallback.replay_date END,
                     'is_pro', player.is_pro,
                     'score', player.score,
                     'goals', player.goals,
@@ -2355,6 +2363,30 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
                 ORDER BY player.team NULLS LAST, player.name NULLS LAST
             ) AS players
             FROM replay_players player
+            -- Fallback rank for players with no submission on this replay:
+            -- the same player's nearest submission on another replay,
+            -- preferring the same playlist, then the closest match at or
+            -- before this one, then the closest after. Display-only — rank
+            -- filters keep matching the directly submitted columns.
+            LEFT JOIN LATERAL (
+                SELECT s.tier, s.division, s.mmr,
+                       COALESCE(r2.replay_date, r2.created_at) AS replay_date
+                FROM replay_player_rank_submissions s
+                JOIN replays r2 ON r2.id = s.replay_id
+                WHERE player.rank_tier IS NULL
+                  AND s.platform_player_id = player.platform_player_id
+                  AND s.tier IS NOT NULL
+                  AND s.valid IS DISTINCT FROM FALSE
+                ORDER BY
+                    (s.playlist IS NOT DISTINCT FROM r.game_playlist_id) DESC,
+                    (COALESCE(r2.replay_date, r2.created_at)
+                        <= COALESCE(r.replay_date, r.created_at)) DESC,
+                    CASE WHEN COALESCE(r2.replay_date, r2.created_at)
+                              <= COALESCE(r.replay_date, r.created_at)
+                         THEN COALESCE(r2.replay_date, r2.created_at) END DESC,
+                    COALESCE(r2.replay_date, r2.created_at) ASC
+                FETCH FIRST 1 ROW ONLY
+            ) rank_fallback ON TRUE
             WHERE player.replay_id = r.id
         ) players ON TRUE
         {where_clause}

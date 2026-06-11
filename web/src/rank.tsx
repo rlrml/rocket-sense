@@ -1,3 +1,5 @@
+import { AlertTriangle } from "lucide-react";
+
 // Rank tiers as submitted by clients (PsyNet skill tiers): 0 = Unranked,
 // 1-21 = Bronze I through Grand Champion III, 22 = Supersonic Legend.
 const tierNames = [
@@ -44,20 +46,30 @@ export function RankBadge({
   tier,
   division,
   mmr,
+  approximate,
+  approximateAsOf,
 }: {
   tier: number | null | undefined;
   division: number | null | undefined;
   mmr: number | null | undefined;
+  approximate?: boolean;
+  approximateAsOf?: string | null;
 }) {
   if (tier == null) return null;
   const label = rankLabel(tier, division);
   const rounded = mmr != null ? Math.round(mmr) : null;
-  const title = rounded != null ? `${label} · ${rounded} MMR` : (label ?? undefined);
+  const ranked = rounded != null ? `${label} · ${rounded} MMR` : (label ?? "");
+  const title = approximate
+    ? `~${ranked} — no rank was submitted with this replay. This is the player's nearest known rank` +
+      (approximateAsOf ? `, from a match on ${new Date(approximateAsOf).toLocaleDateString()}.` : ".") +
+      " Their actual rank at the time of this match may have differed."
+    : ranked || undefined;
   const icon = rankIconUrl(tier);
   return (
-    <span className="rank-badge" title={title} aria-label={title}>
+    <span className={approximate ? "rank-badge rank-badge-approx" : "rank-badge"} title={title} aria-label={title}>
       {icon ? <img src={icon} alt={label ?? ""} width="20" height="20" /> : null}
       {rounded != null ? <span className="rank-mmr">{rounded}</span> : null}
+      {approximate ? <AlertTriangle className="rank-approx-mark" size={11} aria-hidden="true" /> : null}
     </span>
   );
 }

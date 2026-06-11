@@ -9,6 +9,8 @@ export interface ReplayPlayer {
   rank_tier?: number | null;
   rank_division?: number | null;
   rank_mmr?: number | null;
+  rank_is_fallback?: boolean;
+  rank_fallback_replay_date?: string | null;
   is_pro: boolean;
   score?: number | null;
   goals?: number | null;
