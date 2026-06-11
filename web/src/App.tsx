@@ -49,6 +49,7 @@ import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/reg
 import type { StatGroup } from "./stats/registry";
 import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
 import { PlatformIcon, platformLabel } from "./platform";
+import { RankBadge } from "./rank";
 import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
@@ -942,8 +943,6 @@ function TeamBlock({
 
 function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }) {
   const label = player.name || player.platform_player_id || "Unknown";
-  const rank = rankLabel(player.rank_tier, player.rank_division);
-  const mmr = player.rank_mmr != null ? Math.round(player.rank_mmr) : null;
   const hasStats = [player.goals, player.assists, player.saves, player.shots, player.score].some(
     (value) => value != null,
   );
@@ -951,15 +950,10 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
     <>
       <PlatformIcon platform={player.platform} />
       <span className="player-name">{label}</span>
+      <RankBadge tier={player.rank_tier} division={player.rank_division} mmr={player.rank_mmr} />
       {isMvp ? (
         <span className="mvp-chip" title="MVP: highest score on the winning team">
           MVP
-        </span>
-      ) : null}
-      {rank ? (
-        <span className="rank-chip" title={mmr != null ? `${rank} · ${mmr} MMR` : rank}>
-          {rank}
-          {mmr != null ? <span className="rank-mmr">{mmr}</span> : null}
         </span>
       ) : null}
       {hasStats ? (
@@ -3490,39 +3484,6 @@ function playlistLabel(metadata: ReplayPlaylistMetadata | null | undefined, fall
     .replace(/^online-/, "Online ")
     .replaceAll("-", " ")
     .replace(/\b\w/g, (character) => character.toUpperCase());
-}
-
-function rankLabel(tier: number | null | undefined, division: number | null | undefined): string | null {
-  if (tier == null) return null;
-  const tiers = [
-    "Unranked",
-    "Bronze I",
-    "Bronze II",
-    "Bronze III",
-    "Silver I",
-    "Silver II",
-    "Silver III",
-    "Gold I",
-    "Gold II",
-    "Gold III",
-    "Platinum I",
-    "Platinum II",
-    "Platinum III",
-    "Diamond I",
-    "Diamond II",
-    "Diamond III",
-    "Champion I",
-    "Champion II",
-    "Champion III",
-    "Grand Champion I",
-    "Grand Champion II",
-    "Grand Champion III",
-    "Supersonic Legend",
-  ];
-  const name = tiers[tier] ?? `Tier ${tier}`;
-  if (tier <= 0 || division == null) return name;
-  const visibleDivision = division >= 0 && division <= 3 ? division + 1 : division;
-  return `${name} Div ${visibleDivision}`;
 }
 
 function formatDuration(value: number | null): string {

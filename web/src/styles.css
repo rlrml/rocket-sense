@@ -472,8 +472,7 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
-.platform-chip,
-.rank-chip {
+.platform-chip {
   display: inline-flex;
   flex: none;
   align-items: center;
@@ -488,15 +487,22 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-.rank-chip {
-  gap: 5px;
-  background: #f6efe3;
-  color: #7a4a10;
+.rank-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.rank-badge img {
+  flex: none;
+  object-fit: contain;
 }
 
 .rank-mmr {
-  padding-left: 5px;
-  border-left: 1px solid #e3d2b4;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 750;
   font-variant-numeric: tabular-nums;
 }
 
