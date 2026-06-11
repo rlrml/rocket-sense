@@ -6,6 +6,7 @@ import type {
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "../types";
+import { boostAmountToPercent } from "./boostUnits";
 import { SegmentedBar, type SegmentedBarSegment } from "./shared";
 
 const rateChartStatLimit = 12;
@@ -363,7 +364,8 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
         <KickoffMetric label="Kickoff goals against" value={formatCount(metric("kickoff_goals_against"))} />
         <KickoffMetric label="Avg time to touch (taker)" value={formatSecondsValue(metric("avg_taker_time_to_touch"))} />
         <KickoffMetric label="Taker touch rate" value={formatShare(takerTouchRate)} />
-        <KickoffMetric label="Avg boost delta" value={formatSigned(metric("avg_boost_delta"))} />
+        {/* avg_boost_delta arrives in raw 0-255 replay units; rescale to the 0-100 display scale. */}
+        <KickoffMetric label="Avg boost delta" value={formatSigned(boostAmountToPercent(metric("avg_boost_delta")))} />
         <KickoffMetric label="Taker rows" value={formatCount(metric("taker_count"))} />
         <KickoffMetric label="Support rows" value={formatCount(metric("support_count"))} />
       </div>

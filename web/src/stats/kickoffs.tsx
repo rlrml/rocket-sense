@@ -791,7 +791,7 @@ function KickoffBehaviorRow({
         {!showTakerBoost && boostDelta != null ? (
           <span className={boostDelta >= 0 ? "boost-positive" : "boost-negative"}>
             {boostDelta >= 0 ? "+" : ""}
-            {Math.round(boostDelta)} boost
+            {formatBoostAmount(boostDelta)} boost
           </span>
         ) : null}
       </div>
