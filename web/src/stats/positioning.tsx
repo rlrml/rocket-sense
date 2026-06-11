@@ -5,7 +5,7 @@ export const positioningEventTypes = [
   "positioning_activity",
   "positioning_distance",
   "positioning_field_zone",
-  "positioning_ball_depth",
+  "positioning_ball_relative_depth",
   "positioning_teammate_role",
   "positioning_ball_proximity",
   "positioning_goal_context",
@@ -235,7 +235,7 @@ function playerPositioningSummaries(players: ReplayPlayer[], events: MechanicEve
       continue;
     }
 
-    if (event.event_type === "positioning_ball_depth") {
+    if (event.event_type === "positioning_ball_relative_depth") {
       summary.behindBallSeconds += duration * fractionPayload(event.payload, "behind_ball_fraction");
       summary.levelWithBallSeconds += duration * fractionPayload(event.payload, "level_with_ball_fraction");
       summary.inFrontOfBallSeconds += duration * fractionPayload(event.payload, "in_front_of_ball_fraction");
