@@ -858,7 +858,7 @@ function KickoffStrengthSummary({
   const winColor = team === 1 ? "orange" : "blue";
   const lossColor = team === 1 ? "blue" : "orange";
 
-  const segments: SegmentedBarSegment[] = [
+  const rawSegments: SegmentedBarSegment[] = [
     ...WIN_BANDS.map(({ band, level, label }) => ({
       key: `win-${band}`,
       className: `kickoff-tug-seg tug-${winColor} tug-level-${level}`,
@@ -878,9 +878,16 @@ function KickoffStrengthSummary({
       value: outcomes[band].losses,
     })),
   ];
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  const total = rawSegments.reduce((sum, segment) => sum + segment.value, 0);
 
   if (total === 0) return <span>-</span>;
+
+  // Print the count inside any segment wide enough to hold a digit without
+  // crowding; narrower ones still expose their count via the hover title.
+  const segments: SegmentedBarSegment[] = rawSegments.map((segment) => ({
+    ...segment,
+    visibleLabel: segment.value > 0 && segment.value / total >= 0.12 ? String(segment.value) : undefined,
+  }));
 
   const wins = segments.filter((segment) => segment.key.startsWith("win-")).reduce((sum, segment) => sum + segment.value, 0);
   const losses = segments.filter((segment) => segment.key.startsWith("loss-")).reduce((sum, segment) => sum + segment.value, 0);

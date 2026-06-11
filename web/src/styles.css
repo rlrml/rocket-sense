@@ -1202,7 +1202,7 @@ button.status-stale:hover {
 }
 
 .kickoff-outcome-tug-track.stat-segmented-track {
-  height: 16px;
+  height: 20px;
   border: 1px solid var(--border);
   border-radius: 6px;
 }
@@ -1212,6 +1212,20 @@ button.status-stale:hover {
   flex-shrink: 1;
   flex-basis: 0;
   min-width: 0;
+}
+
+.kickoff-outcome-tug-track .source-segment-label {
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+  color: #fff;
+}
+
+/* Light shades need dark text for the label to stay legible. */
+.kickoff-outcome-tug-track .tug-level-narrow .source-segment-label,
+.kickoff-outcome-tug-track .tug-level-unknown .source-segment-label,
+.kickoff-outcome-tug-track .tug-neutral .source-segment-label {
+  color: #1e293b;
 }
 
 /* Blue team ramp: darker = more decisive result. */
