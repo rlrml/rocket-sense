@@ -38,6 +38,7 @@ use utoipa::{
         replays::download_replay_file,
         replays::get_replay,
         replays::reprocess_replay,
+        replays::set_replay_ranks,
     ),
     components(
         schemas(
@@ -94,6 +95,10 @@ use utoipa::{
             replays::ReplayTeamScoresResponse,
             replays::ReplayUploaderResponse,
             replays::ReprocessReplayResponse,
+            replays::SetReplayRanksResponse,
+            crate::ranks::RankSubmission,
+            crate::ranks::SubmittedRank,
+            crate::ranks::SkillSnapshot,
         )
     ),
     tags(

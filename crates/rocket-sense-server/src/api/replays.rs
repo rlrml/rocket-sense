@@ -5,6 +5,7 @@ use crate::{
         enqueue_replay_processing_job, enqueue_replay_reprocessing,
         upsert_replay_preflight_metadata, ReplayReprocessOptions,
     },
+    ranks::{ingest_rank_submissions, RankSubmission},
 };
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State},
@@ -45,6 +46,7 @@ pub fn router() -> Router<AppState> {
             get(get_replay_by_sha256),
         )
         .route("/replays/{replay_id}/file", get(download_replay_file))
+        .route("/replays/{replay_id}/ranks", post(set_replay_ranks))
         .route("/replays/{replay_id}/reprocess", post(reprocess_replay))
         .route(
             "/replays/{replay_id}/stats/boost-tracks",
@@ -476,18 +478,36 @@ pub async fn create_replay(
 
     let mut replay_bytes = None;
     let mut original_file_name = None;
+    let mut rank_submission: Option<RankSubmission> = None;
 
     while let Some(field) = multipart
         .next_field()
         .await
         .map_err(ApiError::bad_request)?
     {
-        if field.name() == Some("file") {
-            original_file_name = field
-                .file_name()
-                .map(|name| normalize_uploaded_file_name(name, upload_encoding));
-            replay_bytes = Some(field.bytes().await.map_err(ApiError::bad_request)?);
-            break;
+        match field.name() {
+            Some("file") => {
+                original_file_name = field
+                    .file_name()
+                    .map(|name| normalize_uploaded_file_name(name, upload_encoding));
+                replay_bytes = Some(field.bytes().await.map_err(ApiError::bad_request)?);
+            }
+            // Optional rank metadata submitted alongside the replay. Replay
+            // files do not carry ranks, so a client (e.g. the rlru uploader)
+            // may bundle them here as JSON; see `crate::ranks`.
+            Some("ranks") => {
+                let text = field.text().await.map_err(ApiError::bad_request)?;
+                if !text.trim().is_empty() {
+                    let parsed: RankSubmission = serde_json::from_str(&text).map_err(|error| {
+                        ApiError::bad_request(format!("invalid `ranks` field: {error}"))
+                    })?;
+                    rank_submission = Some(parsed);
+                }
+            }
+            // Drain any other field so the multipart stream keeps advancing.
+            _ => {
+                let _ = field.bytes().await;
+            }
         }
     }
 
@@ -505,6 +525,7 @@ pub async fn create_replay(
         .map_err(ApiError::internal)?
     {
         let replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
+        ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
         return Ok((
             StatusCode::OK,
@@ -544,6 +565,7 @@ pub async fn create_replay(
     let replay = insert_result.replay;
 
     let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
+    ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
 
     if insert_result.created {
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
@@ -562,6 +584,32 @@ pub async fn create_replay(
             deduplicated: !insert_result.created,
         }),
     ))
+}
+
+/// Ingests rank metadata bundled with an upload. Best-effort: a malformed
+/// payload is rejected at parse time (400), but a failure to persist here must
+/// not fail the upload itself — the replay is already stored — so errors are
+/// logged and swallowed.
+async fn ingest_bundled_ranks(db: &PgPool, replay_id: Uuid, submission: Option<&RankSubmission>) {
+    let Some(submission) = submission else {
+        return;
+    };
+    if submission.is_empty() {
+        return;
+    }
+    match ingest_rank_submissions(db, replay_id, submission).await {
+        Ok(summary) => tracing::debug!(
+            %replay_id,
+            submitted = summary.submitted,
+            matched = summary.matched,
+            "ingested bundled replay ranks"
+        ),
+        Err(error) => tracing::warn!(
+            %replay_id,
+            error = %error,
+            "failed to ingest bundled replay ranks"
+        ),
+    }
 }
 
 struct NewReplayMetadata<'a> {
@@ -1567,6 +1615,15 @@ pub struct ReprocessReplayResponse {
     pub forced: bool,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SetReplayRanksResponse {
+    pub replay_id: Uuid,
+    /// Number of player ranks persisted to the durable submissions store.
+    pub submitted: u64,
+    /// Number of `replay_players` rows matched and updated with a rank.
+    pub matched: u64,
+}
+
 #[utoipa::path(
     post,
     path = "/api/v1/replays/{replay_id}/reprocess",
@@ -1633,6 +1690,66 @@ pub async fn reprocess_replay(
         replay_id,
         enqueued: summary.enqueued_replays > 0,
         forced: query.force,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replays/{replay_id}/ranks",
+    tag = "replays",
+    params(
+        ("replay_id" = Uuid, Path, description = "The replay to attach ranks to"),
+    ),
+    request_body = RankSubmission,
+    responses(
+        (status = 200, description = "Ranks ingested", body = SetReplayRanksResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not have permission to set ranks for this replay"),
+        (status = 404, description = "Replay not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn set_replay_ranks(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+    Json(submission): Json<RankSubmission>,
+) -> Result<Json<SetReplayRanksResponse>, ApiError> {
+    let db = require_db(&state)?;
+
+    let uploaded_by = sqlx::query_scalar::<_, Option<Uuid>>(
+        "SELECT uploaded_by_user_id FROM replays WHERE id = $1",
+    )
+    .bind(replay_id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    let is_owner = uploaded_by == Some(auth_user.id);
+    if !is_owner {
+        let is_admin = crate::auth::resolve_is_admin(db, &auth_user, &state.admin_emails)
+            .await
+            .map_err(ApiError::internal)?;
+        if !is_admin {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "you do not have permission to set ranks for this replay",
+            ));
+        }
+    }
+
+    let summary = ingest_rank_submissions(db, replay_id, &submission)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(SetReplayRanksResponse {
+        replay_id,
+        submitted: summary.submitted,
+        matched: summary.matched,
     }))
 }
 
