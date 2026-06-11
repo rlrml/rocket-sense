@@ -205,7 +205,7 @@ export async function listReplayEvents(
 // Cross-replay variant of listReplayEvents: every event whose primary subject is
 // the given player (platform:platform_player_id), e.g. all goals they scored.
 export async function listPlayerEvents(playerId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
-  const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes);
+  const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes, null);
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
 
