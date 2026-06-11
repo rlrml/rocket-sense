@@ -1,6 +1,6 @@
 import type { ReplayModel } from "@rlrml/player";
 import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
+import { type CSSProperties, Fragment, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -349,14 +349,6 @@ const GOALS_COLUMN: KickoffPlayerColumn = {
   ),
 };
 
-// Win strength is a property of the kickoff a player took, so it belongs with the
-// taker table only; support rows stay lean.
-const STRENGTH_COLUMN: KickoffPlayerColumn = {
-  key: "strength",
-  label: "Outcomes",
-  render: (summary) => <KickoffStrengthSummary outcomes={summary.strengthOutcomes} />,
-};
-
 const TAKER_COLUMNS: KickoffPlayerColumn[] = [
   PLAYER_COLUMN,
   { key: "takes", label: "Takes", render: (summary) => summary.takerCount },
@@ -368,7 +360,6 @@ const TAKER_COLUMNS: KickoffPlayerColumn[] = [
   { key: "boostUsed", label: "Boost used", render: (summary) => formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount) },
   { key: "approach", label: "Approach", render: (summary) => topMapLabel(summary.approaches) },
   GOALS_COLUMN,
-  STRENGTH_COLUMN,
 ];
 
 const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
@@ -378,12 +369,24 @@ const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
   GOALS_COLUMN,
 ];
 
+// Win strength is a property of the kickoff a player took, so the outcome bar
+// rides beneath the taker rows only; support rows stay lean.
+function takerOutcomeDetail(summary: PlayerKickoffSummary): ReactNode {
+  return <KickoffStrengthSummary outcomes={summary.strengthOutcomes} team={summary.team} />;
+}
+
 function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }) {
   const takers = summaries.filter((summary) => summary.takerCount > 0);
   const supports = summaries.filter((summary) => summary.supportCount > 0);
   return (
     <div className="kickoff-player-tables">
-      <KickoffRoleTable label="Takers" columns={TAKER_COLUMNS} summaries={takers} emptyLabel="No taker data yet." />
+      <KickoffRoleTable
+        label="Takers"
+        columns={TAKER_COLUMNS}
+        summaries={takers}
+        emptyLabel="No taker data yet."
+        renderRowDetail={takerOutcomeDetail}
+      />
       <KickoffRoleTable label="Support" columns={SUPPORT_COLUMNS} summaries={supports} emptyLabel="No support data yet." />
     </div>
   );
@@ -394,11 +397,14 @@ function KickoffRoleTable({
   columns,
   summaries,
   emptyLabel,
+  renderRowDetail,
 }: {
   label: string;
   columns: KickoffPlayerColumn[];
   summaries: PlayerKickoffSummary[];
   emptyLabel: string;
+  /** Optional full-width content rendered in a row beneath each player's stats. */
+  renderRowDetail?: (summary: PlayerKickoffSummary) => ReactNode;
 }) {
   return (
     <div className="kickoff-player-table-group">
@@ -414,13 +420,23 @@ function KickoffRoleTable({
               </tr>
             </thead>
             <tbody>
-              {summaries.map((summary) => (
-                <tr className={`team-row-${teamClass(summary.team)}`} key={summary.key}>
-                  {columns.map((column) => (
-                    <td key={column.key}>{column.render(summary)}</td>
-                  ))}
-                </tr>
-              ))}
+              {summaries.map((summary) => {
+                const detail = renderRowDetail?.(summary);
+                return (
+                  <Fragment key={summary.key}>
+                    <tr className={`team-row-${teamClass(summary.team)}${detail ? " has-row-detail" : ""}`}>
+                      {columns.map((column) => (
+                        <td key={column.key}>{column.render(summary)}</td>
+                      ))}
+                    </tr>
+                    {detail ? (
+                      <tr className={`team-row-${teamClass(summary.team)} kickoff-row-detail`}>
+                        <td colSpan={columns.length}>{detail}</td>
+                      </tr>
+                    ) : null}
+                  </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -825,41 +841,69 @@ function KickoffBehaviorRow({
   );
 }
 
-// Outcome segments ordered from the strongest win on the left to the strongest
-// loss on the right, with neutral kickoffs holding the center. Each band gets its
-// own color level so the gradient reads as "how decisively did this player's team
-// win or lose their kickoffs"; the boundary between green and red lands at the
-// win share, making the bar a tug of war between wins and losses.
-const OUTCOME_TUG_SEGMENTS: Array<{
-  key: string;
-  className: string;
-  label: string;
-  value: (outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>) => number;
-}> = [
-  { key: "win-strong", className: "kickoff-tug-win-strong", label: "Strong win", value: (o) => o.strong.wins },
-  { key: "win-clear", className: "kickoff-tug-win-clear", label: "Clear win", value: (o) => o.clear.wins },
-  { key: "win-narrow", className: "kickoff-tug-win-narrow", label: "Narrow win", value: (o) => o.narrow.wins },
-  { key: "win-unknown", className: "kickoff-tug-win-unknown", label: "Win", value: (o) => o.unknown.wins },
-  {
-    key: "neutral",
-    className: "kickoff-tug-neutral",
-    label: "Neutral",
-    value: (o) => o.narrow.neutral + o.clear.neutral + o.strong.neutral + o.unknown.neutral,
-  },
-  { key: "loss-unknown", className: "kickoff-tug-loss-unknown", label: "Loss", value: (o) => o.unknown.losses },
-  { key: "loss-narrow", className: "kickoff-tug-loss-narrow", label: "Narrow loss", value: (o) => o.narrow.losses },
-  { key: "loss-clear", className: "kickoff-tug-loss-clear", label: "Clear loss", value: (o) => o.clear.losses },
-  { key: "loss-strong", className: "kickoff-tug-loss-strong", label: "Strong loss", value: (o) => o.strong.losses },
+// The outcomes column is a blue-vs-orange tug of war: the player's own team color
+// fills from the left for the kickoffs they won, the opponent's color fills from
+// the right for the ones they lost, and neutral kickoffs hold the center. Within
+// each side the strength band sets the shade (darkest = strongest result), so the
+// bar shows both who won and how decisively. The win/loss boundary lands at the
+// player's win share.
+const TEAM_HEX: Record<string, string> = { blue: "#2563eb", orange: "#ea580c", neutral: "#64748b" };
+
+const WIN_BANDS: Array<{ band: KickoffStrengthBand; level: string; label: string }> = [
+  { band: "strong", level: "strong", label: "Strong win" },
+  { band: "clear", level: "clear", label: "Clear win" },
+  { band: "narrow", level: "narrow", label: "Narrow win" },
+  { band: "unknown", level: "unknown", label: "Win" },
 ];
 
-function KickoffStrengthSummary({ outcomes }: { outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome> }) {
-  const segments: SegmentedBarSegment[] = OUTCOME_TUG_SEGMENTS.map((segment) => {
-    const value = segment.value(outcomes);
-    return { key: segment.key, className: segment.className, label: segment.label, value };
-  });
-  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+// Losses mirror the win ramp so the strongest loss sits at the far (right) edge.
+const LOSS_BANDS: Array<{ band: KickoffStrengthBand; level: string; label: string }> = [
+  { band: "unknown", level: "unknown", label: "Loss" },
+  { band: "narrow", level: "narrow", label: "Narrow loss" },
+  { band: "clear", level: "clear", label: "Clear loss" },
+  { band: "strong", level: "strong", label: "Strong loss" },
+];
+
+function KickoffStrengthSummary({
+  outcomes,
+  team,
+}: {
+  outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
+  team: number | null;
+}) {
+  const winColor = team === 1 ? "orange" : "blue";
+  const lossColor = team === 1 ? "blue" : "orange";
+
+  const rawSegments: SegmentedBarSegment[] = [
+    ...WIN_BANDS.map(({ band, level, label }) => ({
+      key: `win-${band}`,
+      className: `kickoff-tug-seg tug-${winColor} tug-level-${level}`,
+      label,
+      value: outcomes[band].wins,
+    })),
+    {
+      key: "neutral",
+      className: "kickoff-tug-seg tug-neutral",
+      label: "Neutral",
+      value: outcomes.narrow.neutral + outcomes.clear.neutral + outcomes.strong.neutral + outcomes.unknown.neutral,
+    },
+    ...LOSS_BANDS.map(({ band, level, label }) => ({
+      key: `loss-${band}`,
+      className: `kickoff-tug-seg tug-${lossColor} tug-level-${level}`,
+      label,
+      value: outcomes[band].losses,
+    })),
+  ];
+  const total = rawSegments.reduce((sum, segment) => sum + segment.value, 0);
 
   if (total === 0) return <span>-</span>;
+
+  // Print the count inside any segment wide enough to hold a digit without
+  // crowding; narrower ones still expose their count via the hover title.
+  const segments: SegmentedBarSegment[] = rawSegments.map((segment) => ({
+    ...segment,
+    visibleLabel: segment.value > 0 && segment.value / total >= 0.12 ? String(segment.value) : undefined,
+  }));
 
   const wins = segments.filter((segment) => segment.key.startsWith("win-")).reduce((sum, segment) => sum + segment.value, 0);
   const losses = segments.filter((segment) => segment.key.startsWith("loss-")).reduce((sum, segment) => sum + segment.value, 0);
@@ -867,15 +911,15 @@ function KickoffStrengthSummary({ outcomes }: { outcomes: Record<KickoffStrength
   return (
     <div className="kickoff-outcome-tug">
       <SegmentedBar
-        ariaLabel="Kickoff outcomes from strong wins to strong losses"
+        ariaLabel="Kickoff outcomes from the player's team wins to opponent wins"
         className="kickoff-outcome-tug-track"
         maxValue={total}
         segments={segments}
         total={total}
       />
       <div className="kickoff-outcome-tug-caption">
-        <span className="kickoff-outcome-tug-wins">{wins}W</span>
-        <span className="kickoff-outcome-tug-losses">{losses}L</span>
+        <span style={{ color: TEAM_HEX[winColor] }}>{wins}W</span>
+        <span style={{ color: TEAM_HEX[lossColor] }}>{losses}L</span>
       </div>
     </div>
   );
