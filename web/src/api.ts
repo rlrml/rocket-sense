@@ -16,6 +16,7 @@ import type {
   ReplayResponse,
   ReprocessReplayResponse,
   StatAggregateSetResponse,
+  PossessionSummaryResponse,
 } from "./types";
 
 const tokenKey = "rocket_sense_access_token";
@@ -162,6 +163,16 @@ export function getPlayerKickoffSummary(
   params.set("player-id", `${platform}:${platformPlayerId}`);
   params.set("include-samples", "false");
   return request<EventStatSummaryResponse>(`/api/v1/stats/events/kickoff/summary?${params.toString()}`);
+}
+
+export function getPlayerPossessionSummary(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<PossessionSummaryResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<PossessionSummaryResponse>(`/api/v1/stats/possession/summary?${params.toString()}`);
 }
 
 export async function listReplayEvents(

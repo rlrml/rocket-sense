@@ -5255,3 +5255,30 @@ button.status-stale:hover {
 .goal-tag-watch-all:hover {
   text-decoration: underline;
 }
+
+/* Career possession summary panel */
+.possession-summary-panel .possession-surface-share {
+  margin: 0.75rem 0 0.25rem;
+}
+
+.possession-summary-panel .possession-surface-share h4 {
+  margin: 0 0 0.5rem;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.possession-surface-segment-ground {
+  background: var(--team-unknown, #64748b);
+}
+
+.possession-surface-segment-air {
+  background: #0ea5e9;
+}
+
+.possession-surface-segment-wall {
+  background: #a855f7;
+}
+
+.possession-surface-segment-other {
+  background: var(--possession-neutral, #94a3b8);
+}

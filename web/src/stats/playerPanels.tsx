@@ -3,6 +3,8 @@ import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
   PlayerStatOverviewResponse,
+  PossessionMixValue,
+  PossessionSummaryResponse,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
@@ -566,4 +568,179 @@ function formatDurationSeconds(value: number): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+const possessionSurfaceClasses: Record<string, string> = {
+  ground: "possession-surface-segment-ground",
+  air: "possession-surface-segment-air",
+  wall: "possession-surface-segment-wall",
+};
+
+/**
+ * Career possession summary: how often and how long the player holds the
+ * ball, what they do with it (advance, carry, take it airborne or up the
+ * wall), and how their first touches resolve.
+ */
+export function PossessionSummaryPanel({ summary }: { summary: PossessionSummaryResponse }) {
+  const spans = summary.possessions;
+  const touches = summary.touches;
+  const possessionsPerGame = summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
+  const possessionTimePerGame = summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
+  const surfaceTotal = touches.surfaces.reduce((sum, value) => sum + value.count, 0);
+  const histogramTotal = spans.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
+  const histogramMax = Math.max(...spans.duration_histogram.map((bucket) => bucket.count), 1);
+  const playStyles = [
+    { key: "carry", label: "Ball carry", share: spans.with_carry_share },
+    { key: "air_dribble", label: "Air dribble", share: spans.with_air_dribble_share },
+    { key: "aerial_touch", label: "Aerial touch", share: spans.with_aerial_touch_share },
+    { key: "wall_touch", label: "Wall touch", share: spans.with_wall_touch_share },
+  ].filter((style) => style.share != null);
+
+  return (
+    <section className="chart-panel full-span possession-summary-panel">
+      <header className="chart-panel-header">
+        <h3>Possession</h3>
+        <span>
+          {spans.possession_count.toLocaleString()} possessions across {summary.replay_count.toLocaleString()} replays
+        </span>
+      </header>
+      <div className="kickoff-headline-metrics">
+        <PossessionMetric label="Possessions per game" value={possessionsPerGame != null ? formatRate(possessionsPerGame) : "—"} />
+        <PossessionMetric label="Possession time per game" value={possessionTimePerGame != null ? formatDurationSeconds(possessionTimePerGame) : "—"} />
+        <PossessionMetric label="Avg possession length" value={formatSecondsValue(spans.avg_duration_seconds)} />
+        <PossessionMetric label="Avg touches per possession" value={spans.avg_touches_per_possession != null ? formatRate(spans.avg_touches_per_possession) : "—"} />
+        <PossessionMetric label="Ball advanced per possession" value={formatDistance(spans.avg_advance_distance)} />
+        <PossessionMetric label="Carry time share" value={formatShare(spans.carry_time_share)} />
+        <PossessionMetric label="First-touch control rate" value={formatShare(touches.first_touch_control_share)} />
+        <PossessionMetric
+          label="Contested touch share"
+          value={formatShare(
+            touches.classified_touch_count > 0 ? touches.contested_touch_count / touches.classified_touch_count : null,
+          )}
+        />
+      </div>
+
+      {surfaceTotal > 0 ? (
+        <div className="possession-surface-share">
+          <h4>Touch surfaces</h4>
+          <SegmentedBar
+            ariaLabel="Touch surface share"
+            className="positioning-track"
+            segments={touches.surfaces.map((value) => possessionSurfaceSegment(value, surfaceTotal))}
+            total={surfaceTotal}
+          />
+        </div>
+      ) : null}
+
+      <div className="kickoff-dimension-grid possession-breakdown-grid">
+        {playStyles.length > 0 ? (
+          <div className="kickoff-dimension">
+            <h4>Possessions including…</h4>
+            <div className="rate-chart-rows">
+              {playStyles.map((style) => (
+                <div className="rate-chart-row kickoff-dimension-row" key={style.key}>
+                  <div className="rate-chart-label" title={style.label}>
+                    {style.label}
+                  </div>
+                  <div className="rate-chart-track" aria-label={`Possessions including ${style.label}`}>
+                    <span
+                      className="rate-chart-fill kickoff-dimension-fill"
+                      style={{ width: `${Math.max(0, Math.min(100, (style.share ?? 0) * 100))}%` }}
+                      title={`${style.label}: ${formatShare(style.share)}`}
+                    />
+                  </div>
+                  <div className="rate-chart-value">
+                    <strong>{formatShare(style.share)}</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {histogramTotal > 0 ? (
+          <div className="kickoff-dimension">
+            <h4>Possession length</h4>
+            <div className="rate-chart-rows">
+              {spans.duration_histogram.map((bucket) => (
+                <div className="rate-chart-row kickoff-dimension-row" key={bucket.key}>
+                  <div className="rate-chart-label" title={bucket.label}>
+                    {bucket.label}
+                  </div>
+                  <div className="rate-chart-track" aria-label={`Possession length ${bucket.label}`}>
+                    <span
+                      className="rate-chart-fill kickoff-dimension-fill"
+                      style={{ width: `${barPercent(bucket.count, histogramMax)}%` }}
+                      title={shareTitle(bucket.label, histogramTotal > 0 ? bucket.count / histogramTotal : null, bucket.count)}
+                    />
+                  </div>
+                  <div className="rate-chart-value">
+                    <strong>{formatShare(histogramTotal > 0 ? bucket.count / histogramTotal : null)}</strong>
+                    <span className="subtle"> {bucket.count.toLocaleString()}×</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <PossessionMixList title="First-touch intentions" values={touches.first_touch_intentions} />
+        <PossessionMixList title="All touch intentions" values={touches.intentions} />
+      </div>
+    </section>
+  );
+}
+
+function PossessionMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="kickoff-headline-metric">
+      <span className="subtle">{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PossessionMixList({ title, values }: { title: string; values: PossessionMixValue[] }) {
+  const total = values.reduce((sum, value) => sum + value.count, 0);
+  if (total === 0) return null;
+  return (
+    <div className="kickoff-dimension">
+      <h4>{title}</h4>
+      <div className="rate-chart-rows">
+        {values.map((value) => (
+          <div className="rate-chart-row kickoff-dimension-row" key={value.key ?? "unknown"}>
+            <div className="rate-chart-label" title={value.display_name}>
+              {value.display_name}
+            </div>
+            <div className="rate-chart-track" aria-label={`${title}: ${value.display_name}`}>
+              <span
+                className="rate-chart-fill kickoff-dimension-fill"
+                style={{ width: `${barPercent(value.count, total)}%` }}
+                title={shareTitle(value.display_name, total > 0 ? value.count / total : null, value.count)}
+              />
+            </div>
+            <div className="rate-chart-value">
+              <strong>{formatShare(total > 0 ? value.count / total : null)}</strong>
+              <span className="subtle"> {value.count.toLocaleString()}×</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function possessionSurfaceSegment(value: PossessionMixValue, total: number): SegmentedBarSegment {
+  const share = total > 0 ? value.count / total : 0;
+  return {
+    key: value.key ?? "unknown",
+    className: possessionSurfaceClasses[value.key ?? ""] ?? "possession-surface-segment-other",
+    label: value.display_name,
+    value: value.count,
+    visibleLabel: share >= 0.08 ? `${value.display_name} ${formatShare(share)}` : undefined,
+    title: shareTitle(value.display_name, share, value.count),
+  };
+}
+
+function formatDistance(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `${Math.round(value).toLocaleString()} uu`;
 }

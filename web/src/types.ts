@@ -319,6 +319,56 @@ export interface EventStatSummaryResponse {
   samples: EventStatSampleResponse[];
 }
 
+export interface PossessionSummaryResponse {
+  replay_count: number;
+  possessions: PossessionSpanSummary;
+  touches: PossessionTouchSummary;
+}
+
+export interface PossessionSpanSummary {
+  possession_count: number;
+  total_duration_seconds: number;
+  avg_duration_seconds: number | null;
+  total_touch_count: number;
+  avg_touches_per_possession: number | null;
+  total_advance_distance: number;
+  total_retreat_distance: number;
+  avg_advance_distance: number | null;
+  avg_retreat_distance: number | null;
+  carry_time_seconds: number;
+  air_dribble_time_seconds: number;
+  carry_time_share: number | null;
+  air_dribble_time_share: number | null;
+  with_carry_share: number | null;
+  with_air_dribble_share: number | null;
+  with_aerial_touch_share: number | null;
+  with_wall_touch_share: number | null;
+  duration_histogram: PossessionDurationBucket[];
+}
+
+export interface PossessionDurationBucket {
+  key: string;
+  label: string;
+  count: number;
+}
+
+export interface PossessionTouchSummary {
+  classified_touch_count: number;
+  first_touch_count: number;
+  first_touch_control_count: number;
+  first_touch_control_share: number | null;
+  contested_touch_count: number;
+  first_touch_intentions: PossessionMixValue[];
+  intentions: PossessionMixValue[];
+  surfaces: PossessionMixValue[];
+}
+
+export interface PossessionMixValue {
+  key: string | null;
+  display_name: string;
+  count: number;
+}
+
 export interface MechanicEventResponse {
   id: string;
   replay_id: string;
