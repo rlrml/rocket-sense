@@ -1,7 +1,10 @@
 use crate::{
     app::AppState,
     auth::{AuthUser, OptionalAuthUser},
-    processing::{enqueue_replay_processing_job, upsert_replay_preflight_metadata},
+    processing::{
+        enqueue_replay_processing_job, enqueue_replay_reprocessing, upsert_replay_preflight_metadata,
+        ReplayReprocessOptions,
+    },
 };
 use axum::{
     extract::{Multipart, Path, RawQuery, State},
@@ -10,7 +13,7 @@ use axum::{
         StatusCode,
     },
     response::{Html, IntoResponse, Redirect, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use bytes::Bytes;
@@ -42,6 +45,7 @@ pub fn router() -> Router<AppState> {
             get(get_replay_by_sha256),
         )
         .route("/replays/{replay_id}/file", get(download_replay_file))
+        .route("/replays/{replay_id}/reprocess", post(reprocess_replay))
         .route(
             "/replays/{replay_id}/stats/boost-tracks",
             get(get_replay_boost_tracks),
@@ -1527,6 +1531,76 @@ struct StaticAsset {
 }
 
 include!(concat!(env!("OUT_DIR"), "/subtr_actor_static_assets.rs"));
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReprocessReplayResponse {
+    pub replay_id: Uuid,
+    pub enqueued: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replays/{replay_id}/reprocess",
+    tag = "replays",
+    params(("replay_id" = Uuid, Path, description = "The replay to reprocess")),
+    responses(
+        (status = 200, description = "Replay reprocessing enqueued", body = ReprocessReplayResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not have permission to reprocess this replay"),
+        (status = 404, description = "Replay not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn reprocess_replay(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<Json<ReprocessReplayResponse>, ApiError> {
+    let db = require_db(&state)?;
+
+    let uploaded_by = sqlx::query_scalar::<_, Option<Uuid>>(
+        "SELECT uploaded_by_user_id FROM replays WHERE id = $1",
+    )
+    .bind(replay_id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    let is_owner = uploaded_by == Some(auth_user.id);
+    if !is_owner {
+        let is_admin = crate::auth::resolve_is_admin(db, &auth_user, &state.admin_emails)
+            .await
+            .map_err(ApiError::internal)?;
+        if !is_admin {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "you do not have permission to reprocess this replay",
+            ));
+        }
+    }
+
+    let summary = enqueue_replay_reprocessing(
+        db.clone(),
+        state.storage.clone(),
+        state.background_processing_permits.clone(),
+        ReplayReprocessOptions {
+            replay_ids: vec![replay_id],
+            force: true,
+            concurrency: 1,
+        },
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(ReprocessReplayResponse {
+        replay_id,
+        enqueued: summary.enqueued_replays > 0,
+    }))
+}
 
 fn storage_read_error(error: StorageError) -> ApiError {
     match &error {

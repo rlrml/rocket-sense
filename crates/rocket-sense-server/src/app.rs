@@ -18,6 +18,8 @@ pub struct AppState {
     pub oauth_providers: Arc<[settings::OAuthProviderSettings]>,
     pub process_replays_in_background: bool,
     pub background_processing_permits: Arc<Semaphore>,
+    /// Email addresses that are auto-promoted to admin on authentication.
+    pub admin_emails: Arc<[String]>,
 }
 
 pub async fn build(settings: settings::Settings) -> Result<Router> {
@@ -43,6 +45,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         background_processing_permits: Arc::new(Semaphore::new(
             settings.background_processing_concurrency,
         )),
+        admin_emails: Arc::from(settings.admin_emails),
     };
 
     if state.process_replays_in_background {

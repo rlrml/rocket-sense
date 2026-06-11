@@ -32,6 +32,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/options", get(auth_options))
         .route("/auth/dev-token", post(create_dev_token))
         .route("/auth/profile-token", post(create_profile_token))
+        .route("/me", get(get_current_user))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -111,6 +112,45 @@ pub async fn create_profile_token(
     State(state): State<AppState>,
 ) -> Result<Json<AccessToken>, AuthError> {
     issue_access_token(&auth_user, &state.app_jwt_secret).map(Json)
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CurrentUserResponse {
+    pub id: Uuid,
+    pub email: String,
+    pub provider_name: String,
+    pub is_admin: bool,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/me",
+    tag = "auth",
+    responses(
+        (status = 200, description = "The currently authenticated user", body = CurrentUserResponse),
+        (status = 401, description = "Authentication required")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn get_current_user(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<CurrentUserResponse>, AuthError> {
+    let is_admin = match &state.db {
+        Some(pool) => crate::auth::resolve_is_admin(pool, &auth_user, &state.admin_emails)
+            .await
+            .map_err(|_| AuthError::internal("failed to resolve admin status"))?,
+        None => false,
+    };
+
+    Ok(Json(CurrentUserResponse {
+        id: auth_user.id,
+        email: auth_user.email,
+        provider_name: auth_user.provider_name,
+        is_admin,
+    }))
 }
 
 fn auth_options_response(
