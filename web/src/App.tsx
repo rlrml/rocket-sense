@@ -943,11 +943,33 @@ function useCurrentUser(): CurrentUserResponse | null {
   return user;
 }
 
+type RequeuePhase = "pending" | "done" | "skipped" | "error";
+
+interface RequeueResult {
+  phase: RequeuePhase;
+  message: string;
+}
+
+function RequeueResultChip({ result }: { result: RequeueResult }) {
+  const Icon =
+    result.phase === "error"
+      ? AlertTriangle
+      : result.phase === "pending"
+        ? RotateCcw
+        : Check;
+  return (
+    <span className={`requeue-result requeue-result-${result.phase}`} role="status">
+      <Icon size={14} className={result.phase === "pending" ? "spin" : undefined} />
+      <span>{result.message}</span>
+    </span>
+  );
+}
+
 function ReplayStatsPage() {
   const { replayId = "", statGroup } = useParams();
   const currentUser = useCurrentUser();
   const [reprocessing, setReprocessing] = useState(false);
-  const [reprocessStatus, setReprocessStatus] = useState<string | null>(null);
+  const [reprocessResult, setReprocessResult] = useState<RequeueResult | null>(null);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
@@ -1026,16 +1048,26 @@ function ReplayStatsPage() {
       (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
   );
 
-  async function handleReprocess() {
+  async function handleReprocess(force = false) {
     setReprocessing(true);
-    setReprocessStatus(null);
+    setReprocessResult(null);
     try {
-      const result = await reprocessReplay(replayId);
-      setReprocessStatus(
-        result.enqueued ? "Reprocessing requested." : "Replay is already up to date.",
+      const result = await reprocessReplay(replayId, { force });
+      setReprocessResult(
+        result.enqueued
+          ? {
+              phase: "done",
+              message: result.forced
+                ? "Force-reprocessing queued — this page will reflect the new results once a worker finishes."
+                : "Queued for reprocessing — this page will reflect the new results once a worker finishes.",
+            }
+          : { phase: "skipped", message: "Already up to date — nothing needed reprocessing." },
       );
     } catch (err) {
-      setReprocessStatus(err instanceof Error ? err.message : "Reprocess request failed.");
+      setReprocessResult({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Reprocess request failed.",
+      });
     } finally {
       setReprocessing(false);
     }
@@ -1070,7 +1102,17 @@ function ReplayStatsPage() {
             <Zap size={16} />
             Player
           </Link>
-          {reprocessStatus ? <span className="inline-status">{reprocessStatus}</span> : null}
+          {reprocessResult ? <RequeueResultChip result={reprocessResult} /> : null}
+          {reprocessResult?.phase === "skipped" ? (
+            <button
+              type="button"
+              className="requeue-force-button"
+              disabled={reprocessing}
+              onClick={() => void handleReprocess(true)}
+            >
+              Force reprocess anyway
+            </button>
+          ) : null}
         </div>
       </header>
 
@@ -2922,8 +2964,7 @@ function AdminProcessingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [requeuingId, setRequeuingId] = useState<string | null>(null);
-  const [requeueStatus, setRequeueStatus] = useState<string | null>(null);
+  const [requeueResults, setRequeueResults] = useState<Record<string, RequeueResult>>({});
 
   useEffect(() => {
     setStatus(searchParams.get("status") ?? "");
@@ -2949,17 +2990,28 @@ function AdminProcessingPage() {
     };
   }, [searchParams, refreshKey]);
 
-  async function requeueReplay(replayId: string) {
-    setRequeuingId(replayId);
-    setRequeueStatus(null);
+  function setRequeueResult(replayId: string, result: RequeueResult) {
+    setRequeueResults((prev) => ({ ...prev, [replayId]: result }));
+  }
+
+  async function requeueReplay(replayId: string, force = false) {
+    setRequeueResult(replayId, { phase: "pending", message: force ? "Force-requeuing…" : "Requeuing…" });
     try {
-      const result = await reprocessReplay(replayId);
-      setRequeueStatus(result.enqueued ? `Requeued ${replayId}` : `Already queued: ${replayId}`);
+      const result = await reprocessReplay(replayId, { force });
+      setRequeueResult(replayId, {
+        phase: result.enqueued ? "done" : "skipped",
+        message: result.enqueued
+          ? result.forced
+            ? "Force-requeued — a new job is in the processing queue"
+            : "Requeued — a new job is in the processing queue"
+          : "Already up to date — no new job needed",
+      });
       setRefreshKey((key) => key + 1);
     } catch (err) {
-      setRequeueStatus(`Requeue failed: ${(err as Error).message}`);
-    } finally {
-      setRequeuingId(null);
+      setRequeueResult(replayId, {
+        phase: "error",
+        message: `Requeue failed: ${(err as Error).message}`,
+      });
     }
   }
 
@@ -3124,7 +3176,6 @@ function AdminProcessingPage() {
       </div>
 
       <StatusLine loading={loading} error={error} />
-      {requeueStatus ? <p className="inline-status">{requeueStatus}</p> : null}
 
       <div className="table-frame admin-diagnostics-table">
         <table>
@@ -3139,8 +3190,14 @@ function AdminProcessingPage() {
             </tr>
           </thead>
           <tbody>
-            {diagnostics.map((diagnostic) => (
-              <tr key={diagnostic.replay_id}>
+            {diagnostics.map((diagnostic) => {
+              const requeueResult = requeueResults[diagnostic.replay_id];
+              const requeuePending = requeueResult?.phase === "pending";
+              return (
+              <tr
+                key={diagnostic.replay_id}
+                className={requeueResult ? `admin-requeue-row admin-requeue-${requeueResult.phase}` : undefined}
+              >
                 <td className="admin-replay-cell">
                   <Link className="primary-link" to={`/replays/${diagnostic.replay_id}`}>
                     {diagnostic.original_file_name || diagnostic.replay_id}
@@ -3180,15 +3237,27 @@ function AdminProcessingPage() {
                   <button
                     type="button"
                     className="secondary-button"
-                    disabled={requeuingId != null}
+                    disabled={requeuePending}
                     onClick={() => void requeueReplay(diagnostic.replay_id)}
                   >
-                    <RotateCcw size={14} className={requeuingId === diagnostic.replay_id ? "spin" : undefined} />
-                    {requeuingId === diagnostic.replay_id ? "Requeuing" : "Requeue"}
+                    <RotateCcw size={14} className={requeuePending ? "spin" : undefined} />
+                    {requeuePending ? "Requeuing" : requeueResult ? "Requeue again" : "Requeue"}
                   </button>
+                  {requeueResult ? <RequeueResultChip result={requeueResult} /> : null}
+                  {requeueResult?.phase === "skipped" ? (
+                    <button
+                      type="button"
+                      className="requeue-force-button"
+                      disabled={requeuePending}
+                      onClick={() => void requeueReplay(diagnostic.replay_id, true)}
+                    >
+                      Force requeue
+                    </button>
+                  ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {!loading && diagnostics.length === 0 ? (
               <tr>
                 <td colSpan={6} className="empty-cell">

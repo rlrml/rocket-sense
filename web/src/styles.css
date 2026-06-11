@@ -3754,6 +3754,77 @@ tbody tr:last-child td {
   color: #b42318;
 }
 
+.requeue-result {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 600;
+}
+
+.requeue-result svg {
+  flex-shrink: 0;
+}
+
+.requeue-result-pending {
+  color: var(--muted);
+}
+
+.requeue-result-done {
+  color: #166534;
+}
+
+.requeue-result-skipped {
+  color: #1e40af;
+}
+
+.requeue-result-error {
+  color: #b42318;
+}
+
+.requeue-force-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.requeue-force-button:disabled {
+  color: var(--muted);
+  cursor: default;
+  text-decoration: none;
+}
+
+.admin-actions-cell {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  min-width: 160px;
+}
+
+.admin-requeue-row td {
+  transition: background 0.4s ease;
+}
+
+.admin-requeue-row.admin-requeue-done td {
+  background: #f0fdf4;
+}
+
+.admin-requeue-row.admin-requeue-skipped td {
+  background: #eff6ff;
+}
+
+.admin-requeue-row.admin-requeue-error td {
+  background: #fef2f2;
+}
+
 .subtr-player-frame {
   border: 1px solid var(--border);
   border-radius: 8px;

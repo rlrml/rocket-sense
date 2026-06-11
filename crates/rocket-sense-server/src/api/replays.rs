@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use axum::{
-    extract::{Multipart, Path, RawQuery, State},
+    extract::{Multipart, Path, Query, RawQuery, State},
     http::{
         header::{CONTENT_DISPOSITION, CONTENT_TYPE},
         StatusCode,
@@ -1543,17 +1543,32 @@ struct StaticAsset {
 
 include!(concat!(env!("OUT_DIR"), "/subtr_actor_static_assets.rs"));
 
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ReprocessReplayQuery {
+    /// Re-run analysis even when the replay's canonical run is already up to date.
+    #[serde(default)]
+    pub force: bool,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ReprocessReplayResponse {
     pub replay_id: Uuid,
+    /// Whether a new processing job was enqueued. False when `force` was not set
+    /// and the replay was already up to date.
     pub enqueued: bool,
+    /// Echoes whether the reprocess was forced.
+    pub forced: bool,
 }
 
 #[utoipa::path(
     post,
     path = "/api/v1/replays/{replay_id}/reprocess",
     tag = "replays",
-    params(("replay_id" = Uuid, Path, description = "The replay to reprocess")),
+    params(
+        ("replay_id" = Uuid, Path, description = "The replay to reprocess"),
+        ReprocessReplayQuery,
+    ),
     responses(
         (status = 200, description = "Replay reprocessing enqueued", body = ReprocessReplayResponse),
         (status = 401, description = "Authentication required"),
@@ -1569,6 +1584,7 @@ pub async fn reprocess_replay(
     auth_user: AuthUser,
     State(state): State<AppState>,
     Path(replay_id): Path<Uuid>,
+    Query(query): Query<ReprocessReplayQuery>,
 ) -> Result<Json<ReprocessReplayResponse>, ApiError> {
     let db = require_db(&state)?;
 
@@ -1600,7 +1616,7 @@ pub async fn reprocess_replay(
         state.background_processing_permits.clone(),
         ReplayReprocessOptions {
             replay_ids: vec![replay_id],
-            force: true,
+            force: query.force,
             concurrency: 1,
         },
     )
@@ -1610,6 +1626,7 @@ pub async fn reprocess_replay(
     Ok(Json(ReprocessReplayResponse {
         replay_id,
         enqueued: summary.enqueued_replays > 0,
+        forced: query.force,
     }))
 }
 
