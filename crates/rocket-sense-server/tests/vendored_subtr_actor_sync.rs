@@ -92,7 +92,8 @@ fn vendored_artifacts_match_submodule_gitlink() {
 fn web_app_uses_vendored_rlrml_packages() {
     let repo_root = repo_root();
     let package_json: serde_json::Value = serde_json::from_str(
-        &std::fs::read_to_string(repo_root.join("web/package.json")).expect("read web/package.json"),
+        &std::fs::read_to_string(repo_root.join("web/package.json"))
+            .expect("read web/package.json"),
     )
     .expect("parse web/package.json");
     let dependencies = package_json["dependencies"]
