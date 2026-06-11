@@ -376,6 +376,7 @@ export interface CurrentUserResponse {
 export interface ReprocessReplayResponse {
   replay_id: string;
   enqueued: boolean;
+  forced: boolean;
 }
 
 export interface AuthProviderResponse {

@@ -228,9 +228,13 @@ export function getCurrentUser(): Promise<CurrentUserResponse> {
   return request<CurrentUserResponse>("/api/v1/me");
 }
 
-export function reprocessReplay(replayId: string): Promise<ReprocessReplayResponse> {
+export function reprocessReplay(
+  replayId: string,
+  options: { force?: boolean } = {},
+): Promise<ReprocessReplayResponse> {
+  const query = options.force ? "?force=true" : "";
   return request<ReprocessReplayResponse>(
-    `/api/v1/replays/${encodeURIComponent(replayId)}/reprocess`,
+    `/api/v1/replays/${encodeURIComponent(replayId)}/reprocess${query}`,
     { method: "POST" },
   );
 }
