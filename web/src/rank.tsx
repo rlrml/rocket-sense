@@ -1,3 +1,5 @@
+import { AlertTriangle } from "lucide-react";
+
 // Rank tiers as submitted by clients (PsyNet skill tiers): 0 = Unranked,
 // 1-21 = Bronze I through Grand Champion III, 22 = Supersonic Legend.
 const tierNames = [
@@ -67,13 +69,7 @@ export function RankBadge({
     <span className={approximate ? "rank-badge rank-badge-approx" : "rank-badge"} title={title} aria-label={title}>
       {icon ? <img src={icon} alt={label ?? ""} width="20" height="20" /> : null}
       {rounded != null ? <span className="rank-mmr">{rounded}</span> : null}
-      {approximate ? (
-        <svg className="rank-approx-mark" viewBox="0 0 16 16" width="11" height="11" aria-hidden="true" focusable="false">
-          <path d="M8 1.6 15.2 14H.8z" fill="#f59e0b" stroke="#b45309" strokeWidth="0.8" strokeLinejoin="round" />
-          <path d="M8 6v4" stroke="#7c2d12" strokeWidth="1.6" strokeLinecap="round" />
-          <circle cx="8" cy="12.2" r="0.9" fill="#7c2d12" />
-        </svg>
-      ) : null}
+      {approximate ? <AlertTriangle className="rank-approx-mark" size={11} aria-hidden="true" /> : null}
     </span>
   );
 }

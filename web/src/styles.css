@@ -534,6 +534,8 @@ tbody tr:last-child td {
 .rank-approx-mark {
   flex: none;
   margin-left: -2px;
+  /* Same tone as the stale badge so "approximate" reads consistently. */
+  color: #92400e;
 }
 
 .rank-mmr {
