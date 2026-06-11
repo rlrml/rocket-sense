@@ -148,6 +148,10 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
   const loopRef = useRef<{ start: number; end: number } | null>(null);
   const clipRef = useRef<EventClip | null>(clip);
   clipRef.current = clip;
+  // Key of the clip most recently applied to the live player. A re-apply with the
+  // same key (e.g. a perspective/camera change) keeps the playback position; only
+  // a new key restarts the loop from its start.
+  const appliedClipKeyRef = useRef<string | null>(null);
   const renderStatsRef = useRef({ count: 0, frameIndex: -1, time: -1 });
   // Lower-cased player remote id -> player track id, for event-focused camera targets.
   const trackByPlayerKeyRef = useRef<Map<string, string>>(new Map());
@@ -259,7 +263,10 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
       },
     };
     target.camera(cameraControls);
-    player.seek(start);
+    if (appliedClipKeyRef.current !== target.key) {
+      player.seek(start);
+    }
+    appliedClipKeyRef.current = target.key;
     player.play();
   }, []);
 
@@ -362,6 +369,7 @@ export function EventClipPlayer({ replayId, clip, showDebug = false }: EventClip
       player?.destroy();
       playerRef.current = null;
       loopRef.current = null;
+      appliedClipKeyRef.current = null;
     };
   }, [replayId, applyClip]);
 
