@@ -2,13 +2,6 @@ import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// The shared boost display-unit conversion lives in @rlrml/player's
-// dependency-free `boost-units` entry (see vendor/subtr-actor). The web app
-// pulls @rlrml/player from npm today, so until it ships that subpath, resolve
-// `@rlrml/player/boost-units` straight from the vendored submodule source.
-const sharedBoostUnits = fileURLToPath(
-  new URL("../vendor/subtr-actor/js/player/src/boost-units.ts", import.meta.url),
-);
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 const backendTarget = process.env.ROCKET_SENSE_WEB_API_TARGET ?? "https://rocket-sense.duckdns.org";
@@ -22,11 +15,6 @@ const apiProxy = {
 
 export default defineConfig({
   plugins: [react()],
-  resolve: {
-    alias: {
-      "@rlrml/player/boost-units": sharedBoostUnits,
-    },
-  },
   // The replay player ships a web worker plus a wasm-bindgen module that load
   // via `new URL(..., import.meta.url)`. Keep them out of esbuild prebundling so
   // those asset URLs resolve correctly, and emit workers as ES modules.
@@ -39,7 +27,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: apiProxy,
-    // Allow serving the vendored submodule source aliased above.
+    // Allow serving files from the repo root (e.g. vendored package realpaths).
     fs: { allow: [repoRoot] },
   },
   preview: {

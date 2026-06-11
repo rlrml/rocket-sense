@@ -91,5 +91,33 @@ sync_dist() {
 sync_dist "$asset_result" "$static_dir"
 rm "$asset_result"
 
-git -C "$repo_root" add .gitmodules Cargo.toml Cargo.lock flake.lock vendor/subtr-actor "$static_dir"
+# Vendor the publishable npm package layouts for @rlrml/subtr-actor and
+# @rlrml/player into web/vendor so the web app's `file:` deps always resolve
+# to wasm/JS built from this exact submodule rev (never a stale registry
+# tarball). The flake outputs are byte-for-byte what `npm publish` ships.
+web_vendor_dir="$repo_root/web/vendor/@rlrml"
+wasm_pkg_result="$repo_root/result-subtr-actor-wasm-pkg"
+player_pkg_result="$repo_root/result-subtr-actor-player-pkg"
+
+nix build "path:$subtr_actor_dir#js-wasm-pkg" --out-link "$wasm_pkg_result"
+nix build "path:$subtr_actor_dir#js-player-pkg" --out-link "$player_pkg_result"
+
+sync_dist "$wasm_pkg_result" "$web_vendor_dir/subtr-actor"
+sync_dist "$player_pkg_result" "$web_vendor_dir/player"
+rm "$wasm_pkg_result" "$player_pkg_result"
+
+# Rev markers let the guard test (vendored_subtr_actor_sync) verify the
+# committed artifacts match the committed submodule gitlink. Written after the
+# sync_dist calls because those rm -rf their target directories.
+printf '%s\n' "$resolved_rev" > "$web_vendor_dir/.subtr-actor-rev"
+printf '%s\n' "$resolved_rev" > "$static_dir/.subtr-actor-rev"
+
+# Refresh package-lock.json/node_modules for the vendored file: deps.
+(cd "$repo_root/web" && npm install)
+
+# -f: web/vendor contents include dist/ trees that broad global gitignore
+# rules (e.g. `dist`, `node_modules`) would otherwise hide from git.
+git -C "$repo_root" add -f \
+  .gitmodules Cargo.toml Cargo.lock flake.lock vendor/subtr-actor "$static_dir" \
+  "$repo_root/web/vendor" "$repo_root/web/package.json" "$repo_root/web/package-lock.json"
 echo "Synced subtr-actor assets from $resolved_rev"

@@ -64,7 +64,6 @@
                 ".kube"
                 ".terraform"
                 ".worktrees"
-                "dist"
                 "node_modules"
                 "target"
               ];
@@ -79,6 +78,9 @@
             in
             pkgs.lib.cleanSourceFilter path type
             && !(name == "subtr-actor" && parentName == "vendor")
+            # Exclude only the web app's own build output; vendored packages
+            # under web/vendor/ legitimately contain committed dist/ trees.
+            && !(type == "directory" && name == "dist" && parentName == "web")
             && !(type == "directory" && builtins.elem name excludedDirectories)
             && !(type == "regular" && builtins.elem name excludedFiles)
             && !(pkgs.lib.hasPrefix "result" name);
@@ -98,6 +100,10 @@
           sourceRoot = "rocket-sense-source/web";
           npmDeps = pkgs.importNpmLock { npmRoot = ./web; };
           npmConfigHook = pkgs.importNpmLock.npmConfigHook;
+          # The @rlrml/* packages are `file:vendor/...` directory deps; copy them
+          # into node_modules instead of symlinking to /nix/store paths so module
+          # resolution from inside the packages stays within the web tree.
+          npmInstallFlags = [ "--install-links" ];
           npmBuildScript = "build";
           installPhase = ''
             runHook preInstall
@@ -132,6 +138,7 @@
         packages = {
           default = rocketSenseServer;
           rocket-sense-server = rocketSenseServer;
+          rocket-sense-web = rocketSenseWeb;
           rocket-sense-server-image = pkgs.dockerTools.buildLayeredImage {
             name = "localhost:5279/rocket-sense-server";
             tag = "dev";

@@ -1,0 +1,154 @@
+# @rlrml/player
+
+`@rlrml/player` is the reusable replay player library package for this repository.
+
+## Installation
+
+```bash
+npm install @rlrml/player three
+```
+
+`three` is a peer dependency. The player also depends on the low-level
+[`@rlrml/subtr-actor`](https://www.npmjs.com/package/@rlrml/subtr-actor) bindings package.
+
+It provides:
+
+- a typed replay normalization layer on top of `get_replay_frames_data()`
+- worker-backed replay loading with optional progress callbacks
+- a built-in replay loading overlay helper for DOM consumers
+- a `ReplayPlayer` class with imperative playback and camera APIs
+- a `ReplayPlaylistPlayer` wrapper for back-to-back clip playback across replays
+- a plugin host for optional scene and UI extensions
+- state snapshots and change subscriptions so callers can build their own controls
+
+The player exposes camera state as data, not fixed UI assumptions. The built-in
+camera API is a free camera when no player is attached and an attached chase
+camera with tunable distance scaling when a player is selected.
+
+Transient replay semantics are exposed the same way. `ReplayPlayerState` and
+`ReplayPlaylistPlayerState` include `activeMetadata`, which is currently used
+for semantic kickoff countdown data (`{ kind: "kickoff-countdown", ... }`)
+without imposing any built-in overlay or styling.
+
+The package does not assume any specific UI. The stats player under
+`js/stat-evaluation-player/` is the primary in-repository consumer.
+
+Replay loading follows the same model. The library exposes:
+
+- `loadReplayFromBytes(bytes, { useWorker, onProgress, reportEveryNFrames })`
+- `createBallchasingReplaySource(idOrUrl)`
+- `createReplayLoadOverlay(container, options)`
+- `formatReplayLoadProgress(progress)`
+
+So callers can choose between the built-in DOM overlay or their own status/progress UI while consuming the same `ReplayLoadProgress` events.
+
+Ballchasing sources use the same public download endpoint as the website's
+download button, `POST https://ballchasing.com/dl/replay/{id}`. Public
+downloadable replays do not require a Ballchasing API token.
+
+Optional replay extensions can be installed through `ReplayPlayerOptions.plugins`
+or at runtime with `ReplayPlayer.addPlugin(...)`. Plugins receive:
+
+- a setup/teardown lifecycle with access to the player, replay, scene, and container
+- state-change hooks for DOM/HUD style integrations
+- per-frame render hooks with interpolated frame timing and player sample context
+
+This keeps optional features such as scoreboards, scrubbers, and scene overlays
+out of the core playback engine while still giving them a first-class API.
+
+The package ships with reusable UI plugins:
+
+- `createBallchasingOverlayPlugin()` for Ballchasing-style floating player labels,
+  floating boost bars, and side team boost HUDs
+- `createBoostPadOverlayPlugin()` for in-stadium standard Soccar boost pad
+  availability markers driven by replay pad events
+- `createTimelineOverlayPlugin()` for a bottom-docked replay scrubber with
+  integrated play/pause, time readouts, clickable event markers, configurable replay
+  markers (defaulting to goals/saves/replay bookmarks), and caller-supplied
+  custom events
+
+Timeline markers can be tuned per consumer. For example, to include demolishes:
+
+```ts
+createTimelineOverlayPlugin({
+  replayEventKinds: ["goal", "save", "bookmark", "demo"],
+});
+```
+
+For full control, `replayEvents` can override the built-in replay marker source,
+and `events` can append additional caller-defined markers.
+
+If you need to add markers later, keep a reference to the plugin instance:
+
+```ts
+const timeline = createTimelineOverlayPlugin();
+
+const detachShots = timeline.addEventSource(({ replay }) =>
+  replay.timelineEvents.filter((event) => event.kind === "shot"),
+);
+
+timeline.refreshEvents();
+detachShots();
+```
+
+`addEventSource()` is additive, `removeEventSource()` removes a previously added
+source, and `refreshEvents()` rebuilds markers when a source's output depends on
+external mutable state.
+
+For multi-replay workflows, the playlist layer is intentionally generic. Each
+`PlaylistItem` specifies a replay source, a start bound, an end bound, and
+optional `label`/`meta`, while `ReplayPlaylistPlayer` handles replay loading,
+bound resolution, configurable replay-source prefetching, and clip-to-clip
+transitions.
+
+Playback behavior is controlled separately from the playlist items:
+
+- `advanceMode: "auto"` plays highlights back-to-back.
+- `advanceMode: "manual"` pauses at each item end for review workflows.
+- `endMode: "stop"` pauses at the final item.
+- `endMode: "loop"` wraps from the final item back to the first item.
+
+The older `advanceOnEnd` option remains available as a compatibility alias for
+`advanceMode`.
+
+Preloading is controlled with `preloadPolicy`. Built-in modes are:
+
+- `{ kind: "none" }`
+- `{ kind: "all" }`
+- `{ kind: "adjacent", ahead, behind? }`
+- `{ kind: "custom", pick(context) }`
+
+Policies operate on unique replay sources rather than raw playlist items, so a
+run of multiple clips from the same replay only triggers one replay preload.
+The headless core is `PlaylistSession<TLoaded>`, which manages item index,
+loading state, preload/cache behavior, and playback policies without creating a
+`ReplayPlayer` or touching the DOM. `ReplayPlaylistPlayer` is the UI/player
+adapter for ordinary `LoadedReplay` playback.
+
+A single replay can be treated as the natural one-item playlist with
+`createFullReplayPlaylistItem(source)` or `ReplayPlaylistPlayer.fromReplay(...)`.
+The item starts at `0` and resolves its end bound to the loaded replay duration.
+
+For workflows that need extra processing during eager loads, such as a stats
+evaluation app that loads both replay data and a stats timeline, use
+`PlaylistSession<ReplayLoadBundle>` or `PlaylistLoadCache<ReplayLoadBundle>`
+with custom `PlaylistLoadSource<ReplayLoadBundle>` objects.
+
+The package also includes lightweight manifest helpers for disk-backed playlist
+workflows:
+
+- `loadPlaylistManifestFromFile(file)`
+- `parsePlaylistManifest(value)`
+- `resolvePlaylistItemsFromManifest(manifest, resolveReplaySource)`
+
+## Development
+
+```bash
+npm --prefix js/player install
+npm --prefix js/player run check
+npm --prefix js/player run build
+npm --prefix js/player run smoke:install
+```
+
+The build regenerates the local WASM bindings in `js/pkg/` before bundling the
+library, emits declaration files, and produces the npm artifact in `dist/`.

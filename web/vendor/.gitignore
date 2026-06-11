@@ -1,0 +1,6 @@
+# Everything under web/vendor/ is committed build output synced from the
+# vendored subtr-actor submodule by scripts/sync-subtr-actor (precedent:
+# crates/rocket-sense-server/static/subtr-actor). The negation defeats
+# broad global excludes like `dist` or `node_modules` that would otherwise
+# hide these packages from git.
+!**
