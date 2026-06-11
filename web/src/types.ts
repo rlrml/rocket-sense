@@ -64,6 +64,8 @@ export interface ReplayStaleness {
   subtr_actor_outdated: boolean;
   current_event_stream_schema_version: string;
   current_subtr_actor_version: string;
+  current_subtr_actor_git_sha: string | null;
+  current_rocket_sense_git_sha: string | null;
 }
 
 export interface ProcessingVersionResponse {
