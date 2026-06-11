@@ -1616,7 +1616,9 @@ function PlayerAggregateStatsSections({
         </div>
       </header>
 
-      <PlayerRateComparisonChart stats={topStats} />
+      {activeGroup.id === "positioning" || activeGroup.id === "rotation" ? null : (
+        <PlayerRateComparisonChart stats={topStats} />
+      )}
 
       {activeGroup.id === "goals" && overview ? <GoalTagSharePanel overview={overview} /> : null}
       {activeGroup.id === "kickoffs" && kickoffSummary ? <KickoffSummaryPanel summary={kickoffSummary} /> : null}

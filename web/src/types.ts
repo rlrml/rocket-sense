@@ -180,6 +180,11 @@ export interface StatAggregateSetResponse {
     max_seconds: number;
     count: number;
   }>;
+  teammate_rotation_duration_histogram: Array<{
+    min_seconds: number;
+    max_seconds: number;
+    count: number;
+  }> | null;
   stats: StatAggregateResponse[];
   groups: StatAggregateGroupResponse[];
 }

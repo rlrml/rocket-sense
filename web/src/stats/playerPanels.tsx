@@ -114,15 +114,7 @@ export function GoalTagSharePanel({ overview }: { overview: PlayerStatOverviewRe
   );
 }
 
-const rotationRoleOrder = ["first_man", "second_man", "third_man", "ambiguous", "unknown"];
 const rotationDepthOrder = ["behind_play", "level_with_play", "ahead_of_play", "unknown"];
-
-const rotationDepthSegmentClass: Record<string, string> = {
-  behind_play: "positioning-segment-behind",
-  level_with_play: "positioning-segment-level",
-  ahead_of_play: "positioning-segment-ahead",
-  unknown: "positioning-segment-neutral",
-};
 
 /** Rotation role/depth time shares plus most-back/forward comparison and stint histogram. */
 export function RotationTimeSharePanel({
@@ -132,12 +124,7 @@ export function RotationTimeSharePanel({
   overview: PlayerStatOverviewResponse;
   stats: StatAggregateSetResponse;
 }) {
-  const roles = orderTimeShares(overview.rotation_roles, "rotation_role_", rotationRoleOrder);
   const depths = orderTimeShares(overview.rotation_depths, "rotation_depth_", rotationDepthOrder);
-  const roleTotal = totalSeconds(roles);
-  const depthTotal = totalSeconds(depths);
-  const histogram = stats.rotation_duration_histogram;
-  const maxHistogramCount = histogram.reduce((max, bucket) => Math.max(max, bucket.count), 0);
 
   return (
     <section className="chart-panel full-span rotation-share-panel">
@@ -146,49 +133,140 @@ export function RotationTimeSharePanel({
         <span>Where this player spends time in the rotation across the replay set</span>
       </header>
       <div className="rotation-share-grid">
-        <div className="rotation-share-block">
-          <h4>Role</h4>
-          <SegmentedBar
-            ariaLabel="Rotation role time share"
-            className="positioning-track"
-            segments={roles.map((share) => rotationSegment(share, "rotation_role_", roleTotal))}
-            total={roleTotal}
-          />
-          <TimeShareLegend prefix="rotation_role_" shares={roles} total={roleTotal} />
-        </div>
-        <div className="rotation-share-block">
-          <h4>Depth</h4>
-          <SegmentedBar
-            ariaLabel="Rotation depth time share"
-            className="positioning-track"
-            segments={depths.map((share) => rotationSegment(share, "rotation_depth_", depthTotal))}
-            total={depthTotal}
-          />
-          <TimeShareLegend prefix="rotation_depth_" shares={depths} total={depthTotal} />
-        </div>
+        <RotationDepthTugOfWar depths={depths} />
         <MostBackForwardBlock stats={stats} />
-        {histogram.length > 0 ? (
-          <div className="rotation-share-block rotation-histogram-block">
-            <h4>First man stint lengths</h4>
-            <div className="rotation-histogram" role="img" aria-label="First man stint length histogram">
-              {histogram.map((bucket) => (
-                <div
-                  className="rotation-histogram-bar"
-                  key={bucket.min_seconds}
-                  title={`${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints`}
-                >
-                  <span
-                    className="rotation-histogram-fill"
-                    style={{ height: `${barPercent(bucket.count, maxHistogramCount)}%` }}
-                  />
-                  <span className="rotation-histogram-label">{bucket.min_seconds}s</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        <FirstManStintHistogram stats={stats} />
       </div>
     </section>
+  );
+}
+
+const rotationDepthLabels: Record<string, string> = {
+  behind_play: "Behind play",
+  level_with_play: "Level with play",
+  ahead_of_play: "Ahead of play",
+  unknown: "Unknown",
+};
+
+/** Single tug-of-war bar: defensive (behind play) vs offensive (ahead of play), level/unknown as a neutral center band. */
+function RotationDepthTugOfWar({ depths }: { depths: RotationTimeShareResponse[] }) {
+  const secondsFor = (suffix: string) =>
+    depths.find((share) => depthSuffix(share.key) === suffix)?.seconds ?? 0;
+  const behind = secondsFor("behind_play");
+  const level = secondsFor("level_with_play");
+  const ahead = secondsFor("ahead_of_play");
+  const unknown = secondsFor("unknown");
+  const neutral = level + unknown;
+  const total = behind + neutral + ahead;
+
+  if (total <= 0) return null;
+
+  const segments: Array<{ key: string; className: string; label: string; seconds: number }> = [
+    { key: "behind_play", className: "positioning-segment-behind", label: rotationDepthLabels.behind_play, seconds: behind },
+    { key: "neutral", className: "positioning-segment-neutral", label: rotationDepthLabels.level_with_play, seconds: neutral },
+    { key: "ahead_of_play", className: "positioning-segment-ahead", label: rotationDepthLabels.ahead_of_play, seconds: ahead },
+  ];
+
+  return (
+    <div className="rotation-share-block rotation-depth-tug-block">
+      <h4>Rotation depth</h4>
+      <div className="rotation-depth-tug">
+        <div className="rotation-depth-tug-track" role="img" aria-label="Rotation depth tug of war">
+          {segments.map((segment) => (
+            <span
+              className={`source-segment ${segment.className}`}
+              key={segment.key}
+              style={{ flexGrow: segment.seconds }}
+              title={`${segment.label}: ${formatDurationSeconds(segment.seconds)} (${formatShare(segment.seconds / total)})`}
+            />
+          ))}
+          <span className="rotation-depth-tug-center" aria-hidden="true" />
+        </div>
+        <div className="rotation-depth-tug-labels">
+          <span className="rotation-depth-tug-label">
+            <span className="rotation-legend-swatch source-segment positioning-segment-behind" />
+            {rotationDepthLabels.behind_play}
+            <strong>{formatShare(behind / total)}</strong>
+          </span>
+          <span className="rotation-depth-tug-label rotation-depth-tug-label-center">
+            {rotationDepthLabels.level_with_play}
+            <strong>{formatShare(neutral / total)}</strong>
+          </span>
+          <span className="rotation-depth-tug-label rotation-depth-tug-label-right">
+            <strong>{formatShare(ahead / total)}</strong>
+            {rotationDepthLabels.ahead_of_play}
+            <span className="rotation-legend-swatch source-segment positioning-segment-ahead" />
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function depthSuffix(key: string): string {
+  return key.startsWith("rotation_depth_") ? key.slice("rotation_depth_".length) : key;
+}
+
+/** First-man stint length distribution, player overlaid against teammate average. */
+function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) {
+  const histogram = stats.rotation_duration_histogram;
+  const teammateHistogram = stats.teammate_rotation_duration_histogram ?? [];
+  if (histogram.length === 0) return null;
+
+  const teammateCountFor = (minSeconds: number) =>
+    teammateHistogram.find((bucket) => bucket.min_seconds === minSeconds)?.count ?? 0;
+  const playerTotal = histogram.reduce((sum, bucket) => sum + bucket.count, 0);
+  const teammateTotal = teammateHistogram.reduce((sum, bucket) => sum + bucket.count, 0);
+  const hasTeammates = teammateTotal > 0;
+
+  // Compare share-of-stints so player and teammate distributions are on the same scale.
+  const rows = histogram.map((bucket) => {
+    const teammateCount = teammateCountFor(bucket.min_seconds);
+    return {
+      bucket,
+      playerShare: playerTotal > 0 ? bucket.count / playerTotal : 0,
+      teammateShare: teammateTotal > 0 ? teammateCount / teammateTotal : 0,
+      teammateCount,
+    };
+  });
+  const maxShare = rows.reduce((max, row) => Math.max(max, row.playerShare, row.teammateShare), 0);
+
+  return (
+    <div className="rotation-share-block rotation-histogram-block">
+      <h4>First man stint lengths{hasTeammates ? " vs teammates" : ""}</h4>
+      <div className="rotation-histogram" role="img" aria-label="First man stint length histogram">
+        {rows.map(({ bucket, playerShare, teammateShare, teammateCount }) => (
+          <div
+            className="rotation-histogram-bar"
+            key={bucket.min_seconds}
+            title={
+              `${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints (${formatShare(playerShare)})` +
+              (hasTeammates ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})` : "")
+            }
+          >
+            <div className="rotation-histogram-plot">
+              <span
+                className="rotation-histogram-fill"
+                style={{ height: `${barPercent(playerShare, maxShare)}%` }}
+              />
+              {hasTeammates ? (
+                <span
+                  className="rotation-histogram-teammate-marker"
+                  style={{ bottom: `${barPercent(teammateShare, maxShare)}%` }}
+                />
+              ) : null}
+            </div>
+            <span className="rotation-histogram-label">{bucket.min_seconds}s</span>
+          </div>
+        ))}
+      </div>
+      {hasTeammates ? (
+        <p className="rotation-histogram-legend subtle">
+          <span className="rotation-histogram-legend-fill" /> you
+          <span className="rotation-histogram-legend-marker" /> teammate average
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -238,28 +316,6 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
         ))}
       </div>
     </div>
-  );
-}
-
-function TimeShareLegend({
-  prefix,
-  shares,
-  total,
-}: {
-  prefix: string;
-  shares: RotationTimeShareResponse[];
-  total: number;
-}) {
-  return (
-    <ul className="rotation-share-legend">
-      {shares.map((share) => (
-        <li key={share.key}>
-          <span className={`rotation-legend-swatch source-segment ${rotationSegmentClass(share.key, prefix)}`} />
-          {share.display_name}
-          <strong>{formatShare(total > 0 ? share.seconds / total : null)}</strong>
-        </li>
-      ))}
-    </ul>
   );
 }
 
@@ -372,26 +428,6 @@ function kickoffOutcomeSegment(id: string, label: string, value: number, total: 
   };
 }
 
-function rotationSegment(share: RotationTimeShareResponse, prefix: string, total: number): SegmentedBarSegment {
-  const fraction = total > 0 ? share.seconds / total : 0;
-  return {
-    key: share.key,
-    className: rotationSegmentClass(share.key, prefix),
-    label: share.display_name,
-    value: share.seconds,
-    visibleLabel: fraction >= 0.12 ? `${share.display_name}: ${formatShare(fraction)}` : undefined,
-    title: `${share.display_name}: ${formatDurationSeconds(share.seconds)} (${formatShare(fraction)})`,
-  };
-}
-
-function rotationSegmentClass(key: string, prefix: string): string {
-  const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : key;
-  if (prefix === "rotation_depth_") {
-    return rotationDepthSegmentClass[suffix] ?? "positioning-segment-neutral";
-  }
-  return `rotation-role-segment-${suffix}`;
-}
-
 function orderTimeShares(
   shares: RotationTimeShareResponse[],
   prefix: string,
@@ -406,10 +442,6 @@ function orderIndex(key: string, prefix: string, order: string[]): number {
   const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : key;
   const index = order.indexOf(suffix);
   return index === -1 ? order.length : index;
-}
-
-function totalSeconds(shares: RotationTimeShareResponse[]): number {
-  return shares.reduce((total, share) => total + share.seconds, 0);
 }
 
 function shareOf(value: number | null, total: number | null): number | null {
