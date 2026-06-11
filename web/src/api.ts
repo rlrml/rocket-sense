@@ -2,6 +2,7 @@ import type {
   AccessTokenResponse,
   AuthOptionsResponse,
   BoostTracksResponse,
+  CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypesResponse,
   ListReplaysResponse,
@@ -13,7 +14,7 @@ import type {
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
   ReplayResponse,
-  ReprocessReplaysResponse,
+  ReprocessReplayResponse,
   StatAggregateSetResponse,
 } from "./types";
 
@@ -142,13 +143,6 @@ export function getPlayerProcessingVersions(
   );
 }
 
-export function reprocessReplay(replayId: string): Promise<ReprocessReplaysResponse> {
-  return request<ReprocessReplaysResponse>(
-    `/api/v1/replays/${encodeURIComponent(replayId)}/reprocess`,
-    { method: "POST" },
-  );
-}
-
 export function getPlayerStatOverview(
   platform: string,
   platformPlayerId: string,
@@ -228,6 +222,17 @@ export function getPlayerProfile(
 
 export function getAuthOptions(): Promise<AuthOptionsResponse> {
   return request<AuthOptionsResponse>("/api/v1/auth/options");
+}
+
+export function getCurrentUser(): Promise<CurrentUserResponse> {
+  return request<CurrentUserResponse>("/api/v1/me");
+}
+
+export function reprocessReplay(replayId: string): Promise<ReprocessReplayResponse> {
+  return request<ReprocessReplayResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/reprocess`,
+    { method: "POST" },
+  );
 }
 
 export async function uploadReplay(file: File): Promise<ReplayResponse> {

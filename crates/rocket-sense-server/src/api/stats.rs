@@ -69,6 +69,7 @@ pub struct StatAggregateSetResponse {
     pub teammate_time_most_forward_seconds: Option<f64>,
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
+    pub teammate_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub stats: Vec<StatAggregateResponse>,
     pub groups: Vec<StatAggregateGroupResponse>,
 }
@@ -540,11 +541,26 @@ async fn load_stat_aggregates_base(
             Ok::<_, sqlx::Error>(Vec::new())
         }
     };
-    let (target_denominators, teammate_denominators, rows, rotation_duration_histogram) = tokio::try_join!(
+    // Teammate stint distribution, surfaced alongside the player's for comparison.
+    let teammate_histogram_fut = async {
+        if include_rotation_histogram && filters.player.is_some() && filters.include_teammates {
+            load_teammate_rotation_duration_histogram(pool, filters).await
+        } else {
+            Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
+    let (
+        target_denominators,
+        teammate_denominators,
+        rows,
+        rotation_duration_histogram,
+        teammate_rotation_duration_histogram,
+    ) = tokio::try_join!(
         load_target_denominators(pool, filters),
         teammate_fut,
         load_stat_count_rows(pool, filters),
         histogram_fut,
+        teammate_histogram_fut,
     )?;
     let target_replay_count = target_denominators.replay_count.max(1) as f64;
     let teammate_appearance_count = teammate_denominators
@@ -608,6 +624,7 @@ async fn load_stat_aggregates_base(
         teammate_time_most_forward_seconds,
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
+        teammate_rotation_duration_histogram,
         stats,
         groups: Vec::new(),
     })
@@ -888,6 +905,69 @@ async fn load_rotation_duration_histogram(
         );
         query
     };
+
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds
+        FROM rotation_events
+        WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
+    )
+    SELECT bucket_start_seconds, COUNT(*) AS count
+    FROM bucketed
+    GROUP BY bucket_start_seconds
+    ORDER BY bucket_start_seconds
+    "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
+}
+
+/// First-man stint distribution for the target player's teammates, bucketed the
+/// same way as [`load_rotation_duration_histogram`] so the two can be compared.
+async fn load_teammate_rotation_duration_histogram(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+        ),
+        teammate_appearances AS MATERIALIZED (
+            SELECT DISTINCT teammate.id, target.run_id
+            FROM target_appearances target
+            JOIN replay_players teammate
+              ON teammate.replay_id = target.replay_id
+             AND teammate.team = target.team
+             AND teammate.id <> target.id
+        ),
+        rotation_events AS MATERIALIZED (
+            SELECT event.duration_seconds
+            FROM teammate_appearances appearance
+            JOIN play_event_subjects subject
+              ON subject.replay_player_id = appearance.id
+             AND subject.role = 'actor'
+            JOIN play_events event
+              ON event.id = subject.event_id
+             AND event.analysis_run_id = appearance.run_id
+             AND event.source_stream = 'rotation_first_man_stint'
+        ),
+        bucketed AS (
+            SELECT floor(duration_seconds /
+        "#,
+    );
 
     query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
     query.push(") * ");

@@ -59,7 +59,7 @@ export function ReprocessButton({ replayId }: { replayId: string }) {
       const result = await reprocessReplay(replayId);
       setState("done");
       setMessage(
-        result.enqueued_replays > 0
+        result.enqueued
           ? "Reprocess queued — refresh in a moment."
           : "Nothing to reprocess.",
       );

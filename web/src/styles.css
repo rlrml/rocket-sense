@@ -4510,6 +4510,68 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
+.rotation-histogram-block {
+  grid-column: 1 / -1;
+}
+
+.rotation-depth-tug-block {
+  grid-column: 1 / -1;
+}
+
+.rotation-depth-tug {
+  display: grid;
+  gap: 8px;
+}
+
+.rotation-depth-tug-track {
+  position: relative;
+  display: flex;
+  height: 18px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #0f172a;
+}
+
+.rotation-depth-tug-track .source-segment {
+  display: block;
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+.rotation-depth-tug-center {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: rgba(248, 250, 252, 0.7);
+}
+
+.rotation-depth-tug-labels {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.rotation-depth-tug-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rotation-depth-tug-label-center {
+  color: var(--muted);
+}
+
+.rotation-depth-tug-label-right {
+  justify-content: flex-end;
+}
+
 .rotation-share-block h4,
 .kickoff-dimension h4 {
   margin: 0;
@@ -4580,11 +4642,56 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
+.rotation-histogram-plot {
+  position: relative;
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 0;
+}
+
 .rotation-histogram-fill {
   display: block;
   min-height: 2px;
   border-radius: 3px 3px 0 0;
   background: #2563eb;
+}
+
+.rotation-histogram-teammate-marker {
+  position: absolute;
+  right: 0;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px #0f172a;
+}
+
+.rotation-histogram-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+}
+
+.rotation-histogram-legend-fill {
+  display: inline-block;
+  width: 18px;
+  height: 10px;
+  border-radius: 3px;
+  background: #2563eb;
+}
+
+.rotation-histogram-legend-marker {
+  display: inline-block;
+  width: 18px;
+  height: 3px;
+  margin-left: 10px;
+  border-radius: 2px;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px #0f172a;
 }
 
 .rotation-histogram-label {

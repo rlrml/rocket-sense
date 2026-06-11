@@ -260,27 +260,67 @@ pub fn start_replay_processing_workers(
     let state = ReplayProcessingWorkerState { pool, storage };
 
     for worker_index in 0..worker_count {
-        let backend = replay_processing_storage(&state.pool);
         let state = state.clone();
-        let worker_name = format!("replay-processing-{worker_index}");
-        let worker = WorkerBuilder::new(worker_name.clone())
-            .backend(backend)
-            .data(state)
-            .build(process_replay_job);
-
         tokio::spawn(async move {
-            if let Err(error) = worker.run().await {
-                tracing::error!(
-                    worker = worker_name,
-                    error = %error,
-                    "replay processing worker stopped"
-                );
+            loop {
+                // Worker ids are registered in apalis.workers behind a
+                // session-scoped advisory lock that is never released, so a
+                // static name collides with other processes (api + worker
+                // pods) and across our own restarts; registration then fails
+                // with WORKER_ALREADY_EXISTS and the worker dies silently. A
+                // fresh suffix per attempt sidesteps the collision, and the
+                // retry loop keeps a worker alive instead of leaving a
+                // healthy-looking pod that consumes nothing.
+                let instance = Uuid::new_v4().simple().to_string();
+                let worker_name = format!("replay-processing-{worker_index}-{instance}");
+                let worker = WorkerBuilder::new(worker_name.clone())
+                    .backend(replay_processing_storage(&state.pool))
+                    .data(state.clone())
+                    .build(process_replay_job);
+
+                match worker.run().await {
+                    Ok(()) => {
+                        tracing::info!(worker = worker_name, "replay processing worker exited");
+                        break;
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            worker = worker_name,
+                            error = %error,
+                            "replay processing worker stopped; restarting in 5s"
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    }
+                }
             }
         });
     }
 }
 
 pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
+    // Startup re-enqueue sweeps and repeated reprocess requests would
+    // otherwise pile up duplicate jobs for the same replay; one outstanding
+    // job is enough since processing always reads current state.
+    let already_queued: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM apalis.jobs
+            WHERE job_type = $1
+              AND status IN ('Pending', 'Queued', 'Running')
+              AND convert_from(job, 'UTF8')::jsonb ->> 'replay_id' = $2
+        )
+        "#,
+    )
+    .bind(REPLAY_PROCESSING_QUEUE_NAME)
+    .bind(replay_id.to_string())
+    .fetch_one(pool)
+    .await
+    .with_context(|| format!("failed to check for queued replay processing job for {replay_id}"))?;
+    if already_queued {
+        return Ok(());
+    }
+
     let mut backend = replay_processing_storage(pool);
     backend
         .push(ReplayProcessingJob { replay_id })
@@ -2743,6 +2783,7 @@ struct KickoffPlayerDetailRow {
     spawn_position: Option<String>,
     start_boost: Option<f64>,
     boost_after: Option<f64>,
+    time_to_ball: Option<f64>,
     first_touch_time: Option<f64>,
     first_touch_frame: Option<i32>,
     taker_outcome: Option<String>,
@@ -3052,6 +3093,7 @@ fn kickoff_player_detail_row_from_payload(
         spawn_position: normalized_payload_field(payload, "spawn_position"),
         start_boost: float_value(payload, &["start_boost"]),
         boost_after: float_value(payload, &["boost_after"]),
+        time_to_ball: float_value(payload, &["time_to_ball"]),
         first_touch_time: float_value(payload, &["first_touch_time"]),
         first_touch_frame: int_value(payload, &["first_touch_frame"]),
         taker_outcome: normalized_payload_field(payload, "outcome"),
@@ -3347,6 +3389,7 @@ async fn insert_kickoff_player_detail_rows(
             spawn_position,
             start_boost,
             boost_after,
+            time_to_ball,
             first_touch_time,
             first_touch_frame,
             taker_outcome,
@@ -3367,6 +3410,7 @@ async fn insert_kickoff_player_detail_rows(
             .push_bind(&detail.spawn_position)
             .push_bind(detail.start_boost)
             .push_bind(detail.boost_after)
+            .push_bind(detail.time_to_ball)
             .push_bind(detail.first_touch_time)
             .push_bind(detail.first_touch_frame)
             .push_bind(&detail.taker_outcome)
@@ -3842,23 +3886,11 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             )
         }
         "rotation_first_man_stint" => "rotation_first_man_stint".to_owned(),
-        "boost_pickups" => {
-            // subtr-actor's consolidated `BoostPickupEvent` carries a `detection` field
-            // (`both` | `inferred_only` | `reported_only`). Map it to the canonical
-            // review keys declared in subtr-actor's event-definition registry
-            // (`boost_pickup_both` | `boost_pickup_ghost` | `boost_pickup_missed`).
-            let suffix = match payload
-                .get("detection")
-                .and_then(normalized_variant_name)
-                .as_deref()
-            {
-                Some("both") => "both",
-                Some("inferred_only") => "ghost",
-                Some("reported_only") => "missed",
-                _ => "event",
-            };
-            format!("boost_pickup_{suffix}")
-        }
+        // All boost pickups share one review key (matching subtr-actor's registry); the
+        // payload's `detection` field (`both` | `inferred_only` | `reported_only`) records
+        // corroboration provenance and is indexed as a filterable attribute, not an
+        // event-type split.
+        "boost_pickups" => "boost_pickup".to_owned(),
         _ => metadata
             .map(|metadata| metadata.id.to_owned())
             .unwrap_or_else(|| stream.to_owned()),

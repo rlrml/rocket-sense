@@ -5,13 +5,11 @@ import type { BoostTrack, MechanicEventResponse, ReplayPlayer } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
-// collection (keyed by detection: both/ghost/missed) plus respawn events.
+// collection (with a `detection` provenance attribute) plus respawn events.
 // Continuous boost amount and cumulative totals come from accumulation tracks
 // fetched separately (see useBoostTracks), not from discrete events.
 export const boostEventTypes = [
-  "boost_pickup_both",
-  "boost_pickup_ghost",
-  "boost_pickup_missed",
+  "boost_pickup",
   "boost_respawn",
 ];
 interface BoostPlayerSummary {

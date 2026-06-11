@@ -12,6 +12,7 @@ use axum::{
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
+use sqlx::PgPool;
 use uuid::Uuid;
 
 const DEV_USER_HEADER: &str = "x-dev-user";
@@ -244,6 +245,43 @@ impl AuthError {
             message: message.into(),
         }
     }
+}
+
+/// Ensure the authenticated user exists, apply any bootstrap admin promotion
+/// (when their email is configured in `admin_emails`), and return whether they
+/// are currently an admin.
+///
+/// Admin status is resolved from the database on demand rather than baked into
+/// the (non-expiring) access token, so promotions and demotions take effect
+/// immediately. The seed promotion is persisted so a configured admin keeps
+/// their status even if the email is later removed from the allowlist.
+pub async fn resolve_is_admin(
+    pool: &PgPool,
+    user: &AuthUser,
+    admin_emails: &[String],
+) -> Result<bool, sqlx::Error> {
+    let seed_admin = admin_emails
+        .iter()
+        .any(|email| email.eq_ignore_ascii_case(&user.email));
+
+    let is_admin: bool = sqlx::query_scalar(
+        r#"
+        INSERT INTO users (id, primary_email, display_name, is_admin)
+        VALUES ($1, $2, $2, $3)
+        ON CONFLICT (id) DO UPDATE
+        SET is_admin = users.is_admin OR EXCLUDED.is_admin,
+            primary_email = EXCLUDED.primary_email,
+            updated_at = now()
+        RETURNING is_admin
+        "#,
+    )
+    .bind(user.id)
+    .bind(&user.email)
+    .bind(seed_admin)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(is_admin)
 }
 
 fn stable_user_id(provider: &str, subject: &str) -> Uuid {

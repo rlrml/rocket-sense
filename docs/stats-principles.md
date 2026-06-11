@@ -153,6 +153,18 @@ use header metadata only as a fallback or cross-check. The team-size
 derivation in `api/replay_set.rs` follows this: it counts teamed players with
 nonzero recorded active time instead of reading the header `TeamSize`.
 
+## 6. Persist upstream-computed measures; don't re-derive downstream
+
+Before deriving a measure in SQL or the UI, check what `subtr-actor` already
+emits — it usually computes the semantically-right quantity (correct epoch,
+clamping, edge cases) at extraction time. The cautionary example: kickoff
+payloads carry `time_to_ball` (the taker's seconds from movement start to
+first touch, countdown excluded), but indexing only persisted the absolute
+`first_touch_time` timestamp, so the summary endpoint averaged raw timestamps
+— "Avg first touch: 195.92s". If an upstream field is missing from a detail
+table, add the column and backfill from `play_event_payloads` rather than
+approximating with arithmetic over a subtly different epoch.
+
 ---
 
 *Add further principles below as they come up.*

@@ -29,6 +29,7 @@ import {
   createAccountToken,
   getAccessToken,
   getAuthOptions,
+  getCurrentUser,
   getPlayerKickoffSummary,
   getPlayerProfile,
   getPlayerStatAggregates,
@@ -40,12 +41,13 @@ import {
   listReplayFilterOptions,
   listReplayProcessingDiagnostics,
   listReplays,
+  reprocessReplay,
   setAccessToken,
   uploadReplay,
 } from "./api";
 import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
-import { ProcessingVersionTrigger, ReprocessButton, StalenessBadge } from "./staleness";
+import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
 import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
@@ -54,6 +56,7 @@ import {
 } from "./stats/playerPanels";
 import type {
   AuthOptionsResponse,
+  CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypeResponse,
   MechanicEventResponse,
@@ -916,8 +919,35 @@ function PlayerLine({ player }: { player: ReplayPlayer }) {
   return <div className="player-line">{contents}</div>;
 }
 
+function useCurrentUser(): CurrentUserResponse | null {
+  const [user, setUser] = useState<CurrentUserResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!getAccessToken()) {
+      setUser(null);
+      return;
+    }
+    getCurrentUser()
+      .then((response) => {
+        if (!cancelled) setUser(response);
+      })
+      .catch(() => {
+        if (!cancelled) setUser(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return user;
+}
+
 function ReplayStatsPage() {
   const { replayId = "", statGroup } = useParams();
+  const currentUser = useCurrentUser();
+  const [reprocessing, setReprocessing] = useState(false);
+  const [reprocessStatus, setReprocessStatus] = useState<string | null>(null);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
@@ -990,6 +1020,27 @@ function ReplayStatsPage() {
   const ActiveDetail = activeGroup.Detail;
   const detailEvents = ActiveDetail ? events : activeEvents;
 
+  const canReprocess = Boolean(
+    replay &&
+      currentUser &&
+      (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
+  );
+
+  async function handleReprocess() {
+    setReprocessing(true);
+    setReprocessStatus(null);
+    try {
+      const result = await reprocessReplay(replayId);
+      setReprocessStatus(
+        result.enqueued ? "Reprocessing requested." : "Replay is already up to date.",
+      );
+    } catch (err) {
+      setReprocessStatus(err instanceof Error ? err.message : "Reprocess request failed.");
+    } finally {
+      setReprocessing(false);
+    }
+  }
+
   return (
     <section className="page stats-page">
       <header className="page-header">
@@ -999,18 +1050,27 @@ function ReplayStatsPage() {
         </div>
         <div className="button-row">
           {replay?.staleness.is_stale ? (
-            <>
-              <StalenessBadge
-                staleness={replay.staleness}
-                parseVersion={replay.parse_version}
-              />
-              <ReprocessButton replayId={replay.id} />
-            </>
+            <StalenessBadge
+              staleness={replay.staleness}
+              parseVersion={replay.parse_version}
+            />
+          ) : null}
+          {canReprocess ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleReprocess()}
+              disabled={reprocessing}
+            >
+              <RefreshCw size={16} />
+              {reprocessing ? "Requesting" : "Reprocess"}
+            </button>
           ) : null}
           <Link className="secondary-button" to={`/replays/${replayId}/player`}>
             <Zap size={16} />
             Player
           </Link>
+          {reprocessStatus ? <span className="inline-status">{reprocessStatus}</span> : null}
         </div>
       </header>
 
@@ -1579,7 +1639,9 @@ function PlayerAggregateStatsSections({
         </div>
       </header>
 
-      <PlayerRateComparisonChart stats={topStats} />
+      {activeGroup.id === "positioning" || activeGroup.id === "rotation" ? null : (
+        <PlayerRateComparisonChart stats={topStats} />
+      )}
 
       {activeGroup.id === "goals" && overview ? <GoalTagSharePanel overview={overview} /> : null}
       {activeGroup.id === "kickoffs" && kickoffSummary ? <KickoffSummaryPanel summary={kickoffSummary} /> : null}
@@ -2382,6 +2444,7 @@ function AccountPage() {
   const [copied, setCopied] = useState(false);
   const attemptedSessionHydration = useRef(false);
   const claims = useMemo(() => parseAccessTokenClaims(token), [token]);
+  const currentUser = useCurrentUser();
 
   useEffect(() => {
     if (token.trim()) return;
@@ -2511,6 +2574,10 @@ function AccountPage() {
             <div>
               <dt>Provider</dt>
               <dd>{claims?.provider_name ? providerLabel(claims.provider_name) : "-"}</dd>
+            </div>
+            <div>
+              <dt>Role</dt>
+              <dd>{currentUser ? (currentUser.is_admin ? "Admin" : "User") : "-"}</dd>
             </div>
             <div>
               <dt>Token expiration</dt>
@@ -2854,6 +2921,9 @@ function AdminProcessingPage() {
   const [includeHealthy, setIncludeHealthy] = useState(searchParams.get("include_healthy") === "true");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [requeuingId, setRequeuingId] = useState<string | null>(null);
+  const [requeueStatus, setRequeueStatus] = useState<string | null>(null);
 
   useEffect(() => {
     setStatus(searchParams.get("status") ?? "");
@@ -2877,7 +2947,21 @@ function AdminProcessingPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [searchParams, refreshKey]);
+
+  async function requeueReplay(replayId: string) {
+    setRequeuingId(replayId);
+    setRequeueStatus(null);
+    try {
+      const result = await reprocessReplay(replayId);
+      setRequeueStatus(result.enqueued ? `Requeued ${replayId}` : `Already queued: ${replayId}`);
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      setRequeueStatus(`Requeue failed: ${(err as Error).message}`);
+    } finally {
+      setRequeuingId(null);
+    }
+  }
 
   function submitFilters(event: FormEvent) {
     event.preventDefault();
@@ -2938,7 +3022,51 @@ function AdminProcessingPage() {
           <Metric label="Total replays" value={response.summary.total_replays.toLocaleString()} />
           <Metric label="Processing status" value={formatCounts(response.summary.status_counts)} />
           <Metric label="Queue counts" value={formatCounts(response.summary.queue_counts)} />
+          <Metric
+            label="Workers"
+            value={
+              response.summary.workers.length === 0
+                ? "none registered"
+                : `${response.summary.workers.filter((worker) => worker.alive).length} alive of ${response.summary.workers.length} recent`
+            }
+          />
         </div>
+      ) : null}
+
+      {response && response.summary.workers.length > 0 ? (
+        <div className="table-frame admin-workers-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Worker</th>
+                <th>Status</th>
+                <th>Last seen</th>
+                <th>Active jobs</th>
+              </tr>
+            </thead>
+            <tbody>
+              {response.summary.workers.map((worker) => (
+                <tr key={worker.id}>
+                  <td>
+                    <code>{worker.id}</code>
+                  </td>
+                  <td>
+                    <span className={worker.alive ? "status-badge status-parsed" : "status-badge status-failed"}>
+                      {worker.alive ? "alive" : "dead"}
+                    </span>
+                  </td>
+                  <td>{formatDate(worker.last_seen)}</td>
+                  <td>{worker.active_jobs.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+      {response && response.summary.workers.filter((worker) => worker.alive).length === 0 ? (
+        <p className="inline-status error">
+          No live replay-processing workers — queued jobs will not be consumed until a worker reconnects.
+        </p>
       ) : null}
 
       <form className="admin-filter-panel" onSubmit={submitFilters}>
@@ -2996,6 +3124,7 @@ function AdminProcessingPage() {
       </div>
 
       <StatusLine loading={loading} error={error} />
+      {requeueStatus ? <p className="inline-status">{requeueStatus}</p> : null}
 
       <div className="table-frame admin-diagnostics-table">
         <table>
@@ -3006,6 +3135,7 @@ function AdminProcessingPage() {
               <th>Runs</th>
               <th>Queue</th>
               <th>Updated</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -3046,11 +3176,22 @@ function AdminProcessingPage() {
                   <div>{formatDate(diagnostic.updated_at)}</div>
                   <small>Created {formatDate(diagnostic.created_at)}</small>
                 </td>
+                <td className="admin-actions-cell">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    disabled={requeuingId != null}
+                    onClick={() => void requeueReplay(diagnostic.replay_id)}
+                  >
+                    <RotateCcw size={14} className={requeuingId === diagnostic.replay_id ? "spin" : undefined} />
+                    {requeuingId === diagnostic.replay_id ? "Requeuing" : "Requeue"}
+                  </button>
+                </td>
               </tr>
             ))}
             {!loading && diagnostics.length === 0 ? (
               <tr>
-                <td colSpan={5} className="empty-cell">
+                <td colSpan={6} className="empty-cell">
                   No replay processing diagnostics matched.
                 </td>
               </tr>

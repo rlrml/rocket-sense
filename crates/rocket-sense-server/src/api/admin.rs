@@ -7,7 +7,7 @@ use crate::{
     },
 };
 use axum::{
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -34,6 +34,8 @@ pub fn router() -> Router<AppState> {
             "/admin/replays/backfill-profile-timing",
             post(backfill_profile_timing),
         )
+        .route("/admin/users", get(list_users))
+        .route("/admin/users/{user_id}/admin", post(set_user_admin))
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -61,6 +63,16 @@ pub struct ReplayProcessingDiagnosticsSummaryResponse {
     pub problem_replays: u64,
     pub status_counts: Vec<ReplayProcessingStatusCountResponse>,
     pub queue_counts: Vec<ReplayProcessingQueueCountResponse>,
+    pub workers: Vec<ReplayProcessingWorkerResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayProcessingWorkerResponse {
+    pub id: String,
+    pub last_seen: DateTime<Utc>,
+    /// Workers heartbeat every 30s; treated as dead after 90s of silence.
+    pub alive: bool,
+    pub active_jobs: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -205,6 +217,7 @@ pub async fn list_replay_processing_diagnostics(
     responses(
         (status = 200, description = "Replay reprocessing batch enqueued", body = ReprocessReplaysResponse),
         (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
         (status = 503, description = "Postgres connection is not configured")
     ),
     security(
@@ -212,11 +225,12 @@ pub async fn list_replay_processing_diagnostics(
     )
 )]
 pub async fn reprocess_replays(
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Json(request): Json<ReprocessReplaysRequest>,
 ) -> Result<Json<ReprocessReplaysResponse>, ApiError> {
     let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
     let summary = enqueue_replay_reprocessing(
         pool.clone(),
         state.storage.clone(),
@@ -247,6 +261,7 @@ pub async fn reprocess_replays(
     responses(
         (status = 200, description = "Profile timing event backfill batch enqueued", body = BackfillProfileTimingResponse),
         (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
         (status = 503, description = "Postgres connection is not configured")
     ),
     security(
@@ -254,11 +269,12 @@ pub async fn reprocess_replays(
     )
 )]
 pub async fn backfill_profile_timing(
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Json(request): Json<BackfillProfileTimingRequest>,
 ) -> Result<Json<BackfillProfileTimingResponse>, ApiError> {
     let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
     let summary = enqueue_profile_timing_backfill(
         pool.clone(),
         state.storage.clone(),
@@ -279,6 +295,150 @@ pub async fn backfill_profile_timing(
         concurrency: summary.concurrency,
         force: summary.force,
     }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdminUserResponse {
+    pub id: Uuid,
+    pub primary_email: Option<String>,
+    pub display_name: Option<String>,
+    pub is_admin: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AdminUsersResponse {
+    pub users: Vec<AdminUserResponse>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetUserAdminRequest {
+    pub is_admin: bool,
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/users",
+    tag = "admin",
+    responses(
+        (status = 200, description = "List of users with their admin status", body = AdminUsersResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_users(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<AdminUsersResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+
+    let users = sqlx::query(
+        r#"
+        SELECT id, primary_email, display_name, is_admin, created_at, updated_at
+        FROM users
+        ORDER BY is_admin DESC, primary_email NULLS LAST, created_at
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?
+    .into_iter()
+    .map(|row| {
+        Ok(AdminUserResponse {
+            id: row.try_get("id")?,
+            primary_email: row.try_get("primary_email")?,
+            display_name: row.try_get("display_name")?,
+            is_admin: row.try_get("is_admin")?,
+            created_at: row.try_get("created_at")?,
+            updated_at: row.try_get("updated_at")?,
+        })
+    })
+    .collect::<Result<Vec<_>, sqlx::Error>>()
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(AdminUsersResponse { users }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/users/{user_id}/admin",
+    tag = "admin",
+    params(("user_id" = Uuid, Path, description = "The user to grant or revoke admin status")),
+    request_body = SetUserAdminRequest,
+    responses(
+        (status = 200, description = "Updated user", body = AdminUserResponse),
+        (status = 400, description = "Invalid request"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 404, description = "User not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn set_user_admin(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(user_id): Path<Uuid>,
+    Json(request): Json<SetUserAdminRequest>,
+) -> Result<Json<AdminUserResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+
+    // Guard against an admin accidentally locking themselves out.
+    if user_id == auth_user.id && !request.is_admin {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "you cannot remove your own admin status",
+        ));
+    }
+
+    let row = sqlx::query(
+        r#"
+        UPDATE users
+        SET is_admin = $2, updated_at = now()
+        WHERE id = $1
+        RETURNING id, primary_email, display_name, is_admin, created_at, updated_at
+        "#,
+    )
+    .bind(user_id)
+    .bind(request.is_admin)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "user not found"))?;
+
+    Ok(Json(AdminUserResponse {
+        id: row.try_get("id").map_err(ApiError::internal)?,
+        primary_email: row.try_get("primary_email").map_err(ApiError::internal)?,
+        display_name: row.try_get("display_name").map_err(ApiError::internal)?,
+        is_admin: row.try_get("is_admin").map_err(ApiError::internal)?,
+        created_at: row.try_get("created_at").map_err(ApiError::internal)?,
+        updated_at: row.try_get("updated_at").map_err(ApiError::internal)?,
+    }))
+}
+
+/// Resolve the requester's admin status (persisting any bootstrap promotion) and
+/// reject the request with `403 Forbidden` when they are not an admin.
+async fn require_admin(state: &AppState, auth_user: &AuthUser) -> Result<(), ApiError> {
+    let pool = require_db(state)?;
+    let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)
+        .await
+        .map_err(ApiError::internal)?;
+    if !is_admin {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "admin access is required for this operation",
+        ));
+    }
+    Ok(())
 }
 
 fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
@@ -365,11 +525,51 @@ async fn load_processing_diagnostics_summary(
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(ApiError::internal)?;
 
+    // Dead worker rows are never removed, so cap how far back we report;
+    // anything silent past the orphan-requeue window is just noise.
+    let worker_rows = sqlx::query(
+        r#"
+        SELECT
+            worker.id,
+            worker.last_seen,
+            worker.last_seen > now() - interval '90 seconds' AS alive,
+            COALESCE(active.job_count, 0)::bigint AS active_jobs
+        FROM apalis.workers worker
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS job_count
+            FROM apalis.jobs job
+            WHERE job.lock_by = worker.id
+              AND job.status IN ('Queued', 'Running')
+        ) active ON true
+        WHERE worker.worker_type = $1
+          AND worker.last_seen > now() - interval '1 hour'
+        ORDER BY worker.last_seen DESC
+        "#,
+    )
+    .bind(REPLAY_PROCESSING_QUEUE_NAME)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let workers = worker_rows
+        .into_iter()
+        .map(|row| {
+            Ok(ReplayProcessingWorkerResponse {
+                id: row.try_get("id")?,
+                last_seen: row.try_get("last_seen")?,
+                alive: row.try_get("alive")?,
+                active_jobs: signed_count_to_u64(row.try_get("active_jobs")?),
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(ApiError::internal)?;
+
     Ok(ReplayProcessingDiagnosticsSummaryResponse {
         total_replays,
         problem_replays,
         status_counts,
         queue_counts,
+        workers,
     })
 }
 
@@ -507,7 +707,7 @@ fn push_processing_diagnostics_rows_query<'args>(
                 COUNT(*) FILTER (WHERE lower(job.status) = 'failed')::bigint AS failed_jobs,
                 COUNT(*) FILTER (WHERE lower(job.status) IN ('done', 'completed'))::bigint AS finished_jobs,
                 MIN(job.run_at) FILTER (WHERE lower(job.status) IN ('pending', 'queued', 'failed')) AS next_queue_run_at,
-                MAX(job.started_at) AS last_queue_started_at,
+                MAX(job.lock_at) AS last_queue_started_at,
                 MAX(job.done_at) AS last_queue_done_at,
                 MAX(job.last_result::text) FILTER (WHERE job.last_result IS NOT NULL) AS last_queue_error
             FROM apalis.jobs job

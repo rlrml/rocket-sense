@@ -93,14 +93,6 @@ export interface ProcessingVersionBreakdownResponse {
   rows: ProcessingVersionBreakdownRow[];
 }
 
-export interface ReprocessReplaysResponse {
-  matched_replays: number;
-  enqueued_replays: number;
-  skipped_replays: number;
-  concurrency: number;
-  force: boolean;
-}
-
 export interface ReplayPlaylistMetadata {
   id: string | null;
   label: string | null;
@@ -155,6 +147,14 @@ export interface ReplayProcessingDiagnosticsSummary {
     status: string;
     count: number;
   }>;
+  workers: ReplayProcessingWorker[];
+}
+
+export interface ReplayProcessingWorker {
+  id: string;
+  last_seen: string;
+  alive: boolean;
+  active_jobs: number;
 }
 
 export interface ReplayProcessingDiagnostic {
@@ -227,6 +227,11 @@ export interface StatAggregateSetResponse {
     max_seconds: number;
     count: number;
   }>;
+  teammate_rotation_duration_histogram: Array<{
+    min_seconds: number;
+    max_seconds: number;
+    count: number;
+  }> | null;
   stats: StatAggregateResponse[];
   groups: StatAggregateGroupResponse[];
 }
@@ -357,6 +362,18 @@ export interface AccessTokenResponse {
   access_token: string;
   token_type: string;
   expires_in_seconds: number | null;
+}
+
+export interface CurrentUserResponse {
+  id: string;
+  email: string;
+  provider_name: string;
+  is_admin: boolean;
+}
+
+export interface ReprocessReplayResponse {
+  replay_id: string;
+  enqueued: boolean;
 }
 
 export interface AuthProviderResponse {

@@ -28,7 +28,6 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use super::admin::ReprocessReplaysResponse;
 use super::query::{
     deserialize_string_vec, parse_bool_filter, parse_datetime_filter, parse_u32_filter, QueryParams,
 };
@@ -1133,73 +1132,6 @@ async fn subtr_actor_review_asset(
     Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
 }
 
-/// Reprocess a single replay on demand. Unlike the admin batch endpoint, this
-/// is scoped to a replay the requesting user uploaded, and always forces the
-/// run: a replay can be stale due to subtr-actor drift while its event-stream
-/// schema is current, which the background reprocessor (schema-only) would skip.
-#[utoipa::path(
-    post,
-    path = "/api/v1/replays/{replay_id}/reprocess",
-    tag = "replays",
-    params(("replay_id" = Uuid, Path, description = "Replay to reprocess")),
-    responses(
-        (status = 200, description = "Replay reprocessing enqueued", body = ReprocessReplaysResponse),
-        (status = 401, description = "Authentication required"),
-        (status = 403, description = "Replay is not owned by the requesting user"),
-        (status = 404, description = "Replay not found"),
-        (status = 503, description = "Postgres connection is not configured")
-    ),
-    security(
-        ("bearer_auth" = [])
-    )
-)]
-pub async fn reprocess_replay(
-    auth_user: AuthUser,
-    State(state): State<AppState>,
-    Path(replay_id): Path<Uuid>,
-) -> Result<Json<ReprocessReplaysResponse>, ApiError> {
-    let pool = require_db(&state)?;
-
-    let uploaded_by = match sqlx::query_scalar::<_, Option<Uuid>>(
-        "SELECT uploaded_by_user_id FROM replays WHERE id = $1",
-    )
-    .bind(replay_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(ApiError::internal)?
-    {
-        Some(uploaded_by) => uploaded_by,
-        None => return Err(ApiError::not_found("replay not found")),
-    };
-
-    if uploaded_by != Some(auth_user.id) {
-        return Err(ApiError::forbidden(
-            "you can only reprocess replays you uploaded",
-        ));
-    }
-
-    let summary = enqueue_replay_reprocessing(
-        pool.clone(),
-        state.storage.clone(),
-        state.background_processing_permits.clone(),
-        ReplayReprocessOptions {
-            replay_ids: vec![replay_id],
-            force: true,
-            concurrency: 1,
-        },
-    )
-    .await
-    .map_err(ApiError::internal)?;
-
-    Ok(Json(ReprocessReplaysResponse {
-        matched_replays: summary.matched_replays,
-        enqueued_replays: summary.enqueued_replays,
-        skipped_replays: summary.skipped_replays,
-        concurrency: summary.concurrency,
-        force: summary.force,
-    }))
-}
-
 #[derive(Debug)]
 pub(super) struct ApiError {
     status: StatusCode,
@@ -1221,14 +1153,6 @@ impl ApiError {
     pub(super) fn internal(error: impl std::fmt::Display) -> Self {
         tracing::error!(error = %error, "request failed");
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, "internal server error")
-    }
-
-    pub(super) fn not_found(error: impl std::fmt::Display) -> Self {
-        Self::new(StatusCode::NOT_FOUND, error.to_string())
-    }
-
-    pub(super) fn forbidden(error: impl std::fmt::Display) -> Self {
-        Self::new(StatusCode::FORBIDDEN, error.to_string())
     }
 }
 
@@ -1618,6 +1542,76 @@ struct StaticAsset {
 }
 
 include!(concat!(env!("OUT_DIR"), "/subtr_actor_static_assets.rs"));
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReprocessReplayResponse {
+    pub replay_id: Uuid,
+    pub enqueued: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replays/{replay_id}/reprocess",
+    tag = "replays",
+    params(("replay_id" = Uuid, Path, description = "The replay to reprocess")),
+    responses(
+        (status = 200, description = "Replay reprocessing enqueued", body = ReprocessReplayResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not have permission to reprocess this replay"),
+        (status = 404, description = "Replay not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn reprocess_replay(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<Json<ReprocessReplayResponse>, ApiError> {
+    let db = require_db(&state)?;
+
+    let uploaded_by = sqlx::query_scalar::<_, Option<Uuid>>(
+        "SELECT uploaded_by_user_id FROM replays WHERE id = $1",
+    )
+    .bind(replay_id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    let is_owner = uploaded_by == Some(auth_user.id);
+    if !is_owner {
+        let is_admin = crate::auth::resolve_is_admin(db, &auth_user, &state.admin_emails)
+            .await
+            .map_err(ApiError::internal)?;
+        if !is_admin {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "you do not have permission to reprocess this replay",
+            ));
+        }
+    }
+
+    let summary = enqueue_replay_reprocessing(
+        db.clone(),
+        state.storage.clone(),
+        state.background_processing_permits.clone(),
+        ReplayReprocessOptions {
+            replay_ids: vec![replay_id],
+            force: true,
+            concurrency: 1,
+        },
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(ReprocessReplayResponse {
+        replay_id,
+        enqueued: summary.enqueued_replays > 0,
+    }))
+}
 
 fn storage_read_error(error: StorageError) -> ApiError {
     match &error {
