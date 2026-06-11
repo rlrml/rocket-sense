@@ -1,14 +1,15 @@
 import {
-  ensureBindingsReady,
-  normalizeReplayData,
-  type RawReplayFramesData,
   ReplayPlayer,
   type ReplayFreeCameraPreset,
   type ReplayModel,
 } from "@rlrml/player";
-import * as subtrActor from "@rlrml/subtr-actor";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { preloadReplayModel } from "./replayModel";
+
+// Re-exported for existing importers; the loader itself now lives in replayModel.ts
+// so consumers that only need parsed frames can avoid the renderer bundle.
+export { preloadReplayModel };
 
 /**
  * Imperative camera controls handed to an {@link EventClipCamera} each time a clip
@@ -76,34 +77,6 @@ export interface EventClip {
 }
 
 type LoadStatus = "loading" | "ready" | "error";
-
-// Parsing a replay is expensive, so cache the fully-decoded model per replay.
-// Every event in a replay reuses the same parsed frames, which makes scrubbing
-// between event clips instant.
-const replayModelCache = new Map<string, Promise<ReplayModel>>();
-
-export function preloadReplayModel(replayId: string): Promise<ReplayModel> {
-  let pending = replayModelCache.get(replayId);
-  if (!pending) {
-    pending = (async () => {
-      await ensureBindingsReady();
-      const response = await fetch(`/api/v1/replays/${encodeURIComponent(replayId)}/file`);
-      if (!response.ok) {
-        throw new Error(`Failed to download replay (${response.status})`);
-      }
-      const bytes = new Uint8Array(await response.arrayBuffer());
-      // Parse on the main thread instead of loadReplayFromBytes: the published
-      // @rlrml/player ships its web worker as an IIFE that references an unbound
-      // `subtrActor` global, so the worker path throws "subtrActor is not defined".
-      const framesJson = subtrActor.get_replay_frames_data_json_with_progress(bytes, () => undefined, null);
-      const raw = JSON.parse(new TextDecoder().decode(framesJson)) as RawReplayFramesData;
-      return normalizeReplayData(raw);
-    })();
-    pending.catch(() => replayModelCache.delete(replayId));
-    replayModelCache.set(replayId, pending);
-  }
-  return pending;
-}
 
 interface EventClipPlayerProps {
   replayId: string;
