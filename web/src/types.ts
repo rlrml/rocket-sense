@@ -339,6 +339,7 @@ export interface PossessionSpanSummary {
   air_dribble_time_seconds: number;
   carry_time_share: number | null;
   air_dribble_time_share: number | null;
+  sustained_control_share: number | null;
   with_carry_share: number | null;
   with_air_dribble_share: number | null;
   with_aerial_touch_share: number | null;

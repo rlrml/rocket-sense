@@ -590,6 +590,7 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
   const histogramTotal = spans.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
   const histogramMax = Math.max(...spans.duration_histogram.map((bucket) => bucket.count), 1);
   const playStyles = [
+    { key: "sustained_control", label: "Sustained control", share: spans.sustained_control_share },
     { key: "carry", label: "Ball carry", share: spans.with_carry_share },
     { key: "air_dribble", label: "Air dribble", share: spans.with_air_dribble_share },
     { key: "aerial_touch", label: "Aerial touch", share: spans.with_aerial_touch_share },

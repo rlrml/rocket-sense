@@ -83,11 +83,11 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781213085,
-        "narHash": "sha256-ZTEeaUwrDk6ulbGpywOc8j+wguy+zEeOXLgQjwHFw1Q=",
+        "lastModified": 1781214265,
+        "narHash": "sha256-ul6E6ypnTb3HdzBGvIfSwz23a6FvoAN7axUfq9Y+E/A=",
         "ref": "refs/heads/colonelpanic/player-possession-spans",
-        "rev": "d7ae4c85ca5be1f2c5a596cfd09af98426f1673e",
-        "revCount": 1577,
+        "rev": "1d92e43b222d4fb79874421145bfffb10b2ede5e",
+        "revCount": 1578,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },

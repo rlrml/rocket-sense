@@ -19,6 +19,8 @@ CREATE TABLE play_event_player_possession_details (
     air_dribble_time double precision NOT NULL,
     carry_count integer NOT NULL,
     air_dribble_count integer NOT NULL,
+    close_time double precision NOT NULL,
+    sustained_control boolean NOT NULL,
     start_field_third text,
     end_field_third text,
     CHECK (player_subject_id <> ''),
@@ -33,6 +35,7 @@ CREATE TABLE play_event_player_possession_details (
     CHECK (air_dribble_time >= 0.0),
     CHECK (carry_count >= 0),
     CHECK (air_dribble_count >= 0),
+    CHECK (close_time >= 0.0),
     CHECK (start_field_third IS NULL OR start_field_third <> ''),
     CHECK (end_field_third IS NULL OR end_field_third <> '')
 );

@@ -2915,6 +2915,8 @@ struct PlayerPossessionDetailRow {
     air_dribble_time: f64,
     carry_count: i32,
     air_dribble_count: i32,
+    close_time: f64,
+    sustained_control: bool,
     start_field_third: Option<String>,
     end_field_third: Option<String>,
 }
@@ -3141,6 +3143,9 @@ fn player_possession_detail_row(
         air_dribble_time: required_float(&event.payload, "air_dribble_time")?,
         carry_count: required_int(&event.payload, "carry_count")?,
         air_dribble_count: required_int(&event.payload, "air_dribble_count")?,
+        close_time: required_float(&event.payload, "close_time")?,
+        sustained_control: bool_value(&event.payload, &["sustained_control"])
+            .context("player_possession event payload is missing sustained_control")?,
         start_field_third: normalized_payload_field(&event.payload, "start_field_third"),
         end_field_third: normalized_payload_field(&event.payload, "end_field_third"),
     })
@@ -3484,6 +3489,8 @@ async fn insert_player_possession_detail_rows(
             air_dribble_time,
             carry_count,
             air_dribble_count,
+            close_time,
+            sustained_control,
             start_field_third,
             end_field_third
         )
@@ -3505,6 +3512,8 @@ async fn insert_player_possession_detail_rows(
             .push_bind(detail.air_dribble_time)
             .push_bind(detail.carry_count)
             .push_bind(detail.air_dribble_count)
+            .push_bind(detail.close_time)
+            .push_bind(detail.sustained_control)
             .push_bind(&detail.start_field_third)
             .push_bind(&detail.end_field_third);
     });

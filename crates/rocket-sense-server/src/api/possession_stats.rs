@@ -53,6 +53,9 @@ pub struct PossessionSpanSummary {
     pub air_dribble_time_share: Option<f64>,
     /// Share of possessions that included the given kind of play.
     pub with_carry_share: Option<f64>,
+    /// Share of possessions qualifying as sustained control (the
+    /// controlled-play criteria applied as a span label).
+    pub sustained_control_share: Option<f64>,
     pub with_air_dribble_share: Option<f64>,
     pub with_aerial_touch_share: Option<f64>,
     pub with_wall_touch_share: Option<f64>,
@@ -200,6 +203,7 @@ async fn load_possession_span_summary(
             AVG(detail.retreat_distance) AS avg_retreat,
             COALESCE(SUM(detail.carry_time), 0) AS carry_time,
             COALESCE(SUM(detail.air_dribble_time), 0) AS air_dribble_time,
+            COUNT(*) FILTER (WHERE detail.sustained_control) AS sustained_control,
             COUNT(*) FILTER (WHERE detail.carry_count > 0) AS with_carry,
             COUNT(*) FILTER (WHERE detail.air_dribble_count > 0) AS with_air_dribble,
             COUNT(*) FILTER (WHERE detail.aerial_touch_count > 0) AS with_aerial_touch,
@@ -251,6 +255,7 @@ async fn load_possession_span_summary(
         air_dribble_time_seconds: air_dribble_time,
         carry_time_share: share_of_time(carry_time),
         air_dribble_time_share: share_of_time(air_dribble_time),
+        sustained_control_share: share_of_count(count_column(&row, "sustained_control")?),
         with_carry_share: share_of_count(count_column(&row, "with_carry")?),
         with_air_dribble_share: share_of_count(count_column(&row, "with_air_dribble")?),
         with_aerial_touch_share: share_of_count(count_column(&row, "with_aerial_touch")?),
