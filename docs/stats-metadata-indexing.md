@@ -58,7 +58,7 @@ owned by `replays.storage_key` and is not removed by analysis migrations.
 `play_events` is the canonical event index table:
 
 - `event_type_id` references `event_types`, whose keys are stable flat names
-  such as `touch`, `boost_pickup_both`, and `flip_reset`.
+  such as `touch`, `boost_pickup`, and `flip_reset`.
 - `source` identifies the producing subsystem, such as exact replay data or a
   timeline detector.
 - `source_event_id` gives stable identity within the event stream when known.

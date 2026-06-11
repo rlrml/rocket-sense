@@ -259,7 +259,8 @@ fn event_type_catalog_is_code_defined_and_canonical() {
     assert!(event_type("mechanic.center").is_none());
     assert_eq!(event_type("air_dribble").unwrap().category, "mechanic");
     assert!(event_type("goal_tag_air_dribble_goal").is_none());
-    assert_eq!(event_type("boost_pickup_both").unwrap().category, "boost");
+    assert_eq!(event_type("boost_pickup").unwrap().category, "boost");
+    assert!(event_type("boost_pickup_both").is_none());
     assert_eq!(
         event_type("rotation_role_first_man").unwrap().category,
         "positioning"
