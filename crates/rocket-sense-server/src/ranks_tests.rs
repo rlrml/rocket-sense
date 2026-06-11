@@ -59,4 +59,32 @@ fn submitted_rank_defaults_absent_snapshots_to_empty() {
     assert_eq!(player.after.tier, None);
     assert_eq!(player.before.mmr, None);
     assert_eq!(player.valid, None);
+    assert!(player.current.is_none());
+}
+
+#[test]
+fn submitted_rank_deserializes_current_skill_counters() {
+    let payload = r#"{
+        "players": [{
+            "platform_player_id": "123",
+            "playlist": 11,
+            "current": {
+                "mmr": 1143.0,
+                "win_streak": 4,
+                "matches_played": 250,
+                "placement_matches_played": 10,
+                "fetched_at": 1700000000
+            }
+        }]
+    }"#;
+    let submission: RankSubmission = serde_json::from_str(payload).unwrap();
+    let current = submission.players[0]
+        .current
+        .as_ref()
+        .expect("current skill present");
+    assert_eq!(current.mmr, Some(1143.0));
+    assert_eq!(current.win_streak, Some(4));
+    assert_eq!(current.matches_played, Some(250));
+    assert_eq!(current.placement_matches_played, Some(10));
+    assert_eq!(current.fetched_at, Some(1_700_000_000));
 }
