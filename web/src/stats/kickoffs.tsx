@@ -1,6 +1,6 @@
 import type { ReplayModel } from "@rlrml/player";
-import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy } from "lucide-react";
-import { type CSSProperties, lazy, Suspense, useCallback, useMemo } from "react";
+import { CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
+import { type CSSProperties, lazy, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -135,6 +135,16 @@ interface PlayerKickoffSummary {
 
 type KickoffStrengthBand = "narrow" | "clear" | "strong" | "unknown";
 
+/** A player the preview camera should follow, chosen by hovering their chip. */
+interface KickoffPerspective {
+  playerKey: string | null;
+  playerName: string;
+}
+
+function perspectiveChipKey(playerKey: string | null, playerName: string): string {
+  return playerKey ?? playerName;
+}
+
 interface KickoffStrengthOutcome {
   wins: number;
   losses: number;
@@ -162,12 +172,21 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
   const playerSummaries = useMemo(() => kickoffPlayerSummaries(kickoffs, players), [kickoffs, players]);
   const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
   const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
+  // Hovering a player chip inside a kickoff card temporarily reseats the preview
+  // camera on that player (loser and support players included); leaving the chip
+  // falls back to the default winner perspective.
+  const [perspective, setPerspective] = useState<KickoffPerspective | null>(null);
+  const perspectiveKey = perspective ? perspectiveChipKey(perspective.playerKey, perspective.playerName) : null;
   const buildClip = useCallback((kickoff: KickoffRow, replayNonce: number): EventClip | null => {
     const previewStart = kickoffPreviewStart(kickoff);
     if (!previewStart) {
       return null;
     }
-    const winnerPlayer = kickoffWinnerPreviewPlayer(kickoff);
+    // Try the hovered perspective first, then the winner; fall back to a free
+    // camera if neither resolves to a player track in the parsed replay.
+    const followTargets = [perspective, kickoffWinnerPreviewPlayer(kickoff)].filter(
+      (target): target is { playerKey: string | null; playerName: string | null } => Boolean(target),
+    );
     return {
       // start/end are inert fallbacks: startFrame + resolveStart/resolveEnd drive
       // playback against the parsed frames (frame indices are rebase-safe; absolute
@@ -177,18 +196,19 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
       startFrame: previewStart.frame,
       resolveStart: previewStart.resolveStart,
       resolveEnd: (replay) => kickoffClipEndTime(replay, kickoff, previewStart.frame),
-      camera: winnerPlayer
-        ? (cam) => {
-            if (!cam.followPlayer({ playerKey: winnerPlayer.playerKey, playerName: winnerPlayer.playerName, ballCam: true })) {
-              cam.freeCamera("side");
-            }
+      camera: (cam) => {
+        for (const target of followTargets) {
+          if (cam.followPlayer({ playerKey: target.playerKey, playerName: target.playerName, ballCam: true })) {
+            return;
           }
-        : (cam) => {
-            cam.freeCamera("side");
-          },
+        }
+        cam.freeCamera("side");
+      },
+      // The perspective is intentionally NOT part of the key: same key means the
+      // player re-aims the camera without restarting the loop (see applyClip).
       key: `${kickoff.event.id}:${replayNonce}`,
     };
-  }, []);
+  }, [perspective]);
   const {
     activeItem: activeKickoff,
     activeKey: activeKickoffId,
@@ -238,6 +258,8 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
                   key={kickoff.event.id}
                   active={kickoff.event.id === activeKickoffId}
                   onActivate={(force) => activateKickoff(kickoff, force)}
+                  perspectiveKey={kickoff.event.id === activeKickoffId ? perspectiveKey : null}
+                  onPerspective={setPerspective}
                 />
               ))}
             </div>
@@ -260,7 +282,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
               clip={clip}
               label={
                 activeKickoff
-                  ? kickoffPreviewLabel(activeKickoff)
+                  ? kickoffPreviewLabel(activeKickoff, perspective)
                   : "Loading…"
               }
               openHref={`/replays/${encodeURIComponent(replayId)}/player`}
@@ -346,15 +368,23 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
   );
 }
 
+interface KickoffPerspectiveProps {
+  /** Chip key of the perspective currently shown, or null for the default winner view. */
+  perspectiveKey: string | null;
+  onPerspective: (perspective: KickoffPerspective | null) => void;
+}
+
 function KickoffCard({
   kickoff,
   active,
   onActivate,
+  perspectiveKey,
+  onPerspective,
 }: {
   kickoff: KickoffRow;
   active: boolean;
   onActivate: (force: boolean) => void;
-}) {
+} & KickoffPerspectiveProps) {
   const blueSupport = kickoff.teamZeroSupport;
   const orangeSupport = kickoff.teamOneSupport;
 
@@ -366,7 +396,7 @@ function KickoffCard({
       onMouseEnter={() => onActivate(false)}
       onFocus={() => onActivate(false)}
     >
-      <KickoffTakerSection kickoff={kickoff} />
+      <KickoffTakerSection kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
 
       <header className="kickoff-card-header">
         <div className="kickoff-card-heading">
@@ -396,10 +426,36 @@ function KickoffCard({
       <KickoffMiniDiagram kickoff={kickoff} />
 
       <div className="kickoff-team-grid">
-        <KickoffTeamColumn label="Blue support" team={0} behaviors={blueSupport} kickoff={kickoff} />
-        <KickoffTeamColumn label="Orange support" team={1} behaviors={orangeSupport} kickoff={kickoff} />
+        <KickoffTeamColumn label="Blue support" team={0} behaviors={blueSupport} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+        <KickoffTeamColumn label="Orange support" team={1} behaviors={orangeSupport} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
       </div>
     </button>
+  );
+}
+
+/**
+ * A player name that doubles as a camera target: hovering it switches the active
+ * kickoff preview to that player's perspective; leaving restores the default view.
+ */
+function KickoffPerspectiveChip({
+  behavior,
+  perspectiveKey,
+  onPerspective,
+}: {
+  behavior: KickoffPlayerBehavior;
+} & KickoffPerspectiveProps) {
+  const chipKey = perspectiveChipKey(behavior.playerKey, behavior.playerName);
+  const activePerspective = perspectiveKey === chipKey;
+  return (
+    <span
+      className={`kickoff-perspective-chip team-perspective-${teamClass(behavior.team)} ${activePerspective ? "active" : ""}`}
+      title={`Watch from ${behavior.playerName}'s perspective`}
+      onMouseEnter={() => onPerspective({ playerKey: behavior.playerKey, playerName: behavior.playerName })}
+      onMouseLeave={() => onPerspective(null)}
+    >
+      <Video size={13} aria-hidden />
+      <span className="kickoff-perspective-chip-name">{behavior.playerName}</span>
+    </span>
   );
 }
 
@@ -459,7 +515,7 @@ function KickoffMiniDiagram({ kickoff }: { kickoff: KickoffRow }) {
   );
 }
 
-function KickoffTakerSection({ kickoff }: { kickoff: KickoffRow }) {
+function KickoffTakerSection({ kickoff, perspectiveKey, onPerspective }: { kickoff: KickoffRow } & KickoffPerspectiveProps) {
   return (
     <section className="kickoff-taker-section">
       <div className="kickoff-section-title">
@@ -470,8 +526,8 @@ function KickoffTakerSection({ kickoff }: { kickoff: KickoffRow }) {
         </strong>
       </div>
       <div className="kickoff-taker-grid">
-        <KickoffTakerTile behavior={kickoff.teamZeroTaker} team={0} kickoff={kickoff} />
-        <KickoffTakerTile behavior={kickoff.teamOneTaker} team={1} kickoff={kickoff} />
+        <KickoffTakerTile behavior={kickoff.teamZeroTaker} team={0} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+        <KickoffTakerTile behavior={kickoff.teamOneTaker} team={1} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
       </div>
     </section>
   );
@@ -481,11 +537,13 @@ function KickoffTakerTile({
   behavior,
   team,
   kickoff,
+  perspectiveKey,
+  onPerspective,
 }: {
   behavior: KickoffPlayerBehavior | null;
   team: number;
   kickoff: KickoffRow;
-}) {
+} & KickoffPerspectiveProps) {
   const won = kickoff.winningTeam === team;
   const winShade = won ? kickoffWinShade(kickoff.winStrength) : null;
   const className = [
@@ -507,7 +565,13 @@ function KickoffTakerTile({
       <div className="kickoff-taker-heading">
         <div>
           <span>{teamLabel(team)}</span>
-          <strong>{behavior?.playerName ?? "Unknown taker"}</strong>
+          <strong>
+            {behavior ? (
+              <KickoffPerspectiveChip behavior={behavior} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+            ) : (
+              "Unknown taker"
+            )}
+          </strong>
         </div>
         <span className="kickoff-taker-badges">
           {behavior != null && isFirstToucher(kickoff, behavior) ? (
@@ -547,7 +611,19 @@ function KickoffTakerTile({
   );
 }
 
-function KickoffTeamColumn({ label, team, behaviors, kickoff }: { label: string; team: number; behaviors: KickoffPlayerBehavior[]; kickoff: KickoffRow }) {
+function KickoffTeamColumn({
+  label,
+  team,
+  behaviors,
+  kickoff,
+  perspectiveKey,
+  onPerspective,
+}: {
+  label: string;
+  team: number;
+  behaviors: KickoffPlayerBehavior[];
+  kickoff: KickoffRow;
+} & KickoffPerspectiveProps) {
   return (
     <section className={`kickoff-team-column team-column-${teamClass(team)}`}>
       <div className="kickoff-team-title">
@@ -556,14 +632,28 @@ function KickoffTeamColumn({ label, team, behaviors, kickoff }: { label: string;
       </div>
       <div className="kickoff-behavior-list">
         {behaviors.map((behavior, index) => (
-          <KickoffBehaviorRow behavior={behavior} kickoff={kickoff} key={`${behavior.playerKey ?? behavior.playerName}:${behavior.role}:${index}`} />
+          <KickoffBehaviorRow
+            behavior={behavior}
+            kickoff={kickoff}
+            key={`${behavior.playerKey ?? behavior.playerName}:${behavior.role}:${index}`}
+            perspectiveKey={perspectiveKey}
+            onPerspective={onPerspective}
+          />
         ))}
       </div>
     </section>
   );
 }
 
-function KickoffBehaviorRow({ behavior, kickoff }: { behavior: KickoffPlayerBehavior; kickoff: KickoffRow }) {
+function KickoffBehaviorRow({
+  behavior,
+  kickoff,
+  perspectiveKey,
+  onPerspective,
+}: {
+  behavior: KickoffPlayerBehavior;
+  kickoff: KickoffRow;
+} & KickoffPerspectiveProps) {
   const primary = behavior.role === "taker" ? behavior.outcome : behavior.supportBehavior;
   const secondary = behavior.role === "taker" ? behavior.approach : behavior.spawn;
   const boostDelta = behavior.startBoost == null || behavior.boostAfter == null ? null : behavior.boostAfter - behavior.startBoost;
@@ -574,7 +664,9 @@ function KickoffBehaviorRow({ behavior, kickoff }: { behavior: KickoffPlayerBeha
   return (
     <div className="kickoff-behavior-row">
       <div>
-        <strong>{behavior.playerName}</strong>
+        <strong>
+          <KickoffPerspectiveChip behavior={behavior} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+        </strong>
         <span>{behavior.role === "taker" ? "Taker" : "Support"}</span>
       </div>
       <div className="kickoff-behavior-tags">
@@ -853,12 +945,12 @@ function isKickoffDirection(value: string | null): value is KickoffDirection {
   return value === "left" || value === "right" || value === "center" || value === "unknown";
 }
 
-function kickoffPreviewLabel(kickoff: KickoffRow): string {
+function kickoffPreviewLabel(kickoff: KickoffRow, perspective: KickoffPerspective | null): string {
   const typeLabel = kickoffTypeName(kickoff.kickoffType);
   const base = typeLabel
     ? `${typeLabel} · ${kickoffDirectionName(kickoff.kickoffDirection)} · ${formatSeconds(kickoff.startTime)}`
     : formatSeconds(kickoff.startTime);
-  const followedPlayer = kickoffWinnerPreviewPlayer(kickoff);
+  const followedPlayer = perspective ?? kickoffWinnerPreviewPlayer(kickoff);
   return followedPlayer?.playerName ? `${base} · Following ${followedPlayer.playerName}` : base;
 }
 
