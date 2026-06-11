@@ -34,6 +34,34 @@ pub struct SkillSnapshot {
     pub mmr: Option<f64>,
 }
 
+/// Current per-playlist skill counters from PsyNet's `GetPlayersSkills`,
+/// fetched by the client at sync time.
+///
+/// Unlike [`SubmittedRank::after`]/[`SubmittedRank::before`] — which are the
+/// match-history snapshot tied to *this* match — these counters are a
+/// point-in-time value as of `fetched_at`, a moment *after* the match was
+/// played. They are the only source for `win_streak`, `matches_played`, and
+/// `placement_matches_played` (match history does not carry them), but they are
+/// only meaningful when `fetched_at` is close to the match time. For a backfill
+/// of old replays the gap can be large, so consumers should weigh staleness
+/// (`fetched_at` minus the match timestamp) before trusting them.
+#[derive(Debug, Clone, Default, Deserialize, Serialize, ToSchema)]
+pub struct CurrentSkill {
+    /// PsyNet's own MMR value for the playlist (not derived from mu).
+    #[serde(default)]
+    pub mmr: Option<f64>,
+    #[serde(default)]
+    pub win_streak: Option<i32>,
+    #[serde(default)]
+    pub matches_played: Option<i32>,
+    #[serde(default)]
+    pub placement_matches_played: Option<i32>,
+    /// Unix epoch (seconds) when the snapshot was fetched — always after the
+    /// match. The staleness reference for every other field here.
+    #[serde(default)]
+    pub fetched_at: Option<i64>,
+}
+
 /// A single player's submitted rank for a replay, captured at upload time.
 ///
 /// This is the full PsyNet match-history skill snapshot for the player in this
@@ -61,6 +89,11 @@ pub struct SubmittedRank {
     /// Rank before the match.
     #[serde(default)]
     pub before: SkillSnapshot,
+    /// Current per-playlist counters (win streak, matches played, ...) fetched
+    /// at sync time. Point-in-time as of `current.fetched_at`, NOT the match
+    /// moment — see [`CurrentSkill`]. Absent when the client could not fetch it.
+    #[serde(default)]
+    pub current: Option<CurrentSkill>,
 }
 
 /// Payload accepted by the bundled upload field and the ranks endpoint.
@@ -109,14 +142,18 @@ pub async fn upsert_rank_submissions(
             continue;
         }
         let platform = player.platform.as_deref().and_then(normalize_platform);
+        let current = player.current.clone().unwrap_or_default();
         sqlx::query(
             r#"
             INSERT INTO replay_player_rank_submissions (
                 replay_id, platform_player_id, platform, playlist, valid,
                 tier, division, mu, sigma, mmr,
-                pre_tier, pre_division, pre_mu, pre_sigma, pre_mmr
+                pre_tier, pre_division, pre_mu, pre_sigma, pre_mmr,
+                current_mmr, win_streak, matches_played,
+                placement_matches_played, current_fetched_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                    $16, $17, $18, $19, $20)
             ON CONFLICT (replay_id, platform_player_id)
             DO UPDATE SET
                 platform = EXCLUDED.platform,
@@ -132,6 +169,11 @@ pub async fn upsert_rank_submissions(
                 pre_mu = EXCLUDED.pre_mu,
                 pre_sigma = EXCLUDED.pre_sigma,
                 pre_mmr = EXCLUDED.pre_mmr,
+                current_mmr = EXCLUDED.current_mmr,
+                win_streak = EXCLUDED.win_streak,
+                matches_played = EXCLUDED.matches_played,
+                placement_matches_played = EXCLUDED.placement_matches_played,
+                current_fetched_at = EXCLUDED.current_fetched_at,
                 updated_at = now()
             "#,
         )
@@ -150,6 +192,11 @@ pub async fn upsert_rank_submissions(
         .bind(player.before.mu)
         .bind(player.before.sigma)
         .bind(player.before.mmr)
+        .bind(current.mmr)
+        .bind(current.win_streak)
+        .bind(current.matches_played)
+        .bind(current.placement_matches_played)
+        .bind(current.fetched_at)
         .execute(pool)
         .await
         .context("failed to upsert replay player rank submission")?;
