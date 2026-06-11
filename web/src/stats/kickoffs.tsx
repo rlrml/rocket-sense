@@ -1572,7 +1572,7 @@ function formatNextPossession(value: KickoffPossession | null): string {
 }
 
 function formatDuration(value: number | null): string {
-  return value == null ? "-" : `${value.toFixed(1)}s`;
+  return value == null ? "-" : `${value.toFixed(3)}s`;
 }
 
 // Kickoff taker/support boost fields arrive in raw 0-255 units; rescale to the
