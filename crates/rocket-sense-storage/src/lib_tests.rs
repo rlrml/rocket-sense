@@ -61,6 +61,32 @@ async fn local_storage_compresses_and_decodes_zstd_objects() {
 }
 
 #[tokio::test]
+async fn local_storage_delete_removes_objects_and_is_idempotent() {
+    let root = std::env::temp_dir().join(format!("rocket-sense-storage-{}", uuid::Uuid::now_v7()));
+    let storage = LocalStorage::new(&root);
+    let bytes = Bytes::from_static(b"doomed object");
+
+    let stored = storage
+        .put("objects/doomed.bin", bytes, None)
+        .await
+        .expect("object should store");
+
+    storage
+        .delete(&stored.key)
+        .await
+        .expect("delete should succeed");
+    assert!(storage.get(&stored.key).await.is_err());
+
+    storage
+        .delete(&stored.key)
+        .await
+        .expect("deleting a missing object should not error");
+    assert!(storage.delete("/absolute").await.is_err());
+
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
 async fn local_storage_can_store_identity_objects() {
     let root = std::env::temp_dir().join(format!("rocket-sense-storage-{}", uuid::Uuid::now_v7()));
     let storage = LocalStorage::new(&root);

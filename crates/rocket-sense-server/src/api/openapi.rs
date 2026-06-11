@@ -8,6 +8,7 @@ use utoipa::{
 #[openapi(
     paths(
         admin::backfill_profile_timing,
+        admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,
         admin::reprocess_replays,
         admin::list_users,
@@ -45,6 +46,8 @@ use utoipa::{
             auth::AuthProviderResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
+            admin::GcEventStreamsRequest,
+            admin::GcEventStreamsResponse,
             admin::AnalysisRunDiagnosticResponse,
             admin::ReplayProcessingDiagnosticResponse,
             admin::ReplayProcessingDiagnosticsResponse,
