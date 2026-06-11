@@ -897,11 +897,18 @@ fn build_indexed_events_does_not_duplicate_serialized_rotation_span_streams() {
         .iter()
         .filter(|event| event.event_type_key == "rotation_first_man_stint")
         .collect::<Vec<_>>();
+    let rotation_player_events = indexed
+        .iter()
+        .filter(|event| event.source_stream == "rotation_player")
+        .collect::<Vec<_>>();
 
     assert_eq!(role_spans.len(), 1);
     assert_eq!(role_spans[0].event_type_key, "rotation_role_first_man");
     assert_eq!(role_spans[0].category, "positioning");
     assert_eq!(first_man_stints.len(), 0);
+    // Per-frame rotation_player state spans are no longer indexed as play
+    // events; they live only in the event stream object.
+    assert_eq!(rotation_player_events.len(), 0);
 }
 
 #[test]

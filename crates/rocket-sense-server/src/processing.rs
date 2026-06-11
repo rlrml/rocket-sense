@@ -43,8 +43,7 @@ pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v5";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
-const ROTATION_PROFILE_TIMING_STREAMS: [&str; 4] = [
-    "rotation_player",
+const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] = [
     "rotation_role_span",
     "rotation_depth_span",
     "rotation_first_man_stint",
@@ -53,7 +52,18 @@ const PLAY_EVENT_INSERT_CHUNK_SIZE: usize = 500;
 const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
-const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["goal_tags", "touch_last_touch"];
+// `goal_tags`/`touch_last_touch` are annotations on other indexed events.
+// `rotation_player` and `positioning_ball_relative_depth` are per-frame
+// telemetry that nothing reads back out of the database (~1100 and ~1050
+// events per replay respectively, each fanned out into payload/attribute/
+// subject rows); they remain available in the analysis run's event stream
+// object, so skip indexing them as play events entirely.
+const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &[
+    "goal_tags",
+    "touch_last_touch",
+    "rotation_player",
+    "positioning_ball_relative_depth",
+];
 
 struct ReplayAnalysisOutput {
     event_stream: Value,
@@ -228,7 +238,7 @@ struct ReplayProfileTimingBackfillTarget {
     analysis_run_id: Uuid,
     storage_key: String,
     needs_positioning: bool,
-    needs_rotation_player: bool,
+    needs_rotation_spans: bool,
 }
 
 pub async fn setup_replay_processing_queue(pool: &PgPool) -> Result<()> {
@@ -448,11 +458,11 @@ fn spawn_profile_timing_backfill_worker(
                 tasks.spawn(async move {
                     let replay_id = target.replay_id;
                     let needs_positioning = target.needs_positioning;
-                    let needs_rotation_player = target.needs_rotation_player;
+                    let needs_rotation_spans = target.needs_rotation_spans;
                     tracing::info!(
                         %replay_id,
                         needs_positioning,
-                        needs_rotation_player,
+                        needs_rotation_spans,
                         "queued profile timing backfill"
                     );
                     let _permit = permits
@@ -462,7 +472,7 @@ fn spawn_profile_timing_backfill_worker(
                     tracing::info!(
                         %replay_id,
                         needs_positioning,
-                        needs_rotation_player,
+                        needs_rotation_spans,
                         "started profile timing backfill"
                     );
                     let result = backfill_profile_timing_events(pool, storage, target).await;
@@ -781,12 +791,6 @@ async fn profile_timing_backfill_targets(
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_player'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
                       AND event.source_stream = 'rotation_role_span'
                 )
                 OR NOT EXISTS (
@@ -801,15 +805,7 @@ async fn profile_timing_backfill_targets(
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
                       AND event.source_stream = 'rotation_first_man_stint'
                 )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    JOIN play_event_rotation_player_details detail
-                      ON detail.event_id = event.id
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_player'
-                )
-            ) AS needs_rotation_player
+            ) AS needs_rotation_spans
         FROM replays r
         WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
@@ -835,12 +831,6 @@ async fn profile_timing_backfill_targets(
                     SELECT 1
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_player'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
                       AND event.source_stream = 'rotation_role_span'
                 )
                 OR NOT EXISTS (
@@ -854,14 +844,6 @@ async fn profile_timing_backfill_targets(
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
                       AND event.source_stream = 'rotation_first_man_stint'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    JOIN play_event_rotation_player_details detail
-                      ON detail.event_id = event.id
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_player'
                 )
             )
             "#,
@@ -882,7 +864,7 @@ async fn profile_timing_backfill_targets(
                 storage_key: row.try_get("storage_key")?,
                 analysis_run_id: row.try_get("canonical_analysis_run_id")?,
                 needs_positioning: options.force || row.try_get("needs_positioning")?,
-                needs_rotation_player: options.force || row.try_get("needs_rotation_player")?,
+                needs_rotation_spans: options.force || row.try_get("needs_rotation_spans")?,
             })
         })
         .collect()
@@ -905,8 +887,7 @@ async fn backfill_profile_timing_events(
         .indexed_events
         .into_iter()
         .filter(|event| {
-            (target.needs_rotation_player
-                && is_rotation_profile_timing_stream(&event.source_stream))
+            (target.needs_rotation_spans && is_rotation_profile_timing_stream(&event.source_stream))
                 || (target.needs_positioning && event.source_stream == "positioning")
         })
         .collect::<Vec<_>>();
@@ -915,15 +896,14 @@ async fn backfill_profile_timing_events(
     }
 
     indexed_events.sort_by_key(|event| match event.source_stream.as_str() {
-        "rotation_player" => 0,
-        "rotation_role_span" => 1,
-        "rotation_depth_span" => 2,
-        "rotation_first_man_stint" => 3,
-        "positioning" => 4,
-        _ => 5,
+        "rotation_role_span" => 0,
+        "rotation_depth_span" => 1,
+        "rotation_first_man_stint" => 2,
+        "positioning" => 3,
+        _ => 4,
     });
 
-    if target.needs_rotation_player {
+    if target.needs_rotation_spans {
         delete_profile_timing_streams(
             &pool,
             target.analysis_run_id,
@@ -2884,26 +2864,6 @@ struct TouchDetailRow {
     sample_time: f64,
 }
 
-struct RotationPlayerDetailRow {
-    event_id: Uuid,
-    active: bool,
-    current_role_state: String,
-    current_depth_state: String,
-    active_game_time: Option<f64>,
-    tracked_time: Option<f64>,
-    time_first_man: Option<f64>,
-    time_second_man: Option<f64>,
-    time_third_man: Option<f64>,
-    time_ambiguous_role: Option<f64>,
-    time_behind_play: Option<f64>,
-    time_level_with_play: Option<f64>,
-    time_ahead_of_play: Option<f64>,
-    longest_first_man_stint_time: Option<f64>,
-    first_man_stint_count: Option<i32>,
-    became_first_man_count: Option<i32>,
-    lost_first_man_count: Option<i32>,
-}
-
 struct KickoffDetailRow {
     event_id: Uuid,
     replay_id: Uuid,
@@ -2959,7 +2919,6 @@ async fn insert_play_event_detail_rows(
     let mut mechanic_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut goal_tag_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut touch_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
-    let mut rotation_player_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut kickoff_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
     let mut kickoff_player_rows = Vec::with_capacity(PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE);
 
@@ -2993,13 +2952,6 @@ async fn insert_play_event_detail_rows(
                     touch_rows.clear();
                 }
             }
-            "rotation_player" => {
-                rotation_player_rows.push(rotation_player_detail_row(prepared.id, prepared.event)?);
-                if rotation_player_rows.len() >= PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE {
-                    insert_rotation_player_detail_rows(pool, &rotation_player_rows).await?;
-                    rotation_player_rows.clear();
-                }
-            }
             "kickoff" => {
                 kickoff_rows.push(kickoff_detail_row(prepared.id, replay_id, prepared.event)?);
                 kickoff_player_rows.extend(kickoff_player_detail_rows(
@@ -3025,7 +2977,6 @@ async fn insert_play_event_detail_rows(
     insert_mechanic_detail_rows(pool, &mechanic_rows).await?;
     insert_goal_tag_detail_rows(pool, &goal_tag_rows).await?;
     insert_touch_detail_rows(pool, &touch_rows).await?;
-    insert_rotation_player_detail_rows(pool, &rotation_player_rows).await?;
     insert_kickoff_detail_rows(pool, &kickoff_rows).await?;
     insert_kickoff_player_detail_rows(pool, &kickoff_player_rows).await?;
 
@@ -3074,34 +3025,6 @@ fn touch_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<TouchDetailR
         ball_speed_change: required_float(&event.payload, "ball_speed_change")?,
         sample_frame: required_int(&event.payload, "sample_frame")?,
         sample_time: required_float(&event.payload, "sample_time")?,
-    })
-}
-
-fn rotation_player_detail_row(
-    event_id: Uuid,
-    event: &IndexedEvent,
-) -> Result<RotationPlayerDetailRow> {
-    Ok(RotationPlayerDetailRow {
-        event_id,
-        active: required_bool(&event.payload, "active")?,
-        current_role_state: required_normalized_variant(&event.payload, "current_role_state")?,
-        current_depth_state: required_normalized_variant(&event.payload, "current_depth_state")?,
-        active_game_time: float_value(&event.payload, &["active_game_time"]),
-        tracked_time: float_value(&event.payload, &["tracked_time"]),
-        time_first_man: float_value(&event.payload, &["time_first_man"]),
-        time_second_man: float_value(&event.payload, &["time_second_man"]),
-        time_third_man: float_value(&event.payload, &["time_third_man"]),
-        time_ambiguous_role: float_value(&event.payload, &["time_ambiguous_role"]),
-        time_behind_play: float_value(&event.payload, &["time_behind_play"]),
-        time_level_with_play: float_value(&event.payload, &["time_level_with_play"]),
-        time_ahead_of_play: float_value(&event.payload, &["time_ahead_of_play"]),
-        longest_first_man_stint_time: float_value(
-            &event.payload,
-            &["longest_first_man_stint_time"],
-        ),
-        first_man_stint_count: int_value(&event.payload, &["first_man_stint_count"]),
-        became_first_man_count: int_value(&event.payload, &["became_first_man_count"]),
-        lost_first_man_count: int_value(&event.payload, &["lost_first_man_count"]),
     })
 }
 
@@ -3398,66 +3321,6 @@ async fn insert_touch_detail_rows(pool: &PgPool, rows: &[TouchDetailRow]) -> Res
     Ok(())
 }
 
-async fn insert_rotation_player_detail_rows(
-    pool: &PgPool,
-    rows: &[RotationPlayerDetailRow],
-) -> Result<()> {
-    if rows.is_empty() {
-        return Ok(());
-    }
-
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        INSERT INTO play_event_rotation_player_details (
-            event_id,
-            active,
-            current_role_state,
-            current_depth_state,
-            active_game_time,
-            tracked_time,
-            time_first_man,
-            time_second_man,
-            time_third_man,
-            time_ambiguous_role,
-            time_behind_play,
-            time_level_with_play,
-            time_ahead_of_play,
-            longest_first_man_stint_time,
-            first_man_stint_count,
-            became_first_man_count,
-            lost_first_man_count
-        )
-        "#,
-    );
-    query.push_values(rows, |mut row, detail| {
-        row.push_bind(detail.event_id)
-            .push_bind(detail.active)
-            .push_bind(&detail.current_role_state)
-            .push_bind(&detail.current_depth_state)
-            .push_bind(detail.active_game_time)
-            .push_bind(detail.tracked_time)
-            .push_bind(detail.time_first_man)
-            .push_bind(detail.time_second_man)
-            .push_bind(detail.time_third_man)
-            .push_bind(detail.time_ambiguous_role)
-            .push_bind(detail.time_behind_play)
-            .push_bind(detail.time_level_with_play)
-            .push_bind(detail.time_ahead_of_play)
-            .push_bind(detail.longest_first_man_stint_time)
-            .push_bind(detail.first_man_stint_count)
-            .push_bind(detail.became_first_man_count)
-            .push_bind(detail.lost_first_man_count);
-    });
-    query.push(" ON CONFLICT DO NOTHING");
-    query
-        .build()
-        .execute(pool)
-        .await
-        .context("failed to batch insert rotation player event details")?;
-
-    Ok(())
-}
-
 async fn insert_kickoff_detail_rows(pool: &PgPool, rows: &[KickoffDetailRow]) -> Result<()> {
     if rows.is_empty() {
         return Ok(());
@@ -3639,7 +3502,6 @@ async fn insert_play_event_details(
         "mechanics" => insert_mechanic_event_details(pool, event_id, event).await,
         "goal_tags" => insert_goal_tag_event_details(pool, event_id, event).await,
         "touch" => insert_touch_event_details(pool, event_id, event).await,
-        "rotation_player" => insert_rotation_player_event_details(pool, event_id, event).await,
         "kickoff" => {
             insert_kickoff_event_details(pool, event_id, replay_id, event, replay_players).await
         }
@@ -3771,71 +3633,6 @@ async fn insert_touch_event_details(
     .execute(pool)
     .await
     .context("failed to insert touch event details")?;
-    Ok(())
-}
-
-async fn insert_rotation_player_event_details(
-    pool: &PgPool,
-    event_id: Uuid,
-    event: &IndexedEvent,
-) -> Result<()> {
-    sqlx::query(
-        r#"
-        INSERT INTO play_event_rotation_player_details (
-            event_id,
-            active,
-            current_role_state,
-            current_depth_state,
-            active_game_time,
-            tracked_time,
-            time_first_man,
-            time_second_man,
-            time_third_man,
-            time_ambiguous_role,
-            time_behind_play,
-            time_level_with_play,
-            time_ahead_of_play,
-            longest_first_man_stint_time,
-            first_man_stint_count,
-            became_first_man_count,
-            lost_first_man_count
-        )
-        VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
-            $11, $12, $13, $14, $15, $16, $17
-        )
-        ON CONFLICT DO NOTHING
-        "#,
-    )
-    .bind(event_id)
-    .bind(required_bool(&event.payload, "active")?)
-    .bind(required_normalized_variant(
-        &event.payload,
-        "current_role_state",
-    )?)
-    .bind(required_normalized_variant(
-        &event.payload,
-        "current_depth_state",
-    )?)
-    .bind(float_value(&event.payload, &["active_game_time"]))
-    .bind(float_value(&event.payload, &["tracked_time"]))
-    .bind(float_value(&event.payload, &["time_first_man"]))
-    .bind(float_value(&event.payload, &["time_second_man"]))
-    .bind(float_value(&event.payload, &["time_third_man"]))
-    .bind(float_value(&event.payload, &["time_ambiguous_role"]))
-    .bind(float_value(&event.payload, &["time_behind_play"]))
-    .bind(float_value(&event.payload, &["time_level_with_play"]))
-    .bind(float_value(&event.payload, &["time_ahead_of_play"]))
-    .bind(float_value(
-        &event.payload,
-        &["longest_first_man_stint_time"],
-    ))
-    .bind(int_value(&event.payload, &["first_man_stint_count"]))
-    .bind(int_value(&event.payload, &["became_first_man_count"]))
-    .bind(int_value(&event.payload, &["lost_first_man_count"]))
-    .execute(pool)
-    .await
-    .context("failed to insert rotation player event details")?;
     Ok(())
 }
 
@@ -3984,7 +3781,6 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             .unwrap_or_else(|| "goal_tag_unknown".to_owned()),
         "touch" => "touch".to_owned(),
         "timeline" => kind.as_deref().unwrap_or("event").to_owned(),
-        "rotation_player" => "rotation_player_state_span".to_owned(),
         "rotation_role_span" => format!(
             "rotation_role_{}",
             normalized_payload_field(payload, "current_role_state")
@@ -4029,7 +3825,6 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))
         }
         "rotation_first_man_stint" => display_name_from_key("first_man_stint"),
-        "rotation_player" => display_name_from_key("player_state_span"),
         "rotation_role_span" | "rotation_depth_span" => display_name_from_key(&event_type_key),
         _ if metadata.is_some_and(|metadata| metadata.id == event_type_key) => metadata
             .map(|metadata| metadata.label.to_owned())
