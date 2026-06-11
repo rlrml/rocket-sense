@@ -59,7 +59,7 @@ fn asset_paths(index: &str) -> Vec<String> {
     let mut rest = index;
     while let Some(start) = rest.find("./assets/") {
         let after_prefix = &rest[start + "./assets/".len()..];
-        let Some(end) = after_prefix.find(|character| character == '"' || character == '\'') else {
+        let Some(end) = after_prefix.find(['"', '\'']) else {
             break;
         };
         paths.push(after_prefix[..end].to_owned());
