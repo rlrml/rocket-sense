@@ -304,15 +304,13 @@ async fn load_kickoff_summary(
             COUNT(*) FILTER (WHERE kickoff.winning_team IS NULL) AS neutral_count,
             COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team = detail.team) AS kickoff_goals_for,
             COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team IS NOT NULL AND kickoff.scoring_team <> detail.team) AS kickoff_goals_against,
-            -- detail.first_touch_time is an absolute replay timestamp; subtract the
-            -- kickoff's start to get a duration. Taker-scoped and touch-conditional:
-            -- misses have no finite time-to-touch and support touches are a
-            -- different distribution (see docs/stats-principles.md §2).
-            AVG(detail.first_touch_time - event.start_time) FILTER (
+            -- time_to_ball is subtr-actor's duration from movement start to the
+            -- taker's first touch (countdown excluded). Taker-scoped and
+            -- touch-conditional: misses have no finite time-to-touch and support
+            -- touches are a different distribution (see docs/stats-principles.md §2).
+            AVG(detail.time_to_ball) FILTER (
                 WHERE detail.role = 'taker'
-                  AND detail.first_touch_time IS NOT NULL
-                  AND event.start_time IS NOT NULL
-                  AND detail.first_touch_time >= event.start_time
+                  AND detail.time_to_ball IS NOT NULL
             ) AS avg_taker_time_to_touch,
             AVG(detail.boost_after) FILTER (WHERE detail.boost_after IS NOT NULL) AS avg_boost_after,
             AVG(detail.boost_after - detail.start_boost) FILTER (WHERE detail.boost_after IS NOT NULL AND detail.start_boost IS NOT NULL) AS avg_boost_delta
@@ -403,6 +401,7 @@ async fn load_event_stat_samples(
             detail.support_behavior,
             detail.start_boost,
             detail.boost_after,
+            detail.time_to_ball,
             detail.first_touch_time,
             kickoff.outcome AS kickoff_outcome,
             kickoff.winning_team,
@@ -559,6 +558,11 @@ fn sample_from_row(row: sqlx::postgres::PgRow) -> Result<EventStatSampleResponse
         &mut fields,
         "boost_after",
         row.try_get::<Option<f64>, _>("boost_after")?,
+    );
+    insert_optional(
+        &mut fields,
+        "time_to_ball",
+        row.try_get::<Option<f64>, _>("time_to_ball")?,
     );
     insert_optional(
         &mut fields,
