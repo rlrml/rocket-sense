@@ -28,16 +28,37 @@ variable "storage_class_name" {
   default     = "local-path"
 }
 
+# NOTE: the local-path provisioner ignores PVC capacity requests entirely — a
+# PVC is a plain hostPath directory with no quota, bounded only by the node
+# disk (a 10Gi claim held 231G when the node filled on 2026-06-11). These
+# sizes are documentation, not enforcement. They also cannot be changed on a
+# bound PVC: local-path does not support volume expansion, so the API server
+# rejects the update and forcing replacement would delete the data. Real
+# protection comes from the disk-usage-watchdog CronJob and the kubelet
+# eviction thresholds configured on the host.
 variable "postgres_storage_size" {
-  description = "Postgres PVC size."
+  description = "Postgres PVC size (advisory only; not enforced by local-path)."
   type        = string
   default     = "10Gi"
 }
 
 variable "replay_storage_size" {
-  description = "Rocket Sense replay/artifact PVC size."
+  description = "Rocket Sense replay/artifact PVC size (advisory only; not enforced by local-path)."
   type        = string
   default     = "50Gi"
+}
+
+variable "disk_usage_watchdog_schedule" {
+  description = "Cron schedule for the node disk / Postgres bloat watchdog."
+  type        = string
+  # Daily at 09:23 UTC (01:23 PT).
+  default = "23 9 * * *"
+}
+
+variable "disk_usage_alert_percent" {
+  description = "Node disk usage percentage at which the watchdog alerts (kubelet eviction starts around 95%+)."
+  type        = number
+  default     = 80
 }
 
 variable "server_node_port" {
