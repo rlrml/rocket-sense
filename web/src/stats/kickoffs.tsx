@@ -128,6 +128,8 @@ interface PlayerKickoffSummary {
   team: number | null;
   takerCount: number;
   supportCount: number;
+  advantagesFor: number;
+  advantagesAgainst: number;
   touched: number;
   faked: number;
   missed: number;
@@ -239,6 +241,9 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
           <KickoffMetric icon={CircleDotDashed} label="Kickoffs" value={kickoffs.length.toLocaleString()} />
           <KickoffMetric icon={Trophy} label="Blue wins" value={summary.blueWins.toLocaleString()} />
           <KickoffMetric icon={Trophy} label="Orange wins" value={summary.orangeWins.toLocaleString()} />
+          {summary.blueAdvantages + summary.orangeAdvantages + summary.noAdvantage > 0 ? (
+            <KickoffMetric icon={Anchor} label="Advantage" value={`${summary.blueAdvantages} – ${summary.orangeAdvantages}`} />
+          ) : null}
           <KickoffMetric icon={Goal} label="Kickoff goals" value={summary.goals.toLocaleString()} />
         </div>
       </section>
@@ -343,6 +348,18 @@ const PLAYER_COLUMN: KickoffPlayerColumn = {
   ),
 };
 
+// Kickoffs where the player's team came away with the advantage (possession,
+// pressure, or goal) versus conceded it, counted over the kickoffs they played.
+const ADVANTAGE_COLUMN: KickoffPlayerColumn = {
+  key: "advantage",
+  label: "Adv",
+  render: (summary) => (
+    <span className="kickoff-goal-balance">
+      +{summary.advantagesFor} / -{summary.advantagesAgainst}
+    </span>
+  ),
+};
+
 const GOALS_COLUMN: KickoffPlayerColumn = {
   key: "goals",
   label: "Goals",
@@ -363,6 +380,7 @@ const TAKER_COLUMNS: KickoffPlayerColumn[] = [
   { key: "boostPlus", label: "Boost +", render: (summary) => formatAverageBoost(summary.boostCollectedSum, summary.boostCollectedCount) },
   { key: "boostUsed", label: "Boost used", render: (summary) => formatAverageBoost(summary.boostUsedSum, summary.boostUsedCount) },
   { key: "approach", label: "Approach", render: (summary) => topMapLabel(summary.approaches) },
+  ADVANTAGE_COLUMN,
   GOALS_COLUMN,
 ];
 
@@ -370,6 +388,7 @@ const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
   PLAYER_COLUMN,
   { key: "plays", label: "Plays", render: (summary) => summary.supportCount },
   { key: "habit", label: "Habit", render: (summary) => topMapLabel(summary.supportBehaviors) },
+  ADVANTAGE_COLUMN,
   GOALS_COLUMN,
 ];
 
@@ -1329,16 +1348,29 @@ function kickoffSummary(kickoffs: KickoffRow[]) {
       else if (kickoff.winningTeam === 1) summary.orangeWins += 1;
       else summary.neutral += 1;
       if (kickoff.kickoffGoal) summary.goals += 1;
+      if (kickoff.advantageTeam === 0) summary.blueAdvantages += 1;
+      else if (kickoff.advantageTeam === 1) summary.orangeAdvantages += 1;
+      else if (kickoff.advantage === "no_advantage") summary.noAdvantage += 1;
       return summary;
     },
-    { blueWins: 0, orangeWins: 0, neutral: 0, goals: 0 },
+    { blueWins: 0, orangeWins: 0, neutral: 0, goals: 0, blueAdvantages: 0, orangeAdvantages: 0, noAdvantage: 0 },
   );
 }
 
 function kickoffReportSentence(summary: ReturnType<typeof kickoffSummary>, total: number): string {
   const winLeader = summary.blueWins === summary.orangeWins ? "Neither team controlled the kickoff count" : summary.blueWins > summary.orangeWins ? "Blue had the kickoff edge" : "Orange had the kickoff edge";
   const goalPart = summary.goals === 0 ? "no kickoff goals" : `${summary.goals} kickoff ${summary.goals === 1 ? "goal" : "goals"}`;
-  return `${winLeader} across ${total} kickoffs with ${goalPart}.`;
+  const advantageKnown = summary.blueAdvantages + summary.orangeAdvantages + summary.noAdvantage;
+  if (advantageKnown === 0) {
+    return `${winLeader} across ${total} kickoffs with ${goalPart}.`;
+  }
+  const advantagePart =
+    summary.blueAdvantages === summary.orangeAdvantages
+      ? "the advantage split evenly"
+      : summary.blueAdvantages > summary.orangeAdvantages
+        ? `Blue came away ahead on ${summary.blueAdvantages}`
+        : `Orange came away ahead on ${summary.orangeAdvantages}`;
+  return `${winLeader} across ${total} kickoffs with ${goalPart}; ${advantagePart}.`;
 }
 
 function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[]): PlayerKickoffSummary[] {
@@ -1352,6 +1384,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         team: behavior.team,
         takerCount: 0,
         supportCount: 0,
+        advantagesFor: 0,
+        advantagesAgainst: 0,
         touched: 0,
         faked: 0,
         missed: 0,
@@ -1400,6 +1434,10 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         if (behavior.team === kickoff.scoringTeam) summary.kickoffGoalsFor += 1;
         else summary.kickoffGoalsAgainst += 1;
       }
+      if (behavior.team != null && kickoff.advantageTeam != null) {
+        if (behavior.team === kickoff.advantageTeam) summary.advantagesFor += 1;
+        else summary.advantagesAgainst += 1;
+      }
       incrementStrengthOutcome(summary.strengthOutcomes, kickoff.winStrengthBand, kickoff.winningTeam, behavior.team);
     }
   }
@@ -1413,6 +1451,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         team: player.team,
         takerCount: 0,
         supportCount: 0,
+        advantagesFor: 0,
+        advantagesAgainst: 0,
         touched: 0,
         faked: 0,
         missed: 0,

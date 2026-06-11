@@ -371,7 +371,7 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
   );
 }
 
-const kickoffDimensionKeys = ["approach", "spawn_position", "taker_outcome", "support_behavior", "player_result"];
+const kickoffDimensionKeys = ["approach", "spawn_position", "taker_outcome", "support_behavior", "player_result", "advantage_result"];
 
 /** Kickoff outcome shares, headline metrics, and per-dimension distributions. */
 export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResponse }) {
@@ -384,6 +384,14 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
   // touch rate alongside so the conditioning is visible.
   const takerCount = metric("taker_count") ?? 0;
   const takerTouchRate = takerCount > 0 ? (metric("touched_count") ?? 0) / takerCount : null;
+  // Who the kickoff was actually good for once play settled (possession run,
+  // established pressure, or kickoff goal), independent of the immediate
+  // win/loss read above. Zero for replay sets processed before the advantage
+  // columns existed, in which case the bar is hidden.
+  const advantagesFor = metric("advantages_for") ?? 0;
+  const advantagesAgainst = metric("advantages_against") ?? 0;
+  const noAdvantage = metric("no_advantage_count") ?? 0;
+  const advantageTotal = advantagesFor + advantagesAgainst + noAdvantage;
   const dimensions = kickoffDimensionKeys
     .map((key) => summary.dimensions.find((dimension) => dimension.key === key))
     .filter((dimension): dimension is EventStatDimensionResponse => Boolean(dimension && dimension.values.length > 0));
@@ -407,6 +415,20 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
               kickoffOutcomeSegment("loss", "Lost", losses, outcomeTotal),
             ]}
             total={outcomeTotal}
+          />
+        </div>
+      ) : null}
+      {advantageTotal > 0 ? (
+        <div className="kickoff-outcome-share">
+          <SegmentedBar
+            ariaLabel="Kickoff advantage share"
+            className="positioning-track"
+            segments={[
+              kickoffOutcomeSegment("win", "Advantage gained", advantagesFor, advantageTotal),
+              kickoffOutcomeSegment("neutral", "No advantage", noAdvantage, advantageTotal),
+              kickoffOutcomeSegment("loss", "Advantage conceded", advantagesAgainst, advantageTotal),
+            ]}
+            total={advantageTotal}
           />
         </div>
       ) : null}
