@@ -990,7 +990,8 @@ function ReplayStatsPage() {
 
     setReplayLoading(true);
     setReplayError(null);
-    getReplay(replayId)
+    const replayPromise = getReplay(replayId);
+    replayPromise
       .then((response) => {
         if (!cancelled) setReplay(response);
       })
@@ -1021,7 +1022,15 @@ function ReplayStatsPage() {
 
     setEventsLoading(true);
     setEventsError(null);
-    listReplayEvents(replayId, eventTypesForGroup(activeGroup.id))
+    replayPromise
+      .catch(() => null)
+      .then((replayResponse) =>
+        listReplayEvents(
+          replayId,
+          eventTypesForGroup(activeGroup.id),
+          replayResponse?.processing_version.processed_at ?? null,
+        ),
+      )
       .then((response) => {
         if (!cancelled) setEvents(response.events);
       })

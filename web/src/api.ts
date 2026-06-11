@@ -164,8 +164,12 @@ export function getPlayerKickoffSummary(
   return request<EventStatSummaryResponse>(`/api/v1/stats/events/kickoff/summary?${params.toString()}`);
 }
 
-export async function listReplayEvents(replayId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
-  const cacheKey = replayEventsKey(replayId, eventTypes);
+export async function listReplayEvents(
+  replayId: string,
+  eventTypes: string[] = [],
+  processedAt: string | null = null,
+): Promise<MechanicEventsResponse> {
+  const cacheKey = replayEventsKey(replayId, eventTypes, processedAt);
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
 
@@ -287,13 +291,22 @@ function readReplayCache(): Record<string, ReplayResponse> {
   }
 }
 
-function replayEventsKey(replayId: string, eventTypes: string[]): string {
-  return eventTypes.length > 0 ? `${replayId}:${eventTypes.slice().sort().join(",")}` : replayId;
+function replayEventsKey(replayId: string, eventTypes: string[], processedAt: string | null): string {
+  const scope = processedAt ? `${replayId}@${processedAt}` : replayId;
+  return eventTypes.length > 0 ? `${scope}:${eventTypes.slice().sort().join(",")}` : scope;
 }
 
 function cacheReplayEvents(cacheKey: string, response: MechanicEventsResponse): void {
   try {
     const cache = readReplayEventsCache();
+    const scope = cacheKey.split(":")[0];
+    const replayId = scope.split("@")[0];
+    for (const key of Object.keys(cache)) {
+      const keyScope = key.split(":")[0];
+      if (keyScope !== scope && keyScope.split("@")[0] === replayId) {
+        delete cache[key];
+      }
+    }
     cache[cacheKey] = response;
     sessionStorage.setItem(replayEventsCacheKey, JSON.stringify(cache));
   } catch {
