@@ -78,6 +78,7 @@ use utoipa::{
             stats::StatAggregateSetResponse,
             stats::ProcessingVersionBreakdownResponse,
             stats::ProcessingVersionBreakdownRow,
+            replays::BundledRankSummary,
             replays::CreateReplayGroupRequest,
             replays::CreateReplayResponse,
             replays::ListReplaysResponse,

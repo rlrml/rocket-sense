@@ -90,6 +90,21 @@ pub struct CreateReplayResponse {
     pub replay: ReplayResponse,
     pub created: bool,
     pub deduplicated: bool,
+    /// Present when ranks were bundled with the upload. `submitted` > `matched`
+    /// means some ranks were persisted but did not attach to a player row on
+    /// this replay — typically a `platform_player_id` mismatch between what the
+    /// client submitted and what the replay file carried.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ranks: Option<BundledRankSummary>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BundledRankSummary {
+    /// Player ranks persisted to `replay_player_rank_submissions`.
+    pub submitted: u64,
+    /// Of those, how many matched a player row on this replay by
+    /// `platform_player_id`.
+    pub matched: u64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -544,7 +559,7 @@ pub async fn create_replay(
         .map_err(ApiError::internal)?
     {
         let replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
-        ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
+        let ranks = ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
         return Ok((
             StatusCode::OK,
@@ -552,6 +567,7 @@ pub async fn create_replay(
                 replay,
                 created: false,
                 deduplicated: true,
+                ranks,
             }),
         ));
     }
@@ -584,7 +600,7 @@ pub async fn create_replay(
     let replay = insert_result.replay;
 
     let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
-    ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
+    let ranks = ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
 
     if insert_result.created {
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
@@ -601,6 +617,7 @@ pub async fn create_replay(
             replay,
             created: insert_result.created,
             deduplicated: !insert_result.created,
+            ranks,
         }),
     ))
 }
@@ -609,25 +626,50 @@ pub async fn create_replay(
 /// payload is rejected at parse time (400), but a failure to persist here must
 /// not fail the upload itself — the replay is already stored — so errors are
 /// logged and swallowed.
-async fn ingest_bundled_ranks(db: &PgPool, replay_id: Uuid, submission: Option<&RankSubmission>) {
-    let Some(submission) = submission else {
-        return;
-    };
+async fn ingest_bundled_ranks(
+    db: &PgPool,
+    replay_id: Uuid,
+    submission: Option<&RankSubmission>,
+) -> Option<BundledRankSummary> {
+    let submission = submission?;
     if submission.is_empty() {
-        return;
+        return None;
     }
     match ingest_rank_submissions(db, replay_id, submission).await {
-        Ok(summary) => tracing::debug!(
-            %replay_id,
-            submitted = summary.submitted,
-            matched = summary.matched,
-            "ingested bundled replay ranks"
-        ),
-        Err(error) => tracing::warn!(
-            %replay_id,
-            error = %error,
-            "failed to ingest bundled replay ranks"
-        ),
+        Ok(summary) => {
+            // A successful ingest where some submitted ranks did not attach to a
+            // player row is the silent failure mode (usually a
+            // platform_player_id mismatch); surface it at warn so it shows at
+            // the default `info` deploy level. The ranks are still stored.
+            if summary.submitted > summary.matched {
+                tracing::warn!(
+                    %replay_id,
+                    submitted = summary.submitted,
+                    matched = summary.matched,
+                    "bundled replay ranks stored but some did not match a player row \
+                     (likely platform_player_id mismatch)"
+                );
+            } else {
+                tracing::info!(
+                    %replay_id,
+                    submitted = summary.submitted,
+                    matched = summary.matched,
+                    "ingested bundled replay ranks"
+                );
+            }
+            Some(BundledRankSummary {
+                submitted: summary.submitted,
+                matched: summary.matched,
+            })
+        }
+        Err(error) => {
+            tracing::warn!(
+                %replay_id,
+                error = %error,
+                "failed to ingest bundled replay ranks"
+            );
+            None
+        }
     }
 }
 
