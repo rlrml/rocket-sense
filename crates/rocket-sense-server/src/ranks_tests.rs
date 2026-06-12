@@ -32,6 +32,7 @@ fn submitted_rank_deserializes_full_snapshot() {
     let payload = r#"{
         "players": [{
             "platform_player_id": "123",
+            "player_name": "Blue",
             "platform": "Epic",
             "playlist": 11,
             "valid": true,
@@ -43,12 +44,21 @@ fn submitted_rank_deserializes_full_snapshot() {
     assert_eq!(submission.players.len(), 1);
     let player = &submission.players[0];
     assert_eq!(player.platform_player_id, "123");
+    assert_eq!(player.player_name.as_deref(), Some("Blue"));
     assert_eq!(player.playlist, Some(11));
     assert_eq!(player.valid, Some(true));
     assert_eq!(player.after.tier, Some(16));
     assert_eq!(player.after.division, Some(2));
     assert_eq!(player.after.mmr, Some(1143.0));
     assert_eq!(player.before.mmr, Some(1128.0));
+}
+
+#[test]
+fn submitted_rank_accepts_display_name_alias() {
+    let payload = r#"{"players":[{"platform_player_id":"123","display_name":"Orange"}]}"#;
+    let submission: RankSubmission = serde_json::from_str(payload).unwrap();
+
+    assert_eq!(submission.players[0].player_name.as_deref(), Some("Orange"));
 }
 
 #[test]
@@ -95,6 +105,7 @@ fn observability_summary_counts_rank_metadata_presence() {
         "players": [
             {
                 "platform_player_id": "123",
+                "player_name": "Blue",
                 "platform": "Epic",
                 "playlist": 11,
                 "valid": true,
@@ -122,6 +133,7 @@ fn observability_summary_counts_rank_metadata_presence() {
     let summary = submission.observability_summary();
 
     assert_eq!(summary.players, 2);
+    assert_eq!(summary.player_names, 1);
     assert_eq!(summary.platforms, 1);
     assert_eq!(summary.playlists, 1);
     assert_eq!(summary.valid_flags, 1);
