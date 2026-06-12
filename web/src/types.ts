@@ -366,7 +366,14 @@ export interface EventStatSummaryResponse {
 export interface PossessionSummaryResponse {
   replay_count: number;
   possessions: PossessionSpanSummary;
+  controlled_plays: PossessionSpanSummary;
+  teammates: PossessionTeammateComparison | null;
   touches: PossessionTouchSummary;
+}
+
+export interface PossessionTeammateComparison {
+  appearance_count: number;
+  controlled_plays: PossessionSpanSummary;
 }
 
 export interface PossessionSpanSummary {
