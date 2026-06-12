@@ -73,8 +73,8 @@ pub struct PossessionDurationBucket {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PossessionLocationSummary {
     pub total_duration_seconds: f64,
-    pub zones: Vec<PossessionTimeBucket>,
     pub halves: Vec<PossessionTimeBucket>,
+    pub thirds: Vec<PossessionTimeBucket>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -411,7 +411,7 @@ async fn load_possession_location_summary(
     query.push(" GROUP BY 1");
 
     let rows = query.build().fetch_all(pool).await?;
-    let mut zone_seconds = [
+    let mut third_seconds = [
         ("team_zero_third", 0.0),
         ("neutral_third", 0.0),
         ("team_one_third", 0.0),
@@ -428,7 +428,10 @@ async fn load_possession_location_summary(
         let Some(field_third) = field_third.as_deref() else {
             continue;
         };
-        if let Some((_, seconds)) = zone_seconds.iter_mut().find(|(key, _)| *key == field_third) {
+        if let Some((_, seconds)) = third_seconds
+            .iter_mut()
+            .find(|(key, _)| *key == field_third)
+        {
             *seconds += duration;
         }
         let field_half = field_half_from_third(field_third);
@@ -437,27 +440,27 @@ async fn load_possession_location_summary(
         }
     }
 
-    let total_duration_seconds = zone_seconds
+    let total_duration_seconds = third_seconds
         .iter()
         .map(|(_, seconds)| *seconds)
         .sum::<f64>();
-    let zones = zone_seconds
-        .into_iter()
-        .map(|(key, seconds)| {
-            possession_time_bucket(key, field_third_label(key), seconds, total_duration_seconds)
-        })
-        .collect();
     let halves = half_seconds
         .into_iter()
         .map(|(key, seconds)| {
             possession_time_bucket(key, field_half_label(key), seconds, total_duration_seconds)
         })
         .collect();
+    let thirds = third_seconds
+        .into_iter()
+        .map(|(key, seconds)| {
+            possession_time_bucket(key, field_third_label(key), seconds, total_duration_seconds)
+        })
+        .collect();
 
     Ok(PossessionLocationSummary {
         total_duration_seconds,
-        zones,
         halves,
+        thirds,
     })
 }
 

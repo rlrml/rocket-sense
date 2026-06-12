@@ -364,8 +364,8 @@ export interface PossessionDurationBucket {
 
 export interface PossessionLocationSummary {
   total_duration_seconds: number;
-  zones: PossessionTimeBucket[];
   halves: PossessionTimeBucket[];
+  thirds: PossessionTimeBucket[];
 }
 
 export interface PossessionTimeBucket {

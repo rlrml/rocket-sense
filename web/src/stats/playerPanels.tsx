@@ -638,15 +638,15 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
       {locations.total_duration_seconds > 0 ? (
         <div className="possession-location-grid">
           <PossessionLocationBreakdown
-            ariaLabel="Possession time by field half"
+            ariaLabel="Possession time by field halves"
             buckets={locations.halves}
-            title="Possession by half"
+            title="Possession by halves"
             totalSeconds={locations.total_duration_seconds}
           />
           <PossessionLocationBreakdown
-            ariaLabel="Possession time by field zone"
-            buckets={locations.zones}
-            title="Possession by zone"
+            ariaLabel="Possession time by field thirds"
+            buckets={locations.thirds}
+            title="Possession by thirds"
             totalSeconds={locations.total_duration_seconds}
           />
         </div>

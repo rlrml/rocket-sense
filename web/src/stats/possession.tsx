@@ -42,10 +42,10 @@ export function PossessionDetail({
   const spans = useMemo(() => possessionSpans(events), [events]);
   const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
   const possessionTotals = possessionStateTotals(spans);
-  const zoneBuckets = thirdZoneBuckets(spans);
+  const thirdBuckets = thirdZoneBuckets(spans);
   const halfBuckets = halfZoneBuckets(spans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
-  const zoneTrackedSeconds = zoneBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
+  const thirdTrackedSeconds = thirdBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
   const halfTrackedSeconds = halfBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
   const playerSummaries = playerPossessionSummaries(players, spans);
@@ -73,18 +73,18 @@ export function PossessionDetail({
 
         <section className="chart-panel">
           <header className="chart-panel-header">
-            <h3>Possession by half</h3>
+            <h3>Possession by halves</h3>
             <span>{formatSeconds(halfTrackedSeconds)} tracked</span>
           </header>
-          <BallZoneChart ariaLabel="Possession time by field half" buckets={halfBuckets} totalSeconds={halfTrackedSeconds} />
+          <BallZoneChart ariaLabel="Possession time by field halves" buckets={halfBuckets} totalSeconds={halfTrackedSeconds} />
         </section>
 
         <section className="chart-panel">
           <header className="chart-panel-header">
-            <h3>Possession by zone</h3>
-            <span>{formatSeconds(zoneTrackedSeconds)} zoned</span>
+            <h3>Possession by thirds</h3>
+            <span>{formatSeconds(thirdTrackedSeconds)} tracked</span>
           </header>
-          <BallZoneChart ariaLabel="Possession time by field zone" buckets={zoneBuckets} totalSeconds={zoneTrackedSeconds} />
+          <BallZoneChart ariaLabel="Possession time by field thirds" buckets={thirdBuckets} totalSeconds={thirdTrackedSeconds} />
         </section>
 
         <section className="chart-panel full-span">
