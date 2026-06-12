@@ -34,6 +34,7 @@ export declare function updateReplayBallRender({ replay, sceneState, fieldScale,
         frameIndex: number;
         nextFrameIndex: number;
         alpha: number;
+        dt: number;
     };
 }): ReplayBallRenderResult;
 export declare function isPlayerSamplePresent(sample: ReplayModel["players"][number]["frames"][number] | null | undefined): boolean;

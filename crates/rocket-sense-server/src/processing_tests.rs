@@ -261,6 +261,7 @@ fn indexed_goal_context_does_not_synthesize_goal_tag_events() {
                 performer: None,
                 modifiers: vec![subtr_actor::GoalTagModifier::ByScorer],
                 related_events: vec![],
+                details: vec![],
                 evidence: vec![subtr_actor::GoalTagEvidence {
                     kind: subtr_actor::GoalTagEvidenceKind::DoubleTap,
                     time: 121.0,
