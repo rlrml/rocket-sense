@@ -33,6 +33,7 @@ pub struct PossessionSummaryResponse {
     pub replay_count: u64,
     pub possessions: PossessionSpanSummary,
     pub touches: PossessionTouchSummary,
+    pub locations: PossessionLocationSummary,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -67,6 +68,21 @@ pub struct PossessionDurationBucket {
     pub key: String,
     pub label: String,
     pub count: u64,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionLocationSummary {
+    pub total_duration_seconds: f64,
+    pub zones: Vec<PossessionTimeBucket>,
+    pub halves: Vec<PossessionTimeBucket>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionTimeBucket {
+    pub key: String,
+    pub label: String,
+    pub duration_seconds: f64,
+    pub share: Option<f64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -156,10 +172,12 @@ async fn load_possession_summary(
 ) -> Result<PossessionSummaryResponse, sqlx::Error> {
     let (replay_count, possessions) = load_possession_span_summary(pool, filters).await?;
     let touches = load_possession_touch_summary(pool, filters).await?;
+    let locations = load_possession_location_summary(pool, filters).await?;
     Ok(PossessionSummaryResponse {
         replay_count,
         possessions,
         touches,
+        locations,
     })
 }
 
@@ -339,6 +357,146 @@ async fn load_possession_touch_summary(
         intentions,
         surfaces,
     })
+}
+
+fn push_possession_event_from<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args PossessionStatsQuery,
+) {
+    builder.push(
+        r#"
+        FROM replays r
+        JOIN play_events event
+          ON event.analysis_run_id = r.canonical_analysis_run_id
+         AND event.replay_id = r.id
+         AND event.source_stream = 'possession'
+        JOIN play_event_payloads payload ON payload.event_id = event.id
+        "#,
+    );
+    if filters.player.is_some() {
+        builder.push(
+            r#"
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.subject_kind = 'player'
+            "#,
+        );
+    }
+    builder.push(
+        r#"
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND COALESCE((payload.payload ->> 'active')::boolean, true)
+          AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
+        "#,
+    );
+    super::replay_set::append_replay_set_filters(builder, &filters.replay_set, "r");
+    if let Some(player) = &filters.player {
+        builder.push(" AND subject.subject_id = ");
+        builder.push_bind(format!("{}:{}", player.platform, player.platform_player_id));
+    }
+}
+
+async fn load_possession_location_summary(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<PossessionLocationSummary, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            payload.payload ->> 'field_third' AS field_third,
+            COALESCE(SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)), 0) AS duration
+        "#,
+    );
+    push_possession_event_from(&mut query, filters);
+    query.push(" GROUP BY 1");
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut zone_seconds = [
+        ("team_zero_third", 0.0),
+        ("neutral_third", 0.0),
+        ("team_one_third", 0.0),
+    ];
+    let mut half_seconds = [
+        ("team_zero_side", 0.0),
+        ("neutral", 0.0),
+        ("team_one_side", 0.0),
+    ];
+
+    for row in rows {
+        let field_third: Option<String> = row.try_get("field_third")?;
+        let duration: f64 = row.try_get("duration")?;
+        let Some(field_third) = field_third.as_deref() else {
+            continue;
+        };
+        if let Some((_, seconds)) = zone_seconds.iter_mut().find(|(key, _)| *key == field_third) {
+            *seconds += duration;
+        }
+        let field_half = field_half_from_third(field_third);
+        if let Some((_, seconds)) = half_seconds.iter_mut().find(|(key, _)| *key == field_half) {
+            *seconds += duration;
+        }
+    }
+
+    let total_duration_seconds = zone_seconds
+        .iter()
+        .map(|(_, seconds)| *seconds)
+        .sum::<f64>();
+    let zones = zone_seconds
+        .into_iter()
+        .map(|(key, seconds)| {
+            possession_time_bucket(key, field_third_label(key), seconds, total_duration_seconds)
+        })
+        .collect();
+    let halves = half_seconds
+        .into_iter()
+        .map(|(key, seconds)| {
+            possession_time_bucket(key, field_half_label(key), seconds, total_duration_seconds)
+        })
+        .collect();
+
+    Ok(PossessionLocationSummary {
+        total_duration_seconds,
+        zones,
+        halves,
+    })
+}
+
+fn possession_time_bucket(
+    key: &str,
+    label: &str,
+    duration_seconds: f64,
+    total_duration_seconds: f64,
+) -> PossessionTimeBucket {
+    PossessionTimeBucket {
+        key: key.to_owned(),
+        label: label.to_owned(),
+        duration_seconds,
+        share: (total_duration_seconds > 0.0).then(|| duration_seconds / total_duration_seconds),
+    }
+}
+
+fn field_half_from_third(field_third: &str) -> &'static str {
+    match field_third {
+        "team_zero_third" => "team_zero_side",
+        "team_one_third" => "team_one_side",
+        _ => "neutral",
+    }
+}
+
+fn field_third_label(field_third: &str) -> &'static str {
+    match field_third {
+        "team_zero_third" => "Blue third",
+        "team_one_third" => "Orange third",
+        _ => "Neutral third",
+    }
+}
+
+fn field_half_label(field_half: &str) -> &'static str {
+    match field_half {
+        "team_zero_side" => "Blue half",
+        "team_one_side" => "Orange half",
+        _ => "Neutral",
+    }
 }
 
 async fn load_touch_mix(

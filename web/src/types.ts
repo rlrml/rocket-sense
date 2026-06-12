@@ -331,6 +331,7 @@ export interface PossessionSummaryResponse {
   replay_count: number;
   possessions: PossessionSpanSummary;
   touches: PossessionTouchSummary;
+  locations: PossessionLocationSummary;
 }
 
 export interface PossessionSpanSummary {
@@ -359,6 +360,19 @@ export interface PossessionDurationBucket {
   key: string;
   label: string;
   count: number;
+}
+
+export interface PossessionLocationSummary {
+  total_duration_seconds: number;
+  zones: PossessionTimeBucket[];
+  halves: PossessionTimeBucket[];
+}
+
+export interface PossessionTimeBucket {
+  key: string;
+  label: string;
+  duration_seconds: number;
+  share: number | null;
 }
 
 export interface PossessionTouchSummary {

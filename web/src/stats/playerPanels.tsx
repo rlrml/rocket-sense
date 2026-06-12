@@ -5,6 +5,7 @@ import type {
   PlayerStatOverviewResponse,
   PossessionMixValue,
   PossessionSummaryResponse,
+  PossessionTimeBucket,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
@@ -584,6 +585,7 @@ const possessionSurfaceClasses: Record<string, string> = {
 export function PossessionSummaryPanel({ summary }: { summary: PossessionSummaryResponse }) {
   const spans = summary.possessions;
   const touches = summary.touches;
+  const locations = summary.locations;
   const possessionsPerGame = summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
   const possessionTimePerGame = summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
   const surfaceTotal = touches.surfaces.reduce((sum, value) => sum + value.count, 0);
@@ -629,6 +631,23 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
             className="positioning-track"
             segments={touches.surfaces.map((value) => possessionSurfaceSegment(value, surfaceTotal))}
             total={surfaceTotal}
+          />
+        </div>
+      ) : null}
+
+      {locations.total_duration_seconds > 0 ? (
+        <div className="possession-location-grid">
+          <PossessionLocationBreakdown
+            ariaLabel="Possession time by field half"
+            buckets={locations.halves}
+            title="Possession by half"
+            totalSeconds={locations.total_duration_seconds}
+          />
+          <PossessionLocationBreakdown
+            ariaLabel="Possession time by field zone"
+            buckets={locations.zones}
+            title="Possession by zone"
+            totalSeconds={locations.total_duration_seconds}
           />
         </div>
       ) : null}
@@ -690,6 +709,39 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
   );
 }
 
+function PossessionLocationBreakdown({
+  ariaLabel,
+  buckets,
+  title,
+  totalSeconds,
+}: {
+  ariaLabel: string;
+  buckets: PossessionTimeBucket[];
+  title: string;
+  totalSeconds: number;
+}) {
+  return (
+    <div className="possession-location-breakdown">
+      <h4>{title}</h4>
+      <SegmentedBar
+        ariaLabel={ariaLabel}
+        className="possession-location-track"
+        segments={buckets.map((bucket) => possessionLocationSegment(bucket, totalSeconds))}
+        total={totalSeconds}
+      />
+      <div className="possession-location-list">
+        {buckets.map((bucket) => (
+          <div className={`possession-location-row ${possessionLocationClass(bucket.key)}`} key={bucket.key}>
+            <span>{bucket.label}</span>
+            <strong>{formatShare(bucket.share)}</strong>
+            <span>{formatDurationSeconds(bucket.duration_seconds)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function PossessionMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="kickoff-headline-metric">
@@ -739,6 +791,24 @@ function possessionSurfaceSegment(value: PossessionMixValue, total: number): Seg
     visibleLabel: share >= 0.08 ? `${value.display_name} ${formatShare(share)}` : undefined,
     title: shareTitle(value.display_name, share, value.count),
   };
+}
+
+function possessionLocationSegment(bucket: PossessionTimeBucket, totalSeconds: number): SegmentedBarSegment {
+  const share = totalSeconds > 0 ? bucket.duration_seconds / totalSeconds : 0;
+  return {
+    key: bucket.key,
+    className: possessionLocationClass(bucket.key),
+    label: bucket.label,
+    value: bucket.duration_seconds,
+    visibleLabel: share >= 0.08 ? `${bucket.label}: ${formatShare(share)}` : undefined,
+    title: `${bucket.label}: ${formatDurationSeconds(bucket.duration_seconds)} (${formatShare(share)})`,
+  };
+}
+
+function possessionLocationClass(key: string): string {
+  if (key.includes("team_zero")) return "possession-location-team-zero";
+  if (key.includes("team_one")) return "possession-location-team-one";
+  return "possession-location-neutral";
 }
 
 function formatDistance(value: number | null): string {

@@ -29,3 +29,22 @@ fn duration_buckets_are_contiguous_and_open_ended() {
     }
     assert_eq!(previous_upper, None, "last bucket must be open-ended");
 }
+
+#[test]
+fn field_thirds_map_to_field_halves() {
+    assert_eq!(field_half_from_third("team_zero_third"), "team_zero_side");
+    assert_eq!(field_half_from_third("neutral_third"), "neutral");
+    assert_eq!(field_half_from_third("team_one_third"), "team_one_side");
+}
+
+#[test]
+fn possession_time_bucket_computes_share() {
+    let bucket = possession_time_bucket("team_zero_side", "Blue half", 2.0, 5.0);
+    assert_eq!(bucket.key, "team_zero_side");
+    assert_eq!(bucket.label, "Blue half");
+    assert_eq!(bucket.duration_seconds, 2.0);
+    assert_eq!(bucket.share, Some(0.4));
+
+    let empty = possession_time_bucket("neutral", "Neutral", 0.0, 0.0);
+    assert_eq!(empty.share, None);
+}
