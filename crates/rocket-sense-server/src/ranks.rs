@@ -72,6 +72,10 @@ pub struct SubmittedRank {
     /// Platform-specific online id — the stable match key within a replay
     /// (e.g. SteamID64, Epic account id, PSN account id). Required.
     pub platform_player_id: String,
+    /// Player display name from the source that submitted ranks. Replay parsing
+    /// remains the fallback when this is absent.
+    #[serde(default, alias = "display_name")]
+    pub player_name: Option<String>,
     /// Optional platform name. Normalized to rocket-sense's lowercase scheme
     /// (`steam`, `epic`, `ps4`, `xbox`, `switch`, ...). Stored for reference;
     /// matching is by `platform_player_id` only.
@@ -117,6 +121,7 @@ impl RankSubmission {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RankSubmissionObservabilitySummary {
     pub players: usize,
+    pub player_names: usize,
     pub platforms: usize,
     pub playlists: usize,
     pub valid_flags: usize,
@@ -138,6 +143,9 @@ impl RankSubmissionObservabilitySummary {
         };
 
         for player in &submission.players {
+            if player.player_name.as_deref().is_some_and(has_text) {
+                summary.player_names += 1;
+            }
             if player.platform.is_some() {
                 summary.platforms += 1;
             }
@@ -186,6 +194,10 @@ fn has_skill_snapshot_fields(snapshot: &SkillSnapshot) -> bool {
         || snapshot.mmr.is_some()
 }
 
+fn has_text(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
 /// Outcome of ingesting a rank submission.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RankIngestSummary {
@@ -219,20 +231,26 @@ pub async fn upsert_rank_submissions(
             continue;
         }
         let platform = player.platform.as_deref().and_then(normalize_platform);
+        let player_name = player
+            .player_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
         let current = player.current.clone().unwrap_or_default();
         sqlx::query(
             r#"
             INSERT INTO replay_player_rank_submissions (
-                replay_id, platform_player_id, platform, playlist, valid,
+                replay_id, platform_player_id, player_name, platform, playlist, valid,
                 tier, division, mu, sigma, mmr,
                 pre_tier, pre_division, pre_mu, pre_sigma, pre_mmr,
                 current_mmr, win_streak, matches_played,
                 placement_matches_played, current_fetched_at
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                    $16, $17, $18, $19, $20)
+                    $16, $17, $18, $19, $20, $21)
             ON CONFLICT (replay_id, platform_player_id)
             DO UPDATE SET
+                player_name = COALESCE(EXCLUDED.player_name, replay_player_rank_submissions.player_name),
                 platform = EXCLUDED.platform,
                 playlist = EXCLUDED.playlist,
                 valid = EXCLUDED.valid,
@@ -256,6 +274,7 @@ pub async fn upsert_rank_submissions(
         )
         .bind(replay_id)
         .bind(platform_player_id)
+        .bind(player_name)
         .bind(&platform)
         .bind(player.playlist)
         .bind(player.valid)
@@ -290,7 +309,8 @@ pub async fn apply_rank_submissions_to_players(pool: &PgPool, replay_id: Uuid) -
         UPDATE replay_players AS p
         SET rank_tier = s.tier,
             rank_division = s.division,
-            rank_mmr = s.mmr
+            rank_mmr = s.mmr,
+            name = COALESCE(NULLIF(btrim(s.player_name), ''), p.name)
         FROM replay_player_rank_submissions AS s
         WHERE p.replay_id = $1
           AND s.replay_id = $1
