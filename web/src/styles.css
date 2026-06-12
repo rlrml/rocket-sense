@@ -4833,6 +4833,11 @@ button.status-stale:hover {
     grid-template-columns: 1fr;
   }
 
+  .possession-location-grid,
+  .possession-location-list {
+    grid-template-columns: 1fr;
+  }
+
   .possession-metric strong {
     font-size: 19px;
   }
@@ -5547,6 +5552,61 @@ button.status-stale:hover {
   color: var(--muted);
 }
 
+.possession-location-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 0.9rem;
+}
+
+.possession-location-breakdown {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.possession-location-breakdown h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.possession-location-track {
+  height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.possession-location-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.possession-location-row {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 10px;
+  border-left: 4px solid transparent;
+}
+
+.possession-location-row span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.possession-location-row strong {
+  color: var(--text-strong);
+  font-size: 18px;
+  line-height: 1.05;
+}
+
 .possession-surface-segment-ground {
   background: var(--team-unknown, #64748b);
 }
@@ -5561,4 +5621,34 @@ button.status-stale:hover {
 
 .possession-surface-segment-other {
   background: var(--possession-neutral, #94a3b8);
+}
+
+.possession-location-team-zero {
+  background: var(--blue);
+  fill: var(--blue);
+}
+
+.possession-location-team-one {
+  background: var(--orange);
+  fill: var(--orange);
+}
+
+.possession-location-neutral {
+  background: var(--possession-neutral, #94a3b8);
+  fill: var(--possession-neutral, #94a3b8);
+}
+
+.possession-location-row.possession-location-team-zero {
+  border-left-color: var(--blue);
+  background: transparent;
+}
+
+.possession-location-row.possession-location-team-one {
+  border-left-color: var(--orange);
+  background: transparent;
+}
+
+.possession-location-row.possession-location-neutral {
+  border-left-color: var(--possession-neutral, #94a3b8);
+  background: transparent;
 }

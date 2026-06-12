@@ -6,6 +6,7 @@ export const possessionEventTypes = ["possession"];
 
 type PossessionState = "team_zero" | "team_one" | "neutral";
 type FieldThird = "team_zero_third" | "neutral_third" | "team_one_third";
+type FieldHalf = "team_zero_side" | "neutral" | "team_one_side";
 type PossessionComparisonMode = "teams" | "players";
 
 interface PossessionSpan {
@@ -27,6 +28,7 @@ interface PossessionBucket {
 
 const possessionStates: PossessionState[] = ["team_zero", "neutral", "team_one"];
 const fieldThirds: FieldThird[] = ["team_zero_third", "neutral_third", "team_one_third"];
+const fieldHalves: FieldHalf[] = ["team_zero_side", "neutral", "team_one_side"];
 
 export function PossessionDetail({
   events,
@@ -42,9 +44,11 @@ export function PossessionDetail({
   const spans = useMemo(() => possessionSpans(events), [events]);
   const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
   const possessionTotals = possessionStateTotals(spans);
-  const zoneBuckets = thirdZoneBuckets(spans);
+  const thirdBuckets = thirdZoneBuckets(spans);
+  const halfBuckets = halfZoneBuckets(spans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
-  const zoneTrackedSeconds = zoneBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
+  const thirdTrackedSeconds = thirdBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
+  const halfTrackedSeconds = halfBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
   const playerSummaries = playerPossessionSummaries(players, spans);
   const hasPlayerSpans = playerSummaries.some((summary) => summary.seconds > 0);
@@ -71,10 +75,18 @@ export function PossessionDetail({
 
         <section className="chart-panel">
           <header className="chart-panel-header">
-            <h3>Ball by zone</h3>
-            <span>{formatSeconds(zoneTrackedSeconds)} zoned</span>
+            <h3>Possession by halves</h3>
+            <span>{formatSeconds(halfTrackedSeconds)} tracked</span>
           </header>
-          <BallZoneChart buckets={zoneBuckets} totalSeconds={zoneTrackedSeconds} />
+          <BallZoneChart ariaLabel="Possession time by field halves" buckets={halfBuckets} totalSeconds={halfTrackedSeconds} />
+        </section>
+
+        <section className="chart-panel">
+          <header className="chart-panel-header">
+            <h3>Possession by thirds</h3>
+            <span>{formatSeconds(thirdTrackedSeconds)} tracked</span>
+          </header>
+          <BallZoneChart ariaLabel="Possession time by field thirds" buckets={thirdBuckets} totalSeconds={thirdTrackedSeconds} />
         </section>
 
         {scope === "replay" ? (
@@ -155,9 +167,11 @@ function PossessionShareChart({
 }
 
 function BallZoneChart({
+  ariaLabel,
   buckets,
   totalSeconds,
 }: {
+  ariaLabel: string;
   buckets: PossessionBucket[];
   totalSeconds: number;
 }) {
@@ -165,7 +179,7 @@ function BallZoneChart({
 
   return (
     <div className="ball-zone-chart">
-      <SegmentedBar ariaLabel="Ball time by field zone" className="ball-zone-track" segments={segments} total={totalSeconds} />
+      <SegmentedBar ariaLabel={ariaLabel} className="ball-zone-track" segments={segments} total={totalSeconds} />
       <div className="ball-zone-list">
         {buckets.map((bucket) => {
           const percent = percentage(bucket.seconds, totalSeconds);
@@ -336,6 +350,18 @@ function thirdZoneBuckets(spans: PossessionSpan[]): PossessionBucket[] {
   return buckets;
 }
 
+function halfZoneBuckets(spans: PossessionSpan[]): PossessionBucket[] {
+  const buckets = fieldHalves.map((half) => emptyBucket(half, fieldHalfLabel(half)));
+  const bucketByHalf = new Map(buckets.map((bucket) => [bucket.key, bucket]));
+
+  for (const span of spans) {
+    if (span.third == null) continue;
+    addBucketSeconds(bucketByHalf.get(fieldHalfForThird(span.third)), span.state, span.duration);
+  }
+
+  return buckets;
+}
+
 function emptyBucket(key: string, label: string): PossessionBucket {
   return {
     key,
@@ -464,6 +490,18 @@ function fieldThirdLabel(third: FieldThird): string {
   if (third === "team_zero_third") return "Blue third";
   if (third === "team_one_third") return "Orange third";
   return "Neutral third";
+}
+
+function fieldHalfForThird(third: FieldThird): FieldHalf {
+  if (third === "team_zero_third") return "team_zero_side";
+  if (third === "team_one_third") return "team_one_side";
+  return "neutral";
+}
+
+function fieldHalfLabel(half: FieldHalf): string {
+  if (half === "team_zero_side") return "Blue half";
+  if (half === "team_one_side") return "Orange half";
+  return "Neutral";
 }
 
 function shortFieldZoneLabel(key: string): string {
