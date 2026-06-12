@@ -14,5 +14,6 @@ export declare function getFrameWindow(replay: ReplayModel, time: number): {
     frameIndex: number;
     nextFrameIndex: number;
     alpha: number;
+    dt: number;
 };
 //# sourceMappingURL=timeline.d.ts.map

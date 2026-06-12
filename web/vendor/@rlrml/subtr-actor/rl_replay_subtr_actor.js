@@ -299,7 +299,7 @@ function __wbg_get_imports() {
                 wasm.__wbindgen_free(deferred0_0, deferred0_1, 1);
             }
         },
-        __wbg_log_0e4273c71282b6b0: function(arg0, arg1) {
+        __wbg_log_b265b6866ebe2ca1: function(arg0, arg1) {
             console.log(getStringFromWasm0(arg0, arg1));
         },
         __wbg_new_361308b2356cecd0: function() {

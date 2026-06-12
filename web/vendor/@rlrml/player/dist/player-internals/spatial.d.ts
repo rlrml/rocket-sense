@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { ReplayScene } from "../scene";
 import type { CameraSettings, Quaternion, ReplayCameraViewMode, ReplayFreeCameraPreset, ReplayModel, Vec3 } from "../types";
 export declare function interpolatePosition(current: Vec3 | null, next: Vec3 | null, alpha: number): Vec3 | null;
+export declare function interpolatePositionHermite(current: Vec3 | null, next: Vec3 | null, currentVelocity: Vec3 | null, nextVelocity: Vec3 | null, dt: number, alpha: number): Vec3 | null;
 export declare function interpolateQuaternion(current: Quaternion | null, next: Quaternion | null, alpha: number): THREE.Quaternion | null;
 export declare function rootPosition(position: Vec3): THREE.Vector3;
 export declare function worldPosition(position: Vec3, fieldScale: number): THREE.Vector3;
@@ -28,6 +29,9 @@ export declare function updateAttachedCamera(options: {
     cameraDistanceScale: number;
     customCameraSettings: CameraSettings | null;
     frameIndex: number;
+    nextFrameIndex: number;
+    alpha: number;
+    dt: number;
     attachedPlayerUnavailable?: boolean;
     ballPosition: THREE.Vector3 | null;
     desiredCameraPosition: THREE.Vector3;
