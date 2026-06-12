@@ -4,7 +4,9 @@ import type {
   EventStatSummaryResponse,
   PlayerStatOverviewResponse,
   PossessionMixValue,
+  PossessionSpanSummary,
   PossessionSummaryResponse,
+  PossessionTeammateComparison,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
@@ -583,6 +585,7 @@ const possessionSurfaceClasses: Record<string, string> = {
  */
 export function PossessionSummaryPanel({ summary }: { summary: PossessionSummaryResponse }) {
   const spans = summary.possessions;
+  const controlledPlays = summary.controlled_plays;
   const touches = summary.touches;
   const possessionsPerGame = summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
   const possessionTimePerGame = summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
@@ -620,6 +623,12 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
           )}
         />
       </div>
+
+      <ControlledPlayComparison
+        player={controlledPlays}
+        replayCount={summary.replay_count}
+        teammates={summary.teammates}
+      />
 
       {surfaceTotal > 0 ? (
         <div className="possession-surface-share">
@@ -687,6 +696,165 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
         <PossessionMixList title="All touch intentions" values={touches.intentions} />
       </div>
     </section>
+  );
+}
+
+function ControlledPlayComparison({
+  player,
+  replayCount,
+  teammates,
+}: {
+  player: PossessionSpanSummary;
+  replayCount: number;
+  teammates: PossessionTeammateComparison | null;
+}) {
+  const teammateControlledPlays = teammates?.controlled_plays ?? null;
+  const hasPlayer = player.possession_count > 0;
+  const hasTeammates = (teammateControlledPlays?.possession_count ?? 0) > 0;
+  if (!hasPlayer && !hasTeammates) return null;
+
+  const playerPerGame = replayCount > 0 ? player.possession_count / replayCount : null;
+  const teammatePerGame =
+    teammates && teammates.appearance_count > 0
+      ? teammates.controlled_plays.possession_count / teammates.appearance_count
+      : null;
+  const metrics = [
+    {
+      key: "count",
+      label: "Controlled plays per game",
+      playerValue: playerPerGame,
+      teammateValue: teammatePerGame,
+      formatter: (value: number | null) => (value != null ? formatRate(value) : "—"),
+    },
+    {
+      key: "duration",
+      label: "Avg controlled length",
+      playerValue: player.avg_duration_seconds,
+      teammateValue: teammateControlledPlays?.avg_duration_seconds ?? null,
+      formatter: formatSecondsValue,
+    },
+    {
+      key: "touches",
+      label: "Touches per controlled play",
+      playerValue: player.avg_touches_per_possession,
+      teammateValue: teammateControlledPlays?.avg_touches_per_possession ?? null,
+      formatter: (value: number | null) => (value != null ? formatRate(value) : "—"),
+    },
+    {
+      key: "advance",
+      label: "Advance per controlled play",
+      playerValue: player.avg_advance_distance,
+      teammateValue: teammateControlledPlays?.avg_advance_distance ?? null,
+      formatter: formatDistance,
+    },
+  ];
+  const maxMetric = Math.max(
+    1,
+    ...metrics.flatMap((metric) => [metric.playerValue ?? 0, metric.teammateValue ?? 0]),
+  );
+
+  return (
+    <div className="controlled-play-comparison">
+      <div className="kickoff-dimension-grid possession-breakdown-grid">
+        <div className="kickoff-dimension">
+          <h4>Controlled plays{hasTeammates ? " vs teammates" : ""}</h4>
+          <div className="rate-chart-rows">
+            {metrics.map((metric) => (
+              <div className="rate-chart-row kickoff-dimension-row" key={metric.key}>
+                <div className="rate-chart-label" title={metric.label}>
+                  {metric.label}
+                </div>
+                <div className="rate-chart-track" aria-label={metric.label}>
+                  <span
+                    className="rate-chart-fill kickoff-dimension-fill"
+                    style={{ width: `${barPercent(metric.playerValue ?? 0, maxMetric)}%` }}
+                    title={`Player: ${metric.formatter(metric.playerValue)}`}
+                  />
+                  {metric.teammateValue != null ? (
+                    <span
+                      className="rate-chart-teammate-marker"
+                      style={{ left: `${barPercent(metric.teammateValue, maxMetric)}%` }}
+                      title={`Teammates: ${metric.formatter(metric.teammateValue)}`}
+                    />
+                  ) : null}
+                </div>
+                <div className="rate-chart-value">
+                  <strong>{metric.formatter(metric.playerValue)}</strong>
+                  {metric.teammateValue != null ? (
+                    <span className="subtle"> vs {metric.formatter(metric.teammateValue)}</span>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+          {hasTeammates ? (
+            <p className="rate-chart-legend subtle">
+              <span className="rate-chart-legend-fill" /> player
+              <span className="rate-chart-legend-marker" /> teammate average
+            </p>
+          ) : null}
+        </div>
+        <ControlledPlayHistogram player={player} teammates={teammateControlledPlays} />
+      </div>
+    </div>
+  );
+}
+
+function ControlledPlayHistogram({
+  player,
+  teammates,
+}: {
+  player: PossessionSpanSummary;
+  teammates: PossessionSpanSummary | null;
+}) {
+  const playerTotal = player.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
+  const teammateTotal = teammates?.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0) ?? 0;
+  if (playerTotal === 0 && teammateTotal === 0) return null;
+
+  const teammateCountFor = (key: string) =>
+    teammates?.duration_histogram.find((bucket) => bucket.key === key)?.count ?? 0;
+  const rows = player.duration_histogram.map((bucket) => {
+    const teammateCount = teammateCountFor(bucket.key);
+    return {
+      bucket,
+      playerShare: playerTotal > 0 ? bucket.count / playerTotal : 0,
+      teammateShare: teammateTotal > 0 ? teammateCount / teammateTotal : 0,
+      teammateCount,
+    };
+  });
+  const maxShare = Math.max(0.01, ...rows.flatMap((row) => [row.playerShare, row.teammateShare]));
+
+  return (
+    <div className="kickoff-dimension">
+      <h4>Controlled length{teammateTotal > 0 ? " vs teammates" : ""}</h4>
+      <div className="rate-chart-rows">
+        {rows.map(({ bucket, playerShare, teammateShare, teammateCount }) => (
+          <div className="rate-chart-row kickoff-dimension-row" key={bucket.key}>
+            <div className="rate-chart-label" title={bucket.label}>
+              {bucket.label}
+            </div>
+            <div className="rate-chart-track" aria-label={`Controlled length ${bucket.label}`}>
+              <span
+                className="rate-chart-fill kickoff-dimension-fill"
+                style={{ width: `${barPercent(playerShare, maxShare)}%` }}
+                title={shareTitle(bucket.label, playerShare, bucket.count)}
+              />
+              {teammateTotal > 0 ? (
+                <span
+                  className="rate-chart-teammate-marker"
+                  style={{ left: `${barPercent(teammateShare, maxShare)}%` }}
+                  title={`Teammates: ${formatShare(teammateShare)} (${teammateCount.toLocaleString()})`}
+                />
+              ) : null}
+            </div>
+            <div className="rate-chart-value">
+              <strong>{formatShare(playerShare)}</strong>
+              {teammateTotal > 0 ? <span className="subtle"> vs {formatShare(teammateShare)}</span> : null}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
