@@ -8,21 +8,15 @@ mod auth;
 mod processing;
 mod ranks;
 mod settings;
+mod telemetry;
 
 use anyhow::Context;
 use settings::{ServiceMode, Settings};
 use tokio::net::TcpListener;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "rocket_sense_server=info,tower_http=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .init();
+    telemetry::init()?;
 
     let settings = Settings::from_env()?;
     match settings.service_mode {
