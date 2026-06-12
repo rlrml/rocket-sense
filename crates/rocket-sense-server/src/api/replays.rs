@@ -180,6 +180,13 @@ struct ReplayGameTypeResponse {
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct ReplayPlayerResponse {
     pub name: Option<String>,
+    /// True when `name` is not the name stored on this replay's player row (that
+    /// row only had the raw platform id) but instead the player's most recent
+    /// readable name from another replay.
+    #[serde(default)]
+    pub name_is_fallback: bool,
+    /// Date of the match the fallback display name was taken from.
+    pub name_fallback_replay_date: Option<DateTime<Utc>>,
     pub platform: Option<String>,
     pub platform_player_id: Option<String>,
     pub team: Option<i32>,
@@ -2338,7 +2345,23 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
         LEFT JOIN LATERAL (
             SELECT jsonb_agg(
                 jsonb_build_object(
-                    'name', player.name,
+                    'name', COALESCE(
+                        CASE
+                            WHEN player.name IS NULL
+                                OR player.name = player.platform_player_id
+                            THEN name_fallback.name
+                        END,
+                        player.name
+                    ),
+                    'name_is_fallback',
+                        (player.name IS NULL OR player.name = player.platform_player_id)
+                        AND name_fallback.name IS NOT NULL,
+                    'name_fallback_replay_date',
+                        CASE
+                            WHEN player.name IS NULL
+                                OR player.name = player.platform_player_id
+                            THEN name_fallback.replay_date
+                        END,
                     'platform', player.platform,
                     'platform_player_id', player.platform_player_id,
                     'team', player.team,
@@ -2387,6 +2410,27 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
                     COALESCE(r2.replay_date, r2.created_at) ASC
                 FETCH FIRST 1 ROW ONLY
             ) rank_fallback ON TRUE
+            -- Fallback display name for players whose row only carries the raw
+            -- platform id (Epic/PsyNet players whose replay header has no
+            -- readable name are stored with name = platform_player_id): the
+            -- same player's most recent real name from another replay. Match by
+            -- platform_player_id alone — the platform string can drift across
+            -- replays (epic vs psynet) for one account. Display-only.
+            LEFT JOIN LATERAL (
+                SELECT alias.name,
+                       COALESCE(r3.replay_date, r3.created_at) AS replay_date
+                FROM replay_players alias
+                JOIN replays r3 ON r3.id = alias.replay_id
+                WHERE (player.name IS NULL
+                        OR player.name = player.platform_player_id)
+                  AND player.platform_player_id IS NOT NULL
+                  AND alias.platform_player_id = player.platform_player_id
+                  AND alias.name IS NOT NULL
+                  AND alias.name <> alias.platform_player_id
+                ORDER BY COALESCE(r3.replay_date, r3.created_at) DESC NULLS LAST,
+                         r3.created_at DESC
+                FETCH FIRST 1 ROW ONLY
+            ) name_fallback ON TRUE
             WHERE player.replay_id = r.id
         ) players ON TRUE
         {where_clause}

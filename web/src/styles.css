@@ -465,6 +465,13 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+/* Name resolved from another replay (this replay only had the raw platform id). */
+.player-name-approx {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--muted);
+}
+
 .platform-icon {
   display: inline-flex;
   flex: none;

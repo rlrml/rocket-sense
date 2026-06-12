@@ -3,6 +3,8 @@ export type ReplayProcessingStatus = ReplayStatus;
 
 export interface ReplayPlayer {
   name: string | null;
+  name_is_fallback?: boolean;
+  name_fallback_replay_date?: string | null;
   platform: string | null;
   platform_player_id: string | null;
   team: number | null;

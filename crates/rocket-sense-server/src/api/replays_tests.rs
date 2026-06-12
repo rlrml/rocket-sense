@@ -101,6 +101,9 @@ fn replay_select_includes_players_without_stats_blob_join() {
     ));
     assert!(sql.contains("'rank_fallback_replay_date'"));
     assert!(sql.contains("FROM replay_player_rank_submissions s"));
+    assert!(sql.contains("'name_is_fallback'"));
+    assert!(sql.contains("'name_fallback_replay_date'"));
+    assert!(sql.contains(") name_fallback ON TRUE"));
     assert!(sql.contains("'score', player.score"));
     assert!(sql.contains("'goals', player.goals"));
     assert!(sql.contains("'assists', player.assists"));

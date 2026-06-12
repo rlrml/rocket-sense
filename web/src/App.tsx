@@ -995,13 +995,25 @@ function TeamBlock({
 
 function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }) {
   const label = player.name || player.platform_player_id || "Unknown";
+  const nameIsFallback = Boolean(player.name_is_fallback && player.name);
+  const nameTitle = nameIsFallback
+    ? "This replay didn't carry a readable name for this player; showing their most recent known name" +
+      (player.name_fallback_replay_date
+        ? `, from a match on ${new Date(player.name_fallback_replay_date).toLocaleDateString()}.`
+        : ".")
+    : undefined;
   const hasStats = [player.goals, player.assists, player.saves, player.shots, player.score].some(
     (value) => value != null,
   );
   const contents = (
     <>
       <PlatformIcon platform={player.platform} />
-      <span className="player-name">{label}</span>
+      <span
+        className={nameIsFallback ? "player-name player-name-approx" : "player-name"}
+        title={nameTitle}
+      >
+        {label}
+      </span>
       <RankBadge
         tier={player.rank_tier}
         division={player.rank_division}
