@@ -9,8 +9,12 @@ import {
   Copy,
   ExternalLink,
   FileVideo,
+  FolderMinus,
+  FolderPlus,
   LayoutDashboard,
+  ListPlus,
   LogIn,
+  Plus,
   RefreshCw,
   RotateCcw,
   ServerCog,
@@ -24,9 +28,12 @@ import {
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  addReplaysToGroup,
   clearAccessToken,
   createDevToken,
+  createReplayGroup,
   createAccountToken,
+  deleteReplayGroup,
   getAccessToken,
   getAuthOptions,
   getCurrentUser,
@@ -41,7 +48,9 @@ import {
   listReplayEvents,
   listReplayFilterOptions,
   listReplayProcessingDiagnostics,
+  listReplayGroups,
   listReplays,
+  removeReplaysFromGroup,
   reprocessReplay,
   setAccessToken,
   uploadReplay,
@@ -68,6 +77,7 @@ import type {
   PlayerProfileReplayResponse,
   PlayerStatOverviewResponse,
   PossessionSummaryResponse,
+  ReplayGroupResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
@@ -204,10 +214,44 @@ function ReplayListPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const filterOptions = useReplayFilterOptions();
+  const currentUser = useCurrentUser();
+  const { groups, refresh: refreshGroups } = useReplayGroups(currentUser != null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setFilters(activeFilters);
   }, [activeFilters]);
+
+  // Selections reference rows on the current page; drop them when the query changes.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchParams]);
+
+  function toggleSelected(replayId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(replayId)) {
+        next.delete(replayId);
+      } else {
+        next.add(replayId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllOnPage() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const replay of replays) {
+        next.add(replay.id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -494,15 +538,40 @@ function ReplayListPage() {
 
       <StatusLine loading={false} error={error} />
 
+      {currentUser && selectedIds.size > 0 ? (
+        <GroupSelectionBar
+          selectedIds={selectedIds}
+          replayCount={replays.length}
+          groups={groups}
+          onSelectAll={selectAllOnPage}
+          onClear={clearSelection}
+          onGroupsChanged={refreshGroups}
+        />
+      ) : null}
+
       <div className="replay-card-list">
         {replays.map((replay) => (
-          <article className="replay-card" key={replay.id}>
+          <article
+            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+            key={replay.id}
+          >
             <header className="replay-card-header">
-              <div className="replay-card-title">
-                <Link className="primary-link" to={`/replays/${replay.id}`}>
-                  {replay.original_file_name || replay.id}
-                </Link>
-                <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
+              <div className="replay-card-heading">
+                {currentUser ? (
+                  <input
+                    type="checkbox"
+                    className="replay-select"
+                    aria-label={`Select ${replay.original_file_name || replay.id}`}
+                    checked={selectedIds.has(replay.id)}
+                    onChange={() => toggleSelected(replay.id)}
+                  />
+                ) : null}
+                <div className="replay-card-title">
+                  <Link className="primary-link" to={`/replays/${replay.id}`}>
+                    {replay.original_file_name || replay.id}
+                  </Link>
+                  <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
+                </div>
               </div>
               <div className="replay-card-meta">
                 <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
@@ -1071,6 +1140,216 @@ function useCurrentUser(): CurrentUserResponse | null {
   }, []);
 
   return user;
+}
+
+function useReplayGroups(enabled: boolean): {
+  groups: ReplayGroupResponse[];
+  refresh: () => void;
+} {
+  const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      setGroups([]);
+      return;
+    }
+    let cancelled = false;
+    listReplayGroups()
+      .then((response) => {
+        if (!cancelled) setGroups(response.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setGroups([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, nonce]);
+
+  return { groups, refresh: () => setNonce((value) => value + 1) };
+}
+
+const NEW_GROUP_OPTION = "__new__";
+
+function GroupSelectionBar({
+  selectedIds,
+  replayCount,
+  groups,
+  onSelectAll,
+  onClear,
+  onGroupsChanged,
+}: {
+  selectedIds: Set<string>;
+  replayCount: number;
+  groups: ReplayGroupResponse[];
+  onSelectAll: () => void;
+  onClear: () => void;
+  onGroupsChanged: () => void;
+}) {
+  const [targetGroupId, setTargetGroupId] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  const creating = targetGroupId === NEW_GROUP_OPTION;
+  const targetGroup = groups.find((group) => group.id === targetGroupId) ?? null;
+  const selectedCount = selectedIds.size;
+  const allSelected = replayCount > 0 && selectedCount >= replayCount;
+
+  async function withBusy(action: () => Promise<void>) {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await action();
+    } catch (err) {
+      setFeedback({ kind: "error", message: err instanceof Error ? err.message : "Request failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleCreateGroup() {
+    const name = newGroupName.trim();
+    if (!name) return;
+    void withBusy(async () => {
+      const group = await createReplayGroup({ name });
+      onGroupsChanged();
+      setTargetGroupId(group.id);
+      setNewGroupName("");
+      setFeedback({ kind: "ok", message: `Created group "${group.name}".` });
+    });
+  }
+
+  function handleAdd() {
+    if (!targetGroup) return;
+    void withBusy(async () => {
+      const result = await addReplaysToGroup(targetGroup.id, [...selectedIds]);
+      onGroupsChanged();
+      setFeedback({
+        kind: "ok",
+        message: `Added ${result.changed_replays} ${pluralizeReplay(result.changed_replays)} to "${result.group.name}".`,
+      });
+    });
+  }
+
+  function handleRemove() {
+    if (!targetGroup) return;
+    void withBusy(async () => {
+      const result = await removeReplaysFromGroup(targetGroup.id, [...selectedIds]);
+      onGroupsChanged();
+      setFeedback({
+        kind: "ok",
+        message: `Removed ${result.changed_replays} ${pluralizeReplay(result.changed_replays)} from "${result.group.name}".`,
+      });
+    });
+  }
+
+  function handleDeleteGroup() {
+    if (!targetGroup) return;
+    const { id, name, replay_count } = targetGroup;
+    const confirmed = window.confirm(
+      `Delete group "${name}"? Its ${replay_count} ${pluralizeReplay(replay_count)} ${
+        replay_count === 1 ? "membership is" : "memberships are"
+      } removed, but the replays themselves are not deleted.`,
+    );
+    if (!confirmed) return;
+    void withBusy(async () => {
+      await deleteReplayGroup(id);
+      onGroupsChanged();
+      setTargetGroupId("");
+      setFeedback({ kind: "ok", message: `Deleted group "${name}".` });
+    });
+  }
+
+  return (
+    <div className="replay-selection-bar">
+      <div className="replay-selection-summary">
+        <strong>{selectedCount.toLocaleString()} selected</strong>
+        {!allSelected ? (
+          <button type="button" className="link-button" onClick={onSelectAll} disabled={busy}>
+            Select all {replayCount.toLocaleString()} on page
+          </button>
+        ) : null}
+        <button type="button" className="link-button" onClick={onClear} disabled={busy}>
+          Clear
+        </button>
+      </div>
+      <div className="replay-selection-actions">
+        <label className="replay-selection-group">
+          <FolderPlus size={16} />
+          <select
+            value={targetGroupId}
+            onChange={(event) => {
+              setTargetGroupId(event.currentTarget.value);
+              setFeedback(null);
+            }}
+            disabled={busy}
+          >
+            <option value="">Choose a group…</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name} ({group.replay_count})
+              </option>
+            ))}
+            <option value={NEW_GROUP_OPTION}>+ New group…</option>
+          </select>
+        </label>
+        {creating ? (
+          <div className="replay-selection-create">
+            <input
+              type="text"
+              value={newGroupName}
+              placeholder="New group name"
+              autoFocus
+              onChange={(event) => setNewGroupName(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateGroup();
+                }
+              }}
+              disabled={busy}
+            />
+            <button type="button" onClick={handleCreateGroup} disabled={busy || newGroupName.trim() === ""}>
+              <Plus size={16} />
+              Create
+            </button>
+          </div>
+        ) : (
+          <>
+            <button type="button" onClick={handleAdd} disabled={busy || !targetGroup}>
+              <ListPlus size={16} />
+              Add to group
+            </button>
+            <button type="button" className="secondary-button" onClick={handleRemove} disabled={busy || !targetGroup}>
+              <FolderMinus size={16} />
+              Remove from group
+            </button>
+            <button
+              type="button"
+              className="secondary-button is-danger"
+              onClick={handleDeleteGroup}
+              disabled={busy || !targetGroup}
+              title="Delete this group"
+            >
+              <Trash2 size={16} />
+              Delete group
+            </button>
+          </>
+        )}
+      </div>
+      {feedback ? (
+        <p className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}>
+          {feedback.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function pluralizeReplay(count: number): string {
+  return count === 1 ? "replay" : "replays";
 }
 
 type RequeuePhase = "pending" | "done" | "skipped" | "error";

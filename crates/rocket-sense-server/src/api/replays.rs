@@ -57,7 +57,10 @@ pub fn router() -> Router<AppState> {
             "/replay-groups",
             get(list_replay_groups).post(create_replay_group),
         )
-        .route("/replay-groups/{group_id}", get(get_replay_group))
+        .route(
+            "/replay-groups/{group_id}",
+            get(get_replay_group).delete(delete_replay_group),
+        )
         .route(
             "/replay-groups/{group_id}/replays",
             get(list_replay_group_replays)
@@ -880,6 +883,46 @@ pub async fn get_replay_group(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
 
     Ok(Json(group))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/replay-groups/{group_id}",
+    tag = "replay-groups",
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 204, description = "Replay group was deleted"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn delete_replay_group(
+    _auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let db = require_db(&state)?;
+    // Member rows are removed by the replay_group_replays ON DELETE CASCADE.
+    let result = sqlx::query("DELETE FROM replay_groups WHERE id = $1")
+        .bind(group_id)
+        .execute(db)
+        .await
+        .map_err(ApiError::internal)?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "replay group not found",
+        ));
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[utoipa::path(

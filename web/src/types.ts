@@ -56,6 +56,27 @@ export interface ReplayResponse {
   updated_at: string;
 }
 
+export interface ReplayGroupResponse {
+  id: string;
+  project_id: string | null;
+  name: string;
+  description: string | null;
+  created_by_user_id: string | null;
+  replay_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListReplayGroupsResponse {
+  groups: ReplayGroupResponse[];
+}
+
+export interface ReplayGroupReplayUpdateResponse {
+  group: ReplayGroupResponse;
+  matched_replays: number;
+  changed_replays: number;
+}
+
 export interface ReplayProcessingVersion {
   processed_at: string | null;
   extractor_name: string | null;

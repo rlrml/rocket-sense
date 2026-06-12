@@ -5,6 +5,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypesResponse,
+  ListReplayGroupsResponse,
   ListReplaysResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
@@ -13,6 +14,8 @@ import type {
   ProcessingVersionResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
+  ReplayGroupResponse,
+  ReplayGroupReplayUpdateResponse,
   ReplayResponse,
   ReprocessReplayResponse,
   StatAggregateSetResponse,
@@ -83,6 +86,67 @@ export function listReplays(searchParams: URLSearchParams): Promise<ListReplaysR
 
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
+}
+
+export function listReplayGroups(): Promise<ListReplayGroupsResponse> {
+  return request<ListReplayGroupsResponse>("/api/v1/replay-groups");
+}
+
+export function createReplayGroup(body: {
+  name: string;
+  description?: string;
+}): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>("/api/v1/replay-groups", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function addReplaysToGroup(
+  groupId: string,
+  replayIds: string[],
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return request<ReplayGroupReplayUpdateResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replay_ids: replayIds }),
+    },
+  );
+}
+
+export function removeReplaysFromGroup(
+  groupId: string,
+  replayIds: string[],
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return request<ReplayGroupReplayUpdateResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+    {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replay_ids: replayIds }),
+    },
+  );
+}
+
+// The delete-group endpoint returns 204 with no body, so it bypasses the JSON
+// `request` helper that always parses a response body.
+export async function deleteReplayGroup(groupId: string): Promise<void> {
+  const token = getAccessToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(apiErrorMessage(body) || `${response.status} ${response.statusText}`);
+  }
 }
 
 export function listReplayProcessingDiagnostics(searchParams: URLSearchParams): Promise<ReplayProcessingDiagnosticsResponse> {
