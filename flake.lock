@@ -83,10 +83,11 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781214800,
-        "narHash": "sha256-IZv/pwcq2MKTiaHD3mZCY5QMz0UZBL8b2Of3SVqt1Cc=",
-        "rev": "42c6f250cd24c5af97e79df762607ae1fd093d06",
-        "revCount": 1579,
+        "lastModified": 1781221638,
+        "narHash": "sha256-R7Gb1Iit92hFAUsZ1FlyaX1c47UCam2e933hWukwoQA=",
+        "ref": "refs/heads/claude/bump-boxcars-pickup-timer-anonymize",
+        "rev": "e870c73b370b1248922465c962f0d6642900cf87",
+        "revCount": 1580,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },
