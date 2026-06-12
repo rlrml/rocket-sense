@@ -343,6 +343,11 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name  = "ROCKET_SENSE_LOG_FORMAT"
+            value = "json"
+          }
+
+          env {
             name  = "ROCKET_SENSE_RUN_REPLAY_PROCESSING_WORKERS"
             value = "false"
           }
@@ -524,6 +529,11 @@ resource "kubernetes_deployment_v1" "worker" {
           env {
             name  = "ROCKET_SENSE_SERVICE_MODE"
             value = "worker"
+          }
+
+          env {
+            name  = "ROCKET_SENSE_LOG_FORMAT"
+            value = "json"
           }
 
           env {

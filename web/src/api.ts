@@ -5,6 +5,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypesResponse,
+  ListReplayGroupsResponse,
   ListReplaysResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
@@ -13,6 +14,8 @@ import type {
   ProcessingVersionResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
+  ReplayGroupResponse,
+  ReplayGroupReplayUpdateResponse,
   ReplayResponse,
   ReprocessReplayResponse,
   StatAggregateSetResponse,
@@ -85,6 +88,67 @@ export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> 
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
 }
 
+export function listReplayGroups(): Promise<ListReplayGroupsResponse> {
+  return request<ListReplayGroupsResponse>("/api/v1/replay-groups");
+}
+
+export function createReplayGroup(body: {
+  name: string;
+  description?: string;
+}): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>("/api/v1/replay-groups", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function addReplaysToGroup(
+  groupId: string,
+  replayIds: string[],
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return request<ReplayGroupReplayUpdateResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replay_ids: replayIds }),
+    },
+  );
+}
+
+export function removeReplaysFromGroup(
+  groupId: string,
+  replayIds: string[],
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return request<ReplayGroupReplayUpdateResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+    {
+      method: "DELETE",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replay_ids: replayIds }),
+    },
+  );
+}
+
+// The delete-group endpoint returns 204 with no body, so it bypasses the JSON
+// `request` helper that always parses a response body.
+export async function deleteReplayGroup(groupId: string): Promise<void> {
+  const token = getAccessToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(apiErrorMessage(body) || `${response.status} ${response.statusText}`);
+  }
+}
+
 export function listReplayProcessingDiagnostics(searchParams: URLSearchParams): Promise<ReplayProcessingDiagnosticsResponse> {
   const params = new URLSearchParams(searchParams);
   if (!params.has("count")) {
@@ -107,9 +171,28 @@ export async function getReplay(replayId: string): Promise<ReplayResponse> {
   return request<ReplayResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}`);
 }
 
+export function getReplayGroup(groupId: string): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`);
+}
+
+export function listReplayGroupReplays(groupId: string): Promise<ListReplaysResponse> {
+  return request<ListReplaysResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`).then((response) => {
+    cacheReplays(response.replays);
+    return response;
+  });
+}
+
 export function getReplayStatAggregates(replayId: string): Promise<StatAggregateSetResponse> {
   const params = new URLSearchParams({
     "replay-id": replayId,
+    count: "200",
+  });
+  return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
+}
+
+export function getReplayGroupStatAggregates(groupId: string): Promise<StatAggregateSetResponse> {
+  const params = new URLSearchParams({
+    group: groupId,
     count: "200",
   });
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
@@ -191,6 +274,40 @@ export async function listReplayEvents(
   while (nextOffset != null && events.length < maxReplayEvents) {
     const params = new URLSearchParams({
       "replay-id": replayId,
+      count: String(eventPageSize),
+      offset: String(offset),
+    });
+    for (const eventType of eventTypes) {
+      params.append("event-type", eventType);
+    }
+    const response = await request<MechanicEventsResponse>(`/api/v1/events?${params.toString()}`);
+    events.push(...response.events);
+    nextOffset = response.next_offset;
+    offset = nextOffset ?? offset;
+  }
+
+  const response = {
+    events,
+    count: events.length,
+    offset: 0,
+    next_offset: nextOffset,
+  };
+  cacheReplayEvents(cacheKey, response);
+  return response;
+}
+
+export async function listReplayGroupEvents(groupId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
+  const cacheKey = replayEventsKey(`group:${groupId}`, eventTypes, null);
+  const cached = getCachedReplayEvents(cacheKey);
+  if (cached) return cached;
+
+  const events: MechanicEventsResponse["events"] = [];
+  let offset = 0;
+  let nextOffset: number | null = 0;
+
+  while (nextOffset != null && events.length < maxReplayEvents) {
+    const params = new URLSearchParams({
+      group: groupId,
       count: String(eventPageSize),
       offset: String(offset),
     });
@@ -340,16 +457,16 @@ function readReplayCache(): Record<string, ReplayResponse> {
 
 function replayEventsKey(replayId: string, eventTypes: string[], processedAt: string | null): string {
   const scope = processedAt ? `${replayId}@${processedAt}` : replayId;
-  return eventTypes.length > 0 ? `${scope}:${eventTypes.slice().sort().join(",")}` : scope;
+  return eventTypes.length > 0 ? `${scope}::${eventTypes.slice().sort().join(",")}` : scope;
 }
 
 function cacheReplayEvents(cacheKey: string, response: MechanicEventsResponse): void {
   try {
     const cache = readReplayEventsCache();
-    const scope = cacheKey.split(":")[0];
+    const scope = cacheKey.split("::")[0];
     const replayId = scope.split("@")[0];
     for (const key of Object.keys(cache)) {
-      const keyScope = key.split(":")[0];
+      const keyScope = key.split("::")[0];
       if (keyScope !== scope && keyScope.split("@")[0] === replayId) {
         delete cache[key];
       }

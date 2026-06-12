@@ -88,3 +88,49 @@ fn submitted_rank_deserializes_current_skill_counters() {
     assert_eq!(current.placement_matches_played, Some(10));
     assert_eq!(current.fetched_at, Some(1_700_000_000));
 }
+
+#[test]
+fn observability_summary_counts_rank_metadata_presence() {
+    let payload = r#"{
+        "players": [
+            {
+                "platform_player_id": "123",
+                "platform": "Epic",
+                "playlist": 11,
+                "valid": true,
+                "after": {"tier": 16, "division": 2, "mmr": 1143.0},
+                "before": {"tier": 15, "division": 4, "mmr": 1118.0},
+                "current": {
+                    "mmr": 1148.0,
+                    "win_streak": 4,
+                    "matches_played": 250,
+                    "placement_matches_played": 10,
+                    "fetched_at": 1700000000
+                }
+            },
+            {
+                "platform_player_id": "456",
+                "after": {"tier": 12},
+                "current": {
+                    "matches_played": 80
+                }
+            }
+        ]
+    }"#;
+
+    let submission: RankSubmission = serde_json::from_str(payload).unwrap();
+    let summary = submission.observability_summary();
+
+    assert_eq!(summary.players, 2);
+    assert_eq!(summary.platforms, 1);
+    assert_eq!(summary.playlists, 1);
+    assert_eq!(summary.valid_flags, 1);
+    assert_eq!(summary.after_snapshots, 2);
+    assert_eq!(summary.before_snapshots, 1);
+    assert_eq!(summary.current_snapshots, 2);
+    assert_eq!(summary.current_mmr, 1);
+    assert_eq!(summary.current_win_streak, 1);
+    assert_eq!(summary.current_matches_played, 2);
+    assert_eq!(summary.current_placement_matches_played, 1);
+    assert_eq!(summary.current_fetched_at, 1);
+}

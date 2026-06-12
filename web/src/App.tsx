@@ -9,8 +9,13 @@ import {
   Copy,
   ExternalLink,
   FileVideo,
+  FolderMinus,
+  FolderOpen,
+  FolderPlus,
   LayoutDashboard,
+  ListPlus,
   LogIn,
+  Plus,
   RefreshCw,
   RotateCcw,
   ServerCog,
@@ -24,9 +29,12 @@ import {
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
+  addReplaysToGroup,
   clearAccessToken,
   createDevToken,
+  createReplayGroup,
   createAccountToken,
+  deleteReplayGroup,
   getAccessToken,
   getAuthOptions,
   getCurrentUser,
@@ -36,12 +44,18 @@ import {
   getPlayerStatAggregates,
   getPlayerStatOverview,
   getReplay,
+  getReplayGroup,
+  getReplayGroupStatAggregates,
   getReplayStatAggregates,
   listEventTypes,
+  listReplayGroups,
+  listReplayGroupEvents,
+  listReplayGroupReplays,
   listReplayEvents,
   listReplayFilterOptions,
   listReplayProcessingDiagnostics,
   listReplays,
+  removeReplaysFromGroup,
   reprocessReplay,
   setAccessToken,
   uploadReplay,
@@ -71,6 +85,7 @@ import type {
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
+  ReplayGroupResponse,
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
@@ -89,6 +104,7 @@ const PlayerGoalPlaylistPage = lazy(() =>
 
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
+  { to: "/replay-groups", label: "Groups", icon: FolderOpen, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/admin/processing", label: "Admin", icon: ServerCog },
   { to: "/account", label: "Account", icon: CircleUser },
@@ -126,9 +142,13 @@ export function App() {
           <Routes>
             <Route path="/" element={<ReplayListPage />} />
             <Route path="/replays" element={<ReplayListPage />} />
+            <Route path="/replay-groups" element={<ReplayGroupListPage />} />
             <Route path="/replays/:replayId" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />
+            <Route path="/replay-groups/:groupId" element={<ReplayGroupStatsPage />} />
+            <Route path="/replay-groups/:groupId/stats" element={<ReplayGroupStatsPage />} />
+            <Route path="/replay-groups/:groupId/stats/:statGroup" element={<ReplayGroupStatsPage />} />
             <Route
               path="/replays/:replayId/goals"
               element={
@@ -204,10 +224,44 @@ function ReplayListPage() {
   const [error, setError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const filterOptions = useReplayFilterOptions();
+  const currentUser = useCurrentUser();
+  const { groups, refresh: refreshGroups } = useReplayGroups(currentUser != null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     setFilters(activeFilters);
   }, [activeFilters]);
+
+  // Selections reference rows on the current page; drop them when the query changes.
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [searchParams]);
+
+  function toggleSelected(replayId: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(replayId)) {
+        next.delete(replayId);
+      } else {
+        next.add(replayId);
+      }
+      return next;
+    });
+  }
+
+  function selectAllOnPage() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const replay of replays) {
+        next.add(replay.id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -304,6 +358,7 @@ function ReplayListPage() {
   const mapOptions = replayOptionChoices(filters.map, [...filterOptions.maps, ...mapOptionsFromReplays(replays)]);
   const seasonOptions = replayOptionChoices(filters.season, [...filterOptions.seasons, ...seasonOptionsFromReplays(replays)]);
   const replayOrder = replayOrderFromParams(searchParams);
+  const activeGroupId = searchParams.get("group");
   const replayFilterFields: FilterFieldConfig[] = [
     {
       id: "player-names",
@@ -415,6 +470,12 @@ function ReplayListPage() {
             onChange={(event) => void onUpload(event.currentTarget.files?.[0])}
           />
         </label>
+        {activeGroupId ? (
+          <Link className="secondary-button" to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}>
+            <BarChart3 size={16} />
+            Group stats
+          </Link>
+        ) : null}
       </header>
 
       <form className="search-filter-panel replay-search-panel" onSubmit={submitSearch}>
@@ -494,15 +555,40 @@ function ReplayListPage() {
 
       <StatusLine loading={false} error={error} />
 
+      {currentUser && selectedIds.size > 0 ? (
+        <GroupSelectionBar
+          selectedIds={selectedIds}
+          replayCount={replays.length}
+          groups={groups}
+          onSelectAll={selectAllOnPage}
+          onClear={clearSelection}
+          onGroupsChanged={refreshGroups}
+        />
+      ) : null}
+
       <div className="replay-card-list">
         {replays.map((replay) => (
-          <article className="replay-card" key={replay.id}>
+          <article
+            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+            key={replay.id}
+          >
             <header className="replay-card-header">
-              <div className="replay-card-title">
-                <Link className="primary-link" to={`/replays/${replay.id}`}>
-                  {replay.original_file_name || replay.id}
-                </Link>
-                <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
+              <div className="replay-card-heading">
+                {currentUser ? (
+                  <input
+                    type="checkbox"
+                    className="replay-select"
+                    aria-label={`Select ${replay.original_file_name || replay.id}`}
+                    checked={selectedIds.has(replay.id)}
+                    onChange={() => toggleSelected(replay.id)}
+                  />
+                ) : null}
+                <div className="replay-card-title">
+                  <Link className="primary-link" to={`/replays/${replay.id}`}>
+                    {replay.original_file_name || replay.id}
+                  </Link>
+                  <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
+                </div>
               </div>
               <div className="replay-card-meta">
                 <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
@@ -677,6 +763,74 @@ function useReplayFilterOptions(): ReplayListFilterOptions {
   }, []);
 
   return filterOptions;
+}
+
+function ReplayGroupListPage() {
+  const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listReplayGroups()
+      .then((response) => {
+        if (!cancelled) setGroups(response.groups);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <section className="page replay-group-list-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Replay groups</p>
+          <h1>Groups</h1>
+        </div>
+      </header>
+
+      <StatusLine loading={loading} error={error} />
+
+      <div className="replay-card-list group-card-list">
+        {groups.map((group) => (
+          <article className="replay-card group-card" key={group.id}>
+            <header className="replay-card-header">
+              <div className="replay-card-title">
+                <Link className="primary-link" to={`/replay-groups/${group.id}/stats`}>
+                  {group.name}
+                </Link>
+                <span className="subtle">{group.description || group.id}</span>
+              </div>
+              <div className="replay-card-meta">
+                <span>{group.replay_count.toLocaleString()} replays</span>
+                <span className="subtle">Updated {formatDate(group.updated_at)}</span>
+              </div>
+            </header>
+            <div className="button-row">
+              <Link className="secondary-button" to={`/replay-groups/${group.id}/stats`}>
+                <BarChart3 size={16} />
+                Stats
+              </Link>
+              <Link className="secondary-button" to={`/replays?group=${encodeURIComponent(group.id)}`}>
+                <FileVideo size={16} />
+                Replays
+              </Link>
+            </div>
+          </article>
+        ))}
+        {!loading && groups.length === 0 ? <div className="status-line">No replay groups found.</div> : null}
+      </div>
+    </section>
+  );
 }
 
 function defaultReplayFilters(): ReplayFilterForm {
@@ -1073,6 +1227,216 @@ function useCurrentUser(): CurrentUserResponse | null {
   return user;
 }
 
+function useReplayGroups(enabled: boolean): {
+  groups: ReplayGroupResponse[];
+  refresh: () => void;
+} {
+  const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
+  const [nonce, setNonce] = useState(0);
+
+  useEffect(() => {
+    if (!enabled) {
+      setGroups([]);
+      return;
+    }
+    let cancelled = false;
+    listReplayGroups()
+      .then((response) => {
+        if (!cancelled) setGroups(response.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setGroups([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, nonce]);
+
+  return { groups, refresh: () => setNonce((value) => value + 1) };
+}
+
+const NEW_GROUP_OPTION = "__new__";
+
+function GroupSelectionBar({
+  selectedIds,
+  replayCount,
+  groups,
+  onSelectAll,
+  onClear,
+  onGroupsChanged,
+}: {
+  selectedIds: Set<string>;
+  replayCount: number;
+  groups: ReplayGroupResponse[];
+  onSelectAll: () => void;
+  onClear: () => void;
+  onGroupsChanged: () => void;
+}) {
+  const [targetGroupId, setTargetGroupId] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  const creating = targetGroupId === NEW_GROUP_OPTION;
+  const targetGroup = groups.find((group) => group.id === targetGroupId) ?? null;
+  const selectedCount = selectedIds.size;
+  const allSelected = replayCount > 0 && selectedCount >= replayCount;
+
+  async function withBusy(action: () => Promise<void>) {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await action();
+    } catch (err) {
+      setFeedback({ kind: "error", message: err instanceof Error ? err.message : "Request failed" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleCreateGroup() {
+    const name = newGroupName.trim();
+    if (!name) return;
+    void withBusy(async () => {
+      const group = await createReplayGroup({ name });
+      onGroupsChanged();
+      setTargetGroupId(group.id);
+      setNewGroupName("");
+      setFeedback({ kind: "ok", message: `Created group "${group.name}".` });
+    });
+  }
+
+  function handleAdd() {
+    if (!targetGroup) return;
+    void withBusy(async () => {
+      const result = await addReplaysToGroup(targetGroup.id, [...selectedIds]);
+      onGroupsChanged();
+      setFeedback({
+        kind: "ok",
+        message: `Added ${result.changed_replays} ${pluralizeReplay(result.changed_replays)} to "${result.group.name}".`,
+      });
+    });
+  }
+
+  function handleRemove() {
+    if (!targetGroup) return;
+    void withBusy(async () => {
+      const result = await removeReplaysFromGroup(targetGroup.id, [...selectedIds]);
+      onGroupsChanged();
+      setFeedback({
+        kind: "ok",
+        message: `Removed ${result.changed_replays} ${pluralizeReplay(result.changed_replays)} from "${result.group.name}".`,
+      });
+    });
+  }
+
+  function handleDeleteGroup() {
+    if (!targetGroup) return;
+    const { id, name, replay_count } = targetGroup;
+    const confirmed = window.confirm(
+      `Delete group "${name}"? Its ${replay_count} ${pluralizeReplay(replay_count)} ${
+        replay_count === 1 ? "membership is" : "memberships are"
+      } removed, but the replays themselves are not deleted.`,
+    );
+    if (!confirmed) return;
+    void withBusy(async () => {
+      await deleteReplayGroup(id);
+      onGroupsChanged();
+      setTargetGroupId("");
+      setFeedback({ kind: "ok", message: `Deleted group "${name}".` });
+    });
+  }
+
+  return (
+    <div className="replay-selection-bar">
+      <div className="replay-selection-summary">
+        <strong>{selectedCount.toLocaleString()} selected</strong>
+        {!allSelected ? (
+          <button type="button" className="link-button" onClick={onSelectAll} disabled={busy}>
+            Select all {replayCount.toLocaleString()} on page
+          </button>
+        ) : null}
+        <button type="button" className="link-button" onClick={onClear} disabled={busy}>
+          Clear
+        </button>
+      </div>
+      <div className="replay-selection-actions">
+        <label className="replay-selection-group">
+          <FolderPlus size={16} />
+          <select
+            value={targetGroupId}
+            onChange={(event) => {
+              setTargetGroupId(event.currentTarget.value);
+              setFeedback(null);
+            }}
+            disabled={busy}
+          >
+            <option value="">Choose a group…</option>
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name} ({group.replay_count})
+              </option>
+            ))}
+            <option value={NEW_GROUP_OPTION}>+ New group…</option>
+          </select>
+        </label>
+        {creating ? (
+          <div className="replay-selection-create">
+            <input
+              type="text"
+              value={newGroupName}
+              placeholder="New group name"
+              autoFocus
+              onChange={(event) => setNewGroupName(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleCreateGroup();
+                }
+              }}
+              disabled={busy}
+            />
+            <button type="button" onClick={handleCreateGroup} disabled={busy || newGroupName.trim() === ""}>
+              <Plus size={16} />
+              Create
+            </button>
+          </div>
+        ) : (
+          <>
+            <button type="button" onClick={handleAdd} disabled={busy || !targetGroup}>
+              <ListPlus size={16} />
+              Add to group
+            </button>
+            <button type="button" className="secondary-button" onClick={handleRemove} disabled={busy || !targetGroup}>
+              <FolderMinus size={16} />
+              Remove from group
+            </button>
+            <button
+              type="button"
+              className="secondary-button is-danger"
+              onClick={handleDeleteGroup}
+              disabled={busy || !targetGroup}
+              title="Delete this group"
+            >
+              <Trash2 size={16} />
+              Delete group
+            </button>
+          </>
+        )}
+      </div>
+      {feedback ? (
+        <p className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}>
+          {feedback.message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function pluralizeReplay(count: number): string {
+  return count === 1 ? "replay" : "replays";
+}
+
 type RequeuePhase = "pending" | "done" | "skipped" | "error";
 
 interface RequeueResult {
@@ -1330,6 +1694,239 @@ function ReplayStatsPage() {
   );
 }
 
+function ReplayGroupStatsPage() {
+  const { groupId = "", statGroup } = useParams();
+  const activeGroup = useMemo(
+    () => completedStatGroups.find((group) => group.id === statGroup) ?? completedStatGroups[0],
+    [statGroup],
+  );
+  const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
+  const [replays, setReplays] = useState<ReplayResponse[]>([]);
+  const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
+  const [events, setEvents] = useState<MechanicEventResponse[]>([]);
+  const [groupLoading, setGroupLoading] = useState(true);
+  const [statsLoading, setStatsLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(true);
+  const [groupError, setGroupError] = useState<string | null>(null);
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setGroupLoading(true);
+    setGroupError(null);
+    setReplays([]);
+    Promise.all([getReplayGroup(groupId), listReplayGroupReplays(groupId)])
+      .then(([groupResponse, replayResponse]) => {
+        if (!cancelled) {
+          setGroup(groupResponse);
+          setReplays(replayResponse.replays);
+        }
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setGroupError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setGroupLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setStatsLoading(true);
+    setStatsError(null);
+    if (!activeGroup.usesAggregateStats) {
+      setStats(null);
+      setStatsLoading(false);
+    } else {
+      getReplayGroupStatAggregates(groupId)
+        .then((response) => {
+          if (!cancelled) setStats(response);
+        })
+        .catch((err: Error) => {
+          if (!cancelled) setStatsError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled) setStatsLoading(false);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [activeGroup.usesAggregateStats, groupId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEventsLoading(true);
+    setEventsError(null);
+    listReplayGroupEvents(groupId, eventTypesForGroup(activeGroup.id))
+      .then((response) => {
+        if (!cancelled) setEvents(response.events);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setEventsError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setEventsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeGroup.id, groupId]);
+
+  const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
+  const activeStats = useMemo(() => filterStatsForGroup(stats?.stats ?? [], activeGroup.terms), [activeGroup, stats]);
+  const activeEvents = useMemo(() => filterEventsForGroup(events, activeGroup.terms), [activeGroup, events]);
+  const ActiveDetail = activeGroup.Detail;
+  const detailEvents = ActiveDetail ? events : activeEvents;
+  const groupDurationSeconds = sumReplayDurations(replays);
+  const dateRange = replayDateRange(replays);
+
+  return (
+    <section className="page stats-page replay-group-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Replay group stats</p>
+          <h1>{group?.name || "Replay group"}</h1>
+          {group?.description ? <p className="page-header-note">{group.description}</p> : null}
+        </div>
+        <div className="button-row">
+          <Link className="secondary-button" to={`/replays?group=${encodeURIComponent(groupId)}`}>
+            <FileVideo size={16} />
+            Replays
+          </Link>
+        </div>
+      </header>
+
+      <StatusLine loading={groupLoading} error={groupError} />
+
+      {group ? (
+        <>
+          <div className="match-context">
+            <div>
+              <span>Games</span>
+              <strong>{replays.length.toLocaleString()}</strong>
+            </div>
+            <div>
+              <span>Participants</span>
+              <strong>{participantAnalysis.consistent ? participantAnalysis.players.length.toLocaleString() : "Mixed"}</strong>
+            </div>
+            <div>
+              <span>Total duration</span>
+              <strong>{formatDuration(groupDurationSeconds)}</strong>
+            </div>
+            <div>
+              <span>Date range</span>
+              <strong>{dateRange}</strong>
+            </div>
+          </div>
+
+          <GroupParticipantNotice analysis={participantAnalysis} />
+
+          {participantAnalysis.consistent ? (
+            <div className="group-participant-strip" aria-label="Group participants">
+              {participantAnalysis.players.map((player, index) => (
+                <span className={`group-participant-chip team-accent-${teamClass(player.team)}`} key={groupParticipantKey(player, index)}>
+                  <strong>{player.name || player.platform_player_id || "Unknown"}</strong>
+                  <small>{teamLabel(player.team)}</small>
+                </span>
+              ))}
+            </div>
+          ) : null}
+
+          <nav className="stat-group-nav" aria-label="Group stat sections">
+            {completedStatGroups.map((section) => {
+              const Icon = section.icon;
+              return (
+                <Link
+                  key={section.id}
+                  className={`stat-group-link ${section.id === activeGroup.id ? "active" : ""}`}
+                  to={`/replay-groups/${groupId}/stats/${section.id}`}
+                >
+                  <Icon size={16} />
+                  <span>{section.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+
+          <section className="stat-detail">
+            {!ActiveDetail || !participantAnalysis.consistent ? (
+              <header className="stat-detail-header">
+                <div>
+                  <p className="eyebrow">{activeGroup.label}</p>
+                  <h2>{activeGroup.label} detail</h2>
+                  <p>{activeGroup.description}</p>
+                </div>
+                <div className="stat-detail-counts">
+                  <Metric label="Stats" value={activeStats.length.toLocaleString()} />
+                  <Metric label="Events" value={activeEvents.length.toLocaleString()} />
+                </div>
+              </header>
+            ) : null}
+
+            {eventsError ? <ApiNotice label={ActiveDetail ? `${activeGroup.label} data` : "Indexed events"} message={eventsError} /> : null}
+            {statsError ? <ApiNotice label="Group stats" message={statsError} /> : null}
+            {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
+
+            {ActiveDetail && participantAnalysis.consistent ? (
+              <ActiveDetail
+                events={detailEvents}
+                players={participantAnalysis.players}
+                durationSeconds={groupDurationSeconds}
+                scope="group"
+              />
+            ) : (
+              <div className="stat-section-grid">
+                <StatRows title="Top stats" stats={activeStats} />
+                <EventRows title="Indexed events" events={activeEvents} />
+              </div>
+            )}
+          </section>
+
+          <section className="stat-panel">
+            <h2>Games in group</h2>
+            <div className="table-frame compact-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Replay</th>
+                    <th>Score</th>
+                    <th>Playlist</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {replays.map((replay) => (
+                    <tr key={replay.id}>
+                      <td>
+                        <Link className="primary-link" to={`/replays/${replay.id}`}>
+                          {replay.original_file_name || replay.id}
+                        </Link>
+                      </td>
+                      <td>{formatScore(replay)}</td>
+                      <td>{playlistLabel(replay.playlist_metadata, replay.playlist)}</td>
+                      <td>{formatDate(replay.replay_date || replay.created_at)}</td>
+                    </tr>
+                  ))}
+                  {replays.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>No replays are in this group yet.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function ReplayPlayerPage({ replayId }: { replayId: string }) {
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1505,6 +2102,244 @@ function PlayerTimingSection({ groupId, players }: { groupId: string; players: R
       </div>
     </section>
   );
+}
+
+interface ReplayGroupParticipantAnalysis {
+  consistent: boolean;
+  players: ReplayPlayer[];
+  colorSwitching: boolean;
+  reason: string | null;
+}
+
+interface MutableReplayGroupParticipant {
+  identity: string;
+  name: string | null;
+  platform: string | null;
+  platform_player_id: string | null;
+  teams: Set<number>;
+  rank_tier: number | null;
+  rank_division: number | null;
+  rank_mmr: number | null;
+  rank_is_fallback: boolean;
+  rank_fallback_replay_date: string | null;
+  is_pro: boolean;
+  score: number | null;
+  goals: number | null;
+  assists: number | null;
+  saves: number | null;
+  shots: number | null;
+  active_time_seconds: number | null;
+  time_demolished_seconds: number | null;
+  non_demo_active_time_seconds: number | null;
+  time_most_back_seconds: number | null;
+  time_most_forward_seconds: number | null;
+}
+
+function GroupParticipantNotice({ analysis }: { analysis: ReplayGroupParticipantAnalysis }) {
+  if (!analysis.reason && !analysis.colorSwitching) return null;
+
+  return (
+    <div className={`api-notice ${analysis.consistent ? "" : "warning"}`.trim()}>
+      <strong>{analysis.consistent ? "Same participants" : "Mixed participants"}</strong>
+      <span>
+        {analysis.reason ??
+          "The same players appear across this group, but at least one player changes between blue and orange. Player panels use neutral team labels; blue/orange team totals still mean the replay-local colors."}
+      </span>
+    </div>
+  );
+}
+
+function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupParticipantAnalysis {
+  if (replays.length === 0) {
+    return {
+      consistent: false,
+      players: [],
+      colorSwitching: false,
+      reason: "Add replays to this group before using group-level player views.",
+    };
+  }
+
+  const replayIdentities = replays.map(replayParticipantIdentities);
+  const invalidIndex = replayIdentities.findIndex((identities) => identities == null);
+  if (invalidIndex >= 0) {
+    return {
+      consistent: false,
+      players: [],
+      colorSwitching: false,
+      reason: "At least one replay has duplicate or unidentified participants, so player-level group views are hidden.",
+    };
+  }
+
+  const reference = replayIdentities[0]!;
+  const referenceKey = participantSetKey(reference);
+  const mismatched = replayIdentities.some((identities) => participantSetKey(identities!) !== referenceKey);
+  if (mismatched) {
+    return {
+      consistent: false,
+      players: [],
+      colorSwitching: false,
+      reason: "These replays do not all contain the same participant identities, so group views fall back to event and aggregate tables.",
+    };
+  }
+
+  const participants = new Map<string, MutableReplayGroupParticipant>();
+  for (const replay of replays) {
+    for (const player of replay.players) {
+      const identity = replayPlayerIdentity(player);
+      if (!identity) continue;
+      const participant = participants.get(identity) ?? newMutableReplayGroupParticipant(identity, player);
+      mergeReplayGroupParticipant(participant, player);
+      participants.set(identity, participant);
+    }
+  }
+
+  const players = [...participants.values()].map(finalizeReplayGroupParticipant).sort(compareReplayGroupPlayers);
+  const colorSwitching = players.some((player, index) => {
+    const identity = groupParticipantKey(player, index);
+    return (participants.get(identity)?.teams.size ?? 0) > 1;
+  });
+
+  return {
+    consistent: true,
+    players,
+    colorSwitching,
+    reason: colorSwitching ? null : null,
+  };
+}
+
+function replayParticipantIdentities(replay: ReplayResponse): Set<string> | null {
+  const identities = new Set<string>();
+  for (const player of replay.players) {
+    const identity = replayPlayerIdentity(player);
+    if (!identity || identities.has(identity)) return null;
+    identities.add(identity);
+  }
+  return identities;
+}
+
+function participantSetKey(identities: Set<string>): string {
+  return [...identities].sort().join("|");
+}
+
+function replayPlayerIdentity(player: ReplayPlayer): string | null {
+  if (player.platform && player.platform_player_id) {
+    return `${normalizeReplayPlatform(player.platform)}:${player.platform_player_id}`;
+  }
+  const name = player.name?.trim();
+  return name ? `name:${name.toLowerCase()}` : null;
+}
+
+function groupParticipantKey(player: ReplayPlayer, index: number): string {
+  return replayPlayerIdentity(player) ?? `participant:${index}`;
+}
+
+function newMutableReplayGroupParticipant(identity: string, player: ReplayPlayer): MutableReplayGroupParticipant {
+  return {
+    identity,
+    name: player.name,
+    platform: player.platform,
+    platform_player_id: player.platform_player_id,
+    teams: new Set(),
+    rank_tier: null,
+    rank_division: null,
+    rank_mmr: null,
+    rank_is_fallback: false,
+    rank_fallback_replay_date: null,
+    is_pro: false,
+    score: null,
+    goals: null,
+    assists: null,
+    saves: null,
+    shots: null,
+    active_time_seconds: null,
+    time_demolished_seconds: null,
+    non_demo_active_time_seconds: null,
+    time_most_back_seconds: null,
+    time_most_forward_seconds: null,
+  };
+}
+
+function mergeReplayGroupParticipant(participant: MutableReplayGroupParticipant, player: ReplayPlayer) {
+  participant.name = player.name ?? participant.name;
+  participant.platform = player.platform ?? participant.platform;
+  participant.platform_player_id = player.platform_player_id ?? participant.platform_player_id;
+  if (player.team === 0 || player.team === 1) participant.teams.add(player.team);
+  participant.rank_tier = player.rank_tier ?? participant.rank_tier;
+  participant.rank_division = player.rank_division ?? participant.rank_division;
+  participant.rank_mmr = player.rank_mmr ?? participant.rank_mmr;
+  participant.rank_is_fallback = participant.rank_is_fallback || Boolean(player.rank_is_fallback);
+  participant.rank_fallback_replay_date = player.rank_fallback_replay_date ?? participant.rank_fallback_replay_date;
+  participant.is_pro = participant.is_pro || player.is_pro;
+  participant.score = sumNullable(participant.score, player.score);
+  participant.goals = sumNullable(participant.goals, player.goals);
+  participant.assists = sumNullable(participant.assists, player.assists);
+  participant.saves = sumNullable(participant.saves, player.saves);
+  participant.shots = sumNullable(participant.shots, player.shots);
+  participant.active_time_seconds = sumNullable(participant.active_time_seconds, player.active_time_seconds);
+  participant.time_demolished_seconds = sumNullable(participant.time_demolished_seconds, player.time_demolished_seconds);
+  participant.non_demo_active_time_seconds = sumNullable(participant.non_demo_active_time_seconds, player.non_demo_active_time_seconds);
+  participant.time_most_back_seconds = sumNullable(participant.time_most_back_seconds, player.time_most_back_seconds);
+  participant.time_most_forward_seconds = sumNullable(participant.time_most_forward_seconds, player.time_most_forward_seconds);
+}
+
+function finalizeReplayGroupParticipant(participant: MutableReplayGroupParticipant): ReplayPlayer {
+  return {
+    name: participant.name,
+    platform: participant.platform,
+    platform_player_id: participant.platform_player_id,
+    team: participant.teams.size === 1 ? [...participant.teams][0] : null,
+    rank_tier: participant.rank_tier,
+    rank_division: participant.rank_division,
+    rank_mmr: participant.rank_mmr,
+    rank_is_fallback: participant.rank_is_fallback,
+    rank_fallback_replay_date: participant.rank_fallback_replay_date,
+    is_pro: participant.is_pro,
+    score: participant.score,
+    goals: participant.goals,
+    assists: participant.assists,
+    saves: participant.saves,
+    shots: participant.shots,
+    active_time_seconds: participant.active_time_seconds,
+    time_demolished_seconds: participant.time_demolished_seconds,
+    non_demo_active_time_seconds: participant.non_demo_active_time_seconds,
+    time_most_back_seconds: participant.time_most_back_seconds,
+    time_most_forward_seconds: participant.time_most_forward_seconds,
+  };
+}
+
+function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): number {
+  if ((left.team ?? 9) !== (right.team ?? 9)) return (left.team ?? 9) - (right.team ?? 9);
+  return (left.name || left.platform_player_id || "").localeCompare(right.name || right.platform_player_id || "");
+}
+
+function normalizeReplayPlatform(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower === "psynet") return "epic";
+  if (lower === "playstation") return "ps4";
+  return lower;
+}
+
+function sumNullable(left: number | null | undefined, right: number | null | undefined): number | null {
+  if (left == null && right == null) return null;
+  return (left ?? 0) + (right ?? 0);
+}
+
+function sumReplayDurations(replays: ReplayResponse[]): number | null {
+  const durations = replays.map((replay) => replay.summary.duration_seconds).filter(isNumber);
+  if (durations.length === 0) return null;
+  return durations.reduce((total, duration) => total + duration, 0);
+}
+
+function replayDateRange(replays: ReplayResponse[]): string {
+  const dates = replays
+    .map((replay) => replay.replay_date || replay.created_at)
+    .map((value) => new Date(value))
+    .filter((date) => !Number.isNaN(date.getTime()))
+    .sort((left, right) => left.getTime() - right.getTime());
+  if (dates.length === 0) return "Unknown";
+  const first = formatShortDate(dates[0].toISOString());
+  const last = formatShortDate(dates[dates.length - 1].toISOString());
+  return first === last ? first : `${first} - ${last}`;
 }
 
 function ApiNotice({ label, message }: { label: string; message: string }) {
@@ -3605,6 +4440,16 @@ function formatCounts(counts: Array<{ status: string; count: number }>): string 
 function formatPercent(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "Unknown";
   return `${Math.round(value * 100)}%`;
+}
+
+function isNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function teamClass(team: number | null): string {
+  if (team === 0) return "blue";
+  if (team === 1) return "orange";
+  return "unknown";
 }
 
 function teamLabel(team: number | null): string {

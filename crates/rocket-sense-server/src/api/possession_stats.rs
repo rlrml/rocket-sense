@@ -32,8 +32,16 @@ pub fn router() -> Router<AppState> {
 pub struct PossessionSummaryResponse {
     pub replay_count: u64,
     pub possessions: PossessionSpanSummary,
+    pub controlled_plays: PossessionSpanSummary,
+    pub teammates: Option<PossessionTeammateComparison>,
     pub touches: PossessionTouchSummary,
     pub locations: PossessionLocationSummary,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionTeammateComparison {
+    pub appearance_count: u64,
+    pub controlled_plays: PossessionSpanSummary,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -112,6 +120,12 @@ struct PossessionStatsQuery {
     player: Option<PlayerStatFilter>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PossessionSpanFilter {
+    All,
+    SustainedControl,
+}
+
 impl PossessionStatsQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
@@ -170,15 +184,68 @@ async fn load_possession_summary(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
 ) -> Result<PossessionSummaryResponse, sqlx::Error> {
-    let (replay_count, possessions) = load_possession_span_summary(pool, filters).await?;
+    let (replay_count, possessions) =
+        load_possession_span_summary(pool, filters, PossessionSpanFilter::All).await?;
+    let (_, controlled_plays) =
+        load_possession_span_summary(pool, filters, PossessionSpanFilter::SustainedControl).await?;
+    let teammates = if filters.player.is_some() {
+        Some(load_teammate_controlled_play_summary(pool, filters).await?)
+    } else {
+        None
+    };
     let touches = load_possession_touch_summary(pool, filters).await?;
     let locations = load_possession_location_summary(pool, filters).await?;
     Ok(PossessionSummaryResponse {
         replay_count,
         possessions,
+        controlled_plays,
+        teammates,
         touches,
         locations,
     })
+}
+
+fn push_possession_span_select(builder: &mut QueryBuilder<'_, Postgres>) {
+    builder.push(
+        r#"
+        SELECT
+            COUNT(DISTINCT detail.replay_id) AS replay_count,
+            COUNT(*) AS possession_count,
+            COALESCE(SUM(detail.duration), 0) AS total_duration,
+            AVG(detail.duration) AS avg_duration,
+            COALESCE(SUM(detail.touch_count), 0)::bigint AS total_touch_count,
+            AVG(detail.touch_count::float8) AS avg_touches,
+            COALESCE(SUM(detail.advance_distance), 0) AS total_advance,
+            COALESCE(SUM(detail.retreat_distance), 0) AS total_retreat,
+            AVG(detail.advance_distance) AS avg_advance,
+            AVG(detail.retreat_distance) AS avg_retreat,
+            COALESCE(SUM(detail.carry_time), 0) AS carry_time,
+            COALESCE(SUM(detail.air_dribble_time), 0) AS air_dribble_time,
+            COUNT(*) FILTER (WHERE detail.sustained_control) AS sustained_control,
+            COUNT(*) FILTER (WHERE detail.carry_count > 0) AS with_carry,
+            COUNT(*) FILTER (WHERE detail.air_dribble_count > 0) AS with_air_dribble,
+            COUNT(*) FILTER (WHERE detail.aerial_touch_count > 0) AS with_aerial_touch,
+            COUNT(*) FILTER (WHERE detail.wall_touch_count > 0) AS with_wall_touch
+        "#,
+    );
+    for (index, (_, _, lower, upper)) in DURATION_BUCKETS.iter().enumerate() {
+        builder.push(format!(
+            ", COUNT(*) FILTER (WHERE detail.duration >= {lower}"
+        ));
+        if let Some(upper) = upper {
+            builder.push(format!(" AND detail.duration < {upper}"));
+        }
+        builder.push(format!(") AS duration_bucket_{index}"));
+    }
+}
+
+fn push_possession_span_filter(
+    builder: &mut QueryBuilder<'_, Postgres>,
+    span_filter: PossessionSpanFilter,
+) {
+    if span_filter == PossessionSpanFilter::SustainedControl {
+        builder.push(" AND detail.sustained_control ");
+    }
 }
 
 fn push_possession_from<'args>(
@@ -205,42 +272,21 @@ fn push_possession_from<'args>(
 async fn load_possession_span_summary(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
+    span_filter: PossessionSpanFilter,
 ) -> Result<(u64, PossessionSpanSummary), sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        SELECT
-            COUNT(DISTINCT r.id) AS replay_count,
-            COUNT(*) AS possession_count,
-            COALESCE(SUM(detail.duration), 0) AS total_duration,
-            AVG(detail.duration) AS avg_duration,
-            COALESCE(SUM(detail.touch_count), 0)::bigint AS total_touch_count,
-            AVG(detail.touch_count::float8) AS avg_touches,
-            COALESCE(SUM(detail.advance_distance), 0) AS total_advance,
-            COALESCE(SUM(detail.retreat_distance), 0) AS total_retreat,
-            AVG(detail.advance_distance) AS avg_advance,
-            AVG(detail.retreat_distance) AS avg_retreat,
-            COALESCE(SUM(detail.carry_time), 0) AS carry_time,
-            COALESCE(SUM(detail.air_dribble_time), 0) AS air_dribble_time,
-            COUNT(*) FILTER (WHERE detail.sustained_control) AS sustained_control,
-            COUNT(*) FILTER (WHERE detail.carry_count > 0) AS with_carry,
-            COUNT(*) FILTER (WHERE detail.air_dribble_count > 0) AS with_air_dribble,
-            COUNT(*) FILTER (WHERE detail.aerial_touch_count > 0) AS with_aerial_touch,
-            COUNT(*) FILTER (WHERE detail.wall_touch_count > 0) AS with_wall_touch
-        "#,
-    );
-    for (index, (_, _, lower, upper)) in DURATION_BUCKETS.iter().enumerate() {
-        query.push(format!(
-            ", COUNT(*) FILTER (WHERE detail.duration >= {lower}"
-        ));
-        if let Some(upper) = upper {
-            query.push(format!(" AND detail.duration < {upper}"));
-        }
-        query.push(format!(") AS duration_bucket_{index}"));
-    }
+    let mut query = QueryBuilder::<Postgres>::new("");
+    push_possession_span_select(&mut query);
     push_possession_from(&mut query, filters);
+    push_possession_span_filter(&mut query, span_filter);
 
     let row = query.build().fetch_one(pool).await?;
-    let possession_count = count_column(&row, "possession_count")?;
+    possession_span_summary_from_row(&row)
+}
+
+fn possession_span_summary_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<(u64, PossessionSpanSummary), sqlx::Error> {
+    let possession_count = count_column(row, "possession_count")?;
     let total_duration: f64 = row.try_get("total_duration")?;
     let carry_time: f64 = row.try_get("carry_time")?;
     let air_dribble_time: f64 = row.try_get("air_dribble_time")?;
@@ -255,7 +301,7 @@ async fn load_possession_span_summary(
         duration_histogram.push(PossessionDurationBucket {
             key: (*key).to_owned(),
             label: (*label).to_owned(),
-            count: count_column(&row, &format!("duration_bucket_{index}"))?,
+            count: count_column(row, &format!("duration_bucket_{index}"))?,
         });
     }
 
@@ -263,7 +309,7 @@ async fn load_possession_span_summary(
         possession_count,
         total_duration_seconds: total_duration,
         avg_duration_seconds: finite_value(row.try_get("avg_duration")?),
-        total_touch_count: count_column(&row, "total_touch_count")?,
+        total_touch_count: count_column(row, "total_touch_count")?,
         avg_touches_per_possession: finite_value(row.try_get("avg_touches")?),
         total_advance_distance: row.try_get("total_advance")?,
         total_retreat_distance: row.try_get("total_retreat")?,
@@ -273,14 +319,78 @@ async fn load_possession_span_summary(
         air_dribble_time_seconds: air_dribble_time,
         carry_time_share: share_of_time(carry_time),
         air_dribble_time_share: share_of_time(air_dribble_time),
-        sustained_control_share: share_of_count(count_column(&row, "sustained_control")?),
-        with_carry_share: share_of_count(count_column(&row, "with_carry")?),
-        with_air_dribble_share: share_of_count(count_column(&row, "with_air_dribble")?),
-        with_aerial_touch_share: share_of_count(count_column(&row, "with_aerial_touch")?),
-        with_wall_touch_share: share_of_count(count_column(&row, "with_wall_touch")?),
+        sustained_control_share: share_of_count(count_column(row, "sustained_control")?),
+        with_carry_share: share_of_count(count_column(row, "with_carry")?),
+        with_air_dribble_share: share_of_count(count_column(row, "with_air_dribble")?),
+        with_aerial_touch_share: share_of_count(count_column(row, "with_aerial_touch")?),
+        with_wall_touch_share: share_of_count(count_column(row, "with_wall_touch")?),
         duration_histogram,
     };
-    Ok((count_column(&row, "replay_count")?, summary))
+    Ok((count_column(row, "replay_count")?, summary))
+}
+
+fn build_teammate_controlled_play_summary_query<'args>(
+    filters: &'args PossessionStatsQuery,
+) -> Option<QueryBuilder<'args, Postgres>> {
+    let player = filters.player.as_ref()?;
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+        "#,
+    );
+    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(" AND rp.platform = ");
+    query.push_bind(&player.platform);
+    query.push(" AND rp.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#"
+        ),
+        teammate_appearances AS MATERIALIZED (
+            SELECT DISTINCT teammate.id, teammate.replay_id, target.run_id
+            FROM target_appearances target
+            JOIN replay_players teammate
+              ON teammate.replay_id = target.replay_id
+             AND teammate.team = target.team
+             AND teammate.id <> target.id
+        )
+        "#,
+    );
+    push_possession_span_select(&mut query);
+    query
+        .push(", (SELECT COUNT(*) FROM teammate_appearances)::bigint AS teammate_appearance_count");
+    query.push(
+        r#"
+        FROM teammate_appearances appearance
+        JOIN play_event_player_possession_details detail
+          ON detail.replay_player_id = appearance.id
+        JOIN play_events event
+          ON event.id = detail.event_id
+         AND event.analysis_run_id = appearance.run_id
+        WHERE TRUE
+        "#,
+    );
+    push_possession_span_filter(&mut query, PossessionSpanFilter::SustainedControl);
+    Some(query)
+}
+
+async fn load_teammate_controlled_play_summary(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<PossessionTeammateComparison, sqlx::Error> {
+    let Some(mut query) = build_teammate_controlled_play_summary_query(filters) else {
+        unreachable!("teammate controlled-play summary requires a player filter")
+    };
+    let row = query.build().fetch_one(pool).await?;
+    let (_, summary) = possession_span_summary_from_row(&row)?;
+    Ok(PossessionTeammateComparison {
+        appearance_count: count_column(&row, "teammate_appearance_count")?,
+        controlled_plays: summary,
+    })
 }
 
 fn push_touch_from<'args>(

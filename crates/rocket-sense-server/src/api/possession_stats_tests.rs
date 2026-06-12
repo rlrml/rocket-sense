@@ -48,3 +48,48 @@ fn possession_time_bucket_computes_share() {
     let empty = possession_time_bucket("neutral", "Neutral", 0.0, 0.0);
     assert_eq!(empty.share, None);
 }
+
+#[test]
+fn controlled_play_span_query_filters_to_sustained_control() {
+    let query = PossessionStatsQuery::from_raw_query(
+        Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+    )
+    .expect("possession query should parse");
+    let mut builder = QueryBuilder::<Postgres>::new("");
+
+    push_possession_span_select(&mut builder);
+    push_possession_from(&mut builder, &query);
+    push_possession_span_filter(&mut builder, PossessionSpanFilter::SustainedControl);
+    let sql = builder.sql();
+
+    assert!(sql.contains("play_event_player_possession_details detail"));
+    assert!(sql.contains("detail.player_subject_id ="));
+    assert!(sql.contains("detail.sustained_control"));
+}
+
+#[test]
+fn teammate_controlled_play_query_compares_same_team_appearances() {
+    let query = PossessionStatsQuery::from_raw_query(
+        Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+    )
+    .expect("possession query should parse");
+    let builder = build_teammate_controlled_play_summary_query(&query)
+        .expect("teammate query should be available with player filter");
+    let sql = builder.sql();
+
+    assert!(sql.contains("teammate.team = target.team"));
+    assert!(sql.contains("teammate.id <> target.id"));
+    assert!(sql.contains("detail.replay_player_id = appearance.id"));
+    assert!(sql.contains("teammate_appearance_count"));
+    assert!(sql.contains("detail.sustained_control"));
+}
+
+#[test]
+fn teammate_controlled_play_query_requires_player_filter() {
+    let query = PossessionStatsQuery::from_raw_query(Some("team-size=2"), None)
+        .expect("possession query should parse");
+
+    assert!(build_teammate_controlled_play_summary_query(&query).is_none());
+}

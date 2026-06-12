@@ -56,6 +56,27 @@ export interface ReplayResponse {
   updated_at: string;
 }
 
+export interface ReplayGroupResponse {
+  id: string;
+  project_id: string | null;
+  name: string;
+  description: string | null;
+  created_by_user_id: string | null;
+  replay_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListReplayGroupsResponse {
+  groups: ReplayGroupResponse[];
+}
+
+export interface ReplayGroupReplayUpdateResponse {
+  group: ReplayGroupResponse;
+  matched_replays: number;
+  changed_replays: number;
+}
+
 export interface ReplayProcessingVersion {
   processed_at: string | null;
   extractor_name: string | null;
@@ -124,6 +145,21 @@ export interface ListReplaysResponse {
   offset: number;
   total: number;
   next_offset: number | null;
+}
+
+export interface ReplayGroupResponse {
+  id: string;
+  project_id: string | null;
+  name: string;
+  description: string | null;
+  created_by_user_id: string | null;
+  replay_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListReplayGroupsResponse {
+  groups: ReplayGroupResponse[];
 }
 
 export interface ReplayFilterOption {
@@ -330,8 +366,15 @@ export interface EventStatSummaryResponse {
 export interface PossessionSummaryResponse {
   replay_count: number;
   possessions: PossessionSpanSummary;
+  controlled_plays: PossessionSpanSummary;
+  teammates: PossessionTeammateComparison | null;
   touches: PossessionTouchSummary;
   locations: PossessionLocationSummary;
+}
+
+export interface PossessionTeammateComparison {
+  appearance_count: number;
+  controlled_plays: PossessionSpanSummary;
 }
 
 export interface PossessionSpanSummary {

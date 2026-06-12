@@ -39,7 +39,7 @@ type KickoffDirection = "left" | "right" | "center" | "unknown";
 interface KickoffDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
-  replayId: string;
+  replayId?: string;
 }
 
 interface KickoffRow {
@@ -235,7 +235,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
         <div>
           <p className="eyebrow">Kickoff report</p>
           <h2>Kickoffs</h2>
-          <p>{kickoffs.length ? kickoffReportSentence(summary, kickoffs.length) : "No kickoff events have been indexed for this replay yet."}</p>
+          <p>{kickoffs.length ? kickoffReportSentence(summary, kickoffs.length) : "No kickoff events have been indexed for this selection yet."}</p>
         </div>
         <div className="kickoff-hero-metrics">
           <KickoffMetric icon={CircleDotDashed} label="Kickoffs" value={kickoffs.length.toLocaleString()} />
@@ -282,32 +282,34 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
             </div>
           </section>
 
-          <Suspense
-            fallback={
-              <aside className="event-preview-pip">
-                <div className="event-preview-pip-bar">
-                  <span className="event-preview-pip-label">Loading…</span>
-                </div>
-                <div className="event-clip-player">
-                  <div className="event-clip-status">Loading player…</div>
-                </div>
-              </aside>
-            }
-          >
-            <EventClipPreview
-              replayId={replayId}
-              clip={clip}
-              label={
-                activeKickoff
-                  ? kickoffPreviewLabel(activeKickoff, perspective)
-                  : "Loading…"
+          {replayId ? (
+            <Suspense
+              fallback={
+                <aside className="event-preview-pip">
+                  <div className="event-preview-pip-bar">
+                    <span className="event-preview-pip-label">Loading…</span>
+                  </div>
+                  <div className="event-clip-player">
+                    <div className="event-clip-status">Loading player…</div>
+                  </div>
+                </aside>
               }
-              openHref={`/replays/${encodeURIComponent(replayId)}/player`}
-            />
-          </Suspense>
+            >
+              <EventClipPreview
+                replayId={replayId}
+                clip={clip}
+                label={
+                  activeKickoff
+                    ? kickoffPreviewLabel(activeKickoff, perspective)
+                    : "Loading…"
+                }
+                openHref={`/replays/${encodeURIComponent(replayId)}/player`}
+              />
+            </Suspense>
+          ) : null}
         </div>
       ) : (
-        <div className="stat-empty">No kickoff events are available for this replay yet.</div>
+        <div className="stat-empty">No kickoff events are available for this selection yet.</div>
       )}
     </div>
   );
@@ -487,7 +489,7 @@ function KickoffCard({
   kickoff: KickoffRow;
   active: boolean;
   onActivate: (force: boolean) => void;
-  replayId: string;
+  replayId?: string;
 } & KickoffPerspectiveProps) {
   const blueSupport = kickoff.teamZeroSupport;
   const orangeSupport = kickoff.teamOneSupport;
@@ -522,21 +524,23 @@ function KickoffCard({
       </div>
 
       <div className="kickoff-card-body">
-        <section className="kickoff-diagram-panel">
-          <div className="kickoff-section-title">
-            <span>Shape</span>
-            <strong>{kickoffShapeLabel(kickoff)}</strong>
-          </div>
-          <Suspense fallback={<div className="kickoff-path-status">Loading kickoff paths…</div>}>
-            <KickoffShapeDiagram
-              replayId={replayId}
-              startFrame={kickoffPathStartFrame(kickoff)}
-              endFrame={kickoffPathEndFrame(kickoff)}
-              winningTeam={kickoff.winningTeam}
-              players={kickoffPathPlayers(kickoff)}
-            />
-          </Suspense>
-        </section>
+        {replayId ? (
+          <section className="kickoff-diagram-panel">
+            <div className="kickoff-section-title">
+              <span>Shape</span>
+              <strong>{kickoffShapeLabel(kickoff)}</strong>
+            </div>
+            <Suspense fallback={<div className="kickoff-path-status">Loading kickoff paths…</div>}>
+              <KickoffShapeDiagram
+                replayId={replayId}
+                startFrame={kickoffPathStartFrame(kickoff)}
+                endFrame={kickoffPathEndFrame(kickoff)}
+                winningTeam={kickoff.winningTeam}
+                players={kickoffPathPlayers(kickoff)}
+              />
+            </Suspense>
+          </section>
+        ) : null}
 
         <div className="kickoff-card-details">
           <header className="kickoff-card-header">

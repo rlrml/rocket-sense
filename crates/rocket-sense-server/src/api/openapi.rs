@@ -1,4 +1,7 @@
-use super::{admin, auth, ballchasing, health, meta, player_overview, players, replays, stats};
+use super::{
+    admin, auth, ballchasing, health, meta, player_overview, players, possession_stats, replays,
+    stats,
+};
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
     Modify, OpenApi,
@@ -23,6 +26,7 @@ use utoipa::{
         meta::get_processing_version,
         players::get_player_profile,
         player_overview::get_player_stat_overview,
+        possession_stats::get_possession_summary,
         stats::get_stat_aggregates,
         stats::get_processing_version_breakdown,
         replays::create_replay,
@@ -32,6 +36,7 @@ use utoipa::{
         replays::list_replay_groups,
         replays::create_replay_group,
         replays::get_replay_group,
+        replays::delete_replay_group,
         replays::list_replay_group_replays,
         replays::add_replay_group_replays,
         replays::remove_replay_group_replays,
@@ -74,6 +79,12 @@ use utoipa::{
             player_overview::PlayerStatOverviewResponse,
             player_overview::GoalTagAggregateResponse,
             player_overview::RotationTimeShareResponse,
+            possession_stats::PossessionSummaryResponse,
+            possession_stats::PossessionTeammateComparison,
+            possession_stats::PossessionSpanSummary,
+            possession_stats::PossessionDurationBucket,
+            possession_stats::PossessionTouchSummary,
+            possession_stats::PossessionMixValue,
             stats::StatAggregateResponse,
             stats::StatAggregateSetResponse,
             stats::ProcessingVersionBreakdownResponse,
