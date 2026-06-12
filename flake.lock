@@ -83,11 +83,10 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781256867,
-        "narHash": "sha256-o/wesFPVbdCtsYIqfQ0UjZjoHC4OaUk11uqll+k8Grg=",
-        "ref": "refs/heads/colonelpanic/possession-location-breakdowns",
-        "rev": "a8b1497b94574b6348e479d7702b1a6d1cbf6fc3",
-        "revCount": 1587,
+        "lastModified": 1781258474,
+        "narHash": "sha256-F80xYszCEs47XKO5jsxFipaYTZRq9SeDgbywA3Vs7EM=",
+        "rev": "8746f016f097213c376661baa379a7a44840e834",
+        "revCount": 1588,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },
