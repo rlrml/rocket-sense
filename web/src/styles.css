@@ -145,6 +145,12 @@ a {
   overflow-wrap: anywhere;
 }
 
+.page-header-note {
+  max-width: 760px;
+  margin: 6px 0 0;
+  color: var(--muted);
+}
+
 .eyebrow {
   margin: 0;
   color: var(--muted);
@@ -843,6 +849,39 @@ button.status-stale:hover {
 
 .match-context strong {
   font-size: 16px;
+}
+
+.group-participant-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.group-participant-chip {
+  display: inline-grid;
+  gap: 2px;
+  min-width: 120px;
+  max-width: 220px;
+  padding: 9px 11px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.group-participant-chip strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-participant-chip small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .stat-group-nav {
@@ -3665,6 +3704,12 @@ button.status-stale:hover {
   background: #fff8e6;
   color: #6f4b00;
   font-size: 13px;
+}
+
+.api-notice.warning {
+  border-color: #f1a5a5;
+  background: #fff1f1;
+  color: #7f1d1d;
 }
 
 .stat-empty {

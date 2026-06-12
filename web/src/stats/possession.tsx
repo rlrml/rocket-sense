@@ -32,10 +32,12 @@ export function PossessionDetail({
   events,
   players,
   durationSeconds,
+  scope = "replay",
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  scope?: "replay" | "group";
 }) {
   const spans = useMemo(() => possessionSpans(events), [events]);
   const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
@@ -75,13 +77,15 @@ export function PossessionDetail({
           <BallZoneChart buckets={zoneBuckets} totalSeconds={zoneTrackedSeconds} />
         </section>
 
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Possession timeline</h3>
-            <span>{formatSeconds(chartDuration)}</span>
-          </header>
-          <PossessionTimeline spans={spans} durationSeconds={chartDuration} />
-        </section>
+        {scope === "replay" ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Possession timeline</h3>
+              <span>{formatSeconds(chartDuration)}</span>
+            </header>
+            <PossessionTimeline spans={spans} durationSeconds={chartDuration} />
+          </section>
+        ) : null}
       </div>
     </div>
   );

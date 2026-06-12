@@ -126,6 +126,21 @@ export interface ListReplaysResponse {
   next_offset: number | null;
 }
 
+export interface ReplayGroupResponse {
+  id: string;
+  project_id: string | null;
+  name: string;
+  description: string | null;
+  created_by_user_id: string | null;
+  replay_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ListReplayGroupsResponse {
+  groups: ReplayGroupResponse[];
+}
+
 export interface ReplayFilterOption {
   value: string;
   label: string;

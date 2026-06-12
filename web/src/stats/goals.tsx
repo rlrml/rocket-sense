@@ -24,7 +24,7 @@ interface GoalsDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
-  replayId: string;
+  replayId?: string;
 }
 
 export interface GoalTypeDetail {
@@ -77,7 +77,7 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
   const goalKey = useCallback((goal: GoalRow) => goal.event.id, []);
   const buildClip = useCallback(buildGoalClip, []);
   const goalTypeHref = useCallback(
-    (type: GoalType) => `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}`,
+    (type: GoalType) => replayId ? `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}` : undefined,
     [replayId],
   );
 
@@ -111,33 +111,35 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
             </div>
           </section>
 
-          <Suspense
-            fallback={
-              <aside className="event-preview-pip">
-                <div className="event-preview-pip-bar">
-                  <span className="event-preview-pip-label">Loading…</span>
-                </div>
-                <div className="event-clip-player">
-                  <div className="event-clip-status">Loading player…</div>
-                </div>
-              </aside>
-            }
-          >
-            <EventClipPreview
-              replayId={replayId}
-              clip={clip}
-              label={
-                activeGoal
-                  ? `Goal ${activeGoal.index + 1} · ${activeGoal.scorerName} · ${formatSeconds(activeGoal.time)}`
-                  : "Loading…"
+          {replayId ? (
+            <Suspense
+              fallback={
+                <aside className="event-preview-pip">
+                  <div className="event-preview-pip-bar">
+                    <span className="event-preview-pip-label">Loading…</span>
+                  </div>
+                  <div className="event-clip-player">
+                    <div className="event-clip-status">Loading player…</div>
+                  </div>
+                </aside>
               }
-              openHref={`/replays/${encodeURIComponent(replayId)}/player`}
-              showDebug={false}
-            />
-          </Suspense>
+            >
+              <EventClipPreview
+                replayId={replayId}
+                clip={clip}
+                label={
+                  activeGoal
+                    ? `Goal ${activeGoal.index + 1} · ${activeGoal.scorerName} · ${formatSeconds(activeGoal.time)}`
+                    : "Loading…"
+                }
+                openHref={`/replays/${encodeURIComponent(replayId)}/player`}
+                showDebug={false}
+              />
+            </Suspense>
+          ) : null}
         </div>
       ) : (
-        <div className="stat-empty">No goal events are available for this replay yet.</div>
+        <div className="stat-empty">No goal events are available for this selection yet.</div>
       )}
     </div>
   );
@@ -153,7 +155,7 @@ export function GoalCard({
   active: boolean;
   onActivate: (force: boolean) => void;
   /** When provided, goal type chips link to the matching goal playlist. */
-  typeHref?: (type: GoalType) => string;
+  typeHref?: (type: GoalType) => string | undefined;
 }) {
   const navigate = useNavigate();
   return (
