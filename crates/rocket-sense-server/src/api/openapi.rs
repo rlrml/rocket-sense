@@ -32,6 +32,7 @@ use utoipa::{
         replays::list_replay_groups,
         replays::create_replay_group,
         replays::get_replay_group,
+        replays::delete_replay_group,
         replays::list_replay_group_replays,
         replays::add_replay_group_replays,
         replays::remove_replay_group_replays,

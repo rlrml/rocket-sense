@@ -107,6 +107,83 @@ impl RankSubmission {
     pub fn is_empty(&self) -> bool {
         self.players.is_empty()
     }
+
+    pub fn observability_summary(&self) -> RankSubmissionObservabilitySummary {
+        RankSubmissionObservabilitySummary::from_submission(self)
+    }
+}
+
+/// Privacy-preserving counts used when logging submitted rank payloads.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RankSubmissionObservabilitySummary {
+    pub players: usize,
+    pub platforms: usize,
+    pub playlists: usize,
+    pub valid_flags: usize,
+    pub after_snapshots: usize,
+    pub before_snapshots: usize,
+    pub current_snapshots: usize,
+    pub current_mmr: usize,
+    pub current_win_streak: usize,
+    pub current_matches_played: usize,
+    pub current_placement_matches_played: usize,
+    pub current_fetched_at: usize,
+}
+
+impl RankSubmissionObservabilitySummary {
+    fn from_submission(submission: &RankSubmission) -> Self {
+        let mut summary = Self {
+            players: submission.players.len(),
+            ..Self::default()
+        };
+
+        for player in &submission.players {
+            if player.platform.is_some() {
+                summary.platforms += 1;
+            }
+            if player.playlist.is_some() {
+                summary.playlists += 1;
+            }
+            if player.valid.is_some() {
+                summary.valid_flags += 1;
+            }
+            if has_skill_snapshot_fields(&player.after) {
+                summary.after_snapshots += 1;
+            }
+            if has_skill_snapshot_fields(&player.before) {
+                summary.before_snapshots += 1;
+            }
+            let Some(current) = &player.current else {
+                continue;
+            };
+            summary.current_snapshots += 1;
+            if current.mmr.is_some() {
+                summary.current_mmr += 1;
+            }
+            if current.win_streak.is_some() {
+                summary.current_win_streak += 1;
+            }
+            if current.matches_played.is_some() {
+                summary.current_matches_played += 1;
+            }
+            if current.placement_matches_played.is_some() {
+                summary.current_placement_matches_played += 1;
+            }
+            if current.fetched_at.is_some() {
+                summary.current_fetched_at += 1;
+            }
+        }
+
+        summary
+    }
+}
+
+fn has_skill_snapshot_fields(snapshot: &SkillSnapshot) -> bool {
+    snapshot.tier.is_some()
+        || snapshot.division.is_some()
+        || snapshot.mu.is_some()
+        || snapshot.sigma.is_some()
+        || snapshot.mmr.is_some()
 }
 
 /// Outcome of ingesting a rank submission.
