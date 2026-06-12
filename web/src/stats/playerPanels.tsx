@@ -398,6 +398,7 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
   const noAdvantage = metric("no_advantage_count") ?? 0;
   const advantageTotal = advantagesFor + advantagesAgainst + noAdvantage;
   const dimensions = kickoffDimensionKeys
+    .filter((key) => key !== "spawn_position")
     .map((key) => summary.dimensions.find((dimension) => dimension.key === key))
     .filter((dimension): dimension is EventStatDimensionResponse => Boolean(dimension && dimension.values.length > 0));
 

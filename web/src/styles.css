@@ -5413,6 +5413,216 @@ button.status-stale:hover {
   font-size: 16px;
 }
 
+.kickoff-spawn-breakdown {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.kickoff-spawn-breakdown-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.kickoff-spawn-breakdown-header h4 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kickoff-spawn-breakdown-header strong {
+  color: #0f172a;
+  font-size: 13px;
+}
+
+.kickoff-filter-stack {
+  display: grid;
+  gap: 8px;
+}
+
+.kickoff-filter-group {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.kickoff-filter-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.kickoff-filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.kickoff-filter-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border-color: #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #334155;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.kickoff-filter-button:hover:not(:disabled),
+.kickoff-filter-button:focus-visible {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.kickoff-filter-button.active {
+  border-color: #0f766e;
+  background: #ccfbf1;
+  color: #134e4a;
+}
+
+.kickoff-filter-button:disabled {
+  opacity: 0.45;
+}
+
+.kickoff-filter-button strong {
+  color: currentColor;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.kickoff-spawn-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+}
+
+.kickoff-spawn-card {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dbe3ee;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.kickoff-spawn-card-main {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kickoff-spawn-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.kickoff-spawn-card-copy strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kickoff-spawn-card-copy span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kickoff-spawn-paired-icons {
+  display: inline-flex;
+  align-items: center;
+  width: 54px;
+}
+
+.kickoff-spawn-paired-icons .kickoff-shape-icon + .kickoff-shape-icon {
+  margin-left: -9px;
+}
+
+.kickoff-spawn-unknown-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-weight: 900;
+}
+
+.kickoff-spawn-share-track,
+.kickoff-spawn-mini-track {
+  position: relative;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e2e8f0;
+}
+
+.kickoff-spawn-share-track {
+  height: 8px;
+}
+
+.kickoff-spawn-share-track span,
+.kickoff-spawn-mini-track span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.kickoff-spawn-side-rows {
+  display: grid;
+  gap: 5px;
+}
+
+.kickoff-spawn-side-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.kickoff-spawn-side-row strong {
+  color: #334155;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.kickoff-spawn-mini-track {
+  height: 6px;
+}
+
+.kickoff-spawn-empty {
+  margin: 0;
+  font-size: 13px;
+}
+
 .kickoff-dimension-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));

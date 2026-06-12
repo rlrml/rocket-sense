@@ -14,6 +14,7 @@ fn event_stats_query_reuses_replay_set_filters_and_parses_event_options() {
     assert_eq!(query.replay_set.replay_ids, [replay_id]);
     assert_eq!(query.replay_set.playlists, ["Online"]);
     assert_eq!(query.role.as_deref(), Some("taker"));
+    assert!(query.kickoff_spawn.is_empty());
     assert_eq!(query.sample_count, MAX_SAMPLE_COUNT);
     assert_eq!(query.dimension_limit, MAX_DIMENSION_LIMIT);
     assert!(!query.include_samples);
@@ -21,6 +22,44 @@ fn event_stats_query_reuses_replay_set_filters_and_parses_event_options() {
     let player = query.player.expect("player filter should parse");
     assert_eq!(player.platform, "steam");
     assert_eq!(player.platform_player_id, "76561198000000000");
+}
+
+#[test]
+fn event_stats_query_parses_kickoff_shape_and_side_filters() {
+    let query =
+        EventStatsQuery::from_raw_query(Some("kickoff-shape=diagonal&kickoff-side=left"), None)
+            .expect("kickoff filters should parse");
+
+    assert_eq!(query.kickoff_spawn.shape, Some(KickoffSpawnShape::Diagonal));
+    assert_eq!(query.kickoff_spawn.side, Some(KickoffSpawnSide::Left));
+    assert_eq!(query.kickoff_spawn.spawn_positions(), ["diagonal_left"]);
+}
+
+#[test]
+fn kickoff_spawn_filter_collapses_side_independently_from_shape() {
+    let diagonal = KickoffSpawnFilter {
+        shape: Some(KickoffSpawnShape::Diagonal),
+        side: None,
+    };
+    assert_eq!(
+        diagonal.spawn_positions(),
+        ["diagonal_left", "diagonal_right"]
+    );
+
+    let right_side = KickoffSpawnFilter {
+        shape: None,
+        side: Some(KickoffSpawnSide::Right),
+    };
+    assert_eq!(
+        right_side.spawn_positions(),
+        ["diagonal_right", "off_center_right"]
+    );
+
+    let impossible = KickoffSpawnFilter {
+        shape: Some(KickoffSpawnShape::Center),
+        side: Some(KickoffSpawnSide::Left),
+    };
+    assert!(impossible.spawn_positions().is_empty());
 }
 
 #[test]

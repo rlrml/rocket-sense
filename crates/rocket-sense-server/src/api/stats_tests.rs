@@ -1,3 +1,4 @@
+use super::super::event_stats::{KickoffSpawnShape, KickoffSpawnSide};
 use super::*;
 
 #[test]
@@ -118,6 +119,25 @@ fn stat_aggregate_query_parses_game_type_and_team_size_filters() {
     let filters = StatAggregateFilters::from_query(query, None).expect("filters should parse");
     assert_eq!(filters.replay_set.game_types, ["ranked", "tournament"]);
     assert_eq!(filters.replay_set.team_sizes, [2, 3]);
+}
+
+#[test]
+fn stat_aggregate_filters_parse_kickoff_shape_and_side_filters() {
+    let query = StatAggregatesQuery::from_raw_query(Some(
+        "player-id=steam:76561198000000000&kickoff-shape=center_offset&kickoff-side=right",
+    ))
+    .expect("kickoff filters should deserialize");
+    let filters = StatAggregateFilters::from_query(query, None).expect("filters should parse");
+
+    assert_eq!(
+        filters.kickoff_spawn.shape,
+        Some(KickoffSpawnShape::CenterOffset)
+    );
+    assert_eq!(filters.kickoff_spawn.side, Some(KickoffSpawnSide::Right));
+    assert_eq!(
+        filters.kickoff_spawn.spawn_positions(),
+        ["off_center_right"]
+    );
 }
 
 #[test]

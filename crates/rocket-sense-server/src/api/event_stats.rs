@@ -84,6 +84,7 @@ struct EventStatsQuery {
     replay_set: ReplaySetFilters,
     player: Option<PlayerStatFilter>,
     role: Option<String>,
+    kickoff_spawn: KickoffSpawnFilter,
     sample_count: u32,
     dimension_limit: u32,
     include_samples: bool,
@@ -128,6 +129,110 @@ struct KickoffSummaryRow {
     avg_taker_time_to_touch: Option<f64>,
     avg_boost_after: Option<f64>,
     avg_boost_delta: Option<f64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct KickoffSpawnFilter {
+    pub(crate) shape: Option<KickoffSpawnShape>,
+    pub(crate) side: Option<KickoffSpawnSide>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KickoffSpawnShape {
+    Diagonal,
+    CenterOffset,
+    Center,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum KickoffSpawnSide {
+    Left,
+    Right,
+}
+
+impl KickoffSpawnFilter {
+    pub(crate) fn from_query_params(params: &QueryParams) -> Result<Self, ApiError> {
+        Self::from_values(
+            params.first(&["kickoff-shape", "kickoff_shape"]),
+            params.first(&["kickoff-side", "kickoff_side"]),
+        )
+    }
+
+    pub(crate) fn from_values(
+        shape: Option<String>,
+        side: Option<String>,
+    ) -> Result<Self, ApiError> {
+        Ok(Self {
+            shape: shape
+                .as_deref()
+                .filter(|value| !is_all_filter_value(value))
+                .map(parse_kickoff_spawn_shape)
+                .transpose()?,
+            side: side
+                .as_deref()
+                .filter(|value| !is_all_filter_value(value))
+                .map(parse_kickoff_spawn_side)
+                .transpose()?,
+        })
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.shape.is_none() && self.side.is_none()
+    }
+
+    pub(crate) fn spawn_positions(&self) -> Vec<&'static str> {
+        const ALL: &[&str] = &[
+            "diagonal_left",
+            "diagonal_right",
+            "off_center_left",
+            "off_center_right",
+            "center",
+        ];
+        ALL.iter()
+            .copied()
+            .filter(|spawn| self.matches_spawn(spawn))
+            .collect()
+    }
+
+    fn matches_spawn(&self, spawn: &str) -> bool {
+        let shape_matches = match self.shape {
+            Some(KickoffSpawnShape::Diagonal) => spawn.starts_with("diagonal_"),
+            Some(KickoffSpawnShape::CenterOffset) => spawn.starts_with("off_center_"),
+            Some(KickoffSpawnShape::Center) => spawn == "center",
+            None => true,
+        };
+        let side_matches = match self.side {
+            Some(KickoffSpawnSide::Left) => spawn.ends_with("_left"),
+            Some(KickoffSpawnSide::Right) => spawn.ends_with("_right"),
+            None => true,
+        };
+        shape_matches && side_matches
+    }
+}
+
+fn is_all_filter_value(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "" | "all")
+}
+
+fn parse_kickoff_spawn_shape(value: &str) -> Result<KickoffSpawnShape, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "diagonal" => Ok(KickoffSpawnShape::Diagonal),
+        "center_offset" | "center-offset" | "off_center" | "off-center" => {
+            Ok(KickoffSpawnShape::CenterOffset)
+        }
+        "center" => Ok(KickoffSpawnShape::Center),
+        _ => Err(ApiError::bad_request(
+            "kickoff-shape must be diagonal, center_offset, or center",
+        )),
+    }
+}
+
+fn parse_kickoff_spawn_side(value: &str) -> Result<KickoffSpawnSide, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "left" => Ok(KickoffSpawnSide::Left),
+        "right" => Ok(KickoffSpawnSide::Right),
+        _ => Err(ApiError::bad_request("kickoff-side must be left or right")),
+    }
 }
 
 const KICKOFF_DIMENSIONS: &[EventStatsDimension] = &[
@@ -260,6 +365,7 @@ impl EventStatsQuery {
                 .first(&["role"])
                 .map(|role| role.trim().to_ascii_lowercase())
                 .filter(|role| !role.is_empty()),
+            kickoff_spawn: KickoffSpawnFilter::from_query_params(&params)?,
             sample_count,
             dimension_limit,
             include_samples: params
@@ -490,6 +596,55 @@ fn push_event_stats_filters<'args>(
         builder.push(" = ");
         builder.push_bind(role);
     }
+    push_kickoff_event_spawn_filter(
+        builder,
+        &filters.kickoff_spawn,
+        "detail.event_id",
+        "spawn_filter",
+    );
+}
+
+pub(crate) fn push_kickoff_spawn_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filter: &'args KickoffSpawnFilter,
+    spawn_expression: &str,
+) {
+    if filter.is_empty() {
+        return;
+    }
+    let positions = filter.spawn_positions();
+    builder.push(" AND ");
+    if positions.is_empty() {
+        builder.push("FALSE");
+    } else {
+        builder.push(spawn_expression);
+        builder.push(" = ANY(");
+        builder.push_bind(positions);
+        builder.push(")");
+    }
+}
+
+pub(crate) fn push_kickoff_event_spawn_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filter: &'args KickoffSpawnFilter,
+    event_id_expression: &str,
+    alias: &str,
+) {
+    if filter.is_empty() {
+        return;
+    }
+
+    builder.push(" AND EXISTS (SELECT 1 FROM play_event_kickoff_player_details ");
+    builder.push(alias);
+    builder.push(" WHERE ");
+    builder.push(alias);
+    builder.push(".event_id = ");
+    builder.push(event_id_expression);
+    builder.push(" AND ");
+    builder.push(alias);
+    builder.push(".role = 'taker'");
+    push_kickoff_spawn_filter(builder, filter, &format!("{alias}.spawn_position"));
+    builder.push(")");
 }
 
 fn kickoff_metrics(summary: KickoffSummaryRow) -> Vec<EventStatMetricResponse> {

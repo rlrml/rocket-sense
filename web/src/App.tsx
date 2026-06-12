@@ -66,6 +66,11 @@ import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
 import { PlatformIcon, platformLabel } from "./platform";
 import { RankBadge } from "./rank";
 import {
+  KickoffSpawnBreakdown,
+  type KickoffShapeFilter,
+  type KickoffSideFilter,
+} from "./stats/KickoffSpawnBreakdown";
+import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
   PossessionSummaryPanel,
@@ -2373,6 +2378,7 @@ function PlayerStatsPage() {
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
   const [kickoffSummary, setKickoffSummary] = useState<EventStatSummaryResponse | null>(null);
+  const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(null);
   const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -2387,7 +2393,11 @@ function PlayerStatsPage() {
     setStatsError(null);
     setOverview(null);
     setKickoffSummary(null);
+    setKickoffFilterSummary(null);
     setPossessionSummary(null);
+    const pageSearchParams = new URLSearchParams(location.search);
+    const aggregateSearchParams =
+      activeGroup.id === "kickoffs" ? pageSearchParams : stripKickoffSpawnParams(pageSearchParams);
     getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
@@ -2398,7 +2408,7 @@ function PlayerStatsPage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    getPlayerStatAggregates(platform, platformPlayerId, new URLSearchParams(location.search))
+    getPlayerStatAggregates(platform, platformPlayerId, aggregateSearchParams)
       .then((response) => {
         if (!cancelled) setStats(response);
       })
@@ -2419,6 +2429,11 @@ function PlayerStatsPage() {
         if (!cancelled) setKickoffSummary(response);
       })
       .catch(() => {});
+    getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(new URLSearchParams(location.search)))
+      .then((response) => {
+        if (!cancelled) setKickoffFilterSummary(response);
+      })
+      .catch(() => {});
     getPlayerPossessionSummary(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setPossessionSummary(response);
@@ -2427,7 +2442,7 @@ function PlayerStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, platform, platformPlayerId]);
+  }, [activeGroup.id, location.search, platform, platformPlayerId]);
 
   return (
     <section className="page player-stats-page">
@@ -2482,6 +2497,7 @@ function PlayerStatsPage() {
           {stats ? (
             <PlayerAggregateStatsSections
               activeGroup={activeGroup}
+              kickoffFilterSummary={kickoffFilterSummary}
               kickoffSummary={kickoffSummary}
               possessionSummary={possessionSummary}
               overview={overview}
@@ -2519,16 +2535,38 @@ function PlayerStatsPage() {
 }
 
 function playerReplaySetParams(platform: string, platformPlayerId: string, search: string): URLSearchParams {
-  const params = new URLSearchParams(search);
+  const params = stripKickoffSpawnParams(new URLSearchParams(search));
   params.delete("offset");
   params.set("player-id", `${platform}:${platformPlayerId}`);
   return params;
 }
 
 function playerStatGroupPath(platform: string, platformPlayerId: string, groupId: string, search: string): string {
-  const query = new URLSearchParams(search).toString();
+  const params = new URLSearchParams(search);
+  if (groupId !== "kickoffs") {
+    stripKickoffSpawnParams(params);
+  }
+  const query = params.toString();
   const path = `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/${groupId}`;
   return query ? `${path}?${query}` : path;
+}
+
+function stripKickoffSpawnParams(params: URLSearchParams): URLSearchParams {
+  params.delete("kickoff-shape");
+  params.delete("kickoff_shape");
+  params.delete("kickoff-side");
+  params.delete("kickoff_side");
+  return params;
+}
+
+function kickoffShapeFilterFromSearch(search: string): KickoffShapeFilter {
+  const value = new URLSearchParams(search).get("kickoff-shape");
+  return value === "diagonal" || value === "center_offset" || value === "center" ? value : "all";
+}
+
+function kickoffSideFilterFromSearch(search: string): KickoffSideFilter {
+  const value = new URLSearchParams(search).get("kickoff-side");
+  return value === "left" || value === "right" ? value : "all";
 }
 
 // Top-level career segmentation: team size and competitive context are
@@ -2603,6 +2641,7 @@ function PlayerStatsSegmentBar() {
 
 function PlayerAggregateStatsSections({
   activeGroup,
+  kickoffFilterSummary,
   kickoffSummary,
   overview,
   possessionSummary,
@@ -2612,6 +2651,7 @@ function PlayerAggregateStatsSections({
   stats,
 }: {
   activeGroup: StatGroup;
+  kickoffFilterSummary: EventStatSummaryResponse | null;
   kickoffSummary: EventStatSummaryResponse | null;
   overview: PlayerStatOverviewResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
@@ -2620,6 +2660,8 @@ function PlayerAggregateStatsSections({
   search: string;
   stats: StatAggregateSetResponse;
 }) {
+  const location = useLocation();
+  const navigate = useNavigate();
   const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms).slice().sort(comparePlayerStatRates);
   const topStats = sectionStats.slice(0, 20);
   const playlistGroups = stats.groups
@@ -2631,6 +2673,22 @@ function PlayerAggregateStatsSections({
     .slice(0, 8);
   const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
   const Icon = activeGroup.icon;
+  const kickoffShapeFilter = kickoffShapeFilterFromSearch(search);
+  const kickoffSideFilter = kickoffSideFilterFromSearch(search);
+  const kickoffSpawnDimension = kickoffFilterSummary?.dimensions.find(
+    (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
+  );
+
+  const setKickoffFilter = (key: "kickoff-shape" | "kickoff-side", value: string) => {
+    const params = new URLSearchParams(location.search);
+    if (value === "all") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+    const query = params.toString();
+    navigate(query ? `${location.pathname}?${query}` : location.pathname);
+  };
 
   return (
     <section className="stat-detail player-aggregate-stats">
@@ -2664,6 +2722,16 @@ function PlayerAggregateStatsSections({
           <Metric label="Events" value={sectionEventCount.toLocaleString()} />
         </div>
       </header>
+
+      {activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
+        <KickoffSpawnBreakdown
+          dimension={kickoffSpawnDimension}
+          shapeFilter={kickoffShapeFilter}
+          sideFilter={kickoffSideFilter}
+          onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
+          onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
+        />
+      ) : null}
 
       {activeGroup.id === "positioning" || activeGroup.id === "rotation" ? null : (
         <PlayerRateComparisonChart stats={topStats} />

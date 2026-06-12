@@ -7,6 +7,7 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::{
+    event_stats::{push_kickoff_event_spawn_filter, KickoffSpawnFilter},
     query::{
         deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_u32_filter,
         QueryParams,
@@ -233,6 +234,12 @@ pub struct StatAggregatesQuery {
     /// Optional aggregate grouping. Currently supports `playlist`.
     #[serde(rename = "group-by", alias = "group_by")]
     pub group_by: Option<String>,
+    /// Kickoff spawn shape filter for kickoff-scoped aggregate rows.
+    #[serde(rename = "kickoff-shape", alias = "kickoff_shape")]
+    pub kickoff_shape: Option<String>,
+    /// Kickoff spawn side filter for kickoff-scoped aggregate rows.
+    #[serde(rename = "kickoff-side", alias = "kickoff_side")]
+    pub kickoff_side: Option<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -240,6 +247,7 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) replay_set: ReplaySetFilters,
     pub(crate) player: Option<PlayerStatFilter>,
     pub(crate) include_teammates: bool,
+    pub(crate) kickoff_spawn: KickoffSpawnFilter,
     pub(crate) limit: u32,
     pub(crate) group_by: Option<StatAggregateGroupBy>,
 }
@@ -330,6 +338,10 @@ impl StatAggregateFilters {
                 .map(|player_id| PlayerStatFilter::from_query(&player_id))
                 .transpose()?,
             include_teammates: query.include_teammates.unwrap_or(false),
+            kickoff_spawn: KickoffSpawnFilter::from_values(
+                query.kickoff_shape,
+                query.kickoff_side,
+            )?,
             limit: query.count.unwrap_or(50).clamp(1, 200),
             group_by: query
                 .group_by
@@ -373,6 +385,8 @@ impl StatAggregatesQuery {
                 .map(|value| parse_u32_filter("count", &value))
                 .transpose()?,
             group_by: params.first(&["group-by", "group_by"]),
+            kickoff_shape: params.first(&["kickoff-shape", "kickoff_shape"]),
+            kickoff_side: params.first(&["kickoff-side", "kickoff_side"]),
         })
     }
 }
@@ -1039,6 +1053,7 @@ async fn load_replay_set_stat_count_rows(
         "#,
     );
     append_replay_filters(&mut query, filters, "r");
+    append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
     query.push(
         r#"
         GROUP BY et.key, et.display_name, et.category
@@ -1090,6 +1105,7 @@ async fn load_player_stat_count_rows(
             "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
+    append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
     query.push(
         r#"
         ),
@@ -1132,6 +1148,7 @@ async fn load_player_stat_count_rows(
                 "#,
         );
         append_user_facing_stat_event_join_filter(&mut query, "event");
+        append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
         query.push(
             r#"
             ),
@@ -1218,6 +1235,19 @@ fn append_user_facing_stat_event_join_filter<'args>(
         .push(event_alias)
         .push(".")
         .push(AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL);
+}
+
+fn append_event_kickoff_spawn_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args StatAggregateFilters,
+    event_id_expression: &str,
+) {
+    push_kickoff_event_spawn_filter(
+        builder,
+        &filters.kickoff_spawn,
+        event_id_expression,
+        "kickoff_filter",
+    );
 }
 
 fn append_target_player_filters<'args>(
