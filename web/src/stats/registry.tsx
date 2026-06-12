@@ -11,7 +11,8 @@ export interface StatDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
-  replayId: string;
+  replayId?: string;
+  scope?: "replay" | "group";
 }
 
 export interface StatGroup {

@@ -171,9 +171,28 @@ export async function getReplay(replayId: string): Promise<ReplayResponse> {
   return request<ReplayResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}`);
 }
 
+export function getReplayGroup(groupId: string): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`);
+}
+
+export function listReplayGroupReplays(groupId: string): Promise<ListReplaysResponse> {
+  return request<ListReplaysResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`).then((response) => {
+    cacheReplays(response.replays);
+    return response;
+  });
+}
+
 export function getReplayStatAggregates(replayId: string): Promise<StatAggregateSetResponse> {
   const params = new URLSearchParams({
     "replay-id": replayId,
+    count: "200",
+  });
+  return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
+}
+
+export function getReplayGroupStatAggregates(groupId: string): Promise<StatAggregateSetResponse> {
+  const params = new URLSearchParams({
+    group: groupId,
     count: "200",
   });
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
@@ -255,6 +274,40 @@ export async function listReplayEvents(
   while (nextOffset != null && events.length < maxReplayEvents) {
     const params = new URLSearchParams({
       "replay-id": replayId,
+      count: String(eventPageSize),
+      offset: String(offset),
+    });
+    for (const eventType of eventTypes) {
+      params.append("event-type", eventType);
+    }
+    const response = await request<MechanicEventsResponse>(`/api/v1/events?${params.toString()}`);
+    events.push(...response.events);
+    nextOffset = response.next_offset;
+    offset = nextOffset ?? offset;
+  }
+
+  const response = {
+    events,
+    count: events.length,
+    offset: 0,
+    next_offset: nextOffset,
+  };
+  cacheReplayEvents(cacheKey, response);
+  return response;
+}
+
+export async function listReplayGroupEvents(groupId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
+  const cacheKey = replayEventsKey(`group:${groupId}`, eventTypes, null);
+  const cached = getCachedReplayEvents(cacheKey);
+  if (cached) return cached;
+
+  const events: MechanicEventsResponse["events"] = [];
+  let offset = 0;
+  let nextOffset: number | null = 0;
+
+  while (nextOffset != null && events.length < maxReplayEvents) {
+    const params = new URLSearchParams({
+      group: groupId,
       count: String(eventPageSize),
       offset: String(offset),
     });
@@ -404,16 +457,16 @@ function readReplayCache(): Record<string, ReplayResponse> {
 
 function replayEventsKey(replayId: string, eventTypes: string[], processedAt: string | null): string {
   const scope = processedAt ? `${replayId}@${processedAt}` : replayId;
-  return eventTypes.length > 0 ? `${scope}:${eventTypes.slice().sort().join(",")}` : scope;
+  return eventTypes.length > 0 ? `${scope}::${eventTypes.slice().sort().join(",")}` : scope;
 }
 
 function cacheReplayEvents(cacheKey: string, response: MechanicEventsResponse): void {
   try {
     const cache = readReplayEventsCache();
-    const scope = cacheKey.split(":")[0];
+    const scope = cacheKey.split("::")[0];
     const replayId = scope.split("@")[0];
     for (const key of Object.keys(cache)) {
-      const keyScope = key.split(":")[0];
+      const keyScope = key.split("::")[0];
       if (keyScope !== scope && keyScope.split("@")[0] === replayId) {
         delete cache[key];
       }

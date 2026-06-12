@@ -97,7 +97,7 @@ export function BoostDetail({
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
-  replayId: string;
+  replayId?: string;
 }) {
   const tracks = useBoostTracks(replayId);
   const boostEvents = events.filter((event) => event.event_type.includes("boost"));
@@ -1331,11 +1331,16 @@ function boostStatSortValue(summary: BoostPlayerSummary, key: BoostStatSortKey):
 
 // React hook: load the replay's boost accumulation tracks. Returns [] until the
 // fetch resolves (or if the replay has not been reprocessed with tracks yet).
-function useBoostTracks(replayId: string): BoostTrack[] {
+function useBoostTracks(replayId: string | undefined): BoostTrack[] {
   const [tracks, setTracks] = useState<BoostTrack[]>([]);
   useEffect(() => {
     let cancelled = false;
     setTracks([]);
+    if (!replayId) {
+      return () => {
+        cancelled = true;
+      };
+    }
     listBoostTracks(replayId)
       .then((response) => {
         if (!cancelled) setTracks(response.tracks);
