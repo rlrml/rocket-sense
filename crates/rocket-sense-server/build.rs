@@ -156,6 +156,14 @@ fn write_asset_function(output: &mut File, name: &str, asset_dir: &Path) -> io::
     }
     assets.sort();
 
+    if assets.is_empty() {
+        writeln!(
+            output,
+            "fn {name}(_path: &str) -> Option<StaticAsset> {{\n    None\n}}\n"
+        )?;
+        return Ok(());
+    }
+
     writeln!(
         output,
         "fn {name}(path: &str) -> Option<StaticAsset> {{\n    match path {{"

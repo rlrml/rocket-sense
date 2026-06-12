@@ -6,6 +6,7 @@ use crate::{
         upsert_replay_preflight_metadata, ReplayReprocessOptions,
     },
     ranks::{ingest_rank_submissions, RankSubmission},
+    telemetry,
 };
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State},
@@ -514,8 +515,18 @@ pub async fn create_replay(
                 let text = field.text().await.map_err(ApiError::bad_request)?;
                 if !text.trim().is_empty() {
                     let parsed: RankSubmission = serde_json::from_str(&text).map_err(|error| {
+                        telemetry::record_invalid_rank_submission(
+                            "multipart_upload",
+                            text.len(),
+                            &error,
+                        );
                         ApiError::bad_request(format!("invalid `ranks` field: {error}"))
                     })?;
+                    telemetry::record_rank_submission_received(
+                        "multipart_upload",
+                        None,
+                        parsed.observability_summary(),
+                    );
                     rank_submission = Some(parsed);
                 }
             }
@@ -613,12 +624,16 @@ async fn ingest_bundled_ranks(db: &PgPool, replay_id: Uuid, submission: Option<&
         return;
     }
     match ingest_rank_submissions(db, replay_id, submission).await {
-        Ok(summary) => tracing::debug!(
-            %replay_id,
-            submitted = summary.submitted,
-            matched = summary.matched,
-            "ingested bundled replay ranks"
-        ),
+        Ok(summary) => {
+            let rank_fields = submission.observability_summary();
+            telemetry::record_rank_submission_ingested(
+                "multipart_upload",
+                replay_id,
+                rank_fields,
+                summary.submitted,
+                summary.matched,
+            );
+        }
         Err(error) => tracing::warn!(
             %replay_id,
             error = %error,
@@ -1797,9 +1812,21 @@ pub async fn set_replay_ranks(
         }
     }
 
+    telemetry::record_rank_submission_received(
+        "ranks_endpoint",
+        Some(replay_id),
+        submission.observability_summary(),
+    );
     let summary = ingest_rank_submissions(db, replay_id, &submission)
         .await
         .map_err(ApiError::internal)?;
+    telemetry::record_rank_submission_ingested(
+        "ranks_endpoint",
+        replay_id,
+        submission.observability_summary(),
+        summary.submitted,
+        summary.matched,
+    );
 
     Ok(Json(SetReplayRanksResponse {
         replay_id,
