@@ -262,7 +262,7 @@ async fn load_possession_span_summary(
     push_possession_span_filter(&mut query, span_filter);
 
     let row = query.build().fetch_one(pool).await?;
-    Ok(possession_span_summary_from_row(&row)?)
+    possession_span_summary_from_row(&row)
 }
 
 fn possession_span_summary_from_row(
