@@ -259,7 +259,7 @@ const KICKOFF_DIMENSIONS: &[EventStatsDimension] = &[
     },
     EventStatsDimension {
         key: "support_behavior",
-        label: "Support behavior",
+        label: "Approach",
         expression: "detail.support_behavior",
     },
     EventStatsDimension {
@@ -667,7 +667,7 @@ fn kickoff_metrics(summary: KickoffSummaryRow) -> Vec<EventStatMetricResponse> {
         ),
         share_metric(
             "first_touch_share",
-            "First touch rate",
+            "First touch yes share",
             ratio(summary.first_touch_count, summary.event_count),
         ),
         count_metric("missed_count", "Misses", summary.missed_count),

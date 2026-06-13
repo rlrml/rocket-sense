@@ -57,6 +57,20 @@
   --field-pad-outline: #64748b;
   --leader-outline: #111827;
 
+  --outcome-positive: #0f766e;
+  --outcome-positive-strong: #115e59;
+  --outcome-positive-clear: #0f766e;
+  --outcome-positive-narrow: #0f766e;
+  --outcome-positive-unknown: #ccfbf1;
+  --outcome-neutral: #94a3b8;
+  --outcome-neutral-clear: #cbd5e1;
+  --outcome-negative: #7c3aed;
+  --outcome-negative-strong: #5b21b6;
+  --outcome-negative-clear: #7c3aed;
+  --outcome-negative-narrow: #7c3aed;
+  --outcome-negative-unknown: #ddd6fe;
+  --kickoff-detail-fill: #475569;
+
   --status-processed-bg: #dcfce7;
   --status-processed-fg: #166534;
   --status-failed-bg: #fee2e2;

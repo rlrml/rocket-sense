@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PlatformIcon } from "../platform";
 
@@ -74,6 +74,7 @@ export function MetricMeter({
 
 export function StatPlayerLabel({
   className = "",
+  inline = false,
   name,
   platform,
   profilePath,
@@ -81,6 +82,7 @@ export function StatPlayerLabel({
   subtitle,
 }: {
   className?: string;
+  inline?: boolean;
   name: string;
   platform: string | null;
   profilePath?: string | null;
@@ -88,14 +90,23 @@ export function StatPlayerLabel({
   subtitle: string;
 }) {
   const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
-
-  return (
-    <div className={`player-bar-label ${className}`.trim()}>
+  const content = (
+    <>
       <strong className="stat-player-name-line">
         {showPlatformBadge ? <PlatformIcon platform={platform} /> : null}
         <span className="stat-player-name-text">{nameNode}</span>
       </strong>
       <span className="stat-player-subtitle">{subtitle}</span>
+    </>
+  );
+
+  if (inline) {
+    return <span className={`player-bar-label player-bar-label-inline ${className}`.trim()}>{content}</span>;
+  }
+
+  return (
+    <div className={`player-bar-label ${className}`.trim()}>
+      {content}
     </div>
   );
 }
@@ -152,4 +163,95 @@ function rowKey<T>(item: T, index: number): string {
     if (typeof key === "string" || typeof key === "number") return String(key);
   }
   return String(index);
+}
+
+export type OutcomeDistributionTone = "positive" | "neutral" | "negative";
+export type OutcomeDistributionLevel = "strong" | "clear" | "narrow" | "unknown";
+export type OutcomeDistributionColorKey = OutcomeDistributionTone | `${OutcomeDistributionTone}-${OutcomeDistributionLevel}`;
+export type OutcomeDistributionColors = Partial<Record<OutcomeDistributionColorKey, string>>;
+
+export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
+  positive: "#0f766e",
+  "positive-strong": "#115e59",
+  "positive-clear": "#0f766e",
+  "positive-narrow": "#0f766e",
+  "positive-unknown": "#ccfbf1",
+  neutral: "#94a3b8",
+  "neutral-clear": "#cbd5e1",
+  negative: "#7c3aed",
+  "negative-strong": "#5b21b6",
+  "negative-clear": "#7c3aed",
+  "negative-narrow": "#7c3aed",
+  "negative-unknown": "#ddd6fe",
+};
+
+export interface OutcomeDistributionSegment {
+  key: string;
+  label: string;
+  value: number;
+  tone: OutcomeDistributionTone;
+  level?: OutcomeDistributionLevel;
+  visibleLabel?: string;
+  title?: string;
+}
+
+export function OutcomeDistributionBar({
+  ariaLabel,
+  caption,
+  className = "",
+  colors,
+  maxValue,
+  segments,
+  total,
+  visibleCountThreshold,
+}: {
+  ariaLabel: string;
+  caption?: ReactNode;
+  className?: string;
+  colors?: OutcomeDistributionColors;
+  maxValue?: number;
+  segments: OutcomeDistributionSegment[];
+  total: number;
+  visibleCountThreshold?: number;
+}) {
+  const barSegments: SegmentedBarSegment[] = segments.map((segment) => {
+    const level = segment.level ?? "clear";
+    const visibleLabel =
+      segment.visibleLabel ??
+      (visibleCountThreshold != null && segment.value > 0 && total > 0 && segment.value / total >= visibleCountThreshold
+        ? String(segment.value)
+        : undefined);
+    return {
+      key: segment.key,
+      className: `outcome-dist-segment outcome-dist-${segment.tone} outcome-dist-level-${level}`,
+      label: segment.label,
+      value: segment.value,
+      visibleLabel,
+      title: segment.title,
+    };
+  });
+
+  return (
+    <div className={`outcome-distribution ${className}`} style={outcomeDistributionColorStyle(colors)}>
+      <SegmentedBar
+        ariaLabel={ariaLabel}
+        className="outcome-distribution-track"
+        maxValue={maxValue}
+        segments={barSegments}
+        total={total}
+      />
+      {caption ? <div className="outcome-distribution-caption">{caption}</div> : null}
+    </div>
+  );
+}
+
+function outcomeDistributionColorStyle(colors: OutcomeDistributionColors | undefined): CSSProperties | undefined {
+  if (!colors) return undefined;
+
+  const style: Record<string, string> = {};
+  for (const [key, value] of Object.entries(colors)) {
+    if (!value) continue;
+    style[`--outcome-${key}`] = value;
+  }
+  return style as CSSProperties;
 }

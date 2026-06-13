@@ -1474,6 +1474,11 @@ button.status-stale:hover {
   white-space: nowrap;
 }
 
+.kickoff-team-outcomes {
+  display: grid;
+  gap: 12px;
+}
+
 .kickoff-preview {
   display: grid;
   grid-template-columns: minmax(300px, 0.85fr) minmax(420px, 1.25fr);
@@ -1586,26 +1591,27 @@ button.status-stale:hover {
   white-space: normal;
 }
 
-.kickoff-outcome-tug {
+.outcome-distribution {
   display: grid;
   gap: 4px;
   width: 100%;
 }
 
-.kickoff-outcome-tug-track.stat-segmented-track {
-  height: 20px;
+.outcome-distribution-track.stat-segmented-track {
+  height: 22px;
   border: 1px solid var(--border);
   border-radius: 6px;
+  background: var(--surface-subtle);
 }
 
-.kickoff-outcome-tug-track .source-segment {
+.outcome-distribution-track .source-segment {
   flex-grow: 0;
   flex-shrink: 1;
   flex-basis: 0;
   min-width: 0;
 }
 
-.kickoff-outcome-tug-track .source-segment-label {
+.outcome-distribution-track .source-segment-label {
   font-size: 10px;
   font-weight: 800;
   line-height: 1;
@@ -1613,55 +1619,53 @@ button.status-stale:hover {
 }
 
 /* Light shades need dark text for the label to stay legible. */
-.kickoff-outcome-tug-track .tug-level-narrow .source-segment-label,
-.kickoff-outcome-tug-track .tug-level-unknown .source-segment-label,
-.kickoff-outcome-tug-track .tug-neutral .source-segment-label {
+.outcome-distribution-track .outcome-dist-level-narrow .source-segment-label,
+.outcome-distribution-track .outcome-dist-level-unknown .source-segment-label,
+.outcome-distribution-track .outcome-dist-neutral .source-segment-label {
   color: #1e293b;
 }
 
-/* Blue team ramp: darker = more decisive result. */
-.source-segment.kickoff-tug-seg.tug-blue.tug-level-strong {
-  background: #1e3a8a;
+.source-segment.outcome-dist-positive.outcome-dist-level-strong {
+  background: var(--outcome-positive-strong, var(--outcome-positive));
 }
 
-.source-segment.kickoff-tug-seg.tug-blue.tug-level-clear {
-  background: #2563eb;
+.source-segment.outcome-dist-positive.outcome-dist-level-clear {
+  background: var(--outcome-positive-clear, var(--outcome-positive));
 }
 
 /* Narrow results are outlined rather than filled so they read as a weaker
    version of the clear/strong fills instead of a slightly different shade. */
-.source-segment.kickoff-tug-seg.tug-blue.tug-level-narrow {
+.source-segment.outcome-dist-positive.outcome-dist-level-narrow {
   background: #fff;
-  box-shadow: inset 0 0 0 2px #2563eb;
+  box-shadow: inset 0 0 0 2px var(--outcome-positive-narrow, var(--outcome-positive));
 }
 
-.source-segment.kickoff-tug-seg.tug-blue.tug-level-unknown {
-  background: #bfdbfe;
+.source-segment.outcome-dist-positive.outcome-dist-level-unknown {
+  background: var(--outcome-positive-unknown, var(--outcome-positive-clear, var(--outcome-positive)));
 }
 
-/* Orange team ramp: darker = more decisive result. */
-.source-segment.kickoff-tug-seg.tug-orange.tug-level-strong {
-  background: #9a3412;
+.source-segment.outcome-dist-neutral {
+  background: var(--outcome-neutral-clear, var(--outcome-neutral));
 }
 
-.source-segment.kickoff-tug-seg.tug-orange.tug-level-clear {
-  background: #ea580c;
+.source-segment.outcome-dist-negative.outcome-dist-level-strong {
+  background: var(--outcome-negative-strong, var(--outcome-negative));
 }
 
-.source-segment.kickoff-tug-seg.tug-orange.tug-level-narrow {
+.source-segment.outcome-dist-negative.outcome-dist-level-clear {
+  background: var(--outcome-negative-clear, var(--outcome-negative));
+}
+
+.source-segment.outcome-dist-negative.outcome-dist-level-narrow {
   background: #fff;
-  box-shadow: inset 0 0 0 2px #ea580c;
+  box-shadow: inset 0 0 0 2px var(--outcome-negative-narrow, var(--outcome-negative));
 }
 
-.source-segment.kickoff-tug-seg.tug-orange.tug-level-unknown {
-  background: #fed7aa;
+.source-segment.outcome-dist-negative.outcome-dist-level-unknown {
+  background: var(--outcome-negative-unknown, var(--outcome-negative-clear, var(--outcome-negative)));
 }
 
-.source-segment.kickoff-tug-seg.tug-neutral {
-  background: #cbd5e1;
-}
-
-.kickoff-outcome-tug-caption {
+.outcome-distribution-caption {
   display: flex;
   justify-content: space-between;
   font-size: 11px;
@@ -1730,6 +1734,14 @@ button.status-stale:hover {
 
 .source-segment.kickoff-role-segment-map-3 {
   background: #a16207;
+}
+
+.outcome-distribution-caption-positive {
+  color: var(--outcome-positive);
+}
+
+.outcome-distribution-caption-negative {
+  color: var(--outcome-negative);
 }
 
 .kickoff-card-list {
@@ -1821,14 +1833,22 @@ button.status-stale:hover {
 }
 
 .kickoff-perspective-chip-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
   overflow: hidden;
   min-width: 0;
+  padding-left: 0;
+  border-left: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .kickoff-perspective-chip:hover .kickoff-perspective-chip-name,
-.kickoff-perspective-chip.active .kickoff-perspective-chip-name {
+.kickoff-perspective-chip.active .kickoff-perspective-chip-name,
+.kickoff-perspective-chip:hover .player-name,
+.kickoff-perspective-chip.active .player-name {
+  color: inherit;
   text-decoration: underline dotted;
   text-underline-offset: 3px;
 }
@@ -3232,6 +3252,13 @@ button.status-stale:hover {
   min-width: 0;
   padding-left: 10px;
   border-left: 4px solid transparent;
+}
+
+.player-bar-label-inline {
+  display: inline-flex;
+  align-items: center;
+  padding-left: 0;
+  border-left: 0;
 }
 
 .team-accent-blue {
@@ -5484,7 +5511,7 @@ button.status-stale:hover {
 }
 
 .kickoff-dimension-fill {
-  background: #7c3aed;
+  background: var(--kickoff-detail-fill);
 }
 
 .rate-chart-teammate-marker {
@@ -5771,18 +5798,6 @@ button.status-stale:hover {
   font-size: 10px;
   text-align: center;
   white-space: nowrap;
-}
-
-.source-segment.kickoff-outcome-segment-win {
-  background: #16a34a;
-}
-
-.source-segment.kickoff-outcome-segment-neutral {
-  background: #94a3b8;
-}
-
-.source-segment.kickoff-outcome-segment-loss {
-  background: #dc2626;
 }
 
 .kickoff-headline-metrics {
