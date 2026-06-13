@@ -2526,6 +2526,79 @@ button.status-stale:hover {
   white-space: nowrap;
 }
 
+.movement-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.movement-speed-chart,
+.movement-share-rows {
+  display: grid;
+  gap: 10px;
+}
+
+.movement-player-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1.1fr) minmax(220px, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.movement-powerslide-row {
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+}
+
+.movement-player-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(150px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.movement-band-track {
+  min-width: 0;
+}
+
+.source-segment.movement-segment-slow,
+.source-segment.movement-segment-ground {
+  background: #0f766e;
+}
+
+.source-segment.movement-segment-boost,
+.source-segment.movement-segment-low-air {
+  background: #7c3aed;
+}
+
+.source-segment.movement-segment-supersonic,
+.source-segment.movement-segment-high-air {
+  background: #be123c;
+}
+
+.movement-meter-speed {
+  background: #0f766e;
+}
+
+.movement-meter-speed-share {
+  background: #0891b2;
+}
+
+.movement-meter-distance {
+  background: #7c3aed;
+}
+
+.movement-meter-powerslide {
+  background: #be123c;
+}
+
+.movement-meter-powerslide-avg {
+  background: #a16207;
+}
+
+.movement-meter-powerslide-count {
+  background: #475569;
+}
+
 .possession-detail .chart-panel {
   align-content: start;
 }
@@ -4700,6 +4773,15 @@ button.status-stale:hover {
 
   .positioning-meter {
     grid-template-columns: minmax(58px, 0.7fr) minmax(72px, 1fr) minmax(68px, auto);
+  }
+
+  .movement-player-row,
+  .movement-powerslide-row {
+    grid-template-columns: 1fr;
+  }
+
+  .movement-player-metrics {
+    grid-template-columns: 1fr;
   }
 
   .possession-metric-grid {

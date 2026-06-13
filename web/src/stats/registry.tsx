@@ -4,6 +4,7 @@ import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { BoostDetail, boostEventTypes } from "./boost";
 import { GoalsDetail, goalEventTypes } from "./goals";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
+import { MovementDetail, movementEventTypes } from "./movement";
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
 
@@ -67,9 +68,10 @@ export const statGroups: StatGroup[] = [
     icon: Gauge,
     description: "Speed, aerial movement, ground movement, recoveries, jumps, and dodges.",
     terms: ["speed", "movement", "aerial", "air", "ground", "jump", "dodge", "supersonic", "recovery"],
-    completed: false,
-    usesAggregateStats: true,
-    eventTypes: [],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: movementEventTypes,
+    Detail: MovementDetail,
   },
   {
     id: "positioning",
