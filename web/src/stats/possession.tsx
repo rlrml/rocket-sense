@@ -36,7 +36,9 @@ export function PossessionDetail({
   const spans = useMemo(() => possessionSpans(events), [events]);
   const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
   const possessionTotals = possessionStateTotals(spans);
+  const ballHalfTotals = ballHalfStateTotals(spans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
+  const ballHalfTrackedSeconds = sumObjectValues(ballHalfTotals);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
   const playerSummaries = playerPossessionSummaries(players, spans);
   const zoneSubjects = possessionZoneSubjects(players, spans, comparisonMode);
@@ -50,6 +52,14 @@ export function PossessionDetail({
         onComparisonModeChange={setComparisonMode}
       />
       <div className="stat-section-grid">
+        <section className="chart-panel">
+          <header className="chart-panel-header">
+            <h3>Ball half</h3>
+            <span>{formatSeconds(ballHalfTrackedSeconds)} tracked</span>
+          </header>
+          <PossessionShareChart ariaLabel="Ball time by field half" totals={ballHalfTotals} totalSeconds={ballHalfTrackedSeconds} />
+        </section>
+
         <section className="chart-panel">
           <header className="chart-panel-header">
             <h3>{comparisonMode === "teams" ? "Possession share" : "Player possession"}</h3>
@@ -124,9 +134,11 @@ function PossessionComparisonModeToggle({
 }
 
 function PossessionShareChart({
+  ariaLabel = "Possession share",
   totals,
   totalSeconds,
 }: {
+  ariaLabel?: string;
   totals: Record<PossessionState, number>;
   totalSeconds: number;
 }) {
@@ -135,7 +147,7 @@ function PossessionShareChart({
 
   return (
     <div className="possession-share-chart">
-      <SegmentedBar ariaLabel="Possession share" className="possession-share-track" segments={segments} total={total} />
+      <SegmentedBar ariaLabel={ariaLabel} className="possession-share-track" segments={segments} total={total} />
       <div className="possession-metric-grid">
         {possessionStates.map((state) => (
           <div className={`possession-metric possession-state-accent-${state}`} key={state}>
@@ -359,6 +371,15 @@ function possessionStateTotals(spans: PossessionSpan[]): Record<PossessionState,
   return totals;
 }
 
+function ballHalfStateTotals(spans: PossessionSpan[]): Record<PossessionState, number> {
+  const totals = emptyStateTotals();
+  for (const span of spans) {
+    const state = ballHalfState(span.third);
+    if (state) totals[state] += span.duration;
+  }
+  return totals;
+}
+
 function emptyStateTotals(): Record<PossessionState, number> {
   return {
     team_zero: 0,
@@ -460,6 +481,13 @@ function possessionZoneForTeam(third: FieldThird, team: number | null): Possessi
 function possessionStateTeam(state: PossessionState): 0 | 1 | null {
   if (state === "team_zero") return 0;
   if (state === "team_one") return 1;
+  return null;
+}
+
+function ballHalfState(third: FieldThird | null): PossessionState | null {
+  if (third === "team_zero_third") return "team_zero";
+  if (third === "team_one_third") return "team_one";
+  if (third === "neutral_third") return "neutral";
   return null;
 }
 

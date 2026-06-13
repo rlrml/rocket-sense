@@ -680,6 +680,8 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
   const locations = summary.locations;
   const possessionsPerGame = summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
   const possessionTimePerGame = summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
+  const ownHalfPossessionShare = possessionLocationShare(locations.halves, "own_side");
+  const opponentHalfPossessionShare = possessionLocationShare(locations.halves, "opponent_side");
   const surfaceTotal = touches.surfaces.reduce((sum, value) => sum + value.count, 0);
   const histogramTotal = spans.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
   const histogramMax = Math.max(...spans.duration_histogram.map((bucket) => bucket.count), 1);
@@ -705,6 +707,8 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
         <PossessionMetric label="Avg possession length" value={formatSecondsValue(spans.avg_duration_seconds)} />
         <PossessionMetric label="Avg touches per possession" value={spans.avg_touches_per_possession != null ? formatRate(spans.avg_touches_per_possession) : "—"} />
         <PossessionMetric label="Ball advanced per possession" value={formatDistance(spans.avg_advance_distance)} />
+        <PossessionMetric label="Own-half possession" value={formatShare(ownHalfPossessionShare)} />
+        <PossessionMetric label="Opponent-half possession" value={formatShare(opponentHalfPossessionShare)} />
         <PossessionMetric label="Carry time share" value={formatShare(spans.carry_time_share)} />
         <PossessionMetric label="First-touch control rate" value={formatShare(touches.first_touch_control_share)} />
         <PossessionMetric
@@ -838,6 +842,10 @@ function PossessionLocationBreakdown({
       </div>
     </div>
   );
+}
+
+function possessionLocationShare(buckets: PossessionTimeBucket[], key: string): number | null {
+  return buckets.find((bucket) => bucket.key === key)?.share ?? null;
 }
 
 function ControlledPlayComparison({
