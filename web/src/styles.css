@@ -2529,6 +2529,11 @@ button.status-stale:hover {
   white-space: nowrap;
 }
 
+.positioning-raw-table th,
+.positioning-raw-table td {
+  white-space: nowrap;
+}
+
 .movement-detail {
   display: grid;
   gap: 14px;

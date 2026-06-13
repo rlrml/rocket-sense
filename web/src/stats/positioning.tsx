@@ -141,6 +141,14 @@ export function PositioningDetail({
           </header>
           <PositioningProximityChart summaries={summaries} />
         </section>
+
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
+            <h3>Raw totals</h3>
+            <span>Seconds, counts, and average distances behind the charts</span>
+          </header>
+          <PositioningRawTotalsTable summaries={summaries} />
+        </section>
       </div>
     </div>
   );
@@ -245,6 +253,66 @@ function PositioningMeter({ className, label, percent, value }: { className: str
         <span className={`positioning-meter-fill ${className}`} style={{ width: `${clampedPercent}%` }} />
       </span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
+  if (!summaries.some((summary) => summary.trackedSeconds > 0 || roleTotal(summary) > 0)) {
+    return <div className="stat-empty">No raw positioning totals are available for this replay.</div>;
+  }
+
+  return (
+    <div className="table-frame compact-table positioning-table positioning-raw-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Tracked</th>
+            <th>Def</th>
+            <th>Neutral</th>
+            <th>Off</th>
+            <th>Behind</th>
+            <th>Level</th>
+            <th>Ahead</th>
+            <th>Back</th>
+            <th>Mid</th>
+            <th>Forward</th>
+            <th>Closest</th>
+            <th>Other</th>
+            <th>Farthest</th>
+            <th>Avg ball</th>
+            <th>Avg team</th>
+            <th>Caught</th>
+          </tr>
+        </thead>
+        <tbody>
+          {summaries.map((summary) => (
+            <tr key={summary.key}>
+              <td>
+                <strong>{summary.name}</strong>
+                <div className="subtle">{teamLabel(summary.team)}</div>
+              </td>
+              <td>{formatSeconds(summary.trackedSeconds)}</td>
+              <td>{formatSeconds(summary.defensiveThirdSeconds)}</td>
+              <td>{formatSeconds(summary.neutralThirdSeconds)}</td>
+              <td>{formatSeconds(summary.offensiveThirdSeconds)}</td>
+              <td>{formatSeconds(summary.behindBallSeconds)}</td>
+              <td>{formatSeconds(summary.levelWithBallSeconds)}</td>
+              <td>{formatSeconds(summary.inFrontOfBallSeconds)}</td>
+              <td>{formatSeconds(summary.roleSeconds.most_back)}</td>
+              <td>{formatSeconds(summary.roleSeconds.mid)}</td>
+              <td>{formatSeconds(summary.roleSeconds.most_forward)}</td>
+              <td>{formatSeconds(summary.closestTeamSeconds)}</td>
+              <td>{formatSeconds(otherBallPrioritySeconds(summary))}</td>
+              <td>{formatSeconds(summary.farthestSeconds)}</td>
+              <td>{formatDistance(weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight))}</td>
+              <td>{formatDistance(weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight))}</td>
+              <td>{summary.caughtAheadGoals.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
