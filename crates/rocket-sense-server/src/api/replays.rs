@@ -87,6 +87,8 @@ pub fn public_router() -> Router<AppState> {
             "/subtr-actor/review/assets/{asset_path}",
             get(subtr_actor_review_asset),
         )
+        .route("/models/{*asset_path}", get(subtr_actor_model_asset))
+        .route("/draco/{*asset_path}", get(subtr_actor_draco_asset))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1252,6 +1254,22 @@ async fn subtr_actor_review_asset(
     Path(asset_path): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
     let asset = subtr_actor_review_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+}
+
+async fn subtr_actor_model_asset(
+    Path(asset_path): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let asset = subtr_actor_model_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+
+    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+}
+
+async fn subtr_actor_draco_asset(
+    Path(asset_path): Path<String>,
+) -> Result<impl IntoResponse, StatusCode> {
+    let asset = subtr_actor_draco_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
 }

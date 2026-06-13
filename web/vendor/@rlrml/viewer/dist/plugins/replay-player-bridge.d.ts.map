@@ -1,0 +1,1 @@
+{"version":3,"file":"replay-player-bridge.d.ts","sourceRoot":"","sources":["../../src/plugins/replay-player-bridge.ts"],"names":[],"mappings":"AAkCA,OAAO,KAAK,EAEV,kBAAkB,EAMnB,MAAM,eAAe,CAAC;AACvB,OAAO,KAAK,EACV,YAAY,EAIb,MAAM,aAAa,CAAC;AA+HrB;;;;GAIG;AACH,wBAAgB,sBAAsB,CAAC,CAAC,SAAS,kBAAkB,EACjE,MAAM,EAAE,CAAC,GACR,YAAY,GAAG,IAAI,CAAC,CAAC,EAAE,MAAM,kBAAkB,CAAC,CAwBlD"}

@@ -1,11 +1,12 @@
 import {
-  ReplayPlayer,
-  type ReplayFreeCameraPreset,
+  createViewerFromParsed,
   type ReplayModel,
-} from "@rlrml/player";
+  type ViewerFreeCameraPreset,
+  type ViewerPlayer,
+} from "@rlrml/viewer";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { preloadReplayModel } from "./replayModel";
+import { preloadReplay, preloadReplayModel } from "./replayModel";
 
 // Re-exported for existing importers; the loader itself now lives in replayModel.ts
 // so consumers that only need parsed frames can avoid the renderer bundle.
@@ -24,7 +25,7 @@ export interface EventClipCameraControls {
    */
   followPlayer(target: { playerKey?: string | null; playerName?: string | null; ballCam?: boolean }): boolean;
   /** Switch to a free-roaming camera preset (defaults to "side"). */
-  freeCamera(preset?: ReplayFreeCameraPreset): void;
+  freeCamera(preset?: ViewerFreeCameraPreset): void;
 }
 
 /**
@@ -123,7 +124,7 @@ export function EventClipPreview({
 
 export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }: EventClipPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<ReplayPlayer | null>(null);
+  const playerRef = useRef<ViewerPlayer | null>(null);
   const loopRef = useRef<{ start: number; end: number } | null>(null);
   const clipRef = useRef<EventClip | null>(clip);
   clipRef.current = clip;
@@ -191,6 +192,10 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
     if (!player) {
       return;
     }
+    const replay = player.replay;
+    if (!replay) {
+      return;
+    }
     // Frame indices align between upstream event data and the parsed replay, but
     // the player rebases frame times to start at 0. Always resolve a frame index
     // through the parsed frames (clamped to range) so we use the player clock.
@@ -198,17 +203,17 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
       if (frameIndex == null) {
         return undefined;
       }
-      const clamped = Math.min(Math.max(frameIndex, 0), player.replay.frames.length - 1);
-      return player.replay.frames[clamped]?.time;
+      const clamped = Math.min(Math.max(frameIndex, 0), replay.frames.length - 1);
+      return replay.frames[clamped]?.time;
     };
     const startFrameTime = frameTime(target.startFrame);
     const endFrameTime = frameTime(target.endFrame);
     const anchorTime = frameTime(target.anchorFrame);
     const resolvedStartTime = target.resolveStart
-      ? target.resolveStart(player.replay, target.start)
+      ? target.resolveStart(replay, target.start)
       : null;
     const resolvedEndTime = target.resolveEnd
-      ? target.resolveEnd(player.replay, target.end)
+      ? target.resolveEnd(replay, target.end)
       : null;
     const start =
       resolvedStartTime != null
@@ -224,7 +229,7 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
         : endFrameTime != null
         ? endFrameTime
         : anchorTime != null
-        ? Math.min(player.replay.duration, anchorTime + (target.postrollSeconds ?? 0))
+        ? Math.min(replay.duration, anchorTime + (target.postrollSeconds ?? 0))
         : target.end;
     loopRef.current = { start, end };
     const cameraControls: EventClipCameraControls = {
@@ -254,7 +259,7 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
   // Load the replay and create the player once per replay id.
   useEffect(() => {
     let cancelled = false;
-    let player: ReplayPlayer | null = null;
+    let player: ViewerPlayer | null = null;
     let unsubscribe: (() => void) | null = null;
     let unsubscribeBeforeRender: (() => void) | null = null;
     // Watchdog independent of the render loop: guarantees the clip keeps looping
@@ -278,11 +283,12 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
     }, 500);
 
     setStatus("loading");
-    preloadReplayModel(replayId)
-      .then((replay) => {
+    preloadReplay(replayId)
+      .then((loadedReplay) => {
         if (cancelled || !containerRef.current) {
           return;
         }
+        const { replay } = loadedReplay;
         const trackByName = new Map<string, string>();
         const trackByPlayerKey = new Map<string, string>();
         for (const track of replay.players) {
@@ -293,7 +299,7 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
         }
         trackByPlayerKeyRef.current = trackByPlayerKey;
         trackByNameRef.current = trackByName;
-        player = new ReplayPlayer(containerRef.current, replay, {
+        player = createViewerFromParsed(containerRef.current, loadedReplay, {
           initialCameraViewMode: "free",
           initialPlaybackRate: 1,
           autoplay: false,
@@ -389,4 +395,3 @@ function normalizePlayerKey(value: string): string {
   const id = value.slice(separator + 1).trim();
   return `${platform === "psynet" ? "epic" : platform === "playstation" ? "ps4" : platform}:${id}`;
 }
-
