@@ -2484,7 +2484,6 @@ function PlayerStatsPage() {
             <Metric label="First seen" value={formatShortDate(playerSummary.first_seen_at)} />
             <Metric label="Last seen" value={formatShortDate(playerSummary.last_seen_at)} />
             <PlayerIdMetric value={playerSummary.platform_player_id} />
-            <Metric label="Names" value={playerSummary.names.length.toLocaleString()} />
             <Metric label="Pro" value={playerSummary.is_pro ? "Yes" : "No"} />
           </div>
           {playerSummary.names.length > 0 ? (
