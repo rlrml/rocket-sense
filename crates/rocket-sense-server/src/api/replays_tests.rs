@@ -19,6 +19,19 @@ fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
 }
 
 #[test]
+fn subtr_actor_viewer_runtime_assets_are_embedded_with_browser_content_types() {
+    let stadium = subtr_actor_model_static_asset("stadium/stadium.glb")
+        .expect("viewer stadium model should be embedded");
+    assert_eq!(stadium.content_type, "application/octet-stream");
+    assert!(!stadium.bytes.is_empty());
+
+    let draco = subtr_actor_draco_static_asset("draco_decoder.js")
+        .expect("viewer draco decoder should be embedded");
+    assert_eq!(draco.content_type, "application/javascript; charset=utf-8");
+    assert!(!draco.bytes.is_empty());
+}
+
+#[test]
 fn subtr_actor_stats_index_serves_report_app() {
     assert!(SUBTR_ACTOR_STATS_INDEX.contains("subtr-actor stats report"));
     assert!(asset_paths(SUBTR_ACTOR_STATS_INDEX)
