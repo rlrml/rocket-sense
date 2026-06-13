@@ -32,16 +32,39 @@ fn duration_buckets_are_contiguous_and_open_ended() {
 
 #[test]
 fn field_thirds_map_to_field_halves() {
+    assert_eq!(field_half_from_third("own_third"), "own_side");
     assert_eq!(field_half_from_third("team_zero_third"), "team_zero_side");
     assert_eq!(field_half_from_third("neutral_third"), "neutral");
+    assert_eq!(field_half_from_third("opponent_third"), "opponent_side");
     assert_eq!(field_half_from_third("team_one_third"), "team_one_side");
 }
 
 #[test]
+fn field_thirds_orient_to_player_side_when_player_team_is_known() {
+    assert_eq!(
+        possession_third_key("team_zero_third", Some(0)),
+        "own_third"
+    );
+    assert_eq!(
+        possession_third_key("team_one_third", Some(0)),
+        "opponent_third"
+    );
+    assert_eq!(possession_third_key("team_one_third", Some(1)), "own_third");
+    assert_eq!(
+        possession_third_key("team_zero_third", Some(1)),
+        "opponent_third"
+    );
+    assert_eq!(
+        possession_third_key("team_zero_third", None),
+        "team_zero_third"
+    );
+}
+
+#[test]
 fn possession_time_bucket_computes_share() {
-    let bucket = possession_time_bucket("team_zero_side", "Blue half", 2.0, 5.0);
-    assert_eq!(bucket.key, "team_zero_side");
-    assert_eq!(bucket.label, "Blue half");
+    let bucket = possession_time_bucket("own_side", "Own half", 2.0, 5.0);
+    assert_eq!(bucket.key, "own_side");
+    assert_eq!(bucket.label, "Own half");
     assert_eq!(bucket.duration_seconds, 2.0);
     assert_eq!(bucket.share, Some(0.4));
 

@@ -1,8 +1,8 @@
 use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{
+    Json, Router,
     extract::{RawQuery, State},
     routing::get,
-    Json, Router,
 };
 use serde::Serialize;
 use sqlx::{Postgres, QueryBuilder, Row};
@@ -13,7 +13,7 @@ use super::{
     event_stats::{count_column, display_label, finite_value},
     query::QueryParams,
     replay_set::{PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters},
-    replays::{require_db, ApiError},
+    replays::{ApiError, require_db},
 };
 
 #[cfg(test)]
@@ -489,6 +489,7 @@ fn push_possession_event_from<'args>(
             JOIN play_event_subjects subject
               ON subject.event_id = event.id
              AND subject.subject_kind = 'player'
+            JOIN replay_players rp ON rp.id = subject.replay_player_id
             "#,
         );
     }
@@ -514,37 +515,47 @@ async fn load_possession_location_summary(
         r#"
         SELECT
             payload.payload ->> 'field_third' AS field_third,
+        "#,
+    );
+    if filters.player.is_some() {
+        query.push(" rp.team AS player_team, ");
+    } else {
+        query.push(" NULL::integer AS player_team, ");
+    }
+    query.push(
+        r#"
             COALESCE(SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)), 0) AS duration
         "#,
     );
     push_possession_event_from(&mut query, filters);
-    query.push(" GROUP BY 1");
+    query.push(" GROUP BY 1, 2");
 
     let rows = query.build().fetch_all(pool).await?;
-    let mut third_seconds = [
-        ("team_zero_third", 0.0),
-        ("neutral_third", 0.0),
-        ("team_one_third", 0.0),
-    ];
-    let mut half_seconds = [
-        ("team_zero_side", 0.0),
-        ("neutral", 0.0),
-        ("team_one_side", 0.0),
-    ];
+    let player_relative = filters.player.is_some();
+    let mut third_seconds = possession_third_keys(player_relative)
+        .into_iter()
+        .map(|key| (key, 0.0))
+        .collect::<Vec<_>>();
+    let mut half_seconds = possession_half_keys(player_relative)
+        .into_iter()
+        .map(|key| (key, 0.0))
+        .collect::<Vec<_>>();
 
     for row in rows {
         let field_third: Option<String> = row.try_get("field_third")?;
+        let player_team: Option<i32> = row.try_get("player_team")?;
         let duration: f64 = row.try_get("duration")?;
         let Some(field_third) = field_third.as_deref() else {
             continue;
         };
+        let bucket_third = possession_third_key(field_third, player_team);
         if let Some((_, seconds)) = third_seconds
             .iter_mut()
-            .find(|(key, _)| *key == field_third)
+            .find(|(key, _)| *key == bucket_third)
         {
             *seconds += duration;
         }
-        let field_half = field_half_from_third(field_third);
+        let field_half = field_half_from_third(bucket_third);
         if let Some((_, seconds)) = half_seconds.iter_mut().find(|(key, _)| *key == field_half) {
             *seconds += duration;
         }
@@ -590,15 +601,45 @@ fn possession_time_bucket(
 
 fn field_half_from_third(field_third: &str) -> &'static str {
     match field_third {
+        "own_third" => "own_side",
         "team_zero_third" => "team_zero_side",
+        "opponent_third" => "opponent_side",
         "team_one_third" => "team_one_side",
         _ => "neutral",
     }
 }
 
+fn possession_third_keys(player_relative: bool) -> Vec<&'static str> {
+    if player_relative {
+        vec!["own_third", "neutral_third", "opponent_third"]
+    } else {
+        vec!["team_zero_third", "neutral_third", "team_one_third"]
+    }
+}
+
+fn possession_half_keys(player_relative: bool) -> Vec<&'static str> {
+    if player_relative {
+        vec!["own_side", "neutral", "opponent_side"]
+    } else {
+        vec!["team_zero_side", "neutral", "team_one_side"]
+    }
+}
+
+fn possession_third_key(field_third: &str, player_team: Option<i32>) -> &'static str {
+    match (field_third, player_team) {
+        ("team_zero_third", Some(0)) | ("team_one_third", Some(1)) => "own_third",
+        ("team_one_third", Some(0)) | ("team_zero_third", Some(1)) => "opponent_third",
+        ("team_zero_third", _) => "team_zero_third",
+        ("team_one_third", _) => "team_one_third",
+        _ => "neutral_third",
+    }
+}
+
 fn field_third_label(field_third: &str) -> &'static str {
     match field_third {
+        "own_third" => "Own third",
         "team_zero_third" => "Blue third",
+        "opponent_third" => "Opponent third",
         "team_one_third" => "Orange third",
         _ => "Neutral third",
     }
@@ -606,7 +647,9 @@ fn field_third_label(field_third: &str) -> &'static str {
 
 fn field_half_label(field_half: &str) -> &'static str {
     match field_half {
+        "own_side" => "Own half",
         "team_zero_side" => "Blue half",
+        "opponent_side" => "Opponent half",
         "team_one_side" => "Orange half",
         _ => "Neutral",
     }

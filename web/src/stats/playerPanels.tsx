@@ -1045,7 +1045,9 @@ function possessionLocationSegment(bucket: PossessionTimeBucket, totalSeconds: n
 }
 
 function possessionLocationClass(key: string): string {
+  if (key.includes("own")) return "possession-location-team-zero";
   if (key.includes("team_zero")) return "possession-location-team-zero";
+  if (key.includes("opponent")) return "possession-location-team-one";
   if (key.includes("team_one")) return "possession-location-team-one";
   return "possession-location-neutral";
 }
