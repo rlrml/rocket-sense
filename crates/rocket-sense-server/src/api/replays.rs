@@ -2,7 +2,7 @@ use crate::{
     app::AppState,
     auth::{AuthUser, OptionalAuthUser},
     processing::{
-        enqueue_replay_processing_job, enqueue_replay_reprocessing,
+        enqueue_replay_processing_job, enqueue_replay_reprocessing, process_client_scaffold,
         upsert_replay_preflight_metadata, ReplayReprocessOptions,
     },
     ranks::{ingest_rank_submissions, RankSubmission},
@@ -49,6 +49,10 @@ pub fn router() -> Router<AppState> {
         .route("/replays/{replay_id}/file", get(download_replay_file))
         .route("/replays/{replay_id}/ranks", post(set_replay_ranks))
         .route("/replays/{replay_id}/reprocess", post(reprocess_replay))
+        .route(
+            "/replays/{replay_id}/reprocess/client",
+            post(reprocess_replay_client),
+        )
         .route(
             "/replays/{replay_id}/stats/boost-tracks",
             get(get_replay_boost_tracks),
@@ -1778,6 +1782,112 @@ pub async fn reprocess_replay(
         replay_id,
         enqueued: summary.enqueued_replays > 0,
         forced: query.force,
+    }))
+}
+
+/// Body for a client-side reprocess: the browser ran subtr-actor WASM to produce
+/// the stats-timeline scaffold JSON and uploads it here for the server to persist
+/// as a new canonical analysis run (no server-side subtr-actor re-run).
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReprocessReplayClientRequest {
+    /// The subtr-actor git sha the browser ran. Version-gated against the
+    /// server's build to reject stale clients.
+    pub subtr_actor_git_sha: String,
+    /// The full `ReplayStatsTimelineScaffold` serialized to JSON.
+    #[schema(value_type = Object)]
+    pub scaffold: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReprocessReplayClientResponse {
+    pub replay_id: Uuid,
+    /// The new canonical analysis run created from the uploaded scaffold.
+    pub analysis_run_id: Uuid,
+    /// Replay processing status after persisting (`processed`).
+    pub status: String,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replays/{replay_id}/reprocess/client",
+    tag = "replays",
+    params(
+        ("replay_id" = Uuid, Path, description = "The replay to reprocess client-side"),
+    ),
+    request_body = ReprocessReplayClientRequest,
+    responses(
+        (status = 200, description = "Client scaffold persisted as new canonical run", body = ReprocessReplayClientResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not have permission to reprocess this replay"),
+        (status = 404, description = "Replay not found"),
+        (status = 409, description = "Stale client: subtr-actor version mismatch"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn reprocess_replay_client(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+    Json(request): Json<ReprocessReplayClientRequest>,
+) -> Result<Json<ReprocessReplayClientResponse>, ApiError> {
+    let db = require_db(&state)?;
+
+    // Resolve owner + the input file sha for the new analysis run in one fetch.
+    let row = sqlx::query("SELECT uploaded_by_user_id, file_sha256 FROM replays WHERE id = $1")
+        .bind(replay_id)
+        .fetch_optional(db)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    let uploaded_by: Option<Uuid> = row
+        .try_get("uploaded_by_user_id")
+        .map_err(ApiError::internal)?;
+    let file_sha256: String = row.try_get("file_sha256").map_err(ApiError::internal)?;
+
+    let is_owner = uploaded_by == Some(auth_user.id);
+    if !is_owner {
+        let is_admin = crate::auth::resolve_is_admin(db, &auth_user, &state.admin_emails)
+            .await
+            .map_err(ApiError::internal)?;
+        if !is_admin {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "you do not have permission to reprocess this replay",
+            ));
+        }
+    }
+
+    // Version gate: reject a stale client whose subtr-actor build differs from
+    // the server's. Skipped on dev builds where the server sha is unknown.
+    if let Some(server_sha) = option_env!("SUBTR_ACTOR_GIT_SHA") {
+        if server_sha != request.subtr_actor_git_sha {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "stale client: refresh the page (subtr-actor version mismatch)",
+            ));
+        }
+    }
+
+    let analysis_run_id = process_client_scaffold(
+        db,
+        &state.storage,
+        replay_id,
+        &file_sha256,
+        auth_user.id,
+        &request.subtr_actor_git_sha,
+        request.scaffold,
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(ReprocessReplayClientResponse {
+        replay_id,
+        analysis_run_id,
+        status: "processed".to_owned(),
     }))
 }
 

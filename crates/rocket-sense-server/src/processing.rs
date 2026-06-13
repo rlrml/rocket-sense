@@ -1037,93 +1037,15 @@ async fn process_replay(
             tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
                 .await
                 .context("replay analysis task panicked")??;
-        let event_stream_bytes = serde_json::to_vec(&output.event_stream)
-            .context("failed to serialize replay event stream")?;
-        let event_stream_sha256 = sha256_hex(&event_stream_bytes);
-        let event_stream_key = event_stream_object_key(&file_sha256, analysis_run_id);
-        let stored_event_stream = storage
-            .put(&event_stream_key, Bytes::from(event_stream_bytes), None)
-            .await
-            .context("failed to write replay event stream object")?;
-
-        insert_replay_object(&pool, replay_id, "event_stream", &stored_event_stream).await?;
-        update_analysis_run_event_stream(
+        persist_analysis_output(
             &pool,
-            analysis_run_id,
-            &stored_event_stream.key,
-            &event_stream_sha256,
-            stored_event_stream.byte_size,
-            stored_event_stream.storage_encoding,
-            stored_event_stream.storage_byte_size,
-        )
-        .await?;
-        let replay_players =
-            upsert_replay_search_metadata(&pool, replay_id, &output.metadata).await?;
-        let event_type_ids = ensure_event_types(&pool, &output.indexed_events).await?;
-        insert_play_events(
-            &pool,
-            analysis_run_id,
-            replay_id,
-            &output.indexed_events,
-            &event_type_ids,
-            &replay_players,
-        )
-        .await?;
-        insert_boost_accumulation_tracks(&pool, analysis_run_id, replay_id, &output.boost_tracks)
-            .await?;
-        let carried_reviews =
-            carry_forward_event_reviews(&pool, replay_id, analysis_run_id).await?;
-        if carried_reviews > 0 {
-            tracing::info!(
-                %replay_id,
-                %analysis_run_id,
-                carried_reviews,
-                "carried forward replay event reviews"
-            );
-        }
-        mark_analysis_run_succeeded(&pool, analysis_run_id).await?;
-        mark_replay_parse_succeeded(&pool, replay_id, analysis_run_id).await?;
-        let pruned_events = prune_superseded_run_events(&pool, replay_id, analysis_run_id).await?;
-        if pruned_events > 0 {
-            tracing::info!(
-                %replay_id,
-                %analysis_run_id,
-                pruned_events,
-                "pruned play events from superseded analysis runs"
-            );
-        }
-        // Best-effort: stream object deletion is idempotent and retried by the
-        // next prune or an admin GC sweep, so a storage hiccup here should not
-        // mark an otherwise-successful analysis run as failed.
-        match delete_superseded_run_event_streams(
-            &pool,
-            storage.as_ref(),
+            &storage,
             replay_id,
             analysis_run_id,
+            &file_sha256,
+            output,
         )
         .await
-        {
-            Ok(gc) if gc.deleted_objects > 0 => {
-                tracing::info!(
-                    %replay_id,
-                    %analysis_run_id,
-                    deleted_objects = gc.deleted_objects,
-                    reclaimed_storage_bytes = gc.reclaimed_storage_bytes,
-                    "deleted event stream objects from superseded analysis runs"
-                );
-            }
-            Ok(_) => {}
-            Err(error) => {
-                tracing::warn!(
-                    %replay_id,
-                    %analysis_run_id,
-                    error = %format!("{error:#}"),
-                    "failed to delete superseded event stream objects"
-                );
-            }
-        }
-
-        Ok::<_, anyhow::Error>(())
     }
     .await;
 
@@ -1135,6 +1057,168 @@ async fn process_replay(
     }
 
     Ok(())
+}
+
+/// Persist a produced [`ReplayAnalysisOutput`] as the new canonical analysis
+/// run for `replay_id`. This is everything that is independent of *how* the
+/// output was produced (server-side subtr-actor vs. a client-submitted
+/// scaffold): store the event stream object, upsert search metadata, index play
+/// events + boost tracks, carry forward reviews, mark the run/replay succeeded,
+/// and prune/GC superseded runs. Callers are responsible for inserting the
+/// `analysis_runs` row beforehand and for failure bookkeeping
+/// (`mark_analysis_run_failed` + status) on error.
+async fn persist_analysis_output(
+    pool: &PgPool,
+    storage: &Arc<dyn ObjectStorage>,
+    replay_id: Uuid,
+    analysis_run_id: Uuid,
+    file_sha256: &str,
+    output: ReplayAnalysisOutput,
+) -> Result<()> {
+    let event_stream_bytes = serde_json::to_vec(&output.event_stream)
+        .context("failed to serialize replay event stream")?;
+    let event_stream_sha256 = sha256_hex(&event_stream_bytes);
+    let event_stream_key = event_stream_object_key(file_sha256, analysis_run_id);
+    let stored_event_stream = storage
+        .put(&event_stream_key, Bytes::from(event_stream_bytes), None)
+        .await
+        .context("failed to write replay event stream object")?;
+
+    insert_replay_object(pool, replay_id, "event_stream", &stored_event_stream).await?;
+    update_analysis_run_event_stream(
+        pool,
+        analysis_run_id,
+        &stored_event_stream.key,
+        &event_stream_sha256,
+        stored_event_stream.byte_size,
+        stored_event_stream.storage_encoding,
+        stored_event_stream.storage_byte_size,
+    )
+    .await?;
+    let replay_players = upsert_replay_search_metadata(pool, replay_id, &output.metadata).await?;
+    let event_type_ids = ensure_event_types(pool, &output.indexed_events).await?;
+    insert_play_events(
+        pool,
+        analysis_run_id,
+        replay_id,
+        &output.indexed_events,
+        &event_type_ids,
+        &replay_players,
+    )
+    .await?;
+    insert_boost_accumulation_tracks(pool, analysis_run_id, replay_id, &output.boost_tracks)
+        .await?;
+    let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
+    if carried_reviews > 0 {
+        tracing::info!(
+            %replay_id,
+            %analysis_run_id,
+            carried_reviews,
+            "carried forward replay event reviews"
+        );
+    }
+    mark_analysis_run_succeeded(pool, analysis_run_id).await?;
+    mark_replay_parse_succeeded(pool, replay_id, analysis_run_id).await?;
+    let pruned_events = prune_superseded_run_events(pool, replay_id, analysis_run_id).await?;
+    if pruned_events > 0 {
+        tracing::info!(
+            %replay_id,
+            %analysis_run_id,
+            pruned_events,
+            "pruned play events from superseded analysis runs"
+        );
+    }
+    // Best-effort: stream object deletion is idempotent and retried by the
+    // next prune or an admin GC sweep, so a storage hiccup here should not
+    // mark an otherwise-successful analysis run as failed.
+    match delete_superseded_run_event_streams(pool, storage.as_ref(), replay_id, analysis_run_id)
+        .await
+    {
+        Ok(gc) if gc.deleted_objects > 0 => {
+            tracing::info!(
+                %replay_id,
+                %analysis_run_id,
+                deleted_objects = gc.deleted_objects,
+                reclaimed_storage_bytes = gc.reclaimed_storage_bytes,
+                "deleted event stream objects from superseded analysis runs"
+            );
+        }
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(
+                %replay_id,
+                %analysis_run_id,
+                error = %format!("{error:#}"),
+                "failed to delete superseded event stream objects"
+            );
+        }
+    }
+
+    Ok(())
+}
+
+/// Persist a client-submitted (browser WASM) stats-timeline scaffold as the new
+/// canonical analysis run for `replay_id`, WITHOUT re-running subtr-actor. The
+/// scaffold is read directly from JSON (the server cannot deserialize it into
+/// the typed scaffold). On success the new run becomes canonical; on failure the
+/// run is marked failed and the replay status set to `failed`, mirroring
+/// [`process_replay`]'s bookkeeping.
+pub(crate) async fn process_client_scaffold(
+    pool: &PgPool,
+    storage: &Arc<dyn ObjectStorage>,
+    replay_id: Uuid,
+    file_sha256: &str,
+    submitted_by_user_id: Uuid,
+    client_subtr_actor_git_sha: &str,
+    scaffold: Value,
+) -> Result<Uuid> {
+    set_replay_status(pool, replay_id, "processing").await?;
+
+    let analysis_run_id = Uuid::now_v7();
+    insert_analysis_run_client(
+        pool,
+        analysis_run_id,
+        replay_id,
+        file_sha256,
+        submitted_by_user_id,
+        client_subtr_actor_git_sha,
+    )
+    .await?;
+
+    // Provenance recorded in the event stream's `source` block, mirroring the
+    // server path's source metadata but flagged as a client (browser WASM) run.
+    let source_block = serde_json::json!({
+        "extractor_name": DEFAULT_EXTRACTOR_NAME,
+        "extractor_version": env!("CARGO_PKG_VERSION"),
+        "subtr_actor_version": subtr_actor_version(),
+        "subtr_actor_git_sha": client_subtr_actor_git_sha,
+        "rocket_sense_git_sha": option_env!("GIT_SHA"),
+        "source": "client_wasm",
+        "submitted_by_user_id": submitted_by_user_id,
+    });
+
+    let result = async {
+        let output = replay_analysis_output_from_scaffold_json(&scaffold, source_block)?;
+        persist_analysis_output(
+            pool,
+            storage,
+            replay_id,
+            analysis_run_id,
+            file_sha256,
+            output,
+        )
+        .await
+    }
+    .await;
+
+    if let Err(error) = result {
+        let message = error.to_string();
+        mark_analysis_run_failed(pool, analysis_run_id, &message).await?;
+        set_replay_status(pool, replay_id, "failed").await?;
+        return Err(error);
+    }
+
+    Ok(analysis_run_id)
 }
 
 /// Delete the play events (and boost tracks) left behind by this replay's
@@ -1697,6 +1781,430 @@ fn collect_boost_accumulation_tracks(timeline: &ReplayStatsTimelineScaffold) -> 
     serde_json::json!({ "tracks": tracks })
 }
 
+// ---------------------------------------------------------------------------
+// Client-submitted scaffold → ReplayAnalysisOutput (JSON-reading path).
+// ---------------------------------------------------------------------------
+
+/// Build a [`ReplayAnalysisOutput`] from a client-submitted stats-timeline
+/// scaffold JSON. The scaffold has top-level keys `config`, `replay_meta`,
+/// `events` (`{"events":[...]}`), `frames`, `positioning_summary`,
+/// `accumulation_tracks`. `source_block` is the provenance object stored under
+/// `event_stream.source`.
+fn replay_analysis_output_from_scaffold_json(
+    scaffold: &Value,
+    source_block: Value,
+) -> Result<ReplayAnalysisOutput> {
+    let empty_events = serde_json::json!({ "events": [] });
+    let events_value = scaffold.get("events").cloned().unwrap_or(empty_events);
+    let event_stream = serde_json::json!({
+        "schema_version": EVENT_STREAM_SCHEMA_VERSION,
+        "source": source_block,
+        "replay_meta": scaffold.get("replay_meta").cloned().unwrap_or(Value::Null),
+        "timeline_events": events_value.clone(),
+    });
+    let indexed_events = build_indexed_events_from_events(&events_value)?;
+    let metadata = replay_search_metadata_from_scaffold_json(scaffold);
+    let boost_tracks = collect_boost_accumulation_tracks_from_json(scaffold);
+
+    Ok(ReplayAnalysisOutput {
+        event_stream,
+        indexed_events,
+        metadata,
+        boost_tracks,
+    })
+}
+
+/// JSON twin of [`collect_boost_accumulation_tracks`].
+fn collect_boost_accumulation_tracks_from_json(scaffold: &Value) -> Value {
+    let frame_times = frame_times_from_scaffold_json(scaffold);
+    let tracks = scaffold
+        .get("accumulation_tracks")
+        .and_then(Value::as_array)
+        .map(|tracks| {
+            tracks
+                .iter()
+                .map(|track| {
+                    let (platform, platform_player_id) =
+                        remote_id_parts_json(track.get("player_id").unwrap_or(&Value::Null));
+                    let player_id = player_lookup_key(&platform, &platform_player_id);
+                    let points = track
+                        .get("points")
+                        .and_then(Value::as_array)
+                        .map(|points| {
+                            points
+                                .iter()
+                                .map(|point| {
+                                    let frame = point
+                                        .get("frame")
+                                        .and_then(Value::as_u64)
+                                        .map(|n| n as usize);
+                                    let time =
+                                        frame.and_then(|frame| frame_times.get(&frame).copied());
+                                    serde_json::json!({
+                                        "frame": point.get("frame").cloned().unwrap_or(Value::Null),
+                                        "time": time,
+                                        "value": point.get("value").cloned().unwrap_or(Value::Null),
+                                    })
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_default();
+                    serde_json::json!({
+                        "player_id": player_id,
+                        "is_team_0": track.get("is_team_0").and_then(Value::as_bool),
+                        "quantity": track.get("quantity").cloned().unwrap_or(Value::Null),
+                        "points": points,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    serde_json::json!({ "tracks": tracks })
+}
+
+/// Build the `frame_number → time` lookup from a scaffold's `frames` array.
+fn frame_times_from_scaffold_json(scaffold: &Value) -> HashMap<usize, f32> {
+    scaffold
+        .get("frames")
+        .and_then(Value::as_array)
+        .map(|frames| {
+            frames
+                .iter()
+                .filter_map(|frame| {
+                    let frame_number = frame.get("frame_number").and_then(Value::as_u64)? as usize;
+                    let time = frame.get("time").and_then(Value::as_f64)? as f32;
+                    Some((frame_number, time))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// JSON twin of [`replay_search_metadata`].
+fn replay_search_metadata_from_scaffold_json(scaffold: &Value) -> ReplaySearchMetadata {
+    let replay_meta = scaffold.get("replay_meta").cloned().unwrap_or(Value::Null);
+    let all_headers = replay_meta
+        .get("all_headers")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let playlist = replay_playlist_json(&replay_meta, &all_headers);
+    let map_code = header_text_json(&all_headers, &["MapName", "Map", "LevelName"])
+        .map(normalize_header_value);
+    let replay_date = header_text_json(&all_headers, &["Date", "ReplayDate", "RecordDate"])
+        .and_then(|value| parse_replay_date(&value));
+
+    let team_zero = replay_meta
+        .get("team_zero")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let team_one = replay_meta
+        .get("team_one")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut players = team_zero
+        .iter()
+        .map(|player| replay_search_player_json(player, 0))
+        .chain(
+            team_one
+                .iter()
+                .map(|player| replay_search_player_json(player, 1)),
+        )
+        .collect::<Vec<_>>();
+    apply_player_timing_metadata_json(&mut players, scaffold);
+    let has_pro_player = players.iter().any(|player| player.is_pro);
+
+    ReplaySearchMetadata {
+        playlist,
+        game_type: replay_game_type_metadata_json(&replay_meta),
+        map_code,
+        replay_date,
+        season: season_code_json(replay_meta.get("season")),
+        summary: replay_summary_metadata_json(scaffold, &all_headers),
+        has_pro_player,
+        players,
+    }
+}
+
+/// JSON twin of [`replay_search_player`]. Note the `clean_player_display_name`
+/// simplification: the typed version replaces the name when it equals the Rust
+/// `Debug` of the remote id (which we cannot replicate from JSON), so we use the
+/// stored name as-is, falling back to the platform id when the name is empty.
+fn replay_search_player_json(player: &Value, team: i32) -> ReplaySearchPlayer {
+    let (platform, platform_player_id) =
+        remote_id_parts_json(player.get("remote_id").unwrap_or(&Value::Null));
+    let raw_name = player.get("name").and_then(Value::as_str).unwrap_or("");
+    let name = if raw_name.trim().is_empty() {
+        platform_player_id.clone().unwrap_or_default()
+    } else {
+        raw_name.to_owned()
+    };
+    let stat = |key: &str| {
+        player
+            .get("stats")
+            .and_then(Value::as_object)
+            .and_then(|stats| stats.get(key))
+            .and_then(header_stat_int_json)
+    };
+
+    ReplaySearchPlayer {
+        name,
+        platform,
+        platform_player_id,
+        team,
+        is_pro: false,
+        score: stat("Score"),
+        goals: stat("Goals"),
+        assists: stat("Assists"),
+        saves: stat("Saves"),
+        shots: stat("Shots"),
+        active_time_seconds: None,
+        time_demolished_seconds: None,
+        time_most_back_seconds: None,
+        time_most_forward_seconds: None,
+    }
+}
+
+/// JSON twin of [`replay_game_type_metadata`].
+fn replay_game_type_metadata_json(replay_meta: &Value) -> ReplayGameTypeMetadata {
+    let game_type = replay_meta.get("game_type");
+    ReplayGameTypeMetadata {
+        replay_game_type: game_type
+            .and_then(|gt| gt.get("game_type"))
+            .and_then(Value::as_str)
+            .map(|gt| gt.to_ascii_lowercase()),
+        header_match_type: game_type
+            .and_then(|gt| gt.get("header_match_type"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+        game_playlist_id: game_type
+            .and_then(|gt| gt.get("playlist_id"))
+            .and_then(Value::as_i64)
+            .and_then(|id| i32::try_from(id).ok()),
+        match_type_class: game_type
+            .and_then(|gt| gt.get("match_type_class"))
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned),
+    }
+}
+
+/// JSON twin of `ReplaySeason::code`: era `Legacy`→`s`, `FreeToPlay`→`f`, plus
+/// the season number.
+fn season_code_json(season: Option<&Value>) -> Option<String> {
+    let season = season?;
+    if season.is_null() {
+        return None;
+    }
+    let era = season.get("era").and_then(Value::as_str)?;
+    let number = season.get("number").and_then(Value::as_u64)?;
+    let prefix = match era {
+        "Legacy" => "s",
+        "FreeToPlay" => "f",
+        _ => return None,
+    };
+    Some(format!("{prefix}{number}"))
+}
+
+/// JSON twin of [`replay_summary_metadata`].
+fn replay_summary_metadata_json(scaffold: &Value, all_headers: &[Value]) -> ReplaySummaryMetadata {
+    let last_frame = scaffold
+        .get("frames")
+        .and_then(Value::as_array)
+        .and_then(|frames| frames.last());
+    let duration_seconds = last_frame
+        .and_then(|frame| frame.get("time"))
+        .and_then(Value::as_f64)
+        .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+    let overtime_seconds = last_frame
+        .and_then(|frame| frame.get("seconds_remaining"))
+        .and_then(Value::as_i64)
+        .filter(|seconds_remaining| *seconds_remaining < 0)
+        .map(|seconds_remaining| -seconds_remaining as f64);
+
+    ReplaySummaryMetadata {
+        duration_seconds,
+        overtime_seconds,
+        team_zero_score: Some(team_score_from_events_json(scaffold, true)),
+        team_one_score: Some(team_score_from_events_json(scaffold, false)),
+        match_guid: header_text_json(all_headers, &["Id", "MatchGuid", "MatchGUID", "ReplayId"])
+            .map(normalize_header_value)
+            .filter(|value| !value.trim().is_empty()),
+    }
+}
+
+/// JSON twin of [`team_score_from_events`]: sum `goals_delta` over `core_player`
+/// events matching the team.
+fn team_score_from_events_json(scaffold: &Value, is_team_0: bool) -> i32 {
+    scaffold_event_inner_payloads(scaffold, "core_player")
+        .filter(|inner| inner.get("is_team_0").and_then(Value::as_bool) == Some(is_team_0))
+        .filter_map(|inner| {
+            inner
+                .get("goals_delta")
+                .and_then(Value::as_i64)
+                .and_then(|n| i32::try_from(n).ok())
+        })
+        .sum()
+}
+
+/// Iterate the inner typed payloads of timeline events whose payload `kind`
+/// matches `kind`. Each event is `{meta, payload:{kind, payload:{..inner..}}}`.
+fn scaffold_event_inner_payloads<'a>(
+    scaffold: &'a Value,
+    kind: &'a str,
+) -> impl Iterator<Item = &'a Value> + 'a {
+    scaffold
+        .get("events")
+        .and_then(|events| events.get("events"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(move |event| {
+            let payload = event.get("payload")?;
+            if payload.get("kind").and_then(Value::as_str) == Some(kind) {
+                payload.get("payload")
+            } else {
+                None
+            }
+        })
+}
+
+/// JSON twin of [`apply_player_timing_metadata`].
+fn apply_player_timing_metadata_json(players: &mut [ReplaySearchPlayer], scaffold: &Value) {
+    let mut timing_by_key = HashMap::<String, PlayerTimingMetadata>::new();
+
+    for inner in scaffold_event_inner_payloads(scaffold, "player_activity") {
+        let (platform, platform_player_id) =
+            remote_id_parts_json(inner.get("player").unwrap_or(&Value::Null));
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let timing = timing_by_key.entry(key).or_default();
+        let duration = inner.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+        timing.active_time += duration;
+        if inner.get("state").and_then(Value::as_str) == Some("demolished") {
+            timing.time_demolished += duration;
+        }
+    }
+
+    for inner in scaffold_event_inner_payloads(scaffold, "depth_role") {
+        let (platform, platform_player_id) =
+            remote_id_parts_json(inner.get("player").unwrap_or(&Value::Null));
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let timing = timing_by_key.entry(key).or_default();
+        let duration = inner.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+        match inner.get("state").and_then(Value::as_str) {
+            Some("most_back") => timing.time_most_back += duration,
+            Some("most_forward") => timing.time_most_forward += duration,
+            _ => {}
+        }
+    }
+
+    let known_player_keys = scaffold
+        .get("frames")
+        .and_then(Value::as_array)
+        .and_then(|frames| frames.last())
+        .and_then(|frame| frame.get("players"))
+        .and_then(Value::as_array)
+        .map(|players| {
+            players
+                .iter()
+                .filter_map(|player| {
+                    let (platform, platform_player_id) =
+                        remote_id_parts_json(player.get("player_id").unwrap_or(&Value::Null));
+                    player_lookup_key(&platform, &platform_player_id)
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    for key in known_player_keys {
+        timing_by_key.entry(key).or_default();
+    }
+
+    for player in players {
+        let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
+            continue;
+        };
+        let Some(timing) = timing_by_key.get(&key).copied() else {
+            continue;
+        };
+        player.active_time_seconds = finite_nonnegative(timing.active_time).map(OrderedFloat);
+        player.time_demolished_seconds =
+            finite_nonnegative(timing.time_demolished).map(OrderedFloat);
+        player.time_most_back_seconds = finite_nonnegative(timing.time_most_back).map(OrderedFloat);
+        player.time_most_forward_seconds =
+            finite_nonnegative(timing.time_most_forward).map(OrderedFloat);
+    }
+}
+
+/// JSON twin of [`replay_playlist`] / [`replay_playlist_from_game_type`].
+fn replay_playlist_json(replay_meta: &Value, all_headers: &[Value]) -> Option<String> {
+    replay_playlist_from_game_type_json(replay_meta).or_else(|| {
+        playlist_header_text_json(all_headers, &["PlaylistName", "GamePlaylist"])
+            .or_else(|| playlist_header_text_json(all_headers, &["Playlist", "MatchType"]))
+            .map(normalize_playlist)
+            .and_then(|playlist| {
+                if playlist.eq_ignore_ascii_case("online") {
+                    online_playlist_from_team_size_json(replay_meta).or(Some(playlist))
+                } else {
+                    Some(playlist)
+                }
+            })
+    })
+}
+
+fn replay_playlist_from_game_type_json(replay_meta: &Value) -> Option<String> {
+    let game_type = replay_meta.get("game_type");
+    let game_type_name = game_type
+        .and_then(|gt| gt.get("game_type"))
+        .and_then(Value::as_str)?;
+    let playlist_id = || {
+        game_type
+            .and_then(|gt| gt.get("playlist_id"))
+            .and_then(Value::as_i64)
+            .map(|id| normalize_playlist(id.to_string()))
+    };
+    match game_type_name {
+        "Ranked" | "Casual" => playlist_id(),
+        "Private" => Some("private".to_owned()),
+        "Offline" => Some("offline".to_owned()),
+        "Lan" => Some("lan".to_owned()),
+        "Tournament" => Some("tournament".to_owned()),
+        "Unknown" => None,
+        _ => None,
+    }
+}
+
+fn playlist_header_text_json(all_headers: &[Value], keys: &[&str]) -> Option<String> {
+    header_text_json(all_headers, keys).and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_owned())
+        }
+    })
+}
+
+fn online_playlist_from_team_size_json(replay_meta: &Value) -> Option<String> {
+    let team_len = |key: &str| {
+        replay_meta
+            .get(key)
+            .and_then(Value::as_array)
+            .map(|team| team.len())
+            .unwrap_or(0)
+    };
+    let team_size = team_len("team_zero").max(team_len("team_one"));
+    match team_size {
+        1..=4 => Some(format!("online-{team_size}v{team_size}")),
+        _ => None,
+    }
+}
+
 fn collect_replay_preflight_metadata(replay_bytes: Vec<u8>) -> Result<ReplaySearchMetadata> {
     let replay = boxcars::ParserBuilder::new(&replay_bytes)
         .must_parse_network_data()
@@ -2102,6 +2610,133 @@ fn header_prop_text(value: &HeaderProp) -> Option<String> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// JSON twins for the client-submitted stats-timeline scaffold.
+//
+// The server cannot deserialize the scaffold JSON back into the typed
+// `ReplayStatsTimelineScaffold` (boxcars `HeaderProp` is serialize-only and the
+// event tree does not derive `Deserialize`), so these functions read the raw
+// `serde_json::Value` shapes that subtr-actor's WASM `get_stats_timeline_json`
+// emits and mirror the typed metadata/boost builders above. The JSON shapes are
+// the native serde output of the corresponding subtr-actor types.
+// ---------------------------------------------------------------------------
+
+/// JSON twin of [`remote_id_parts`]. `RemoteId` serializes externally tagged,
+/// e.g. `{"Epic": "..."}` or `{"PlayStation": {"online_id": "..", ...}}`.
+fn remote_id_parts_json(value: &Value) -> (Option<String>, Option<String>) {
+    let Some(object) = value.as_object() else {
+        return (None, None);
+    };
+    let Some((tag, body)) = object.iter().next() else {
+        return (None, None);
+    };
+    let online_id = |body: &Value| body.get("online_id").and_then(scalar_id_string);
+    match tag.as_str() {
+        "PlayStation" => (Some("ps4".to_owned()), online_id(body)),
+        "PsyNet" => (Some("psynet".to_owned()), online_id(body)),
+        "SplitScreen" => (
+            Some("splitscreen".to_owned()),
+            body.as_u64()
+                .map(|n| n.to_string())
+                .or_else(|| body.as_i64().map(|n| n.to_string())),
+        ),
+        "Steam" => (Some("steam".to_owned()), scalar_id_string(body)),
+        "Switch" => (Some("switch".to_owned()), online_id(body)),
+        "Xbox" => (Some("xbox".to_owned()), scalar_id_string(body)),
+        "QQ" => (Some("qq".to_owned()), scalar_id_string(body)),
+        "Epic" => (
+            Some("epic".to_owned()),
+            body.as_str().map(ToOwned::to_owned),
+        ),
+        _ => (None, None),
+    }
+}
+
+/// Render a scalar id body (string or number) into its string form. Steam/Xbox/QQ
+/// ids are u64 in the typed `RemoteId`, but serde may encode them as either a JSON
+/// number or a string; accept both.
+fn scalar_id_string(value: &Value) -> Option<String> {
+    if let Some(s) = value.as_str() {
+        Some(s.to_owned())
+    } else if let Some(n) = value.as_u64() {
+        Some(n.to_string())
+    } else {
+        value.as_i64().map(|n| n.to_string())
+    }
+}
+
+/// JSON twin of [`header_prop_text`]. boxcars `HeaderProp` custom-serializes as:
+/// Bool→raw bool, Int/Float→raw number, QWord→string, Name/Str→string,
+/// Byte→{"kind","value"}, Struct→{"name","fields"}, Array→[{..}].
+fn header_prop_text_json(value: &Value) -> Option<String> {
+    match value {
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        Value::String(s) => Some(s.clone()),
+        Value::Object(map) => {
+            if map.contains_key("kind") && map.contains_key("value") {
+                // Byte: prefer value, fall back to kind.
+                map.get("value")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+                    .or_else(|| {
+                        map.get("kind")
+                            .and_then(Value::as_str)
+                            .map(ToOwned::to_owned)
+                    })
+            } else if let Some(fields) = map.get("fields") {
+                // Struct: first field whose value renders to text.
+                struct_fields_first_text(fields)
+            } else {
+                None
+            }
+        }
+        Value::Array(_) | Value::Null => None,
+    }
+}
+
+/// boxcars serializes `HeaderProp::Struct` fields as an array of
+/// `[name, prop]` pairs (preserving order). Return the first field's text.
+fn struct_fields_first_text(fields: &Value) -> Option<String> {
+    match fields {
+        Value::Array(pairs) => pairs.iter().find_map(|pair| {
+            pair.as_array()
+                .and_then(|pair| pair.get(1))
+                .and_then(header_prop_text_json)
+        }),
+        Value::Object(map) => map.values().find_map(header_prop_text_json),
+        _ => None,
+    }
+}
+
+/// JSON twin of [`player_header_stat`]: accept a raw integer (Int), a
+/// string-that-parses (QWord), or a float (Float) coerced to i32.
+fn header_stat_int_json(value: &Value) -> Option<i32> {
+    if let Some(i) = value.as_i64() {
+        i32::try_from(i).ok()
+    } else if let Some(s) = value.as_str() {
+        s.parse::<i64>().ok().and_then(|i| i32::try_from(i).ok())
+    } else {
+        value.as_f64().map(|f| f as i32)
+    }
+}
+
+/// JSON twin of [`header_text`]. `all_headers` is the JSON array of two-element
+/// `[name, prop]` arrays.
+fn header_text_json(all_headers: &[Value], keys: &[&str]) -> Option<String> {
+    keys.iter().find_map(|key| {
+        all_headers.iter().find_map(|entry| {
+            let pair = entry.as_array()?;
+            let name = pair.first()?.as_str()?;
+            if name.eq_ignore_ascii_case(key) {
+                header_prop_text_json(pair.get(1)?)
+            } else {
+                None
+            }
+        })
+    })
+}
+
 fn normalize_header_value(value: String) -> String {
     value.trim().to_owned()
 }
@@ -2330,6 +2965,61 @@ async fn insert_analysis_run(
     .execute(pool)
     .await
     .context("failed to insert analysis run")?;
+
+    Ok(())
+}
+
+/// Insert an `analysis_runs` row for a client-submitted (browser WASM) scaffold,
+/// recording its provenance (`source='client_wasm'`, the submitting trusted
+/// user, and the subtr-actor git sha the browser ran). The `subtr_actor_*`
+/// columns record the *client's* build (not the server's `option_env!`).
+async fn insert_analysis_run_client(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    file_sha256: &str,
+    submitted_by_user_id: Uuid,
+    client_subtr_actor_git_sha: &str,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO analysis_runs (
+            id,
+            replay_id,
+            status,
+            extractor_name,
+            extractor_version,
+            extractor_git_sha,
+            subtr_actor_version,
+            subtr_actor_git_sha,
+            rocket_sense_git_sha,
+            input_file_sha256,
+            event_stream_schema_version,
+            source,
+            submitted_by_user_id,
+            client_subtr_actor_git_sha
+        )
+        VALUES (
+            $1, $2, 'running', $3, $4, $5, $6, $7, $8, $9, $10,
+            'client_wasm', $11, $12
+        )
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .bind(DEFAULT_EXTRACTOR_NAME)
+    .bind(env!("CARGO_PKG_VERSION"))
+    .bind(option_env!("GIT_SHA"))
+    .bind(subtr_actor_version())
+    .bind(client_subtr_actor_git_sha)
+    .bind(option_env!("GIT_SHA"))
+    .bind(file_sha256)
+    .bind(EVENT_STREAM_SCHEMA_VERSION)
+    .bind(submitted_by_user_id)
+    .bind(client_subtr_actor_git_sha)
+    .execute(pool)
+    .await
+    .context("failed to insert client analysis run")?;
 
     Ok(())
 }
@@ -3934,6 +4624,14 @@ async fn insert_kickoff_event_details(
 fn build_indexed_events(timeline: &ReplayStatsTimelineScaffold) -> Result<Vec<IndexedEvent>> {
     let serialized =
         serde_json::to_value(&timeline.events).context("failed to serialize timeline events")?;
+    build_indexed_events_from_events(&serialized)
+}
+
+/// Index the stats-timeline event envelope from its already-serialized JSON
+/// shape (`{ "events": [ { "meta": {..}, "payload": {..} } ] }`). Shared by the
+/// server path (`build_indexed_events`, which serializes the typed scaffold) and
+/// the client-scaffold path, which receives the same JSON shape directly.
+fn build_indexed_events_from_events(serialized: &Value) -> Result<Vec<IndexedEvent>> {
     let mut events = Vec::new();
     let Some(envelopes) = serialized.get("events").and_then(Value::as_array) else {
         return Ok(events);
@@ -4736,7 +5434,7 @@ fn event_stream_object_key(file_sha256: &str, analysis_run_id: Uuid) -> String {
     format!("event-streams/sha256/{file_sha256}/{analysis_run_id}.json")
 }
 
-fn subtr_actor_version() -> &'static str {
+pub(crate) fn subtr_actor_version() -> &'static str {
     option_env!("SUBTR_ACTOR_VERSION").unwrap_or("unknown")
 }
 

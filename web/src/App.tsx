@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CircleUser,
   Copy,
+  Cpu,
   ExternalLink,
   FileVideo,
   FolderMinus,
@@ -57,9 +58,11 @@ import {
   listReplays,
   removeReplaysFromGroup,
   reprocessReplay,
+  reprocessReplayClient,
   setAccessToken,
   uploadReplay,
 } from "./api";
+import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
 import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessBadge } from "./staleness";
@@ -1468,6 +1471,7 @@ function ReplayStatsPage() {
   const currentUser = useCurrentUser();
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<RequeueResult | null>(null);
+  const [reprocessingLocal, setReprocessingLocal] = useState(false);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
@@ -1580,6 +1584,33 @@ function ReplayStatsPage() {
     }
   }
 
+  // Reprocess using the browser's own compute: run subtr-actor WASM locally to
+  // regenerate the analysis scaffold, then upload it for the server to persist.
+  // Unlike the queued server reprocess, this completes synchronously and the new
+  // results are live as soon as the request returns.
+  async function handleReprocessLocal() {
+    setReprocessingLocal(true);
+    setReprocessResult({ phase: "done", message: "Reprocessing locally — parsing replay in your browser…" });
+    try {
+      const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId);
+      await reprocessReplayClient(replayId, {
+        subtrActorGitSha: __SUBTR_ACTOR_REV__,
+        scaffoldJson,
+      });
+      setReprocessResult({
+        phase: "done",
+        message: "Reprocessed locally — refresh to see the regenerated analysis.",
+      });
+    } catch (err) {
+      setReprocessResult({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Local reprocess failed.",
+      });
+    } finally {
+      setReprocessingLocal(false);
+    }
+  }
+
   return (
     <section className="page stats-page">
       <header className="page-header">
@@ -1603,6 +1634,18 @@ function ReplayStatsPage() {
             >
               <RefreshCw size={16} />
               {reprocessing ? "Requesting" : "Reprocess"}
+            </button>
+          ) : null}
+          {canReprocess ? (
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => void handleReprocessLocal()}
+              disabled={reprocessingLocal}
+              title="Reprocess in your browser using your own compute, then upload the result"
+            >
+              <Cpu size={16} className={reprocessingLocal ? "spin" : undefined} />
+              {reprocessingLocal ? "Reprocessing" : "Reprocess locally"}
             </button>
           ) : null}
           <Link className="secondary-button" to={`/replays/${replayId}/player`}>

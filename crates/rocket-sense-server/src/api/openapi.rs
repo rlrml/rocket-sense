@@ -43,6 +43,7 @@ use utoipa::{
         replays::download_replay_file,
         replays::get_replay,
         replays::reprocess_replay,
+        replays::reprocess_replay_client,
         replays::set_replay_ranks,
     ),
     components(
@@ -106,6 +107,8 @@ use utoipa::{
             replays::ReplayTeamScoresResponse,
             replays::ReplayUploaderResponse,
             replays::ReprocessReplayResponse,
+            replays::ReprocessReplayClientRequest,
+            replays::ReprocessReplayClientResponse,
             replays::SetReplayRanksResponse,
             crate::ranks::RankSubmission,
             crate::ranks::SubmittedRank,
