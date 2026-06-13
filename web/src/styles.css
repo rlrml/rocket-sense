@@ -2383,6 +2383,7 @@ button.status-stale:hover {
 
 .chart-panel {
   display: grid;
+  grid-column: 1 / -1;
   gap: 12px;
   min-width: 0;
   padding: 14px;
