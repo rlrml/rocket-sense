@@ -6,6 +6,8 @@ export interface ReplayPlayer {
   platform: string | null;
   platform_player_id: string | null;
   team: number | null;
+  appearance_count?: number;
+  color_switching?: boolean;
   rank_tier?: number | null;
   rank_division?: number | null;
   rank_mmr?: number | null;

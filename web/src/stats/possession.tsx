@@ -8,6 +8,7 @@ type PossessionState = "team_zero" | "team_one" | "neutral";
 type FieldThird = "team_zero_third" | "neutral_third" | "team_one_third";
 type FieldHalf = "team_zero_side" | "neutral" | "team_one_side";
 type PossessionComparisonMode = "teams" | "players";
+type GroupPossessionView = "leaderboard" | "share" | "halves" | "thirds";
 
 interface PossessionSpan {
   key: string;
@@ -17,6 +18,7 @@ interface PossessionSpan {
   state: PossessionState;
   third: FieldThird | null;
   playerId: string | null;
+  playerName: string | null;
 }
 
 interface PossessionBucket {
@@ -50,8 +52,53 @@ export function PossessionDetail({
   const thirdTrackedSeconds = thirdBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
   const halfTrackedSeconds = halfBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
+  const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
   const playerSummaries = playerPossessionSummaries(players, spans);
   const hasPlayerSpans = playerSummaries.some((summary) => summary.seconds > 0);
+
+  if (scope === "group") {
+    return (
+      <div className="possession-detail">
+        <GroupPossessionViewToggle activeView={groupView} hasPlayerSpans={hasPlayerSpans} onViewChange={setGroupView} />
+        {groupView === "leaderboard" ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Possession leaderboard</h3>
+              <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
+            </header>
+            <PlayerPossessionLeaderboard summaries={playerSummaries} totalSeconds={totalTrackedSeconds} />
+          </section>
+        ) : null}
+        {groupView === "share" ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Replay-local Blue/Orange share</h3>
+              <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
+            </header>
+            <PossessionShareChart totals={possessionTotals} totalSeconds={totalTrackedSeconds} />
+          </section>
+        ) : null}
+        {groupView === "halves" ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Replay-local halves</h3>
+              <span>{formatSeconds(halfTrackedSeconds)} tracked</span>
+            </header>
+            <BallZoneChart ariaLabel="Possession time by replay-local field halves" buckets={halfBuckets} totalSeconds={halfTrackedSeconds} />
+          </section>
+        ) : null}
+        {groupView === "thirds" ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Replay-local thirds</h3>
+              <span>{formatSeconds(thirdTrackedSeconds)} tracked</span>
+            </header>
+            <BallZoneChart ariaLabel="Possession time by replay-local field thirds" buckets={thirdBuckets} totalSeconds={thirdTrackedSeconds} />
+          </section>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="possession-detail">
@@ -98,6 +145,49 @@ export function PossessionDetail({
             <PossessionTimeline spans={spans} durationSeconds={chartDuration} />
           </section>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+function GroupPossessionViewToggle({
+  activeView,
+  hasPlayerSpans,
+  onViewChange,
+}: {
+  activeView: GroupPossessionView;
+  hasPlayerSpans: boolean;
+  onViewChange: (view: GroupPossessionView) => void;
+}) {
+  const views: Array<{ key: GroupPossessionView; label: string; disabled?: boolean; title?: string }> = [
+    {
+      key: "leaderboard",
+      label: "Leaderboard",
+      disabled: !hasPlayerSpans,
+      title: hasPlayerSpans ? "Possession leaderboard" : "Reprocess these replays to populate player possession spans",
+    },
+    { key: "share", label: "Blue/Orange" },
+    { key: "halves", label: "Halves" },
+    { key: "thirds", label: "Thirds" },
+  ];
+
+  return (
+    <div className="boost-page-controls">
+      <div className="boost-comparison-tabs" role="tablist" aria-label="Group possession view">
+        {views.map((view) => (
+          <button
+            aria-selected={activeView === view.key}
+            className={activeView === view.key ? "active" : ""}
+            disabled={view.disabled}
+            key={view.key}
+            onClick={() => onViewChange(view.key)}
+            role="tab"
+            title={view.title ?? view.label}
+            type="button"
+          >
+            {view.label}
+          </button>
+        ))}
       </div>
     </div>
   );
@@ -201,6 +291,8 @@ interface PlayerPossessionSummary {
   name: string;
   team: number | null;
   seconds: number;
+  spans: number;
+  games: number | null;
 }
 
 function PlayerPossessionChart({
@@ -245,6 +337,52 @@ function PlayerPossessionChart({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function PlayerPossessionLeaderboard({
+  summaries,
+  totalSeconds,
+}: {
+  summaries: PlayerPossessionSummary[];
+  totalSeconds: number;
+}) {
+  const rows = summaries.filter((summary) => summary.seconds > 0);
+
+  if (rows.length === 0) {
+    return <div className="stat-empty">No player possession spans are available for this group.</div>;
+  }
+
+  return (
+    <div className="table-frame compact-table possession-leaderboard-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Possession</th>
+            <th>Share</th>
+            <th>Spans</th>
+            <th>Avg span</th>
+            <th>Games</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((summary) => (
+            <tr key={summary.key}>
+              <td>
+                <strong>{summary.name}</strong>
+                <div className="subtle">{summary.team == null ? "Mixed colors" : teamLabel(summary.team)}</div>
+              </td>
+              <td>{formatSeconds(summary.seconds)}</td>
+              <td>{formatPercent(percentage(summary.seconds, totalSeconds))}</td>
+              <td>{summary.spans.toLocaleString()}</td>
+              <td>{formatSeconds(summary.spans > 0 ? summary.seconds / summary.spans : 0)}</td>
+              <td>{summary.games == null ? "Unknown" : summary.games.toLocaleString()}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -327,6 +465,7 @@ function possessionSpan(event: MechanicEventResponse, index: number): Possession
     state,
     third: fieldThird(event.payload.field_third),
     playerId: event.player_id ?? stringPayload(event.payload, "player_id"),
+    playerName: event.player_name ?? null,
   };
 }
 
@@ -386,19 +525,34 @@ function addBucketSeconds(bucket: PossessionBucket | undefined, state: Possessio
 }
 
 function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpan[]): PlayerPossessionSummary[] {
+  const usedSpanKeys = new Set<string>();
   const summaries = players.map((player, index) => {
     const key = playerKey(player, index);
-    const seconds = spans
-      .filter((span) => span.playerId != null && playerMatchesId(player, span.playerId))
-      .reduce((total, span) => total + span.duration, 0);
+    const playerSpans = spans.filter((span) => span.playerId != null && playerMatchesId(player, span.playerId));
+    for (const span of playerSpans) usedSpanKeys.add(span.key);
+    const seconds = playerSpans.reduce((total, span) => total + span.duration, 0);
 
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
       team: player.team,
       seconds,
+      spans: playerSpans.length,
+      games: player.appearance_count ?? null,
     };
   });
+
+  for (const span of spans) {
+    if (span.playerId == null || usedSpanKeys.has(span.key)) continue;
+    summaries.push({
+      key: `event:${span.playerId}`,
+      name: span.playerName || span.playerId,
+      team: null,
+      seconds: span.duration,
+      spans: 1,
+      games: null,
+    });
+  }
 
   return summaries.sort((left, right) => {
     if (right.seconds !== left.seconds) return right.seconds - left.seconds;

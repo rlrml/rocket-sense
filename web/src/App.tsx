@@ -1817,7 +1817,7 @@ function ReplayGroupStatsPage() {
             </div>
             <div>
               <span>Participants</span>
-              <strong>{participantAnalysis.consistent ? participantAnalysis.players.length.toLocaleString() : "Mixed"}</strong>
+              <strong>{participantAnalysis.players.length > 0 ? participantAnalysis.players.length.toLocaleString() : "Mixed"}</strong>
             </div>
             <div>
               <span>Total duration</span>
@@ -1877,7 +1877,15 @@ function ReplayGroupStatsPage() {
             {statsError ? <ApiNotice label="Group stats" message={statsError} /> : null}
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
-            {ActiveDetail && participantAnalysis.consistent ? (
+            {!participantAnalysis.consistent ? (
+              <GroupParticipantLeaderboard
+                events={activeEvents}
+                players={participantAnalysis.players}
+                title={`${activeGroup.label} leaderboard`}
+              />
+            ) : null}
+
+            {ActiveDetail && (participantAnalysis.consistent || activeGroup.id === "possession-territory") ? (
               <ActiveDetail
                 events={detailEvents}
                 players={participantAnalysis.players}
@@ -2122,6 +2130,7 @@ interface MutableReplayGroupParticipant {
   platform: string | null;
   platform_player_id: string | null;
   teams: Set<number>;
+  appearance_count: number;
   rank_tier: number | null;
   rank_division: number | null;
   rank_mmr: number | null;
@@ -2155,10 +2164,13 @@ function GroupParticipantNotice({ analysis }: { analysis: ReplayGroupParticipant
 }
 
 function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupParticipantAnalysis {
+  const players = collectReplayGroupParticipants(replays);
+  const colorSwitching = players.some((player) => player.color_switching);
+
   if (replays.length === 0) {
     return {
       consistent: false,
-      players: [],
+      players,
       colorSwitching: false,
       reason: "Add replays to this group before using group-level player views.",
     };
@@ -2169,8 +2181,8 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
   if (invalidIndex >= 0) {
     return {
       consistent: false,
-      players: [],
-      colorSwitching: false,
+      players,
+      colorSwitching,
       reason: "At least one replay has duplicate or unidentified participants, so player-level group views are hidden.",
     };
   }
@@ -2181,12 +2193,21 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
   if (mismatched) {
     return {
       consistent: false,
-      players: [],
-      colorSwitching: false,
+      players,
+      colorSwitching,
       reason: "These replays do not all contain the same participant identities, so group views fall back to event and aggregate tables.",
     };
   }
 
+  return {
+    consistent: true,
+    players,
+    colorSwitching,
+    reason: colorSwitching ? null : null,
+  };
+}
+
+function collectReplayGroupParticipants(replays: ReplayResponse[]): ReplayPlayer[] {
   const participants = new Map<string, MutableReplayGroupParticipant>();
   for (const replay of replays) {
     for (const player of replay.players) {
@@ -2198,18 +2219,7 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
     }
   }
 
-  const players = [...participants.values()].map(finalizeReplayGroupParticipant).sort(compareReplayGroupPlayers);
-  const colorSwitching = players.some((player, index) => {
-    const identity = groupParticipantKey(player, index);
-    return (participants.get(identity)?.teams.size ?? 0) > 1;
-  });
-
-  return {
-    consistent: true,
-    players,
-    colorSwitching,
-    reason: colorSwitching ? null : null,
-  };
+  return [...participants.values()].map(finalizeReplayGroupParticipant).sort(compareReplayGroupPlayers);
 }
 
 function replayParticipantIdentities(replay: ReplayResponse): Set<string> | null {
@@ -2245,6 +2255,7 @@ function newMutableReplayGroupParticipant(identity: string, player: ReplayPlayer
     platform: player.platform,
     platform_player_id: player.platform_player_id,
     teams: new Set(),
+    appearance_count: 0,
     rank_tier: null,
     rank_division: null,
     rank_mmr: null,
@@ -2269,6 +2280,7 @@ function mergeReplayGroupParticipant(participant: MutableReplayGroupParticipant,
   participant.platform = player.platform ?? participant.platform;
   participant.platform_player_id = player.platform_player_id ?? participant.platform_player_id;
   if (player.team === 0 || player.team === 1) participant.teams.add(player.team);
+  participant.appearance_count += 1;
   participant.rank_tier = player.rank_tier ?? participant.rank_tier;
   participant.rank_division = player.rank_division ?? participant.rank_division;
   participant.rank_mmr = player.rank_mmr ?? participant.rank_mmr;
@@ -2293,6 +2305,8 @@ function finalizeReplayGroupParticipant(participant: MutableReplayGroupParticipa
     platform: participant.platform,
     platform_player_id: participant.platform_player_id,
     team: participant.teams.size === 1 ? [...participant.teams][0] : null,
+    appearance_count: participant.appearance_count,
+    color_switching: participant.teams.size > 1,
     rank_tier: participant.rank_tier,
     rank_division: participant.rank_division,
     rank_mmr: participant.rank_mmr,
@@ -2313,8 +2327,109 @@ function finalizeReplayGroupParticipant(participant: MutableReplayGroupParticipa
 }
 
 function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): number {
+  if ((right.appearance_count ?? 0) !== (left.appearance_count ?? 0)) {
+    return (right.appearance_count ?? 0) - (left.appearance_count ?? 0);
+  }
   if ((left.team ?? 9) !== (right.team ?? 9)) return (left.team ?? 9) - (right.team ?? 9);
   return (left.name || left.platform_player_id || "").localeCompare(right.name || right.platform_player_id || "");
+}
+
+function GroupParticipantLeaderboard({
+  events,
+  players,
+  title,
+}: {
+  events: MechanicEventResponse[];
+  players: ReplayPlayer[];
+  title: string;
+}) {
+  const eventCounts = participantEventCounts(players, events);
+  const rows = players
+    .map((player, index) => ({
+      player,
+      key: groupParticipantKey(player, index),
+      events: eventCounts.get(groupParticipantKey(player, index)) ?? 0,
+    }))
+    .sort((left, right) => {
+      if (right.events !== left.events) return right.events - left.events;
+      if ((right.player.score ?? 0) !== (left.player.score ?? 0)) return (right.player.score ?? 0) - (left.player.score ?? 0);
+      return (right.player.appearance_count ?? 0) - (left.player.appearance_count ?? 0);
+    });
+
+  return (
+    <section className="stat-panel full-span group-leaderboard-panel">
+      <div className="stat-panel-heading">
+        <h3>{title}</h3>
+        <span>{players.length.toLocaleString()} participants</span>
+      </div>
+      {rows.length > 0 ? (
+        <div className="table-frame compact-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Games</th>
+                <th>Score</th>
+                <th>G/A/S/Sh</th>
+                <th>Active</th>
+                <th>Events</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ player, key, events: eventCount }) => (
+                <tr key={key}>
+                  <td>
+                    <strong>{player.name || player.platform_player_id || "Unknown"}</strong>
+                    <div className="subtle">{player.color_switching ? "Switched colors" : teamLabel(player.team)}</div>
+                  </td>
+                  <td>{(player.appearance_count ?? 0).toLocaleString()}</td>
+                  <td>{formatNullableInteger(player.score)}</td>
+                  <td>{scoreboardLine(player)}</td>
+                  <td>{formatSeconds(player.active_time_seconds)}</td>
+                  <td>{eventCount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="stat-empty">No identifiable participants are available for this group yet.</div>
+      )}
+    </section>
+  );
+}
+
+function participantEventCounts(players: ReplayPlayer[], events: MechanicEventResponse[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+    if (index < 0) continue;
+    const key = groupParticipantKey(players[index], index);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
+  const eventPlayerId = (event.player_id ?? stringPayloadValue(event.payload, "player_id"))?.trim();
+  if (eventPlayerId && (player.platform_player_id === eventPlayerId || replayPlayerIdentity(player) === eventPlayerId)) {
+    return true;
+  }
+  const eventName = event.player_name?.trim().toLowerCase();
+  return Boolean(eventName && player.name?.trim().toLowerCase() === eventName);
+}
+
+function stringPayloadValue(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function scoreboardLine(player: ReplayPlayer): string {
+  return [player.goals, player.assists, player.saves, player.shots].map(formatNullableInteger).join(" / ");
+}
+
+function formatNullableInteger(value: number | null | undefined): string {
+  return value == null ? "0" : Math.round(value).toLocaleString();
 }
 
 function normalizeReplayPlatform(value: string): string {
