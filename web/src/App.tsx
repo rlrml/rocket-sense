@@ -63,7 +63,7 @@ import {
 import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
-import { PlatformIcon, platformLabel } from "./platform";
+import { PlatformIcon } from "./platform";
 import { RankBadge } from "./rank";
 import {
   KickoffSpawnBreakdown,
@@ -2485,7 +2485,6 @@ function PlayerStatsPage() {
             <Metric label="Active" value={formatDuration(stats?.active_time_seconds ?? null)} />
             <Metric label="First seen" value={formatShortDate(playerSummary.first_seen_at)} />
             <Metric label="Last seen" value={formatShortDate(playerSummary.last_seen_at)} />
-            <Metric label="Platform" value={platformLabel(playerSummary.platform)} />
             <PlayerIdMetric value={playerSummary.platform_player_id} />
             <Metric label="Names" value={playerSummary.names.length.toLocaleString()} />
             <Metric label="Pro" value={playerSummary.is_pro ? "Yes" : "No"} />
