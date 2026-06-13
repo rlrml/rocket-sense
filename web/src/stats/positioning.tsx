@@ -54,29 +54,15 @@ const roleOrder: PositioningRole[] = ["most_back", "mid", "most_forward", "other
 export function PositioningDetail({
   events,
   players,
-  durationSeconds,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
 }) {
   const summaries = playerPositioningSummaries(players, events);
-  const trackedSeconds = sumBy(summaries, (summary) => summary.trackedSeconds);
-  const activeSeconds = sumBy(summaries, (summary) => summary.activeSeconds);
-  const offensiveHalfSeconds = sumBy(summaries, (summary) => summary.offensiveHalfSeconds);
-  const closestAbsoluteSeconds = sumBy(summaries, (summary) => summary.closestAbsoluteSeconds);
-  const caughtAheadGoals = sumBy(summaries, (summary) => summary.caughtAheadGoals);
-  const chartSeconds = Math.max(1, trackedSeconds, activeSeconds, durationSeconds ?? 0);
 
   return (
     <div className="positioning-detail">
-      <div className="positioning-summary-grid">
-        <PositioningMetric label="Tracked time" value={formatSeconds(trackedSeconds)} detail={`${formatSeconds(chartSeconds)} chart span`} />
-        <PositioningMetric label="Offensive half" value={formatPercent(offensiveHalfSeconds, trackedSeconds)} detail={formatSeconds(offensiveHalfSeconds)} />
-        <PositioningMetric label="Closest overall" value={formatPercent(closestAbsoluteSeconds, trackedSeconds)} detail={formatSeconds(closestAbsoluteSeconds)} />
-        <PositioningMetric label="Caught ahead" value={caughtAheadGoals.toLocaleString()} detail="conceded goals" />
-      </div>
-
       <div className="stat-section-grid">
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
@@ -135,16 +121,6 @@ export function PositioningDetail({
           <PositioningProximityChart summaries={summaries} />
         </section>
       </div>
-    </div>
-  );
-}
-
-function PositioningMetric({ label, value, detail }: { label: string; value: string; detail: string }) {
-  return (
-    <div className="positioning-metric">
-      <span>{label}</span>
-      <strong>{value}</strong>
-      <span>{detail}</span>
     </div>
   );
 }
@@ -457,10 +433,6 @@ function addWeightedPayload(payload: Record<string, unknown>, key: string, durat
 
 function weightedAverage(weightedValue: number, weight: number): number | null {
   return weight > 0 ? weightedValue / weight : null;
-}
-
-function sumBy<T>(items: T[], value: (item: T) => number): number {
-  return items.reduce((total, item) => total + value(item), 0);
 }
 
 function compareSummaries(left: PlayerPositioningSummary, right: PlayerPositioningSummary): number {

@@ -2396,38 +2396,6 @@ button.status-stale:hover {
   gap: 14px;
 }
 
-.positioning-summary-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.positioning-metric {
-  display: grid;
-  gap: 4px;
-  min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.positioning-metric span {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.positioning-metric strong {
-  color: var(--text-strong);
-  font-size: 22px;
-  line-height: 1.05;
-}
-
 .positioning-bar-rows {
   display: grid;
   gap: 9px;
@@ -4738,10 +4706,6 @@ button.status-stale:hover {
     grid-template-columns: 1fr;
   }
 
-  .positioning-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .metric-bar-line strong {
     text-align: left;
   }
@@ -4846,7 +4810,6 @@ button.status-stale:hover {
     min-width: 0;
   }
 
-  .positioning-summary-grid,
   .positioning-bar-row {
     grid-template-columns: 1fr;
   }
