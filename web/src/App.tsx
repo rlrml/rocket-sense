@@ -1816,7 +1816,7 @@ function ReplayGroupStatsPage() {
             </div>
             <div>
               <span>Participants</span>
-              <strong>{participantAnalysis.consistent ? participantAnalysis.players.length.toLocaleString() : "Mixed"}</strong>
+              <strong>{participantAnalysis.players.length > 0 ? participantAnalysis.players.length.toLocaleString() : "Mixed"}</strong>
             </div>
             <div>
               <span>Total duration</span>
@@ -1876,7 +1876,15 @@ function ReplayGroupStatsPage() {
             {statsError ? <ApiNotice label="Group stats" message={statsError} /> : null}
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
-            {ActiveDetail && participantAnalysis.consistent ? (
+            {!participantAnalysis.consistent ? (
+              <GroupParticipantLeaderboard
+                events={activeEvents}
+                players={participantAnalysis.players}
+                title={`${activeGroup.label} leaderboard`}
+              />
+            ) : null}
+
+            {ActiveDetail && (participantAnalysis.consistent || activeGroup.id === "possession-territory") ? (
               <ActiveDetail
                 events={detailEvents}
                 players={participantAnalysis.players}
@@ -2121,6 +2129,7 @@ interface MutableReplayGroupParticipant {
   platform: string | null;
   platform_player_id: string | null;
   teams: Set<number>;
+  appearance_count: number;
   rank_tier: number | null;
   rank_division: number | null;
   rank_mmr: number | null;
@@ -2154,10 +2163,13 @@ function GroupParticipantNotice({ analysis }: { analysis: ReplayGroupParticipant
 }
 
 function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupParticipantAnalysis {
+  const players = collectReplayGroupParticipants(replays);
+  const colorSwitching = players.some((player) => player.color_switching);
+
   if (replays.length === 0) {
     return {
       consistent: false,
-      players: [],
+      players,
       colorSwitching: false,
       reason: "Add replays to this group before using group-level player views.",
     };
@@ -2168,8 +2180,8 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
   if (invalidIndex >= 0) {
     return {
       consistent: false,
-      players: [],
-      colorSwitching: false,
+      players,
+      colorSwitching,
       reason: "At least one replay has duplicate or unidentified participants, so player-level group views are hidden.",
     };
   }
@@ -2180,12 +2192,21 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
   if (mismatched) {
     return {
       consistent: false,
-      players: [],
-      colorSwitching: false,
+      players,
+      colorSwitching,
       reason: "These replays do not all contain the same participant identities, so group views fall back to event and aggregate tables.",
     };
   }
 
+  return {
+    consistent: true,
+    players,
+    colorSwitching,
+    reason: colorSwitching ? null : null,
+  };
+}
+
+function collectReplayGroupParticipants(replays: ReplayResponse[]): ReplayPlayer[] {
   const participants = new Map<string, MutableReplayGroupParticipant>();
   for (const replay of replays) {
     for (const player of replay.players) {
@@ -2197,18 +2218,7 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
     }
   }
 
-  const players = [...participants.values()].map(finalizeReplayGroupParticipant).sort(compareReplayGroupPlayers);
-  const colorSwitching = players.some((player, index) => {
-    const identity = groupParticipantKey(player, index);
-    return (participants.get(identity)?.teams.size ?? 0) > 1;
-  });
-
-  return {
-    consistent: true,
-    players,
-    colorSwitching,
-    reason: colorSwitching ? null : null,
-  };
+  return [...participants.values()].map(finalizeReplayGroupParticipant).sort(compareReplayGroupPlayers);
 }
 
 function replayParticipantIdentities(replay: ReplayResponse): Set<string> | null {
@@ -2244,6 +2254,7 @@ function newMutableReplayGroupParticipant(identity: string, player: ReplayPlayer
     platform: player.platform,
     platform_player_id: player.platform_player_id,
     teams: new Set(),
+    appearance_count: 0,
     rank_tier: null,
     rank_division: null,
     rank_mmr: null,
@@ -2268,6 +2279,7 @@ function mergeReplayGroupParticipant(participant: MutableReplayGroupParticipant,
   participant.platform = player.platform ?? participant.platform;
   participant.platform_player_id = player.platform_player_id ?? participant.platform_player_id;
   if (player.team === 0 || player.team === 1) participant.teams.add(player.team);
+  participant.appearance_count += 1;
   participant.rank_tier = player.rank_tier ?? participant.rank_tier;
   participant.rank_division = player.rank_division ?? participant.rank_division;
   participant.rank_mmr = player.rank_mmr ?? participant.rank_mmr;
@@ -2292,6 +2304,8 @@ function finalizeReplayGroupParticipant(participant: MutableReplayGroupParticipa
     platform: participant.platform,
     platform_player_id: participant.platform_player_id,
     team: participant.teams.size === 1 ? [...participant.teams][0] : null,
+    appearance_count: participant.appearance_count,
+    color_switching: participant.teams.size > 1,
     rank_tier: participant.rank_tier,
     rank_division: participant.rank_division,
     rank_mmr: participant.rank_mmr,
@@ -2312,8 +2326,109 @@ function finalizeReplayGroupParticipant(participant: MutableReplayGroupParticipa
 }
 
 function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): number {
+  if ((right.appearance_count ?? 0) !== (left.appearance_count ?? 0)) {
+    return (right.appearance_count ?? 0) - (left.appearance_count ?? 0);
+  }
   if ((left.team ?? 9) !== (right.team ?? 9)) return (left.team ?? 9) - (right.team ?? 9);
   return (left.name || left.platform_player_id || "").localeCompare(right.name || right.platform_player_id || "");
+}
+
+function GroupParticipantLeaderboard({
+  events,
+  players,
+  title,
+}: {
+  events: MechanicEventResponse[];
+  players: ReplayPlayer[];
+  title: string;
+}) {
+  const eventCounts = participantEventCounts(players, events);
+  const rows = players
+    .map((player, index) => ({
+      player,
+      key: groupParticipantKey(player, index),
+      events: eventCounts.get(groupParticipantKey(player, index)) ?? 0,
+    }))
+    .sort((left, right) => {
+      if (right.events !== left.events) return right.events - left.events;
+      if ((right.player.score ?? 0) !== (left.player.score ?? 0)) return (right.player.score ?? 0) - (left.player.score ?? 0);
+      return (right.player.appearance_count ?? 0) - (left.player.appearance_count ?? 0);
+    });
+
+  return (
+    <section className="stat-panel full-span group-leaderboard-panel">
+      <div className="stat-panel-heading">
+        <h3>{title}</h3>
+        <span>{players.length.toLocaleString()} participants</span>
+      </div>
+      {rows.length > 0 ? (
+        <div className="table-frame compact-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Player</th>
+                <th>Games</th>
+                <th>Score</th>
+                <th>G/A/S/Sh</th>
+                <th>Active</th>
+                <th>Events</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(({ player, key, events: eventCount }) => (
+                <tr key={key}>
+                  <td>
+                    <strong>{player.name || player.platform_player_id || "Unknown"}</strong>
+                    <div className="subtle">{player.color_switching ? "Switched colors" : teamLabel(player.team)}</div>
+                  </td>
+                  <td>{(player.appearance_count ?? 0).toLocaleString()}</td>
+                  <td>{formatNullableInteger(player.score)}</td>
+                  <td>{scoreboardLine(player)}</td>
+                  <td>{formatSeconds(player.active_time_seconds)}</td>
+                  <td>{eventCount.toLocaleString()}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="stat-empty">No identifiable participants are available for this group yet.</div>
+      )}
+    </section>
+  );
+}
+
+function participantEventCounts(players: ReplayPlayer[], events: MechanicEventResponse[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+    if (index < 0) continue;
+    const key = groupParticipantKey(players[index], index);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
+  const eventPlayerId = (event.player_id ?? stringPayloadValue(event.payload, "player_id"))?.trim();
+  if (eventPlayerId && (player.platform_player_id === eventPlayerId || replayPlayerIdentity(player) === eventPlayerId)) {
+    return true;
+  }
+  const eventName = event.player_name?.trim().toLowerCase();
+  return Boolean(eventName && player.name?.trim().toLowerCase() === eventName);
+}
+
+function stringPayloadValue(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function scoreboardLine(player: ReplayPlayer): string {
+  return [player.goals, player.assists, player.saves, player.shots].map(formatNullableInteger).join(" / ");
+}
+
+function formatNullableInteger(value: number | null | undefined): string {
+  return value == null ? "0" : Math.round(value).toLocaleString();
 }
 
 function normalizeReplayPlatform(value: string): string {
@@ -2362,9 +2477,26 @@ function friendlyApiMessage(message: string): string {
   return message;
 }
 
+type PlayerStatsByGroupState = {
+  scope: string;
+  groups: Partial<Record<string, StatAggregateSetResponse>>;
+};
+
+const playerSupplementalKeys = ["overview", "kickoffTaker", "kickoffSupport", "kickoffFilter", "possession"] as const;
+type PlayerSupplementalKey = (typeof playerSupplementalKeys)[number];
+
+type PlayerSupplementalLoadedState = {
+  scope: string;
+  loaded: Partial<Record<PlayerSupplementalKey, boolean>>;
+};
+
 function PlayerStatsPage() {
   const { platform = "", platformPlayerId = "", statGroup } = useParams();
   const location = useLocation();
+  const statsScope = useMemo(
+    () => `${platform}\n${platformPlayerId}\n${location.search}`,
+    [location.search, platform, platformPlayerId],
+  );
   const playerReplayParams = useMemo(
     () => playerReplaySetParams(platform, platformPlayerId, location.search),
     [location.search, platform, platformPlayerId],
@@ -2374,31 +2506,35 @@ function PlayerStatsPage() {
     [statGroup],
   );
   const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
-  const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
+  const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({ scope: "", groups: {} });
   const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
   const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(null);
   const [kickoffSupportSummary, setKickoffSupportSummary] = useState<EventStatSummaryResponse | null>(null);
   const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(null);
   const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(null);
+  const [supplementalLoaded, setSupplementalLoaded] = useState<PlayerSupplementalLoadedState>({
+    scope: "",
+    loaded: {},
+  });
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const scopedStatsByGroup = statsByGroup.scope === statsScope ? statsByGroup.groups : {};
+  const stats = scopedStatsByGroup[activeGroup.id] ?? null;
+  const scopedSupplementalLoaded = supplementalLoaded.scope === statsScope ? supplementalLoaded.loaded : {};
+  const loadedSupplementalKeys = Object.keys(scopedSupplementalLoaded).sort().join("|");
+  const activeSupplementalKeys = useMemo(
+    () => playerSupplementalKeysForGroup(activeGroup.id),
+    [activeGroup.id],
+  );
+  const activeSupplementalKeyList = activeSupplementalKeys.join("|");
+  const activeSupplementalReady = activeSupplementalKeys.every((key) => scopedSupplementalLoaded[key]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    setStatsLoading(true);
     setError(null);
-    setStatsError(null);
-    setOverview(null);
-    setKickoffTakerSummary(null);
-    setKickoffSupportSummary(null);
-    setKickoffFilterSummary(null);
-    setPossessionSummary(null);
-    const pageSearchParams = new URLSearchParams(location.search);
-    const aggregateSearchParams =
-      activeGroup.id === "kickoffs" ? pageSearchParams : stripKickoffSpawnParams(pageSearchParams);
     getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
@@ -2409,9 +2545,47 @@ function PlayerStatsPage() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
-    getPlayerStatAggregates(platform, platformPlayerId, aggregateSearchParams)
+    return () => {
+      cancelled = true;
+    };
+  }, [location.search, platform, platformPlayerId]);
+
+  useEffect(() => {
+    setStatsByGroup({ scope: statsScope, groups: {} });
+    setSupplementalLoaded({ scope: statsScope, loaded: {} });
+    setStatsError(null);
+    setStatsLoading(true);
+    setOverview(null);
+    setKickoffTakerSummary(null);
+    setKickoffSupportSummary(null);
+    setKickoffFilterSummary(null);
+    setPossessionSummary(null);
+  }, [statsScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (stats) {
+      setStatsLoading(false);
+      setStatsError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setStatsLoading(true);
+    setStatsError(null);
+    getPlayerStatAggregates(
+      platform,
+      platformPlayerId,
+      playerAggregateSearchParams(activeGroup.id, location.search),
+      activeGroup.terms,
+    )
       .then((response) => {
-        if (!cancelled) setStats(response);
+        if (cancelled) return;
+        setStatsByGroup((current) => {
+          const groups = current.scope === statsScope ? current.groups : {};
+          return { scope: statsScope, groups: { ...groups, [activeGroup.id]: response } };
+        });
       })
       .catch((err: Error) => {
         if (!cancelled) setStatsError(err.message);
@@ -2419,36 +2593,143 @@ function PlayerStatsPage() {
       .finally(() => {
         if (!cancelled) setStatsLoading(false);
       });
-    // Supplemental visualizations degrade gracefully when these fail.
-    getPlayerStatOverview(platform, platformPlayerId, new URLSearchParams(location.search))
-      .then((response) => {
-        if (!cancelled) setOverview(response);
-      })
-      .catch(() => {});
-    getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search), "taker")
-      .then((response) => {
-        if (!cancelled) setKickoffTakerSummary(response);
-      })
-      .catch(() => {});
-    getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search), "support")
-      .then((response) => {
-        if (!cancelled) setKickoffSupportSummary(response);
-      })
-      .catch(() => {});
-    getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(new URLSearchParams(location.search)), "taker")
-      .then((response) => {
-        if (!cancelled) setKickoffFilterSummary(response);
-      })
-      .catch(() => {});
-    getPlayerPossessionSummary(platform, platformPlayerId, new URLSearchParams(location.search))
-      .then((response) => {
-        if (!cancelled) setPossessionSummary(response);
-      })
-      .catch(() => {});
     return () => {
       cancelled = true;
     };
-  }, [activeGroup.id, location.search, platform, platformPlayerId]);
+  }, [activeGroup, location.search, platform, platformPlayerId, stats, statsScope]);
+
+  useEffect(() => {
+    if (!stats || !activeSupplementalReady) return;
+    const remainingGroups = playerStatsSectionGroups.filter(
+      (group) => group.id !== activeGroup.id && scopedStatsByGroup[group.id] == null,
+    );
+    if (remainingGroups.length === 0) return;
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        for (const group of remainingGroups) {
+          if (cancelled) break;
+          try {
+            const response = await getPlayerStatAggregates(
+              platform,
+              platformPlayerId,
+              playerAggregateSearchParams(group.id, location.search),
+              group.terms,
+            );
+            if (cancelled) break;
+            setStatsByGroup((current) => {
+              const groups = current.scope === statsScope ? current.groups : {};
+              if (groups[group.id]) return current;
+              return { scope: statsScope, groups: { ...groups, [group.id]: response } };
+            });
+          } catch {
+            // Background tab hydration should not interrupt the visible section.
+          }
+        }
+      })();
+    }, 100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    activeGroup.id,
+    activeSupplementalReady,
+    location.search,
+    platform,
+    platformPlayerId,
+    stats,
+    statsScope,
+  ]);
+
+  function applySupplementalResponse(
+    key: PlayerSupplementalKey,
+    response: PlayerStatOverviewResponse | EventStatSummaryResponse | PossessionSummaryResponse,
+  ) {
+    if (key === "overview") {
+      setOverview(response as PlayerStatOverviewResponse);
+    } else if (key === "kickoffTaker") {
+      setKickoffTakerSummary(response as EventStatSummaryResponse);
+    } else if (key === "kickoffSupport") {
+      setKickoffSupportSummary(response as EventStatSummaryResponse);
+    } else if (key === "kickoffFilter") {
+      setKickoffFilterSummary(response as EventStatSummaryResponse);
+    } else {
+      setPossessionSummary(response as PossessionSummaryResponse);
+    }
+  }
+
+  function markSupplementalLoaded(key: PlayerSupplementalKey) {
+    setSupplementalLoaded((current) => {
+      const loaded = current.scope === statsScope ? current.loaded : {};
+      return { scope: statsScope, loaded: { ...loaded, [key]: true } };
+    });
+  }
+
+  useEffect(() => {
+    const missingKeys = activeSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
+    if (missingKeys.length === 0) return;
+
+    let cancelled = false;
+    for (const key of missingKeys) {
+      fetchPlayerSupplemental(key, platform, platformPlayerId, location.search)
+        .then((response) => {
+          if (!cancelled) applySupplementalResponse(key, response);
+        })
+        .catch(() => {})
+        .finally(() => {
+          if (!cancelled) markSupplementalLoaded(key);
+        });
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeSupplementalKeyList,
+    loadedSupplementalKeys,
+    location.search,
+    platform,
+    platformPlayerId,
+    scopedSupplementalLoaded,
+  ]);
+
+  useEffect(() => {
+    if (!stats || !activeSupplementalReady) return;
+    const remainingKeys = playerSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
+    if (remainingKeys.length === 0) return;
+
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        for (const key of remainingKeys) {
+          if (cancelled) break;
+          try {
+            const response = await fetchPlayerSupplemental(key, platform, platformPlayerId, location.search);
+            if (cancelled) break;
+            applySupplementalResponse(key, response);
+          } catch {
+            // Background supplemental panels are optional.
+          } finally {
+            if (!cancelled) markSupplementalLoaded(key);
+          }
+        }
+      })();
+    }, 100);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [
+    activeSupplementalReady,
+    location.search,
+    platform,
+    platformPlayerId,
+    stats,
+  ]);
 
   return (
     <section className="page player-stats-page">
@@ -2544,6 +2825,11 @@ function stripKickoffSpawnParams(params: URLSearchParams): URLSearchParams {
   return params;
 }
 
+function playerAggregateSearchParams(groupId: string, search: string): URLSearchParams {
+  const params = new URLSearchParams(search);
+  return groupId === "kickoffs" ? params : stripKickoffSpawnParams(params);
+}
+
 function kickoffShapeFilterFromSearch(search: string): KickoffShapeFilter {
   const value = new URLSearchParams(search).get("kickoff-shape");
   return value === "diagonal" || value === "center_offset" || value === "center" ? value : "all";
@@ -2552,6 +2838,41 @@ function kickoffShapeFilterFromSearch(search: string): KickoffShapeFilter {
 function kickoffSideFilterFromSearch(search: string): KickoffSideFilter {
   const value = new URLSearchParams(search).get("kickoff-side");
   return value === "left" || value === "right" ? value : "all";
+}
+
+function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
+  if (groupId === "goals" || groupId === "positioning" || groupId === "rotation") {
+    return ["overview"];
+  }
+  if (groupId === "kickoffs") {
+    return ["kickoffTaker", "kickoffSupport", "kickoffFilter"];
+  }
+  if (groupId === "possession-territory") {
+    return ["possession"];
+  }
+  return [];
+}
+
+function fetchPlayerSupplemental(
+  key: PlayerSupplementalKey,
+  platform: string,
+  platformPlayerId: string,
+  search: string,
+): Promise<PlayerStatOverviewResponse | EventStatSummaryResponse | PossessionSummaryResponse> {
+  const params = new URLSearchParams(search);
+  if (key === "overview") {
+    return getPlayerStatOverview(platform, platformPlayerId, params);
+  }
+  if (key === "kickoffTaker") {
+    return getPlayerKickoffSummary(platform, platformPlayerId, params, "taker");
+  }
+  if (key === "kickoffSupport") {
+    return getPlayerKickoffSummary(platform, platformPlayerId, params, "support");
+  }
+  if (key === "kickoffFilter") {
+    return getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(params), "taker");
+  }
+  return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
 
 // Top-level career segmentation: team size and competitive context are

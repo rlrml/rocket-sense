@@ -24,7 +24,12 @@
   --chart-axis: #9aa8b8;
   --boost-neutral: #64748b;
   --boost-big: #0f766e;
+  --boost-big-offensive: #dc2626;
+  --boost-big-neutral: #64748b;
+  --boost-big-defensive: #2563eb;
   --boost-small: #94a3b8;
+  --boost-small-offensive: #f87171;
+  --boost-small-defensive: #93c5fd;
   --boost-grant: #a855f7;
   --boost-other: #64748b;
   --boost-stolen-big: #dc2626;
@@ -1113,6 +1118,35 @@ button.status-stale:hover {
 .stat-detail {
   display: grid;
   gap: 16px;
+}
+
+.stat-panel-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.stat-panel-heading h3 {
+  margin: 0;
+}
+
+.stat-panel-heading span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.group-leaderboard-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.group-leaderboard-panel th,
+.group-leaderboard-panel td,
+.possession-leaderboard-table th,
+.possession-leaderboard-table td {
+  white-space: nowrap;
 }
 
 .stat-detail-header {
@@ -3090,7 +3124,7 @@ button.status-stale:hover {
 }
 
 .player-bar-chart {
-  --boost-label-width: 72px;
+  --boost-label-width: 92px;
   --boost-value-width: 132px;
 }
 
@@ -3181,10 +3215,21 @@ button.status-stale:hover {
 
 .player-metric-row {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  grid-template-columns: minmax(150px, 200px) repeat(auto-fit, minmax(190px, 1fr));
   align-items: center;
   gap: 12px;
   min-height: 46px;
+  min-width: 0;
+}
+
+.player-metric-row > * {
+  min-width: 0;
+}
+
+.player-metric-row > .source-bar-track,
+.player-metric-row > .stat-segmented-track,
+.player-metric-row > .metric-bar-track {
+  min-width: min(360px, 100%);
 }
 
 .player-bar-label {
@@ -3249,9 +3294,16 @@ button.status-stale:hover {
 
 .metric-bar-line {
   display: grid;
-  grid-template-columns: var(--boost-label-width) minmax(0, 1fr) var(--boost-value-width);
+  grid-template-columns: minmax(var(--boost-label-width), max-content) minmax(58px, 1fr) max-content;
   align-items: center;
   gap: 8px;
+  min-width: 0;
+}
+
+.metric-bar-line > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metric-bar-line strong {
@@ -3334,9 +3386,34 @@ button.status-stale:hover {
   background: var(--boost-big);
 }
 
+.big-pad-offensive-source,
+.chart-legend .legend-big-pad-offensive::before {
+  background: var(--boost-big-offensive);
+}
+
+.big-pad-neutral-source,
+.chart-legend .legend-big-pad-neutral::before {
+  background: var(--boost-big-neutral);
+}
+
+.big-pad-defensive-source,
+.chart-legend .legend-big-pad-defensive::before {
+  background: var(--boost-big-defensive);
+}
+
 .small-pad-source,
 .chart-legend .legend-small-pad::before {
   background: var(--boost-small);
+}
+
+.small-pad-offensive-source,
+.chart-legend .legend-small-pad-offensive::before {
+  background: var(--boost-small-offensive);
+}
+
+.small-pad-defensive-source,
+.chart-legend .legend-small-pad-defensive::before {
+  background: var(--boost-small-defensive);
 }
 
 .grant-source,
@@ -3447,6 +3524,41 @@ button.status-stale:hover {
 .source-segment.team-segment-orange.big-stolen-source,
 .source-segment.team-segment-orange.big-pad-source {
   background: #ea580c;
+}
+
+.source-segment.team-segment-blue.big-pad-offensive-source,
+.source-segment.team-segment-orange.big-pad-offensive-source,
+.source-segment.team-segment-unknown.big-pad-offensive-source,
+.source-segment.big-pad-offensive-source {
+  background: var(--boost-big-offensive);
+}
+
+.source-segment.team-segment-blue.big-pad-neutral-source,
+.source-segment.team-segment-orange.big-pad-neutral-source,
+.source-segment.team-segment-unknown.big-pad-neutral-source,
+.source-segment.big-pad-neutral-source {
+  background: var(--boost-big-neutral);
+}
+
+.source-segment.team-segment-blue.big-pad-defensive-source,
+.source-segment.team-segment-orange.big-pad-defensive-source,
+.source-segment.team-segment-unknown.big-pad-defensive-source,
+.source-segment.big-pad-defensive-source {
+  background: var(--boost-big-defensive);
+}
+
+.source-segment.team-segment-blue.small-pad-offensive-source,
+.source-segment.team-segment-orange.small-pad-offensive-source,
+.source-segment.team-segment-unknown.small-pad-offensive-source,
+.source-segment.small-pad-offensive-source {
+  background: var(--boost-small-offensive);
+}
+
+.source-segment.team-segment-blue.small-pad-defensive-source,
+.source-segment.team-segment-orange.small-pad-defensive-source,
+.source-segment.team-segment-unknown.small-pad-defensive-source,
+.source-segment.small-pad-defensive-source {
+  background: var(--boost-small-defensive);
 }
 
 .source-segment + .source-segment {

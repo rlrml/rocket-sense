@@ -487,6 +487,7 @@ fn indexed_timeline_events_give_boost_pickups_one_review_type_with_detection_att
             "player_id": { "Steam": 76561198000000001_u64 },
             "is_team_0": true,
             "pad_type": "big",
+            "pad_zone": "offensive",
             "field_half": "opponent",
             "activity": "active",
             "is_steal": true,
@@ -507,6 +508,13 @@ fn indexed_timeline_events_give_boost_pickups_one_review_type_with_detection_att
             .get("detection")
             .and_then(|value| value.as_str()),
         Some("both")
+    );
+    assert_eq!(
+        boost_pickup
+            .attributes
+            .get("pad_zone")
+            .and_then(|value| value.as_str()),
+        Some("offensive")
     );
     assert_eq!(
         boost_pickup.primary_subject.as_ref().map(|subject| (

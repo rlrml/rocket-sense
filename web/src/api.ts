@@ -202,12 +202,16 @@ export function getPlayerStatAggregates(
   platform: string,
   platformPlayerId: string,
   searchParams: URLSearchParams,
+  statTerms: readonly string[] = [],
 ): Promise<StatAggregateSetResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
   params.set("include-teammates", "true");
   params.set("group-by", "playlist");
   params.set("count", "200");
+  for (const term of statTerms) {
+    params.append("stat-term", term);
+  }
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
 }
 
