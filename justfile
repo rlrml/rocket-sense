@@ -60,3 +60,25 @@ fmt-check:
 
 clippy: web-build
     {{nix_develop}} cargo clippy --workspace -- -D warnings
+
+# Check migration version numbers are unique (matches CI; parallel PRs collide)
+check-migrations:
+    ./scripts/check-migration-versions.sh
+
+# ---------------------------------------------------------------------------
+# CI preflight gate
+#
+# `just check` mirrors the blocking lint/compile checks CI runs on every PR, so
+# you can verify cleanliness before committing without the slow jobs. Run it
+# clean before every commit. It deliberately omits `cargo test --workspace` and
+# the release/image build -- run those targeted (e.g. `cargo test module_name`)
+# or via `just test` when the change warrants it.
+#
+# NOTE: clippy uses CI's exact flags (`--workspace -- -D warnings`), so a warning
+# in a test or any crate fails CI even though a plain `cargo build` passes.
+# Prefer the `just clippy` / `just fmt-check` recipes over bare cargo, and the
+# server crate embeds web/dist via build.rs, so clippy depends on `web-build`.
+# ---------------------------------------------------------------------------
+
+# Fast quality gate: migrations + web typecheck + Rust fmt/clippy. Run clean before every commit.
+check: check-migrations web-typecheck fmt-check clippy
