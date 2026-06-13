@@ -13,9 +13,12 @@ import {
   FolderMinus,
   FolderOpen,
   FolderPlus,
+  Github,
+  Info,
   LayoutDashboard,
   ListPlus,
   LogIn,
+  Mail,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -52,6 +55,7 @@ import {
   getPlayerProfile,
   getPlayerStatAggregates,
   getPlayerStatOverview,
+  getProcessingVersion,
   getReplay,
   getReplayGroup,
   getReplayGroupStatAggregates,
@@ -106,6 +110,7 @@ import type {
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
   PossessionSummaryResponse,
+  ProcessingVersionResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
@@ -132,6 +137,7 @@ const navItems = [
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/admin/processing", label: "Admin", icon: ServerCog },
   { to: "/account", label: "Account", icon: CircleUser },
+  { to: "/about", label: "About", icon: Info },
 ];
 
 const playerStatsSectionGroups: StatGroup[] = statGroups;
@@ -221,6 +227,7 @@ export function App() {
             <Route path="/mechanics/review" element={<EventsReviewPage />} />
             <Route path="/admin/processing" element={<AdminProcessingPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/about" element={<AboutPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         )}
@@ -5029,6 +5036,210 @@ function RunSummary({
       <small>{run.event_stream_schema_version || "schema missing"}</small>
       <small>{formatDate(run.started_at)}</small>
     </div>
+  );
+}
+
+const ABOUT_REPOS = [
+  {
+    name: "rocket-sense",
+    url: "https://github.com/rlrml/rocket-sense",
+    description: "Replay analytics backend and web app (this site).",
+  },
+  {
+    name: "subtr-actor",
+    url: "https://github.com/rlrml/subtr-actor",
+    description: "Rocket League replay parsing and stat extraction.",
+  },
+];
+
+function AboutPage() {
+  const [version, setVersion] = useState<ProcessingVersionResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    getProcessingVersion()
+      .then((response) => {
+        if (!cancelled) {
+          setVersion(response);
+          setError(null);
+        }
+      })
+      .catch((caught: unknown) => {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : "Failed to load version.");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const subtrActorSha = version?.subtr_actor_git_sha ?? null;
+  const rocketSenseSha = version?.rocket_sense_git_sha ?? null;
+
+  return (
+    <section className="page about-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">About</p>
+          <h1>About Rocket Sense</h1>
+        </div>
+      </header>
+
+      <p className="page-header-note">
+        Rocket Sense is a Rocket League replay analytics service. Upload your
+        replays and it parses them with subtr-actor to derive per-player and
+        per-group stats, mechanics, kickoffs, and event breakdowns.
+      </p>
+
+      <div className="about-section">
+        <h2>Server version</h2>
+        {loading ? (
+          <div className="status-line">
+            <RefreshCw size={16} className="spin" />
+            Loading
+          </div>
+        ) : null}
+        {error ? <div className="status-line error">{error}</div> : null}
+        {version ? (
+          <table className="version-breakdown-table about-version-table">
+            <tbody>
+              <tr>
+                <th scope="row">Event schema</th>
+                <td>{version.event_stream_schema_version}</td>
+              </tr>
+              <tr>
+                <th scope="row">Extractor</th>
+                <td>
+                  {version.extractor_name} {version.extractor_version}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">subtr-actor</th>
+                <td>
+                  {version.subtr_actor_version}
+                  {subtrActorSha ? (
+                    <>
+                      {" "}
+                      <a
+                        className="git-sha"
+                        href={`https://github.com/rlrml/subtr-actor/commit/${subtrActorSha}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        title={subtrActorSha}
+                      >
+                        {subtrActorSha.slice(0, 7)}
+                      </a>
+                    </>
+                  ) : null}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">rocket-sense</th>
+                <td>
+                  {rocketSenseSha ? (
+                    <a
+                      className="git-sha"
+                      href={`https://github.com/rlrml/rocket-sense/commit/${rocketSenseSha}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={rocketSenseSha}
+                    >
+                      {rocketSenseSha.slice(0, 7)}
+                    </a>
+                  ) : (
+                    <span className="subtle">unknown</span>
+                  )}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        ) : null}
+      </div>
+
+      {version && version.schema_changelog.length > 0 ? (
+        <div className="about-section">
+          <h2>Event schema changelog</h2>
+          <table className="version-breakdown-table">
+            <thead>
+              <tr>
+                <th>Version</th>
+                <th>Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {version.schema_changelog
+                .slice()
+                .reverse()
+                .map((entry) => (
+                  <tr key={entry.version}>
+                    <td>{entry.version}</td>
+                    <td>{entry.note}</td>
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+
+      <div className="about-section">
+        <h2>Open source</h2>
+        <p className="muted-text">
+          Rocket Sense is built in the open. Issues and contributions are
+          welcome.
+        </p>
+        <div className="about-link-grid">
+          {ABOUT_REPOS.map((repo) => (
+            <a
+              key={repo.name}
+              className="about-link-card"
+              href={repo.url}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <Github size={20} />
+              <span className="about-link-text">
+                <strong>{repo.name}</strong>
+                <span>{repo.description}</span>
+              </span>
+              <ExternalLink size={16} className="about-link-arrow" />
+            </a>
+          ))}
+        </div>
+      </div>
+
+      <div className="about-section">
+        <h2>Contact</h2>
+        <div className="about-link-grid">
+          <a
+            className="about-link-card"
+            href="https://github.com/rlrml/rocket-sense/issues"
+            target="_blank"
+            rel="noreferrer"
+          >
+            <Info size={20} />
+            <span className="about-link-text">
+              <strong>Report an issue</strong>
+              <span>Bugs and feature requests on GitHub</span>
+            </span>
+            <ExternalLink size={16} className="about-link-arrow" />
+          </a>
+          <a className="about-link-card" href="mailto:IvanMalison@gmail.com">
+            <Mail size={20} />
+            <span className="about-link-text">
+              <strong>Email</strong>
+              <span>IvanMalison@gmail.com</span>
+            </span>
+          </a>
+        </div>
+      </div>
+    </section>
   );
 }
 
