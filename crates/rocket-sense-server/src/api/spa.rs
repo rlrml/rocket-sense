@@ -2,8 +2,8 @@ use crate::app::AppState;
 use axum::{
     extract::Path,
     http::{
-        header::{CACHE_CONTROL, CONTENT_TYPE},
-        StatusCode,
+        header::{ACCEPT, CACHE_CONTROL, CONTENT_TYPE},
+        HeaderMap, Method, StatusCode, Uri,
     },
     response::{IntoResponse, Response},
     routing::get,
@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/processing", get(spa_index))
         .route("/assets/{*asset_path}", get(spa_asset))
         .route("/favicon.ico", get(favicon))
+        .fallback(spa_fallback)
 }
 
 async fn spa_index() -> Result<Response, StatusCode> {
@@ -35,6 +36,48 @@ async fn spa_index() -> Result<Response, StatusCode> {
         asset.bytes,
     )
         .into_response())
+}
+
+async fn spa_fallback(
+    method: Method,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    if should_serve_spa_fallback(&method, uri.path(), &headers) {
+        spa_index().await
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+fn should_serve_spa_fallback(method: &Method, path: &str, headers: &HeaderMap) -> bool {
+    (method == Method::GET || method == Method::HEAD)
+        && accepts_html(headers)
+        && !is_reserved_non_spa_path(path)
+}
+
+fn accepts_html(headers: &HeaderMap) -> bool {
+    headers
+        .get(ACCEPT)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|accept| {
+            accept
+                .split(',')
+                .any(|part| part.trim().starts_with("text/html"))
+        })
+}
+
+fn is_reserved_non_spa_path(path: &str) -> bool {
+    let first_segment = path
+        .trim_start_matches('/')
+        .split('/')
+        .next()
+        .unwrap_or_default();
+
+    matches!(
+        first_segment,
+        "api" | "api-docs" | "assets" | "auth" | "favicon.ico" | "subtr-actor"
+    )
 }
 
 async fn spa_asset(Path(asset_path): Path<String>) -> Result<Response, StatusCode> {
@@ -63,3 +106,74 @@ struct StaticAsset {
 }
 
 include!(concat!(env!("OUT_DIR"), "/web_static_assets.rs"));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn html_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, "text/html,application/xhtml+xml".parse().unwrap());
+        headers
+    }
+
+    fn json_headers() -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(ACCEPT, "application/json".parse().unwrap());
+        headers
+    }
+
+    #[test]
+    fn fallback_serves_deep_spa_routes() {
+        let headers = html_headers();
+
+        assert!(should_serve_spa_fallback(
+            &Method::GET,
+            "/players/steam/76561198856200686/stats/mechanics",
+            &headers
+        ));
+        assert!(should_serve_spa_fallback(
+            &Method::GET,
+            "/replay-groups/8c14be67-80b9-40e0-99f6-1bdcd8766a7d/stats/goals",
+            &headers
+        ));
+    }
+
+    #[test]
+    fn fallback_does_not_shadow_api_or_static_paths() {
+        let headers = html_headers();
+
+        for path in [
+            "/api/v1/health",
+            "/api-docs/openapi.json",
+            "/assets/missing.js",
+            "/auth/google/start",
+            "/favicon.ico",
+            "/subtr-actor/review/missing",
+        ] {
+            assert!(!should_serve_spa_fallback(&Method::GET, path, &headers));
+        }
+    }
+
+    #[test]
+    fn fallback_only_handles_html_gets_and_heads() {
+        let headers = html_headers();
+        let json_headers = json_headers();
+
+        assert!(should_serve_spa_fallback(
+            &Method::HEAD,
+            "/players/steam/1/stats/mechanics",
+            &headers
+        ));
+        assert!(!should_serve_spa_fallback(
+            &Method::POST,
+            "/players/steam/1/stats/mechanics",
+            &headers
+        ));
+        assert!(!should_serve_spa_fallback(
+            &Method::GET,
+            "/players/steam/1/stats/mechanics",
+            &json_headers
+        ));
+    }
+}
