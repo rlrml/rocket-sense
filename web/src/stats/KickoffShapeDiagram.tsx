@@ -1,4 +1,4 @@
-import type { ReplayModel, ReplayPlayerTrack } from "@rlrml/player";
+import type { ReplayModel } from "@rlrml/viewer";
 import { useEffect, useId, useMemo, useState } from "react";
 import { fieldProjection, type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
@@ -165,7 +165,7 @@ function extractPaths(
   };
 }
 
-function samplePath(track: ReplayPlayerTrack, from: number, to: number, projection: FieldProjection) {
+function samplePath(track: ReplayModel["players"][number], from: number, to: number, projection: FieldProjection) {
   const points: Array<{ x: number; y: number }> = [];
   const step = Math.max(1, Math.floor((to - from) / MAX_PATH_POINTS));
   for (let i = from; i <= to; i += step) {
@@ -188,7 +188,7 @@ function sampleBallPath(replay: ReplayModel, from: number, to: number, projectio
   return points;
 }
 
-function matchPlayer(track: ReplayPlayerTrack, players: KickoffPathPlayer[]): KickoffPathPlayer | null {
+function matchPlayer(track: ReplayModel["players"][number], players: KickoffPathPlayer[]): KickoffPathPlayer | null {
   const trackKeys = idKeys(track.id);
   const byKey = players.find((player) => {
     if (!player.playerKey) return false;
