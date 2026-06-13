@@ -1,5 +1,5 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { SegmentedBar, type SegmentedBarSegment } from "./shared";
+import { MetricMeter, PlayerSegmentedBarRows, type SegmentedBarSegment } from "./shared";
 
 export const positioningEventTypes = [
   // PlayerStateSpan facet streams (current analysis runs).
@@ -167,29 +167,18 @@ function PositioningBarRows({
   total: (summary: PlayerPositioningSummary) => number;
   emptyLabel: string;
 }) {
-  if (!summaries.some((summary) => total(summary) > 0)) {
-    return <div className="stat-empty">{emptyLabel}</div>;
-  }
-
-  const rows = sortedSummaries(summaries, sortValue);
-
   return (
-    <div className="positioning-bar-rows">
-      {rows.map((summary) => (
-        <div className="positioning-bar-row" key={summary.key}>
-          <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-            <strong>{summary.name}</strong>
-            <span>{teamLabel(summary.team)}</span>
-          </div>
-          <SegmentedBar
-            ariaLabel={`${summary.name} positioning split`}
-            className="positioning-track"
-            segments={segments(summary)}
-            total={total(summary)}
-          />
-        </div>
-      ))}
-    </div>
+    <PlayerSegmentedBarRows
+      ariaLabel={(summary) => `${summary.name} positioning split`}
+      className="positioning-bar-rows"
+      emptyLabel={emptyLabel}
+      items={summaries}
+      label={positioningPlayerLabel}
+      segments={segments}
+      sortItems={(items) => sortedSummaries(items, sortValue)}
+      total={total}
+      trackClassName="positioning-track"
+    />
   );
 }
 
@@ -216,20 +205,20 @@ function PositioningProximityChart({ summaries }: { summaries: PlayerPositioning
             <span>{teamLabel(summary.team)}</span>
           </div>
           <div className="positioning-proximity-meters">
-            <PositioningMeter
+            <MetricMeter
               className="positioning-meter-distance-ball"
               label="Avg ball"
               percent={barPercent(ballDistance, maxDistance)}
               value={formatDistance(ballDistance)}
             />
-            <PositioningMeter
+            <MetricMeter
               className="positioning-meter-distance-team"
               label="Avg team"
               percent={barPercent(teammateDistance, maxDistance)}
               value={formatDistance(teammateDistance)}
             />
             {showCaughtAhead ? (
-              <PositioningMeter
+              <MetricMeter
                 className="positioning-meter-caught"
                 label="Caught"
                 percent={barPercent(summary.caughtAheadGoals, maxCaughtAhead)}
@@ -243,16 +232,11 @@ function PositioningProximityChart({ summaries }: { summaries: PlayerPositioning
   );
 }
 
-function PositioningMeter({ className, label, percent, value }: { className: string; label: string; percent: number; value: string }) {
-  const clampedPercent = Math.max(0, Math.min(100, percent));
-
+function positioningPlayerLabel(summary: PlayerPositioningSummary) {
   return (
-    <div className="positioning-meter" title={`${label}: ${value}`}>
-      <span className="positioning-meter-label">{label}</span>
-      <span className="positioning-meter-track" aria-label={`${label}: ${value}`}>
-        <span className={`positioning-meter-fill ${className}`} style={{ width: `${clampedPercent}%` }} />
-      </span>
-      <strong>{value}</strong>
+    <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
+      <strong>{summary.name}</strong>
+      <span>{teamLabel(summary.team)}</span>
     </div>
   );
 }

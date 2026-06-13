@@ -1,5 +1,5 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { SegmentedBar, type SegmentedBarSegment } from "./shared";
+import { MetricMeter, PlayerSegmentedBarRows, SegmentedBar, type SegmentedBarSegment } from "./shared";
 
 export const movementEventTypes = ["movement", "powerslide", "flip_impulse", "movement.dodge_refresh"];
 
@@ -93,22 +93,25 @@ function MovementSpeedChart({ summaries }: { summaries: PlayerMovementSummary[] 
               <span>{teamLabel(summary.team)}</span>
             </div>
             <div className="movement-player-metrics">
-              <MovementMeter
+              <MetricMeter
                 className="movement-meter-speed"
                 label="Avg speed"
                 percent={barPercent(speed, maxAvgSpeed)}
+                rootClassName="movement-meter"
                 value={formatSpeed(speed)}
               />
-              <MovementMeter
+              <MetricMeter
                 className="movement-meter-speed-share"
                 label="Speed %"
                 percent={speed == null ? 0 : percentage(speed, maxSpeed)}
+                rootClassName="movement-meter"
                 value={speed == null ? "Unknown" : `${Math.round((speed / maxSpeed) * 100)}%`}
               />
-              <MovementMeter
+              <MetricMeter
                 className="movement-meter-distance"
                 label="Tot. dist."
                 percent={barPercent(summary.totalDistance, maxDistance)}
+                rootClassName="movement-meter"
                 value={formatDistance(summary.totalDistance)}
               />
             </div>
@@ -140,27 +143,17 @@ function MovementShareRows({
   total: (summary: PlayerMovementSummary) => number;
   emptyLabel: string;
 }) {
-  if (!summaries.some((summary) => total(summary) > 0)) {
-    return <div className="stat-empty">{emptyLabel}</div>;
-  }
-
   return (
-    <div className="movement-share-rows">
-      {summaries.map((summary) => (
-        <div className="positioning-bar-row" key={summary.key}>
-          <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-            <strong>{summary.name}</strong>
-            <span>{teamLabel(summary.team)}</span>
-          </div>
-          <SegmentedBar
-            ariaLabel={`${summary.name} ground and air split`}
-            className="positioning-track movement-band-track"
-            segments={segments(summary)}
-            total={total(summary)}
-          />
-        </div>
-      ))}
-    </div>
+    <PlayerSegmentedBarRows
+      ariaLabel={(summary) => `${summary.name} ground and air split`}
+      className="movement-share-rows"
+      emptyLabel={emptyLabel}
+      items={summaries}
+      label={movementPlayerLabel}
+      segments={segments}
+      total={total}
+      trackClassName="positioning-track movement-band-track"
+    />
   );
 }
 
@@ -181,22 +174,25 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
             <span>{teamLabel(summary.team)}</span>
           </div>
           <div className="movement-player-metrics">
-            <MovementMeter
+            <MetricMeter
               className="movement-meter-powerslide"
               label="Total"
               percent={barPercent(summary.powerslideSeconds, maxSeconds)}
+              rootClassName="movement-meter"
               value={formatSeconds(summary.powerslideSeconds)}
             />
-            <MovementMeter
+            <MetricMeter
               className="movement-meter-powerslide-avg"
               label="Average"
               percent={barPercent(averagePowerslideDuration(summary), Math.max(0.01, ...summaries.map(averagePowerslideDuration)))}
+              rootClassName="movement-meter"
               value={formatSeconds(averagePowerslideDuration(summary))}
             />
-            <MovementMeter
+            <MetricMeter
               className="movement-meter-powerslide-count"
               label="Count"
               percent={barPercent(summary.powerslideCount, maxCount)}
+              rootClassName="movement-meter"
               value={summary.powerslideCount.toLocaleString()}
             />
           </div>
@@ -206,16 +202,11 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
   );
 }
 
-function MovementMeter({ className, label, percent, value }: { className: string; label: string; percent: number; value: string }) {
-  const clampedPercent = Math.max(0, Math.min(100, percent));
-
+function movementPlayerLabel(summary: PlayerMovementSummary) {
   return (
-    <div className="positioning-meter movement-meter" title={`${label}: ${value}`}>
-      <span className="positioning-meter-label">{label}</span>
-      <span className="positioning-meter-track" aria-label={`${label}: ${value}`}>
-        <span className={`positioning-meter-fill ${className}`} style={{ width: `${clampedPercent}%` }} />
-      </span>
-      <strong>{value}</strong>
+    <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
+      <strong>{summary.name}</strong>
+      <span>{teamLabel(summary.team)}</span>
     </div>
   );
 }
