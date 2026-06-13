@@ -118,8 +118,26 @@ export function PositioningDetail({
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
+            <h3>Ball priority</h3>
+            <span>Closest, other, and farthest from the ball</span>
+          </header>
+          <PositioningBarRows
+            summaries={summaries}
+            emptyLabel="No ball-priority spans are available for this replay."
+            segments={(summary) => [
+              positioningSegment("closest", "Closest", summary.closestTeamSeconds, ballPriorityTotal(summary)),
+              positioningSegment("other", "Other", otherBallPrioritySeconds(summary), ballPriorityTotal(summary)),
+              positioningSegment("farthest", "Farthest", summary.farthestSeconds, ballPriorityTotal(summary)),
+            ]}
+            sortValue={(summary) => share(summary.closestTeamSeconds, ballPriorityTotal(summary))}
+            total={ballPriorityTotal}
+          />
+        </section>
+
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
             <h3>Spacing & proximity</h3>
-            <span>Average distances and ball priority</span>
+            <span>Average distances and conceded-goal context</span>
           </header>
           <PositioningProximityChart summaries={summaries} />
         </section>
@@ -201,18 +219,6 @@ function PositioningProximityChart({ summaries }: { summaries: PlayerPositioning
               label="Avg team"
               percent={barPercent(teammateDistance, maxDistance)}
               value={formatDistance(teammateDistance)}
-            />
-            <PositioningMeter
-              className="positioning-meter-closest"
-              label="Closest"
-              percent={percentage(summary.closestTeamSeconds, summary.trackedSeconds)}
-              value={formatPercent(summary.closestTeamSeconds, summary.trackedSeconds)}
-            />
-            <PositioningMeter
-              className="positioning-meter-farthest"
-              label="Farthest"
-              percent={percentage(summary.farthestSeconds, summary.trackedSeconds)}
-              value={formatPercent(summary.farthestSeconds, summary.trackedSeconds)}
             />
             {showCaughtAhead ? (
               <PositioningMeter
@@ -430,6 +436,14 @@ function eventDuration(event: MechanicEventResponse): number {
 
 function roleTotal(summary: PlayerPositioningSummary): number {
   return roleOrder.reduce((total, role) => total + summary.roleSeconds[role], 0);
+}
+
+function otherBallPrioritySeconds(summary: PlayerPositioningSummary): number {
+  return Math.max(0, summary.trackedSeconds - summary.closestTeamSeconds - summary.farthestSeconds);
+}
+
+function ballPriorityTotal(summary: PlayerPositioningSummary): number {
+  return summary.closestTeamSeconds + otherBallPrioritySeconds(summary) + summary.farthestSeconds;
 }
 
 function addWeightedPayload(payload: Record<string, unknown>, key: string, duration: number, add: (weightedValue: number) => void) {

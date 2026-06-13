@@ -2418,7 +2418,8 @@ button.status-stale:hover {
 
 .source-segment.positioning-segment-defensive,
 .source-segment.positioning-segment-behind,
-.source-segment.positioning-segment-role-most_back {
+.source-segment.positioning-segment-role-most_back,
+.source-segment.positioning-segment-closest {
   background: #0f766e;
 }
 
@@ -2426,13 +2427,15 @@ button.status-stale:hover {
 .source-segment.positioning-segment-level,
 .source-segment.positioning-segment-role-mid,
 .source-segment.positioning-segment-role-other,
-.source-segment.positioning-segment-role-no_teammates {
+.source-segment.positioning-segment-role-no_teammates,
+.source-segment.positioning-segment-other {
   background: #64748b;
 }
 
 .source-segment.positioning-segment-offensive,
 .source-segment.positioning-segment-ahead,
-.source-segment.positioning-segment-role-most_forward {
+.source-segment.positioning-segment-role-most_forward,
+.source-segment.positioning-segment-farthest {
   background: #be123c;
 }
 
