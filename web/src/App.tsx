@@ -84,7 +84,6 @@ import type {
   EventTypeResponse,
   MechanicEventResponse,
   PlayerProfileResponse,
-  PlayerProfileReplayResponse,
   PlayerStatOverviewResponse,
   PossessionSummaryResponse,
   ReplayProcessingDiagnostic,
@@ -2515,27 +2514,6 @@ function PlayerStatsPage() {
               stats={stats}
             />
           ) : null}
-
-          <section className="stat-panel">
-            <h2>Latest replays</h2>
-            <div className="table-frame">
-              <table>
-                <tbody>
-                  {playerSummary.latest_replays.map((replay) => (
-                    <tr key={replay.id}>
-                      <td>
-                        <Link className="primary-link" to={`/replays/${replay.id}`}>
-                          {replay.original_file_name || replay.id}
-                        </Link>
-                      </td>
-                      <td>{formatPlayerReplayScore(replay)}</td>
-                      <td>{formatDate(replay.replay_date || replay.created_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
         </>
       ) : null}
     </section>
@@ -4381,12 +4359,6 @@ function eventSearchText(event: MechanicEventResponse): string {
 function formatScore(replay: ReplayResponse): string {
   const blue = replay.summary.team_scores.blue;
   const orange = replay.summary.team_scores.orange;
-  return blue == null || orange == null ? "Unknown" : `${blue} - ${orange}`;
-}
-
-function formatPlayerReplayScore(replay: PlayerProfileReplayResponse): string {
-  const blue = replay.team_scores.blue;
-  const orange = replay.team_scores.orange;
   return blue == null || orange == null ? "Unknown" : `${blue} - ${orange}`;
 }
 
