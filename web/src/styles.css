@@ -2451,7 +2451,7 @@ button.status-stale:hover {
 .source-segment.positioning-segment-defensive,
 .source-segment.positioning-segment-behind,
 .source-segment.positioning-segment-role-most_back {
-  background: #2563eb;
+  background: #0f766e;
 }
 
 .source-segment.positioning-segment-neutral,
@@ -2465,7 +2465,7 @@ button.status-stale:hover {
 .source-segment.positioning-segment-offensive,
 .source-segment.positioning-segment-ahead,
 .source-segment.positioning-segment-role-most_forward {
-  background: #ea580c;
+  background: #be123c;
 }
 
 .positioning-table th,
