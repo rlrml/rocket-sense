@@ -4621,6 +4621,79 @@ tbody tr:last-child td {
   max-width: 980px;
 }
 
+.about-page {
+  max-width: 860px;
+}
+
+.about-section {
+  display: grid;
+  gap: 12px;
+}
+
+.about-section h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.about-version-table {
+  max-width: 480px;
+}
+
+.about-version-table th[scope="row"] {
+  width: 180px;
+  white-space: nowrap;
+}
+
+.about-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.about-link-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: inherit;
+  text-decoration: none;
+}
+
+.about-link-card:hover,
+.about-link-card:focus-visible {
+  border-color: var(--accent, #4f6bed);
+  background: var(--surface-hover, #f7f9ff);
+}
+
+.about-link-card > svg:first-child {
+  flex: none;
+  color: var(--muted);
+}
+
+.about-link-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.about-link-text strong {
+  font-size: 15px;
+}
+
+.about-link-text span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.about-link-arrow {
+  flex: none;
+  margin-left: auto;
+  color: var(--muted);
+}
+
 .admin-processing-page {
   max-width: 1440px;
 }
