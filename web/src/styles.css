@@ -1563,6 +1563,70 @@ button.status-stale:hover {
   font-weight: 750;
 }
 
+.kickoff-role-detail-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.kickoff-role-count-bar {
+  display: grid;
+  grid-template-columns: minmax(96px, 140px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.kickoff-role-count-bar > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.kickoff-role-count-track.stat-segmented-track {
+  height: 18px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.kickoff-role-count-track .source-segment-label {
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.kickoff-role-count-track .kickoff-outcome-segment-neutral .source-segment-label,
+.kickoff-role-count-track .kickoff-role-segment-other .source-segment-label {
+  color: #1e293b;
+}
+
+.source-segment.kickoff-role-segment-first {
+  background: #7c3aed;
+}
+
+.source-segment.kickoff-role-segment-other {
+  background: #cbd5e1;
+}
+
+.source-segment.kickoff-role-segment-map-0 {
+  background: #0f766e;
+}
+
+.source-segment.kickoff-role-segment-map-1 {
+  background: #0891b2;
+}
+
+.source-segment.kickoff-role-segment-map-2 {
+  background: #7c3aed;
+}
+
+.source-segment.kickoff-role-segment-map-3 {
+  background: #a16207;
+}
+
 .kickoff-card-list {
   display: grid;
   gap: 12px;
@@ -4719,6 +4783,10 @@ button.status-stale:hover {
 
   .kickoff-taker-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .kickoff-role-count-bar {
+    grid-template-columns: 1fr;
   }
 
   .kickoff-behavior-row {

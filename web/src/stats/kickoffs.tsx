@@ -130,6 +130,10 @@ interface PlayerKickoffSummary {
   supportCount: number;
   advantagesFor: number;
   advantagesAgainst: number;
+  takerAdvantagesFor: number;
+  takerAdvantagesAgainst: number;
+  supportAdvantagesFor: number;
+  supportAdvantagesAgainst: number;
   touched: number;
   firstTouchesAsTaker: number;
   firstTouchesAsSupport: number;
@@ -146,6 +150,8 @@ interface PlayerKickoffSummary {
   approaches: Map<string, number>;
   supportBehaviors: Map<string, number>;
   strengthOutcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
+  takerStrengthOutcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
+  supportStrengthOutcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
 }
 
 type KickoffStrengthBand = "narrow" | "clear" | "strong" | "unknown";
@@ -398,10 +404,8 @@ const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
   GOALS_COLUMN,
 ];
 
-// Win strength is a property of the kickoff a player took, so the outcome bar
-// rides beneath the taker rows only; support rows stay lean.
-function takerOutcomeDetail(summary: PlayerKickoffSummary): ReactNode {
-  return <KickoffStrengthSummary outcomes={summary.strengthOutcomes} team={summary.team} />;
+function roleOutcomeDetail(role: "taker" | "support") {
+  return (summary: PlayerKickoffSummary): ReactNode => <KickoffRoleOutcomeDetail role={role} summary={summary} />;
 }
 
 function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }) {
@@ -414,9 +418,15 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
         columns={TAKER_COLUMNS}
         summaries={takers}
         emptyLabel="No taker data yet."
-        renderRowDetail={takerOutcomeDetail}
+        renderRowDetail={roleOutcomeDetail("taker")}
       />
-      <KickoffRoleTable label="Support" columns={SUPPORT_COLUMNS} summaries={supports} emptyLabel="No support data yet." />
+      <KickoffRoleTable
+        label="Support"
+        columns={SUPPORT_COLUMNS}
+        summaries={supports}
+        emptyLabel="No support data yet."
+        renderRowDetail={roleOutcomeDetail("support")}
+      />
     </div>
   );
 }
@@ -474,6 +484,113 @@ function KickoffRoleTable({
       )}
     </div>
   );
+}
+
+function KickoffRoleOutcomeDetail({ role, summary }: { role: "taker" | "support"; summary: PlayerKickoffSummary }) {
+  const count = role === "taker" ? summary.takerCount : summary.supportCount;
+  const firstTouches = role === "taker" ? summary.firstTouchesAsTaker : summary.firstTouchesAsSupport;
+  const advantagesFor = role === "taker" ? summary.takerAdvantagesFor : summary.supportAdvantagesFor;
+  const advantagesAgainst = role === "taker" ? summary.takerAdvantagesAgainst : summary.supportAdvantagesAgainst;
+  const strengthOutcomes = role === "taker" ? summary.takerStrengthOutcomes : summary.supportStrengthOutcomes;
+
+  return (
+    <div className="kickoff-role-detail-bars">
+      <KickoffCountBar
+        ariaLabel={`${summary.name} first-touch share as ${role}`}
+        label="First touch"
+        segments={[
+          countSegment("first", "First touch", "kickoff-role-segment-first", firstTouches, count),
+          countSegment("other", "Other", "kickoff-role-segment-other", Math.max(0, count - firstTouches), count),
+        ]}
+        total={count}
+      />
+      <KickoffCountBar
+        ariaLabel={`${summary.name} control outcome as ${role}`}
+        label="Control"
+        segments={[
+          countSegment("for", "Advantage for", "kickoff-outcome-segment-win", advantagesFor, count),
+          countSegment("neutral", "Neutral", "kickoff-outcome-segment-neutral", Math.max(0, count - advantagesFor - advantagesAgainst), count),
+          countSegment("against", "Advantage against", "kickoff-outcome-segment-loss", advantagesAgainst, count),
+        ]}
+        total={count}
+      />
+      {role === "taker" ? (
+        <>
+          <KickoffCountBar
+            ariaLabel={`${summary.name} taker touch outcome`}
+            label="Taker result"
+            segments={[
+              countSegment("touched", "Touched", "kickoff-outcome-segment-win", summary.touched, count),
+              countSegment("fake", "Fake", "kickoff-role-segment-other", summary.faked, count),
+              countSegment("missed", "Missed", "kickoff-outcome-segment-loss", summary.missed, count),
+              countSegment("unknown", "Unknown", "kickoff-outcome-segment-neutral", Math.max(0, count - summary.touched - summary.faked - summary.missed), count),
+            ]}
+            total={count}
+          />
+        </>
+      ) : (
+        <KickoffMapBar
+          ariaLabel={`${summary.name} support behavior distribution`}
+          label="Support behavior"
+          values={summary.supportBehaviors}
+        />
+      )}
+      <KickoffStrengthSummary outcomes={strengthOutcomes} team={summary.team} />
+    </div>
+  );
+}
+
+function KickoffCountBar({
+  ariaLabel,
+  label,
+  segments,
+  total,
+}: {
+  ariaLabel: string;
+  label: string;
+  segments: SegmentedBarSegment[];
+  total: number;
+}) {
+  if (total <= 0) return null;
+  return (
+    <div className="kickoff-role-count-bar">
+      <span>{label}</span>
+      <SegmentedBar
+        ariaLabel={ariaLabel}
+        className="kickoff-role-count-track"
+        maxValue={total}
+        segments={segments}
+        total={total}
+      />
+    </div>
+  );
+}
+
+function KickoffMapBar({ ariaLabel, label, values }: { ariaLabel: string; label: string; values: Map<string, number> }) {
+  const entries = [...values.entries()].sort((left, right) => right[1] - left[1]);
+  const total = entries.reduce((sum, [, value]) => sum + value, 0);
+  if (total <= 0) return null;
+  return (
+    <KickoffCountBar
+      ariaLabel={ariaLabel}
+      label={label}
+      segments={entries.map(([key, value], index) =>
+        countSegment(key || `unknown-${index}`, formatLabel(key) || "Unknown", `kickoff-role-segment-map-${index % 4}`, value, total),
+      )}
+      total={total}
+    />
+  );
+}
+
+function countSegment(key: string, label: string, className: string, value: number, total: number): SegmentedBarSegment {
+  return {
+    key,
+    className,
+    label,
+    value,
+    visibleLabel: value > 0 && value / total >= 0.12 ? `${label}: ${Math.round((value / total) * 100)}%` : undefined,
+    title: `${label}: ${value.toLocaleString()} (${total > 0 ? Math.round((value / total) * 100) : 0}%)`,
+  };
 }
 
 interface KickoffPerspectiveProps {
@@ -1394,6 +1511,10 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         supportCount: 0,
         advantagesFor: 0,
         advantagesAgainst: 0,
+        takerAdvantagesFor: 0,
+        takerAdvantagesAgainst: 0,
+        supportAdvantagesFor: 0,
+        supportAdvantagesAgainst: 0,
         touched: 0,
         firstTouchesAsTaker: 0,
         firstTouchesAsSupport: 0,
@@ -1410,6 +1531,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         approaches: new Map(),
         supportBehaviors: new Map(),
         strengthOutcomes: emptyStrengthOutcomes(),
+        takerStrengthOutcomes: emptyStrengthOutcomes(),
+        supportStrengthOutcomes: emptyStrengthOutcomes(),
       });
     }
     return summaries.get(key)!;
@@ -1447,10 +1570,23 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         else summary.kickoffGoalsAgainst += 1;
       }
       if (behavior.team != null && kickoff.advantageTeam != null) {
-        if (behavior.team === kickoff.advantageTeam) summary.advantagesFor += 1;
-        else summary.advantagesAgainst += 1;
+        if (behavior.team === kickoff.advantageTeam) {
+          summary.advantagesFor += 1;
+          if (behavior.role === "taker") summary.takerAdvantagesFor += 1;
+          else summary.supportAdvantagesFor += 1;
+        } else {
+          summary.advantagesAgainst += 1;
+          if (behavior.role === "taker") summary.takerAdvantagesAgainst += 1;
+          else summary.supportAdvantagesAgainst += 1;
+        }
       }
       incrementStrengthOutcome(summary.strengthOutcomes, kickoff.winStrengthBand, kickoff.winningTeam, behavior.team);
+      incrementStrengthOutcome(
+        behavior.role === "taker" ? summary.takerStrengthOutcomes : summary.supportStrengthOutcomes,
+        kickoff.winStrengthBand,
+        kickoff.winningTeam,
+        behavior.team,
+      );
     }
   }
 
@@ -1465,6 +1601,10 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         supportCount: 0,
         advantagesFor: 0,
         advantagesAgainst: 0,
+        takerAdvantagesFor: 0,
+        takerAdvantagesAgainst: 0,
+        supportAdvantagesFor: 0,
+        supportAdvantagesAgainst: 0,
         touched: 0,
         firstTouchesAsTaker: 0,
         firstTouchesAsSupport: 0,
@@ -1481,6 +1621,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         approaches: new Map(),
         supportBehaviors: new Map(),
         strengthOutcomes: emptyStrengthOutcomes(),
+        takerStrengthOutcomes: emptyStrengthOutcomes(),
+        supportStrengthOutcomes: emptyStrengthOutcomes(),
       });
     }
   }
