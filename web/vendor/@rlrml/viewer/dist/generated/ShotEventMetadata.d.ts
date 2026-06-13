@@ -1,0 +1,19 @@
+import type { ShotSaveMetadata } from "./ShotSaveMetadata.ts";
+import type { Vector3fTs } from "./Vector3fTs.ts";
+export type ShotEventMetadata = {
+    shot_touch_position: Vector3fTs;
+    ball_position: Vector3fTs;
+    ball_velocity: Vector3fTs | null;
+    ball_speed: number | null;
+    player_position: Vector3fTs | null;
+    player_velocity: Vector3fTs | null;
+    player_speed: number | null;
+    player_distance_to_ball: number | null;
+    target_goal_position: Vector3fTs;
+    distance_to_goal_center: number;
+    distance_to_goal_line: number;
+    ball_goal_alignment: number | null;
+    ball_speed_toward_goal: number | null;
+    resulting_save?: ShotSaveMetadata | null;
+};
+//# sourceMappingURL=ShotEventMetadata.d.ts.map

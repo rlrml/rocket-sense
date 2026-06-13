@@ -1,4 +1,5 @@
-export { ReplayPlayer } from "./player";
+export { createBoostPadsPlugin, createCameraPlugin, createFpsOverlayPlugin, createNameTagPlugin, createViewer, createViewer as createPlayer, createViewerFromParsed, createViewerFromParsed as createPlayerFromParsed, fromReplayPlayerPlugin, loadReplay, parseReplay, SubtrActorPlayer, ViewerPlayer, ViewerPlayer as ReplayPlayer, } from "./viewer/lib";
+export type { CameraPlugin, CameraPluginMode, CameraPluginOptions, FpsOverlayOptions, FpsSample, RecordedCameraSettings, SubtrActorPlayerOptions, ViewerCameraViewMode, ViewerFreeCameraPreset, ViewerOptions, ViewerPlayerInfo, ViewerPlugin, ViewerPluginContext, ViewerPluginDefinition, ViewerPluginFactory, ViewerPluginStateContext, ViewerRenderContext, ViewerSnapshot, ViewerState, ViewerStatePatch, } from "./viewer/lib";
 export { BALLCHASING_API_BASE_URL, BALLCHASING_BASE_URL, createBallchasingReplaySource, fetchBallchasingReplayBytes, getBallchasingReplayApiFileUrl, getBallchasingReplayFileName, getBallchasingReplayFileUrl, isBallchasingReplayId, normalizeBallchasingReplayId, } from "./ballchasing";
 export type { BallchasingReplayDownloadOptions } from "./ballchasing";
 export { createBallchasingOverlayPlugin } from "./ballchasing-overlay";

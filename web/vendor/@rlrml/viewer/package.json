@@ -1,7 +1,7 @@
 {
-  "name": "@rlrml/viewer",
-  "version": "0.12.0",
-  "description": "High-fidelity 3D Rocket League replay viewer powered by subtr-actor (seeded from ballcam.tv with permission)",
+  "name": "@rlrml/player",
+  "version": "1.0.2",
+  "description": "High-fidelity replay player library for subtr-actor Rocket League replay workflows",
   "type": "module",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -11,6 +11,7 @@
     "public",
     "docs",
     "README.md",
+    "VIEWER_README.md",
     "LICENSE"
   ],
   "exports": {
@@ -18,19 +19,43 @@
       "types": "./dist/lib.d.ts",
       "import": "./dist/index.js"
     },
+    "./boost-units": {
+      "types": "./dist/boost-units.d.ts",
+      "import": "./dist/boost-units.js"
+    },
     "./public/*": "./public/*",
+    "./generated/*": {
+      "types": "./dist/generated/*.d.ts"
+    },
     "./package.json": "./package.json"
   },
   "publishConfig": {
     "access": "public"
   },
   "sideEffects": false,
-  "dependencies": {
-    "@rlrml/player": "1.0.1",
-    "@rlrml/subtr-actor": "1.0.1",
-    "camera-controls": "^2.10.1"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rlrml/subtr-actor.git",
+    "directory": "js/player"
   },
+  "bugs": {
+    "url": "https://github.com/rlrml/subtr-actor/issues"
+  },
+  "homepage": "https://github.com/rlrml/subtr-actor/tree/master/js/player#readme",
+  "keywords": [
+    "rocket-league",
+    "replay",
+    "player",
+    "threejs",
+    "wasm"
+  ],
+  "author": "Ivan Malison <ivanmalison@gmail.com>",
+  "license": "MIT",
   "peerDependencies": {
     "three": "^0.180.0"
+  },
+  "dependencies": {
+    "camera-controls": "^2.10.1",
+    "@rlrml/subtr-actor": "1.0.2"
   }
 }

@@ -1,35 +1,31 @@
-import { ViewerPlayer } from "./ViewerPlayer.js";
-import type { ViewerOptions } from "./types.js";
-import type { ReplayLoadResult } from "@rlrml/player";
-/**
- * Parse raw `.replay` bytes and mount a player into `container`.
- *
- * One WASM parse feeds both data layers: the adapter (renderer timelines) and
- * `viewer.replay` (@rlrml/player's `ReplayModel` — docs/PLAYER_PARITY.md
- * Phase 2).
- */
-export declare function createViewer(container: HTMLElement, replayBytes: Uint8Array, options?: ViewerOptions): Promise<ViewerPlayer>;
-/**
- * Mount a player from an already-parsed replay (`{ raw, replay }`, the shape
- * `loadReplay` / @rlrml/player's `loadReplayFromBytes` return). Synchronous —
- * no WASM call. Use this when the host app already parsed the replay (e.g. in
- * a worker with progress reporting, like js/stat-evaluation-player) so the
- * bytes aren't parsed twice.
- */
-export declare function createViewerFromParsed(container: HTMLElement, parsed: ReplayLoadResult, options?: ViewerOptions): ViewerPlayer;
-export { ViewerPlayer } from "./ViewerPlayer.js";
-export { SubtrActorPlayer } from "./adapter/SubtrActorPlayer.js";
-export type { RecordedCameraSettings, SubtrActorPlayerOptions, ViewerPlayerInfo, } from "./adapter/SubtrActorPlayer.js";
-export { loadReplay, parseReplay } from "./adapter/wasm.js";
-export type { ReplayLoadResult, ReplayModel, ReplayScene } from "@rlrml/player";
-export { createNameTagPlugin } from "./plugins/name-tags.js";
-export { createBoostPadsPlugin } from "./plugins/boost-pads.js";
-export { createFpsOverlayPlugin } from "./plugins/fps-overlay.js";
-export type { FpsOverlayOptions, FpsSample } from "./plugins/fps-overlay.js";
-export { fromReplayPlayerPlugin } from "./plugins/replay-player-bridge.js";
-export { BOOST_RAW_MAX, boostAmountToPercent, boostPercentToAmount, createBoostPadOverlayPlugin, createBoostPickupAnimationPlugin, createCanvasRecorderPlugin, createTimelineOverlayPlugin, timelineEventSeekTime, } from "@rlrml/player";
-export type { BoostPickupAnimationPluginOptions, CanvasRecorderPlugin, CanvasRecorderPluginOptions, TimelineOverlayPlugin, TimelineOverlayPluginOptions, } from "@rlrml/player";
-export { createCameraPlugin } from "./plugins/camera.js";
-export type { CameraPlugin, CameraPluginMode, CameraPluginOptions, CameraSettings, } from "./plugins/camera.js";
-export type * from "./types.js";
+export { createBoostPadsPlugin, createCameraPlugin, createFpsOverlayPlugin, createNameTagPlugin, createViewer, createViewer as createPlayer, createViewerFromParsed, createViewerFromParsed as createPlayerFromParsed, fromReplayPlayerPlugin, loadReplay, parseReplay, SubtrActorPlayer, ViewerPlayer, ViewerPlayer as ReplayPlayer, } from "./viewer/lib";
+export type { CameraPlugin, CameraPluginMode, CameraPluginOptions, FpsOverlayOptions, FpsSample, RecordedCameraSettings, SubtrActorPlayerOptions, ViewerCameraViewMode, ViewerFreeCameraPreset, ViewerOptions, ViewerPlayerInfo, ViewerPlugin, ViewerPluginContext, ViewerPluginDefinition, ViewerPluginFactory, ViewerPluginStateContext, ViewerRenderContext, ViewerSnapshot, ViewerState, ViewerStatePatch, } from "./viewer/lib";
+export { BALLCHASING_API_BASE_URL, BALLCHASING_BASE_URL, createBallchasingReplaySource, fetchBallchasingReplayBytes, getBallchasingReplayApiFileUrl, getBallchasingReplayFileName, getBallchasingReplayFileUrl, isBallchasingReplayId, normalizeBallchasingReplayId, } from "./ballchasing";
+export type { BallchasingReplayDownloadOptions } from "./ballchasing";
+export { createBallchasingOverlayPlugin } from "./ballchasing-overlay";
+export type { BallchasingOverlayPluginOptions } from "./ballchasing-overlay";
+export { BOOST_RAW_MAX, boostAmountToPercent, boostPercentToAmount } from "./boost-units";
+export { createBoostPadOverlayPlugin } from "./boost-pad-overlay";
+export type { BoostPadOverlayPluginOptions } from "./boost-pad-overlay";
+export { createBoostPickupAnimationPlugin } from "./boost-pickup-animation";
+export type { BoostPickupAnimationFilter, BoostPickupAnimationPickup, BoostPickupAnimationPluginOptions, } from "./boost-pickup-animation";
+export { createCanvasRecorderPlugin } from "./canvas-recorder";
+export type { CanvasRecorderPlugin, CanvasRecorderPluginOptions, CanvasRecorderRangeOptions, CanvasRecorderStartOptions, CanvasRecorderState, CanvasRecorderStatus, CanvasRecorderStatusListener, } from "./canvas-recorder";
+export { createTimelineOverlayPlugin, timelineEventSeekTime } from "./timeline-overlay";
+export type { TimelineOverlayEventSourceOptions, TimelineOverlayPlugin, TimelineOverlayPluginOptions, } from "./timeline-overlay";
+export { loadPlaylistManifestFromFile, parsePlaylistManifest, resolvePlaylistItemsFromManifest, } from "./manifest";
+export { PlaylistLoadCache, PlaylistSession, ReplayPlaylistPlayer, createFullReplayPlaylistItem, createReplayBytesSource, createReplayFileSource, createReplayPathSource, createReplaySource, createStaticReplaySource, frameBound, resolvePlaylistItem, timeBound, } from "./playlist";
+export type { FullReplayPlaylistItemOptions, PlaylistSessionOptions, PlaylistSessionState, ReplayPlaylistPlayerSingleReplayOptions, } from "./playlist";
+export { findFrameIndexAtTime, normalizeReplayData, normalizeReplayDataAsync } from "./replay-data";
+export { playerIdToString } from "./replay-data-helpers";
+export { computeTimelineSegments, getFrameWindow, getKickoffCountdownMetadata, getReplayPlaybackEndTime, inferKickoffGameState, inferLiveGameState, projectReplayTimeToTimeline, projectTimelineTimeToReplay, } from "./player-internals/timeline";
+export { getActiveDemoEvent, getKickoffSkipTargetTime, getPostGoalTransitionSkipTargetTime, isPlayerSamplePresent, } from "./player-helpers";
+export { interpolatePosition } from "./player-internals/spatial";
+export type { NormalizeReplayDataAsyncOptions, NormalizeReplayDataOptions, NormalizeReplayProgress, } from "./replay-data";
+export { DEFAULT_REPLAY_HITBOX_KIND, REPLAY_HITBOX_SPECS, getReplayHitboxSpec, inferReplayHitboxKind, inferReplayHitboxKindFromBodyName, normalizeReplayHitboxKind, } from "./hitboxes";
+export type { ReplayHitboxKind, ReplayHitboxSpec } from "./hitboxes";
+export { createReplayLoadOverlay, formatReplayLoadProgress, formatReplayLoadProgressMeta, } from "./load-ui";
+export { ensureBindingsReady, loadReplayFromBytes, validateReplayBytes } from "./wasm";
+export type { ReplayPlayerActiveMetadata, BallSample, BeforeRenderCallback, CameraSettings, ReplayCameraViewMode, ReplayFreeCameraPreset, FrameRenderInfo, LoadedReplay, PlaybackBound, PlaybackFrame, PlaylistAdvanceMode, PlaylistEndMode, PlaylistItem, PlaylistLoadSource, PlaylistManifest, PlaylistManifestItem, PlaylistManifestPage, PlaylistManifestPlaybackOptions, PlaylistManifestReplay, PlaylistManifestReplayLocator, PlaylistPlaybackOptions, PlaylistPreloadContext, PlaylistPreloadPolicy, PlaylistSourceLoadContext, PlaylistSourceLoadProgress, PlaylistSourceLoadState, PlaylistSourceLoadStatus, ReplayPreloadContext, ReplayPreloadPolicy, PlayerSample, RawReplayGameType, RawReplayGameTypeDetails, RawReplayFramesData, ReplayLoadResult, ReplayLoadOptions, ReplayLoadOverlayController, ReplayLoadOverlayOptions, ReplayLoadProgress, ReplayLoadStage, ReplayModel, ReplayPlaylistPlayerOptions, ReplayPlaylistPlayerSnapshot, ReplayPlaylistPlayerState, ReplayPlayerOptions, ReplayPlayerPlugin, ReplayPlayerPluginContext, ReplayPlayerPluginDefinition, ReplayPlayerPluginFactory, ReplayBoostPad, ReplayBoostPadEvent, ReplayBoostPadSize, ReplayPlayerTimelineProjection, ReplayPlayerTimelineSegment, ReplayPlayerRenderContext, ReplayPlayerRenderTrackContext, ReplayPlayerKickoffCountdownMetadata, ReplayPlayerSnapshot, ReplayPlayerPluginStateContext, ReplayPlayerState, ReplayPlayerStatePatch, ReplayPlayerTrack, ReplaySource, ReplayTickMark, ReplayTimelineEvent, ReplayTimelineEventKind, ReplayTimelineEventSource, ReplayTimelineRange, ReplayTimelineRangeSource, ResolvedPlaybackBound, ResolvedPlaylistItem, } from "./types";
+export type { ReplayScene } from "./scene";
 //# sourceMappingURL=lib.d.ts.map
