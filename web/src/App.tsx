@@ -2674,13 +2674,6 @@ function PlayerAggregateStatsSections({
   const navigate = useNavigate();
   const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms).slice().sort(comparePlayerStatRates);
   const topStats = sectionStats.slice(0, 20);
-  const playlistGroups = stats.groups
-    .map((group) => ({
-      group,
-      stats: filterStatsForGroup(group.stats, activeGroup.terms).slice().sort(comparePlayerStatRates),
-    }))
-    .filter((group) => group.stats.length > 0)
-    .slice(0, 8);
   const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
   const Icon = activeGroup.icon;
   const kickoffShapeFilter = kickoffShapeFilterFromSearch(search);
@@ -2771,80 +2764,6 @@ function PlayerAggregateStatsSections({
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
         <RotationTimeSharePanel overview={overview} stats={stats} />
       ) : null}
-
-      {activeGroup.id === "kickoffs" || activeGroup.id === "positioning" ? null : (
-        <div className="player-stats-section-grid stat-section-grid">
-          <section className="stat-panel">
-            <h3>Player rates</h3>
-            <div className="table-frame compact-table">
-              <table className="player-stat-table">
-                <thead>
-                  <tr>
-                    <th>Stat</th>
-                    <th>Per active min</th>
-                    <th>Count</th>
-                    <th>Teammates / min</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topStats.map((stat) => (
-                    <tr key={stat.key}>
-                      <td>
-                        <strong>{stat.display_name}</strong>
-                        <div className="subtle">{stat.category}</div>
-                      </td>
-                      <td>{formatNumber(stat.per_active_minute)}</td>
-                      <td>{stat.event_count.toLocaleString()}</td>
-                      <td>{formatNumber(stat.teammate_per_active_minute)}</td>
-                    </tr>
-                  ))}
-                  {topStats.length === 0 ? (
-                    <tr>
-                      <td colSpan={4}>No aggregate stats are available for this section yet.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="stat-panel">
-            <h3>Playlist splits</h3>
-            <div className="table-frame compact-table">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Playlist</th>
-                    <th>Replays</th>
-                    <th>Active</th>
-                    <th>Top rate</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {playlistGroups.map((group) => {
-                    const topRate = group.stats[0];
-                    return (
-                      <tr key={group.group.key}>
-                        <td>
-                          <strong>{group.group.display_name}</strong>
-                        </td>
-                        <td>{group.group.replay_count.toLocaleString()}</td>
-                        <td>{formatDuration(group.group.active_time_seconds)}</td>
-                        <td>{topRate ? `${topRate.display_name}: ${formatNumber(topRate.per_active_minute)}` : "Unknown"}</td>
-                      </tr>
-                    );
-                  })}
-                  {playlistGroups.length === 0 ? (
-                    <tr>
-                      <td colSpan={4}>No playlist splits are available for this section yet.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        </div>
-      )}
     </section>
   );
 }
