@@ -867,6 +867,24 @@ button.status-stale:hover {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.player-profile-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.player-profile-title .platform-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.player-profile-title > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .player-name-aliases {
   display: flex;
   flex-wrap: wrap;

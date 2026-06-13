@@ -2455,7 +2455,10 @@ function PlayerStatsPage() {
       <header className="page-header">
         <div>
           <p className="eyebrow">Player stats</p>
-          <h1>{playerSummary?.display_name || platformPlayerId}</h1>
+          <h1 className="player-profile-title">
+            {playerSummary ? <PlatformIcon platform={playerSummary.platform} /> : null}
+            <span>{playerSummary?.display_name || platformPlayerId}</span>
+          </h1>
         </div>
         <div className="button-row">
           <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
