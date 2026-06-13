@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { MetricMeter, PlayerSegmentedBarRows, type SegmentedBarSegment } from "./shared";
+import { MetricMeter, PlayerSegmentedBarRows, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
 
 export const positioningEventTypes = [
   // PlayerStateSpan facet streams (current analysis runs).
@@ -203,10 +203,7 @@ function PositioningProximityChart({ summaries }: { summaries: PlayerPositioning
     <div className="positioning-proximity-chart">
       {rows.map(({ summary, ballDistance, teammateDistance }) => (
         <div className="positioning-proximity-row" key={summary.key}>
-          <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-            <strong>{summary.name}</strong>
-            <span>{teamLabel(summary.team)}</span>
-          </div>
+          {positioningPlayerLabel(summary)}
           <div className="positioning-proximity-meters">
             <MetricMeter
               className="positioning-meter-distance-ball"
@@ -237,16 +234,17 @@ function PositioningProximityChart({ summaries }: { summaries: PlayerPositioning
 
 function positioningPlayerLabel(summary: PlayerPositioningSummary) {
   return (
-    <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-      <strong>
-        <PlayerProfileLink summary={summary} />
-      </strong>
-      <span>{teamLabel(summary.team)}</span>
-    </div>
+    <StatPlayerLabel
+      className={`team-accent-${teamClass(summary.team)}`}
+      name={summary.name}
+      platform={summary.platform}
+      profilePath={playerProfilePath(summary)}
+      subtitle={teamLabel(summary.team)}
+    />
   );
 }
 
-function PlayerProfileLink({ summary }: { summary: PlayerPositioningSummary }) {
+function PositioningPlayerProfileLink({ summary }: { summary: PlayerPositioningSummary }) {
   const path = playerProfilePath(summary);
   return path ? <Link to={path}>{summary.name}</Link> : <>{summary.name}</>;
 }
@@ -285,7 +283,7 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
             <tr key={summary.key}>
               <td>
                 <strong>
-                  <PlayerProfileLink summary={summary} />
+                  <PositioningPlayerProfileLink summary={summary} />
                 </strong>
                 <div className="subtle">{teamLabel(summary.team)}</div>
               </td>

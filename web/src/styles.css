@@ -3193,9 +3193,18 @@ button.status-stale:hover {
 }
 
 .player-bar-label strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.player-bar-label .stat-player-name-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .player-bar-label a {
@@ -3207,7 +3216,8 @@ button.status-stale:hover {
   text-decoration: underline;
 }
 
-.player-bar-label span,
+.player-bar-label > span,
+.player-bar-label .stat-player-subtitle,
 .metric-bar-line span {
   color: var(--muted);
   font-size: 12px;

@@ -3,6 +3,7 @@ import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContaine
 import { listBoostTracks } from "../api";
 import type { BoostTrack, MechanicEventResponse, ReplayPlayer } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
+import { StatPlayerLabel } from "./shared";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
 // collection (with a `detection` provenance attribute) plus respawn events.
@@ -15,6 +16,7 @@ export const boostEventTypes = [
 interface BoostPlayerSummary {
   key: string;
   name: string;
+  platform: string | null;
   team: number | null;
   average: number | null;
   bpm: number | null;
@@ -540,6 +542,8 @@ function PlayerBoostEconomyChart({
         .map((summary) => ({
           key: summary.key,
           name: summary.name,
+          platform: summary.platform,
+          showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
           sortValue: summary.collected,
@@ -583,6 +587,8 @@ function PlayerBoostEconomyChart({
         .map((summary) => ({
           key: summary.key,
           name: summary.name,
+          platform: summary.platform,
+          showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
           sortValue: summary.used,
@@ -603,6 +609,8 @@ function PlayerBoostEconomyChart({
           return {
             key: summary.key,
             name: summary.name,
+            platform: summary.platform,
+            showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
             sortValue: potentialBoost,
@@ -631,6 +639,8 @@ function PlayerBoostEconomyChart({
           return {
             key: summary.key,
             name: summary.name,
+            platform: summary.platform,
+            showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
             sortValue: potentialBoost,
@@ -660,6 +670,8 @@ function PlayerBoostEconomyChart({
         .map((summary) => ({
           key: summary.key,
           name: summary.name,
+          platform: summary.platform,
+          showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
           sortValue: summary.stolen,
@@ -691,6 +703,8 @@ function PlayerBoostEconomyChart({
         .map((summary) => ({
           key: summary.key,
           name: summary.name,
+          platform: summary.platform,
+          showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
           sortValue: summary.overfill,
@@ -709,6 +723,8 @@ function PlayerBoostEconomyChart({
         .map((summary) => ({
           key: summary.key,
           name: summary.name,
+          platform: summary.platform,
+          showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
           sortValue: summary.usedWhileSupersonic,
@@ -739,6 +755,8 @@ function PlayerBoostEconomyChart({
           return {
             key: summary.key,
             name: summary.name,
+            platform: summary.platform,
+            showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
             sortValue: summary.average ?? 0,
@@ -778,6 +796,8 @@ interface BoostComparisonGroup {
 interface BoostComparisonRow {
   key: string;
   name: string;
+  platform: string | null;
+  showPlatformBadge: boolean;
   team: number | null;
   playerIndex: number | null;
   sortValue: number;
@@ -804,10 +824,13 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
       <div className="boost-comparison-rows">
         {group.rows.map((row) => (
           <div className="boost-comparison-row" key={row.key}>
-            <div className={`player-bar-label comparison-player-label team-accent-${teamClass(row.team)}`}>
-              <strong>{row.name}</strong>
-              <span>{teamLabel(row.team)}</span>
-            </div>
+            <StatPlayerLabel
+              className={`comparison-player-label team-accent-${teamClass(row.team)}`}
+              name={row.name}
+              platform={row.platform}
+              showPlatformBadge={row.showPlatformBadge}
+              subtitle={teamLabel(row.team)}
+            />
             <div className="metric-bar-track source-bar-track comparison-track">
               <span className="source-bar-fill" style={{ width: `${barWidthPercent(row.total, group.maxValue)}%` }}>
                 {row.segments.map((segment) => (
@@ -1453,6 +1476,7 @@ function boostPlayerSummaries(
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
+      platform: player.platform,
       team: player.team,
       average: timeWeightedBoostAverage(matchingSamples, durationSeconds),
       bpm: perMinute(used, durationSeconds),
@@ -1486,6 +1510,7 @@ function teamBoostSummary(summaries: BoostPlayerSummary[], team: 0 | 1, duration
   return {
     key: `team:${team}`,
     name: `${teamLabel(team)} team`,
+    platform: null,
     team,
     average: average(teamRows.map((summary) => summary.average).filter(isNumber)),
     bpm: perMinute(sum((summary) => summary.used), durationSeconds),

@@ -1,4 +1,6 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router-dom";
+import { PlatformIcon } from "../platform";
 
 export interface SegmentedBarSegment {
   key: string;
@@ -66,6 +68,34 @@ export function MetricMeter({
         <span className={`positioning-meter-fill ${className}`} style={{ width: `${clampedPercent}%` }} />
       </span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+export function StatPlayerLabel({
+  className = "",
+  name,
+  platform,
+  profilePath,
+  showPlatformBadge = true,
+  subtitle,
+}: {
+  className?: string;
+  name: string;
+  platform: string | null;
+  profilePath?: string | null;
+  showPlatformBadge?: boolean;
+  subtitle: string;
+}) {
+  const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
+
+  return (
+    <div className={`player-bar-label ${className}`.trim()}>
+      <strong className="stat-player-name-line">
+        <span className="stat-player-name-text">{nameNode}</span>
+        {showPlatformBadge ? <PlatformIcon platform={platform} /> : null}
+      </strong>
+      <span className="stat-player-subtitle">{subtitle}</span>
     </div>
   );
 }

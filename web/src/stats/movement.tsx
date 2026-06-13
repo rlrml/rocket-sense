@@ -1,6 +1,5 @@
-import { Link } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { MetricMeter, PlayerSegmentedBarRows, SegmentedBar, type SegmentedBarSegment } from "./shared";
+import { MetricMeter, PlayerSegmentedBarRows, SegmentedBar, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
 
 export const movementEventTypes = ["movement", "powerslide", "flip_impulse", "movement.dodge_refresh"];
 
@@ -91,12 +90,7 @@ function MovementSpeedChart({ summaries }: { summaries: PlayerMovementSummary[] 
 
         return (
           <div className="movement-player-row" key={summary.key}>
-            <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-              <strong>
-                <PlayerProfileLink summary={summary} />
-              </strong>
-              <span>{teamLabel(summary.team)}</span>
-            </div>
+            {movementPlayerLabel(summary)}
             <div className="movement-player-metrics">
               <MetricMeter
                 className="movement-meter-speed"
@@ -174,12 +168,7 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
     <div className="movement-speed-chart">
       {summaries.map((summary) => (
         <div className="movement-player-row movement-powerslide-row" key={summary.key}>
-          <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-            <strong>
-              <PlayerProfileLink summary={summary} />
-            </strong>
-            <span>{teamLabel(summary.team)}</span>
-          </div>
+          {movementPlayerLabel(summary)}
           <div className="movement-player-metrics">
             <MetricMeter
               className="movement-meter-powerslide"
@@ -211,18 +200,14 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
 
 function movementPlayerLabel(summary: PlayerMovementSummary) {
   return (
-    <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-      <strong>
-        <PlayerProfileLink summary={summary} />
-      </strong>
-      <span>{teamLabel(summary.team)}</span>
-    </div>
+    <StatPlayerLabel
+      className={`team-accent-${teamClass(summary.team)}`}
+      name={summary.name}
+      platform={summary.platform}
+      profilePath={playerProfilePath(summary)}
+      subtitle={teamLabel(summary.team)}
+    />
   );
-}
-
-function PlayerProfileLink({ summary }: { summary: PlayerMovementSummary }) {
-  const path = playerProfilePath(summary);
-  return path ? <Link to={path}>{summary.name}</Link> : <>{summary.name}</>;
 }
 
 function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventResponse[], durationSeconds: number | null): PlayerMovementSummary[] {

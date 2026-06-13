@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { SegmentedBar, type SegmentedBarSegment } from "./shared";
+import { SegmentedBar, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
 
 export const possessionEventTypes = ["possession"];
 
@@ -199,6 +199,7 @@ function BallZoneChart({
 interface PlayerPossessionSummary {
   key: string;
   name: string;
+  platform: string | null;
   team: number | null;
   seconds: number;
 }
@@ -222,10 +223,12 @@ function PlayerPossessionChart({
         const percent = percentage(summary.seconds, totalSeconds);
         return (
           <div className="possession-player-row" key={summary.key}>
-            <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-              <strong>{summary.name}</strong>
-              <span>{teamLabel(summary.team)}</span>
-            </div>
+            <StatPlayerLabel
+              className={`team-accent-${teamClass(summary.team)}`}
+              name={summary.name}
+              platform={summary.platform}
+              subtitle={teamLabel(summary.team)}
+            />
             <SegmentedBar
               ariaLabel={`${summary.name} possession`}
               className="possession-player-track"
@@ -395,6 +398,7 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
+      platform: player.platform,
       team: player.team,
       seconds,
     };
