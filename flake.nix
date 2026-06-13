@@ -105,6 +105,12 @@
           # resolution from inside the packages stays within the web tree.
           npmInstallFlags = [ "--install-links" ];
           npmBuildScript = "build";
+          preBuild = ''
+            mkdir -p node_modules/@rlrml
+            cp -R vendor/@rlrml/player node_modules/@rlrml/player
+            cp -R vendor/@rlrml/subtr-actor node_modules/@rlrml/subtr-actor
+            chmod -R u+w node_modules/@rlrml/player node_modules/@rlrml/subtr-actor
+          '';
           installPhase = ''
             runHook preInstall
             cp -R dist "$out"

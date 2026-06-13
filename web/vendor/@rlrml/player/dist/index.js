@@ -1,9 +1,9 @@
 import * as c from "three";
-import { Controls as Yn, Vector3 as Y, MOUSE as fe, TOUCH as me, Quaternion as wt, Spherical as _t, Vector2 as $, Ray as Zn, Plane as Xn, MathUtils as qn } from "three";
-import { boostAmountToPercent as en } from "./boost-units.js";
-import { BOOST_RAW_MAX as mo, boostPercentToAmount as po } from "./boost-units.js";
+import { Controls as ea, Vector3 as Y, MOUSE as fe, TOUCH as me, Quaternion as wt, Spherical as _t, Vector2 as $, Ray as ta, Plane as na, MathUtils as aa } from "three";
+import { boostAmountToPercent as on } from "./boost-units.js";
+import { BOOST_RAW_MAX as yo, boostPercentToAmount as wo } from "./boost-units.js";
 import * as Le from "@rlrml/subtr-actor";
-const Et = { type: "change" }, ct = { type: "start" }, tn = { type: "end" }, Pe = new Zn(), vt = new Xn(), Qn = Math.cos(70 * qn.DEG2RAD), F = new Y(), G = 2 * Math.PI, O = {
+const Et = { type: "change" }, ct = { type: "start" }, ln = { type: "end" }, Pe = new ta(), vt = new na(), ia = Math.cos(70 * aa.DEG2RAD), z = new Y(), G = 2 * Math.PI, O = {
   NONE: -1,
   ROTATE: 0,
   DOLLY: 1,
@@ -12,8 +12,8 @@ const Et = { type: "change" }, ct = { type: "start" }, tn = { type: "end" }, Pe 
   TOUCH_PAN: 4,
   TOUCH_DOLLY_PAN: 5,
   TOUCH_DOLLY_ROTATE: 6
-}, $e = 1e-6;
-class Jn extends Yn {
+}, We = 1e-6;
+class sa extends ea {
   /**
    * Constructs a new controls instance.
    *
@@ -21,7 +21,7 @@ class Jn extends Yn {
    * @param {?HTMLDOMElement} domElement - The HTML element used for event listeners.
    */
   constructor(t, n = null) {
-    super(t, n), this.state = O.NONE, this.target = new Y(), this.cursor = new Y(), this.minDistance = 0, this.maxDistance = 1 / 0, this.minZoom = 0, this.maxZoom = 1 / 0, this.minTargetRadius = 0, this.maxTargetRadius = 1 / 0, this.minPolarAngle = 0, this.maxPolarAngle = Math.PI, this.minAzimuthAngle = -1 / 0, this.maxAzimuthAngle = 1 / 0, this.enableDamping = !1, this.dampingFactor = 0.05, this.enableZoom = !0, this.zoomSpeed = 1, this.enableRotate = !0, this.rotateSpeed = 1, this.keyRotateSpeed = 1, this.enablePan = !0, this.panSpeed = 1, this.screenSpacePanning = !0, this.keyPanSpeed = 7, this.zoomToCursor = !1, this.autoRotate = !1, this.autoRotateSpeed = 2, this.keys = { LEFT: "ArrowLeft", UP: "ArrowUp", RIGHT: "ArrowRight", BOTTOM: "ArrowDown" }, this.mouseButtons = { LEFT: fe.ROTATE, MIDDLE: fe.DOLLY, RIGHT: fe.PAN }, this.touches = { ONE: me.ROTATE, TWO: me.DOLLY_PAN }, this.target0 = this.target.clone(), this.position0 = this.object.position.clone(), this.zoom0 = this.object.zoom, this._domElementKeyEvents = null, this._lastPosition = new Y(), this._lastQuaternion = new wt(), this._lastTargetPosition = new Y(), this._quat = new wt().setFromUnitVectors(t.up, new Y(0, 1, 0)), this._quatInverse = this._quat.clone().invert(), this._spherical = new _t(), this._sphericalDelta = new _t(), this._scale = 1, this._panOffset = new Y(), this._rotateStart = new $(), this._rotateEnd = new $(), this._rotateDelta = new $(), this._panStart = new $(), this._panEnd = new $(), this._panDelta = new $(), this._dollyStart = new $(), this._dollyEnd = new $(), this._dollyDelta = new $(), this._dollyDirection = new Y(), this._mouse = new $(), this._performCursorZoom = !1, this._pointers = [], this._pointerPositions = {}, this._controlActive = !1, this._onPointerMove = ta.bind(this), this._onPointerDown = ea.bind(this), this._onPointerUp = na.bind(this), this._onContextMenu = ca.bind(this), this._onMouseWheel = sa.bind(this), this._onKeyDown = ra.bind(this), this._onTouchStart = oa.bind(this), this._onTouchMove = la.bind(this), this._onMouseDown = aa.bind(this), this._onMouseMove = ia.bind(this), this._interceptControlDown = da.bind(this), this._interceptControlUp = ha.bind(this), this.domElement !== null && this.connect(this.domElement), this.update();
+    super(t, n), this.state = O.NONE, this.target = new Y(), this.cursor = new Y(), this.minDistance = 0, this.maxDistance = 1 / 0, this.minZoom = 0, this.maxZoom = 1 / 0, this.minTargetRadius = 0, this.maxTargetRadius = 1 / 0, this.minPolarAngle = 0, this.maxPolarAngle = Math.PI, this.minAzimuthAngle = -1 / 0, this.maxAzimuthAngle = 1 / 0, this.enableDamping = !1, this.dampingFactor = 0.05, this.enableZoom = !0, this.zoomSpeed = 1, this.enableRotate = !0, this.rotateSpeed = 1, this.keyRotateSpeed = 1, this.enablePan = !0, this.panSpeed = 1, this.screenSpacePanning = !0, this.keyPanSpeed = 7, this.zoomToCursor = !1, this.autoRotate = !1, this.autoRotateSpeed = 2, this.keys = { LEFT: "ArrowLeft", UP: "ArrowUp", RIGHT: "ArrowRight", BOTTOM: "ArrowDown" }, this.mouseButtons = { LEFT: fe.ROTATE, MIDDLE: fe.DOLLY, RIGHT: fe.PAN }, this.touches = { ONE: me.ROTATE, TWO: me.DOLLY_PAN }, this.target0 = this.target.clone(), this.position0 = this.object.position.clone(), this.zoom0 = this.object.zoom, this._domElementKeyEvents = null, this._lastPosition = new Y(), this._lastQuaternion = new wt(), this._lastTargetPosition = new Y(), this._quat = new wt().setFromUnitVectors(t.up, new Y(0, 1, 0)), this._quatInverse = this._quat.clone().invert(), this._spherical = new _t(), this._sphericalDelta = new _t(), this._scale = 1, this._panOffset = new Y(), this._rotateStart = new $(), this._rotateEnd = new $(), this._rotateDelta = new $(), this._panStart = new $(), this._panEnd = new $(), this._panDelta = new $(), this._dollyStart = new $(), this._dollyEnd = new $(), this._dollyDelta = new $(), this._dollyDirection = new Y(), this._mouse = new $(), this._performCursorZoom = !1, this._pointers = [], this._pointerPositions = {}, this._controlActive = !1, this._onPointerMove = oa.bind(this), this._onPointerDown = ra.bind(this), this._onPointerUp = la.bind(this), this._onContextMenu = fa.bind(this), this._onMouseWheel = ha.bind(this), this._onKeyDown = ua.bind(this), this._onTouchStart = ma.bind(this), this._onTouchMove = pa.bind(this), this._onMouseDown = ca.bind(this), this._onMouseMove = da.bind(this), this._interceptControlDown = ba.bind(this), this._interceptControlUp = ga.bind(this), this.domElement !== null && this.connect(this.domElement), this.update();
   }
   connect(t) {
     super.connect(t), this.domElement.addEventListener("pointerdown", this._onPointerDown), this.domElement.addEventListener("pointercancel", this._onPointerUp), this.domElement.addEventListener("contextmenu", this._onContextMenu), this.domElement.addEventListener("wheel", this._onMouseWheel, { passive: !1 }), this.domElement.getRootNode().addEventListener("keydown", this._interceptControlDown, { passive: !0, capture: !0 }), this.domElement.style.touchAction = "none";
@@ -86,7 +86,7 @@ class Jn extends Yn {
   }
   update(t = null) {
     const n = this.object.position;
-    F.copy(n).sub(this.target), F.applyQuaternion(this._quat), this._spherical.setFromVector3(F), this.autoRotate && this.state === O.NONE && this._rotateLeft(this._getAutoRotationAngle(t)), this.enableDamping ? (this._spherical.theta += this._sphericalDelta.theta * this.dampingFactor, this._spherical.phi += this._sphericalDelta.phi * this.dampingFactor) : (this._spherical.theta += this._sphericalDelta.theta, this._spherical.phi += this._sphericalDelta.phi);
+    z.copy(n).sub(this.target), z.applyQuaternion(this._quat), this._spherical.setFromVector3(z), this.autoRotate && this.state === O.NONE && this._rotateLeft(this._getAutoRotationAngle(t)), this.enableDamping ? (this._spherical.theta += this._sphericalDelta.theta * this.dampingFactor, this._spherical.phi += this._sphericalDelta.phi * this.dampingFactor) : (this._spherical.theta += this._sphericalDelta.theta, this._spherical.phi += this._sphericalDelta.phi);
     let a = this.minAzimuthAngle, i = this.maxAzimuthAngle;
     isFinite(a) && isFinite(i) && (a < -Math.PI ? a += G : a > Math.PI && (a -= G), i < -Math.PI ? i += G : i > Math.PI && (i -= G), a <= i ? this._spherical.theta = Math.max(a, Math.min(i, this._spherical.theta)) : this._spherical.theta = this._spherical.theta > (a + i) / 2 ? Math.max(a, this._spherical.theta) : Math.min(i, this._spherical.theta)), this._spherical.phi = Math.max(this.minPolarAngle, Math.min(this.maxPolarAngle, this._spherical.phi)), this._spherical.makeSafe(), this.enableDamping === !0 ? this.target.addScaledVector(this._panOffset, this.dampingFactor) : this.target.add(this._panOffset), this.target.sub(this.cursor), this.target.clampLength(this.minTargetRadius, this.maxTargetRadius), this.target.add(this.cursor);
     let s = !1;
@@ -96,10 +96,10 @@ class Jn extends Yn {
       const r = this._spherical.radius;
       this._spherical.radius = this._clampDistance(this._spherical.radius * this._scale), s = r != this._spherical.radius;
     }
-    if (F.setFromSpherical(this._spherical), F.applyQuaternion(this._quatInverse), n.copy(this.target).add(F), this.object.lookAt(this.target), this.enableDamping === !0 ? (this._sphericalDelta.theta *= 1 - this.dampingFactor, this._sphericalDelta.phi *= 1 - this.dampingFactor, this._panOffset.multiplyScalar(1 - this.dampingFactor)) : (this._sphericalDelta.set(0, 0, 0), this._panOffset.set(0, 0, 0)), this.zoomToCursor && this._performCursorZoom) {
+    if (z.setFromSpherical(this._spherical), z.applyQuaternion(this._quatInverse), n.copy(this.target).add(z), this.object.lookAt(this.target), this.enableDamping === !0 ? (this._sphericalDelta.theta *= 1 - this.dampingFactor, this._sphericalDelta.phi *= 1 - this.dampingFactor, this._panOffset.multiplyScalar(1 - this.dampingFactor)) : (this._sphericalDelta.set(0, 0, 0), this._panOffset.set(0, 0, 0)), this.zoomToCursor && this._performCursorZoom) {
       let r = null;
       if (this.object.isPerspectiveCamera) {
-        const o = F.length();
+        const o = z.length();
         r = this._clampDistance(o * this._scale);
         const l = o - r;
         this.object.position.addScaledVector(this._dollyDirection, l), this.object.updateMatrixWorld(), s = !!l;
@@ -109,15 +109,15 @@ class Jn extends Yn {
         const l = this.object.zoom;
         this.object.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.object.zoom / this._scale)), this.object.updateProjectionMatrix(), s = l !== this.object.zoom;
         const d = new Y(this._mouse.x, this._mouse.y, 0);
-        d.unproject(this.object), this.object.position.sub(d).add(o), this.object.updateMatrixWorld(), r = F.length();
+        d.unproject(this.object), this.object.position.sub(d).add(o), this.object.updateMatrixWorld(), r = z.length();
       } else
         console.warn("WARNING: OrbitControls.js encountered an unknown camera type - zoom to cursor disabled."), this.zoomToCursor = !1;
-      r !== null && (this.screenSpacePanning ? this.target.set(0, 0, -1).transformDirection(this.object.matrix).multiplyScalar(r).add(this.object.position) : (Pe.origin.copy(this.object.position), Pe.direction.set(0, 0, -1).transformDirection(this.object.matrix), Math.abs(this.object.up.dot(Pe.direction)) < Qn ? this.object.lookAt(this.target) : (vt.setFromNormalAndCoplanarPoint(this.object.up, this.target), Pe.intersectPlane(vt, this.target))));
+      r !== null && (this.screenSpacePanning ? this.target.set(0, 0, -1).transformDirection(this.object.matrix).multiplyScalar(r).add(this.object.position) : (Pe.origin.copy(this.object.position), Pe.direction.set(0, 0, -1).transformDirection(this.object.matrix), Math.abs(this.object.up.dot(Pe.direction)) < ia ? this.object.lookAt(this.target) : (vt.setFromNormalAndCoplanarPoint(this.object.up, this.target), Pe.intersectPlane(vt, this.target))));
     } else if (this.object.isOrthographicCamera) {
       const r = this.object.zoom;
       this.object.zoom = Math.max(this.minZoom, Math.min(this.maxZoom, this.object.zoom / this._scale)), r !== this.object.zoom && (this.object.updateProjectionMatrix(), s = !0);
     }
-    return this._scale = 1, this._performCursorZoom = !1, s || this._lastPosition.distanceToSquared(this.object.position) > $e || 8 * (1 - this._lastQuaternion.dot(this.object.quaternion)) > $e || this._lastTargetPosition.distanceToSquared(this.target) > $e ? (this.dispatchEvent(Et), this._lastPosition.copy(this.object.position), this._lastQuaternion.copy(this.object.quaternion), this._lastTargetPosition.copy(this.target), !0) : !1;
+    return this._scale = 1, this._performCursorZoom = !1, s || this._lastPosition.distanceToSquared(this.object.position) > We || 8 * (1 - this._lastQuaternion.dot(this.object.quaternion)) > We || this._lastTargetPosition.distanceToSquared(this.target) > We ? (this.dispatchEvent(Et), this._lastPosition.copy(this.object.position), this._lastQuaternion.copy(this.object.quaternion), this._lastTargetPosition.copy(this.target), !0) : !1;
   }
   _getAutoRotationAngle(t) {
     return t !== null ? G / 60 * this.autoRotateSpeed * t : G / 60 / 60 * this.autoRotateSpeed;
@@ -133,18 +133,18 @@ class Jn extends Yn {
     this._sphericalDelta.phi -= t;
   }
   _panLeft(t, n) {
-    F.setFromMatrixColumn(n, 0), F.multiplyScalar(-t), this._panOffset.add(F);
+    z.setFromMatrixColumn(n, 0), z.multiplyScalar(-t), this._panOffset.add(z);
   }
   _panUp(t, n) {
-    this.screenSpacePanning === !0 ? F.setFromMatrixColumn(n, 1) : (F.setFromMatrixColumn(n, 0), F.crossVectors(this.object.up, F)), F.multiplyScalar(t), this._panOffset.add(F);
+    this.screenSpacePanning === !0 ? z.setFromMatrixColumn(n, 1) : (z.setFromMatrixColumn(n, 0), z.crossVectors(this.object.up, z)), z.multiplyScalar(t), this._panOffset.add(z);
   }
   // deltaX and deltaY are in pixels; right and down are positive
   _pan(t, n) {
     const a = this.domElement;
     if (this.object.isPerspectiveCamera) {
       const i = this.object.position;
-      F.copy(i).sub(this.target);
-      let s = F.length();
+      z.copy(i).sub(this.target);
+      let s = z.length();
       s *= Math.tan(this.object.fov / 2 * Math.PI / 180), this._panLeft(2 * t * s / a.clientHeight, this.object.matrix), this._panUp(2 * n * s / a.clientHeight, this.object.matrix);
     } else this.object.isOrthographicCamera ? (this._panLeft(t * (this.object.right - this.object.left) / this.object.zoom / a.clientWidth, this.object.matrix), this._panUp(n * (this.object.top - this.object.bottom) / this.object.zoom / a.clientHeight, this.object.matrix)) : (console.warn("WARNING: OrbitControls.js encountered an unknown camera type - pan disabled."), this.enablePan = !1);
   }
@@ -309,16 +309,16 @@ class Jn extends Yn {
     return t.ctrlKey && !this._controlActive && (a.deltaY *= 10), a;
   }
 }
-function ea(e) {
+function ra(e) {
   this.enabled !== !1 && (this._pointers.length === 0 && (this.domElement.setPointerCapture(e.pointerId), this.domElement.addEventListener("pointermove", this._onPointerMove), this.domElement.addEventListener("pointerup", this._onPointerUp)), !this._isTrackingPointer(e) && (this._addPointer(e), e.pointerType === "touch" ? this._onTouchStart(e) : this._onMouseDown(e)));
 }
-function ta(e) {
+function oa(e) {
   this.enabled !== !1 && (e.pointerType === "touch" ? this._onTouchMove(e) : this._onMouseMove(e));
 }
-function na(e) {
+function la(e) {
   switch (this._removePointer(e), this._pointers.length) {
     case 0:
-      this.domElement.releasePointerCapture(e.pointerId), this.domElement.removeEventListener("pointermove", this._onPointerMove), this.domElement.removeEventListener("pointerup", this._onPointerUp), this.dispatchEvent(tn), this.state = O.NONE;
+      this.domElement.releasePointerCapture(e.pointerId), this.domElement.removeEventListener("pointermove", this._onPointerMove), this.domElement.removeEventListener("pointerup", this._onPointerUp), this.dispatchEvent(ln), this.state = O.NONE;
       break;
     case 1:
       const t = this._pointers[0], n = this._pointerPositions[t];
@@ -326,7 +326,7 @@ function na(e) {
       break;
   }
 }
-function aa(e) {
+function ca(e) {
   let t;
   switch (e.button) {
     case 0:
@@ -369,7 +369,7 @@ function aa(e) {
   }
   this.state !== O.NONE && this.dispatchEvent(ct);
 }
-function ia(e) {
+function da(e) {
   switch (this.state) {
     case O.ROTATE:
       if (this.enableRotate === !1) return;
@@ -385,13 +385,13 @@ function ia(e) {
       break;
   }
 }
-function sa(e) {
-  this.enabled === !1 || this.enableZoom === !1 || this.state !== O.NONE || (e.preventDefault(), this.dispatchEvent(ct), this._handleMouseWheel(this._customWheelEvent(e)), this.dispatchEvent(tn));
+function ha(e) {
+  this.enabled === !1 || this.enableZoom === !1 || this.state !== O.NONE || (e.preventDefault(), this.dispatchEvent(ct), this._handleMouseWheel(this._customWheelEvent(e)), this.dispatchEvent(ln));
 }
-function ra(e) {
+function ua(e) {
   this.enabled !== !1 && this._handleKeyDown(e);
 }
-function oa(e) {
+function ma(e) {
   switch (this._trackPointer(e), this._pointers.length) {
     case 1:
       switch (this.touches.ONE) {
@@ -426,7 +426,7 @@ function oa(e) {
   }
   this.state !== O.NONE && this.dispatchEvent(ct);
 }
-function la(e) {
+function pa(e) {
   switch (this._trackPointer(e), this.state) {
     case O.TOUCH_ROTATE:
       if (this.enableRotate === !1) return;
@@ -448,16 +448,16 @@ function la(e) {
       this.state = O.NONE;
   }
 }
-function ca(e) {
+function fa(e) {
   this.enabled !== !1 && e.preventDefault();
 }
-function da(e) {
+function ba(e) {
   e.key === "Control" && (this._controlActive = !0, this.domElement.getRootNode().addEventListener("keyup", this._interceptControlUp, { passive: !0, capture: !0 }));
 }
-function ha(e) {
+function ga(e) {
   e.key === "Control" && (this._controlActive = !1, this.domElement.getRootNode().removeEventListener("keyup", this._interceptControlUp, { passive: !0, capture: !0 }));
 }
-const xt = "octane", ua = {
+const Mt = "octane", ya = {
   breakout: {
     kind: "breakout",
     label: "Breakout",
@@ -530,7 +530,7 @@ const xt = "octane", ua = {
     offset: 13.88,
     elevation: 17.05
   }
-}, ma = {
+}, wa = {
   "16batmobile": "plank",
   "70dodgechargerrt": "dominus",
   "89batmobile": "dominus",
@@ -787,14 +787,14 @@ const xt = "octane", ua = {
   batmobile2016: "plank",
   sentinel: "plank"
 };
-function pa(e) {
+function _a(e) {
   const t = {};
   for (const [n, a] of e)
     for (const i of n)
       t[i] = a;
   return t;
 }
-const fa = pa([
+const Ea = _a([
   [
     [
       22,
@@ -1009,13 +1009,13 @@ const fa = pa([
   ],
   [[24, 803, 1603, 1691, 1919, 3594, 3614, 3622, 4268, 5265, 7052, 8524], "plank"]
 ]);
-function nn(e) {
+function cn(e) {
   return e.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
-function an(e) {
+function dn(e) {
   if (!e)
     return null;
-  switch (nn(e)) {
+  switch (cn(e)) {
     case "breakout":
       return "breakout";
     case "dominus":
@@ -1033,23 +1033,23 @@ function an(e) {
       return null;
   }
 }
-function sn(e) {
-  return e ? ma[nn(e)] ?? null : null;
+function hn(e) {
+  return e ? wa[cn(e)] ?? null : null;
 }
-function ba(e) {
-  return an(e) ?? sn(e);
+function va(e) {
+  return dn(e) ?? hn(e);
 }
-function rn(e) {
-  return ua[e];
+function un(e) {
+  return ya[e];
 }
-function ga(e) {
+function Ma(e) {
   return {
     position: [e.offset, 0, e.elevation],
     rotationYDegrees: e.slopeDegrees,
     dimensions: [e.length, e.width, e.height]
   };
 }
-function at(e, t) {
+function nt(e, t) {
   if (!(!e || typeof e != "object")) {
     if ("Str" in e && typeof e.Str == "string") {
       t.push(e.Str);
@@ -1068,44 +1068,44 @@ function at(e, t) {
       const n = e.Struct;
       if (typeof n.name == "string" && t.push(n.name), Array.isArray(n.fields))
         for (const a of n.fields)
-          Array.isArray(a) && (typeof a[0] == "string" && t.push(a[0]), at(a[1], t));
+          Array.isArray(a) && (typeof a[0] == "string" && t.push(a[0]), nt(a[1], t));
       return;
     }
     if ("Array" in e && Array.isArray(e.Array)) {
       for (const n of e.Array)
         if (Array.isArray(n))
           for (const a of n)
-            Array.isArray(a) && (typeof a[0] == "string" && t.push(a[0]), at(a[1], t));
+            Array.isArray(a) && (typeof a[0] == "string" && t.push(a[0]), nt(a[1], t));
     }
   }
 }
-function on(e) {
-  const t = an(e?.car_hitbox_family);
+function mn(e) {
+  const t = dn(e?.car_hitbox_family);
   if (t)
     return t;
   const n = e?.car_body_id;
   if (typeof n == "number") {
-    const r = fa[n];
+    const r = Ea[n];
     if (r)
       return r;
   }
-  const a = sn(e?.car_body_name);
+  const a = hn(e?.car_body_name);
   if (a)
     return a;
   const i = e?.stats;
   if (!i)
-    return xt;
+    return Mt;
   const s = [];
   for (const [r, o] of Object.entries(i))
-    s.push(r), at(o, s);
+    s.push(r), nt(o, s);
   for (const r of s) {
-    const o = ba(r);
+    const o = va(r);
     if (o)
       return o;
   }
-  return xt;
+  return Mt;
 }
-const ln = 0.08, ya = 0.22, wa = 0.94, dt = 1, Re = 0.32, Mt = 1024, _a = 16, Ea = 1.5;
+const pn = 0.08, xa = 0.22, Sa = 0.94, dt = 1, Re = 0.32, xt = 1024, ka = 16, Ta = 1.5;
 function St(e) {
   const t = new c.MeshBasicMaterial({
     color: e,
@@ -1115,7 +1115,7 @@ function St(e) {
   });
   return t.forceSinglePass = !0, t;
 }
-function va(e) {
+function Pa(e) {
   return new c.MeshLambertMaterial({
     color: e,
     side: c.DoubleSide,
@@ -1126,10 +1126,10 @@ function va(e) {
 function he(e, t, n, a) {
   return new c.Mesh(new c.BoxGeometry(e, n, t, 6, 1, 6), a);
 }
-function xa(e) {
-  return new c.Color(e).lerp(new c.Color(0), wa);
+function Ca(e) {
+  return new c.Color(e).lerp(new c.Color(0), Sa);
 }
-function Ke(e, t, n, a, i, s, r, o) {
+function $e(e, t, n, a, i, s, r, o) {
   e.beginPath();
   for (let l = 0; l <= t; l += 8) {
     const d = l / t, h = a * n + Math.sin(d * Math.PI * 2 + s) * i + Math.sin(d * Math.PI * 4 + s * 0.5) * i * 0.35;
@@ -1137,7 +1137,7 @@ function Ke(e, t, n, a, i, s, r, o) {
   }
   e.lineWidth = r, e.strokeStyle = o, e.stroke();
 }
-function Ye(e, t, n, a, i, s, r, o) {
+function Ke(e, t, n, a, i, s, r, o) {
   e.beginPath();
   for (let l = 0; l <= n; l += 8) {
     const d = l / n, h = a * t + Math.sin(d * Math.PI * 2 + s) * i + Math.sin(d * Math.PI * 6 + s * 0.3) * i * 0.18;
@@ -1145,12 +1145,12 @@ function Ye(e, t, n, a, i, s, r, o) {
   }
   e.lineWidth = r, e.strokeStyle = o, e.stroke();
 }
-function Ze(e, t, n, a, i, s) {
+function Ye(e, t, n, a, i, s) {
   e.beginPath(), e.arc(t, n, a, 0, Math.PI * 2), e.fillStyle = i, e.fill(), e.lineWidth = Math.max(6, a * 0.15), e.strokeStyle = s, e.stroke();
 }
-function Ma(e) {
+function Ia(e) {
   const t = document.createElement("canvas");
-  t.width = Mt, t.height = Mt;
+  t.width = xt, t.height = xt;
   const n = t.getContext("2d");
   if (!n)
     throw new Error("Unable to create ball texture canvas");
@@ -1162,50 +1162,50 @@ function Ma(e) {
   }
   n.globalAlpha = 1;
   const r = "#2d313b";
-  n.lineCap = "round", Ke(n, a, i, 0.24, 22, 0.35, 18, r), Ke(n, a, i, 0.5, 14, 1.1, 20, r), Ke(n, a, i, 0.77, 20, 2.35, 18, r), Ye(n, a, i, 0.2, 24, 0.2, 18, r), Ye(n, a, i, 0.48, 18, 1.6, 18, r), Ye(n, a, i, 0.76, 26, 2.7, 18, r), n.globalAlpha = 0.92, Ze(n, a * 0.28, i * 0.32, 88, "#f1a63a", "#fff4d7"), Ze(n, a * 0.68, i * 0.6, 72, "#4db0ff", "#eef8ff"), Ze(n, a * 0.76, i * 0.2, 54, "#1f232c", "#f0ece1"), n.globalAlpha = 1, n.beginPath(), n.moveTo(a * 0.08, i * 0.86), n.quadraticCurveTo(a * 0.28, i * 0.72, a * 0.42, i * 0.8), n.quadraticCurveTo(a * 0.58, i * 0.9, a * 0.82, i * 0.78), n.lineWidth = 24, n.strokeStyle = "rgba(255, 246, 220, 0.9)", n.stroke();
+  n.lineCap = "round", $e(n, a, i, 0.24, 22, 0.35, 18, r), $e(n, a, i, 0.5, 14, 1.1, 20, r), $e(n, a, i, 0.77, 20, 2.35, 18, r), Ke(n, a, i, 0.2, 24, 0.2, 18, r), Ke(n, a, i, 0.48, 18, 1.6, 18, r), Ke(n, a, i, 0.76, 26, 2.7, 18, r), n.globalAlpha = 0.92, Ye(n, a * 0.28, i * 0.32, 88, "#f1a63a", "#fff4d7"), Ye(n, a * 0.68, i * 0.6, 72, "#4db0ff", "#eef8ff"), Ye(n, a * 0.76, i * 0.2, 54, "#1f232c", "#f0ece1"), n.globalAlpha = 1, n.beginPath(), n.moveTo(a * 0.08, i * 0.86), n.quadraticCurveTo(a * 0.28, i * 0.72, a * 0.42, i * 0.8), n.quadraticCurveTo(a * 0.58, i * 0.9, a * 0.82, i * 0.78), n.lineWidth = 24, n.strokeStyle = "rgba(255, 246, 220, 0.9)", n.stroke();
   const o = new c.CanvasTexture(t);
   return o.colorSpace = c.SRGBColorSpace, o.anisotropy = Math.min(8, e.capabilities.getMaxAnisotropy()), o;
 }
-function Sa(e, t, n, a) {
+function Aa(e, t, n, a) {
   return new c.Mesh(new c.BoxGeometry(e, t, n, 6, 6, 1), a);
 }
-function ka(e) {
+function Ra(e) {
   const t = 10280 * e, n = 8240 * e, a = 1960 * e, i = 1e3 * e, s = 1900 * e, r = 800 * e, o = 900 * e, l = Math.max(1, e), d = [], h = [1, -1];
   function u(m, b, p = null) {
-    const E = m.material.clone();
-    return m.material = E, d.push({
+    const _ = m.material.clone();
+    return m.material = _, d.push({
       mesh: m,
-      material: E,
+      material: _,
       outwardLocal: b.clone().normalize(),
       fixedOpacity: p
     }), m;
   }
   function f(m) {
-    const b = new c.Group(), p = St(m), E = n / 2 - i - s / 2, T = Math.sqrt(2 * Math.pow(i, 2));
-    for (const k of h) {
-      const w = u(
-        he(E, a, l, p),
+    const b = new c.Group(), p = St(m), _ = n / 2 - i - s / 2, T = Math.sqrt(2 * Math.pow(i, 2));
+    for (const S of h) {
+      const E = u(
+        he(_, a, l, p),
         new c.Vector3(0, 1, 0)
       );
-      w.position.set(k * (E / 2 + s / 2), 0, a / 2), b.add(w);
+      E.position.set(S * (_ / 2 + s / 2), 0, a / 2), b.add(E);
       const A = u(
         he(T, a, l, p),
         new c.Vector3(0, 1, 0)
       );
       A.position.set(
-        k * (n / 2 - i / 2),
+        S * (n / 2 - i / 2),
         -i / 2,
         a / 2
-      ), A.rotateZ(-k * Math.PI / 4), b.add(A);
+      ), A.rotateZ(-S * Math.PI / 4), b.add(A);
     }
-    const S = u(
+    const k = u(
       he(s, a - r, l, p),
       new c.Vector3(0, 1, 0)
     );
-    return S.position.set(0, 0, a / 2 + r / 2), b.add(S), b;
+    return k.position.set(0, 0, a / 2 + r / 2), b.add(k), b;
   }
-  function _(m, b) {
-    const p = new c.Group(), E = [
+  function w(m, b) {
+    const p = new c.Group(), _ = [
       [n / 2, 0],
       [-n / 2, 0],
       [-n / 2, t / 2 - i],
@@ -1218,52 +1218,52 @@ function ka(e) {
       [n / 2, t / 2 - i],
       [n / 2, 0]
     ], T = new c.Shape();
-    E.forEach(([M, P], z) => {
-      z === 0 ? T.moveTo(M, P) : T.lineTo(M, P);
+    _.forEach(([x, P], F) => {
+      F === 0 ? T.moveTo(x, P) : T.lineTo(x, P);
     });
-    const S = va(m), k = St(m), w = u(
-      new c.Mesh(new c.ShapeGeometry(T), S),
+    const k = Pa(m), S = St(m), E = u(
+      new c.Mesh(new c.ShapeGeometry(T), k),
       new c.Vector3(0, 0, -1)
     );
-    w.receiveShadow = !0, p.add(w);
-    for (const M of h) {
+    E.receiveShadow = !0, p.add(E);
+    for (const x of h) {
       const P = u(
-        he(o, r, l, k),
-        new c.Vector3(0, -M, 0),
+        he(o, r, l, S),
+        new c.Vector3(0, -x, 0),
         Re
       );
       P.position.set(
-        M * s / 2,
+        x * s / 2,
         t / 2 + o / 2,
         r / 2
       ), P.rotateZ(Math.PI / 2), p.add(P);
     }
     const A = u(
-      Sa(s, o, l, k),
+      Aa(s, o, l, S),
       new c.Vector3(0, 0, 1),
       Re
     );
     A.position.set(0, t / 2 + o / 2, r), p.add(A);
     const B = u(
-      he(s, r, l, k),
+      he(s, r, l, S),
       new c.Vector3(0, 1, 0),
       Re
     );
     B.position.set(0, t / 2 + o, r / 2), p.add(B);
     const N = f(m);
     N.position.y = t / 2, p.add(N);
-    for (const M of h) {
+    for (const x of h) {
       const P = u(
         he(
           t / 2 - i,
           a,
           l,
-          k
+          S
         ),
-        new c.Vector3(0, -M, 0)
+        new c.Vector3(0, -x, 0)
       );
       P.position.set(
-        M * n / 2,
+        x * n / 2,
         (t / 2 - i) / 2,
         a / 2
       ), P.rotateZ(Math.PI / 2), p.add(P);
@@ -1271,15 +1271,15 @@ function ka(e) {
     return b && p.rotateZ(Math.PI), p;
   }
   const y = new c.Group();
-  return y.add(_(16771251, !1)), y.add(_(8381439, !0)), { stadium: y, wallPanels: d };
+  return y.add(w(16771251, !1)), y.add(w(8381439, !0)), { stadium: y, wallPanels: d };
 }
-function Ta(e, t) {
-  const n = ga(e), a = xa(t), i = new c.Group();
+function Oa(e, t) {
+  const n = Ma(e), a = Ca(t), i = new c.Group();
   i.name = `${e.kind}-hitbox-overlay`, i.visible = !1, i.position.set(...n.position), i.rotateY(c.MathUtils.degToRad(n.rotationYDegrees));
   const s = new c.BoxGeometry(...n.dimensions), r = new c.MeshBasicMaterial({
     color: a,
     transparent: !0,
-    opacity: ln,
+    opacity: pn,
     depthTest: !1,
     depthWrite: !1,
     side: c.DoubleSide
@@ -1294,11 +1294,11 @@ function Ta(e, t) {
   }), h = new c.LineSegments(l, d);
   return h.name = "hitbox-overlay-lines", h.renderOrder = 10, i.add(h), i;
 }
-function Pa(e, t) {
+function Da(e, t) {
   const n = e.getObjectByName("hitbox-overlay-fill");
-  n && (n.material.opacity = t ? ya : ln);
+  n && (n.material.opacity = t ? xa : pn);
 }
-function Ca(e) {
+function Ba(e) {
   const t = [
     [100, -100, 100],
     [100, 100, 100],
@@ -1404,26 +1404,26 @@ function Ca(e) {
     transparent: !0,
     opacity: 0.34,
     side: c.DoubleSide
-  }), _ = new c.BufferGeometry();
-  _.setAttribute(
+  }), w = new c.BufferGeometry();
+  w.setAttribute(
     "position",
     new c.Float32BufferAttribute(
       [90, -110, 95, -90, -110, 95, 140, -210, 25, -140, -210, 25],
       3
     )
-  ), _.setIndex([0, 2, 3, 0, 3, 1]), _.computeVertexNormals();
-  const y = new c.Mesh(_, f);
+  ), w.setIndex([0, 2, 3, 0, 3, 1]), w.computeVertexNormals();
+  const y = new c.Mesh(w, f);
   y.position.z = 2, s.add(y);
   const m = new c.MeshPhongMaterial({
     color: 2236962,
     shininess: 48
-  }), b = (p, E, T, S) => {
-    const k = new c.Mesh(new c.CylinderGeometry(70, 70, S, 10), m);
-    return k.rotateZ(Math.PI / 2), k.position.set(p, E, T), k.castShadow = !0, k;
+  }), b = (p, _, T, k) => {
+    const S = new c.Mesh(new c.CylinderGeometry(70, 70, k, 10), m);
+    return S.rotateZ(Math.PI / 2), S.position.set(p, _, T), S.castShadow = !0, S;
   };
   return s.add(b(120, -300, -60, 50)), s.add(b(-120, -300, -60, 50)), s.add(b(120, 150, -60, 70)), s.add(b(-120, 150, -60, 70)), s.position.set(0, 0, 50), s.rotateZ(Math.PI / 2), s.scale.set(0.35, 0.35, 0.35), i.add(s), i;
 }
-function Ia() {
+function La() {
   const e = new c.Group();
   e.visible = !1, e.position.set(-124, 0, 8);
   const t = new c.ConeGeometry(30, 220, 14, 1, !0);
@@ -1469,7 +1469,7 @@ function Ia() {
   }
   return e;
 }
-function Aa() {
+function Na() {
   const e = new c.Group();
   e.visible = !1, e.position.set(0, 0, 235);
   const t = 240, n = 82, a = 188, i = 20, s = new c.PlaneGeometry(t, n), r = new c.MeshBasicMaterial({
@@ -1494,8 +1494,8 @@ function Aa() {
     opacity: 0.98,
     side: c.DoubleSide,
     depthWrite: !1
-  }), _ = new c.Mesh(u, f);
-  _.position.y = -18, e.add(_);
+  }), w = new c.Mesh(u, f);
+  w.position.y = -18, e.add(w);
   const y = document.createElement("canvas");
   y.width = 512, y.height = 160;
   const m = y.getContext("2d");
@@ -1503,15 +1503,15 @@ function Aa() {
     throw new Error("Unable to create boost meter label context");
   const b = new c.CanvasTexture(y);
   b.colorSpace = c.SRGBColorSpace, b.needsUpdate = !0;
-  const p = new c.PlaneGeometry(190, 48), E = new c.MeshBasicMaterial({
+  const p = new c.PlaneGeometry(190, 48), _ = new c.MeshBasicMaterial({
     map: b,
     transparent: !0,
     depthWrite: !1,
     side: c.DoubleSide
-  }), T = new c.Mesh(p, E);
+  }), T = new c.Mesh(p, _);
   return T.position.set(0, 15, 0), e.add(T), {
     group: e,
-    fillMesh: _,
+    fillMesh: w,
     fillMaterial: f,
     labelTexture: b,
     labelContext: m,
@@ -1519,7 +1519,7 @@ function Aa() {
     lastPercent: null
   };
 }
-function Ra() {
+function Fa() {
   const e = new c.Group();
   e.visible = !1;
   const t = new c.MeshBasicMaterial({
@@ -1545,26 +1545,26 @@ function Ra() {
   }), o = new c.Mesh(new c.PlaneGeometry(310, 116), r);
   return o.position.z = 300, e.add(o), { group: e, ring: n, label: o };
 }
-function Oa(e, t, n, a) {
+function za(e, t, n, a) {
   e.fillMesh.scale.x = Math.max(1e-3, t);
   const i = 94;
   e.fillMesh.position.x = -(1 - t) * i, e.fillMesh.position.y = -18;
-  const s = Math.max(0, Math.min(100, Math.round(en(n))));
+  const s = Math.max(0, Math.min(100, Math.round(on(n))));
   if (e.lastPercent !== s) {
     const { labelContext: r, labelCanvas: o, labelTexture: l } = e;
     r.clearRect(0, 0, o.width, o.height), r.textAlign = "center", r.textBaseline = "middle", r.lineJoin = "round", r.font = "700 84px sans-serif", r.lineWidth = 18, r.strokeStyle = "rgba(7, 19, 29, 0.92)", r.strokeText(`${s}`, o.width / 2, 78), r.fillStyle = "#fff8e1", r.fillText(`${s}`, o.width / 2, 78), r.font = "600 30px sans-serif", r.lineWidth = 10, r.strokeText("BOOST", o.width / 2, 130), r.fillStyle = "#ffcf70", r.fillText("BOOST", o.width / 2, 130), l.needsUpdate = !0, e.lastPercent = s;
   }
   e.group.quaternion.copy(a.quaternion);
 }
-function Da(e) {
+function Ua(e) {
   e.add(new c.AmbientLight("#d8ecff", 1.6));
   const t = new c.DirectionalLight("#fff6df", 2.4);
   t.position.set(4e3, -6e3, 5e3), e.add(t);
   const n = new c.DirectionalLight("#97d7ff", 1.2);
   n.position.set(-5e3, 4e3, 3e3), e.add(n);
 }
-function Ba(e) {
-  const t = Ma(e), n = new c.MeshPhongMaterial({
+function Va(e) {
+  const t = Ia(e), n = new c.MeshPhongMaterial({
     color: 16777215,
     map: t,
     shininess: 42,
@@ -1575,7 +1575,7 @@ function Ba(e) {
     texture: t
   };
 }
-function La(e, t, n) {
+function Ga(e, t, n) {
   const a = new c.Scene();
   a.background = new c.Color("#081119");
   const i = new c.PerspectiveCamera(48, 1, 10 * n, 5e5 * n);
@@ -1584,36 +1584,36 @@ function La(e, t, n) {
     antialias: !1,
     powerPreference: "high-performance"
   });
-  s.setPixelRatio(Math.min(window.devicePixelRatio || 1, Ea)), s.domElement.style.display = "block", s.domElement.style.width = "100%", s.domElement.style.height = "100%", s.domElement.tabIndex = 0, s.domElement.setAttribute("aria-label", "Replay player viewport"), e.replaceChildren(s.domElement);
-  const r = new Jn(i, s.domElement);
-  r.enableDamping = !0, r.maxDistance = 16e4 * n, r.keyPanSpeed = _a, r.target.set(0, 0, 600 * n), r.listenToKeyEvents(s.domElement), r.update();
+  s.setPixelRatio(Math.min(window.devicePixelRatio || 1, Ta)), s.domElement.style.display = "block", s.domElement.style.width = "100%", s.domElement.style.height = "100%", s.domElement.tabIndex = 0, s.domElement.setAttribute("aria-label", "Replay player viewport"), e.replaceChildren(s.domElement);
+  const r = new sa(i, s.domElement);
+  r.enableDamping = !0, r.maxDistance = 16e4 * n, r.keyPanSpeed = ka, r.target.set(0, 0, 600 * n), r.listenToKeyEvents(s.domElement), r.update();
   const o = () => {
     s.domElement.focus();
   };
   s.domElement.addEventListener("pointerdown", o);
-  const { stadium: l, wallPanels: d } = ka(n);
-  a.add(l), Da(a);
+  const { stadium: l, wallPanels: d } = Ra(n);
+  a.add(l), Ua(a);
   const h = new c.Group();
   h.scale.set(-n, n, n), a.add(h);
-  const { mesh: u, texture: f } = Ba(s);
+  const { mesh: u, texture: f } = Va(s);
   h.add(u);
-  const _ = /* @__PURE__ */ new Map(), y = /* @__PURE__ */ new Map(), m = /* @__PURE__ */ new Map(), b = /* @__PURE__ */ new Map(), p = /* @__PURE__ */ new Map(), E = /* @__PURE__ */ new Map();
-  for (const M of t.players) {
-    const P = new c.Group(), z = M.isTeamZero ? "#57a8ff" : "#ff9c40", U = Ca(z), H = Ta(M.hitbox, z);
+  const w = /* @__PURE__ */ new Map(), y = /* @__PURE__ */ new Map(), m = /* @__PURE__ */ new Map(), b = /* @__PURE__ */ new Map(), p = /* @__PURE__ */ new Map(), _ = /* @__PURE__ */ new Map();
+  for (const x of t.players) {
+    const P = new c.Group(), F = x.isTeamZero ? "#57a8ff" : "#ff9c40", U = Ba(F), H = Oa(x.hitbox, F);
     P.add(U), P.add(H);
-    const K = Ia();
+    const K = La();
     P.add(K);
-    const X = Aa();
+    const X = Na();
     P.add(X.group);
-    const q = Ra();
-    h.add(P), h.add(q.group), _.set(M.id, P), y.set(M.id, U), m.set(M.id, H), b.set(M.id, K), p.set(M.id, X), E.set(M.id, q);
+    const q = Fa();
+    h.add(P), h.add(q.group), w.set(x.id, P), y.set(x.id, U), m.set(x.id, H), b.set(x.id, K), p.set(x.id, X), _.set(x.id, q);
   }
   const T = () => {
-    const M = e.clientWidth || 1, P = e.clientHeight || 1;
-    i.aspect = M / P, i.updateProjectionMatrix(), s.setSize(M, P, !1);
+    const x = e.clientWidth || 1, P = e.clientHeight || 1;
+    i.aspect = x / P, i.updateProjectionMatrix(), s.setSize(x, P, !1);
   };
   T();
-  const S = new c.Vector3(), k = new c.Vector3(), w = new c.Quaternion(), A = new c.Vector3();
+  const k = new c.Vector3(), S = new c.Vector3(), E = new c.Quaternion(), A = new c.Vector3();
   return {
     scene: a,
     replayRoot: h,
@@ -1625,22 +1625,22 @@ function La(e, t, n) {
       s.domElement.removeEventListener("pointerdown", o), r.stopListenToKeyEvents(), r.dispose(), f.dispose(), s.dispose(), e.replaceChildren();
     },
     ballMesh: u,
-    playerMeshes: _,
+    playerMeshes: w,
     playerBodyMeshes: y,
     playerHitboxes: m,
     playerBoostTrails: b,
     playerBoostMeters: p,
-    playerDemoIndicators: E,
+    playerDemoIndicators: _,
     updateWallVisibility: () => {
       a.updateMatrixWorld(!0);
-      for (const M of d) {
-        if (M.fixedOpacity !== null) {
-          M.material.transparent = !0, M.material.opacity = M.fixedOpacity, M.material.depthWrite = !1;
+      for (const x of d) {
+        if (x.fixedOpacity !== null) {
+          x.material.transparent = !0, x.material.opacity = x.fixedOpacity, x.material.depthWrite = !1;
           continue;
         }
-        M.mesh.getWorldPosition(S), M.mesh.getWorldQuaternion(w), k.copy(M.outwardLocal).applyQuaternion(w).normalize(), A.copy(i.position).sub(S);
-        const P = k.dot(A) > 0;
-        M.material.transparent = !0, M.material.opacity = P ? Re : dt, M.material.depthWrite = !P;
+        x.mesh.getWorldPosition(k), x.mesh.getWorldQuaternion(E), S.copy(x.outwardLocal).applyQuaternion(E).normalize(), A.copy(i.position).sub(k);
+        const P = S.dot(A) > 0;
+        x.material.transparent = !0, x.material.opacity = P ? Re : dt, x.material.depthWrite = !P;
       }
     }
   };
@@ -1652,10 +1652,10 @@ function Z(e) {
 function ye(e, t) {
   return Math.max(0, e - t);
 }
-function Ve(e) {
+function Ue(e) {
   return new Map(e.map((t) => [t.id, t]));
 }
-const Q = 70, kt = 73, Na = 3072, za = 4096, Fa = 1792, Ua = 4184, Va = 940, Ga = 3308, Ha = 2816, Tt = 3584, ja = 2484, Wa = 1788, $a = 2300, Ka = 2048, Ya = 1036, Za = 1024, Xa = 1024, qa = 4240, ht = 34;
+const Q = 70, kt = 73, Ha = 3072, ja = 4096, Wa = 1792, $a = 4184, Ka = 940, Ya = 3308, Za = 2816, Tt = 3584, Xa = 2484, qa = 1788, Qa = 2300, Ja = 2048, ei = 1036, ti = 1024, ni = 1024, ai = 4240, ht = 34;
 function Ne(e, t, n, a, i) {
   e.push({
     index: e.length,
@@ -1665,18 +1665,18 @@ function Ne(e, t, n, a, i) {
     events: []
   });
 }
-function ze(e, t, n, a, i) {
+function Fe(e, t, n, a, i) {
   Ne(e, -t, n, a, i), Ne(e, t, n, a, i);
 }
-function Xe(e, t, n, a, i) {
+function Ze(e, t, n, a, i) {
   Ne(e, t, -n, a, i), Ne(e, t, n, a, i);
 }
 function ue(e, t, n, a, i) {
-  ze(e, t, -n, a, i), ze(e, t, n, a, i);
+  Fe(e, t, -n, a, i), Fe(e, t, n, a, i);
 }
-function cn() {
+function fn() {
   const e = [];
-  return Xe(e, 0, qa, Q, "small"), ue(e, Fa, Ua, Q, "small"), ue(e, Na, za, kt, "big"), ue(e, Va, Ga, Q, "small"), Xe(e, 0, Ha, Q, "small"), ue(e, Tt, ja, Q, "small"), ue(e, Wa, $a, Q, "small"), ue(e, Ka, Ya, Q, "small"), Xe(e, 0, Xa, Q, "small"), ze(e, Tt, 0, kt, "big"), ze(e, Za, 0, Q, "small"), e;
+  return Ze(e, 0, ai, Q, "small"), ue(e, Wa, $a, Q, "small"), ue(e, Ha, ja, kt, "big"), ue(e, Ka, Ya, Q, "small"), Ze(e, 0, Za, Q, "small"), ue(e, Tt, Xa, Q, "small"), ue(e, qa, Qa, Q, "small"), ue(e, Ja, ei, Q, "small"), Ze(e, 0, ni, Q, "small"), Fe(e, Tt, 0, kt, "big"), Fe(e, ti, 0, Q, "small"), e;
 }
 function Se(e) {
   if (e === "Available")
@@ -1694,10 +1694,10 @@ function Se(e) {
   }
   return null;
 }
-function dn(e) {
+function bn(e) {
   return e === "big" || e === "Big" ? "big" : e === "small" || e === "Small" ? "small" : null;
 }
-function hn(e) {
+function gn(e) {
   let t = null;
   for (const n of e) {
     const a = Se(n.kind);
@@ -1710,8 +1710,8 @@ function hn(e) {
   }
   return null;
 }
-function Qa(e, t, n, a) {
-  const i = Ve(t), s = /* @__PURE__ */ new Map();
+function ii(e, t, n, a) {
+  const i = Ue(t), s = /* @__PURE__ */ new Map();
   for (const d of e.boost_pad_events ?? []) {
     if (Se(d.kind) === null) {
       a?.advance();
@@ -1722,32 +1722,32 @@ function Qa(e, t, n, a) {
   }
   const r = e.boost_pads;
   if (!r || r.length === 0)
-    return a?.advance(ht), cn();
+    return a?.advance(ht), fn();
   const o = [...r].sort((d, h) => d.index - h.index), l = new Array(o.length);
   for (let d = 0; d < o.length; d += 1) {
-    const h = o[d], u = typeof h.pad_id == "string" ? h.pad_id : null, f = u ? [...s.get(u) ?? []] : [], _ = dn(h.size) ?? hn(f) ?? (h.position.z >= 72 ? "big" : "small"), y = f.sort((b, p) => b.time - p.time), m = new Array(y.length);
+    const h = o[d], u = typeof h.pad_id == "string" ? h.pad_id : null, f = u ? [...s.get(u) ?? []] : [], w = bn(h.size) ?? gn(f) ?? (h.position.z >= 72 ? "big" : "small"), y = f.sort((b, p) => b.time - p.time), m = new Array(y.length);
     for (let b = 0; b < y.length; b += 1) {
-      const p = y[b], E = p.player ? Z(p.player) : null;
+      const p = y[b], _ = p.player ? Z(p.player) : null;
       m[b] = {
         time: ye(p.time, n),
         frame: p.frame,
         available: Se(p.kind) ?? !0,
-        playerId: E,
-        playerName: E ? i.get(E)?.name ?? E : null
+        playerId: _,
+        playerName: _ ? i.get(_)?.name ?? _ : null
       };
     }
     l[d] = {
       index: h.index,
       padId: u,
-      size: _,
+      size: w,
       position: h.position,
       events: m
     }, a?.advance();
   }
   return l;
 }
-async function Ja(e, t, n, a) {
-  const i = Ve(t), s = /* @__PURE__ */ new Map();
+async function si(e, t, n, a) {
+  const i = Ue(t), s = /* @__PURE__ */ new Map();
   for (const d of e.boost_pad_events ?? []) {
     if (Se(d.kind) === null) {
       a.advance() && await a.yieldToMainThread();
@@ -1758,24 +1758,24 @@ async function Ja(e, t, n, a) {
   }
   const r = e.boost_pads;
   if (!r || r.length === 0)
-    return a.advance(ht) && await a.yieldToMainThread(), cn();
+    return a.advance(ht) && await a.yieldToMainThread(), fn();
   const o = [...r].sort((d, h) => d.index - h.index), l = new Array(o.length);
   for (let d = 0; d < o.length; d += 1) {
-    const h = o[d], u = typeof h.pad_id == "string" ? h.pad_id : null, f = u ? [...s.get(u) ?? []] : [], _ = dn(h.size) ?? hn(f) ?? (h.position.z >= 72 ? "big" : "small"), y = f.sort((b, p) => b.time - p.time), m = new Array(y.length);
+    const h = o[d], u = typeof h.pad_id == "string" ? h.pad_id : null, f = u ? [...s.get(u) ?? []] : [], w = bn(h.size) ?? gn(f) ?? (h.position.z >= 72 ? "big" : "small"), y = f.sort((b, p) => b.time - p.time), m = new Array(y.length);
     for (let b = 0; b < y.length; b += 1) {
-      const p = y[b], E = p.player ? Z(p.player) : null;
+      const p = y[b], _ = p.player ? Z(p.player) : null;
       m[b] = {
         time: ye(p.time, n),
         frame: p.frame,
         available: Se(p.kind) ?? !0,
-        playerId: E,
-        playerName: E ? i.get(E)?.name ?? E : null
+        playerId: _,
+        playerName: _ ? i.get(_)?.name ?? _ : null
       };
     }
     l[d] = {
       index: h.index,
       padId: u,
-      size: _,
+      size: w,
       position: h.position,
       events: m
     }, a.advance() && await a.yieldToMainThread();
@@ -1785,7 +1785,7 @@ async function Ja(e, t, n, a) {
 function ut(e) {
   return Number.isInteger(e.frame) && e.frame >= 0 ? e.frame : null;
 }
-function ei(e, t) {
+function ri(e, t) {
   if (typeof e.time == "number" && Number.isFinite(e.time))
     return e.time;
   const n = ut(e);
@@ -1794,16 +1794,16 @@ function ei(e, t) {
   const a = t.frame_data.metadata_frames[n]?.time;
   return typeof a == "number" && Number.isFinite(a) ? a : null;
 }
-function ti(e, t) {
+function oi(e, t) {
   return `bookmark:${ut(e) ?? "unknown"}:${e.description || "tick-mark"}:${t}`;
 }
-function un(e, t, n) {
+function yn(e, t, n) {
   return (e.replay_tick_marks ?? []).flatMap((a, i) => {
     n?.advance();
-    const s = ei(a, e);
+    const s = ri(a, e);
     return s === null ? [] : [
       {
-        id: ti(a, i),
+        id: oi(a, i),
         description: a.description,
         frame: ut(a),
         time: ye(s, t)
@@ -1811,7 +1811,7 @@ function un(e, t, n) {
     ];
   });
 }
-function mn(e) {
+function wn(e) {
   const t = e.description.trim() || "Replay bookmark";
   return {
     id: e.id,
@@ -1824,12 +1824,12 @@ function mn(e) {
     iconName: "bookmark"
   };
 }
-const ne = {
+const ae = {
   distance: 270,
   height: 100,
   pitch: -4,
   fov: 110
-}, ni = 5e-3, ai = Number.POSITIVE_INFINITY, ii = 16, si = !0, ri = 0.15, oi = 10, li = 0.1, ci = 10;
+}, li = 5e-3, ci = Number.POSITIVE_INFINITY, di = 16, hi = !0, ui = 0.15, mi = 10, pi = 0.1, fi = 10;
 function Pt(e) {
   const t = Math.hypot(e.x, e.y, e.z);
   return t < 1e-6 ? null : {
@@ -1838,7 +1838,7 @@ function Pt(e) {
     z: e.z / t
   };
 }
-function pn(e) {
+function _n(e) {
   const t = Math.hypot(e.x, e.y, e.z, e.w);
   return t < 1e-6 ? null : {
     x: e.x / t,
@@ -1876,7 +1876,7 @@ function It(e, t) {
     z: n.z
   };
 }
-function fn(e) {
+function En(e) {
   if (e === "Empty")
     return {
       position: null,
@@ -1889,10 +1889,10 @@ function fn(e) {
     position: t.location,
     linearVelocity: t.linear_velocity ?? null,
     angularVelocity: t.angular_velocity ?? null,
-    rotation: pn(t.rotation)
+    rotation: _n(t.rotation)
   };
 }
-function bn(e) {
+function vn(e) {
   if (e === "Empty")
     return {
       isPresent: !1,
@@ -1910,7 +1910,7 @@ function bn(e) {
       doubleJumpActive: !1,
       dodgeActive: !1
     };
-  const t = e.Data.rigid_body, n = pn(t.rotation), a = n ? Pt(It({ x: 1, y: 0, z: 0 }, n)) : null, i = n ? Pt(It({ x: 0, y: 0, z: 1 }, n)) : null;
+  const t = e.Data.rigid_body, n = _n(t.rotation), a = n ? Pt(It({ x: 1, y: 0, z: 0 }, n)) : null, i = n ? Pt(It({ x: 0, y: 0, z: 1 }, n)) : null;
   return {
     isPresent: !0,
     position: t.location,
@@ -1928,10 +1928,10 @@ function bn(e) {
     dodgeActive: e.Data.dodge_active
   };
 }
-function di(e) {
+function bi(e) {
   return e.position !== null;
 }
-function hi(e) {
+function gi(e) {
   return {
     ...e,
     isPresent: !1,
@@ -1944,13 +1944,13 @@ function hi(e) {
     dodgeActive: !1
   };
 }
-function gn(e) {
+function Mn(e) {
   let t = null, n = null;
   for (let a = 0; a < e.length; a += 1) {
     const i = e[a];
-    if (di(i)) {
+    if (bi(i)) {
       if (n !== null && t) {
-        const s = hi(t);
+        const s = gi(t);
         for (let r = n; r < a; r += 1)
           e[r] = s;
       }
@@ -1958,16 +1958,16 @@ function gn(e) {
     } else t && n === null && (n = a);
   }
 }
-function ui(e, t) {
+function yi(e, t) {
   return Math.hypot(e.x - t.x, e.y - t.y, e.z - t.z);
 }
-function xe(e) {
+function Me(e) {
   return { x: e.x, y: e.y, z: e.z };
 }
 function At(e) {
   return !!(e && "isPresent" in e && e.isPresent === !1);
 }
-function Fe(e, t, n) {
+function ze(e, t, n) {
   if (!n.motionSmoothing || t.length < 3 || e.length < 3)
     return;
   let a = 0;
@@ -1975,22 +1975,22 @@ function Fe(e, t, n) {
     a += 1;
   if (a >= t.length - 1)
     return;
-  let i = xe(t[a].position);
+  let i = Me(t[a].position);
   for (let s = a + 1; s < t.length; s += 1) {
     const r = t[s - 1], o = t[s];
     if (!r.position || !o.position || At(o))
       continue;
     if (!r.linearVelocity || !o.linearVelocity) {
-      i = xe(o.position);
+      i = Me(o.position);
       continue;
     }
     const l = e[s], d = e[s - 1], h = l && d ? l.time - d.time : 0;
-    if (h <= 0 || h > li) {
-      i = xe(o.position);
+    if (h <= 0 || h > pi) {
+      i = Me(o.position);
       continue;
     }
-    if (ui(i, o.position) > ci) {
-      i = xe(o.position);
+    if (yi(i, o.position) > fi) {
+      i = Me(o.position);
       continue;
     }
     const u = {
@@ -2001,31 +2001,31 @@ function Fe(e, t, n) {
       x: i.x + u.x * h,
       y: i.y + u.y * h,
       z: i.z + u.z * h
-    }, _ = (s - a) % n.smoothingAnchorInterval === 0 ? 0.5 : n.smoothingBlendFactor;
+    }, w = (s - a) % n.smoothingAnchorInterval === 0 ? 0.5 : n.smoothingBlendFactor;
     i = {
-      x: f.x * (1 - _) + o.position.x * _,
-      y: f.y * (1 - _) + o.position.y * _,
-      z: f.z * (1 - _) + o.position.z * _
-    }, o.position = xe(i);
+      x: f.x * (1 - w) + o.position.x * w,
+      y: f.y * (1 - w) + o.position.y * w,
+      z: f.z * (1 - w) + o.position.z * w
+    }, o.position = Me(i);
   }
 }
-function yn(e) {
+function xn(e) {
   return {
-    motionSmoothing: e.motionSmoothing ?? si,
-    smoothingBlendFactor: e.smoothingBlendFactor ?? ri,
+    motionSmoothing: e.motionSmoothing ?? hi,
+    smoothingBlendFactor: e.smoothingBlendFactor ?? ui,
     smoothingAnchorInterval: Math.max(
       1,
-      e.smoothingAnchorInterval ?? oi
+      e.smoothingAnchorInterval ?? mi
     )
   };
 }
 function Rt() {
   return typeof performance > "u" ? Date.now() : performance.now();
 }
-function mi() {
+function wi() {
   return new Promise((e) => setTimeout(e, 0));
 }
-function pi(e) {
+function _i(e) {
   const t = e.meta.team_zero.length + e.meta.team_one.length, n = e.frame_data.players.reduce(
     (r, [, o]) => r + o.frames.length,
     0
@@ -2039,7 +2039,7 @@ function pi(e) {
     Math.max(1, s)
   ].reduce((r, o) => r + o, 0);
 }
-function fi(e) {
+function Ei(e) {
   const t = e.frame_data.players.reduce(
     (n, [, a]) => n + a.frames.length,
     0
@@ -2050,13 +2050,13 @@ function fi(e) {
     Math.max(1, e.frame_data.ball_data.frames.length)
   ].reduce((n, a) => n + a, 0);
 }
-function wn(e, t, n = {}) {
-  const a = pi(e), i = fi(e);
+function Sn(e, t, n = {}) {
+  const a = _i(e), i = Ei(e);
   let s = 0, r = 0, o = -1, l = -1, d = Rt();
-  const h = n.yieldEveryMs ?? Number.POSITIVE_INFINITY, u = n.progressReportMinDelta ?? ni, f = Math.max(
+  const h = n.yieldEveryMs ?? Number.POSITIVE_INFINITY, u = n.progressReportMinDelta ?? li, f = Math.max(
     1,
-    n.progressReportFrameInterval ?? ai
-  ), _ = () => {
+    n.progressReportFrameInterval ?? ci
+  ), w = () => {
     if (!t)
       return !1;
     const m = Math.max(0, Math.min(1, s / a));
@@ -2074,37 +2074,37 @@ function wn(e, t, n = {}) {
     const b = Rt();
     return !m && b - d < h ? !1 : (d = b, !0);
   };
-  return _(), {
+  return w(), {
     advance(m = 1) {
       if (m <= 0)
         return !1;
       s = Math.min(a, s + m);
-      const b = _();
+      const b = w();
       return y(b);
     },
     advanceFrame(m = 1) {
       if (m <= 0)
         return !1;
       r = Math.min(i, r + m), s = Math.min(a, s + m);
-      const b = _();
+      const b = w();
       return y(b);
     },
     finish() {
-      s = a, r = i, _();
+      s = a, r = i, w();
     }
   };
 }
-function bi(e, t) {
+function vi(e, t) {
   return {
-    ...wn(e, t.onProgress, {
+    ...Sn(e, t.onProgress, {
       progressReportMinDelta: t.progressReportMinDelta,
       progressReportFrameInterval: t.progressReportFrameInterval,
-      yieldEveryMs: t.yieldEveryMs ?? ii
+      yieldEveryMs: t.yieldEveryMs ?? di
     }),
-    yieldToMainThread: t.yieldToMainThread ?? mi
+    yieldToMainThread: t.yieldToMainThread ?? wi
   };
 }
-function gi(e, t) {
+function Mi(e, t) {
   const n = e.frame_data.metadata_frames;
   if (n.length === 0)
     return t?.advanceFrame(), [];
@@ -2120,7 +2120,7 @@ function gi(e, t) {
   }
   return i;
 }
-async function yi(e, t) {
+async function xi(e, t) {
   const n = e.frame_data.metadata_frames;
   if (n.length === 0)
     return t.advanceFrame() && await t.yieldToMainThread(), [];
@@ -2136,29 +2136,29 @@ async function yi(e, t) {
   }
   return i;
 }
-function _n(e, t, n, a) {
+function kn(e, t, n, a) {
   return t.has(e) ? !0 : n.has(e) ? !1 : a && a !== "Empty" && typeof a.Data.is_team_0 == "boolean" ? a.Data.is_team_0 : !0;
 }
-function wi(e) {
+function Si(e) {
   return e ? Object.entries(e) : [];
 }
-function ae(e, t) {
+function ie(e, t) {
   const n = e.find(([a]) => a === t)?.[1];
   return typeof n == "number" && Number.isFinite(n) ? n : void 0;
 }
-function En(e) {
-  const t = wi(e?.stats);
+function Tn(e) {
+  const t = Si(e?.stats);
   return {
-    fov: ae(t, "CameraFOV") ?? ne.fov,
-    height: ae(t, "CameraHeight") ?? ne.height,
-    pitch: ae(t, "CameraPitch") ?? ne.pitch,
-    distance: ae(t, "CameraDistance") ?? ne.distance,
-    stiffness: ae(t, "CameraStiffness") ?? ne.stiffness,
-    swivelSpeed: ae(t, "CameraSwivelSpeed") ?? ne.swivelSpeed,
-    transitionSpeed: ae(t, "CameraTransitionSpeed") ?? ne.transitionSpeed
+    fov: ie(t, "CameraFOV") ?? ae.fov,
+    height: ie(t, "CameraHeight") ?? ae.height,
+    pitch: ie(t, "CameraPitch") ?? ae.pitch,
+    distance: ie(t, "CameraDistance") ?? ae.distance,
+    stiffness: ie(t, "CameraStiffness") ?? ae.stiffness,
+    swivelSpeed: ie(t, "CameraSwivelSpeed") ?? ae.swivelSpeed,
+    transitionSpeed: ie(t, "CameraTransitionSpeed") ?? ae.transitionSpeed
   };
 }
-function _i(e, t) {
+function ki(e, t) {
   const n = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Map(), i = [...e.meta.team_zero, ...e.meta.team_one];
   if (i.length === 0)
     return t?.advance(), { byId: n, byName: a };
@@ -2166,7 +2166,7 @@ function _i(e, t) {
     a.set(s.name, s), s.remote_id && n.set(Z(s.remote_id), s), t?.advance();
   return { byId: n, byName: a };
 }
-async function Ei(e, t) {
+async function Ti(e, t) {
   const n = /* @__PURE__ */ new Map(), a = /* @__PURE__ */ new Map(), i = [...e.meta.team_zero, ...e.meta.team_one];
   if (i.length === 0)
     return t.advance() && await t.yieldToMainThread(), { byId: n, byName: a };
@@ -2174,77 +2174,77 @@ async function Ei(e, t) {
     a.set(s.name, s), s.remote_id && n.set(Z(s.remote_id), s), t.advance() && await t.yieldToMainThread();
   return { byId: n, byName: a };
 }
-function vi(e, t) {
-  const n = new Set(e.meta.team_zero.map((o) => o.name)), a = new Set(e.meta.team_one.map((o) => o.name)), i = _i(e, t), s = [];
+function Pi(e, t) {
+  const n = new Set(e.meta.team_zero.map((o) => o.name)), a = new Set(e.meta.team_one.map((o) => o.name)), i = ki(e, t), s = [];
   let r = 0;
   for (const [o, l] of e.frame_data.players) {
     const d = new Array(l.frames.length);
     let h;
     for (let y = 0; y < l.frames.length; y += 1) {
       const m = l.frames[y];
-      h === void 0 && m !== "Empty" && (h = m), d[y] = bn(m), r += 1, t?.advanceFrame();
+      h === void 0 && m !== "Empty" && (h = m), d[y] = vn(m), r += 1, t?.advanceFrame();
     }
-    gn(d);
-    const u = Z(o), f = h !== void 0 && h.Data.player_name ? h.Data.player_name : i.byId.get(u)?.name ?? u, _ = i.byId.get(u) ?? i.byName.get(f);
+    Mn(d);
+    const u = Z(o), f = h !== void 0 && h.Data.player_name ? h.Data.player_name : i.byId.get(u)?.name ?? u, w = i.byId.get(u) ?? i.byName.get(f);
     s.push({
       id: u,
       name: f,
-      isTeamZero: _n(f, n, a, h),
-      cameraSettings: En(_),
-      hitbox: rn(on(_)),
+      isTeamZero: kn(f, n, a, h),
+      cameraSettings: Tn(w),
+      hitbox: un(mn(w)),
       frames: d
     });
   }
   return r === 0 && t?.advanceFrame(), s;
 }
-async function xi(e, t) {
-  const n = new Set(e.meta.team_zero.map((o) => o.name)), a = new Set(e.meta.team_one.map((o) => o.name)), i = await Ei(e, t), s = [];
+async function Ci(e, t) {
+  const n = new Set(e.meta.team_zero.map((o) => o.name)), a = new Set(e.meta.team_one.map((o) => o.name)), i = await Ti(e, t), s = [];
   let r = 0;
   for (const [o, l] of e.frame_data.players) {
     const d = new Array(l.frames.length);
     let h;
     for (let y = 0; y < l.frames.length; y += 1) {
       const m = l.frames[y];
-      h === void 0 && m !== "Empty" && (h = m), d[y] = bn(m), r += 1, t.advanceFrame() && await t.yieldToMainThread();
+      h === void 0 && m !== "Empty" && (h = m), d[y] = vn(m), r += 1, t.advanceFrame() && await t.yieldToMainThread();
     }
-    gn(d);
-    const u = Z(o), f = h !== void 0 && h.Data.player_name ? h.Data.player_name : i.byId.get(u)?.name ?? u, _ = i.byId.get(u) ?? i.byName.get(f);
+    Mn(d);
+    const u = Z(o), f = h !== void 0 && h.Data.player_name ? h.Data.player_name : i.byId.get(u)?.name ?? u, w = i.byId.get(u) ?? i.byName.get(f);
     s.push({
       id: u,
       name: f,
-      isTeamZero: _n(f, n, a, h),
-      cameraSettings: En(_),
-      hitbox: rn(on(_)),
+      isTeamZero: kn(f, n, a, h),
+      cameraSettings: Tn(w),
+      hitbox: un(mn(w)),
       frames: d
     });
   }
   return r === 0 && t.advanceFrame() && await t.yieldToMainThread(), s;
 }
-function Mi(e, t) {
+function Ii(e, t) {
   const n = e.frame_data.ball_data.frames;
   if (n.length === 0)
     return t?.advanceFrame(), [];
   const a = new Array(n.length);
   for (let i = 0; i < n.length; i += 1)
-    a[i] = fn(n[i]), t?.advanceFrame();
+    a[i] = En(n[i]), t?.advanceFrame();
   return a;
 }
-async function Si(e, t) {
+async function Ai(e, t) {
   const n = e.frame_data.ball_data.frames;
   if (n.length === 0)
     return t.advanceFrame() && await t.yieldToMainThread(), [];
   const a = new Array(n.length);
   for (let i = 0; i < n.length; i += 1)
-    a[i] = fn(n[i]), t.advanceFrame() && await t.yieldToMainThread();
+    a[i] = En(n[i]), t.advanceFrame() && await t.yieldToMainThread();
   return a;
 }
 function mt(e, t, n) {
   return `${e}:${t}:${n}`;
 }
-function vn(e) {
+function Pn(e) {
   return e.sort((t, n) => t.time !== n.time ? t.time - n.time : (t.frame ?? 0) - (n.frame ?? 0));
 }
-function xn(e, t, n) {
+function Cn(e, t, n) {
   const a = e.player ? Z(e.player) : null, i = a ? t.get(a)?.name ?? a : null, s = i ? `${i} scored` : "Goal";
   return {
     id: mt("goal", e.frame, a ?? "team"),
@@ -2258,7 +2258,7 @@ function xn(e, t, n) {
     isTeamZero: e.scoring_team_is_team_0
   };
 }
-function Mn(e, t, n) {
+function In(e, t, n) {
   const a = Z(e.player), i = t.get(a)?.name ?? a, s = e.kind.toLowerCase(), r = e.kind === "Shot" ? "shot" : e.kind === "Save" ? "save" : "assist", o = e.kind === "Shot" ? "SH" : e.kind === "Save" ? "SV" : "A";
   return {
     id: mt(s, e.frame, a),
@@ -2274,7 +2274,7 @@ function Mn(e, t, n) {
     isTeamZero: e.is_team_0
   };
 }
-function Sn(e, t, n) {
+function An(e, t, n) {
   const a = Z(e.attacker), i = Z(e.victim), s = t.get(a), r = t.get(i);
   return {
     id: mt("demo", e.frame, `${a}:${i}`),
@@ -2291,39 +2291,39 @@ function Sn(e, t, n) {
     isTeamZero: s?.isTeamZero ?? null
   };
 }
-function ki(e, t, n, a, i) {
-  const s = Ve(t), r = [];
+function Ri(e, t, n, a, i) {
+  const s = Ue(t), r = [];
   for (const o of e.goal_events ?? [])
-    r.push(xn(o, s, a)), i?.advance();
+    r.push(Cn(o, s, a)), i?.advance();
   for (const o of e.player_stat_events ?? [])
-    r.push(Mn(o, s, a)), i?.advance();
+    r.push(In(o, s, a)), i?.advance();
   for (const o of e.demolish_infos ?? [])
-    r.push(Sn(o, s, a)), i?.advance();
+    r.push(An(o, s, a)), i?.advance();
   for (const o of n)
-    r.push(mn(o));
-  return r.length === 0 && i?.advance(), vn(r);
+    r.push(wn(o));
+  return r.length === 0 && i?.advance(), Pn(r);
 }
-async function Ti(e, t, n, a, i) {
-  const s = Ve(t), r = [];
+async function Oi(e, t, n, a, i) {
+  const s = Ue(t), r = [];
   for (const o of e.goal_events ?? [])
-    r.push(xn(o, s, a)), i.advance() && await i.yieldToMainThread();
+    r.push(Cn(o, s, a)), i.advance() && await i.yieldToMainThread();
   for (const o of e.player_stat_events ?? [])
-    r.push(Mn(o, s, a)), i.advance() && await i.yieldToMainThread();
+    r.push(In(o, s, a)), i.advance() && await i.yieldToMainThread();
   for (const o of e.demolish_infos ?? [])
-    r.push(Sn(o, s, a)), i.advance() && await i.yieldToMainThread();
+    r.push(An(o, s, a)), i.advance() && await i.yieldToMainThread();
   for (const o of n)
-    r.push(mn(o));
-  return r.length === 0 && i.advance() && await i.yieldToMainThread(), vn(r);
+    r.push(wn(o));
+  return r.length === 0 && i.advance() && await i.yieldToMainThread(), Pn(r);
 }
-function Kr(e, t = {}) {
-  const n = wn(e, t.onProgress, {
+function Qr(e, t = {}) {
+  const n = Sn(e, t.onProgress, {
     progressReportMinDelta: t.progressReportMinDelta,
     progressReportFrameInterval: t.progressReportFrameInterval
-  }), a = e.frame_data.metadata_frames[0]?.time ?? 0, i = gi(e, n), s = vi(e, n), r = Mi(e, n), o = yn(t);
-  Fe(i, r, o);
+  }), a = e.frame_data.metadata_frames[0]?.time ?? 0, i = Mi(e, n), s = Pi(e, n), r = Ii(e, n), o = xn(t);
+  ze(i, r, o);
   for (const u of s)
-    Fe(i, u.frames, o);
-  const l = Qa(e, s, a, n), d = un(e, a, n), h = ki(e, s, d, a, n);
+    ze(i, u.frames, o);
+  const l = ii(e, s, a, n), d = yn(e, a, n), h = Ri(e, s, d, a, n);
   return n.finish(), {
     frameCount: i.length,
     duration: i.at(-1)?.time ?? 0,
@@ -2338,12 +2338,12 @@ function Kr(e, t = {}) {
     teamOneNames: e.meta.team_one.map((u) => u.name)
   };
 }
-async function Pi(e, t = {}) {
-  const n = bi(e, t), a = e.frame_data.metadata_frames[0]?.time ?? 0, i = await yi(e, n), s = await xi(e, n), r = await Si(e, n), o = yn(t);
-  Fe(i, r, o);
+async function Di(e, t = {}) {
+  const n = vi(e, t), a = e.frame_data.metadata_frames[0]?.time ?? 0, i = await xi(e, n), s = await Ci(e, n), r = await Ai(e, n), o = xn(t);
+  ze(i, r, o);
   for (const u of s)
-    Fe(i, u.frames, o);
-  const l = await Ja(e, s, a, n), d = un(e, a, n), h = await Ti(
+    ze(i, u.frames, o);
+  const l = await si(e, s, a, n), d = yn(e, a, n), h = await Oi(
     e,
     s,
     d,
@@ -2379,10 +2379,10 @@ function ge(e, t) {
   }
   return Math.max(0, n - 1);
 }
-function Ci(e, t) {
+function Bi(e, t) {
   return e.frames.length === 0 ? 0 : c.MathUtils.clamp(Math.round(t), 0, e.frames.length - 1);
 }
-function Ii(e) {
+function Li(e) {
   if (e.frames.length === 0)
     return null;
   const t = /* @__PURE__ */ new Map();
@@ -2393,7 +2393,7 @@ function Ii(e) {
     s <= a || (n = i, a = s);
   return n;
 }
-function Ai(e, t) {
+function Ni(e, t) {
   if (t === null)
     return null;
   for (const n of e.frames) {
@@ -2403,25 +2403,25 @@ function Ai(e, t) {
   }
   return null;
 }
-function kn(e, t) {
+function Rn(e, t) {
   return t === null ? e.kickoffCountdown <= 0 : e.gameState === t;
 }
 function pt(e, t) {
   return e.kickoffCountdown > 0 ? !0 : t !== null && e.gameState === t;
 }
-function Ri(e, t) {
+function Fi(e, t) {
   return e.ballFrames[t]?.position ? !0 : e.players.some((n) => n.frames[t]?.position);
 }
-function Oi(e, t, n, a) {
-  return pt(t, a) && Ri(e, n);
+function zi(e, t, n, a) {
+  return pt(t, a) && Fi(e, n);
 }
 function Oe(e, t, n, a, i) {
-  return !kn(t, a) && !Oi(e, t, n, i);
+  return !Rn(t, a) && !zi(e, t, n, i);
 }
 function Ot(e, t, n, a, i, s, r) {
   return a && Oe(e, t, n, s, r) || i && pt(t, r);
 }
-function Di(e, t, n, a, i) {
+function Ui(e, t, n, a, i) {
   const s = [], { frames: r } = e;
   if (r.length === 0 || !t && !n)
     return s;
@@ -2461,7 +2461,7 @@ function Di(e, t, n, a, i) {
   }
   return s;
 }
-function Bi(e, t, n) {
+function Vi(e, t, n) {
   const a = c.MathUtils.clamp(n, 0, e);
   for (const i of t) {
     if (a < i.startTime)
@@ -2481,14 +2481,14 @@ function Bi(e, t, n) {
     hiddenBySkip: !1
   };
 }
-function Li(e, t, n, a) {
+function Gi(e, t, n, a) {
   return c.MathUtils.clamp(a, 0, e);
 }
-function Ni(e, t) {
+function Hi(e, t) {
   const n = t.at(-1);
   return !n || n.endTime < e ? e : c.MathUtils.clamp(n.startTime, 0, e);
 }
-function zi(e, t, n) {
+function ji(e, t, n) {
   const a = e.frames[t];
   if (!a || a.kickoffCountdown <= 0)
     return null;
@@ -2509,7 +2509,7 @@ function zi(e, t, n) {
     endsAt: o
   };
 }
-function Fi(e, t) {
+function Wi(e, t) {
   const n = ge(e, t), a = Math.min(n + 1, e.frames.length - 1);
   if (a === n)
     return { frameIndex: n, nextFrameIndex: a, alpha: 0, dt: 0 };
@@ -2521,7 +2521,7 @@ function Fi(e, t) {
     dt: s - i
   };
 }
-const Ui = 1.4, Dt = 0.18, Ce = 0.14, Vi = 120, Bt = 90, Gi = 40, Hi = 100, ji = 45, Wi = 0.58, Lt = 0.82, $i = 132, Ki = 0.5, Tn = new c.Vector3(-1, 0, 0), re = new c.Vector3(0, 0, 1), Yi = new c.Vector3(-1, 0, 0), Zi = new c.Vector3(0, 0, 18800), Xi = new c.Vector3(0, 0, 700), qi = new c.Vector3(-9600, -12600, 6400), Qi = new c.Vector3(0, 0, 900), Ue = 48, Ji = 16, es = 16, ts = 3e-3, ns = 0.05;
+const $i = 1.4, Dt = 0.18, Ce = 0.14, Ki = 120, Bt = 90, Yi = 40, Zi = 100, Xi = 45, qi = 0.58, Lt = 0.82, Qi = 132, Ji = 0.5, On = new c.Vector3(-1, 0, 0), ee = new c.Vector3(0, 0, 1), Nt = new c.Vector3(-1, 0, 0), es = new c.Vector3(0, 0, 700), ts = new c.Vector3(0, 0, 900), Ft = new c.Vector3(9600, 12600, -5500).normalize(), at = 48, zt = 4120, Ut = 5140, ns = 0, as = 2200, Vt = 1.08, is = 16, ss = 16, rs = 3e-3, os = 0.05;
 function De(e, t, n) {
   return e ? !t || n <= 0 ? e : {
     x: c.MathUtils.lerp(e.x, t.x, n),
@@ -2533,19 +2533,19 @@ function ft(e, t, n, a, i, s) {
   const r = De(e, t, s);
   if (!e || !t || !n || !a || i <= 0 || s <= 0 || s >= 1)
     return r;
-  const o = s, l = o * o, d = l * o, h = 2 * d - 3 * l + 1, u = d - 2 * l + o, f = -2 * d + 3 * l, _ = d - l, y = (b, p, E, T) => h * b + u * E * i + f * p + _ * T * i, m = {
+  const o = s, l = o * o, d = l * o, h = 2 * d - 3 * l + 1, u = d - 2 * l + o, f = -2 * d + 3 * l, w = d - l, y = (b, p, _, T) => h * b + u * _ * i + f * p + w * T * i, m = {
     x: y(e.x, t.x, n.x, a.x),
     y: y(e.y, t.y, n.y, a.y),
     z: y(e.z, t.z, n.z, a.z)
   };
   if (r) {
-    const b = m.x - r.x, p = m.y - r.y, E = m.z - r.z, T = b * b + p * p + E * E, S = t.x - e.x, k = t.y - e.y, w = t.z - e.z, A = S * S + k * k + w * w;
+    const b = m.x - r.x, p = m.y - r.y, _ = m.z - r.z, T = b * b + p * p + _ * _, k = t.x - e.x, S = t.y - e.y, E = t.z - e.z, A = k * k + S * S + E * E;
     if (T > A)
       return r;
   }
   return m;
 }
-function Pn(e, t, n) {
+function Dn(e, t, n) {
   const a = e ?? t;
   if (!a)
     return null;
@@ -2555,41 +2555,77 @@ function Pn(e, t, n) {
 function bt(e) {
   return new c.Vector3(e.x, e.y, e.z);
 }
-function Cn(e, t) {
+function Bn(e, t) {
   return new c.Vector3(
     -e.x * t,
     e.y * t,
     e.z * t
   );
 }
-function qe(e) {
+function Xe(e) {
   return new c.Vector3(-e.x, e.y, e.z).normalize();
 }
-function as(e, t) {
+function ls(e, t, n = 16 / 9) {
+  const a = at, i = Number.isFinite(n) && n > 0 ? n : 16 / 9;
   switch (e) {
-    case "overhead":
+    case "overhead": {
+      const s = es.clone().multiplyScalar(t), r = new c.Vector3(0, 0, -1), o = Gt({
+        aspect: i,
+        fieldScale: t,
+        fov: a,
+        forward: r,
+        margin: Vt,
+        target: s,
+        up: Nt
+      });
       return {
-        position: Zi.clone().multiplyScalar(t),
-        target: Xi.clone().multiplyScalar(t),
-        up: Yi.clone(),
-        fov: Ue
+        position: s.clone().addScaledVector(r, -o),
+        target: s,
+        up: Nt.clone(),
+        fov: a
       };
-    case "side":
+    }
+    case "side": {
+      const s = ts.clone().multiplyScalar(t), r = Gt({
+        aspect: i,
+        fieldScale: t,
+        fov: a,
+        forward: Ft,
+        margin: Vt,
+        target: s,
+        up: ee
+      });
       return {
-        position: qi.clone().multiplyScalar(t),
-        target: Qi.clone().multiplyScalar(t),
-        up: re.clone(),
-        fov: Ue
+        position: s.clone().addScaledVector(Ft, -r),
+        target: s,
+        up: ee.clone(),
+        fov: a
       };
+    }
   }
 }
-function is(e) {
+function Gt(e) {
+  const { aspect: t, fieldScale: n, fov: a, forward: i, margin: s, target: r, up: o } = e, l = i.clone().normalize(), d = new c.Vector3().crossVectors(l, o).normalize(), h = new c.Vector3().crossVectors(d, l).normalize(), u = Math.tan(c.MathUtils.degToRad(a) / 2), f = u * t;
+  let w = 1;
+  for (const y of [-zt, zt])
+    for (const m of [-Ut, Ut])
+      for (const b of [ns, as]) {
+        const _ = new c.Vector3(y, m, b).multiplyScalar(n).sub(r), T = Math.abs(_.dot(d)), k = Math.abs(_.dot(h)), S = _.dot(l);
+        w = Math.max(
+          w,
+          T / f - S,
+          k / u - S
+        );
+      }
+  return Math.max(1, w * s);
+}
+function cs(e) {
   const { fov: t, position: n, sceneState: a, target: i, up: s } = e, { camera: r, controls: o } = a;
   o.enabled = !1, r.position.lerp(n, Ce), o.target.lerp(i, Ce), r.up.lerp(s, Ce).normalize(), r.fov = c.MathUtils.lerp(r.fov, t, Ce), r.updateProjectionMatrix(), r.lookAt(o.target);
-  const l = r.position.distanceToSquared(n) <= Ji, d = o.target.distanceToSquared(i) <= es, h = r.up.angleTo(s) <= ts, u = Math.abs(r.fov - t) <= ns;
+  const l = r.position.distanceToSquared(n) <= is, d = o.target.distanceToSquared(i) <= ss, h = r.up.angleTo(s) <= rs, u = Math.abs(r.fov - t) <= os;
   return !l || !d || !h || !u ? !1 : (r.position.copy(n), o.target.copy(i), r.up.copy(s).normalize(), r.fov = t, r.updateProjectionMatrix(), r.lookAt(i), o.enabled = !0, !0);
 }
-function ss(e, t, n, a) {
+function ds(e, t, n, a) {
   return !t || a <= 0 || t.isPresent === !1 || !t.position ? e : {
     ...e,
     position: ft(
@@ -2605,14 +2641,14 @@ function ss(e, t, n, a) {
     linearVelocity: De(e.linearVelocity ?? null, t.linearVelocity ?? null, a) ?? e.linearVelocity
   };
 }
-function rs(e) {
-  const t = e.linearVelocity ? qe(e.linearVelocity) : null, n = e.forward ? qe(e.forward) : null, a = e.up ? qe(e.up) : null;
-  if ((e.position?.z ?? 1 / 0) < Vi) {
-    const l = (n ?? t ?? Tn.clone()).clone().setZ(0);
+function hs(e) {
+  const t = e.linearVelocity ? Xe(e.linearVelocity) : null, n = e.forward ? Xe(e.forward) : null, a = e.up ? Xe(e.up) : null;
+  if ((e.position?.z ?? 1 / 0) < Ki) {
+    const l = (n ?? t ?? On.clone()).clone().setZ(0);
     if (l.lengthSq() < 1e-4)
       return null;
     l.normalize(), t && t.lengthSq() > 1e-4 && l.dot(t) < 0 && l.negate();
-    const d = new c.Vector3().crossVectors(re, l).normalize(), h = new c.Vector3().crossVectors(l, d).normalize();
+    const d = new c.Vector3().crossVectors(ee, l).normalize(), h = new c.Vector3().crossVectors(l, d).normalize();
     return { forward: l, up: h, right: d };
   }
   if (!n || !a)
@@ -2620,7 +2656,7 @@ function rs(e) {
   const s = n.clone().normalize(), r = new c.Vector3().crossVectors(a, s).normalize(), o = new c.Vector3().crossVectors(s, r).normalize();
   return { forward: s, up: o, right: r };
 }
-function os(e) {
+function us(e) {
   const {
     cameraViewMode: t,
     attachedPlayerId: n,
@@ -2634,13 +2670,13 @@ function os(e) {
     fieldScale: h,
     frameIndex: u,
     nextFrameIndex: f,
-    alpha: _,
+    alpha: w,
     dt: y,
     renderDelta: m,
     replay: b,
     sceneState: p,
-    blendState: E
-  } = e, T = p.controls, S = E ?? {
+    blendState: _
+  } = e, T = p.controls, k = _ ?? {
     currentBlend: a ? 1 : 0,
     targetBlend: a ? 1 : 0,
     lastIsBallCam: a
@@ -2648,7 +2684,7 @@ function os(e) {
   if (t === "free") {
     T.enabled = !0, p.camera.fov = c.MathUtils.lerp(
       p.camera.fov,
-      Ue,
+      at,
       Dt
     ), p.camera.updateProjectionMatrix();
     return;
@@ -2656,75 +2692,75 @@ function os(e) {
   if (!n) {
     T.enabled = !0, p.camera.fov = c.MathUtils.lerp(
       p.camera.fov,
-      Ue,
+      at,
       Dt
     ), p.camera.updateProjectionMatrix();
     return;
   }
-  const k = b.players.find((C) => C.id === n), w = k?.frames[u];
-  if (!k || d || !w?.position || w.isPresent === !1) {
+  const S = b.players.find((C) => C.id === n), E = S?.frames[u];
+  if (!S || d || !E?.position || E.isPresent === !1) {
     T.enabled = !0;
     return;
   }
   T.enabled = !1;
-  const A = k.frames[f] ?? w, B = ss(w, A, y, _), N = Cn(B.position ?? w.position, h), M = rs(B), P = M?.forward ?? Tn.clone(), z = M?.right ?? new c.Vector3(0, 1, 0), U = {
-    ...k.cameraSettings,
+  const A = S.frames[f] ?? E, B = ds(E, A, y, w), N = Bn(B.position ?? E.position, h), x = hs(B), P = x?.forward ?? On.clone(), F = x?.right ?? new c.Vector3(0, 1, 0), U = {
+    ...S.cameraSettings,
     ...r ?? {}
-  }, H = (U.distance ?? 270) * h * s, K = (U.height ?? 100) * h * Ui, X = c.MathUtils.degToRad(U.pitch ?? -4), q = P.clone().applyAxisAngle(z, X).normalize(), oe = N.clone().addScaledVector(re, K), je = P.clone().multiplyScalar(-H).addScaledVector(re, K).applyAxisAngle(z, X), J = N.clone().addScaledVector(re, Gi * h), we = U.fov ?? 110;
+  }, H = (U.distance ?? 270) * h * s, K = (U.height ?? 100) * h * $i, X = c.MathUtils.degToRad(U.pitch ?? -4), q = P.clone().applyAxisAngle(F, X).normalize(), oe = N.clone().addScaledVector(ee, K), He = P.clone().multiplyScalar(-H).addScaledVector(ee, K).applyAxisAngle(F, X), J = N.clone().addScaledVector(ee, Yi * h), we = U.fov ?? 110;
   let le = we;
-  const ce = J.clone().add(je);
+  const ce = J.clone().add(He);
   ce.z = Math.max(Bt * h, ce.z);
   const _e = J.clone();
   let W = ce, de = _e;
   if (i) {
-    const C = i.clone().addScaledVector(re, ji * h), I = C.clone().sub(J), L = (I.lengthSq() > 1e-4 ? I.normalize() : q.clone()).multiplyScalar(Lt).addScaledVector(q, 1 - Lt).normalize();
-    de = J.clone().lerp(C, Wi), W = oe.clone().addScaledVector(L, -H);
+    const C = i.clone().addScaledVector(ee, Xi * h), I = C.clone().sub(J), L = (I.lengthSq() > 1e-4 ? I.normalize() : q.clone()).multiplyScalar(Lt).addScaledVector(q, 1 - Lt).normalize();
+    de = J.clone().lerp(C, qi), W = oe.clone().addScaledVector(L, -H);
     const v = Math.min(
       1,
       Math.max(0, (C.z - J.z) / (800 * h))
     );
-    W.z -= v * Hi * h, W.z = Math.max(Bt * h, W.z);
+    W.z -= v * Zi * h, W.z = Math.max(Bt * h, W.z);
     const R = J.clone().sub(W), D = C.clone().sub(W);
     if (R.lengthSq() > 1e-4 && D.lengthSq() > 1e-4) {
       const V = R.angleTo(D);
       le = Math.min(
-        $i,
+        Qi,
         Math.max(le, c.MathUtils.radToDeg(V) * 1.7)
       );
     }
   }
-  S.lastIsBallCam !== null && S.lastIsBallCam !== a ? S.targetBlend = a ? 1 : 0 : (S.targetBlend = a ? 1 : 0, S.lastIsBallCam === null && (S.currentBlend = S.targetBlend)), S.lastIsBallCam = a;
-  const Te = U.transitionSpeed ?? 1.3, We = Math.max(
+  k.lastIsBallCam !== null && k.lastIsBallCam !== a ? k.targetBlend = a ? 1 : 0 : (k.targetBlend = a ? 1 : 0, k.lastIsBallCam === null && (k.currentBlend = k.targetBlend)), k.lastIsBallCam = a;
+  const Te = U.transitionSpeed ?? 1.3, je = Math.max(
     0.15,
-    Math.min(0.6, Ki / Te)
-  ), g = Math.max(0, m) / We;
-  S.currentBlend < S.targetBlend ? S.currentBlend = Math.min(
-    S.currentBlend + g,
-    S.targetBlend
-  ) : S.currentBlend > S.targetBlend && (S.currentBlend = Math.max(
-    S.currentBlend - g,
-    S.targetBlend
+    Math.min(0.6, Ji / Te)
+  ), g = Math.max(0, m) / je;
+  k.currentBlend < k.targetBlend ? k.currentBlend = Math.min(
+    k.currentBlend + g,
+    k.targetBlend
+  ) : k.currentBlend > k.targetBlend && (k.currentBlend = Math.max(
+    k.currentBlend - g,
+    k.targetBlend
   ));
-  const x = S.currentBlend * S.currentBlend * (3 - 2 * S.currentBlend);
-  o.lerpVectors(ce, W, x), l.lerpVectors(_e, de, x), p.camera.position.copy(o), p.camera.up.copy(re), T.target.copy(l), p.camera.fov = c.MathUtils.lerp(we, le, x), p.camera.updateProjectionMatrix(), p.camera.lookAt(T.target);
+  const M = k.currentBlend * k.currentBlend * (3 - 2 * k.currentBlend);
+  o.lerpVectors(ce, W, M), l.lerpVectors(_e, de, M), p.camera.position.copy(o), p.camera.up.copy(ee), T.target.copy(l), p.camera.fov = c.MathUtils.lerp(we, le, M), p.camera.updateProjectionMatrix(), p.camera.lookAt(T.target);
 }
-const ls = 2.25, In = 3.2, Be = "free";
-function ie(e) {
+const ms = 2.25, Ln = 3.2, Be = "free";
+function se(e) {
   return typeof e == "number" && Number.isFinite(e) ? e : void 0;
 }
 function it(e) {
   if (!e)
     return null;
-  const t = {}, n = ie(e.fov), a = ie(e.height), i = ie(e.pitch), s = ie(e.distance), r = ie(e.stiffness), o = ie(e.swivelSpeed), l = ie(e.transitionSpeed);
+  const t = {}, n = se(e.fov), a = se(e.height), i = se(e.pitch), s = se(e.distance), r = se(e.stiffness), o = se(e.swivelSpeed), l = se(e.transitionSpeed);
   return n !== void 0 && (t.fov = n), a !== void 0 && (t.height = a), i !== void 0 && (t.pitch = i), s !== void 0 && (t.distance = s), r !== void 0 && (t.stiffness = r), o !== void 0 && (t.swivelSpeed = o), l !== void 0 && (t.transitionSpeed = l), t;
 }
-function cs(e) {
+function ps(e) {
   const t = e.initialAttachedPlayerId ?? null;
   return {
     speed: Math.max(0.1, e.initialPlaybackRate ?? 1),
     cameraDistanceScale: Math.max(
       0.25,
-      e.initialCameraDistanceScale ?? ls
+      e.initialCameraDistanceScale ?? ms
     ),
     customCameraSettings: it(e.initialCustomCameraSettings),
     attachedPlayerId: t,
@@ -2738,16 +2774,16 @@ function cs(e) {
     skipKickoffsEnabled: e.initialSkipKickoffsEnabled ?? !1
   };
 }
-function ds(e, t, n, a) {
+function fs(e, t, n, a) {
   const i = ge(e, t), s = e.frames[i];
   if (!s || !pt(s, a))
     return null;
   const r = e.frames.find(
-    (o, l) => l > i && kn(o, n)
+    (o, l) => l > i && Rn(o, n)
   );
   return !r || r.time === t ? null : r.time;
 }
-function hs(e, t, n, a) {
+function bs(e, t, n, a) {
   const i = ge(e, t), s = e.frames[i];
   if (!s || !Oe(e, s, i, n, a))
     return null;
@@ -2768,7 +2804,7 @@ function hs(e, t, n, a) {
   const l = e.frames[o]?.time;
   return l === void 0 || l === t ? null : l;
 }
-function us({
+function gs({
   replay: e,
   sceneState: t,
   fieldScale: n,
@@ -2781,10 +2817,10 @@ function us({
     s?.linearVelocity ?? null,
     a.dt,
     a.alpha
-  ), o = r ? Cn(r, n) : null;
+  ), o = r ? Bn(r, n) : null;
   if (r) {
     t.ballMesh.visible = !0, t.ballMesh.position.copy(bt(r));
-    const l = Pn(
+    const l = Dn(
       i?.rotation ?? null,
       s?.rotation ?? null,
       a.alpha
@@ -2794,14 +2830,14 @@ function us({
     t.ballMesh.visible = !1;
   return { ballFrame: i, nextBallFrame: s, ballPosition: o };
 }
-function ms(e) {
+function ys(e) {
   return !!e?.position && e?.isPresent !== !1;
 }
-function Nt(e, t, n) {
+function Ht(e, t, n) {
   for (let a = e.length - 1; a >= 0; a -= 1) {
     const i = e[a], s = n - i.time;
     if (!(s < 0)) {
-      if (s > In)
+      if (s > Ln)
         break;
       if (i.kind === "demo" && i.secondaryPlayerId === t)
         return i;
@@ -2809,7 +2845,7 @@ function Nt(e, t, n) {
   }
   return null;
 }
-function Qe({
+function qe({
   indicator: e,
   fallbackPosition: t,
   demoEvent: n,
@@ -2825,13 +2861,13 @@ function Qe({
   }
   const r = Math.max(0, a - n.time), o = a * 8, l = 1 + 0.08 * Math.sin(o);
   e.group.visible = !0, e.group.position.copy(bt(s)), e.ring.rotation.z = o * 0.15, e.ring.scale.setScalar(l), e.label.quaternion.copy(i.quaternion), e.label.scale.setScalar(1 + 0.04 * Math.sin(o + 1.3));
-  const d = c.MathUtils.clamp(1 - r / In, 0.28, 1);
+  const d = c.MathUtils.clamp(1 - r / Ln, 0.28, 1);
   for (const h of [e.ring, e.label]) {
     const u = h.material;
     u instanceof c.Material && (u.opacity = d);
   }
 }
-function ps(e, t, n, a, i) {
+function ws(e, t, n, a, i) {
   if (!t) {
     e.visible = !1;
     return;
@@ -2840,8 +2876,8 @@ function ps(e, t, n, a, i) {
   const s = a * 36 + i * 1.7, r = 0.86 + 0.14 * Math.sin(s), o = c.MathUtils.clamp(0.62 + n * 0.88, 0.62, 1.5), l = o * (1.02 + r * 0.52), d = 1.02 + o * 0.28;
   e.scale.set(l, d, d);
   for (const [h, u] of e.children.entries()) {
-    const f = u, _ = 0.92 + 0.14 * Math.sin(s + h * 0.85);
-    f.scale.setScalar(_), f.traverse((y) => {
+    const f = u, w = 0.92 + 0.14 * Math.sin(s + h * 0.85);
+    f.scale.setScalar(w), f.traverse((y) => {
       if (!(y instanceof c.Mesh))
         return;
       const m = y.material;
@@ -2860,8 +2896,8 @@ function ps(e, t, n, a, i) {
     });
   }
 }
-const fs = 1;
-class bs extends EventTarget {
+const _s = 1;
+class Es extends EventTarget {
   container;
   replay;
   options;
@@ -2899,8 +2935,8 @@ class bs extends EventTarget {
   skipPostGoalTransitionsEnabled;
   skipKickoffsEnabled;
   constructor(t, n, a = {}) {
-    super(), this.container = t, this.replay = n, this.options = a, this.fieldScale = a.fieldScale ?? fs, this.sceneState = La(t, n, this.fieldScale), this.liveGameState = Ii(n), this.kickoffGameState = Ai(n, this.liveGameState);
-    const i = cs(a);
+    super(), this.container = t, this.replay = n, this.options = a, this.fieldScale = a.fieldScale ?? _s, this.sceneState = Ga(t, n, this.fieldScale), this.liveGameState = Li(n), this.kickoffGameState = Ni(n, this.liveGameState);
+    const i = ps(a);
     this.speed = i.speed, this.cameraDistanceScale = i.cameraDistanceScale, this.customCameraSettings = i.customCameraSettings, this.attachedPlayerId = i.attachedPlayerId, this.cameraViewMode = i.cameraViewMode, this.ballCamEnabled = i.ballCamEnabled, this.attachedCameraBlendState = {
       currentBlend: i.ballCamEnabled ? 1 : 0,
       targetBlend: i.ballCamEnabled ? 1 : 0,
@@ -2935,7 +2971,11 @@ class bs extends EventTarget {
     this.cameraViewMode = t, this.freeCameraTransition = null, this.render(), this.emitChange();
   }
   setFreeCameraPreset(t) {
-    const { fov: n, position: a, target: i, up: s } = as(t, this.fieldScale);
+    const { fov: n, position: a, target: i, up: s } = ls(
+      t,
+      this.fieldScale,
+      this.sceneState.camera.aspect
+    );
     this.cameraViewMode = Be, this.freeCameraTransition = {
       position: a,
       target: i,
@@ -2971,7 +3011,7 @@ class bs extends EventTarget {
     this.currentTime = this.clampReplayTime(t), this.playing && (this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded()), this.playing && this.reanchorPlaybackClock(), this.render(), this.emitChange();
   }
   setFrameIndex(t) {
-    const n = Ci(this.replay, t), a = this.replay.frames[n]?.time ?? 0, i = this.playing, s = this.currentTime !== a || i;
+    const n = Bi(this.replay, t), a = this.replay.frames[n]?.time ?? 0, i = this.playing, s = this.currentTime !== a || i;
     this.playing = !1, this.currentTime = a, this.render(), s && this.emitChange();
   }
   stepFrames(t) {
@@ -3029,14 +3069,14 @@ class bs extends EventTarget {
     return this.timelineSegmentsCacheKey === t ? this.timelineSegmentsCache : (this.timelineSegmentsCacheKey = t, this.timelineSegmentsCache = this.computeTimelineSegments(), this.timelineSegmentsCache);
   }
   projectReplayTimeToTimeline(t) {
-    return Bi(
+    return Vi(
       this.replay.duration,
       this.getTimelineSegments(),
       t
     );
   }
   projectTimelineTimeToReplay(t) {
-    return Li(
+    return Gi(
       this.replay.duration,
       this.getTimelineDuration(),
       this.getTimelineSegments(),
@@ -3047,7 +3087,7 @@ class bs extends EventTarget {
     return c.MathUtils.clamp(t, 0, this.replay.duration);
   }
   getPlaybackEndTime() {
-    return Ni(this.replay.duration, this.getTimelineSegments());
+    return Hi(this.replay.duration, this.getTimelineSegments());
   }
   subscribe(t) {
     const n = (a) => {
@@ -3101,7 +3141,7 @@ class bs extends EventTarget {
   }
   setHitboxVisualizationVisibility() {
     for (const t of this.sceneState.playerHitboxes.values())
-      t.visible = this.hitboxWireframesEnabled || this.hitboxOnlyModeEnabled, Pa(t, this.hitboxOnlyModeEnabled);
+      t.visible = this.hitboxWireframesEnabled || this.hitboxOnlyModeEnabled, Da(t, this.hitboxOnlyModeEnabled);
     for (const t of this.sceneState.playerBodyMeshes.values())
       t.visible = !this.hitboxOnlyModeEnabled;
     if (this.hitboxOnlyModeEnabled) {
@@ -3132,15 +3172,15 @@ class bs extends EventTarget {
     return this.lastCameraRenderAt = t, n === null ? 1 / 60 : Math.max(0, Math.min(0.1, (t - n) / 1e3));
   }
   render() {
-    const t = Fi(this.replay, this.currentTime), n = t.frameIndex, { ballFrame: a, nextBallFrame: i, ballPosition: s } = us({
+    const t = Wi(this.replay, this.currentTime), n = t.frameIndex, { ballFrame: a, nextBallFrame: i, ballPosition: s } = gs({
       replay: this.replay,
       sceneState: this.sceneState,
       fieldScale: this.fieldScale,
       frameWindow: t
     }), r = [];
     for (const [d, h] of this.replay.players.entries()) {
-      const u = this.sceneState.playerMeshes.get(h.id), f = this.sceneState.playerBoostTrails.get(h.id), _ = this.sceneState.playerBoostMeters.get(h.id), y = this.sceneState.playerDemoIndicators.get(h.id), m = h.frames[n] ?? null, b = h.frames[t.nextFrameIndex] ?? m;
-      let p = null, E = null, T = 0;
+      const u = this.sceneState.playerMeshes.get(h.id), f = this.sceneState.playerBoostTrails.get(h.id), w = this.sceneState.playerBoostMeters.get(h.id), y = this.sceneState.playerDemoIndicators.get(h.id), m = h.frames[n] ?? null, b = h.frames[t.nextFrameIndex] ?? m;
+      let p = null, _ = null, T = 0;
       if (!u) {
         y && (y.group.visible = !1), r.push({
           track: h,
@@ -3148,7 +3188,7 @@ class bs extends EventTarget {
           boostTrail: f ?? null,
           frame: m,
           nextFrame: b,
-          interpolatedPosition: E,
+          interpolatedPosition: _,
           boostFraction: T
         });
         continue;
@@ -3161,16 +3201,16 @@ class bs extends EventTarget {
         t.dt,
         t.alpha
       );
-      const S = Nt(
+      const k = Ht(
         this.replay.timelineEvents,
         h.id,
         this.currentTime
       );
       if (!p) {
-        u.visible = !1, f && (f.visible = !1), _ && (_.group.visible = !1), Qe({
+        u.visible = !1, f && (f.visible = !1), w && (w.group.visible = !1), qe({
           indicator: y ?? null,
           fallbackPosition: null,
-          demoEvent: S,
+          demoEvent: k,
           currentTime: this.currentTime,
           camera: this.sceneState.camera
         }), r.push({
@@ -3179,16 +3219,16 @@ class bs extends EventTarget {
           boostTrail: f ?? null,
           frame: m,
           nextFrame: b,
-          interpolatedPosition: E,
+          interpolatedPosition: _,
           boostFraction: T
         });
         continue;
       }
-      if (S) {
-        u.visible = !1, f && (f.visible = !1), _ && (_.group.visible = !1), Qe({
+      if (k) {
+        u.visible = !1, f && (f.visible = !1), w && (w.group.visible = !1), qe({
           indicator: y ?? null,
           fallbackPosition: p,
-          demoEvent: S,
+          demoEvent: k,
           currentTime: this.currentTime,
           camera: this.sceneState.camera
         }), r.push({
@@ -3197,13 +3237,13 @@ class bs extends EventTarget {
           boostTrail: f ?? null,
           frame: m,
           nextFrame: b,
-          interpolatedPosition: E,
+          interpolatedPosition: _,
           boostFraction: T
         });
         continue;
       }
-      if (!ms(m)) {
-        u.visible = !1, f && (f.visible = !1), _ && (_.group.visible = !1), Qe({
+      if (!ys(m)) {
+        u.visible = !1, f && (f.visible = !1), w && (w.group.visible = !1), qe({
           indicator: y ?? null,
           fallbackPosition: p,
           demoEvent: null,
@@ -3215,18 +3255,18 @@ class bs extends EventTarget {
           boostTrail: f ?? null,
           frame: m,
           nextFrame: b,
-          interpolatedPosition: E,
+          interpolatedPosition: _,
           boostFraction: T
         });
         continue;
       }
-      u.visible = !0, y && (y.group.visible = !1), E = p, u.position.copy(bt(p));
-      const w = Pn(
+      u.visible = !0, y && (y.group.visible = !1), _ = p, u.position.copy(bt(p));
+      const E = Dn(
         m?.rotation ?? null,
         b?.rotation ?? null,
         t.alpha
       );
-      w ? u.quaternion.copy(w) : u.quaternion.identity();
+      E ? u.quaternion.copy(E) : u.quaternion.identity();
       const A = m?.boostFraction ?? 0, B = b?.boostFraction ?? A;
       if (T = c.MathUtils.lerp(
         A,
@@ -3234,10 +3274,10 @@ class bs extends EventTarget {
         t.alpha
       ), f) {
         const N = (t.alpha >= 0.5 ? b?.boostActive : m?.boostActive) ?? m?.boostActive ?? b?.boostActive ?? !1;
-        this.hitboxOnlyModeEnabled ? f.visible = !1 : ps(f, N, T, this.currentTime, d);
+        this.hitboxOnlyModeEnabled ? f.visible = !1 : ws(f, N, T, this.currentTime, d);
       }
-      _ && (this.boostMeterEnabled && !this.hitboxOnlyModeEnabled ? (_.group.visible = !0, Oa(
-        _,
+      w && (this.boostMeterEnabled && !this.hitboxOnlyModeEnabled ? (w.group.visible = !0, za(
+        w,
         T,
         c.MathUtils.lerp(
           m?.boostAmount ?? 0,
@@ -3245,17 +3285,17 @@ class bs extends EventTarget {
           t.alpha
         ),
         this.sceneState.camera
-      )) : _.group.visible = !1), r.push({
+      )) : w.group.visible = !1), r.push({
         track: h,
         mesh: u,
         boostTrail: f ?? null,
         frame: m,
         nextFrame: b,
-        interpolatedPosition: E,
+        interpolatedPosition: _,
         boostFraction: T
       });
     }
-    os({
+    us({
       sceneState: this.sceneState,
       replay: this.replay,
       fieldScale: this.fieldScale,
@@ -3269,12 +3309,12 @@ class bs extends EventTarget {
       alpha: t.alpha,
       dt: t.dt,
       renderDelta: this.getCameraRenderDelta(),
-      attachedPlayerUnavailable: this.attachedPlayerId !== null && Nt(this.replay.timelineEvents, this.attachedPlayerId, this.currentTime) !== null,
+      attachedPlayerUnavailable: this.attachedPlayerId !== null && Ht(this.replay.timelineEvents, this.attachedPlayerId, this.currentTime) !== null,
       ballPosition: s,
       desiredCameraPosition: this.desiredCameraPosition,
       desiredLookTarget: this.desiredLookTarget,
       blendState: this.attachedCameraBlendState
-    }), this.cameraViewMode === "free" && this.freeCameraTransition && is({
+    }), this.cameraViewMode === "free" && this.freeCameraTransition && cs({
       sceneState: this.sceneState,
       ...this.freeCameraTransition
     }) && (this.freeCameraTransition = null), this.sceneState.controls.update(), this.sceneState.updateWallVisibility();
@@ -3300,7 +3340,7 @@ class bs extends EventTarget {
   skipPastKickoffIfNeeded(t) {
     if (!this.skipKickoffsEnabled)
       return !1;
-    const n = ds(
+    const n = fs(
       this.replay,
       this.currentTime,
       this.liveGameState,
@@ -3311,7 +3351,7 @@ class bs extends EventTarget {
   skipPostGoalTransitionIfNeeded(t) {
     if (!this.skipPostGoalTransitionsEnabled)
       return !1;
-    const n = hs(
+    const n = bs(
       this.replay,
       this.currentTime,
       this.liveGameState,
@@ -3320,10 +3360,10 @@ class bs extends EventTarget {
     return n === null ? !1 : (this.currentTime = n, this.playing && this.reanchorPlaybackClock(t), !0);
   }
   getActiveMetadata(t, n) {
-    return zi(this.replay, t, n);
+    return ji(this.replay, t, n);
   }
   computeTimelineSegments() {
-    return Di(
+    return Ui(
       this.replay,
       this.skipPostGoalTransitionsEnabled,
       this.skipKickoffsEnabled,
@@ -3375,36 +3415,36 @@ class bs extends EventTarget {
     this.dispatchEvent(new CustomEvent("change", { detail: t }));
   }
 }
-let Je = null;
-function Me(e) {
+let Qe = null;
+function xe(e) {
   if (e instanceof Map)
     return Object.fromEntries(
-      Array.from(e.entries()).map(([t, n]) => [t, Me(n)])
+      Array.from(e.entries()).map(([t, n]) => [t, xe(n)])
     );
   if (Array.isArray(e))
-    return e.map((t) => Me(t));
+    return e.map((t) => xe(t));
   if (e && typeof e == "object") {
     const t = {};
     for (const [n, a] of Object.entries(e))
-      t[n] = Me(a);
+      t[n] = xe(a);
     return t;
   }
   return e;
 }
-async function gs() {
-  if (!Je) {
+async function vs() {
+  if (!Qe) {
     const e = Le.default;
-    Je = typeof e == "function" ? e() : Promise.resolve();
+    Qe = typeof e == "function" ? e() : Promise.resolve();
   }
-  await Je;
+  await Qe;
 }
-function ys(e) {
+function Ms(e) {
   return e.useWorker !== void 0 ? e.useWorker && typeof Worker < "u" : typeof Worker < "u";
 }
-function ws(e) {
+function xs(e) {
   return e instanceof Error ? e : new Error(String(e));
 }
-function _s(e = 100) {
+function Ss(e = 100) {
   return typeof requestAnimationFrame != "function" ? Promise.resolve() : new Promise((t) => {
     let n = !1, a = null;
     const i = () => {
@@ -3413,7 +3453,7 @@ function _s(e = 100) {
     a = setTimeout(i, e), requestAnimationFrame(() => i());
   });
 }
-async function Es(e, t) {
+async function ks(e, t) {
   const n = new Worker(new URL(
     /* @vite-ignore */
     "" + new URL("assets/wasm.worker-CWYpp-S4.js", import.meta.url).href,
@@ -3437,7 +3477,7 @@ async function Es(e, t) {
       }
       r();
       try {
-        t.onProgress?.({ stage: "decoding-replay", progress: 0 }), await _s();
+        t.onProgress?.({ stage: "decoding-replay", progress: 0 }), await Ss();
         const h = new TextDecoder(), u = JSON.parse(
           h.decode(new Uint8Array(d.rawBuffer))
         );
@@ -3450,7 +3490,7 @@ async function Es(e, t) {
           replay: f
         });
       } catch (h) {
-        s(ws(h));
+        s(xs(h));
       }
     }, n.onerror = (l) => {
       r(), s(new Error(l.message || "Replay loading worker failed"));
@@ -3467,14 +3507,14 @@ async function Es(e, t) {
   });
 }
 async function gt(e, t = {}) {
-  if (ys(t))
-    return Es(e, t);
-  await gs(), t.onProgress?.({ stage: "validating", progress: 0 });
-  const n = vs(e);
+  if (Ms(t))
+    return ks(e, t);
+  await vs(), t.onProgress?.({ stage: "validating", progress: 0 });
+  const n = Ts(e);
   if (!n.valid)
     throw new Error(n.error ?? "Replay validation failed");
   t.onProgress?.({ stage: "processing", progress: 0 });
-  const a = Me(
+  const a = xe(
     t.onProgress ? Le.get_replay_frames_data_with_progress(
       e,
       (s) => {
@@ -3484,7 +3524,7 @@ async function gt(e, t = {}) {
     ) : Le.get_replay_frames_data(e)
   );
   t.onProgress?.({ stage: "normalizing", progress: 0 });
-  const i = await Pi(a, {
+  const i = await Di(a, {
     motionSmoothing: t.motionSmoothing,
     smoothingBlendFactor: t.smoothingBlendFactor,
     smoothingAnchorInterval: t.smoothingAnchorInterval,
@@ -3497,17 +3537,17 @@ async function gt(e, t = {}) {
     replay: i
   };
 }
-function vs(e) {
-  return Me(
+function Ts(e) {
+  return xe(
     Le.validate_replay(e)
   );
 }
-const xs = "https://ballchasing.com/api", An = "https://ballchasing.com", Ms = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function Rn(e, t) {
+const Ps = "https://ballchasing.com/api", Nn = "https://ballchasing.com", Cs = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function Fn(e, t) {
   const a = (t instanceof URL ? t.href : t).replace(/\/+$/, "");
   return new URL(`${a}/${e.replace(/^\/+/, "")}`);
 }
-function Ss(e) {
+function Is(e) {
   const t = new Headers(e.fetchInit?.headers);
   return {
     ...e.fetchInit,
@@ -3516,16 +3556,16 @@ function Ss(e) {
     signal: e.signal ?? e.fetchInit?.signal
   };
 }
-function ks(e, t) {
+function As(e, t) {
   const n = e.statusText ? ` ${e.statusText}` : "", a = e.status === 401 || e.status === 403 || e.status === 404 ? ". The replay may be private, unavailable, or not downloadable without a Ballchasing session" : "";
   return `Failed to fetch Ballchasing replay from ${t.href} (${e.status}${n})${a}`;
 }
-function zt(e) {
-  return Ms.test(e.trim());
+function jt(e) {
+  return Cs.test(e.trim());
 }
-function Ge(e) {
+function Ve(e) {
   const t = e.trim();
-  if (zt(t))
+  if (jt(t))
     return t.toLowerCase();
   let n;
   try {
@@ -3536,36 +3576,36 @@ function Ge(e) {
   if (!/(^|\.)ballchasing\.com$/i.test(n.hostname))
     throw new Error(`Invalid Ballchasing replay URL: ${e}`);
   const a = n.pathname.split("/").filter(Boolean), i = a.findIndex((o) => o === "replay"), s = a.findIndex((o) => o === "replays"), r = i >= 0 ? a[i + 1] : s >= 0 ? a[s + 1] : void 0;
-  if (!r || !zt(r))
+  if (!r || !jt(r))
     throw new Error(`Invalid Ballchasing replay URL: ${e}`);
   return r.toLowerCase();
 }
-function Yr(e) {
-  return `ballchasing-${Ge(e)}.replay`;
+function Jr(e) {
+  return `ballchasing-${Ve(e)}.replay`;
 }
-function Ts(e, t = An) {
-  const n = Ge(e);
-  return Rn(`dl/replay/${encodeURIComponent(n)}`, t);
+function Rs(e, t = Nn) {
+  const n = Ve(e);
+  return Fn(`dl/replay/${encodeURIComponent(n)}`, t);
 }
-function Zr(e, t = xs) {
-  const n = Ge(e);
-  return Rn(`replays/${encodeURIComponent(n)}/file`, t);
+function eo(e, t = Ps) {
+  const n = Ve(e);
+  return Fn(`replays/${encodeURIComponent(n)}/file`, t);
 }
-async function Ps(e, t = {}) {
-  const n = Ts(e, t.baseUrl ?? An), a = t.fetch ?? globalThis.fetch;
+async function Os(e, t = {}) {
+  const n = Rs(e, t.baseUrl ?? Nn), a = t.fetch ?? globalThis.fetch;
   if (!a)
     throw new Error("No fetch implementation is available");
-  const i = await a(n, Ss(t));
+  const i = await a(n, Is(t));
   if (!i.ok)
-    throw new Error(ks(i, n));
+    throw new Error(As(i, n));
   return new Uint8Array(await i.arrayBuffer());
 }
-function Xr(e, t = {}) {
-  const n = Ge(e);
+function to(e, t = {}) {
+  const n = Ve(e);
   return {
     id: `ballchasing:${n}`,
     async load(a) {
-      const i = await Ps(n, t);
+      const i = await Os(n, t);
       return gt(i, {
         useWorker: !0,
         onProgress(s) {
@@ -3580,12 +3620,12 @@ function Xr(e, t = {}) {
     }
   };
 }
-const Ft = "subtr-actor-ballchasing-overlay-styles", Cs = "#3b82f6", Is = "#f59e0b";
-function As() {
-  if (document.getElementById(Ft))
+const Wt = "subtr-actor-ballchasing-overlay-styles", Ds = "#3b82f6", Bs = "#f59e0b";
+function Ls() {
+  if (document.getElementById(Wt))
     return;
   const e = document.createElement("style");
-  e.id = Ft, e.textContent = `
+  e.id = Wt, e.textContent = `
     .sap-bc-overlay-root {
       position: absolute;
       inset: 0;
@@ -3710,14 +3750,14 @@ function As() {
       right: calc(50% + 2.7rem);
       flex-direction: row;
       justify-content: flex-end;
-      border-bottom: 2px solid ${Cs};
+      border-bottom: 2px solid ${Ds};
     }
 
     .sap-bc-team-hud-orange {
       left: calc(50% + 2.7rem);
       flex-direction: row;
       justify-content: flex-start;
-      border-bottom: 2px solid ${Is};
+      border-bottom: 2px solid ${Bs};
     }
 
     .sap-bc-hud-player {
@@ -3815,17 +3855,17 @@ function As() {
     }
   `, document.head.append(e);
 }
-function Rs(e, t) {
+function Ns(e, t) {
   const n = e.players[t], a = n.frame?.boostAmount ?? 0, i = n.nextFrame?.boostAmount ?? a;
   return c.MathUtils.lerp(a, i, e.alpha);
 }
-function Ut(e, t, n, a) {
+function $t(e, t, n, a) {
   if (!e || !t)
     return;
-  const i = Math.max(0, Math.min(100, Math.round(en(n))));
+  const i = Math.max(0, Math.min(100, Math.round(on(n))));
   e.style.width = `${i}%`, t.textContent = `${i} ${a}`;
 }
-function Vt(e, t, n, a) {
+function Kt(e, t, n, a) {
   if (!e)
     return;
   const i = () => {
@@ -3835,43 +3875,43 @@ function Vt(e, t, n, a) {
     s.key !== "Enter" && s.key !== " " || (s.preventDefault(), i());
   });
 }
-function Os(e, t, n, a, i) {
+function Fs(e, t, n, a, i) {
   if (e.getWorldPosition(i), i.add(t), i.project(n), i.z < -1 || i.z > 1)
     return !1;
   const s = a.clientWidth || 1, r = a.clientHeight || 1;
   return i.x = (i.x + 1) * s / 2, i.y = (1 - i.y) * r / 2, !(i.x < -80 || i.x > s + 80 || i.y < -80 || i.y > r + 80);
 }
-function qr(e = {}) {
+function no(e = {}) {
   const t = e.showFloatingNames ?? !0, n = e.showFloatingBoostBars ?? !0, a = e.showTeamBoostHud ?? !0;
   let i = null, s = null, r = null, o = null, l = !1, d = "";
   const h = /* @__PURE__ */ new Map(), u = new c.Vector3(), f = new c.Vector3(0, 0, 255);
-  function _(m) {
+  function w(m) {
     for (const [b, p] of h.entries()) {
-      const E = b === m;
-      p.floatingRoot?.classList.toggle("sap-bc-player-following", E), p.teamHudEntry?.classList.toggle("sap-bc-player-following", E), p.floatingRoot?.setAttribute("aria-pressed", E ? "true" : "false"), p.teamHudEntry?.setAttribute("aria-pressed", E ? "true" : "false");
+      const _ = b === m;
+      p.floatingRoot?.classList.toggle("sap-bc-player-following", _), p.teamHudEntry?.classList.toggle("sap-bc-player-following", _), p.floatingRoot?.setAttribute("aria-pressed", _ ? "true" : "false"), p.teamHudEntry?.setAttribute("aria-pressed", _ ? "true" : "false");
     }
   }
   function y(m, b) {
-    As(), getComputedStyle(b).position === "static" && (l = !0, d = b.style.position, b.style.position = "relative"), i = document.createElement("div"), i.className = "sap-bc-overlay-root", t || n ? (s = document.createElement("div"), s.className = "sap-bc-floating-layer", i.append(s)) : s = null, a ? (r = document.createElement("div"), r.className = "sap-bc-team-hud sap-bc-team-hud-blue", o = document.createElement("div"), o.className = "sap-bc-team-hud sap-bc-team-hud-orange", i.append(r, o)) : (r = null, o = null);
+    Ls(), getComputedStyle(b).position === "static" && (l = !0, d = b.style.position, b.style.position = "relative"), i = document.createElement("div"), i.className = "sap-bc-overlay-root", t || n ? (s = document.createElement("div"), s.className = "sap-bc-floating-layer", i.append(s)) : s = null, a ? (r = document.createElement("div"), r.className = "sap-bc-team-hud sap-bc-team-hud-blue", o = document.createElement("div"), o.className = "sap-bc-team-hud sap-bc-team-hud-orange", i.append(r, o)) : (r = null, o = null);
     for (const p of m.replay.players) {
-      let E = null, T = null, S = null, k = null;
-      s && (E = document.createElement("div"), E.className = "sap-bc-floating-track", E.hidden = !0, (t || n) && (T = document.createElement("div"), T.className = `sap-bc-boost-bar ${p.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, S = document.createElement("div"), S.className = `sap-bc-boost-fill ${p.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, k = document.createElement("span"), k.className = "sap-bc-boost-text", T.append(S, k), E.append(T)), Vt(E, m, p.id, p.name), s.append(E));
-      let w = null, A = null, B = null;
+      let _ = null, T = null, k = null, S = null;
+      s && (_ = document.createElement("div"), _.className = "sap-bc-floating-track", _.hidden = !0, (t || n) && (T = document.createElement("div"), T.className = `sap-bc-boost-bar ${p.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, k = document.createElement("div"), k.className = `sap-bc-boost-fill ${p.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, S = document.createElement("span"), S.className = "sap-bc-boost-text", T.append(k, S), _.append(T)), Kt(_, m, p.id, p.name), s.append(_));
+      let E = null, A = null, B = null;
       if (a) {
-        w = document.createElement("div"), w.className = "sap-bc-hud-player";
+        E = document.createElement("div"), E.className = "sap-bc-hud-player";
         const N = document.createElement("div");
-        N.className = `sap-bc-hud-boost-bar ${p.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, A = document.createElement("div"), A.className = `sap-bc-hud-boost-fill ${p.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, B = document.createElement("span"), B.className = "sap-bc-hud-boost-text", N.append(A, B), w.append(N), Vt(w, m, p.id, p.name), (p.isTeamZero ? r : o)?.append(w);
+        N.className = `sap-bc-hud-boost-bar ${p.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, A = document.createElement("div"), A.className = `sap-bc-hud-boost-fill ${p.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, B = document.createElement("span"), B.className = "sap-bc-hud-boost-text", N.append(A, B), E.append(N), Kt(E, m, p.id, p.name), (p.isTeamZero ? r : o)?.append(E);
       }
       h.set(p.id, {
-        floatingRoot: E,
-        floatingBoostFill: S,
-        floatingBoostText: k,
-        teamHudEntry: w,
+        floatingRoot: _,
+        floatingBoostFill: k,
+        floatingBoostText: S,
+        teamHudEntry: E,
         teamHudFill: A,
         teamHudText: B
       });
     }
-    f.set(0, 0, 255 * (m.options.fieldScale ?? 1)), b.append(i), _(m.player.getState().attachedPlayerId);
+    f.set(0, 0, 255 * (m.options.fieldScale ?? 1)), b.append(i), w(m.player.getState().attachedPlayerId);
   }
   return {
     id: "ballchasing-overlay",
@@ -3879,7 +3919,7 @@ function qr(e = {}) {
       y(m, m.container);
     },
     onStateChange(m) {
-      _(m.state.attachedPlayerId);
+      w(m.state.attachedPlayerId);
     },
     teardown(m) {
       i?.remove(), i = null, s = null, r = null, o = null, h.clear(), l && (m.container.style.position = d, l = !1);
@@ -3887,64 +3927,64 @@ function qr(e = {}) {
     beforeRender(m) {
       if (i)
         for (const [b, p] of m.players.entries()) {
-          const E = h.get(p.track.id);
-          if (!E)
+          const _ = h.get(p.track.id);
+          if (!_)
             continue;
-          const T = Rs(m, b);
-          Ut(
-            E.floatingBoostFill,
-            E.floatingBoostText,
+          const T = Ns(m, b);
+          $t(
+            _.floatingBoostFill,
+            _.floatingBoostText,
             T,
             p.track.name
-          ), Ut(E.teamHudFill, E.teamHudText, T, p.track.name);
-          const S = p.mesh, k = S !== null && p.interpolatedPosition !== null;
-          if (E.teamHudEntry?.classList.toggle("sap-bc-hud-player-inactive", !k), !!E.floatingRoot) {
-            if (!k || !Os(
-              S,
+          ), $t(_.teamHudFill, _.teamHudText, T, p.track.name);
+          const k = p.mesh, S = k !== null && p.interpolatedPosition !== null;
+          if (_.teamHudEntry?.classList.toggle("sap-bc-hud-player-inactive", !S), !!_.floatingRoot) {
+            if (!S || !Fs(
+              k,
               f,
               m.scene.camera,
               m.container,
               u
             )) {
-              E.floatingRoot.hidden = !0;
+              _.floatingRoot.hidden = !0;
               continue;
             }
-            E.floatingRoot.hidden = !1, E.floatingRoot.style.transform = `translate(${u.x.toFixed(1)}px, ${u.y.toFixed(1)}px) translate(-50%, -100%)`;
+            _.floatingRoot.hidden = !1, _.floatingRoot.style.transform = `translate(${u.x.toFixed(1)}px, ${u.y.toFixed(1)}px) translate(-50%, -100%)`;
           }
         }
     }
   };
 }
-function et(e) {
+function Je(e) {
   e.depthTest = !1, e.depthWrite = !1, e.transparent = !0, e.polygonOffset = !0, e.polygonOffsetFactor = -2, e.polygonOffsetUnits = -2, e.forceSinglePass = !0;
 }
-const be = 6, Ds = 0.6;
+const be = 6, zs = 0.6;
 function ke(e) {
-  return e * Ds;
+  return e * zs;
 }
-function Bs(e) {
+function Us(e) {
   return ke(e.size === "big" ? 150 : 92);
 }
-function On(e) {
+function zn(e) {
   return ke(e.size === "big" ? 155 : 46);
 }
-function Ls(e) {
+function Vs(e) {
   return ke(e.size === "big" ? 34 : 14);
 }
-function Dn(e) {
-  return be + Ls(e) + On(e);
+function Un(e) {
+  return be + Vs(e) + zn(e);
 }
-function Bn(e) {
-  return e.size === "big" ? Dn(e) : be + ke(1.2);
+function Vn(e) {
+  return e.size === "big" ? Un(e) : be + ke(1.2);
 }
-function Ln(e) {
-  return e.size === "big" ? Dn(e) : be + ke(0.8);
+function Gn(e) {
+  return e.size === "big" ? Un(e) : be + ke(0.8);
 }
-function Ns(e) {
+function Gs(e) {
   return e.size === "big" ? 16096779 : 16436245;
 }
-function zs(e) {
-  const t = Bs(e), n = Ns(e), a = On(e), i = e.size === "big", s = new c.Group();
+function Hs(e) {
+  const t = Us(e), n = Gs(e), a = zn(e), i = e.size === "big", s = new c.Group();
   s.position.set(e.position.x, e.position.y, e.position.z), s.renderOrder = 20, s.frustumCulled = !1;
   const r = new c.Mesh(
     new c.RingGeometry(t * 0.72, t, 24),
@@ -3956,7 +3996,7 @@ function zs(e) {
       depthWrite: !1
     })
   );
-  et(r.material), r.position.z = be, r.renderOrder = 20, r.frustumCulled = !1, s.add(r);
+  Je(r.material), r.position.z = be, r.renderOrder = 20, r.frustumCulled = !1, s.add(r);
   const o = new c.Mesh(
     new c.CircleGeometry(t * 0.58, 24),
     new c.MeshBasicMaterial({
@@ -3967,7 +4007,7 @@ function zs(e) {
       depthWrite: !1
     })
   );
-  et(o.material), o.position.z = be + 0.5, o.renderOrder = 21, o.frustumCulled = !1, s.add(o);
+  Je(o.material), o.position.z = be + 0.5, o.renderOrder = 21, o.frustumCulled = !1, s.add(o);
   const l = new c.Mesh(
     new c.CircleGeometry(t * 0.42, 20),
     new c.MeshBasicMaterial({
@@ -3978,7 +4018,7 @@ function zs(e) {
       depthWrite: !1
     })
   );
-  et(l.material), l.position.z = be + 1, l.renderOrder = 22, l.frustumCulled = !1, s.add(l);
+  Je(l.material), l.position.z = be + 1, l.renderOrder = 22, l.frustumCulled = !1, s.add(l);
   const d = new c.Mesh(
     i ? new c.SphereGeometry(a, 32, 18) : new c.CircleGeometry(a * 0.9, 24),
     i ? new c.MeshPhongMaterial({
@@ -3999,7 +4039,7 @@ function zs(e) {
       depthWrite: !1
     })
   );
-  d.position.z = Bn(e), d.renderOrder = 23, d.frustumCulled = !1, s.add(d);
+  d.position.z = Vn(e), d.renderOrder = 23, d.frustumCulled = !1, s.add(d);
   const h = new c.Mesh(
     i ? new c.SphereGeometry(a * 1.36, 32, 14) : new c.CircleGeometry(a * 1.35, 28),
     new c.MeshBasicMaterial({
@@ -4011,9 +4051,9 @@ function zs(e) {
       depthWrite: !1
     })
   );
-  return h.position.z = Ln(e), h.renderOrder = 24, h.frustumCulled = !1, s.add(h), { group: s, ring: r, core: o, cooldown: l, orb: d, glow: h };
+  return h.position.z = Gn(e), h.renderOrder = 24, h.frustumCulled = !1, s.add(h), { group: s, ring: r, core: o, cooldown: l, orb: d, glow: h };
 }
-function Fs(e, t) {
+function js(e, t) {
   let n = -1;
   for (let s = 0; s < e.events.length && !(e.events[s].time > t); s += 1)
     n = s;
@@ -4032,8 +4072,8 @@ function Fs(e, t) {
     )
   };
 }
-function Us(e, t, n, a) {
-  const { available: i, progress: s } = Fs(t, n), r = t.size === "big", o = 0.92 + 0.08 * Math.sin(n * 6 + t.index * 0.45), l = 0.96 + 0.04 * Math.sin(n * (r ? 4.8 : 7.2) + t.index * 0.37), d = r ? Math.sin(n * 2.2 + t.index * 0.61) * 18 : 0, h = Bn(t) + d, u = Ln(t) + d;
+function Ws(e, t, n, a) {
+  const { available: i, progress: s } = js(t, n), r = t.size === "big", o = 0.92 + 0.08 * Math.sin(n * 6 + t.index * 0.45), l = 0.96 + 0.04 * Math.sin(n * (r ? 4.8 : 7.2) + t.index * 0.37), d = r ? Math.sin(n * 2.2 + t.index * 0.61) * 18 : 0, h = Vn(t) + d, u = Gn(t) + d;
   if (e.orb.position.z = h, e.glow.position.z = u, e.orb.rotation.z = n * (r ? 0.9 : 1.25), e.glow.rotation.z = -n * 0.45, i) {
     e.group.visible = !0, e.ring.material.opacity = 0.95, e.core.material.opacity = r ? 0.56 : 0.5, e.cooldown.visible = !1, e.ring.scale.setScalar(o), e.core.scale.setScalar(1), e.orb.visible = !0, e.glow.visible = !0, e.orb.material.opacity = r ? 0.96 : 0.9, e.glow.material.opacity = (r ? 0.2 : 0.16) + (l - 0.96), e.orb.scale.setScalar(l), e.glow.scale.setScalar(r ? 1.02 + (l - 0.96) * 2 : 1);
     return;
@@ -4043,14 +4083,14 @@ function Us(e, t, n, a) {
     e.cooldown.scale.setScalar(f), e.cooldown.material.opacity = 0.16 + s * 0.2;
   }
 }
-function Qr(e = {}) {
+function ao(e = {}) {
   const t = e.showCooldownProgress ?? !0;
   let n = null;
   const a = /* @__PURE__ */ new Map();
   function i(r) {
     n = new c.Group(), n.name = "boost-pad-overlay", n.renderOrder = 20, n.frustumCulled = !1;
     for (const o of r.replay.boostPads) {
-      const l = zs(o);
+      const l = Hs(o);
       n.add(l.group), a.set(o.index, l);
     }
     r.scene.replayRoot.add(n);
@@ -4058,7 +4098,7 @@ function Qr(e = {}) {
   function s(r) {
     for (const o of r.replay.boostPads) {
       const l = a.get(o.index);
-      l && Us(l, o, r.state.currentTime, t);
+      l && Ws(l, o, r.state.currentTime, t);
     }
   }
   return {
@@ -4077,16 +4117,16 @@ function Qr(e = {}) {
     }
   };
 }
-const Vs = 1.35, Gs = "#57a8ff", Hs = "#ff9c40", js = 256, Ws = 160, $s = 360, Ks = 225, Ys = 260, Zs = 430, Nn = 18, Gt = 120;
-function Xs(e) {
-  return e ? Gs : Hs;
+const $s = 1.35, Ks = "#57a8ff", Ys = "#ff9c40", Zs = 256, Xs = 160, qs = 360, Qs = 225, Js = 260, er = 430, Hn = 18, Yt = 120;
+function tr(e) {
+  return e ? Ks : Ys;
 }
-function qs(e) {
+function nr(e) {
   return e.events.filter((t) => !t.available && t.playerId);
 }
-function zn(e, t) {
+function jn(e, t) {
   const n = document.createElement("canvas");
-  n.width = js, n.height = Ws;
+  n.width = Zs, n.height = Xs;
   const a = n.getContext("2d");
   if (!a)
     throw new Error("Unable to create boost pickup count canvas");
@@ -4094,19 +4134,19 @@ function zn(e, t) {
   const i = new c.CanvasTexture(n);
   return i.colorSpace = c.SRGBColorSpace, i.needsUpdate = !0, i;
 }
-function Qs(e) {
+function ar(e) {
   e?.dispose();
 }
-function Js(e) {
+function ir(e) {
   const t = new c.Group();
   t.visible = !1, t.renderOrder = 60, t.frustumCulled = !1;
-  const n = zn(1, e), a = new c.SpriteMaterial({
+  const n = jn(1, e), a = new c.SpriteMaterial({
     map: n,
     transparent: !0,
     depthTest: !1,
     depthWrite: !1
   }), i = new c.Sprite(a);
-  i.scale.set($s, Ks, 1), i.renderOrder = 62, i.frustumCulled = !1, t.add(i);
+  i.scale.set(qs, Qs, 1), i.renderOrder = 62, i.frustumCulled = !1, t.add(i);
   const s = new c.MeshBasicMaterial({
     color: e,
     transparent: !0,
@@ -4116,21 +4156,21 @@ function Js(e) {
     depthWrite: !1,
     blending: c.AdditiveBlending
   }), r = new c.Mesh(
-    new c.RingGeometry(Gt * 0.72, Gt, 36),
+    new c.RingGeometry(Yt * 0.72, Yt, 36),
     s
   );
-  return r.position.z = Nn, r.renderOrder = 61, r.frustumCulled = !1, t.add(r), { group: t, textMaterial: a, ringMaterial: s };
+  return r.position.z = Hn, r.renderOrder = 61, r.frustumCulled = !1, t.add(r), { group: t, textMaterial: a, ringMaterial: s };
 }
-function er(e, t) {
-  e.currentCount !== t && (Qs(e.textMaterial.map), e.textMaterial.map = zn(t, e.color), e.textMaterial.needsUpdate = !0, e.currentCount = t);
+function sr(e, t) {
+  e.currentCount !== t && (ar(e.textMaterial.map), e.textMaterial.map = jn(t, e.color), e.textMaterial.needsUpdate = !0, e.currentCount = t);
 }
-function tr(e) {
+function rr(e) {
   const t = /* @__PURE__ */ new Map();
   for (const i of e.replay.players)
     t.set(i.id, i);
   const n = [];
   for (const i of e.replay.boostPads)
-    for (const s of qs(i))
+    for (const s of nr(i))
       n.push({ pad: i, event: s });
   n.sort((i, s) => i.event.time !== s.event.time ? i.event.time - s.event.time : i.event.frame !== s.event.frame ? i.event.frame - s.event.frame : i.pad.index - s.pad.index);
   const a = [];
@@ -4140,7 +4180,7 @@ function tr(e) {
     const r = t.get(s.playerId);
     if (!r)
       continue;
-    const o = Xs(r.isTeamZero), { group: l, textMaterial: d, ringMaterial: h } = Js(o);
+    const o = tr(r.isTeamZero), { group: l, textMaterial: d, ringMaterial: h } = ir(o);
     l.position.copy(i.position), e.scene.replayRoot.add(l), a.push({
       time: s.time,
       pad: i,
@@ -4157,8 +4197,8 @@ function tr(e) {
   }
   return a;
 }
-function nr(e, t, n) {
-  const a = c.MathUtils.clamp(t / n, 0, 1), i = 1 - Math.pow(1 - a, 3), s = a * a, r = e.size === "big" ? Zs : Ys, o = e.size === "big" ? 360 : 280, l = 1 + Math.sin(a * Math.PI) * 0.22;
+function or(e, t, n) {
+  const a = c.MathUtils.clamp(t / n, 0, 1), i = 1 - Math.pow(1 - a, 3), s = a * a, r = e.size === "big" ? er : Js, o = e.size === "big" ? 360 : 280, l = 1 + Math.sin(a * Math.PI) * 0.22;
   e.group.visible = !0, e.group.position.set(
     e.position.x,
     e.position.y,
@@ -4167,11 +4207,11 @@ function nr(e, t, n) {
   const d = e.group.children[1];
   if (d) {
     const h = 0.75 + i * (e.size === "big" ? 2.8 : 1.85);
-    d.scale.setScalar(h), d.position.z = Nn - r - i * o;
+    d.scale.setScalar(h), d.position.z = Hn - r - i * o;
   }
 }
-function Jr(e = {}) {
-  const t = Math.max(0.1, e.durationSeconds ?? Vs);
+function io(e = {}) {
+  const t = Math.max(0.1, e.durationSeconds ?? $s);
   let n = [];
   function a(s) {
     return e.includePickup?.({
@@ -4187,7 +4227,7 @@ function Jr(e = {}) {
   return {
     id: "boost-pickup-animation",
     setup(s) {
-      n = tr(s);
+      n = rr(s);
     },
     beforeRender(s) {
       if (!s.state.boostPickupAnimationEnabled) {
@@ -4209,7 +4249,7 @@ function Jr(e = {}) {
           l.group.visible = !1;
           continue;
         }
-        er(l, d), nr(l, s.currentTime - l.time, t);
+        sr(l, d), or(l, s.currentTime - l.time, t);
       }
     },
     teardown() {
@@ -4221,20 +4261,20 @@ function Jr(e = {}) {
     }
   };
 }
-const ar = 60, ir = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
-function sr(e) {
+const lr = 60, cr = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+function dr(e) {
   if (e && MediaRecorder.isTypeSupported(e))
     return e;
-  for (const t of ir)
+  for (const t of cr)
     if (MediaRecorder.isTypeSupported(t))
       return t;
   return "";
 }
-function rr(e) {
+function hr(e) {
   return e instanceof Error ? e.message : String(e);
 }
-function eo(e = {}) {
-  let t = null, n = null, a = [], i = null, s = 0, r = 0, o = "", l = 0, d = null, h = null, u = null, f = null, _ = !1, y = null;
+function so(e = {}) {
+  let t = null, n = null, a = [], i = null, s = 0, r = 0, o = "", l = 0, d = null, h = null, u = null, f = null, w = !1, y = null;
   const m = /* @__PURE__ */ new Set();
   function b() {
     return {
@@ -4246,42 +4286,42 @@ function eo(e = {}) {
     };
   }
   function p() {
-    const w = b();
-    e.onStatusChange?.(w);
+    const E = b();
+    e.onStatusChange?.(E);
     for (const A of m)
-      A(w);
+      A(E);
   }
-  function E() {
+  function _() {
     if (!t)
       throw new Error("Canvas recorder plugin is not installed");
     return t;
   }
-  function T(w) {
-    n = null, f = null, _ = !1, i = w, l = w?.size ?? 0, y && t && t.player.setState({
+  function T(E) {
+    n = null, f = null, w = !1, i = E, l = E?.size ?? 0, y && t && t.player.setState({
       currentTime: y.currentTime,
       speed: y.speed,
       playing: y.playing
-    }), y = null, w && e.onComplete?.(w), p(), u?.(w), u = null, h = null;
+    }), y = null, E && e.onComplete?.(E), p(), u?.(E), u = null, h = null;
   }
-  function S(w) {
-    d = rr(w), n = null, f = null, _ = !1, y = null, p(), u?.(null), u = null, h = null;
+  function k(E) {
+    d = hr(E), n = null, f = null, w = !1, y = null, p(), u?.(null), u = null, h = null;
   }
-  const k = {
+  const S = {
     id: "canvas-recorder",
-    setup(w) {
-      t = w;
+    setup(E) {
+      t = E;
     },
-    beforeRender(w) {
-      n?.state === "recording" && (r = (performance.now() - s) / 1e3, p()), n?.state === "recording" && f !== null && w.currentTime >= f && k.stop();
+    beforeRender(E) {
+      n?.state === "recording" && (r = (performance.now() - s) / 1e3, p()), n?.state === "recording" && f !== null && E.currentTime >= f && S.stop();
     },
-    onStateChange(w) {
-      _ && n?.state === "recording" && !w.state.playing && r > 0 && k.stop();
+    onStateChange(E) {
+      w && n?.state === "recording" && !E.state.playing && r > 0 && S.stop();
     },
     teardown() {
-      n?.state === "recording" && n.stop(), t = null, n = null, f = null, _ = !1, y = null, u?.(null), u = null, h = null, m.clear();
+      n?.state === "recording" && n.stop(), t = null, n = null, f = null, w = !1, y = null, u?.(null), u = null, h = null, m.clear();
     },
-    start(w = {}) {
-      const A = E();
+    start(E = {}) {
+      const A = _();
       if (n?.state === "recording")
         throw new Error("Canvas recording is already in progress");
       if (typeof MediaRecorder > "u")
@@ -4289,11 +4329,11 @@ function eo(e = {}) {
       const B = A.scene.renderer.domElement;
       if (!B.captureStream)
         throw new Error("Canvas captureStream is not available in this browser");
-      d = null, i = null, a = [], l = 0, r = 0, s = performance.now(), o = sr(w.mimeType ?? e.mimeType);
-      const N = Math.max(1, w.fps ?? e.fps ?? ar), M = B.captureStream(N);
-      n = new MediaRecorder(M, {
+      d = null, i = null, a = [], l = 0, r = 0, s = performance.now(), o = dr(E.mimeType ?? e.mimeType);
+      const N = Math.max(1, E.fps ?? e.fps ?? lr), x = B.captureStream(N);
+      n = new MediaRecorder(x, {
         mimeType: o,
-        videoBitsPerSecond: w.videoBitsPerSecond ?? e.videoBitsPerSecond
+        videoBitsPerSecond: E.videoBitsPerSecond ?? e.videoBitsPerSecond
       }), h = new Promise((P) => {
         u = P;
       }), n.addEventListener("dataavailable", (P) => {
@@ -4301,13 +4341,13 @@ function eo(e = {}) {
       }), n.addEventListener(
         "stop",
         () => {
-          M.getTracks().forEach((P) => P.stop()), T(new Blob(a, { type: o || "video/webm" }));
+          x.getTracks().forEach((P) => P.stop()), T(new Blob(a, { type: o || "video/webm" }));
         },
         { once: !0 }
       ), n.addEventListener(
         "error",
         (P) => {
-          M.getTracks().forEach((z) => z.stop()), S(P.error ?? P);
+          x.getTracks().forEach((F) => F.stop()), k(P.error ?? P);
         },
         { once: !0 }
       ), n.start(1e3), p();
@@ -4317,10 +4357,10 @@ function eo(e = {}) {
         return Promise.resolve(i);
       if (n.state === "inactive")
         return h ?? Promise.resolve(i);
-      const w = h ?? new Promise((A) => {
+      const E = h ?? new Promise((A) => {
         u = A;
       });
-      return n.stop(), p(), w;
+      return n.stop(), p(), E;
     },
     clear() {
       if (n?.state === "recording")
@@ -4333,43 +4373,43 @@ function eo(e = {}) {
     getStatus() {
       return b();
     },
-    subscribe(w) {
-      return m.add(w), w(b()), () => {
-        m.delete(w);
+    subscribe(E) {
+      return m.add(E), E(b()), () => {
+        m.delete(E);
       };
     },
-    recordRange(w = {}) {
-      const A = E(), B = A.player.getState();
-      (w.restorePlaybackState ?? !0) && (y = B);
-      const N = w.playbackRate ?? B.speed, M = w.startTime ?? B.currentTime;
-      f = w.endTime ?? B.duration, _ = !0, A.player.setState({
-        currentTime: M,
+    recordRange(E = {}) {
+      const A = _(), B = A.player.getState();
+      (E.restorePlaybackState ?? !0) && (y = B);
+      const N = E.playbackRate ?? B.speed, x = E.startTime ?? B.currentTime;
+      f = E.endTime ?? B.duration, w = !0, A.player.setState({
+        currentTime: x,
         speed: N,
         playing: !1
-      }), k.start(w);
+      }), S.start(E);
       const P = h;
-      return A.player.play(), (P ?? Promise.resolve(null)).then((z) => {
-        if (!z)
+      return A.player.play(), (P ?? Promise.resolve(null)).then((F) => {
+        if (!F)
           throw new Error("Recording stopped without producing a video");
-        return z;
+        return F;
       });
     },
-    recordFullReplay(w = {}) {
-      return k.recordRange({
-        ...w,
-        startTime: w.startTime ?? 0,
-        endTime: w.endTime ?? E().replay.duration
+    recordFullReplay(E = {}) {
+      return S.recordRange({
+        ...E,
+        startTime: E.startTime ?? 0,
+        endTime: E.endTime ?? _().replay.duration
       });
     }
   };
-  return k;
+  return S;
 }
-const Ht = "subtr-actor-timeline-overlay-styles";
-function or() {
-  if (document.getElementById(Ht))
+const Zt = "subtr-actor-timeline-overlay-styles";
+function ur() {
+  if (document.getElementById(Zt))
     return;
   const e = document.createElement("style");
-  e.id = Ht, e.textContent = `
+  e.id = Zt, e.textContent = `
     .sap-tl-root {
       position: absolute;
       inset: 0;
@@ -4844,14 +4884,14 @@ function or() {
     }
   `, document.head.append(e);
 }
-const lr = /* @__PURE__ */ new Set(["goal", "save", "bookmark"]), cr = 0.2, tt = 60, dr = 2, hr = 4, ur = 0.01, jt = 0.01;
+const mr = /* @__PURE__ */ new Set(["goal", "save", "bookmark"]), pr = 0.2, et = 60, fr = 2, br = 4, gr = 0.01, Xt = 0.01;
 function st(e) {
   if (!Number.isFinite(e))
     return "--:--.--";
   const t = Math.max(0, e), n = Math.floor(t / 60), a = Math.floor(t % 60), i = Math.floor((t - Math.floor(t)) * 100);
   return `${n}:${String(a).padStart(2, "0")}.${String(i).padStart(2, "0")}`;
 }
-function Wt(e) {
+function qt(e) {
   switch (e.kind) {
     case "goal":
       return 5;
@@ -4868,20 +4908,20 @@ function Wt(e) {
       return 0;
   }
 }
-function mr(e) {
+function yr(e) {
   switch (e.kind) {
     case "goal":
     case "goal-context":
     case "goal-tag":
-      return hr;
+      return br;
     default:
-      return dr;
+      return fr;
   }
 }
-function pr(e) {
-  return e.seekTime !== void 0 && Number.isFinite(e.seekTime) ? Math.max(0, e.seekTime) : Number.isFinite(e.time) ? Math.max(0, e.time - mr(e)) : 0;
+function wr(e) {
+  return e.seekTime !== void 0 && Number.isFinite(e.seekTime) ? Math.max(0, e.seekTime) : Number.isFinite(e.time) ? Math.max(0, e.time - yr(e)) : 0;
 }
-function fr(e) {
+function _r(e) {
   if (e.color)
     return e.color;
   if (e.isTeamZero === !0)
@@ -4905,7 +4945,7 @@ function fr(e) {
       return "#d1d9e0";
   }
 }
-function br(e) {
+function Er(e) {
   if (e.events.length > 1)
     return `${e.events.length}`;
   const t = e.events[0];
@@ -4913,15 +4953,15 @@ function br(e) {
 }
 function rt(e) {
   return [...e].sort((t, n) => {
-    const a = Wt(n) - Wt(t);
+    const a = qt(n) - qt(t);
     return a !== 0 ? a : t.time - n.time;
   });
 }
-function gr(e) {
+function vr(e) {
   return e.events.map((t) => `${st(t.time)} ${t.label ?? t.kind}`).join(`
 `);
 }
-function Fn(e) {
+function Wn(e) {
   const t = /* @__PURE__ */ new Map();
   for (const n of e) {
     const a = n.frame !== void 0 ? `frame:${n.frame}` : `time:${n.time.toFixed(2)}`, i = t.get(a);
@@ -4940,8 +4980,8 @@ function Fn(e) {
     events: rt(n.events)
   })).sort((n, a) => n.time - a.time);
 }
-function $t(e) {
-  if (e.length <= tt)
+function Qt(e) {
+  if (e.length <= et)
     return e;
   const t = e[0]?.time ?? 0, a = (e[e.length - 1]?.time ?? t) - t;
   if (a <= 0)
@@ -4952,10 +4992,10 @@ function $t(e) {
         events: rt(e.flatMap((r) => r.events))
       }
     ];
-  const i = a / tt, s = /* @__PURE__ */ new Map();
+  const i = a / et, s = /* @__PURE__ */ new Map();
   for (const r of e) {
     const o = Math.min(
-      tt - 1,
+      et - 1,
       Math.max(0, Math.floor((r.time - t) / i))
     ), l = s.get(o);
     if (l) {
@@ -4973,28 +5013,28 @@ function $t(e) {
     events: rt(r.events)
   })).sort((r, o) => r.time - o.time);
 }
-function Un(e, t) {
+function $n(e, t) {
   return e ? typeof e == "function" ? e(t) : e : [];
 }
-function yr(e, t) {
+function Mr(e, t) {
   const n = [];
   for (const a of e) {
-    const i = Un(a.source, t);
+    const i = $n(a.source, t);
     i.length !== 0 && n.push({
       key: a.key,
       label: a.label,
-      buckets: Fn(i)
+      buckets: Wn(i)
     });
   }
   return n;
 }
-function wr(e, t) {
+function xr(e, t) {
   return e ? typeof e == "function" ? e(t) : e : [];
 }
-function _r(e, t) {
+function Sr(e, t) {
   const n = /* @__PURE__ */ new Set(), a = [];
   for (const i of e)
-    for (const s of wr(i, t)) {
+    for (const s of xr(i, t)) {
       const r = s.id;
       if (r !== void 0) {
         if (n.has(r))
@@ -5005,7 +5045,7 @@ function _r(e, t) {
     }
   return a;
 }
-function Er(e) {
+function kr(e) {
   const t = /* @__PURE__ */ new Map();
   for (const n of e) {
     const a = n.lane ?? "default", i = n.laneLabel ?? n.lane ?? "", s = t.get(a);
@@ -5024,38 +5064,38 @@ function Er(e) {
     ranges: [...n.ranges].sort((a, i) => a.startTime - i.startTime)
   }));
 }
-function vr(e) {
+function Tr(e) {
   return e.color ? e.color : e.isTeamZero === !0 ? "#3b82f6" : e.isTeamZero === !1 ? "#f59e0b" : "#d1d9e0";
 }
-function xr(e, t) {
+function Pr(e, t) {
   if (e.replayEvents)
-    return Un(e.replayEvents, t);
+    return $n(e.replayEvents, t);
   if (e.includeReplayEvents === !1)
     return [];
-  const n = new Set(e.replayEventKinds ?? lr);
+  const n = new Set(e.replayEventKinds ?? mr);
   return t.replay.timelineEvents.filter((a) => n.has(a.kind));
 }
-function Mr(e, t) {
-  const n = t.player.projectReplayTimeToTimeline(pr(e));
+function Cr(e, t) {
+  const n = t.player.projectReplayTimeToTimeline(wr(e));
   if (!n.hiddenBySkip)
     return n.seekTime;
   const a = Math.min(
     t.player.getTimelineDuration(),
-    n.timelineTime + ur
+    n.timelineTime + gr
   );
   return t.player.projectTimelineTimeToReplay(a);
 }
 function Ie(e, t) {
   return `${e / Math.max(t, 1e-4) * 100}%`;
 }
-function Sr(e, t, n) {
+function Ir(e, t, n) {
   let a = e.timelineTime, i = t.timelineTime;
-  return i <= a && (e.hiddenBySkip || t.hiddenBySkip) && (a >= n ? (a = Math.max(0, n - jt), i = n) : i = Math.min(
+  return i <= a && (e.hiddenBySkip || t.hiddenBySkip) && (a >= n ? (a = Math.max(0, n - Xt), i = n) : i = Math.min(
     n,
-    a + jt
+    a + Xt
   )), { startTimelineTime: a, endTimelineTime: i };
 }
-function to(e = {}) {
+function ro(e = {}) {
   const t = e.pauseWhileScrubbing ?? !0;
   let n = 0;
   const a = e.events ? [
@@ -5065,93 +5105,93 @@ function to(e = {}) {
       source: e.events
     }
   ] : [], i = e.ranges ? [e.ranges] : [];
-  let s = null, r = null, o = null, l = null, d = null, h = null, u = null, f = null, _ = null, y = null, m = null, b = null, p = !1, E = "", T = !1, S = !1, k = null, w = [], A = [], B = null;
-  const N = /* @__PURE__ */ new Map(), M = [], P = [], z = [], U = [];
+  let s = null, r = null, o = null, l = null, d = null, h = null, u = null, f = null, w = null, y = null, m = null, b = null, p = !1, _ = "", T = !1, k = !1, S = null, E = [], A = [], B = null;
+  const N = /* @__PURE__ */ new Map(), x = [], P = [], F = [], U = [];
   let H = 0, K = /* @__PURE__ */ new Set();
   function X() {
-    k && (W(k), oe({
-      ...k,
-      state: k.player.getState()
+    S && (W(S), oe({
+      ...S,
+      state: S.player.getState()
     }));
   }
   function q() {
-    k && (de(k), oe({
-      ...k,
-      state: k.player.getState()
+    S && (de(S), oe({
+      ...S,
+      state: S.player.getState()
     }));
   }
   function oe(g) {
-    if (!l || !d || !h || !u || !f || !_ || !r)
+    if (!l || !d || !h || !u || !f || !w || !r)
       return;
-    const x = g.player.getTimelineCurrentTime(), C = g.player.getTimelineDuration(), I = [
+    const M = g.player.getTimelineCurrentTime(), C = g.player.getTimelineDuration(), I = [
       C.toFixed(4),
       g.state.skipKickoffsEnabled ? "1" : "0",
       g.state.skipPostGoalTransitionsEnabled ? "1" : "0"
     ].join(":");
-    B !== I && (W(g), de(g), B = I), l.min = "0", l.max = `${C}`, l.step = "0.01", l.value = `${Math.min(x, C)}`, d.dataset.playing = g.state.playing ? "true" : "false", d.setAttribute("aria-label", g.state.playing ? "Pause replay" : "Play replay"), d.title = g.state.playing ? "Pause replay" : "Play replay", h.textContent = g.state.playing ? "||" : ">", u.textContent = g.state.playing ? "Pause" : "Play", f.textContent = st(x), _.textContent = `-${st(C - x)}`, r.dataset.scrubbing = T ? "true" : "false", ce(x);
+    B !== I && (W(g), de(g), B = I), l.min = "0", l.max = `${C}`, l.step = "0.01", l.value = `${Math.min(M, C)}`, d.dataset.playing = g.state.playing ? "true" : "false", d.setAttribute("aria-label", g.state.playing ? "Pause replay" : "Play replay"), d.title = g.state.playing ? "Pause replay" : "Play replay", h.textContent = g.state.playing ? "||" : ">", u.textContent = g.state.playing ? "Pause" : "Play", f.textContent = st(M), w.textContent = `-${st(C - M)}`, r.dataset.scrubbing = T ? "true" : "false", ce(M);
     for (const v of P) {
       const R = Math.max(0, v.startTimelineTime), D = Math.min(C, v.endTimelineTime);
       if (Math.max(0, D - R) <= 1e-4) {
         v.element.hidden = !0;
         continue;
       }
-      v.element.hidden = !1, v.element.dataset.active = x >= R && x <= D ? "true" : "false";
+      v.element.hidden = !1, v.element.dataset.active = M >= R && M <= D ? "true" : "false";
     }
-    const L = Ie(Math.min(x, C), C);
+    const L = Ie(Math.min(M, C), C);
     for (const v of U)
       v.element.style.left = L;
-    for (const v of z)
+    for (const v of F)
       v.element.style.left = L;
   }
-  function je(g) {
-    let x = 0, C = M.length;
-    for (; x < C; ) {
-      const I = Math.floor((x + C) / 2);
-      M[I].timelineTime <= g ? x = I + 1 : C = I;
+  function He(g) {
+    let M = 0, C = x.length;
+    for (; M < C; ) {
+      const I = Math.floor((M + C) / 2);
+      x[I].timelineTime <= g ? M = I + 1 : C = I;
     }
-    return x;
+    return M;
   }
   function J(g) {
-    let x = 0, C = M.length;
-    for (; x < C; ) {
-      const I = Math.floor((x + C) / 2);
-      M[I].timelineTime < g ? x = I + 1 : C = I;
+    let M = 0, C = x.length;
+    for (; M < C; ) {
+      const I = Math.floor((M + C) / 2);
+      x[I].timelineTime < g ? M = I + 1 : C = I;
     }
-    return x;
+    return M;
   }
-  function we(g, x) {
-    g.active !== x && (g.active = x, g.element.dataset.active = x ? "true" : "false");
+  function we(g, M) {
+    g.active !== M && (g.active = M, g.element.dataset.active = M ? "true" : "false");
   }
-  function le(g, x) {
-    g.passed !== x && (g.passed = x, g.element.dataset.passed = x ? "true" : "false");
+  function le(g, M) {
+    g.passed !== M && (g.passed = M, g.element.dataset.passed = M ? "true" : "false");
   }
   function ce(g) {
-    if (M.length === 0)
+    if (x.length === 0)
       return;
-    const x = je(g);
-    if (x > H)
-      for (let v = H; v < x; v += 1)
-        le(M[v], !0);
-    else if (x < H)
-      for (let v = x; v < H; v += 1)
-        le(M[v], !1);
-    H = x;
-    const C = J(g - cr), I = x, L = /* @__PURE__ */ new Set();
+    const M = He(g);
+    if (M > H)
+      for (let v = H; v < M; v += 1)
+        le(x[v], !0);
+    else if (M < H)
+      for (let v = M; v < H; v += 1)
+        le(x[v], !1);
+    H = M;
+    const C = J(g - pr), I = M, L = /* @__PURE__ */ new Set();
     for (let v = C; v < I; v += 1) {
-      const R = M[v];
+      const R = x[v];
       L.add(R), we(R, !0);
     }
     for (const v of K)
       L.has(v) || we(v, !1);
     K = L;
   }
-  function _e(g, x, C) {
+  function _e(g, M, C) {
     const I = g.events[0];
     if (!I)
       return null;
-    const L = x.player.projectReplayTimeToTimeline(g.time), v = document.createElement("button");
-    v.type = "button", v.className = "sap-tl-marker", v.style.left = Ie(L.timelineTime, C), v.style.color = fr(I), v.title = gr(g), v.textContent = br(g), v.addEventListener("click", () => {
-      x.player.seek(Mr(I, x));
+    const L = M.player.projectReplayTimeToTimeline(g.time), v = document.createElement("button");
+    v.type = "button", v.className = "sap-tl-marker", v.style.left = Ie(L.timelineTime, C), v.style.color = _r(I), v.title = vr(g), v.textContent = Er(g), v.addEventListener("click", () => {
+      M.player.seek(Cr(I, M));
     }), v.dataset.active = "false", v.dataset.passed = "false";
     const R = {
       element: v,
@@ -5159,21 +5199,21 @@ function to(e = {}) {
       active: !1,
       passed: !1
     };
-    return N.set(g.key, R), M.push(R), v;
+    return N.set(g.key, R), x.push(R), v;
   }
   function W(g) {
     if (!m || !y)
       return;
-    m.replaceChildren(), y.replaceChildren(), N.clear(), M.splice(0, M.length), H = 0, K = /* @__PURE__ */ new Set(), U.splice(0, U.length);
-    const x = xr(e, g);
-    w = [], x.length > 0 && w.push({
+    m.replaceChildren(), y.replaceChildren(), N.clear(), x.splice(0, x.length), H = 0, K = /* @__PURE__ */ new Set(), U.splice(0, U.length);
+    const M = Pr(e, g);
+    E = [], M.length > 0 && E.push({
       key: "replay",
       label: e.replayEventsLabel ?? "Replay",
-      buckets: Fn(x)
-    }), w.push(...yr(a, g));
-    const C = Math.max(g.player.getTimelineDuration(), 1e-4), I = w[0];
+      buckets: Wn(M)
+    }), E.push(...Mr(a, g));
+    const C = Math.max(g.player.getTimelineDuration(), 1e-4), I = E[0];
     if (I?.key === "replay")
-      for (const v of $t(I.buckets)) {
+      for (const v of Qt(I.buckets)) {
         const R = _e(
           { ...v, key: `${I.key}:${v.key}` },
           g,
@@ -5181,7 +5221,7 @@ function to(e = {}) {
         );
         R && m.append(R);
       }
-    const L = w.filter((v) => v.key !== "replay");
+    const L = E.filter((v) => v.key !== "replay");
     y.hidden = L.length === 0;
     for (const v of L) {
       const R = document.createElement("div");
@@ -5192,7 +5232,7 @@ function to(e = {}) {
       V.className = "sap-tl-event-lane-track";
       const Ee = document.createElement("div");
       Ee.className = "sap-tl-markers";
-      for (const ve of $t(v.buckets)) {
+      for (const ve of Qt(v.buckets)) {
         const j = _e(
           { ...ve, key: `${v.key}:${ve.key}` },
           g,
@@ -5200,19 +5240,19 @@ function to(e = {}) {
         );
         j && Ee.append(j);
       }
-      const te = document.createElement("div");
-      te.className = "sap-tl-event-playhead", V.append(Ee, te), U.push({ element: te }), R.append(V), y.append(R);
+      const ne = document.createElement("div");
+      ne.className = "sap-tl-event-playhead", V.append(Ee, ne), U.push({ element: ne }), R.append(V), y.append(R);
     }
-    M.sort((v, R) => v.timelineTime - R.timelineTime);
+    x.sort((v, R) => v.timelineTime - R.timelineTime);
   }
   function de(g) {
     if (!o)
       return;
-    o.replaceChildren(), P.splice(0, P.length), z.splice(0, z.length);
-    const x = _r(i, g).filter(
+    o.replaceChildren(), P.splice(0, P.length), F.splice(0, F.length);
+    const M = Sr(i, g).filter(
       (I) => Number.isFinite(I.startTime) && Number.isFinite(I.endTime) && I.endTime > I.startTime
     );
-    A = Er(x);
+    A = kr(M);
     const C = Math.max(g.player.getTimelineDuration(), 1e-4);
     if (A.length === 0) {
       o.hidden = !0;
@@ -5229,48 +5269,48 @@ function to(e = {}) {
         D.className = "sap-tl-range-lane-label", D.textContent = I.label, D.setAttribute("aria-label", I.label), L.append(D);
       }
       for (const D of I.ranges) {
-        const V = g.player.projectReplayTimeToTimeline(D.startTime), Ee = g.player.projectReplayTimeToTimeline(D.endTime), { startTimelineTime: te, endTimelineTime: ve } = Sr(
+        const V = g.player.projectReplayTimeToTimeline(D.startTime), Ee = g.player.projectReplayTimeToTimeline(D.endTime), { startTimelineTime: ne, endTimelineTime: ve } = Ir(
           V,
           Ee,
           C
         ), j = document.createElement("div");
-        j.className = "sap-tl-range-segment", D.className && j.classList.add(D.className), j.style.background = vr(D), j.title = D.label ?? I.label, j.dataset.active = "false", j.style.left = Ie(te, C), j.style.width = Ie(
-          Math.max(0, ve - te),
+        j.className = "sap-tl-range-segment", D.className && j.classList.add(D.className), j.style.background = Tr(D), j.title = D.label ?? I.label, j.dataset.active = "false", j.style.left = Ie(ne, C), j.style.width = Ie(
+          Math.max(0, ve - ne),
           C
         ), v.append(j), P.push({
           range: D,
           element: j,
-          startTimelineTime: te,
+          startTimelineTime: ne,
           endTimelineTime: ve
         });
       }
       const R = document.createElement("div");
-      R.className = "sap-tl-range-playhead", v.append(R), z.push({ element: R }), L.append(v), o.append(L);
+      R.className = "sap-tl-range-playhead", v.append(R), F.push({ element: R }), L.append(v), o.append(L);
     }
   }
   function Te() {
-    T && (T = !1, r?.setAttribute("data-scrubbing", "false"), S && k?.player.play(), S = !1);
+    T && (T = !1, r?.setAttribute("data-scrubbing", "false"), k && S?.player.play(), k = !1);
   }
-  function We() {
+  function je() {
     if (T || (T = !0, r?.setAttribute("data-scrubbing", "true"), !t))
       return;
-    const g = k?.player;
-    g && (S = g.getState().playing, S && g.pause());
+    const g = S?.player;
+    g && (k = g.getState().playing, k && g.pause());
   }
   return {
     id: "timeline-overlay",
-    addEventSource(g, x = {}) {
+    addEventSource(g, M = {}) {
       return a.push({
-        key: x.id ?? `events:${n++}`,
-        label: x.label ?? "Events",
+        key: M.id ?? `events:${n++}`,
+        label: M.label ?? "Events",
         source: g
       }), X(), () => {
         this.removeEventSource(g);
       };
     },
     removeEventSource(g) {
-      const x = a.findIndex((C) => C.source === g);
-      return x < 0 ? !1 : (a.splice(x, 1), X(), !0);
+      const M = a.findIndex((C) => C.source === g);
+      return M < 0 ? !1 : (a.splice(M, 1), X(), !0);
     },
     refreshEvents() {
       X();
@@ -5281,20 +5321,20 @@ function to(e = {}) {
       };
     },
     removeRangeSource(g) {
-      const x = i.indexOf(g);
-      return x < 0 ? !1 : (i.splice(x, 1), q(), !0);
+      const M = i.indexOf(g);
+      return M < 0 ? !1 : (i.splice(M, 1), q(), !0);
     },
     refreshRanges() {
       q();
     },
     setup(g) {
-      k = g, or(), getComputedStyle(g.container).position === "static" && (p = !0, E = g.container.style.position, g.container.style.position = "relative"), s = document.createElement("div"), s.className = "sap-tl-root", r = document.createElement("div"), r.className = "sap-tl-shell", r.dataset.scrubbing = "false";
-      const x = document.createElement("div");
-      x.className = "sap-tl-topline";
+      S = g, ur(), getComputedStyle(g.container).position === "static" && (p = !0, _ = g.container.style.position, g.container.style.position = "relative"), s = document.createElement("div"), s.className = "sap-tl-root", r = document.createElement("div"), r.className = "sap-tl-shell", r.dataset.scrubbing = "false";
+      const M = document.createElement("div");
+      M.className = "sap-tl-topline";
       const C = document.createElement("div");
       C.className = "sap-tl-primary", d = document.createElement("button"), d.type = "button", d.className = "sap-tl-toggle sap-tl-track-toggle", h = document.createElement("span"), h.className = "sap-tl-toggle-icon", h.setAttribute("aria-hidden", "true"), h.textContent = ">", u = document.createElement("span"), u.className = "sap-tl-toggle-label", u.textContent = "Play", d.append(h, u), d.addEventListener("click", () => {
         g.player.togglePlayback();
-      }), f = document.createElement("span"), f.className = "sap-tl-current", f.textContent = "0:00.00", _ = document.createElement("span"), _.className = "sap-tl-remaining", _.textContent = "-0:00.00", C.append(f), x.append(C, _);
+      }), f = document.createElement("span"), f.className = "sap-tl-current", f.textContent = "0:00.00", w = document.createElement("span"), w.className = "sap-tl-remaining", w.textContent = "-0:00.00", C.append(f), M.append(C, w);
       const I = document.createElement("div");
       I.className = "sap-tl-track-wrap", o = document.createElement("div"), o.className = "sap-tl-ranges", o.hidden = !0, y = document.createElement("div"), y.className = "sap-tl-event-lanes", y.hidden = !0;
       const L = document.createElement("div");
@@ -5302,7 +5342,7 @@ function to(e = {}) {
       const v = document.createElement("div");
       v.className = "sap-tl-main-rail", m = document.createElement("div"), m.className = "sap-tl-markers", l = document.createElement("input"), l.className = "sap-tl-range", l.type = "range", l.min = "0", l.max = `${g.replay.duration}`, l.step = "0.01", l.value = "0";
       const R = () => {
-        We();
+        je();
       }, D = () => {
         l && g.player.seek(g.player.projectTimelineTimeToReplay(Number(l.value)));
       }, V = () => {
@@ -5310,27 +5350,27 @@ function to(e = {}) {
       };
       l.addEventListener("pointerdown", R), l.addEventListener("input", D), l.addEventListener("change", V), window.addEventListener("pointerup", V), window.addEventListener("pointercancel", V), b = () => {
         l?.removeEventListener("pointerdown", R), l?.removeEventListener("input", D), l?.removeEventListener("change", V), window.removeEventListener("pointerup", V), window.removeEventListener("pointercancel", V);
-      }, L.append(v, m, l), I.append(o, y, d, L), r.append(x, I), s.append(r), g.container.append(s), W(g), de(g), oe({
+      }, L.append(v, m, l), I.append(o, y, d, L), r.append(M, I), s.append(r), g.container.append(s), W(g), de(g), oe({
         ...g,
         state: g.player.getState()
       });
     },
     onStateChange(g) {
-      k = g, oe(g);
+      S = g, oe(g);
     },
     teardown(g) {
-      b?.(), b = null, Te(), s?.remove(), s = null, r = null, o = null, y = null, l = null, d = null, h = null, u = null, f = null, _ = null, m = null, k = null, w = [], A = [], B = null, N.clear(), M.splice(0, M.length), P.splice(0, P.length), z.splice(0, z.length), U.splice(0, U.length), H = 0, K = /* @__PURE__ */ new Set(), p && (g.container.style.position = E, p = !1);
+      b?.(), b = null, Te(), s?.remove(), s = null, r = null, o = null, y = null, l = null, d = null, h = null, u = null, f = null, w = null, m = null, S = null, E = [], A = [], B = null, N.clear(), x.splice(0, x.length), P.splice(0, P.length), F.splice(0, F.length), U.splice(0, U.length), H = 0, K = /* @__PURE__ */ new Set(), p && (g.container.style.position = _, p = !1);
     }
   };
 }
-function ee(e) {
+function te(e) {
   return e !== null && typeof e == "object" && !Array.isArray(e);
 }
 function yt(e) {
-  return ee(e);
+  return te(e);
 }
-function Kt(e, t) {
-  if (!ee(e))
+function Jt(e, t) {
+  if (!te(e))
     throw new Error(`${t} must be an object`);
   const n = e.kind, a = e.value;
   if (n !== "frame" && n !== "time")
@@ -5342,9 +5382,9 @@ function Kt(e, t) {
     value: a
   };
 }
-function kr(e, t) {
+function Ar(e, t) {
   const n = `manifest.replays[${t}]`;
-  if (!ee(e))
+  if (!te(e))
     throw new Error(`${n} must be an object`);
   if (typeof e.id != "string" || e.id.trim() === "")
     throw new Error(`${n}.id must be a non-empty string`);
@@ -5359,13 +5399,13 @@ function kr(e, t) {
     id: e.id,
     path: a,
     label: typeof e.label == "string" ? e.label : e.id,
-    locator: Pr(e.locator, `${n}.locator`, a),
+    locator: Or(e.locator, `${n}.locator`, a),
     meta: e.meta ?? {}
   };
 }
-function Tr(e, t) {
+function Rr(e, t) {
   const n = `manifest.items[${t}]`;
-  if (!ee(e))
+  if (!te(e))
     throw new Error(`${n} must be an object`);
   if (typeof e.replay != "string" || e.replay.trim() === "")
     throw new Error(`${n}.replay must be a non-empty string`);
@@ -5376,16 +5416,16 @@ function Tr(e, t) {
   return {
     id: typeof e.id == "string" && e.id.trim() !== "" ? e.id : `${e.replay}:${t}`,
     replay: e.replay,
-    start: Kt(e.start, `${n}.start`),
-    end: Kt(e.end, `${n}.end`),
+    start: Jt(e.start, `${n}.start`),
+    end: Jt(e.end, `${n}.end`),
     label: typeof e.label == "string" ? e.label : "",
     meta: e.meta ?? {}
   };
 }
-function Pr(e, t, n) {
+function Or(e, t, n) {
   if (e === void 0)
     return n ? { kind: "path", path: n } : { kind: "inline" };
-  if (!ee(e))
+  if (!te(e))
     throw new Error(`${t} must be an object when provided`);
   if (typeof e.kind != "string" || e.kind.trim() === "")
     throw new Error(`${t}.kind must be a non-empty string`);
@@ -5402,8 +5442,8 @@ function Pr(e, t, n) {
     cachePath: e.cachePath
   };
 }
-function Cr(e) {
-  if (!ee(e))
+function Dr(e) {
+  if (!te(e))
     throw new Error("manifest.playback must be an object");
   if (e.advanceMode !== void 0 && e.advanceMode !== "auto" && e.advanceMode !== "manual")
     throw new Error('manifest.playback.advanceMode must be "auto" or "manual"');
@@ -5423,27 +5463,27 @@ function Ae(e, t) {
     return e;
   }
 }
-function Yt(e, t) {
+function en(e, t) {
   if (e != null) {
     if (typeof e != "string")
       throw new Error(`${t} must be a string when provided`);
     return e;
   }
 }
-function Ir(e) {
-  if (!ee(e))
+function Br(e) {
+  if (!te(e))
     throw new Error("manifest.page must be an object when provided");
   return {
-    next: Yt(e.next, "manifest.page.next"),
-    previous: Yt(e.previous, "manifest.page.previous"),
+    next: en(e.next, "manifest.page.next"),
+    previous: en(e.previous, "manifest.page.previous"),
     total: Ae(e.total, "manifest.page.total"),
     count: Ae(e.count, "manifest.page.count"),
     limit: Ae(e.limit, "manifest.page.limit"),
     offset: Ae(e.offset, "manifest.page.offset")
   };
 }
-function Ar(e) {
-  if (!ee(e))
+function Lr(e) {
+  if (!te(e))
     throw new Error("manifest must be an object");
   if (!Array.isArray(e.items))
     throw new Error("manifest.items must be an array");
@@ -5453,19 +5493,19 @@ function Ar(e) {
     throw new Error("manifest.label must be a string when provided");
   if (e.meta !== void 0 && !yt(e.meta))
     throw new Error("manifest.meta must be an object when provided");
-  const t = e.playback === void 0 ? { advanceMode: "manual", endMode: "stop" } : Cr(e.playback);
+  const t = e.playback === void 0 ? { advanceMode: "manual", endMode: "stop" } : Dr(e.playback);
   return {
     version: typeof e.version == "number" ? e.version : 1,
     kind: typeof e.kind == "string" ? e.kind : "playlist",
-    replays: (e.replays ?? []).map(kr),
-    items: e.items.map(Tr),
+    replays: (e.replays ?? []).map(Ar),
+    items: e.items.map(Rr),
     label: typeof e.label == "string" ? e.label : "Playlist",
-    page: e.page === void 0 ? void 0 : Ir(e.page),
+    page: e.page === void 0 ? void 0 : Br(e.page),
     meta: e.meta ?? {},
     playback: t
   };
 }
-async function no(e) {
+async function oo(e) {
   const t = await e.text();
   let n;
   try {
@@ -5475,9 +5515,9 @@ async function no(e) {
       `Failed to parse playlist manifest JSON: ${a instanceof Error ? a.message : String(a)}`
     );
   }
-  return Ar(n);
+  return Lr(n);
 }
-function ao(e, t) {
+function lo(e, t) {
   const n = new Map(
     (e.replays ?? []).map((a) => [a.id, a])
   );
@@ -5495,16 +5535,16 @@ function ao(e, t) {
     };
   });
 }
-function Rr(e) {
+function Nr(e) {
   return typeof e != "string";
 }
-function Zt(e, t, n) {
+function tn(e, t, n) {
   return Math.min(Math.max(e, t), n);
 }
-function Vn(e) {
+function Kn(e) {
   return e instanceof Error ? e.message : "Failed to load replay";
 }
-function Gn(e) {
+function Yn(e) {
   return e.preloadPolicy ? e.preloadPolicy : e.preloadRadius !== void 0 ? {
     kind: "adjacent",
     ahead: e.preloadRadius,
@@ -5515,10 +5555,10 @@ function Gn(e) {
     behind: 1
   };
 }
-function Hn(e) {
+function Zn(e) {
   return e.advanceMode ? e.advanceMode : e.advanceOnEnd === !1 ? "manual" : "auto";
 }
-function jn(e) {
+function Xn(e) {
   return e.endMode ?? "stop";
 }
 function ot(e) {
@@ -5527,7 +5567,7 @@ function ot(e) {
     n.has(a.replay.id) || (n.add(a.replay.id), t.push(a.replay));
   return t;
 }
-function Xt(e, t, n, a, i) {
+function nn(e, t, n, a, i) {
   const s = [], r = /* @__PURE__ */ new Set([i]);
   for (let o = t + n; o >= 0 && o < e.length && s.length < Math.max(0, a); o += n) {
     const l = e[o]?.replay;
@@ -5535,7 +5575,7 @@ function Xt(e, t, n, a, i) {
   }
   return s;
 }
-function Wn(e, t, n) {
+function qn(e, t, n) {
   const a = e[t];
   if (!a)
     return [];
@@ -5544,13 +5584,13 @@ function Wn(e, t, n) {
   if (n.kind === "all")
     return ot(e).filter((l) => l.id !== a.replay.id);
   if (n.kind === "adjacent") {
-    const l = Xt(
+    const l = nn(
       e,
       t,
       -1,
       n.behind ?? 0,
       a.replay.id
-    ), d = Xt(
+    ), d = nn(
       e,
       t,
       1,
@@ -5567,45 +5607,45 @@ function Wn(e, t, n) {
     ot(e).map((l) => [l.id, l])
   );
   for (const l of n.pick(i)) {
-    const d = Rr(l) ? l : o.get(l);
+    const d = Nr(l) ? l : o.get(l);
     !d || s.has(d.id) || (s.add(d.id), r.push(d));
   }
   return r;
 }
-function io(e) {
+function co(e) {
   return { kind: "frame", value: e };
 }
-function qt(e) {
+function an(e) {
   return { kind: "time", value: e };
 }
-function He(e, t) {
+function Ge(e, t) {
   return { id: e, load: t };
 }
-function Or(e, t) {
-  return He(e, async () => t);
+function Fr(e, t) {
+  return Ge(e, async () => t);
 }
-function so(e, t) {
-  return He(e, async () => gt(t, { useWorker: !0 }));
+function ho(e, t) {
+  return Ge(e, async () => gt(t, { useWorker: !0 }));
 }
-function ro(e, t = e.webkitRelativePath || e.name) {
-  return He(t, async () => {
+function uo(e, t = e.webkitRelativePath || e.name) {
+  return Ge(t, async () => {
     const n = new Uint8Array(await e.arrayBuffer());
     return gt(n, { useWorker: !0 });
   });
 }
-function oo(e, t, n = e) {
-  return He(n, async (a) => t(e, a));
+function mo(e, t, n = e) {
+  return Ge(n, async (a) => t(e, a));
 }
-function Dr(e, t = {}) {
+function zr(e, t = {}) {
   return {
     replay: e,
-    start: qt(0),
-    end: qt(Number.POSITIVE_INFINITY),
+    start: an(0),
+    end: an(Number.POSITIVE_INFINITY),
     label: t.label,
     meta: t.meta
   };
 }
-class $n {
+class Qn {
   cache = /* @__PURE__ */ new Map();
   states = /* @__PURE__ */ new Map();
   listeners = /* @__PURE__ */ new Set();
@@ -5631,7 +5671,7 @@ class $n {
     }), s)).catch((s) => {
       throw this.cache.delete(t.id), this.setSourceState(t.id, {
         status: "error",
-        error: Vn(s),
+        error: Kn(s),
         completedAt: Date.now()
       }), s;
     });
@@ -5694,7 +5734,7 @@ class $n {
       t();
   }
 }
-class lo {
+class po {
   items;
   loadCache;
   currentItemIndex = 0;
@@ -5711,7 +5751,7 @@ class lo {
   advanceMode;
   endMode;
   constructor(t, n = {}) {
-    this.items = t, this.loadCache = n.loadCache ?? new $n(), this.preloadPolicy = Gn(n), this.advanceMode = Hn(n), this.endMode = jn(n), t.length > 0 && (this.currentItemIndex = Zt(n.initialItemIndex ?? 0, 0, t.length - 1), this.pendingLoad = this.loadItem(this.currentItemIndex));
+    this.items = t, this.loadCache = n.loadCache ?? new Qn(), this.preloadPolicy = Yn(n), this.advanceMode = Zn(n), this.endMode = Xn(n), t.length > 0 && (this.currentItemIndex = tn(n.initialItemIndex ?? 0, 0, t.length - 1), this.pendingLoad = this.loadItem(this.currentItemIndex));
   }
   async waitForCurrentItem() {
     await this.pendingLoad;
@@ -5771,17 +5811,17 @@ class lo {
   async loadItem(t) {
     if (this.items.length === 0)
       return;
-    const n = Zt(t, 0, this.items.length - 1), a = ++this.loadGeneration, i = this.items[n];
+    const n = tn(t, 0, this.items.length - 1), a = ++this.loadGeneration, i = this.items[n];
     this.pendingItemIndex = n, this.loading = !0, this.error = null, this.playlistEnded = !1, this.emitChange();
     try {
       const s = await this.loadCache.load(i.replay);
       if (this.disposed || a !== this.loadGeneration)
         return;
-      this.currentItemIndex = n, this.pendingItemIndex = null, this.currentLoaded = s, this.loading = !1, this.error = null, this.loadCache.preload(Wn(this.items, n, this.preloadPolicy)), this.emitChange();
+      this.currentItemIndex = n, this.pendingItemIndex = null, this.currentLoaded = s, this.loading = !1, this.error = null, this.loadCache.preload(qn(this.items, n, this.preloadPolicy)), this.emitChange();
     } catch (s) {
       if (this.disposed || a !== this.loadGeneration)
         return;
-      throw this.pendingItemIndex = null, this.loading = !1, this.error = Vn(s), this.currentLoaded = null, this.emitChange(), s;
+      throw this.pendingItemIndex = null, this.loading = !1, this.error = Kn(s), this.currentLoaded = null, this.emitChange(), s;
     }
   }
   emitChange() {
@@ -5790,31 +5830,31 @@ class lo {
       n(t);
   }
 }
-const Br = 2.25, Lr = 1, nt = 1e-4;
+const Ur = 2.25, Vr = 1, tt = 1e-4;
 function pe(e, t, n) {
   return Math.min(Math.max(e, t), n);
 }
-function Nr(e, t) {
+function Gr(e, t) {
   if (e.frames.length === 0)
     return 0;
   const n = e.frames.length - 1;
   return pe(Math.round(t), 0, n);
 }
-function zr(e) {
+function Hr(e) {
   return e instanceof Error ? e.message : "Failed to load replay";
 }
-function se(e) {
+function re(e) {
   return typeof e == "number" && Number.isFinite(e) ? e : void 0;
 }
-function Kn(e) {
+function Jn(e) {
   if (!e)
     return null;
-  const t = {}, n = se(e.fov), a = se(e.height), i = se(e.pitch), s = se(e.distance), r = se(e.stiffness), o = se(e.swivelSpeed), l = se(e.transitionSpeed);
+  const t = {}, n = re(e.fov), a = re(e.height), i = re(e.pitch), s = re(e.distance), r = re(e.stiffness), o = re(e.swivelSpeed), l = re(e.transitionSpeed);
   return n !== void 0 && (t.fov = n), a !== void 0 && (t.height = a), i !== void 0 && (t.pitch = i), s !== void 0 && (t.distance = s), r !== void 0 && (t.stiffness = r), o !== void 0 && (t.swivelSpeed = o), l !== void 0 && (t.transitionSpeed = l), t;
 }
-function Qt(e, t) {
+function sn(e, t) {
   if (t.kind === "frame") {
-    const a = Nr(e, t.value);
+    const a = Gr(e, t.value);
     return {
       frameIndex: a,
       time: e.frames[a]?.time ?? 0
@@ -5826,20 +5866,20 @@ function Qt(e, t) {
     time: n
   };
 }
-function Fr(e, t, n) {
+function jr(e, t, n) {
   if (n.time < t.time) {
     const a = e.label ? ` "${e.label}"` : "";
     throw new Error(`Playlist item${a} ends before it starts`);
   }
 }
-function Ur(e) {
+function Wr(e) {
   return {
-    speed: Math.max(0.1, e.initialPlaybackRate ?? Lr),
+    speed: Math.max(0.1, e.initialPlaybackRate ?? Vr),
     cameraDistanceScale: Math.max(
       0.25,
-      e.initialCameraDistanceScale ?? Br
+      e.initialCameraDistanceScale ?? Ur
     ),
-    customCameraSettings: Kn(e.initialCustomCameraSettings),
+    customCameraSettings: Jn(e.initialCustomCameraSettings),
     cameraViewMode: e.initialCameraViewMode ?? (e.initialAttachedPlayerId ? "follow" : "free"),
     attachedPlayerId: e.initialAttachedPlayerId ?? null,
     ballCamEnabled: e.initialBallCamEnabled ?? !1,
@@ -5850,9 +5890,9 @@ function Ur(e) {
     skipKickoffsEnabled: e.initialSkipKickoffsEnabled ?? !1
   };
 }
-function Vr(e, t) {
-  const n = Qt(t.replay, e.start), a = Qt(t.replay, e.end);
-  return Fr(e, n, a), {
+function $r(e, t) {
+  const n = sn(t.replay, e.start), a = sn(t.replay, e.end);
+  return jr(e, n, a), {
     source: e,
     replay: t,
     start: n,
@@ -5876,7 +5916,7 @@ class lt extends EventTarget {
   loadGeneration = 0;
   boundaryGuard = !1;
   pendingLoad = Promise.resolve();
-  replayCache = new $n();
+  replayCache = new Qn();
   replayCacheUnsubscribe = null;
   preferences;
   preloadPolicy;
@@ -5885,7 +5925,7 @@ class lt extends EventTarget {
   static fromReplay(t, n, a = {}) {
     return lt.fromReplaySource(
       t,
-      Or(a.replayId ?? "replay", n),
+      Fr(a.replayId ?? "replay", n),
       a
     );
   }
@@ -5893,7 +5933,7 @@ class lt extends EventTarget {
     return new lt(
       t,
       [
-        Dr(n, {
+        zr(n, {
           label: a.itemLabel,
           meta: a.itemMeta
         })
@@ -5902,7 +5942,7 @@ class lt extends EventTarget {
     );
   }
   constructor(t, n, a = {}) {
-    if (super(), this.container = t, this.items = n, this.options = a, this.preferences = Ur(a), this.preloadPolicy = Gn(a), this.advanceMode = Hn(a), this.endMode = jn(a), this.playbackIntent = a.autoplay ?? !1, this.replayCacheUnsubscribe = this.replayCache.subscribe(() => {
+    if (super(), this.container = t, this.items = n, this.options = a, this.preferences = Wr(a), this.preloadPolicy = Yn(a), this.advanceMode = Zn(a), this.endMode = Xn(a), this.playbackIntent = a.autoplay ?? !1, this.replayCacheUnsubscribe = this.replayCache.subscribe(() => {
       this.emitChange();
     }), n.length > 0) {
       const i = pe(a.initialItemIndex ?? 0, 0, n.length - 1);
@@ -5963,7 +6003,7 @@ class lt extends EventTarget {
     this.preferences.cameraDistanceScale = Math.max(0.25, t), this.player?.setCameraDistanceScale(this.preferences.cameraDistanceScale), this.emitChange();
   }
   setCustomCameraSettings(t) {
-    this.preferences.customCameraSettings = Kn(t), this.player?.setCustomCameraSettings(this.preferences.customCameraSettings), this.emitChange();
+    this.preferences.customCameraSettings = Jn(t), this.player?.setCustomCameraSettings(this.preferences.customCameraSettings), this.emitChange();
   }
   setCameraViewMode(t) {
     this.preferences.cameraViewMode = t, this.player?.setCameraViewMode(t), this.emitChange();
@@ -5999,7 +6039,7 @@ class lt extends EventTarget {
     this.endMode = t, this.emitChange();
   }
   getState() {
-    const t = this.player?.getState() ?? null, n = this.pendingItemIndex ?? this.currentItemIndex, a = this.items[n] ?? null, i = t?.currentTime ?? 0, s = t?.duration ?? this.currentResolvedItem?.replay.replay.duration ?? 0, r = this.currentResolvedItem?.start.time ?? 0, o = this.currentResolvedItem?.duration ?? 0, l = pe(i - r, 0, o), d = this.currentResolvedItem !== null && l >= o - nt;
+    const t = this.player?.getState() ?? null, n = this.pendingItemIndex ?? this.currentItemIndex, a = this.items[n] ?? null, i = t?.currentTime ?? 0, s = t?.duration ?? this.currentResolvedItem?.replay.replay.duration ?? 0, r = this.currentResolvedItem?.start.time ?? 0, o = this.currentResolvedItem?.duration ?? 0, l = pe(i - r, 0, o), d = this.currentResolvedItem !== null && l >= o - tt;
     return {
       ready: this.currentResolvedItem !== null && !this.loading && this.error === null,
       loading: this.loading,
@@ -6069,19 +6109,19 @@ class lt extends EventTarget {
       const r = await s;
       if (this.disposed || a !== this.loadGeneration)
         return;
-      const o = Vr(i, r);
+      const o = $r(i, r);
       this.currentItemIndex = n, this.pendingItemIndex = null, this.currentResolvedItem = o, this.attachPlayer(o), this.loading = !1, this.error = null, this.prefetchNearbyReplays(n), this.emitChange();
     } catch (s) {
       if (this.disposed || a !== this.loadGeneration)
         return;
-      throw this.playbackIntent = !1, this.pendingItemIndex = null, this.loading = !1, this.error = zr(s), this.detachPlayer(), this.currentResolvedItem = null, this.emitChange(), s;
+      throw this.playbackIntent = !1, this.pendingItemIndex = null, this.loading = !1, this.error = Hr(s), this.detachPlayer(), this.currentResolvedItem = null, this.emitChange(), s;
     }
   }
   loadReplaySource(t) {
     return this.replayCache.load(t);
   }
   prefetchNearbyReplays(t) {
-    this.replayCache.preload(Wn(this.items, t, this.preloadPolicy));
+    this.replayCache.preload(qn(this.items, t, this.preloadPolicy));
   }
   getReplayLoadStates() {
     return ot(this.items).map((t) => this.replayCache.getState(t));
@@ -6091,7 +6131,7 @@ class lt extends EventTarget {
     const n = t.replay.replay, a = n.players.some(
       (i) => i.id === this.preferences.attachedPlayerId
     ) ? this.preferences.attachedPlayerId : null;
-    this.preferences.attachedPlayerId = a, a === null && this.preferences.cameraViewMode === "follow" && (this.preferences.cameraViewMode = "free"), this.player = new bs(this.container, n, {
+    this.preferences.attachedPlayerId = a, a === null && this.preferences.cameraViewMode === "follow" && (this.preferences.cameraViewMode = "free"), this.player = new Es(this.container, n, {
       fieldScale: this.options.fieldScale,
       initialPlaybackRate: this.preferences.speed,
       initialCameraDistanceScale: this.preferences.cameraDistanceScale,
@@ -6118,11 +6158,11 @@ class lt extends EventTarget {
       return;
     }
     const n = this.currentResolvedItem.end.time;
-    if (t.playing && t.currentTime >= n - nt) {
+    if (t.playing && t.currentTime >= n - tt) {
       this.boundaryGuard = !0, this.advanceMode === "auto" && this.playbackIntent ? this.currentItemIndex < this.items.length - 1 ? this.setCurrentItemIndex(this.currentItemIndex + 1) : this.endMode === "loop" && this.items.length > 0 ? this.setCurrentItemIndex(0) : (this.playbackIntent = !1, this.player?.setState({ currentTime: n, playing: !1 })) : (this.playbackIntent = !1, this.player?.setState({ currentTime: n, playing: !1 })), this.boundaryGuard = !1, this.emitChange();
       return;
     }
-    if (t.currentTime > n + nt) {
+    if (t.currentTime > n + tt) {
       this.boundaryGuard = !0, this.player?.setState({ currentTime: n, playing: !1 }), this.playbackIntent = !1, this.boundaryGuard = !1, this.emitChange();
       return;
     }
@@ -6132,12 +6172,12 @@ class lt extends EventTarget {
     this.dispatchEvent(new CustomEvent("change", { detail: this.getState() }));
   }
 }
-const Jt = "subtr-actor-replay-load-overlay-styles";
-function Gr() {
-  if (document.getElementById(Jt))
+const rn = "subtr-actor-replay-load-overlay-styles";
+function Kr() {
+  if (document.getElementById(rn))
     return;
   const e = document.createElement("style");
-  e.id = Jt, e.textContent = `
+  e.id = rn, e.textContent = `
     .sap-load-overlay {
       position: absolute;
       inset: 0;
@@ -6206,16 +6246,16 @@ function Gr() {
     }
   `, document.head.append(e);
 }
-function Hr(e) {
+function Yr(e) {
   const t = e.progress === void 0 ? null : Math.round(e.progress * 100);
   return e.stage === "processing" ? t === null || e.totalFrames === void 0 ? "Processing replay frames..." : `Processing replay frames... ${t}% (${e.processedFrames ?? 0}/${e.totalFrames})` : e.stage === "validating" ? "Validating replay..." : e.stage === "normalizing" ? t !== null ? `Normalizing replay data... ${t}%` : "Normalizing replay data..." : "Loading replay...";
 }
-function jr(e) {
+function Zr(e) {
   const t = e.progress ?? 0;
   return e.stage === "processing" ? e.totalFrames !== void 0 ? e.processedFrames === void 0 ? `${e.totalFrames} frames` : `${e.processedFrames}/${e.totalFrames} frames` : "Extracting frame data" : e.stage === "validating" ? "Checking replay file" : e.stage === "normalizing" ? t < 0.45 ? "Decoding structured replay data" : t < 0.65 ? "Parsing frame data" : t < 1 ? "Building playback model" : "Playback model ready" : e.stage;
 }
-function co(e, t = {}) {
-  Gr();
+function fo(e, t = {}) {
+  Kr();
   let n = null;
   getComputedStyle(e).position === "static" && (n = e.style.position, e.style.position = "relative");
   const a = document.createElement("div");
@@ -6238,7 +6278,7 @@ function co(e, t = {}) {
   };
   return {
     update(u) {
-      i.dataset.state = "loading", r.textContent = t.formatProgress?.(u) ?? Hr(u), h(u.progress), d.textContent = jr(u);
+      i.dataset.state = "loading", r.textContent = t.formatProgress?.(u) ?? Yr(u), h(u.progress), d.textContent = Zr(u);
     },
     complete(u = "Replay loaded") {
       i.dataset.state = "complete", r.textContent = u, l.style.width = "100%", d.textContent = "";
@@ -6252,67 +6292,67 @@ function co(e, t = {}) {
   };
 }
 export {
-  xs as BALLCHASING_API_BASE_URL,
-  An as BALLCHASING_BASE_URL,
-  mo as BOOST_RAW_MAX,
-  xt as DEFAULT_REPLAY_HITBOX_KIND,
-  $n as PlaylistLoadCache,
-  lo as PlaylistSession,
-  ua as REPLAY_HITBOX_SPECS,
-  bs as ReplayPlayer,
+  Ps as BALLCHASING_API_BASE_URL,
+  Nn as BALLCHASING_BASE_URL,
+  yo as BOOST_RAW_MAX,
+  Mt as DEFAULT_REPLAY_HITBOX_KIND,
+  Qn as PlaylistLoadCache,
+  po as PlaylistSession,
+  ya as REPLAY_HITBOX_SPECS,
+  Es as ReplayPlayer,
   lt as ReplayPlaylistPlayer,
-  en as boostAmountToPercent,
-  po as boostPercentToAmount,
-  Di as computeTimelineSegments,
-  qr as createBallchasingOverlayPlugin,
-  Xr as createBallchasingReplaySource,
-  Qr as createBoostPadOverlayPlugin,
-  Jr as createBoostPickupAnimationPlugin,
-  eo as createCanvasRecorderPlugin,
-  Dr as createFullReplayPlaylistItem,
-  so as createReplayBytesSource,
-  ro as createReplayFileSource,
-  co as createReplayLoadOverlay,
-  oo as createReplayPathSource,
-  He as createReplaySource,
-  Or as createStaticReplaySource,
-  to as createTimelineOverlayPlugin,
-  gs as ensureBindingsReady,
-  Ps as fetchBallchasingReplayBytes,
+  on as boostAmountToPercent,
+  wo as boostPercentToAmount,
+  Ui as computeTimelineSegments,
+  no as createBallchasingOverlayPlugin,
+  to as createBallchasingReplaySource,
+  ao as createBoostPadOverlayPlugin,
+  io as createBoostPickupAnimationPlugin,
+  so as createCanvasRecorderPlugin,
+  zr as createFullReplayPlaylistItem,
+  ho as createReplayBytesSource,
+  uo as createReplayFileSource,
+  fo as createReplayLoadOverlay,
+  mo as createReplayPathSource,
+  Ge as createReplaySource,
+  Fr as createStaticReplaySource,
+  ro as createTimelineOverlayPlugin,
+  vs as ensureBindingsReady,
+  Os as fetchBallchasingReplayBytes,
   ge as findFrameIndexAtTime,
-  Hr as formatReplayLoadProgress,
-  jr as formatReplayLoadProgressMeta,
-  io as frameBound,
-  Nt as getActiveDemoEvent,
-  Zr as getBallchasingReplayApiFileUrl,
-  Yr as getBallchasingReplayFileName,
-  Ts as getBallchasingReplayFileUrl,
-  Fi as getFrameWindow,
-  zi as getKickoffCountdownMetadata,
-  ds as getKickoffSkipTargetTime,
-  hs as getPostGoalTransitionSkipTargetTime,
-  rn as getReplayHitboxSpec,
-  Ni as getReplayPlaybackEndTime,
-  Ai as inferKickoffGameState,
-  Ii as inferLiveGameState,
-  on as inferReplayHitboxKind,
-  sn as inferReplayHitboxKindFromBodyName,
+  Yr as formatReplayLoadProgress,
+  Zr as formatReplayLoadProgressMeta,
+  co as frameBound,
+  Ht as getActiveDemoEvent,
+  eo as getBallchasingReplayApiFileUrl,
+  Jr as getBallchasingReplayFileName,
+  Rs as getBallchasingReplayFileUrl,
+  Wi as getFrameWindow,
+  ji as getKickoffCountdownMetadata,
+  fs as getKickoffSkipTargetTime,
+  bs as getPostGoalTransitionSkipTargetTime,
+  un as getReplayHitboxSpec,
+  Hi as getReplayPlaybackEndTime,
+  Ni as inferKickoffGameState,
+  Li as inferLiveGameState,
+  mn as inferReplayHitboxKind,
+  hn as inferReplayHitboxKindFromBodyName,
   De as interpolatePosition,
-  zt as isBallchasingReplayId,
-  ms as isPlayerSamplePresent,
-  no as loadPlaylistManifestFromFile,
+  jt as isBallchasingReplayId,
+  ys as isPlayerSamplePresent,
+  oo as loadPlaylistManifestFromFile,
   gt as loadReplayFromBytes,
-  Ge as normalizeBallchasingReplayId,
-  Kr as normalizeReplayData,
-  Pi as normalizeReplayDataAsync,
-  ba as normalizeReplayHitboxKind,
-  Ar as parsePlaylistManifest,
+  Ve as normalizeBallchasingReplayId,
+  Qr as normalizeReplayData,
+  Di as normalizeReplayDataAsync,
+  va as normalizeReplayHitboxKind,
+  Lr as parsePlaylistManifest,
   Z as playerIdToString,
-  Bi as projectReplayTimeToTimeline,
-  Li as projectTimelineTimeToReplay,
-  Vr as resolvePlaylistItem,
-  ao as resolvePlaylistItemsFromManifest,
-  qt as timeBound,
-  pr as timelineEventSeekTime,
-  vs as validateReplayBytes
+  Vi as projectReplayTimeToTimeline,
+  Gi as projectTimelineTimeToReplay,
+  $r as resolvePlaylistItem,
+  lo as resolvePlaylistItemsFromManifest,
+  an as timeBound,
+  wr as timelineEventSeekTime,
+  Ts as validateReplayBytes
 };

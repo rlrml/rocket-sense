@@ -1,4 +1,4 @@
-import type { ReplayModel } from "@rlrml/player";
+import type { ReplayModel } from "@rlrml/viewer";
 import { Anchor, CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
 import { type CSSProperties, Fragment, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";

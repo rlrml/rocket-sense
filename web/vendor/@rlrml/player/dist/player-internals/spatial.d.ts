@@ -11,7 +11,7 @@ export declare function interpolatePositionHermite(current: Vec3 | null, next: V
 export declare function interpolateQuaternion(current: Quaternion | null, next: Quaternion | null, alpha: number): THREE.Quaternion | null;
 export declare function rootPosition(position: Vec3): THREE.Vector3;
 export declare function worldPosition(position: Vec3, fieldScale: number): THREE.Vector3;
-export declare function getFreeCameraPreset(preset: ReplayFreeCameraPreset, fieldScale: number): {
+export declare function getFreeCameraPreset(preset: ReplayFreeCameraPreset, fieldScale: number, aspect?: number): {
     position: THREE.Vector3;
     target: THREE.Vector3;
     up: THREE.Vector3;

@@ -11,8 +11,8 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
-    "@rlrml/player": "file:vendor/@rlrml/player",
-    "@rlrml/subtr-actor": "file:vendor/@rlrml/subtr-actor",
+    "@rlrml/viewer": "file:vendor/@rlrml/viewer",
+    "camera-controls": "^2.10.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

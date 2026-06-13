@@ -35,6 +35,16 @@ fn main() -> io::Result<()> {
         "subtr_actor_review_static_asset",
         &static_root.join("review/assets"),
     )?;
+    write_asset_function(
+        &mut output,
+        "subtr_actor_model_static_asset",
+        &static_root.join("models"),
+    )?;
+    write_asset_function(
+        &mut output,
+        "subtr_actor_draco_static_asset",
+        &static_root.join("draco"),
+    )?;
 
     let web_dist_root = env::var_os("ROCKET_SENSE_WEB_DIST")
         .map(PathBuf::from)
