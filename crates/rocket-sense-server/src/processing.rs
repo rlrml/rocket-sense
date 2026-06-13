@@ -1821,7 +1821,7 @@ fn replay_analysis_output_from_scaffold_json(
         "replay_meta": scaffold.get("replay_meta").cloned().unwrap_or(Value::Null),
         "timeline_events": events_value.clone(),
     });
-    let indexed_events = build_indexed_events_from_events(&events_value)?;
+    let indexed_events = build_indexed_events_from_scaffold_json(scaffold, &events_value)?;
     let metadata = replay_search_metadata_from_scaffold_json(scaffold);
     let boost_tracks = collect_boost_accumulation_tracks_from_json(scaffold);
 
@@ -1831,6 +1831,15 @@ fn replay_analysis_output_from_scaffold_json(
         metadata,
         boost_tracks,
     })
+}
+
+fn build_indexed_events_from_scaffold_json(
+    scaffold: &Value,
+    events_value: &Value,
+) -> Result<Vec<IndexedEvent>> {
+    let mut events = build_indexed_events_from_events(events_value)?;
+    append_positioning_distance_events_from_json(scaffold, events_value, &mut events)?;
+    Ok(events)
 }
 
 /// JSON twin of [`collect_boost_accumulation_tracks`].
@@ -4643,7 +4652,9 @@ async fn insert_kickoff_event_details(
 fn build_indexed_events(timeline: &ReplayStatsTimelineScaffold) -> Result<Vec<IndexedEvent>> {
     let serialized =
         serde_json::to_value(&timeline.events).context("failed to serialize timeline events")?;
-    build_indexed_events_from_events(&serialized)
+    let mut events = build_indexed_events_from_events(&serialized)?;
+    append_positioning_distance_events(timeline, &serialized, &mut events)?;
+    Ok(events)
 }
 
 /// Index the stats-timeline event envelope from its already-serialized JSON
@@ -4671,14 +4682,6 @@ fn build_indexed_events_from_events(serialized: &Value) -> Result<Vec<IndexedEve
         events.push(indexed_timeline_envelope_event(envelope, stream, *index)?);
         *index += 1;
     }
-    let tracked_seconds_by_player = positioning_tracked_seconds_by_player(envelopes)?;
-    let positioning_distance_start_index = *indices.get("positioning_distance").unwrap_or(&0);
-    append_positioning_distance_events(
-        timeline,
-        &tracked_seconds_by_player,
-        positioning_distance_start_index,
-        &mut events,
-    )?;
     Ok(events)
 }
 
@@ -4711,49 +4714,138 @@ fn positioning_tracked_seconds_by_player(envelopes: &[Value]) -> Result<HashMap<
 
 fn append_positioning_distance_events(
     timeline: &ReplayStatsTimelineScaffold,
-    tracked_seconds_by_player: &HashMap<String, f64>,
-    start_index: usize,
+    serialized_events: &Value,
     events: &mut Vec<IndexedEvent>,
 ) -> Result<()> {
-    let mut index = start_index;
+    let Some(envelopes) = serialized_events.get("events").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let tracked_seconds_by_player = positioning_tracked_seconds_by_player(envelopes)?;
+    let mut index = positioning_distance_start_index(envelopes);
     for summary in &timeline.positioning_summary {
         let player = serde_json::to_value(&summary.player_id)
             .context("failed to serialize positioning summary player id")?;
         let player_key = remote_id_value_to_subject_id(&player)?;
-        let tracked_seconds = tracked_seconds_by_player
-            .get(&player_key)
-            .and_then(|value| finite_nonnegative(*value))
-            .unwrap_or(0.0);
-        if tracked_seconds <= 0.0 {
-            continue;
-        }
-
         let distance = &summary.distance;
-        let Some(distance_to_ball) =
-            finite_nonnegative(f64::from(distance.sum_distance_to_ball) / tracked_seconds)
-        else {
-            continue;
-        };
-        let distance_to_teammates =
-            finite_nonnegative(f64::from(distance.sum_distance_to_teammates) / tracked_seconds)
-                .unwrap_or(0.0);
-        let payload = serde_json::json!({
-            "player": player,
-            "is_team_0": summary.is_team_0,
-            "duration": tracked_seconds,
-            "distance_to_ball": distance_to_ball,
-            "distance_to_teammates": distance_to_teammates,
-        });
-
-        events.push(indexed_timeline_event(
-            "positioning_distance",
-            index,
-            &payload,
-            None,
-        )?);
-        index += 1;
+        append_positioning_distance_event(
+            PositioningDistanceSummaryInput {
+                player,
+                player_key,
+                is_team_0: Some(summary.is_team_0),
+                sum_distance_to_ball: f64::from(distance.sum_distance_to_ball),
+                sum_distance_to_teammates: f64::from(distance.sum_distance_to_teammates),
+            },
+            &tracked_seconds_by_player,
+            &mut index,
+            events,
+        )?;
     }
     Ok(())
+}
+
+struct PositioningDistanceSummaryInput {
+    player: Value,
+    player_key: String,
+    is_team_0: Option<bool>,
+    sum_distance_to_ball: f64,
+    sum_distance_to_teammates: f64,
+}
+
+fn append_positioning_distance_events_from_json(
+    scaffold: &Value,
+    events_value: &Value,
+    events: &mut Vec<IndexedEvent>,
+) -> Result<()> {
+    let Some(envelopes) = events_value.get("events").and_then(Value::as_array) else {
+        return Ok(());
+    };
+    let tracked_seconds_by_player = positioning_tracked_seconds_by_player(envelopes)?;
+    let mut index = positioning_distance_start_index(envelopes);
+    let Some(summaries) = scaffold
+        .get("positioning_summary")
+        .and_then(Value::as_array)
+    else {
+        return Ok(());
+    };
+
+    for summary in summaries {
+        let Some(player) = summary.get("player_id").cloned() else {
+            continue;
+        };
+        let player_key = remote_id_value_to_subject_id(&player)?;
+        let Some(distance) = summary.get("distance") else {
+            continue;
+        };
+        let Some(sum_distance_to_ball) = float_value(distance, &["sum_distance_to_ball"]) else {
+            continue;
+        };
+        let sum_distance_to_teammates =
+            float_value(distance, &["sum_distance_to_teammates"]).unwrap_or(0.0);
+        append_positioning_distance_event(
+            PositioningDistanceSummaryInput {
+                player,
+                player_key,
+                is_team_0: bool_value(summary, &["is_team_0"]),
+                sum_distance_to_ball,
+                sum_distance_to_teammates,
+            },
+            &tracked_seconds_by_player,
+            &mut index,
+            events,
+        )?;
+    }
+    Ok(())
+}
+
+fn append_positioning_distance_event(
+    input: PositioningDistanceSummaryInput,
+    tracked_seconds_by_player: &HashMap<String, f64>,
+    index: &mut usize,
+    events: &mut Vec<IndexedEvent>,
+) -> Result<()> {
+    let tracked_seconds = tracked_seconds_by_player
+        .get(&input.player_key)
+        .and_then(|value| finite_nonnegative(*value))
+        .unwrap_or(0.0);
+    if tracked_seconds <= 0.0 {
+        return Ok(());
+    }
+
+    let Some(distance_to_ball) = finite_nonnegative(input.sum_distance_to_ball / tracked_seconds)
+    else {
+        return Ok(());
+    };
+    let distance_to_teammates =
+        finite_nonnegative(input.sum_distance_to_teammates / tracked_seconds).unwrap_or(0.0);
+    let payload = serde_json::json!({
+        "player": input.player,
+        "is_team_0": input.is_team_0,
+        "duration": tracked_seconds,
+        "distance_to_ball": distance_to_ball,
+        "distance_to_teammates": distance_to_teammates,
+    });
+
+    events.push(indexed_timeline_event(
+        "positioning_distance",
+        *index,
+        &payload,
+        None,
+    )?);
+    *index += 1;
+    Ok(())
+}
+
+fn positioning_distance_start_index(envelopes: &[Value]) -> usize {
+    envelopes
+        .iter()
+        .filter(|envelope| {
+            envelope
+                .get("meta")
+                .and_then(|meta| meta.get("stream"))
+                .and_then(Value::as_str)
+                == Some("positioning_distance")
+        })
+        .count()
 }
 
 fn indexed_timeline_envelope_event(
