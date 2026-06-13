@@ -53,17 +53,21 @@ pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // `play_event_player_possession_details`) and touch details gained the
 // intention/first-touch/contested/ball-movement facets. Bumping marks prior
 // analyses stale so reprocessing persists the new spans and touch columns.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v7";
+// Bumped v7 -> v8 to index per-player positioning distance summaries into the
+// stats event stream. Bumping marks prior analyses stale so reprocessing fills
+// the positioning page's average ball/team distance rows.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v8";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
     ["rotation_role", "ball_depth", "first_man_change"];
-const POSITIONING_PROFILE_TIMING_STREAMS: [&str; 5] = [
+const POSITIONING_PROFILE_TIMING_STREAMS: [&str; 6] = [
     "player_activity",
     "field_third",
     "field_half",
     "depth_role",
     "ball_proximity",
+    "positioning_distance",
 ];
 // Retired stream names that earlier analysis runs may still have indexed;
 // backfills delete these alongside the live streams so re-running against a
@@ -805,11 +809,19 @@ async fn profile_timing_backfill_targets(
             r.id,
             r.storage_key,
             r.canonical_analysis_run_id,
-            NOT EXISTS (
-                SELECT 1
-                FROM play_events event
-                WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                  AND event.source_stream = 'player_activity'
+            (
+                NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'player_activity'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'positioning_distance'
+                )
             ) AS needs_positioning,
             (
                 NOT EXISTS (
@@ -845,6 +857,12 @@ async fn profile_timing_backfill_targets(
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
                       AND event.source_stream = 'player_activity'
+                )
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                      AND event.source_stream = 'positioning_distance'
                 )
                 OR NOT EXISTS (
                     SELECT 1
@@ -918,7 +936,8 @@ async fn backfill_profile_timing_events(
         "field_half" => 5,
         "depth_role" => 6,
         "ball_proximity" => 7,
-        _ => 8,
+        "positioning_distance" => 8,
+        _ => 9,
     });
 
     if target.needs_rotation_spans {
@@ -3954,7 +3973,89 @@ fn build_indexed_events(timeline: &ReplayStatsTimelineScaffold) -> Result<Vec<In
         events.push(indexed_timeline_envelope_event(envelope, stream, *index)?);
         *index += 1;
     }
+    let tracked_seconds_by_player = positioning_tracked_seconds_by_player(envelopes)?;
+    let positioning_distance_start_index = *indices.get("positioning_distance").unwrap_or(&0);
+    append_positioning_distance_events(
+        timeline,
+        &tracked_seconds_by_player,
+        positioning_distance_start_index,
+        &mut events,
+    )?;
     Ok(events)
+}
+
+fn positioning_tracked_seconds_by_player(envelopes: &[Value]) -> Result<HashMap<String, f64>> {
+    let mut tracked_seconds_by_player = HashMap::new();
+    for envelope in envelopes {
+        let Some("field_third") = envelope
+            .get("meta")
+            .and_then(|meta| meta.get("stream"))
+            .and_then(Value::as_str)
+        else {
+            continue;
+        };
+        let Some(payload) = envelope
+            .get("payload")
+            .and_then(|payload| payload.get("payload"))
+        else {
+            continue;
+        };
+        let Some(player_key) = player_subject_id_from_field(payload, "player")? else {
+            continue;
+        };
+        let duration = timeline_event_duration(payload).unwrap_or(0.0);
+        if duration > 0.0 {
+            *tracked_seconds_by_player.entry(player_key).or_insert(0.0) += duration;
+        }
+    }
+    Ok(tracked_seconds_by_player)
+}
+
+fn append_positioning_distance_events(
+    timeline: &ReplayStatsTimelineScaffold,
+    tracked_seconds_by_player: &HashMap<String, f64>,
+    start_index: usize,
+    events: &mut Vec<IndexedEvent>,
+) -> Result<()> {
+    let mut index = start_index;
+    for summary in &timeline.positioning_summary {
+        let player = serde_json::to_value(&summary.player_id)
+            .context("failed to serialize positioning summary player id")?;
+        let player_key = remote_id_value_to_subject_id(&player)?;
+        let tracked_seconds = tracked_seconds_by_player
+            .get(&player_key)
+            .and_then(|value| finite_nonnegative(*value))
+            .unwrap_or(0.0);
+        if tracked_seconds <= 0.0 {
+            continue;
+        }
+
+        let distance = &summary.distance;
+        let Some(distance_to_ball) =
+            finite_nonnegative(f64::from(distance.sum_distance_to_ball) / tracked_seconds)
+        else {
+            continue;
+        };
+        let distance_to_teammates =
+            finite_nonnegative(f64::from(distance.sum_distance_to_teammates) / tracked_seconds)
+                .unwrap_or(0.0);
+        let payload = serde_json::json!({
+            "player": player,
+            "is_team_0": summary.is_team_0,
+            "duration": tracked_seconds,
+            "distance_to_ball": distance_to_ball,
+            "distance_to_teammates": distance_to_teammates,
+        });
+
+        events.push(indexed_timeline_event(
+            "positioning_distance",
+            index,
+            &payload,
+            None,
+        )?);
+        index += 1;
+    }
+    Ok(())
 }
 
 fn indexed_timeline_envelope_event(
@@ -4142,6 +4243,11 @@ fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetad
             "context",
         ),
         "goal_context" => ("goal_context", "Goal Context", "context"),
+        "positioning_distance" => (
+            "positioning_distance",
+            "Positioning Distance",
+            "positioning",
+        ),
         _ => return None,
     };
     Some(EventDefinitionMetadata {
@@ -4769,6 +4875,11 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "Career possession stats: enriched player_possession spans are indexed \
          and touch details gained intention/first-touch/contested/ball-movement \
          facets.",
+    ),
+    (
+        "rocket-sense-event-stream:v8",
+        "Positioning distance summaries are indexed so the positioning stats page \
+         can show average ball and teammate spacing.",
     ),
 ];
 
