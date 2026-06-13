@@ -4,6 +4,7 @@ import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { BoostDetail, boostEventTypes } from "./boost";
 import { GoalsDetail, goalEventTypes } from "./goals";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
+import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
 import { MovementDetail, movementEventTypes } from "./movement";
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
@@ -91,9 +92,10 @@ export const statGroups: StatGroup[] = [
     icon: Sparkles,
     description: "Detected mechanics such as flip resets, double taps, air dribbles, and recoveries.",
     terms: ["mechanic", "flip", "reset", "double", "tap", "air dribble", "flick", "wavedash", "ceiling"],
-    completed: false,
-    usesAggregateStats: true,
-    eventTypes: [],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: mechanicEventTypes,
+    Detail: MechanicsDetail,
   },
   {
     id: "touches",

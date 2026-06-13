@@ -1,6 +1,7 @@
 import type { ReplayModel } from "@rlrml/viewer";
 import { Anchor, CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
 import { type CSSProperties, Fragment, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
+import { PlayerIdentity } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -125,6 +126,8 @@ interface KickoffPlayerBehavior {
 interface PlayerKickoffSummary {
   key: string;
   name: string;
+  platform: string | null;
+  platform_player_id: string | null;
   team: number | null;
   takerCount: number;
   supportCount: number;
@@ -350,12 +353,7 @@ interface KickoffPlayerColumn {
 const PLAYER_COLUMN: KickoffPlayerColumn = {
   key: "player",
   label: "Player",
-  render: (summary) => (
-    <div className={`kickoff-player-cell team-accent-${teamClass(summary.team)}`}>
-      <strong>{summary.name}</strong>
-      <span>{teamLabel(summary.team)}</span>
-    </div>
-  ),
+  render: (summary) => <PlayerIdentity className="kickoff-player-cell" player={summary} />,
 };
 
 // Kickoffs where the player's team came away with the advantage (possession,
@@ -1503,9 +1501,12 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
   const ensureSummary = (behavior: KickoffPlayerBehavior): PlayerKickoffSummary => {
     const key = behavior.playerKey ?? `${behavior.team ?? "unknown"}:${behavior.playerName}`;
     if (!summaries.has(key)) {
+      const identity = playerIdentityFromRemoteKey(behavior.playerKey);
       summaries.set(key, {
         key,
         name: behavior.playerName,
+        platform: identity.platform,
+        platform_player_id: identity.platform_player_id,
         team: behavior.team,
         takerCount: 0,
         supportCount: 0,
@@ -1596,6 +1597,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
       summaries.set(key, {
         key,
         name: player.name || key,
+        platform: player.platform,
+        platform_player_id: player.platform_player_id,
         team: player.team,
         takerCount: 0,
         supportCount: 0,
@@ -1628,6 +1631,17 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
   }
 
   return [...summaries.values()].sort((left, right) => (left.team ?? 99) - (right.team ?? 99) || left.name.localeCompare(right.name));
+}
+
+function playerIdentityFromRemoteKey(playerKey: string | null): { platform: string | null; platform_player_id: string | null } {
+  const separator = playerKey?.indexOf(":") ?? -1;
+  if (!playerKey || separator <= 0 || separator === playerKey.length - 1) {
+    return { platform: null, platform_player_id: null };
+  }
+  return {
+    platform: playerKey.slice(0, separator),
+    platform_player_id: playerKey.slice(separator + 1),
+  };
 }
 
 function incrementMap(map: Map<string, number>, value: string | null): void {

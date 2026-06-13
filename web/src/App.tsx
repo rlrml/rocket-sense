@@ -64,6 +64,12 @@ import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } fr
 import type { StatGroup } from "./stats/registry";
 import { StalenessBadge } from "./staleness";
 import { PlatformIcon } from "./platform";
+import {
+  PlayerIdentity,
+  playerIdentityKey,
+  replayLocalTeamClass,
+  replayLocalTeamLabel,
+} from "./playerIdentity";
 import { RankBadge } from "./rank";
 import {
   KickoffSpawnBreakdown,
@@ -1152,14 +1158,11 @@ function TeamBlock({
 }
 
 function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }) {
-  const label = player.name || player.platform_player_id || "Unknown";
   const hasStats = [player.goals, player.assists, player.saves, player.shots, player.score].some(
     (value) => value != null,
   );
-  const contents = (
+  const suffix = (
     <>
-      <PlatformIcon platform={player.platform} />
-      <span className="player-name">{label}</span>
       <RankBadge
         tier={player.rank_tier}
         division={player.rank_division}
@@ -1196,15 +1199,7 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
     </>
   );
 
-  if (player.platform && player.platform_player_id) {
-    return (
-      <Link className="player-line" to={`/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platform_player_id)}`}>
-        {contents}
-      </Link>
-    );
-  }
-
-  return <div className="player-line">{contents}</div>;
+  return <PlayerIdentity player={player} suffix={suffix} className="player-line" showTeam={false} />;
 }
 
 function useCurrentUser(): CurrentUserResponse | null {
@@ -1786,6 +1781,8 @@ function ReplayGroupStatsPage() {
   const activeEvents = useMemo(() => filterEventsForGroup(events, activeGroup.terms), [activeGroup, events]);
   const ActiveDetail = activeGroup.Detail;
   const detailEvents = ActiveDetail ? events : activeEvents;
+  const canRenderGroupDetail =
+    participantAnalysis.consistent || activeGroup.id === "goals" || activeGroup.id === "mechanics" || activeGroup.id === "possession-territory";
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -1833,10 +1830,11 @@ function ReplayGroupStatsPage() {
           {participantAnalysis.consistent ? (
             <div className="group-participant-strip" aria-label="Group participants">
               {participantAnalysis.players.map((player, index) => (
-                <span className={`group-participant-chip team-accent-${teamClass(player.team)}`} key={groupParticipantKey(player, index)}>
-                  <strong>{player.name || player.platform_player_id || "Unknown"}</strong>
-                  <small>{teamLabel(player.team)}</small>
-                </span>
+                <PlayerIdentity
+                  className="group-participant-chip"
+                  key={groupParticipantKey(player, index)}
+                  player={player}
+                />
               ))}
             </div>
           ) : null}
@@ -1858,7 +1856,7 @@ function ReplayGroupStatsPage() {
           </nav>
 
           <section className="stat-detail">
-            {!ActiveDetail || !participantAnalysis.consistent ? (
+            {!ActiveDetail || !canRenderGroupDetail ? (
               <header className="stat-detail-header">
                 <div>
                   <p className="eyebrow">{activeGroup.label}</p>
@@ -1876,7 +1874,7 @@ function ReplayGroupStatsPage() {
             {statsError ? <ApiNotice label="Group stats" message={statsError} /> : null}
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
-            {!participantAnalysis.consistent ? (
+            {!participantAnalysis.consistent && !(ActiveDetail && canRenderGroupDetail) ? (
               <GroupParticipantLeaderboard
                 events={activeEvents}
                 players={participantAnalysis.players}
@@ -1884,7 +1882,7 @@ function ReplayGroupStatsPage() {
               />
             ) : null}
 
-            {ActiveDetail && (participantAnalysis.consistent || activeGroup.id === "possession-territory") ? (
+            {ActiveDetail && canRenderGroupDetail ? (
               <ActiveDetail
                 events={detailEvents}
                 players={participantAnalysis.players}
@@ -2100,9 +2098,11 @@ function PlayerTimingSection({ groupId, players }: { groupId: string; players: R
           </thead>
           <tbody>
             {players.map((player, index) => (
-              <tr key={`${player.platform}-${player.platform_player_id}-${index}`}>
-                <td>{player.name || player.platform_player_id || "Unknown"}</td>
-                <td>{teamLabel(player.team)}</td>
+              <tr key={playerIdentityKey(player, index)}>
+                <td>
+                  <PlayerIdentity player={player} />
+                </td>
+                <td>{replayLocalTeamLabel(player.team)}</td>
                 <td>{formatSeconds(player.active_time_seconds)}</td>
                 <td>{formatSeconds(player.time_most_back_seconds)}</td>
                 <td>{formatSeconds(player.time_most_forward_seconds)}</td>
@@ -2378,8 +2378,10 @@ function GroupParticipantLeaderboard({
               {rows.map(({ player, key, events: eventCount }) => (
                 <tr key={key}>
                   <td>
-                    <strong>{player.name || player.platform_player_id || "Unknown"}</strong>
-                    <div className="subtle">{player.color_switching ? "Switched colors" : teamLabel(player.team)}</div>
+                    <PlayerIdentity
+                      detail={`${(player.appearance_count ?? 0).toLocaleString()} games`}
+                      player={player}
+                    />
                   </td>
                   <td>{(player.appearance_count ?? 0).toLocaleString()}</td>
                   <td>{formatNullableInteger(player.score)}</td>
@@ -4774,13 +4776,9 @@ function isNumber(value: number | null | undefined): value is number {
 }
 
 function teamClass(team: number | null): string {
-  if (team === 0) return "blue";
-  if (team === 1) return "orange";
-  return "unknown";
+  return replayLocalTeamClass(team);
 }
 
 function teamLabel(team: number | null): string {
-  if (team === 0) return "Blue";
-  if (team === 1) return "Orange";
-  return "Unknown";
+  return replayLocalTeamLabel(team);
 }

@@ -549,6 +549,48 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+.player-identity {
+  display: inline-grid;
+  min-width: 0;
+  color: #17202a;
+  text-decoration: none;
+}
+
+.player-identity-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.player-name-with-platform {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  order: 0;
+}
+
+.player-identity-main > :not(.player-name-with-platform) {
+  order: 1;
+}
+
+.player-identity-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-identity:hover .player-name {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
 .game-badges {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1001,7 +1043,7 @@ button.status-stale:hover {
   background: #fff;
 }
 
-.group-participant-chip strong {
+.group-participant-chip .player-name {
   overflow: hidden;
   color: var(--text-strong);
   font-size: 14px;
@@ -1009,7 +1051,7 @@ button.status-stale:hover {
   white-space: nowrap;
 }
 
-.group-participant-chip small {
+.group-participant-chip .player-identity-detail {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -3553,18 +3595,21 @@ button.status-stale:hover {
   min-height: 34px;
 }
 
-.pickup-map-header div {
+.pickup-map-header .player-bar-label,
+.pickup-map-header .player-identity {
   display: grid;
   min-width: 0;
 }
 
-.pickup-map-header strong {
+.pickup-map-header .stat-player-name-line,
+.pickup-map-header .player-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.pickup-map-header span {
+.pickup-map-header .stat-player-subtitle,
+.pickup-map-header .player-identity-detail {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -4053,7 +4098,8 @@ button.status-stale:hover {
   color: #475569;
 }
 
-.boost-table-player strong {
+.boost-table-player .stat-player-name-line,
+.boost-table-player .player-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

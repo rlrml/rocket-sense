@@ -1,4 +1,3 @@
-import { Link } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { MetricMeter, PlayerSegmentedBarRows, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
 
@@ -244,11 +243,6 @@ function positioningPlayerLabel(summary: PlayerPositioningSummary) {
   );
 }
 
-function PositioningPlayerProfileLink({ summary }: { summary: PlayerPositioningSummary }) {
-  const path = playerProfilePath(summary);
-  return path ? <Link to={path}>{summary.name}</Link> : <>{summary.name}</>;
-}
-
 function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
   if (!summaries.some((summary) => summary.trackedSeconds > 0 || roleTotal(summary) > 0)) {
     return <div className="stat-empty">No raw positioning totals are available for this replay.</div>;
@@ -281,12 +275,7 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
         <tbody>
           {summaries.map((summary) => (
             <tr key={summary.key}>
-              <td>
-                <strong>
-                  <PositioningPlayerProfileLink summary={summary} />
-                </strong>
-                <div className="subtle">{teamLabel(summary.team)}</div>
-              </td>
+              <td>{positioningPlayerLabel(summary)}</td>
               <td>{formatSeconds(summary.trackedSeconds)}</td>
               <td>{formatSeconds(summary.defensiveThirdSeconds)}</td>
               <td>{formatSeconds(summary.neutralThirdSeconds)}</td>

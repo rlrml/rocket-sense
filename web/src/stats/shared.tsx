@@ -92,8 +92,8 @@ export function StatPlayerLabel({
   return (
     <div className={`player-bar-label ${className}`.trim()}>
       <strong className="stat-player-name-line">
-        <span className="stat-player-name-text">{nameNode}</span>
         {showPlatformBadge ? <PlatformIcon platform={platform} /> : null}
+        <span className="stat-player-name-text">{nameNode}</span>
       </strong>
       <span className="stat-player-subtitle">{subtitle}</span>
     </div>

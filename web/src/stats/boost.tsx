@@ -17,6 +17,7 @@ interface BoostPlayerSummary {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   team: number | null;
   average: number | null;
   bpm: number | null;
@@ -549,6 +550,7 @@ function PlayerBoostEconomyChart({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          profilePath: playerProfilePath(summary),
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -594,6 +596,7 @@ function PlayerBoostEconomyChart({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          profilePath: playerProfilePath(summary),
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -619,6 +622,7 @@ function PlayerBoostEconomyChart({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            profilePath: playerProfilePath(summary),
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -666,6 +670,7 @@ function PlayerBoostEconomyChart({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            profilePath: playerProfilePath(summary),
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -705,6 +710,7 @@ function PlayerBoostEconomyChart({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          profilePath: playerProfilePath(summary),
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -738,6 +744,7 @@ function PlayerBoostEconomyChart({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          profilePath: playerProfilePath(summary),
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -758,6 +765,7 @@ function PlayerBoostEconomyChart({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          profilePath: playerProfilePath(summary),
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -790,6 +798,7 @@ function PlayerBoostEconomyChart({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            profilePath: playerProfilePath(summary),
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -831,6 +840,7 @@ interface BoostComparisonRow {
   key: string;
   name: string;
   platform: string | null;
+  profilePath: string | null;
   showPlatformBadge: boolean;
   team: number | null;
   playerIndex: number | null;
@@ -862,6 +872,7 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
               className={`comparison-player-label team-accent-${teamClass(row.team)}`}
               name={row.name}
               platform={row.platform}
+              profilePath={row.profilePath}
               showPlatformBadge={row.showPlatformBadge}
               subtitle={teamLabel(row.team)}
             />
@@ -922,6 +933,8 @@ function barWidthPercent(value: number, maxValue: number): number {
 interface PickupMapSubject {
   key: string;
   name: string;
+  platform: string | null;
+  profilePath: string | null;
   team: number | null;
   playerIndex: number | null;
   points: BoostPickupMapPoint[];
@@ -959,6 +972,11 @@ function PadPickupMaps({
           return {
             key,
             name: player.name || player.platform_player_id || "Unknown",
+            platform: player.platform,
+            profilePath: playerProfilePath({
+              platform: player.platform,
+              platformPlayerId: player.platform_player_id,
+            }),
             team: player.team,
             playerIndex: playerIndexByKey.get(key) ?? null,
             points: points.filter((point) => point.playerKey === key),
@@ -977,10 +995,13 @@ function PadPickupMaps({
         return (
           <div className={`pickup-map-card pickup-map-team-card team-accent-${teamClass(subject.team)}`} key={subject.key}>
             <div className="pickup-map-header">
-              <div>
-                <strong>{subject.name}</strong>
-                <span>{teamLabel(subject.team)}</span>
-              </div>
+              <StatPlayerLabel
+                name={subject.name}
+                platform={subject.platform}
+                profilePath={subject.profilePath}
+                showPlatformBadge={subject.playerIndex != null}
+                subtitle={subject.playerIndex == null ? "Team" : teamLabel(subject.team)}
+              />
               <span className="pickup-leader-count">
                 Leader: {bigLeaderCount} big / {smallLeaderCount} small
               </span>
@@ -1232,6 +1253,8 @@ function teamPickupMapSubjects(points: BoostPickupMapPoint[]): PickupMapSubject[
   return teams.map((team, index) => ({
     key: `team:${team}`,
     name: `${teamLabel(team)} team`,
+    platform: null,
+    profilePath: null,
     team,
     playerIndex: null,
     points: teamPoints[index],
@@ -1347,12 +1370,13 @@ const boostStatColumns: Array<{
     key: "name",
     label: "Player",
     render: (summary) => (
-      <div className={`boost-table-player team-accent-${teamClass(summary.team)}`}>
-        <strong>{summary.name}</strong>
-        <div>
-          <span className={`team-badge team-badge-${teamClass(summary.team)}`}>{teamLabel(summary.team)}</span>
-        </div>
-      </div>
+      <StatPlayerLabel
+        className={`boost-table-player team-accent-${teamClass(summary.team)}`}
+        name={summary.name}
+        platform={summary.platform}
+        profilePath={playerProfilePath(summary)}
+        subtitle={teamLabel(summary.team)}
+      />
     ),
   },
   { key: "average", label: "Avg", render: (summary) => formatBoost(summary.average) },
@@ -1577,6 +1601,7 @@ function boostPlayerSummaries(
       key,
       name: player.name || player.platform_player_id || "Unknown",
       platform: player.platform,
+      platformPlayerId: player.platform_player_id,
       team: player.team,
       average: timeWeightedBoostAverage(matchingSamples, durationSeconds),
       bpm: perMinute(used, durationSeconds),
@@ -1616,6 +1641,7 @@ function teamBoostSummary(summaries: BoostPlayerSummary[], team: 0 | 1, duration
     key: `team:${team}`,
     name: `${teamLabel(team)} team`,
     platform: null,
+    platformPlayerId: null,
     team,
     average: average(teamRows.map((summary) => summary.average).filter(isNumber)),
     bpm: perMinute(sum((summary) => summary.used), durationSeconds),
@@ -2041,6 +2067,11 @@ function eventMatchesPlayer(event: MechanicEventResponse, player: ReplayPlayer):
 
 function playerKey(player: ReplayPlayer): string {
   return player.platform && player.platform_player_id ? `${player.platform}:${player.platform_player_id}` : `name:${player.name || "unknown"}`;
+}
+
+function playerProfilePath(player: { platform: string | null; platformPlayerId: string | null }): string | null {
+  if (!player.platform || !player.platformPlayerId) return null;
+  return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/boost`;
 }
 
 function average(values: number[]): number | null {

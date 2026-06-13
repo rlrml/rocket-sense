@@ -1,5 +1,6 @@
 import { lazy, Suspense, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { PlayerIdentity, type PlayerIdentityData } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import {
@@ -25,6 +26,7 @@ interface GoalsDetailProps {
   players: ReplayPlayer[];
   durationSeconds: number | null;
   replayId?: string;
+  scope?: "replay" | "group";
 }
 
 export interface GoalTypeDetail {
@@ -72,7 +74,7 @@ export function buildGoalClip(goal: GoalRow, replayNonce: number): EventClip | n
   };
 }
 
-export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
+export function GoalsDetail({ events, players, replayId, scope = "replay" }: GoalsDetailProps) {
   const goals = useMemo(() => buildGoalRows(events), [events]);
   const goalKey = useCallback((goal: GoalRow) => goal.event.id, []);
   const buildClip = useCallback(buildGoalClip, []);
@@ -87,6 +89,10 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
     clip,
     activateItem: activateGoal,
   } = useEventPreviewSelection(goals, goalKey, buildClip);
+
+  if (scope === "group") {
+    return <GroupGoalsDetail goals={goals} players={players} />;
+  }
 
   return (
     <div className="goals-detail kickoff-detail">
@@ -141,6 +147,111 @@ export function GoalsDetail({ events, replayId }: GoalsDetailProps) {
       ) : (
         <div className="stat-empty">No goal events are available for this selection yet.</div>
       )}
+    </div>
+  );
+}
+
+function GroupGoalsDetail({ goals, players }: { goals: GoalRow[]; players: ReplayPlayer[] }) {
+  if (!goals.length) {
+    return <div className="stat-empty">No goal events are available for this group yet.</div>;
+  }
+
+  return (
+    <div className="goals-detail">
+      <div className="stat-section-grid">
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
+            <h3>Scorer leaderboard</h3>
+            <span>{goals.length.toLocaleString()} goals</span>
+          </header>
+          <GoalScorerLeaderboard goals={goals} players={players} />
+        </section>
+
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
+            <h3>Goal tag leaderboard</h3>
+            <span>Tags that differentiate finishes</span>
+          </header>
+          <GoalTagLeaderboard goals={goals} />
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function GoalScorerLeaderboard({ goals, players }: { goals: GoalRow[]; players: ReplayPlayer[] }) {
+  const rows = scorerRows(goals, players);
+
+  return (
+    <div className="table-frame compact-table stat-leaderboard-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Player</th>
+            <th>Goals</th>
+            <th>Games</th>
+            <th>Per game</th>
+            <th>Tagged goals</th>
+            <th>Top tag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>
+                <PlayerIdentity
+                  detail={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
+                  name={row.name}
+                  player={row.player}
+                />
+              </td>
+              <td>{row.goals.toLocaleString()}</td>
+              <td>{row.games == null ? "Unknown" : row.games.toLocaleString()}</td>
+              <td>{formatDecimal(rate(row.goals, row.games), 2)}</td>
+              <td>{row.taggedGoals.toLocaleString()}</td>
+              <td>{row.topTag ? `${row.topTag.label} (${row.topTag.count})` : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GoalTagLeaderboard({ goals }: { goals: GoalRow[] }) {
+  const rows = goalTagRows(goals);
+
+  if (!rows.length) {
+    return <div className="stat-empty">No goal tags are available for this group yet.</div>;
+  }
+
+  return (
+    <div className="table-frame compact-table stat-leaderboard-table">
+      <table>
+        <thead>
+          <tr>
+            <th>Goal tag</th>
+            <th>Goals</th>
+            <th>Share</th>
+            <th>Players</th>
+            <th>Leader</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.key}>
+              <td>
+                <strong>{row.label}</strong>
+                <div className="subtle">{row.detailLabel || "All tagged goals"}</div>
+              </td>
+              <td>{row.count.toLocaleString()}</td>
+              <td>{formatShare(row.count, goals.length)}</td>
+              <td>{row.playerCount.toLocaleString()}</td>
+              <td>{row.leader ? `${row.leader.name} (${row.leader.count})` : "-"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -226,6 +337,137 @@ export function GoalCard({
       </div>
     </button>
   );
+}
+
+interface ScorerRow {
+  key: string;
+  name: string;
+  player: PlayerIdentityData | null;
+  games: number | null;
+  goals: number;
+  taggedGoals: number;
+  topTag: CountRow | null;
+}
+
+interface CountRow {
+  key: string;
+  label: string;
+  count: number;
+}
+
+interface GoalTagRow extends CountRow {
+  detailLabel: string | null;
+  playerCount: number;
+  leader: { name: string; count: number } | null;
+}
+
+function scorerRows(goals: GoalRow[], players: ReplayPlayer[]): ScorerRow[] {
+  const goalsByPlayer = new Map<string, GoalRow[]>();
+
+  for (const goal of goals) {
+    const playerIndex = players.findIndex((player) => goalMatchesPlayer(player, goal));
+    const key = playerIndex >= 0 ? playerKey(players[playerIndex], playerIndex) : `name:${goal.scorerName.toLowerCase()}`;
+    const currentGoals = goalsByPlayer.get(key) ?? [];
+    currentGoals.push(goal);
+    goalsByPlayer.set(key, currentGoals);
+  }
+
+  return [...goalsByPlayer.entries()]
+    .map(([key, playerGoals]) => {
+      const player = players.find((candidate, index) => playerKey(candidate, index) === key);
+      const tagCounts = countsFromGoalTypes(playerGoals);
+      return {
+        key,
+        name: player?.name || player?.platform_player_id || playerGoals[0]?.scorerName || "Unknown",
+        player: player ?? null,
+        games: player?.appearance_count ?? null,
+        goals: playerGoals.length,
+        taggedGoals: playerGoals.filter((goal) => goal.types.length > 0).length,
+        topTag: tagCounts[0] ?? null,
+      };
+    })
+    .sort((left, right) => {
+      if (right.goals !== left.goals) return right.goals - left.goals;
+      return left.name.localeCompare(right.name);
+    });
+}
+
+function goalTagRows(goals: GoalRow[]): GoalTagRow[] {
+  const rows = new Map<string, GoalTagRow>();
+  const playerCountsByTag = new Map<string, Map<string, number>>();
+
+  for (const goal of goals) {
+    for (const type of goal.types) {
+      const detailLabel = type.details.map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`).join(", ");
+      const row = rows.get(type.key);
+      rows.set(type.key, {
+        key: type.key,
+        label: type.subLabel ? `${type.subLabel} ${type.label}` : type.label,
+        detailLabel: detailLabel || null,
+        count: (row?.count ?? 0) + 1,
+        playerCount: row?.playerCount ?? 0,
+        leader: row?.leader ?? null,
+      });
+
+      const playerKeyValue = goal.event.player_id ?? `name:${goal.scorerName.toLowerCase()}`;
+      const playerCounts = playerCountsByTag.get(type.key) ?? new Map<string, number>();
+      playerCounts.set(playerKeyValue, (playerCounts.get(playerKeyValue) ?? 0) + 1);
+      playerCountsByTag.set(type.key, playerCounts);
+    }
+  }
+
+  for (const row of rows.values()) {
+    const playerCounts = playerCountsByTag.get(row.key) ?? new Map<string, number>();
+    row.playerCount = playerCounts.size;
+    row.leader = [...playerCounts.entries()]
+      .map(([key, count]) => ({ name: goalPlayerName(goals, key), count }))
+      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))[0] ?? null;
+  }
+
+  return [...rows.values()].sort((left, right) => {
+    if (right.count !== left.count) return right.count - left.count;
+    return left.label.localeCompare(right.label);
+  });
+}
+
+function countsFromGoalTypes(goals: GoalRow[]): CountRow[] {
+  const counts = new Map<string, CountRow>();
+  for (const goal of goals) {
+    for (const type of goal.types) {
+      const label = type.subLabel ? `${type.subLabel} ${type.label}` : type.label;
+      const row = counts.get(type.key);
+      counts.set(type.key, { key: type.key, label, count: (row?.count ?? 0) + 1 });
+    }
+  }
+  return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+}
+
+function goalMatchesPlayer(player: ReplayPlayer, goal: GoalRow): boolean {
+  const eventPlayerId = goal.event.player_id?.trim();
+  if (eventPlayerId && (player.platform_player_id === eventPlayerId || playerIdentity(player) === eventPlayerId)) {
+    return true;
+  }
+  return Boolean(goal.scorerName && player.name?.trim().toLowerCase() === goal.scorerName.trim().toLowerCase());
+}
+
+function goalPlayerName(goals: GoalRow[], key: string): string {
+  return goals.find((goal) => goal.event.player_id === key || `name:${goal.scorerName.toLowerCase()}` === key)?.scorerName ?? "Unknown";
+}
+
+function playerIdentity(player: ReplayPlayer): string | null {
+  if (!player.platform || !player.platform_player_id) return null;
+  return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
+}
+
+function playerKey(player: ReplayPlayer, index: number): string {
+  return playerIdentity(player) ?? `name:${player.name?.trim().toLowerCase() || index}`;
+}
+
+function normalizePlatform(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower === "psynet") return "epic";
+  if (lower === "playstation") return "ps4";
+  return lower;
 }
 
 export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
@@ -325,6 +567,18 @@ function teamLabel(team: number | null): string {
 function formatLabel(value: string | null): string {
   if (!value) return "";
   return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function rate(count: number, games: number | null): number | null {
+  return games && games > 0 ? count / games : null;
+}
+
+function formatDecimal(value: number | null, digits: number): string {
+  return value == null || !Number.isFinite(value) ? "Unknown" : value.toFixed(digits);
+}
+
+function formatShare(count: number, total: number): string {
+  return total > 0 ? `${Math.round((count / total) * 100)}%` : "0%";
 }
 
 export function formatSeconds(value: number | null): string {

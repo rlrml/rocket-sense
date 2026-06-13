@@ -259,6 +259,7 @@ interface PlayerPossessionSummary {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   team: number | null;
   seconds: number;
   spans: number;
@@ -269,6 +270,7 @@ interface PossessionZoneSubject {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   showPlatformBadge: boolean;
   team: number | null;
   zoneSeconds: Record<PossessionZone, number>;
@@ -297,6 +299,7 @@ function PlayerPossessionChart({
               className={`team-accent-${teamClass(summary.team)}`}
               name={summary.name}
               platform={summary.platform}
+              profilePath={playerProfilePath(summary)}
               subtitle={teamLabel(summary.team)}
             />
             <SegmentedBar
@@ -352,6 +355,7 @@ function PossessionZoneChart({
               className={`team-accent-${teamClass(subject.team)}`}
               name={subject.name}
               platform={subject.platform}
+              profilePath={playerProfilePath(subject)}
               showPlatformBadge={subject.showPlatformBadge}
               subtitle={subject.showPlatformBadge ? teamLabel(subject.team) : "Team"}
             />
@@ -408,8 +412,13 @@ function PlayerPossessionLeaderboard({
           {rows.map((summary) => (
             <tr key={summary.key}>
               <td>
-                <strong>{summary.name}</strong>
-                <div className="subtle">{summary.team == null ? "Mixed colors" : teamLabel(summary.team)}</div>
+                <StatPlayerLabel
+                  className={`team-accent-${teamClass(summary.team)}`}
+                  name={summary.name}
+                  platform={summary.platform}
+                  profilePath={playerProfilePath(summary)}
+                  subtitle={summary.team == null ? "Mixed colors" : teamLabel(summary.team)}
+                />
               </td>
               <td>{formatSeconds(summary.seconds)}</td>
               <td>{formatPercent(percentage(summary.seconds, totalSeconds))}</td>
@@ -543,6 +552,7 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
       key,
       name: player.name || player.platform_player_id || "Unknown",
       platform: player.platform,
+      platformPlayerId: player.platform_player_id,
       team: player.team,
       seconds,
       spans: playerSpans.length,
@@ -556,6 +566,7 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
       key: `event:${span.playerId}`,
       name: span.playerName || span.playerId,
       platform: null,
+      platformPlayerId: null,
       team: null,
       seconds: span.duration,
       spans: 1,
@@ -583,6 +594,7 @@ function playerPossessionZoneSubjects(players: ReplayPlayer[], spans: Possession
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
     platform: player.platform,
+    platformPlayerId: player.platform_player_id,
     showPlatformBadge: true,
     team: player.team,
     zoneSeconds: emptyZoneSeconds(),
@@ -605,6 +617,7 @@ function teamPossessionZoneSubjects(spans: PossessionSpan[]): PossessionZoneSubj
     key: `team:${team}`,
     name: teamLabel(team),
     platform: null,
+    platformPlayerId: null,
     showPlatformBadge: false,
     team,
     zoneSeconds: emptyZoneSeconds(),
@@ -734,6 +747,11 @@ function possessionStateLabel(state: PossessionState): string {
 
 function playerKey(player: ReplayPlayer, index: number): string {
   return `${player.platform ?? "unknown"}:${player.platform_player_id ?? player.name ?? index}`;
+}
+
+function playerProfilePath(player: { platform: string | null; platformPlayerId: string | null }): string | null {
+  if (!player.platform || !player.platformPlayerId) return null;
+  return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/possession`;
 }
 
 function playerMatchesId(player: ReplayPlayer, playerId: string): boolean {
