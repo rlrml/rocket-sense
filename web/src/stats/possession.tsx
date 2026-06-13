@@ -6,8 +6,8 @@ export const possessionEventTypes = ["possession"];
 
 type PossessionState = "team_zero" | "team_one" | "neutral";
 type FieldThird = "team_zero_third" | "neutral_third" | "team_one_third";
-type FieldHalf = "team_zero_side" | "neutral" | "team_one_side";
 type PossessionComparisonMode = "teams" | "players";
+type PossessionZone = "offensive" | "neutral" | "defensive";
 
 interface PossessionSpan {
   key: string;
@@ -19,16 +19,8 @@ interface PossessionSpan {
   playerId: string | null;
 }
 
-interface PossessionBucket {
-  key: string;
-  label: string;
-  seconds: number;
-  stateSeconds: Record<PossessionState, number>;
-}
-
 const possessionStates: PossessionState[] = ["team_zero", "neutral", "team_one"];
-const fieldThirds: FieldThird[] = ["team_zero_third", "neutral_third", "team_one_third"];
-const fieldHalves: FieldHalf[] = ["team_zero_side", "neutral", "team_one_side"];
+const possessionZones: PossessionZone[] = ["offensive", "neutral", "defensive"];
 
 export function PossessionDetail({
   events,
@@ -44,13 +36,10 @@ export function PossessionDetail({
   const spans = useMemo(() => possessionSpans(events), [events]);
   const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
   const possessionTotals = possessionStateTotals(spans);
-  const thirdBuckets = thirdZoneBuckets(spans);
-  const halfBuckets = halfZoneBuckets(spans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
-  const thirdTrackedSeconds = thirdBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
-  const halfTrackedSeconds = halfBuckets.reduce((total, bucket) => total + bucket.seconds, 0);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
   const playerSummaries = playerPossessionSummaries(players, spans);
+  const zoneSubjects = possessionZoneSubjects(players, spans, comparisonMode);
   const hasPlayerSpans = playerSummaries.some((summary) => summary.seconds > 0);
 
   return (
@@ -73,21 +62,15 @@ export function PossessionDetail({
           )}
         </section>
 
-        <section className="chart-panel">
-          <header className="chart-panel-header">
-            <h3>Possession by halves</h3>
-            <span>{formatSeconds(halfTrackedSeconds)} tracked</span>
-          </header>
-          <BallZoneChart ariaLabel="Possession time by field halves" buckets={halfBuckets} totalSeconds={halfTrackedSeconds} />
-        </section>
-
-        <section className="chart-panel">
-          <header className="chart-panel-header">
-            <h3>Possession by thirds</h3>
-            <span>{formatSeconds(thirdTrackedSeconds)} tracked</span>
-          </header>
-          <BallZoneChart ariaLabel="Possession time by field thirds" buckets={thirdBuckets} totalSeconds={thirdTrackedSeconds} />
-        </section>
+        {possessionZones.map((zone) => (
+          <section className="chart-panel" key={zone}>
+            <header className="chart-panel-header">
+              <h3>{possessionZoneTitle(zone)}</h3>
+              <span>{formatSeconds(zoneTotal(zoneSubjects, zone))} tracked</span>
+            </header>
+            <PossessionZoneChart comparisonMode={comparisonMode} subjects={zoneSubjects} zone={zone} />
+          </section>
+        ))}
 
         {scope === "replay" ? (
           <section className="chart-panel full-span">
@@ -166,42 +149,21 @@ function PossessionShareChart({
   );
 }
 
-function BallZoneChart({
-  ariaLabel,
-  buckets,
-  totalSeconds,
-}: {
-  ariaLabel: string;
-  buckets: PossessionBucket[];
-  totalSeconds: number;
-}) {
-  const segments = buckets.map((bucket) => ballZoneSegment(bucket, totalSeconds));
-
-  return (
-    <div className="ball-zone-chart">
-      <SegmentedBar ariaLabel={ariaLabel} className="ball-zone-track" segments={segments} total={totalSeconds} />
-      <div className="ball-zone-list">
-        {buckets.map((bucket) => {
-          const percent = percentage(bucket.seconds, totalSeconds);
-          return (
-            <div className={`ball-zone-row ${zoneSideClass(bucket.key)}`} key={bucket.key}>
-              <span>{bucket.label}</span>
-              <strong>{formatPercent(percent)}</strong>
-              <span>{formatSeconds(bucket.seconds)}</span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 interface PlayerPossessionSummary {
   key: string;
   name: string;
   platform: string | null;
   team: number | null;
   seconds: number;
+}
+
+interface PossessionZoneSubject {
+  key: string;
+  name: string;
+  platform: string | null;
+  showPlatformBadge: boolean;
+  team: number | null;
+  zoneSeconds: Record<PossessionZone, number>;
 }
 
 function PlayerPossessionChart({
@@ -243,7 +205,63 @@ function PlayerPossessionChart({
                   title: `${summary.name}: ${formatSeconds(summary.seconds)} (${formatPercent(percent)})`,
                 },
               ]}
-              total={maxSeconds}
+              total={summary.seconds}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PossessionZoneChart({
+  comparisonMode,
+  subjects,
+  zone,
+}: {
+  comparisonMode: PossessionComparisonMode;
+  subjects: PossessionZoneSubject[];
+  zone: PossessionZone;
+}) {
+  const rows = subjects
+    .filter((subject) => subject.zoneSeconds[zone] > 0)
+    .sort((left, right) => right.zoneSeconds[zone] - left.zoneSeconds[zone] || compareZoneSubjects(left, right));
+  const maxSeconds = Math.max(1, ...rows.map((subject) => subject.zoneSeconds[zone]));
+
+  if (rows.length === 0) {
+    return <div className="stat-empty">No {comparisonMode === "players" ? "player" : "team"} possession spans are available for this zone.</div>;
+  }
+
+  return (
+    <div className="possession-player-bars">
+      {rows.map((subject) => {
+        const seconds = subject.zoneSeconds[zone];
+        const total = zoneTotal(subjects, zone);
+        const percent = percentage(seconds, total);
+        return (
+          <div className="possession-player-row" key={subject.key}>
+            <StatPlayerLabel
+              className={`team-accent-${teamClass(subject.team)}`}
+              name={subject.name}
+              platform={subject.platform}
+              showPlatformBadge={subject.showPlatformBadge}
+              subtitle={subject.showPlatformBadge ? teamLabel(subject.team) : "Team"}
+            />
+            <SegmentedBar
+              ariaLabel={`${subject.name} ${possessionZoneTitle(zone).toLowerCase()}`}
+              className="possession-player-track"
+              maxValue={maxSeconds}
+              segments={[
+                {
+                  key: subject.key,
+                  className: `team-segment-${teamClass(subject.team)}`,
+                  label: subject.name,
+                  value: seconds,
+                  visibleLabel: `${formatSeconds(seconds)} (${formatPercent(percent)})`,
+                  title: `${subject.name}: ${formatSeconds(seconds)} (${formatPercent(percent)})`,
+                },
+              ]}
+              total={seconds}
             />
           </div>
         );
@@ -341,51 +359,12 @@ function possessionStateTotals(spans: PossessionSpan[]): Record<PossessionState,
   return totals;
 }
 
-function thirdZoneBuckets(spans: PossessionSpan[]): PossessionBucket[] {
-  const buckets = fieldThirds.map((third) => emptyBucket(third, fieldThirdLabel(third)));
-  const bucketByThird = new Map(buckets.map((bucket) => [bucket.key, bucket]));
-
-  for (const span of spans) {
-    if (span.third == null) continue;
-    addBucketSeconds(bucketByThird.get(span.third), span.state, span.duration);
-  }
-
-  return buckets;
-}
-
-function halfZoneBuckets(spans: PossessionSpan[]): PossessionBucket[] {
-  const buckets = fieldHalves.map((half) => emptyBucket(half, fieldHalfLabel(half)));
-  const bucketByHalf = new Map(buckets.map((bucket) => [bucket.key, bucket]));
-
-  for (const span of spans) {
-    if (span.third == null) continue;
-    addBucketSeconds(bucketByHalf.get(fieldHalfForThird(span.third)), span.state, span.duration);
-  }
-
-  return buckets;
-}
-
-function emptyBucket(key: string, label: string): PossessionBucket {
-  return {
-    key,
-    label,
-    seconds: 0,
-    stateSeconds: emptyStateTotals(),
-  };
-}
-
 function emptyStateTotals(): Record<PossessionState, number> {
   return {
     team_zero: 0,
     team_one: 0,
     neutral: 0,
   };
-}
-
-function addBucketSeconds(bucket: PossessionBucket | undefined, state: PossessionState, seconds: number) {
-  if (!bucket || seconds <= 0) return;
-  bucket.seconds += seconds;
-  bucket.stateSeconds[state] += seconds;
 }
 
 function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpan[]): PlayerPossessionSummary[] {
@@ -411,6 +390,94 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
   });
 }
 
+function possessionZoneSubjects(
+  players: ReplayPlayer[],
+  spans: PossessionSpan[],
+  comparisonMode: PossessionComparisonMode,
+): PossessionZoneSubject[] {
+  return comparisonMode === "players" ? playerPossessionZoneSubjects(players, spans) : teamPossessionZoneSubjects(spans);
+}
+
+function playerPossessionZoneSubjects(players: ReplayPlayer[], spans: PossessionSpan[]): PossessionZoneSubject[] {
+  const subjects = players.map((player, index): PossessionZoneSubject => ({
+    key: playerKey(player, index),
+    name: player.name || player.platform_player_id || "Unknown",
+    platform: player.platform,
+    showPlatformBadge: true,
+    team: player.team,
+    zoneSeconds: emptyZoneSeconds(),
+  }));
+
+  for (const span of spans) {
+    if (span.playerId == null || span.third == null) continue;
+    const playerId = span.playerId;
+    const subject = subjects.find((_, index) => playerMatchesId(players[index], playerId));
+    if (!subject) continue;
+    const zone = possessionZoneForTeam(span.third, subject.team);
+    if (zone) subject.zoneSeconds[zone] += span.duration;
+  }
+
+  return subjects;
+}
+
+function teamPossessionZoneSubjects(spans: PossessionSpan[]): PossessionZoneSubject[] {
+  const subjects: PossessionZoneSubject[] = ([0, 1] as const).map((team) => ({
+    key: `team:${team}`,
+    name: teamLabel(team),
+    platform: null,
+    showPlatformBadge: false,
+    team,
+    zoneSeconds: emptyZoneSeconds(),
+  }));
+
+  for (const span of spans) {
+    if (span.third == null) continue;
+    const team = possessionStateTeam(span.state);
+    if (team == null) continue;
+    const subject = subjects[team];
+    const zone = possessionZoneForTeam(span.third, team);
+    if (zone) subject.zoneSeconds[zone] += span.duration;
+  }
+
+  return subjects;
+}
+
+function emptyZoneSeconds(): Record<PossessionZone, number> {
+  return {
+    offensive: 0,
+    neutral: 0,
+    defensive: 0,
+  };
+}
+
+function possessionZoneForTeam(third: FieldThird, team: number | null): PossessionZone | null {
+  if (third === "neutral_third") return "neutral";
+  if (team === 0) return third === "team_one_third" ? "offensive" : "defensive";
+  if (team === 1) return third === "team_zero_third" ? "offensive" : "defensive";
+  return null;
+}
+
+function possessionStateTeam(state: PossessionState): 0 | 1 | null {
+  if (state === "team_zero") return 0;
+  if (state === "team_one") return 1;
+  return null;
+}
+
+function zoneTotal(subjects: PossessionZoneSubject[], zone: PossessionZone): number {
+  return subjects.reduce((total, subject) => total + subject.zoneSeconds[zone], 0);
+}
+
+function possessionZoneTitle(zone: PossessionZone): string {
+  if (zone === "offensive") return "Offensive possession";
+  if (zone === "defensive") return "Defensive possession";
+  return "Neutral possession";
+}
+
+function compareZoneSubjects(left: PossessionZoneSubject, right: PossessionZoneSubject): number {
+  if (left.team !== right.team) return (left.team ?? 99) - (right.team ?? 99);
+  return left.name.localeCompare(right.name);
+}
+
 function possessionStateSegment(state: PossessionState, seconds: number, totalSeconds: number): SegmentedBarSegment {
   const percent = percentage(seconds, totalSeconds);
   return {
@@ -420,18 +487,6 @@ function possessionStateSegment(state: PossessionState, seconds: number, totalSe
     value: seconds,
     visibleLabel: percent >= 8 ? `${formatSeconds(seconds)} (${formatPercent(percent)})` : undefined,
     title: `${possessionStateLabel(state)}: ${formatSeconds(seconds)} (${formatPercent(percent)})`,
-  };
-}
-
-function ballZoneSegment(bucket: PossessionBucket, totalSeconds: number): SegmentedBarSegment {
-  const percent = percentage(bucket.seconds, totalSeconds);
-  return {
-    key: bucket.key,
-    className: zoneSideClass(bucket.key),
-    label: bucket.label,
-    value: bucket.seconds,
-    visibleLabel: percent >= 8 ? `${shortFieldZoneLabel(bucket.key)}: ${formatSeconds(bucket.seconds)} (${formatPercent(percent)})` : undefined,
-    title: `${bucket.label}: ${formatSeconds(bucket.seconds)} (${formatPercent(percent)})`,
   };
 }
 
@@ -490,30 +545,6 @@ function possessionStateLabel(state: PossessionState): string {
   return "Neutral";
 }
 
-function fieldThirdLabel(third: FieldThird): string {
-  if (third === "team_zero_third") return "Blue third";
-  if (third === "team_one_third") return "Orange third";
-  return "Neutral third";
-}
-
-function fieldHalfForThird(third: FieldThird): FieldHalf {
-  if (third === "team_zero_third") return "team_zero_side";
-  if (third === "team_one_third") return "team_one_side";
-  return "neutral";
-}
-
-function fieldHalfLabel(half: FieldHalf): string {
-  if (half === "team_zero_side") return "Blue half";
-  if (half === "team_one_side") return "Orange half";
-  return "Neutral";
-}
-
-function shortFieldZoneLabel(key: string): string {
-  if (key.includes("team_zero")) return "Blue";
-  if (key.includes("team_one")) return "Orange";
-  return "Neutral";
-}
-
 function playerKey(player: ReplayPlayer, index: number): string {
   return `${player.platform ?? "unknown"}:${player.platform_player_id ?? player.name ?? index}`;
 }
@@ -532,12 +563,6 @@ function teamLabel(team: number | null): string {
   if (team === 0) return "Blue";
   if (team === 1) return "Orange";
   return "Unknown";
-}
-
-function zoneSideClass(key: string): string {
-  if (key.includes("team_zero")) return "ball-zone-side-team-zero";
-  if (key.includes("team_one")) return "ball-zone-side-team-one";
-  return "ball-zone-side-neutral";
 }
 
 function percentage(value: number, total: number): number {

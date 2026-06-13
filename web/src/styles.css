@@ -2695,15 +2695,10 @@ button.status-stale:hover {
   font-weight: 900;
 }
 
-.possession-share-track,
-.ball-zone-track {
+.possession-share-track {
   border: 1px solid var(--border);
   border-radius: 7px;
   background: var(--surface-subtle);
-}
-
-.ball-zone-track {
-  height: 42px;
 }
 
 .possession-metric-grid {
@@ -2762,68 +2757,10 @@ button.status-stale:hover {
   border-left-color: var(--possession-neutral);
 }
 
-.ball-zone-chart,
 .possession-timeline-wrap {
   display: grid;
   gap: 12px;
   min-width: 0;
-}
-
-.ball-zone-side-team-zero {
-  background: var(--blue);
-  fill: var(--blue);
-}
-
-.ball-zone-side-team-one {
-  background: var(--orange);
-  fill: var(--orange);
-}
-
-.ball-zone-side-neutral {
-  background: var(--possession-neutral);
-  fill: var(--possession-neutral);
-}
-
-.ball-zone-list {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.ball-zone-row {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-  padding-left: 10px;
-  border-left: 4px solid transparent;
-  background: transparent;
-}
-
-.ball-zone-row.ball-zone-side-team-zero {
-  border-left-color: var(--blue);
-}
-
-.ball-zone-row.ball-zone-side-team-one {
-  border-left-color: var(--orange);
-}
-
-.ball-zone-row.ball-zone-side-neutral {
-  border-left-color: var(--possession-neutral);
-}
-
-.ball-zone-row span {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ball-zone-row strong {
-  color: var(--text-strong);
-  font-size: 18px;
-  line-height: 1.05;
 }
 
 .possession-player-bars {
@@ -5062,10 +4999,6 @@ button.status-stale:hover {
 
   .distribution-legend {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .ball-zone-list {
-    grid-template-columns: 1fr;
   }
 
   .possession-location-grid,
