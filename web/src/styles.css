@@ -3134,6 +3134,15 @@ button.status-stale:hover {
   white-space: nowrap;
 }
 
+.player-bar-label a {
+  text-decoration: none;
+}
+
+.player-bar-label a:hover,
+.player-bar-label a:focus-visible {
+  text-decoration: underline;
+}
+
 .player-bar-label span,
 .metric-bar-line span {
   color: var(--muted);

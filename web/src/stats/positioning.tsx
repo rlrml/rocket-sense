@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { MetricMeter, PlayerSegmentedBarRows, type SegmentedBarSegment } from "./shared";
 
@@ -27,6 +28,8 @@ type PositioningRole = "no_teammates" | "most_back" | "mid" | "most_forward" | "
 interface PlayerPositioningSummary {
   key: string;
   name: string;
+  platform: string | null;
+  platformPlayerId: string | null;
   team: number | null;
   activeSeconds: number;
   trackedSeconds: number;
@@ -235,10 +238,17 @@ function PositioningProximityChart({ summaries }: { summaries: PlayerPositioning
 function positioningPlayerLabel(summary: PlayerPositioningSummary) {
   return (
     <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-      <strong>{summary.name}</strong>
+      <strong>
+        <PlayerProfileLink summary={summary} />
+      </strong>
       <span>{teamLabel(summary.team)}</span>
     </div>
   );
+}
+
+function PlayerProfileLink({ summary }: { summary: PlayerPositioningSummary }) {
+  const path = playerProfilePath(summary);
+  return path ? <Link to={path}>{summary.name}</Link> : <>{summary.name}</>;
 }
 
 function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
@@ -274,7 +284,9 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
           {summaries.map((summary) => (
             <tr key={summary.key}>
               <td>
-                <strong>{summary.name}</strong>
+                <strong>
+                  <PlayerProfileLink summary={summary} />
+                </strong>
                 <div className="subtle">{teamLabel(summary.team)}</div>
               </td>
               <td>{formatSeconds(summary.trackedSeconds)}</td>
@@ -415,6 +427,8 @@ function emptySummary(player: ReplayPlayer, index: number): PlayerPositioningSum
   return {
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
+    platform: player.platform,
+    platformPlayerId: player.platform_player_id,
     team: player.team,
     activeSeconds: player.active_time_seconds ?? 0,
     trackedSeconds: 0,
@@ -527,6 +541,11 @@ function compareSummaries(left: PlayerPositioningSummary, right: PlayerPositioni
 function playerKey(player: ReplayPlayer, index: number): string {
   if (player.platform && player.platform_player_id) return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
   return `name:${player.name || index}`;
+}
+
+function playerProfilePath(summary: PlayerPositioningSummary): string | null {
+  if (!summary.platform || !summary.platformPlayerId) return null;
+  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/positioning`;
 }
 
 function remoteIdKey(value: unknown): string | null {

@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { MetricMeter, PlayerSegmentedBarRows, SegmentedBar, type SegmentedBarSegment } from "./shared";
 
@@ -6,6 +7,8 @@ export const movementEventTypes = ["movement", "powerslide", "flip_impulse", "mo
 interface PlayerMovementSummary {
   key: string;
   name: string;
+  platform: string | null;
+  platformPlayerId: string | null;
   team: number | null;
   activeSeconds: number;
   totalDistance: number;
@@ -89,7 +92,9 @@ function MovementSpeedChart({ summaries }: { summaries: PlayerMovementSummary[] 
         return (
           <div className="movement-player-row" key={summary.key}>
             <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-              <strong>{summary.name}</strong>
+              <strong>
+                <PlayerProfileLink summary={summary} />
+              </strong>
               <span>{teamLabel(summary.team)}</span>
             </div>
             <div className="movement-player-metrics">
@@ -170,7 +175,9 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
       {summaries.map((summary) => (
         <div className="movement-player-row movement-powerslide-row" key={summary.key}>
           <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-            <strong>{summary.name}</strong>
+            <strong>
+              <PlayerProfileLink summary={summary} />
+            </strong>
             <span>{teamLabel(summary.team)}</span>
           </div>
           <div className="movement-player-metrics">
@@ -205,10 +212,17 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
 function movementPlayerLabel(summary: PlayerMovementSummary) {
   return (
     <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
-      <strong>{summary.name}</strong>
+      <strong>
+        <PlayerProfileLink summary={summary} />
+      </strong>
       <span>{teamLabel(summary.team)}</span>
     </div>
   );
+}
+
+function PlayerProfileLink({ summary }: { summary: PlayerMovementSummary }) {
+  const path = playerProfilePath(summary);
+  return path ? <Link to={path}>{summary.name}</Link> : <>{summary.name}</>;
 }
 
 function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventResponse[], durationSeconds: number | null): PlayerMovementSummary[] {
@@ -289,6 +303,8 @@ function emptySummary(player: ReplayPlayer, index: number, durationSeconds: numb
   return {
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
+    platform: player.platform,
+    platformPlayerId: player.platform_player_id,
     team: player.team,
     activeSeconds: player.non_demo_active_time_seconds ?? player.active_time_seconds ?? durationSeconds ?? 0,
     totalDistance: 0,
@@ -430,6 +446,11 @@ function compareSummaries(left: PlayerMovementSummary, right: PlayerMovementSumm
 function playerKey(player: ReplayPlayer, index: number): string {
   if (player.platform && player.platform_player_id) return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
   return `name:${player.name || index}`;
+}
+
+function playerProfilePath(summary: PlayerMovementSummary): string | null {
+  if (!summary.platform || !summary.platformPlayerId) return null;
+  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/movement`;
 }
 
 function normalizePlayerKey(value: string): string {
