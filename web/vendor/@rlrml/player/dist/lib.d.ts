@@ -16,6 +16,10 @@ export { loadPlaylistManifestFromFile, parsePlaylistManifest, resolvePlaylistIte
 export { PlaylistLoadCache, PlaylistSession, ReplayPlaylistPlayer, createFullReplayPlaylistItem, createReplayBytesSource, createReplayFileSource, createReplayPathSource, createReplaySource, createStaticReplaySource, frameBound, resolvePlaylistItem, timeBound, } from "./playlist";
 export type { FullReplayPlaylistItemOptions, PlaylistSessionOptions, PlaylistSessionState, ReplayPlaylistPlayerSingleReplayOptions, } from "./playlist";
 export { findFrameIndexAtTime, normalizeReplayData, normalizeReplayDataAsync } from "./replay-data";
+export { playerIdToString } from "./replay-data-helpers";
+export { computeTimelineSegments, getFrameWindow, getKickoffCountdownMetadata, getReplayPlaybackEndTime, inferKickoffGameState, inferLiveGameState, projectReplayTimeToTimeline, projectTimelineTimeToReplay, } from "./player-internals/timeline";
+export { getActiveDemoEvent, getKickoffSkipTargetTime, getPostGoalTransitionSkipTargetTime, isPlayerSamplePresent, } from "./player-helpers";
+export { interpolatePosition } from "./player-internals/spatial";
 export type { NormalizeReplayDataAsyncOptions, NormalizeReplayDataOptions, NormalizeReplayProgress, } from "./replay-data";
 export { DEFAULT_REPLAY_HITBOX_KIND, REPLAY_HITBOX_SPECS, getReplayHitboxSpec, inferReplayHitboxKind, inferReplayHitboxKindFromBodyName, normalizeReplayHitboxKind, } from "./hitboxes";
 export type { ReplayHitboxKind, ReplayHitboxSpec } from "./hitboxes";

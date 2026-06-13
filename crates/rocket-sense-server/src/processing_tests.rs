@@ -10,6 +10,7 @@ fn replay_search_metadata_extracts_headers_and_players() {
             car_body_id: None,
             car_body_name: None,
             car_hitbox_family: None,
+            camera_settings: None,
         }],
         team_one: vec![PlayerInfo {
             remote_id: RemoteId::Epic("orange-epic-id".to_owned()),
@@ -18,6 +19,7 @@ fn replay_search_metadata_extracts_headers_and_players() {
             car_body_id: None,
             car_body_name: None,
             car_hitbox_family: None,
+            camera_settings: None,
         }],
         all_headers: vec![
             (
@@ -76,6 +78,7 @@ fn replay_search_player_extracts_scoreboard_stats_from_header() {
         car_body_id: None,
         car_body_name: None,
         car_hitbox_family: None,
+        camera_settings: None,
     };
 
     let search_player = replay_search_player(&player, 0);
@@ -93,6 +96,7 @@ fn replay_search_player_extracts_scoreboard_stats_from_header() {
         car_body_id: None,
         car_body_name: None,
         car_hitbox_family: None,
+        camera_settings: None,
     };
     let search_player = replay_search_player(&no_stats, 1);
     assert_eq!(search_player.score, None);
@@ -129,6 +133,7 @@ fn replay_search_metadata_splits_online_playlist_by_team_size() {
         car_body_id: None,
         car_body_name: None,
         car_hitbox_family: None,
+        camera_settings: None,
     };
     let replay_meta = ReplayMeta {
         team_zero: vec![player(), player()],
@@ -152,6 +157,7 @@ fn replay_search_metadata_prefers_network_playlist_id_over_ambiguous_online_head
         car_body_id: None,
         car_body_name: None,
         car_hitbox_family: None,
+        camera_settings: None,
     };
     let replay_meta = ReplayMeta {
         team_zero: vec![player(), player()],
