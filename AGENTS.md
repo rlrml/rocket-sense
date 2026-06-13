@@ -11,7 +11,11 @@ statistics built with `subtr-actor`.
 - When working on statistics (computing, aggregating, or presenting them), follow
   the principles in [`docs/stats-principles.md`](docs/stats-principles.md). Most
   importantly: segment stats by player count / playlist by default — pooling
-  different player counts is the exception, not the baseline.
+  different player counts is the exception, not the baseline. Treat Blue/Orange
+  as replay-local team colors: they are fine for a single replay, but aggregate
+  or multi-game stats should be oriented around the subject, roster, or field
+  relationship (own/opponent) unless the UI explicitly labels the value as
+  replay-local color.
 - Keep tests in separate files from production code. For Rust unit tests, prefer
   adjacent `*_tests.rs` files included with `#[cfg(test)] #[path = "..."] mod tests;`.
 - Use `cargo fmt`, `cargo test`, and `just` recipes for local validation.

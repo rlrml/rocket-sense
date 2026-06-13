@@ -94,7 +94,34 @@ separate sections, not as adjacent rows in one pooled table. Team-level
 outcomes (the kickoff was won/lost) can be shared context across roles, but
 player behavior metrics must be role-scoped.
 
-## 3. Prefer graded outcomes over binary win/loss
+## 3. Orient replay-local teams before aggregating
+
+Blue and Orange are **replay-local colors**, not durable teams. They are valid
+labels for a single replay: scoreboards, replay timelines, kickoff path
+diagrams, boost maps, and field-position diagrams can use Blue/Orange because
+the viewer is looking at one match with fixed sides.
+
+The moment a view spans multiple games, Blue/Orange stops being a stable
+statistical dimension. The same player can be Blue in one replay and Orange in
+the next, so an aggregate "Blue possession" or "Blue wins" number may combine
+that player's team, their opponent's team, and unrelated roster arrangements.
+That produces the same kind of hidden blend as pooling playlists.
+
+Default: normalize multi-game stats to the question being asked:
+
+- On a player page, orient team/field concepts around the subject: own team,
+  opponent team, own half, opponent half.
+- On a fixed-roster group, use roster-relative labels only when the roster split
+  is actually stable across the group.
+- If players switch sides, either suppress side-level team aggregates or label
+  them explicitly as replay-local color totals.
+- Raw storage and parser outputs may keep `team_zero` / `team_one` or
+  `team = 0/1`; the API/UI layer is responsible for choosing a scope-safe label.
+
+This is especially important for possession, territory, kickoffs, boost control,
+and any chart that compares "Blue" to "Orange" outside a single replay.
+
+## 4. Prefer graded outcomes over binary win/loss
 
 A "just barely" win and a dominant win should not count the same. Wherever an
 event has a win/loss outcome, look for a continuous **margin/strength measure**
@@ -116,7 +143,7 @@ remaining work. The principle generalizes: 50/50 outcomes, aerial duels,
 demos-for-position, etc. should all prefer a margin measure when one is
 derivable.
 
-## 4. Event-type segmentation and chirality
+## 5. Event-type segmentation and chirality
 
 Some stats only make sense conditioned on the *type* of the event instance —
 e.g. boost used during a kickoff and boost remaining after depend heavily on
@@ -142,7 +169,7 @@ two **diagonal** (far corner) spawns, the two **off-center** spawns, and
 `diagonal_right`, `off_center_left`, `off_center_right`, `center`) decompose
 cleanly into shape × side.
 
-## 5. Trust derived gameplay facts over header metadata
+## 6. Trust derived gameplay facts over header metadata
 
 Replay header metadata (team size, playlist, match type) describes the lobby,
 not necessarily the gameplay — e.g. RLCS/private lobbies can report 3v3 while
@@ -153,7 +180,7 @@ use header metadata only as a fallback or cross-check. The team-size
 derivation in `api/replay_set.rs` follows this: it counts teamed players with
 nonzero recorded active time instead of reading the header `TeamSize`.
 
-## 6. Persist upstream-computed measures; don't re-derive downstream
+## 7. Persist upstream-computed measures; don't re-derive downstream
 
 Before deriving a measure in SQL or the UI, check what `subtr-actor` already
 emits — it usually computes the semantically-right quantity (correct epoch,
