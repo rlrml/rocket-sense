@@ -56,7 +56,11 @@ pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 // Bumped v7 -> v8 to index per-player positioning distance summaries into the
 // stats event stream. Bumping marks prior analyses stale so reprocessing fills
 // the positioning page's average ball/team distance rows.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v8";
+// Bumped v8 -> v9 for the loosened subtr-actor whiff detector: the
+// whiff/beaten-to-ball candidate detector was retuned for recall to feed the
+// event review loop, so reprocessing re-emits the now-looser whiff candidates
+// for confirm/reject labeling.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v9";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -5670,6 +5674,11 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v8",
         "Positioning distance summaries are indexed so the positioning stats page \
          can show average ball and teammate spacing.",
+    ),
+    (
+        "rocket-sense-event-stream:v9",
+        "Loosened whiff/beaten-to-ball detector emits more candidates; reprocess \
+         to surface them for confirm/reject review.",
     ),
 ];
 

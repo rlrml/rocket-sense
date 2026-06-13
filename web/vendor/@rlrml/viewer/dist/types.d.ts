@@ -1,73 +1,359 @@
-/**
- * Public types for @rlrml/viewer — most importantly the `ViewerPlugin` contract.
- *
- * The plugin model mirrors `@rlrml/player` (js/player/src/types.ts): a bare core
- * (`ViewerPlayer`) holds an ordered list of installed plugins and dispatches
- * lifecycle hooks. Everything above raw playback (scoreboard, name tags,
- * overlays, …) is a plugin — see docs/EXTENSIBILITY.md.
- *
- * The state / options / stepping types deliberately match `@rlrml/player`'s
- * `ReplayPlayerState` / `ReplayPlayerOptions` field-for-field so consumers
- * written against `ReplayPlayer` (notably js/stat-evaluation-player) can run on
- * `ViewerPlayer` unchanged — see docs/PLAYER_PARITY.md for the matrix.
- */
-import type * as THREE from "three";
-import type { ReplayModel, ReplayPlayerActiveMetadata } from "@rlrml/player";
-import type { Vec3, Quat } from "./adapter/coords.js";
-import type { ViewerPlayer } from "./ViewerPlayer.js";
-export type { Vec3, Quat };
-/**
- * RL-style camera settings (original GameEngine defaults).
- *
- * `@rlrml/player` calls the pitch angle `pitch`; this package's original name
- * is `angle`. Both are accepted everywhere and mean the same thing — when both
- * are set, `angle` wins (it is the native field).
- */
-export interface CameraSettings {
-    /** Distance behind car in UU (RL range 100-400). */
-    distance?: number;
-    /** Height above car in UU (RL range 40-200). */
-    height?: number;
-    /** Pitch angle in degrees, negative = look down (RL range -15 to 0). */
-    angle?: number;
-    /** Alias for `angle` — the `@rlrml/player` field name. */
-    pitch?: number;
-    /** Camera stiffness (RL range 0.0-1.0; higher = more responsive). */
-    stiffness?: number;
-    /** Swivel speed around the car (RL range 1.0-10.0). */
-    swivelSpeed?: number;
-    /** Ball cam transition speed (RL range 1.0-2.0). */
-    transitionSpeed?: number;
-    /** HORIZONTAL field of view in degrees (RL range 60-110). */
-    fov?: number;
-    /** Free-cam fly speed in UU/s (viewer extension; no @rlrml/player analog). */
-    freeCamSpeed?: number;
+import type { Group, Object3D } from "three";
+import type { RawReplayFramesData, RawShotEventMetadata } from "./raw-types";
+import type { ReplayScene } from "./scene";
+import type { PlaybackBound } from "./generated/PlaybackBound";
+import type { PlaylistAdvanceMode } from "./generated/PlaylistAdvanceMode";
+import type { PlaylistEndMode } from "./generated/PlaylistEndMode";
+import type { ReplayHitboxSpec } from "./hitboxes";
+export type { PlaybackBound } from "./generated/PlaybackBound";
+export type { PlaylistAdvanceMode } from "./generated/PlaylistAdvanceMode";
+export type { PlaylistEndMode } from "./generated/PlaylistEndMode";
+export type { PlaylistManifest } from "./generated/PlaylistManifest";
+export type { PlaylistManifestItem } from "./generated/PlaylistManifestItem";
+export type { PlaylistManifestPage } from "./generated/PlaylistManifestPage";
+export type { PlaylistManifestReplay } from "./generated/PlaylistManifestReplay";
+export type { PlaylistManifestReplayLocator } from "./generated/PlaylistManifestReplayLocator";
+export type { PlaylistPlaybackOptions as PlaylistManifestPlaybackOptions } from "./generated/PlaylistPlaybackOptions";
+export type { RawBallData, RawBallFrame, RawBallFrameData, RawBoostPad, RawBoostPadEvent, RawDemolishInfo, RawGoalEvent, RawMetadataFrame, RawPlayerData, RawPlayerFrame, RawPlayerFrameData, RawPlayerId, RawPlayerInfo, RawPlayerStatEvent, RawPlayerStatEventKind, RawReplayGameType, RawReplayGameTypeDetails, RawReplayTickMark, RawReplayFramesData, RawRigidBody, RawRotation, RawShotEventMetadata, RawVec3, } from "./raw-types";
+export interface Vec3 {
+    x: number;
+    y: number;
+    z: number;
 }
-/** Parity with @rlrml/player: "free" = unattached camera, "follow" = car cam. */
-export type ViewerCameraViewMode = "free" | "follow";
-/** Canned free-camera poses, matching @rlrml/player's presets. */
-export type ViewerFreeCameraPreset = "overhead" | "side";
-/**
- * Snapshot of playback state, emitted on every "change" event. Shape-compatible
- * with `@rlrml/player`'s `ReplayPlayerState`.
- *
- * The hitbox toggles drive HitboxManager (wireframes; only-mode also hides
- * car bodies and trail emission). The boost-meter toggle is tracked-but-inert
- * for now: the setter updates state and notifies subscribers, but no rendering
- * is wired to it yet (docs/PLAYER_PARITY.md). The skip toggles are live when
- * the viewer has a `ReplayModel` (always, via `createViewer`).
- */
-export interface ViewerState {
+export interface Quaternion {
+    x: number;
+    y: number;
+    z: number;
+    w: number;
+}
+export interface CameraSettings {
+    fov?: number;
+    height?: number;
+    pitch?: number;
+    distance?: number;
+    stiffness?: number;
+    swivelSpeed?: number;
+    transitionSpeed?: number;
+}
+export type ReplayCameraViewMode = "free" | "follow";
+export type ReplayFreeCameraPreset = "overhead" | "side";
+export interface PlaybackFrame {
+    time: number;
+    secondsRemaining: number;
+    gameState: number;
+    kickoffCountdown: number;
+}
+export interface ReplayPlayerKickoffCountdownMetadata {
+    kind: "kickoff-countdown";
+    countdown: number;
+    secondsRemaining: number;
+    endsAt: number;
+}
+export type ReplayPlayerActiveMetadata = ReplayPlayerKickoffCountdownMetadata;
+export interface BallSample {
+    position: Vec3 | null;
+    linearVelocity: Vec3 | null;
+    angularVelocity: Vec3 | null;
+    rotation: Quaternion | null;
+}
+export interface PlayerSample {
+    isPresent?: boolean;
+    position: Vec3 | null;
+    linearVelocity: Vec3 | null;
+    angularVelocity: Vec3 | null;
+    rotation: Quaternion | null;
+    forward: Vec3 | null;
+    up: Vec3 | null;
+    boostAmount: number;
+    boostFraction: number;
+    boostActive: boolean;
+    powerslideActive: boolean;
+    jumpActive: boolean;
+    doubleJumpActive: boolean;
+    dodgeActive: boolean;
+}
+export interface ReplayPlayerTrack {
+    id: string;
+    name: string;
+    isTeamZero: boolean;
+    cameraSettings: CameraSettings;
+    hitbox: ReplayHitboxSpec;
+    frames: PlayerSample[];
+}
+export type ReplayTimelineEventKind = "goal" | "shot" | "save" | "assist" | "demo" | (string & {});
+export interface ReplayTickMark {
+    id?: string;
+    description: string;
+    frame: number | null;
+    time: number;
+}
+export interface ReplayTimelineEvent {
+    id?: string;
+    time: number;
+    seekTime?: number;
+    frame?: number;
+    kind: ReplayTimelineEventKind;
+    label?: string;
+    shortLabel?: string;
+    iconText?: string;
+    iconName?: string;
+    playerId?: string | null;
+    playerName?: string | null;
+    secondaryPlayerId?: string | null;
+    secondaryPlayerName?: string | null;
+    location?: Vec3 | null;
+    shot?: RawShotEventMetadata | null;
+    isTeamZero?: boolean | null;
+    color?: string;
+}
+export interface ReplayTimelineRange {
+    id?: string;
+    startTime: number;
+    endTime: number;
+    lane?: string;
+    laneLabel?: string;
+    label?: string;
+    shortLabel?: string;
+    isTeamZero?: boolean | null;
+    color?: string;
+    className?: string;
+}
+export interface ReplayPlayerTimelineSegment {
+    startTime: number;
+    endTime: number;
+}
+export interface ReplayPlayerTimelineProjection {
+    replayTime: number;
+    timelineTime: number;
+    seekTime: number;
+    hiddenBySkip: boolean;
+}
+export type ReplayBoostPadSize = "big" | "small";
+export interface ReplayBoostPadEvent {
+    time: number;
+    frame: number;
+    available: boolean;
+    playerId?: string | null;
+    playerName?: string | null;
+}
+export interface ReplayBoostPad {
+    index: number;
+    padId: string | null;
+    size: ReplayBoostPadSize;
+    position: Vec3;
+    events: ReplayBoostPadEvent[];
+}
+export interface ReplayModel {
+    frameCount: number;
+    duration: number;
+    rawStartTime: number;
+    frames: PlaybackFrame[];
+    ballFrames: BallSample[];
+    boostPads: ReplayBoostPad[];
+    players: ReplayPlayerTrack[];
+    tickMarks: ReplayTickMark[];
+    timelineEvents: ReplayTimelineEvent[];
+    teamZeroNames: string[];
+    teamOneNames: string[];
+}
+export interface ReplayLoadResult {
+    replay: ReplayModel;
+    raw: RawReplayFramesData;
+}
+export type ReplayLoadStage = "validating" | "processing" | "normalizing" | (string & {});
+export interface ReplayLoadProgress {
+    stage: ReplayLoadStage;
+    processedFrames?: number;
+    totalFrames?: number;
+    progress?: number;
+}
+export interface ReplayLoadOptions {
+    onProgress?: (progress: ReplayLoadProgress) => void;
+    reportEveryNFrames?: number;
+    useWorker?: boolean;
+    /**
+     * Apply Ballcam-style velocity-based correction while normalizing replay
+     * samples. Defaults to true; set false to inspect exact raw frame positions.
+     */
+    motionSmoothing?: boolean;
+    /** Blend toward the measured replay sample during velocity correction. */
+    smoothingBlendFactor?: number;
+    /** Every N corrected samples, use a stronger measured-sample anchor. */
+    smoothingAnchorInterval?: number;
+}
+export interface ReplayLoadOverlayOptions {
+    title?: string;
+    formatProgress?: (progress: ReplayLoadProgress) => string;
+}
+export interface ReplayLoadOverlayController {
+    update(progress: ReplayLoadProgress): void;
+    complete(message?: string): void;
+    fail(message: string): void;
+    destroy(): void;
+}
+export interface LoadedReplay {
+    replay: ReplayModel;
+    raw?: RawReplayFramesData;
+}
+export type PlaylistSourceLoadStatus = "idle" | "loading" | "loaded" | "error";
+export interface PlaylistSourceLoadProgress {
+    stage?: string;
+    message?: string;
+    progress?: number;
+    processedBytes?: number;
+    totalBytes?: number;
+    processedFrames?: number;
+    totalFrames?: number;
+}
+export interface PlaylistSourceLoadContext {
+    sourceId: string;
+    updateProgress: (progress: PlaylistSourceLoadProgress) => void;
+}
+export interface PlaylistSourceLoadState {
+    sourceId: string;
+    status: PlaylistSourceLoadStatus;
+    progress: PlaylistSourceLoadProgress | null;
+    error: string | null;
+    startedAt: number | null;
+    updatedAt: number | null;
+    completedAt: number | null;
+}
+export interface PlaylistLoadSource<TLoaded> {
+    id: string;
+    load: (context?: PlaylistSourceLoadContext) => Promise<TLoaded>;
+}
+export interface ReplaySource extends PlaylistLoadSource<LoadedReplay> {
+}
+export interface PlaylistItem<TSource extends PlaylistLoadSource<unknown> = ReplaySource> {
+    replay: TSource;
+    start: PlaybackBound;
+    end: PlaybackBound;
+    label?: string;
+    meta?: Record<string, unknown>;
+}
+export interface PlaylistPlaybackOptions {
+    /**
+     * Controls what happens when the active playlist item reaches its end bound.
+     *
+     * - "auto" advances to the next item.
+     * - "manual" pauses at the item end until the caller chooses another item.
+     */
+    advanceMode?: PlaylistAdvanceMode;
+    /**
+     * Controls what happens when automatic advancement reaches the end of the
+     * playlist.
+     *
+     * - "stop" pauses at the final item end.
+     * - "loop" continues playback from the first item.
+     */
+    endMode?: PlaylistEndMode;
+    /**
+     * @deprecated Use advanceMode instead. true maps to "auto", false maps to
+     * "manual".
+     */
+    advanceOnEnd?: boolean;
+}
+export interface ResolvedPlaybackBound {
+    frameIndex: number;
+    time: number;
+}
+export interface ResolvedPlaylistItem {
+    source: PlaylistItem;
+    replay: LoadedReplay;
+    start: ResolvedPlaybackBound;
+    end: ResolvedPlaybackBound;
+    duration: number;
+}
+export interface PlaylistPreloadContext<TSource extends PlaylistLoadSource<unknown> = ReplaySource, TItem extends PlaylistItem<TSource> = PlaylistItem<TSource>> {
+    items: TItem[];
+    currentIndex: number;
+    currentItem: TItem;
+}
+export type PlaylistPreloadPolicy<TSource extends PlaylistLoadSource<unknown> = ReplaySource, TItem extends PlaylistItem<TSource> = PlaylistItem<TSource>> = {
+    kind: "none";
+} | {
+    kind: "all";
+} | {
+    kind: "adjacent";
+    ahead: number;
+    behind?: number;
+} | {
+    kind: "custom";
+    pick: (context: PlaylistPreloadContext<TSource, TItem>) => Iterable<string | TSource>;
+};
+export type ReplayPreloadContext = PlaylistPreloadContext<ReplaySource, PlaylistItem>;
+export type ReplayPreloadPolicy = PlaylistPreloadPolicy<ReplaySource, PlaylistItem>;
+export interface ReplayPlayerPluginContext {
+    player: any;
+    replay: ReplayModel;
+    scene: ReplayScene;
+    container: HTMLElement;
+    options: ReplayPlayerOptions;
+}
+export interface ReplayPlayerPluginStateContext extends ReplayPlayerPluginContext {
+    state: ReplayPlayerState;
+}
+export interface ReplayPlayerRenderTrackContext {
+    track: ReplayPlayerTrack;
+    mesh: Object3D | null;
+    boostTrail: Group | null;
+    frame: PlayerSample | null;
+    nextFrame: PlayerSample | null;
+    interpolatedPosition: Vec3 | null;
+    boostFraction: number;
+}
+export interface ReplayPlayerRenderContext extends ReplayPlayerPluginStateContext, FrameRenderInfo {
+    frame: PlaybackFrame | null;
+    nextFrame: PlaybackFrame | null;
+    ballFrame: BallSample | null;
+    nextBallFrame: BallSample | null;
+    ballPosition: Vec3 | null;
+    players: ReplayPlayerRenderTrackContext[];
+}
+export interface ReplayPlayerPlugin {
+    id: string;
+    setup?(context: ReplayPlayerPluginContext): void;
+    onStateChange?(context: ReplayPlayerPluginStateContext): void;
+    beforeRender?(context: ReplayPlayerRenderContext): void;
+    teardown?(context: ReplayPlayerPluginContext): void;
+}
+export type ReplayPlayerPluginFactory = () => ReplayPlayerPlugin;
+export type ReplayPlayerPluginDefinition = ReplayPlayerPlugin | ReplayPlayerPluginFactory;
+export type ReplayTimelineEventSource = ReplayTimelineEvent[] | ((context: ReplayPlayerPluginContext) => ReplayTimelineEvent[]);
+export type ReplayTimelineRangeSource = ReplayTimelineRange[] | ((context: ReplayPlayerPluginContext) => ReplayTimelineRange[]);
+export interface ReplayPlayerOptions {
+    autoplay?: boolean;
+    fieldScale?: number;
+    initialCameraDistanceScale?: number;
+    initialCustomCameraSettings?: CameraSettings | null;
+    initialCameraViewMode?: ReplayCameraViewMode;
+    initialAttachedPlayerId?: string | null;
+    initialBallCamEnabled?: boolean;
+    initialBoostMeterEnabled?: boolean;
+    initialBoostPickupAnimationEnabled?: boolean;
+    initialHitboxWireframesEnabled?: boolean;
+    initialHitboxOnlyModeEnabled?: boolean;
+    initialPlaybackRate?: number;
+    initialSkipPostGoalTransitionsEnabled?: boolean;
+    initialSkipKickoffsEnabled?: boolean;
+    plugins?: ReplayPlayerPluginDefinition[];
+}
+export interface ReplayPlaylistPlayerOptions extends Omit<ReplayPlayerOptions, "autoplay">, PlaylistPlaybackOptions {
+    autoplay?: boolean;
+    initialItemIndex?: number;
+    preloadPolicy?: ReplayPreloadPolicy;
+    preloadRadius?: number;
+}
+export interface ReplayPlayerState {
     currentTime: number;
     duration: number;
     frameIndex: number;
-    /** Kickoff countdown metadata (@rlrml/player semantics); null outside kickoffs. */
     activeMetadata: ReplayPlayerActiveMetadata | null;
     playing: boolean;
     speed: number;
     cameraDistanceScale: number;
     customCameraSettings: CameraSettings | null;
-    cameraViewMode: ViewerCameraViewMode;
+    cameraViewMode: ReplayCameraViewMode;
     attachedPlayerId: string | null;
     ballCamEnabled: boolean;
     boostMeterEnabled: boolean;
@@ -77,135 +363,45 @@ export interface ViewerState {
     skipPostGoalTransitionsEnabled: boolean;
     skipKickoffsEnabled: boolean;
 }
-export type ViewerSnapshot = ViewerState;
-/** Batch state patch for `setState()` — same keys as @rlrml/player's. */
-export type ViewerStatePatch = Partial<Pick<ViewerState, "currentTime" | "playing" | "speed" | "cameraDistanceScale" | "customCameraSettings" | "cameraViewMode" | "attachedPlayerId" | "ballCamEnabled" | "boostMeterEnabled" | "boostPickupAnimationEnabled" | "hitboxWireframesEnabled" | "hitboxOnlyModeEnabled" | "skipPostGoalTransitionsEnabled" | "skipKickoffsEnabled">>;
-/** Per-render frame timing info handed to `onBeforeRender` callbacks. */
+export interface ReplayPlaylistPlayerState {
+    ready: boolean;
+    loading: boolean;
+    error: string | null;
+    replayLoadStates: PlaylistSourceLoadState[];
+    itemIndex: number;
+    itemCount: number;
+    item: PlaylistItem | null;
+    advanceMode: PlaylistAdvanceMode;
+    endMode: PlaylistEndMode;
+    itemEnded: boolean;
+    playlistEnded: boolean;
+    currentTime: number;
+    duration: number;
+    replayCurrentTime: number;
+    replayDuration: number;
+    frameIndex: number;
+    activeMetadata: ReplayPlayerActiveMetadata | null;
+    playing: boolean;
+    speed: number;
+    cameraDistanceScale: number;
+    customCameraSettings: CameraSettings | null;
+    cameraViewMode: ReplayCameraViewMode;
+    attachedPlayerId: string | null;
+    ballCamEnabled: boolean;
+    boostPickupAnimationEnabled: boolean;
+    hitboxWireframesEnabled: boolean;
+    hitboxOnlyModeEnabled: boolean;
+    skipPostGoalTransitionsEnabled: boolean;
+    skipKickoffsEnabled: boolean;
+}
+export type ReplayPlayerSnapshot = ReplayPlayerState;
+export type ReplayPlaylistPlayerSnapshot = ReplayPlaylistPlayerState;
+export type ReplayPlayerStatePatch = Partial<Pick<ReplayPlayerState, "currentTime" | "playing" | "speed" | "cameraDistanceScale" | "customCameraSettings" | "cameraViewMode" | "attachedPlayerId" | "ballCamEnabled" | "boostMeterEnabled" | "boostPickupAnimationEnabled" | "hitboxWireframesEnabled" | "hitboxOnlyModeEnabled" | "skipPostGoalTransitionsEnabled" | "skipKickoffsEnabled">>;
 export interface FrameRenderInfo {
     frameIndex: number;
     nextFrameIndex: number;
-    /** Interpolation fraction between frameIndex and nextFrameIndex (0-1). */
     alpha: number;
     currentTime: number;
 }
 export type BeforeRenderCallback = (info: FrameRenderInfo) => void;
-/** Per-frame resolved ball state handed to `beforeRender`. */
-export interface BallRenderState {
-    position: Vec3;
-    rotation: Quat;
-    velocity: Vec3;
-    visible: boolean;
-    /** The ball's THREE object (post-interpolation transform), if spawned. */
-    object3d: THREE.Object3D | null;
-}
-/** Per-frame resolved car state handed to `beforeRender`. */
-export interface CarRenderState {
-    /** Stable player id (from the replay's remote id) — matches `playerList[].id`. */
-    id: string;
-    name: string;
-    team: number;
-    carName: string;
-    hitboxType: string;
-    position: Vec3;
-    rotation: Quat;
-    velocity: Vec3;
-    /** 0-100 */
-    boost: number;
-    isBoosting: boolean;
-    visible: boolean;
-    /** The car's THREE object (post-interpolation transform), if spawned. */
-    object3d: THREE.Object3D | null;
-}
-export interface ViewerPluginContext {
-    /** The core; exposes playback control, state, and the subtr-actor adapter. */
-    player: ViewerPlayer;
-    /**
-     * @rlrml/player's normalized ReplayModel (`viewer.replay`) — the shared data
-     * layer plugins written against `ReplayPlayerPluginContext` read. Null only
-     * when the ViewerPlayer was constructed directly without one.
-     */
-    replay: ReplayModel | null;
-    /** The constructor options the viewer was created with. */
-    options: ViewerOptions;
-    scene: THREE.Scene;
-    camera: THREE.PerspectiveCamera;
-    renderer: THREE.WebGLRenderer;
-    /** For plugins that add DOM overlays (HUD, scoreboard, indicators). */
-    container: HTMLElement;
-}
-export interface ViewerPluginStateContext extends ViewerPluginContext {
-    state: ViewerState;
-}
-export interface ViewerRenderContext extends ViewerPluginStateContext, FrameRenderInfo {
-    /** Current playback time (s) — same value as `currentTime` (viewer-native name). */
-    time: number;
-    ball: BallRenderState;
-    cars: CarRenderState[];
-}
-export interface ViewerPlugin {
-    id: string;
-    /** Install: attach meshes/DOM, subscribe to events. */
-    setup?(ctx: ViewerPluginContext): void;
-    /** Play/pause/seek/speed changes (and once at install). */
-    onStateChange?(ctx: ViewerPluginStateContext): void;
-    /** Per frame, after ball/car transforms resolve, before renderer.render. */
-    beforeRender?(ctx: ViewerRenderContext): void;
-    /** Uninstall: dispose everything created in setup. */
-    teardown?(ctx: ViewerPluginContext): void;
-}
-export type ViewerPluginFactory = () => ViewerPlugin;
-export type ViewerPluginDefinition = ViewerPlugin | ViewerPluginFactory;
-export interface ViewerOptions {
-    plugins?: ViewerPluginDefinition[];
-    autoplay?: boolean;
-    /** Initial playback rate (default 1). Viewer-native alias of initialPlaybackRate. */
-    speed?: number;
-    /** Wrap to t=0 at the end instead of pausing (default false). */
-    loop?: boolean;
-    /** Boost/supersonic/ball trail effects (default true). */
-    effects?: boolean;
-    /**
-     * Position interpolation between ~30Hz replay samples (default "linear",
-     * matching Ballcam's production viewer). "linear" is plain lerp;
-     * "hermite" uses per-sample linear velocities as cubic tangents with a lerp
-     * fallback when velocity is missing or implausible.
-     */
-    motionInterpolation?: "hermite" | "linear";
-    /**
-     * Preprocess ball/car timelines with Ballcam-style velocity correction before
-     * render-time interpolation (default true). Set false to inspect raw samples.
-     */
-    motionSmoothing?: boolean;
-    /** Velocity-correction blend toward measured samples (default 0.15). */
-    smoothingBlendFactor?: number;
-    /** Every N corrected samples, use a stronger measured-sample anchor (default 10). */
-    smoothingAnchorInterval?: number;
-    /**
-     * Remove pre-kickoff idle time and post-goal replay gaps from motion playback,
-     * matching Ballcam's compiled .rlrf time axis (default false; changes
-     * currentTime semantics relative to `viewer.replay`).
-     */
-    timelineCompaction?: boolean;
-    /** Disable velocity/position consistency filtering after smoothing (default false). */
-    disableFrameFiltering?: boolean;
-    /** Initial playback rate; wins over `speed` when both are set. */
-    initialPlaybackRate?: number;
-    initialCameraDistanceScale?: number;
-    initialCustomCameraSettings?: CameraSettings | null;
-    initialCameraViewMode?: ViewerCameraViewMode;
-    initialAttachedPlayerId?: string | null;
-    initialBallCamEnabled?: boolean;
-    /** Tracked-but-inert (no boost meter rendering yet). */
-    initialBoostMeterEnabled?: boolean;
-    /** Read by the bridged boost-pickup-animation plugin when installed. */
-    initialBoostPickupAnimationEnabled?: boolean;
-    /** Per-car hitbox wireframes (HitboxManager). */
-    initialHitboxWireframesEnabled?: boolean;
-    /** Hitbox-only mode: wireframes shown, car bodies + trails hidden. */
-    initialHitboxOnlyModeEnabled?: boolean;
-    /** Live when a ReplayModel is present (@rlrml/player default: true). */
-    initialSkipPostGoalTransitionsEnabled?: boolean;
-    /** Live when a ReplayModel is present (@rlrml/player default: false). */
-    initialSkipKickoffsEnabled?: boolean;
-}
 //# sourceMappingURL=types.d.ts.map

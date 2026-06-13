@@ -1,6 +1,6 @@
 {
   "name": "@rlrml/subtr-actor",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "WebAssembly bindings for subtr-actor - Rocket League replay processing and analysis",
   "type": "module",
   "repository": {
