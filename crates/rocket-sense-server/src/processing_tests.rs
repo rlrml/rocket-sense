@@ -523,6 +523,7 @@ fn indexed_timeline_events_give_boost_pickups_one_review_type_with_detection_att
             "player_id": { "Steam": 76561198000000001_u64 },
             "is_team_0": true,
             "pad_type": "big",
+            "pad_zone": "offensive",
             "field_half": "opponent",
             "activity": "active",
             "is_steal": true,
@@ -543,6 +544,13 @@ fn indexed_timeline_events_give_boost_pickups_one_review_type_with_detection_att
             .get("detection")
             .and_then(|value| value.as_str()),
         Some("both")
+    );
+    assert_eq!(
+        boost_pickup
+            .attributes
+            .get("pad_zone")
+            .and_then(|value| value.as_str()),
+        Some("offensive")
     );
     assert_eq!(
         boost_pickup.primary_subject.as_ref().map(|subject| (
@@ -1024,6 +1032,64 @@ fn build_indexed_events_indexes_ball_depth_span_durations() {
     assert_eq!(row.start_time, Some(0.0));
     assert_eq!(row.end_time, Some(1.0));
     assert_eq!(row.attributes["duration_seconds"], 1.5);
+    assert_eq!(
+        row.primary_subject
+            .as_ref()
+            .map(|subject| subject.id.as_str()),
+        Some("steam:76561198000000001")
+    );
+}
+
+#[test]
+fn build_indexed_events_indexes_positioning_distance_summaries() {
+    let player = RemoteId::Steam(76561198000000001);
+    let mut timeline = stats_timeline_with_events(timeline_events_from(vec![envelope_event(
+        "field_third",
+        subtr_actor::EventTiming::Span {
+            start_frame: 0,
+            end_frame: 120,
+            start_time: 0.0,
+            end_time: 2.0,
+        },
+        subtr_actor::EventPayload::FieldThird(subtr_actor::FieldThirdEvent {
+            time: 0.0,
+            frame: 0,
+            end_time: 2.0,
+            end_frame: 120,
+            duration: 2.0,
+            player: player.clone(),
+            player_position: None,
+            is_team_0: true,
+            state: subtr_actor::FieldThirdState::Neutral,
+        }),
+    )]));
+    timeline.positioning_summary = vec![subtr_actor::ReplayStatsPositioningSummary {
+        player_id: player,
+        is_team_0: true,
+        distance: subtr_actor::PositioningSignalSnapshot {
+            sum_distance_to_teammates: 6_000.0,
+            sum_distance_to_ball: 4_000.0,
+            sum_distance_to_ball_has_possession: 1_000.0,
+            time_has_possession: 0.5,
+            sum_distance_to_ball_no_possession: 3_000.0,
+            time_no_possession: 1.5,
+        },
+    }];
+
+    let indexed = build_indexed_events(&timeline).expect("positioning distance should index");
+    let distance_rows = indexed
+        .iter()
+        .filter(|event| event.source_stream == "positioning_distance")
+        .collect::<Vec<_>>();
+
+    assert_eq!(distance_rows.len(), 1);
+    let row = distance_rows[0];
+    assert_eq!(row.event_type_key, "positioning_distance");
+    assert_eq!(row.category, "positioning");
+    assert_eq!(row.duration_seconds, Some(2.0));
+    assert_eq!(row.payload["duration"], 2.0);
+    assert_eq!(row.payload["distance_to_ball"], 2_000.0);
+    assert_eq!(row.payload["distance_to_teammates"], 3_000.0);
     assert_eq!(
         row.primary_subject
             .as_ref()

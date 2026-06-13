@@ -34,7 +34,12 @@ interface BoostPlayerSummary {
   stolenSmallBoost: number;
   stolenCount: number;
   bigPads: number;
+  bigPadsOffensive: number;
+  bigPadsNeutral: number;
+  bigPadsDefensive: number;
   smallPads: number;
+  smallPadsOffensive: number;
+  smallPadsDefensive: number;
   usedWhileSupersonic: number;
   overfill: number;
   stolenOverfill: number;
@@ -89,6 +94,7 @@ const boostLevelBands = [
 const boostPadLocations = createBoostPadLocations();
 
 type BoostComparisonMode = "players" | "teams";
+type BigPadZone = "offensive" | "neutral" | "defensive";
 
 export function BoostDetail({
   events,
@@ -601,11 +607,14 @@ function PlayerBoostEconomyChart({
     {
       key: "big-boost-pads",
       title: "Big boost pads",
-      legend: [{ className: "legend-big-pad", label: "Big pad boost" }],
-      maxValue: boostAmountScaleMax,
+      legend: [
+        { className: "legend-big-pad-offensive", label: "Stolen/offensive" },
+        { className: "legend-big-pad-neutral", label: "Neutral" },
+        { className: "legend-big-pad-defensive", label: "Defensive" },
+      ],
+      maxValue: maxSummaryValue(comparisonSummaries, (summary) => summary.bigPads),
       rows: comparisonSummaries
         .map((summary) => {
-          const potentialBoost = bigPadPotentialBoost(summary);
           return {
             key: summary.key,
             name: summary.name,
@@ -613,15 +622,30 @@ function PlayerBoostEconomyChart({
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
-            sortValue: potentialBoost,
-            total: potentialBoost,
+            sortValue: summary.bigPads,
+            total: summary.bigPads,
             valueLabel: formatCountWithPerMinute(summary.bigPads, durationSeconds),
             segments: [
               {
-                className: "big-pad-source",
-                label: "Big",
-                value: potentialBoost,
-                visibleLabel: `${summary.bigPads.toLocaleString()} big / ${formatBoostWithPerMinute(potentialBoost, durationSeconds)}`,
+                className: "big-pad-offensive-source",
+                label: "Stolen/offensive",
+                value: summary.bigPadsOffensive,
+                visibleLabel: `Stolen/off. ${summary.bigPadsOffensive.toLocaleString()}`,
+                title: `Stolen/offensive corner: ${formatCountWithPerMinute(summary.bigPadsOffensive, durationSeconds)}`,
+              },
+              {
+                className: "big-pad-neutral-source",
+                label: "Neutral",
+                value: summary.bigPadsNeutral,
+                visibleLabel: `Neutral ${summary.bigPadsNeutral.toLocaleString()}`,
+                title: `Neutral midfield: ${formatCountWithPerMinute(summary.bigPadsNeutral, durationSeconds)}`,
+              },
+              {
+                className: "big-pad-defensive-source",
+                label: "Defensive",
+                value: summary.bigPadsDefensive,
+                visibleLabel: `Defensive ${summary.bigPadsDefensive.toLocaleString()}`,
+                title: `Defensive corner: ${formatCountWithPerMinute(summary.bigPadsDefensive, durationSeconds)}`,
               },
             ],
           };
@@ -631,11 +655,13 @@ function PlayerBoostEconomyChart({
     {
       key: "small-boost-pads",
       title: "Small boost pads",
-      legend: [{ className: "legend-small-pad", label: "Small pad boost" }],
-      maxValue: boostAmountScaleMax,
+      legend: [
+        { className: "legend-small-pad-offensive", label: "Offensive half" },
+        { className: "legend-small-pad-defensive", label: "Defensive half" },
+      ],
+      maxValue: maxSummaryValue(comparisonSummaries, (summary) => summary.smallPads),
       rows: comparisonSummaries
         .map((summary) => {
-          const potentialBoost = smallPadPotentialBoost(summary);
           return {
             key: summary.key,
             name: summary.name,
@@ -643,15 +669,23 @@ function PlayerBoostEconomyChart({
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
-            sortValue: potentialBoost,
-            total: potentialBoost,
+            sortValue: summary.smallPads,
+            total: summary.smallPads,
             valueLabel: formatCountWithPerMinute(summary.smallPads, durationSeconds),
             segments: [
               {
-                className: "small-pad-source",
-                label: "Small",
-                value: potentialBoost,
-                visibleLabel: `${summary.smallPads.toLocaleString()} small / ${formatBoostWithPerMinute(potentialBoost, durationSeconds)}`,
+                className: "small-pad-offensive-source",
+                label: "Offensive",
+                value: summary.smallPadsOffensive,
+                visibleLabel: `Off. ${summary.smallPadsOffensive.toLocaleString()}`,
+                title: `Offensive half: ${formatCountWithPerMinute(summary.smallPadsOffensive, durationSeconds)}`,
+              },
+              {
+                className: "small-pad-defensive-source",
+                label: "Defensive",
+                value: summary.smallPadsDefensive,
+                visibleLabel: `Def. ${summary.smallPadsDefensive.toLocaleString()}`,
+                title: `Defensive half: ${formatCountWithPerMinute(summary.smallPadsDefensive, durationSeconds)}`,
               },
             ],
           };
@@ -1436,6 +1470,70 @@ function isStealPickup(event: MechanicEventResponse): boolean {
   return event.payload.is_steal === true;
 }
 
+function bigPadZoneCounts(events: MechanicEventResponse[], player: ReplayPlayer): Record<BigPadZone, number> {
+  const counts: Record<BigPadZone, number> = {
+    offensive: 0,
+    neutral: 0,
+    defensive: 0,
+  };
+
+  for (const event of events) {
+    const zone = bigPadZone(event, player);
+    if (zone) counts[zone] += 1;
+  }
+
+  return counts;
+}
+
+function bigPadZone(event: MechanicEventResponse, player: ReplayPlayer): BigPadZone | null {
+  if (boostPadSize(event) !== "big") return null;
+
+  const payloadZone = event.payload.pad_zone ?? event.payload.big_pad_zone;
+  if (payloadZone === "offensive" || payloadZone === "neutral" || payloadZone === "defensive") return payloadZone;
+
+  const position = eventPosition(event);
+  const pad = position ? nearestBoostPad(position, "big") : null;
+  if (pad) return bigPadZoneForPad(player.team, pad);
+
+  const fieldHalf = event.payload.field_half;
+  if (fieldHalf === "opponent") return "offensive";
+  if (fieldHalf === "own") return "defensive";
+  return isStealPickup(event) ? "offensive" : null;
+}
+
+function bigPadZoneForPad(team: number | null, pad: BoostPadLocation): BigPadZone {
+  if (Math.abs(pad.y) < 1) return "neutral";
+  if (team !== 0 && team !== 1) return "neutral";
+
+  const isOpponentSide = team === 0 ? pad.y > 0 : pad.y < 0;
+  return isOpponentSide ? "offensive" : "defensive";
+}
+
+function smallPadHalfCounts(events: MechanicEventResponse[], player: ReplayPlayer): Record<"offensive" | "defensive", number> {
+  const counts = { offensive: 0, defensive: 0 };
+  for (const event of events) {
+    if (boostPadSize(event) !== "small") continue;
+    const zone = smallPadHalf(event, player);
+    if (zone) counts[zone] += 1;
+  }
+  return counts;
+}
+
+function smallPadHalf(event: MechanicEventResponse, player: ReplayPlayer): "offensive" | "defensive" | null {
+  const payloadZone = event.payload.pad_zone;
+  if (payloadZone === "offensive" || payloadZone === "defensive") return payloadZone;
+
+  const fieldHalf = event.payload.field_half;
+  if (fieldHalf === "opponent") return "offensive";
+  if (fieldHalf === "own") return "defensive";
+
+  const position = eventPosition(event);
+  const pad = position ? nearestBoostPad(position, "small") : null;
+  if (pad == null || (player.team !== 0 && player.team !== 1)) return null;
+  const isOpponentSide = player.team === 0 ? pad.y > 0 : pad.y < 0;
+  return isOpponentSide ? "offensive" : "defensive";
+}
+
 function boostPlayerSummaries(
   players: ReplayPlayer[],
   stateSamples: BoostStateSample[],
@@ -1468,6 +1566,8 @@ function boostPlayerSummaries(
 
     const bigPads = matchingPickups.filter((event) => boostPadSize(event) === "big").length;
     const smallPads = matchingPickups.filter((event) => boostPadSize(event) === "small").length;
+    const bigPadZones = bigPadZoneCounts(matchingPickups, player);
+    const smallPadHalves = smallPadHalfCounts(matchingPickups, player);
 
     const used = trackTotals.get(`${key}:boost_used`) ?? 0;
     const usedWhileSupersonic = trackTotals.get(`${key}:boost_used_supersonic`) ?? 0;
@@ -1494,7 +1594,12 @@ function boostPlayerSummaries(
       stolenSmallBoost,
       stolenCount: stealPickups.length,
       bigPads,
+      bigPadsOffensive: bigPadZones.offensive,
+      bigPadsNeutral: bigPadZones.neutral,
+      bigPadsDefensive: bigPadZones.defensive,
       smallPads,
+      smallPadsOffensive: smallPadHalves.offensive,
+      smallPadsDefensive: smallPadHalves.defensive,
       usedWhileSupersonic,
       overfill,
       stolenOverfill,
@@ -1528,7 +1633,12 @@ function teamBoostSummary(summaries: BoostPlayerSummary[], team: 0 | 1, duration
     stolenSmallBoost: sum((summary) => summary.stolenSmallBoost),
     stolenCount: sum((summary) => summary.stolenCount),
     bigPads: sum((summary) => summary.bigPads),
+    bigPadsOffensive: sum((summary) => summary.bigPadsOffensive),
+    bigPadsNeutral: sum((summary) => summary.bigPadsNeutral),
+    bigPadsDefensive: sum((summary) => summary.bigPadsDefensive),
     smallPads: sum((summary) => summary.smallPads),
+    smallPadsOffensive: sum((summary) => summary.smallPadsOffensive),
+    smallPadsDefensive: sum((summary) => summary.smallPadsDefensive),
     usedWhileSupersonic: sum((summary) => summary.usedWhileSupersonic),
     overfill: sum((summary) => summary.overfill),
     stolenOverfill: sum((summary) => summary.stolenOverfill),

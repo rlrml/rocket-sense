@@ -31,6 +31,10 @@ Set `ROCKET_SENSE_WEB_API_TARGET=http://127.0.0.1:8080` before `just web-dev`
 when you want to point the SPA at a local Axum server instead. Use
 `just web-build` or `just web-typecheck` to validate the client.
 
+For UI work, follow the design guidance in
+[`docs/design-system.md`](docs/design-system.md). The reusable CSS custom
+properties live in `web/src/design-tokens.css`.
+
 ## Initial architecture
 
 This repository starts as a small Cargo workspace:

@@ -22,6 +22,11 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
             uploader: Some("me".to_owned()),
             status: Some(" Processed ".to_owned()),
             player_id: Some(" Steam : 76561198000000000 ".to_owned()),
+            stat_terms: vec![
+                " Goal ".to_owned(),
+                "goal".to_owned(),
+                "Flip_Reset%".to_owned(),
+            ],
             include_teammates: Some(true),
             count: Some(500),
             group_by: Some(" playlist ".to_owned()),
@@ -53,6 +58,7 @@ fn stat_aggregate_filters_normalize_replay_set_and_player_filters() {
     assert_eq!(filters.limit, 200);
     assert_eq!(filters.group_by, Some(StatAggregateGroupBy::Playlist));
     assert!(filters.include_teammates);
+    assert_eq!(filters.stat_terms, ["goal", "flip_reset%"]);
     let player = filters.player.expect("player filter should parse");
     assert_eq!(player.platform, "steam");
     assert_eq!(player.platform_player_id, "76561198000000000");
@@ -106,6 +112,16 @@ fn stat_aggregate_query_accepts_repeated_array_filters() {
     assert_eq!(query.player_names, ["colonelpanic8", "teammate"]);
     assert_eq!(query.playlist, ["Online", "Private"]);
     assert_eq!(query.replay_ids, [first_replay_id, second_replay_id]);
+}
+
+#[test]
+fn stat_aggregate_query_accepts_repeated_stat_terms() {
+    let raw_query = "stat-term=Goal&stat-term=kickoff&stat_terms%5B%5D=double%20tap";
+    let query = StatAggregatesQuery::from_raw_query(Some(raw_query))
+        .expect("repeated stat terms should parse");
+    let filters = StatAggregateFilters::from_query(query, None).expect("filters should parse");
+
+    assert_eq!(filters.stat_terms, ["goal", "kickoff", "double tap"]);
 }
 
 #[test]
