@@ -214,6 +214,17 @@ pub struct StatAggregatesQuery {
     /// Optional player focus in `platform:id` form.
     #[serde(rename = "player-id")]
     pub player_id: Option<String>,
+    /// Restrict aggregate event counts to event types matching one or more
+    /// search terms. Denominators still cover the full filtered replay set.
+    #[serde(
+        default,
+        rename = "stat-term",
+        alias = "stat-term[]",
+        alias = "stat_terms",
+        alias = "stat_terms[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub stat_terms: Vec<String>,
     /// Include aggregate stats for same-team players when a player filter is present.
     #[serde(rename = "include-teammates")]
     pub include_teammates: Option<bool>,
@@ -246,6 +257,7 @@ pub struct StatAggregatesQuery {
 pub(crate) struct StatAggregateFilters {
     pub(crate) replay_set: ReplaySetFilters,
     pub(crate) player: Option<PlayerStatFilter>,
+    pub(crate) stat_terms: Vec<String>,
     pub(crate) include_teammates: bool,
     pub(crate) kickoff_spawn: KickoffSpawnFilter,
     pub(crate) limit: u32,
@@ -337,6 +349,7 @@ impl StatAggregateFilters {
                 .player_id
                 .map(|player_id| PlayerStatFilter::from_query(&player_id))
                 .transpose()?,
+            stat_terms: normalize_stat_terms(query.stat_terms),
             include_teammates: query.include_teammates.unwrap_or(false),
             kickoff_spawn: KickoffSpawnFilter::from_values(
                 query.kickoff_shape,
@@ -372,6 +385,7 @@ impl StatAggregatesQuery {
             uploader: replay_set.uploader,
             status: replay_set.status,
             player_id: params.first(&["player-id", "player_id"]),
+            stat_terms: params.values(&["stat-term", "stat_terms"]),
             include_teammates: params
                 .first(&["include-teammates", "include_teammates"])
                 .map(|value| parse_bool_filter("include-teammates", &value))
@@ -1045,6 +1059,7 @@ async fn load_replay_set_stat_count_rows(
         "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
+    append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
     query.push(
         r#"
         JOIN event_types et
@@ -1105,6 +1120,7 @@ async fn load_player_stat_count_rows(
             "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
+    append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
     append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
     query.push(
         r#"
@@ -1148,6 +1164,7 @@ async fn load_player_stat_count_rows(
                 "#,
         );
         append_user_facing_stat_event_join_filter(&mut query, "event");
+        append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
         append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
         query.push(
             r#"
@@ -1250,6 +1267,50 @@ fn append_event_kickoff_spawn_filter<'args>(
     );
 }
 
+fn append_stat_term_event_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    event_alias: &str,
+    terms: &[String],
+) {
+    if terms.is_empty() {
+        return;
+    }
+
+    builder
+        .push(" AND ")
+        .push(event_alias)
+        .push(".event_type_id IN (SELECT stat_filter.id FROM event_types stat_filter WHERE ");
+    append_stat_term_predicate(builder, "stat_filter", terms);
+    builder.push(")");
+}
+
+fn append_stat_term_predicate<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    event_type_alias: &str,
+    terms: &[String],
+) {
+    for (index, term) in terms.iter().enumerate() {
+        if index > 0 {
+            builder.push(" OR ");
+        }
+        let pattern = format!("%{}%", escape_like_term(term));
+        builder
+            .push("(")
+            .push(event_type_alias)
+            .push(".key ILIKE ")
+            .push_bind(pattern.clone())
+            .push(" ESCAPE '\\' OR ")
+            .push(event_type_alias)
+            .push(".display_name ILIKE ")
+            .push_bind(pattern.clone())
+            .push(" ESCAPE '\\' OR ")
+            .push(event_type_alias)
+            .push(".category ILIKE ")
+            .push_bind(pattern)
+            .push(" ESCAPE '\\')");
+    }
+}
+
 fn append_target_player_filters<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     filters: &'args StatAggregateFilters,
@@ -1284,6 +1345,23 @@ fn parse_stat_group_by(value: &str) -> Result<StatAggregateGroupBy, ApiError> {
         "playlist" | "game-mode" | "game_mode" => Ok(StatAggregateGroupBy::Playlist),
         _ => Err(ApiError::bad_request("group-by must be one of: playlist")),
     }
+}
+
+fn normalize_stat_terms(values: Vec<String>) -> Vec<String> {
+    let mut terms = Vec::new();
+    for value in values {
+        let term = value.trim().to_ascii_lowercase();
+        if !term.is_empty() && !terms.contains(&term) {
+            terms.push(term);
+        }
+    }
+    terms
+}
+
+fn escape_like_term(term: &str) -> String {
+    term.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 fn playlist_label(value: &str) -> String {

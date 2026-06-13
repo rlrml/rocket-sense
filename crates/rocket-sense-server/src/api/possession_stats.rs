@@ -1,8 +1,8 @@
 use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{
-    Json, Router,
     extract::{RawQuery, State},
     routing::get,
+    Json, Router,
 };
 use serde::Serialize;
 use sqlx::{Postgres, QueryBuilder, Row};
@@ -13,7 +13,7 @@ use super::{
     event_stats::{count_column, display_label, finite_value},
     query::QueryParams,
     replay_set::{PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters},
-    replays::{ApiError, require_db},
+    replays::{require_db, ApiError},
 };
 
 #[cfg(test)]
