@@ -2483,7 +2483,7 @@ function PlayerStatsPage() {
             <Metric label="First seen" value={formatShortDate(playerSummary.first_seen_at)} />
             <Metric label="Last seen" value={formatShortDate(playerSummary.last_seen_at)} />
             <Metric label="Platform" value={platformLabel(playerSummary.platform)} />
-            <Metric label="Player id" value={playerSummary.platform_player_id} />
+            <PlayerIdMetric value={playerSummary.platform_player_id} />
             <Metric label="Names" value={playerSummary.names.length.toLocaleString()} />
             <Metric label="Pro" value={playerSummary.is_pro ? "Yes" : "No"} />
           </div>
@@ -4331,6 +4331,34 @@ function Metric({ label, value }: { label: string; value: string }) {
     <div className="metric">
       <span>{label}</span>
       <strong>{value}</strong>
+    </div>
+  );
+}
+
+function PlayerIdMetric({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyPlayerId() {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="metric player-id-metric">
+      <span>Player id</span>
+      <strong className="player-id-value">
+        <span className="player-id-text" title={value}>
+          {value}
+        </span>
+        <button className="player-id-copy" type="button" title={copied ? "Copied" : "Copy player id"} onClick={copyPlayerId}>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+        </button>
+      </strong>
     </div>
   );
 }
