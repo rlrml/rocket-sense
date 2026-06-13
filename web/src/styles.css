@@ -2468,8 +2468,93 @@ button.status-stale:hover {
   background: #be123c;
 }
 
-.positioning-table th,
-.positioning-table td {
+.positioning-proximity-chart {
+  display: grid;
+  gap: 10px;
+}
+
+.positioning-proximity-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.positioning-proximity-meters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.positioning-meter {
+  display: grid;
+  grid-template-columns: minmax(58px, 0.7fr) minmax(54px, 1fr) minmax(68px, auto);
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.positioning-meter-label {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.positioning-meter-track {
+  position: relative;
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-subtle);
+}
+
+.positioning-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  display: block;
+  min-width: 2px;
+  border-radius: 4px;
+}
+
+.positioning-meter-fill[style*="width: 0%"] {
+  min-width: 0;
+}
+
+.positioning-meter-distance-ball {
+  background: #0f766e;
+}
+
+.positioning-meter-distance-team {
+  background: #0891b2;
+}
+
+.positioning-meter-closest {
+  background: #7c3aed;
+}
+
+.positioning-meter-farthest {
+  background: #be123c;
+}
+
+.positioning-meter-caught {
+  background: #a16207;
+}
+
+.positioning-meter strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: right;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
@@ -4635,9 +4720,18 @@ button.status-stale:hover {
 
   .player-metric-row,
   .metric-bar-line,
+  .positioning-proximity-row,
   .possession-player-row,
   .team-boost-lane {
     grid-template-columns: 1fr;
+  }
+
+  .positioning-proximity-meters {
+    grid-template-columns: 1fr;
+  }
+
+  .positioning-meter {
+    grid-template-columns: minmax(58px, 0.7fr) minmax(72px, 1fr) minmax(68px, auto);
   }
 
   .possession-metric-grid {

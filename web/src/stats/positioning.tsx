@@ -132,7 +132,7 @@ export function PositioningDetail({
             <h3>Spacing & proximity</h3>
             <span>Average distances and ball priority</span>
           </header>
-          <PositioningTable summaries={summaries} />
+          <PositioningProximityChart summaries={summaries} />
         </section>
       </div>
     </div>
@@ -184,40 +184,78 @@ function PositioningBarRows({
   );
 }
 
-function PositioningTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  if (!summaries.some((summary) => summary.trackedSeconds > 0)) {
+function PositioningProximityChart({ summaries }: { summaries: PlayerPositioningSummary[] }) {
+  const rows = summaries.map((summary) => ({
+    summary,
+    ballDistance: weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
+    teammateDistance: weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight),
+  }));
+  const maxDistance = Math.max(1, ...rows.flatMap((row) => [row.ballDistance ?? 0, row.teammateDistance ?? 0]));
+  const maxCaughtAhead = Math.max(1, ...summaries.map((summary) => summary.caughtAheadGoals));
+  const showCaughtAhead = summaries.some((summary) => summary.caughtAheadGoals > 0);
+
+  if (!summaries.some((summary) => summary.trackedSeconds > 0 || summary.distanceToBallWeight > 0 || summary.distanceToTeammatesWeight > 0)) {
     return <div className="stat-empty">No distance or proximity rows are available for this replay.</div>;
   }
 
   return (
-    <div className="table-frame compact-table positioning-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>Avg ball</th>
-            <th>Avg team</th>
-            <th>Closest</th>
-            <th>Farthest</th>
-            <th>Caught ahead</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summaries.map((summary) => (
-            <tr key={summary.key}>
-              <td>
-                <strong>{summary.name}</strong>
-                <div className="subtle">{teamLabel(summary.team)}</div>
-              </td>
-              <td>{formatDistance(weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight))}</td>
-              <td>{formatDistance(weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight))}</td>
-              <td>{formatPercent(summary.closestTeamSeconds, summary.trackedSeconds)}</td>
-              <td>{formatPercent(summary.farthestSeconds, summary.trackedSeconds)}</td>
-              <td>{summary.caughtAheadGoals.toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="positioning-proximity-chart">
+      {rows.map(({ summary, ballDistance, teammateDistance }) => (
+        <div className="positioning-proximity-row" key={summary.key}>
+          <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
+            <strong>{summary.name}</strong>
+            <span>{teamLabel(summary.team)}</span>
+          </div>
+          <div className="positioning-proximity-meters">
+            <PositioningMeter
+              className="positioning-meter-distance-ball"
+              label="Avg ball"
+              percent={barPercent(ballDistance, maxDistance)}
+              value={formatDistance(ballDistance)}
+            />
+            <PositioningMeter
+              className="positioning-meter-distance-team"
+              label="Avg team"
+              percent={barPercent(teammateDistance, maxDistance)}
+              value={formatDistance(teammateDistance)}
+            />
+            <PositioningMeter
+              className="positioning-meter-closest"
+              label="Closest"
+              percent={percentage(summary.closestTeamSeconds, summary.trackedSeconds)}
+              value={formatPercent(summary.closestTeamSeconds, summary.trackedSeconds)}
+            />
+            <PositioningMeter
+              className="positioning-meter-farthest"
+              label="Farthest"
+              percent={percentage(summary.farthestSeconds, summary.trackedSeconds)}
+              value={formatPercent(summary.farthestSeconds, summary.trackedSeconds)}
+            />
+            {showCaughtAhead ? (
+              <PositioningMeter
+                className="positioning-meter-caught"
+                label="Caught"
+                percent={barPercent(summary.caughtAheadGoals, maxCaughtAhead)}
+                value={summary.caughtAheadGoals.toLocaleString()}
+              />
+            ) : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function PositioningMeter({ className, label, percent, value }: { className: string; label: string; percent: number; value: string }) {
+  const clampedPercent = Math.max(0, Math.min(100, percent));
+
+  return (
+    <div className="positioning-meter" title={`${label}: ${value}`}>
+      <span className="positioning-meter-label">{label}</span>
+      <span className="positioning-meter-track" aria-label={`${label}: ${value}`}>
+        <span className={`positioning-meter-fill ${className}`} style={{ width: `${clampedPercent}%` }} />
+      </span>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -510,6 +548,11 @@ function roleLabel(role: PositioningRole): string {
 
 function percentage(value: number, total: number): number {
   return total > 0 ? (value / total) * 100 : 0;
+}
+
+function barPercent(value: number | null, max: number): number {
+  if (value == null || !Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
+  return (value / max) * 100;
 }
 
 function formatSeconds(value: number): string {
