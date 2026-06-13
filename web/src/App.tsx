@@ -62,7 +62,7 @@ import {
 } from "./api";
 import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
-import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
+import { StalenessBadge } from "./staleness";
 import { PlatformIcon } from "./platform";
 import { RankBadge } from "./rank";
 import {
@@ -2475,11 +2475,9 @@ function PlayerStatsPage() {
               <span>Replays</span>
               <strong className="metric-with-action">
                 {playerSummary.replay_count.toLocaleString()}
-                <ProcessingVersionTrigger
-                  platform={platform}
-                  platformPlayerId={platformPlayerId}
-                  search={location.search}
-                />
+                <Link className="metric-action-chip" to={`/replays?${playerReplayParams.toString()}`} title="View player replays">
+                  <FileVideo size={14} />
+                </Link>
               </strong>
             </div>
             <Metric label="Active" value={formatDuration(stats?.active_time_seconds ?? null)} />

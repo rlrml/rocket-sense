@@ -794,6 +794,25 @@ tbody tr:last-child td {
   color: #6b7280;
 }
 
+.metric-action-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.metric-action-chip:hover,
+.metric-action-chip:focus-visible {
+  border-color: var(--blue);
+  color: var(--blue);
+}
+
 .version-modal {
   width: min(100%, 560px);
 }
