@@ -77,6 +77,7 @@ export function PositioningDetail({
               positioningSegment("neutral", "Neutral", summary.neutralThirdSeconds, summary.trackedSeconds),
               positioningSegment("offensive", "Offensive", summary.offensiveThirdSeconds, summary.trackedSeconds),
             ]}
+            sortValue={(summary) => share(summary.offensiveThirdSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
           />
         </section>
@@ -94,6 +95,7 @@ export function PositioningDetail({
               positioningSegment("level", "Level", summary.levelWithBallSeconds, summary.trackedSeconds),
               positioningSegment("ahead", "Ahead", summary.inFrontOfBallSeconds, summary.trackedSeconds),
             ]}
+            sortValue={(summary) => share(summary.inFrontOfBallSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
           />
         </section>
@@ -109,6 +111,7 @@ export function PositioningDetail({
             segments={(summary) =>
               roleOrder.map((role) => positioningSegment(`role-${role}`, roleLabel(role), summary.roleSeconds[role], roleTotal(summary)))
             }
+            sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
             total={roleTotal}
           />
         </section>
@@ -128,11 +131,13 @@ export function PositioningDetail({
 function PositioningBarRows({
   summaries,
   segments,
+  sortValue,
   total,
   emptyLabel,
 }: {
   summaries: PlayerPositioningSummary[];
   segments: (summary: PlayerPositioningSummary) => SegmentedBarSegment[];
+  sortValue?: (summary: PlayerPositioningSummary) => number;
   total: (summary: PlayerPositioningSummary) => number;
   emptyLabel: string;
 }) {
@@ -140,9 +145,11 @@ function PositioningBarRows({
     return <div className="stat-empty">{emptyLabel}</div>;
   }
 
+  const rows = sortedSummaries(summaries, sortValue);
+
   return (
     <div className="positioning-bar-rows">
-      {summaries.map((summary) => (
+      {rows.map((summary) => (
         <div className="positioning-bar-row" key={summary.key}>
           <div className={`player-bar-label team-accent-${teamClass(summary.team)}`}>
             <strong>{summary.name}</strong>
@@ -161,7 +168,7 @@ function PositioningBarRows({
 }
 
 function PositioningProximityChart({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  const rows = summaries.map((summary) => ({
+  const rows = sortedSummaries(summaries, (summary) => share(summary.closestTeamSeconds, summary.trackedSeconds)).map((summary) => ({
     summary,
     ballDistance: weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
     teammateDistance: weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight),
@@ -435,6 +442,17 @@ function weightedAverage(weightedValue: number, weight: number): number | null {
   return weight > 0 ? weightedValue / weight : null;
 }
 
+function sortedSummaries(
+  summaries: PlayerPositioningSummary[],
+  sortValue: ((summary: PlayerPositioningSummary) => number) | undefined,
+): PlayerPositioningSummary[] {
+  if (!sortValue) return summaries;
+  return summaries.slice().sort((left, right) => {
+    const valueDiff = sortValue(right) - sortValue(left);
+    return valueDiff || compareSummaries(left, right);
+  });
+}
+
 function compareSummaries(left: PlayerPositioningSummary, right: PlayerPositioningSummary): number {
   if (left.team !== right.team) return (left.team ?? 9) - (right.team ?? 9);
   return right.trackedSeconds - left.trackedSeconds || left.name.localeCompare(right.name);
@@ -520,6 +538,10 @@ function roleLabel(role: PositioningRole): string {
 
 function percentage(value: number, total: number): number {
   return total > 0 ? (value / total) * 100 : 0;
+}
+
+function share(value: number, total: number): number {
+  return total > 0 ? value / total : 0;
 }
 
 function barPercent(value: number | null, max: number): number {
