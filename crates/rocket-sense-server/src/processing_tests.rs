@@ -245,6 +245,42 @@ fn normalize_playlist_returns_filter_slugs_for_common_values() {
 }
 
 #[test]
+fn client_scaffold_json_matches_typed_analysis_outputs() {
+    let steam_player = RemoteId::Steam(76561198000000001);
+    let ps4_player = RemoteId::PlayStation(boxcars::Ps4Id {
+        online_id: 6788998483854448235,
+        name: "KvonUnknown".to_owned(),
+        unknown1: vec![98, 50, 117],
+    });
+    let timeline = stats_timeline_fixture_for_client_json(steam_player.clone(), ps4_player.clone());
+    let scaffold_json = serde_json::to_value(&timeline).expect("typed scaffold should serialize");
+
+    let output = replay_analysis_output_from_scaffold_json(
+        &scaffold_json,
+        serde_json::json!({ "source": "client_wasm" }),
+    )
+    .expect("client scaffold should convert");
+
+    assert_eq!(output.metadata, replay_search_metadata(&timeline));
+    assert_eq!(
+        output.boost_tracks,
+        collect_boost_accumulation_tracks(&timeline)
+    );
+    assert_eq!(
+        indexed_event_fingerprints(&output.indexed_events),
+        indexed_event_fingerprints(&build_indexed_events(&timeline).expect("typed events index"))
+    );
+    assert_eq!(
+        output.event_stream["timeline_events"],
+        serde_json::to_value(&timeline.events).expect("events should serialize")
+    );
+    assert_eq!(
+        output.event_stream["replay_meta"],
+        scaffold_json["replay_meta"]
+    );
+}
+
+#[test]
 fn indexed_goal_context_does_not_synthesize_goal_tag_events() {
     let event = subtr_actor::GoalContextEvent {
         time: 123.5,
@@ -1081,6 +1117,208 @@ fn stats_timeline_with_events(
     }
 }
 
+fn stats_timeline_fixture_for_client_json(
+    steam_player: RemoteId,
+    ps4_player: RemoteId,
+) -> subtr_actor::ReplayStatsTimelineScaffold {
+    let scoreboard_stats = Some(
+        [
+            ("Score".to_owned(), HeaderProp::Int(512)),
+            ("Goals".to_owned(), HeaderProp::QWord(2)),
+            ("Assists".to_owned(), HeaderProp::Float(1.0)),
+            ("Saves".to_owned(), HeaderProp::Int(3)),
+            ("Shots".to_owned(), HeaderProp::Int(5)),
+        ]
+        .into_iter()
+        .collect(),
+    );
+    let events = vec![
+        moment_event(
+            "core_player",
+            60,
+            1.0,
+            subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                time: 1.0,
+                frame: 60,
+                player: steam_player.clone(),
+                player_position: None,
+                is_team_0: true,
+                score_delta: 100,
+                goals_delta: 1,
+                assists_delta: 0,
+                saves_delta: 0,
+                shots_delta: 1,
+            }),
+        ),
+        envelope_event(
+            "player_activity",
+            subtr_actor::EventTiming::Span {
+                start_frame: 60,
+                end_frame: 180,
+                start_time: 1.0,
+                end_time: 3.0,
+            },
+            subtr_actor::EventPayload::PlayerActivity(subtr_actor::PlayerActivityEvent {
+                time: 1.0,
+                frame: 60,
+                end_time: 3.0,
+                end_frame: 180,
+                duration: 2.0,
+                player: steam_player.clone(),
+                player_position: None,
+                is_team_0: true,
+                state: subtr_actor::ActivityState::Demolished,
+            }),
+        ),
+        envelope_event(
+            "depth_role",
+            subtr_actor::EventTiming::Span {
+                start_frame: 180,
+                end_frame: 300,
+                start_time: 3.0,
+                end_time: 5.0,
+            },
+            subtr_actor::EventPayload::DepthRole(subtr_actor::DepthRoleEvent {
+                time: 3.0,
+                frame: 180,
+                end_time: 5.0,
+                end_frame: 300,
+                duration: 2.0,
+                player: ps4_player.clone(),
+                player_position: None,
+                is_team_0: false,
+                state: subtr_actor::DepthRoleState::MostBack,
+            }),
+        ),
+        moment_event(
+            "touch",
+            240,
+            4.0,
+            subtr_actor::EventPayload::Touch(touch_stats_event(
+                4.0,
+                240,
+                ps4_player.clone(),
+                false,
+            )),
+        ),
+    ];
+
+    subtr_actor::ReplayStatsTimelineScaffold {
+        config: subtr_actor::default_stats_timeline_config(),
+        replay_meta: ReplayMeta {
+            team_zero: vec![PlayerInfo {
+                remote_id: steam_player.clone(),
+                stats: scoreboard_stats,
+                name: "Blue Player".to_owned(),
+                car_body_id: None,
+                car_body_name: None,
+                car_hitbox_family: None,
+                camera_settings: None,
+            }],
+            team_one: vec![PlayerInfo {
+                remote_id: ps4_player.clone(),
+                stats: None,
+                name: "Orange Player".to_owned(),
+                car_body_id: None,
+                car_body_name: None,
+                car_hitbox_family: None,
+                camera_settings: None,
+            }],
+            all_headers: vec![
+                (
+                    "Playlist".to_owned(),
+                    HeaderProp::Str("Ranked Doubles".to_owned()),
+                ),
+                (
+                    "MapName".to_owned(),
+                    HeaderProp::Name("Stadium_P".to_owned()),
+                ),
+                (
+                    "Date".to_owned(),
+                    HeaderProp::Str("2026-05-23 05-50-00".to_owned()),
+                ),
+                (
+                    "Id".to_owned(),
+                    HeaderProp::Str("fixture-match-guid".to_owned()),
+                ),
+            ],
+            game_type: subtr_actor::ReplayGameTypeDetails::from_signals(
+                Some("Online".to_owned()),
+                Some(11),
+                Some("TAGame.MatchType_PublicRanked_TA".to_owned()),
+            ),
+            season: None,
+        },
+        events: timeline_events_from(events),
+        frames: vec![subtr_actor::ReplayStatsFrameScaffold {
+            frame_number: 300,
+            time: 5.0,
+            dt: 1.0 / 60.0,
+            seconds_remaining: Some(-2),
+            game_state: None,
+            ball_has_been_hit: Some(true),
+            kickoff_countdown_time: None,
+            gameplay_phase: subtr_actor::GameplayPhase::ActivePlay,
+            is_live_play: true,
+            team_zero: BTreeMap::new(),
+            team_one: BTreeMap::new(),
+            players: vec![subtr_actor::ReplayStatsPlayerIdentity {
+                player_id: ps4_player.clone(),
+                name: "Orange Player".to_owned(),
+                is_team_0: false,
+            }],
+        }],
+        positioning_summary: vec![],
+        accumulation_tracks: vec![subtr_actor::AccumulationTrack {
+            player_id: ps4_player,
+            is_team_0: false,
+            quantity: subtr_actor::AccumulationQuantity::BoostAmount,
+            points: vec![subtr_actor::AccumulationPoint {
+                frame: 300,
+                value: 42.0,
+            }],
+        }],
+    }
+}
+
+fn indexed_event_fingerprints(events: &[IndexedEvent]) -> Vec<Value> {
+    events
+        .iter()
+        .map(|event| {
+            serde_json::json!({
+                "event_type_key": event.event_type_key,
+                "display_name": event.display_name,
+                "category": event.category,
+                "source": event.source,
+                "source_stream": event.source_stream,
+                "source_index": event.source_index,
+                "source_event_id": event.source_event_id,
+                "primary_subject": event.primary_subject.as_ref().map(event_subject_fingerprint),
+                "subjects": event.subjects.iter().map(event_subject_fingerprint).collect::<Vec<_>>(),
+                "team": event.team,
+                "start_frame": event.start_frame,
+                "end_frame": event.end_frame,
+                "event_frame": event.event_frame,
+                "start_time": event.start_time,
+                "end_time": event.end_time,
+                "event_time": event.event_time,
+                "duration_seconds": event.duration_seconds,
+                "confidence": event.confidence,
+                "attributes": event.attributes,
+                "payload": event.payload,
+            })
+        })
+        .collect()
+}
+
+fn event_subject_fingerprint(subject: &EventSubject) -> Value {
+    serde_json::json!({
+        "kind": subject.kind,
+        "id": subject.id,
+        "role": subject.role,
+    })
+}
+
 fn timeline_events_from(events: Vec<subtr_actor::Event>) -> subtr_actor::ReplayStatsTimelineEvents {
     subtr_actor::ReplayStatsTimelineEvents { events }
 }
@@ -1242,4 +1480,66 @@ fn staleness_is_not_flagged_for_unparsed_replay() {
     assert!(!info.is_stale);
     assert!(!info.schema_outdated);
     assert!(!info.subtr_actor_outdated);
+}
+
+/// End-to-end equivalence check for the client-side reprocess path: a real
+/// replay analyzed by the typed `collect_replay_analysis` must produce the same
+/// `ReplayAnalysisOutput` as `replay_analysis_output_from_scaffold_json` fed the
+/// serialized scaffold (exactly what the WASM `get_stats_timeline_json` uploads).
+/// This is the rigorous guard that the JSON-reading twins (metadata, indexed
+/// events, boost tracks) stay faithful to the typed extractors.
+#[test]
+fn client_scaffold_json_matches_typed_analysis() {
+    let replay_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../vendor/subtr-actor/assets/post-eac-ranked-doubles-2026-04-28.replay"
+    );
+    let bytes = std::fs::read(replay_path).expect("read sample replay fixture");
+
+    // Typed path (the existing server pipeline).
+    let typed = collect_replay_analysis(bytes.clone()).expect("typed analysis");
+
+    // Reproduce the WASM upload: serialize the scaffold to JSON, then run the
+    // JSON-reading twins over it.
+    let replay = boxcars::ParserBuilder::new(&bytes)
+        .must_parse_network_data()
+        .on_error_check_crc()
+        .parse()
+        .expect("parse replay");
+    let scaffold = StatsTimelineEventCollector::new()
+        .get_replay_stats_timeline_scaffold(&replay)
+        .expect("collect scaffold");
+    let scaffold_json = serde_json::to_value(&scaffold).expect("serialize scaffold");
+
+    let from_json = replay_analysis_output_from_scaffold_json(
+        &scaffold_json,
+        serde_json::json!({ "source": "client_wasm_test" }),
+    )
+    .expect("json analysis");
+
+    assert_eq!(
+        typed.metadata, from_json.metadata,
+        "search metadata mismatch"
+    );
+    assert_eq!(
+        typed.boost_tracks, from_json.boost_tracks,
+        "boost tracks mismatch"
+    );
+    assert_eq!(
+        format!("{:#?}", typed.indexed_events),
+        format!("{:#?}", from_json.indexed_events),
+        "indexed events mismatch",
+    );
+    assert_eq!(
+        typed.event_stream["timeline_events"], from_json.event_stream["timeline_events"],
+        "event stream timeline_events mismatch",
+    );
+    assert_eq!(
+        typed.event_stream["replay_meta"], from_json.event_stream["replay_meta"],
+        "event stream replay_meta mismatch",
+    );
+
+    // Sanity: the fixture actually exercised the twins.
+    assert!(!typed.indexed_events.is_empty(), "expected indexed events");
+    assert!(!typed.metadata.players.is_empty(), "expected players");
 }

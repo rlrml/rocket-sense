@@ -415,6 +415,27 @@ export function reprocessReplay(
   );
 }
 
+export interface ReprocessReplayClientResponse {
+  replay_id: string;
+  analysis_run_id: string;
+  status: string;
+}
+
+// Upload a browser-computed stats-timeline scaffold for the server to persist as
+// a new canonical analysis run (no server-side subtr-actor re-run). `scaffoldJson`
+// is the raw JSON text from `computeStatsTimelineScaffoldJson`; it is spliced into
+// the body directly rather than re-stringified, since it can be many megabytes.
+export function reprocessReplayClient(
+  replayId: string,
+  payload: { subtrActorGitSha: string; scaffoldJson: string },
+): Promise<ReprocessReplayClientResponse> {
+  const body = `{"subtr_actor_git_sha":${JSON.stringify(payload.subtrActorGitSha)},"scaffold":${payload.scaffoldJson}}`;
+  return request<ReprocessReplayClientResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/reprocess/client`,
+    { method: "POST", headers: { "content-type": "application/json" }, body },
+  );
+}
+
 export async function uploadReplay(file: File): Promise<ReplayResponse> {
   const body = new FormData();
   body.set("file", file);

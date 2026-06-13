@@ -21,9 +21,33 @@ statistics built with `subtr-actor`.
 - Use `cargo fmt`, `cargo test`, and `just` recipes for local validation.
 - Prefer `rg` for text search.
 
+## Before committing (avoid CI failures)
+
+CI fails on format/lint/compile issues far more often than on test logic. To
+catch those locally without running the whole suite:
+
+- **Always run `just check` clean before committing.** It is the fast gate that
+  mirrors CI's blocking checks: migration-version uniqueness
+  (`check-migration-versions.sh`), `npm run typecheck` (web), `cargo fmt --
+  --check`, and `cargo clippy --workspace -- -D warnings`. If it is not clean, do
+  not commit.
+- Clippy runs with `-D warnings` over the whole workspace, so a lint in a test
+  or any crate fails CI even though a plain `cargo build` passes. Prefer the
+  `just clippy` / `just fmt-check` recipes over bare `cargo` — they use CI's
+  exact flags. The server crate embeds `web/dist` via `build.rs`, so `clippy`
+  (and `check`) build the web bundle first; that's expected.
+- `just check` deliberately omits the slow CI jobs (`cargo test --workspace`,
+  the release/image build). Run tests targeted at what you changed
+  (`cargo test some_test`) or `just test` for the full suite when the change
+  warrants it.
+- When you add a migration, take the next free number and re-run `just check`
+  (or `scripts/check-migration-versions.sh`): parallel branches often grab the
+  same number, which the guard catches before it silently breaks a deploy.
+
 ## Common Commands
 
 - `direnv allow` - load the Nix development shell.
+- `just check` - fast CI preflight gate (migrations + web typecheck + fmt + clippy); run clean before every commit.
 - `just build` - build the service.
 - `just test` - run tests.
 - `just fmt` - format Rust code.

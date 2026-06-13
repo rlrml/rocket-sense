@@ -1,9 +1,24 @@
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
+
+// The subtr-actor git sha the vendored WASM was built from. Baked into the
+// bundle so a client-side reprocess can prove to the server that its WASM
+// matches the server's analysis version (a stale cached tab is rejected). Kept
+// in sync with the server by scripts/sync-subtr-actor, which writes this file.
+const subtrActorRev = (() => {
+  try {
+    return readFileSync(
+      fileURLToPath(new URL("./vendor/@rlrml/.subtr-actor-rev", import.meta.url)),
+      "utf8",
+    ).trim();
+  } catch {
+    return "";
+  }
+})();
 
 // Resolve a path to its real location, tolerating paths that don't exist yet.
 // In a git worktree, node_modules and vendor/subtr-actor are often symlinks into
@@ -34,6 +49,9 @@ const apiProxy = {
 };
 
 export default defineConfig({
+  define: {
+    __SUBTR_ACTOR_REV__: JSON.stringify(subtrActorRev),
+  },
   plugins: [react()],
   // The replay viewer ships a web worker plus a wasm-bindgen module that load
   // via `new URL(..., import.meta.url)`. Keep them out of esbuild prebundling so
