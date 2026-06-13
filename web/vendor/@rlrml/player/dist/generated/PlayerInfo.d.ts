@@ -1,4 +1,5 @@
 import type { HeaderPropTs } from "./HeaderPropTs.ts";
+import type { PlayerCameraSettings } from "./PlayerCameraSettings.ts";
 import type { RemoteIdTs } from "./RemoteIdTs.ts";
 /**
  * [`PlayerInfo`] struct provides detailed information about a specific player in the replay.
@@ -34,5 +35,9 @@ export type PlayerInfo = {
      * The resolved standardized hitbox family for the player's car body, when known.
      */
     car_hitbox_family?: string | null;
+    /**
+     * The player's replicated Rocket League camera preset, when present.
+     */
+    camera_settings?: PlayerCameraSettings | null;
 };
 //# sourceMappingURL=PlayerInfo.d.ts.map

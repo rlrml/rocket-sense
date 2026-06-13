@@ -12,6 +12,7 @@ export declare class ReplayPlayer extends EventTarget {
     private readonly desiredCameraPosition;
     private readonly desiredLookTarget;
     private readonly boundWindowResize;
+    private readonly attachedCameraBlendState;
     private readonly liveGameState;
     private readonly kickoffGameState;
     private timelineSegmentsCacheKey;
@@ -22,6 +23,7 @@ export declare class ReplayPlayer extends EventTarget {
     private playing;
     private speed;
     private currentTime;
+    private lastCameraRenderAt;
     private playbackStartedAt;
     private playbackStartedTime;
     private cameraDistanceScale;
@@ -81,6 +83,7 @@ export declare class ReplayPlayer extends EventTarget {
     private setHitboxVisualizationVisibility;
     private syncPlaybackClock;
     private tick;
+    private getCameraRenderDelta;
     private render;
     private skipPastKickoffIfNeeded;
     private skipPostGoalTransitionIfNeeded;
