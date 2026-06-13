@@ -60,7 +60,7 @@ import {
   setAccessToken,
   uploadReplay,
 } from "./api";
-import { completedStatGroups, eventTypesForGroup, statGroups } from "./stats/registry";
+import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { ProcessingVersionTrigger, StalenessBadge } from "./staleness";
 import { PlatformIcon, platformLabel } from "./platform";
@@ -1480,7 +1480,7 @@ function ReplayStatsPage() {
   const [eventsError, setEventsError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
-    () => completedStatGroups.find((group) => group.id === statGroup) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
     [statGroup],
   );
 
@@ -1702,7 +1702,7 @@ function ReplayStatsPage() {
 function ReplayGroupStatsPage() {
   const { groupId = "", statGroup } = useParams();
   const activeGroup = useMemo(
-    () => completedStatGroups.find((group) => group.id === statGroup) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
     [statGroup],
   );
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
@@ -2371,7 +2371,7 @@ function PlayerStatsPage() {
     [location.search, platform, platformPlayerId],
   );
   const activeGroup = useMemo(
-    () => playerStatsSectionGroups.find((group) => group.id === statGroup) ?? playerStatsSectionGroups[0]!,
+    () => statGroupById(statGroup, playerStatsSectionGroups) ?? playerStatsSectionGroups[0]!,
     [statGroup],
   );
   const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
@@ -2765,7 +2765,7 @@ function PlayerAggregateStatsSections({
       ) : null}
       {activeGroup.id === "kickoffs" && kickoffTakerSummary ? <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} /> : null}
       {activeGroup.id === "kickoffs" && kickoffSupportSummary ? <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} /> : null}
-      {activeGroup.id === "possession-territory" && possessionSummary ? (
+      {activeGroup.id === "possession" && possessionSummary ? (
         <PossessionSummaryPanel summary={possessionSummary} />
       ) : null}
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (

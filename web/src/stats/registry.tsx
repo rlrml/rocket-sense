@@ -18,6 +18,7 @@ export interface StatDetailProps {
 
 export interface StatGroup {
   id: string;
+  aliases?: readonly string[];
   label: string;
   icon: LucideIcon;
   description: string;
@@ -105,10 +106,11 @@ export const statGroups: StatGroup[] = [
     eventTypes: [],
   },
   {
-    id: "possession-territory",
-    label: "Possession & Territory",
+    id: "possession",
+    aliases: ["possession-territory"],
+    label: "Possession",
     icon: MapIcon,
-    description: "Ball control, zone control, pressure, possession, and territory share.",
+    description: "Ball control, zone control, pressure, and possession share.",
     terms: ["possession", "territory", "pressure", "control", "offensive", "defensive", "zone"],
     completed: true,
     usesAggregateStats: false,
@@ -129,6 +131,11 @@ export const statGroups: StatGroup[] = [
 
 export const completedStatGroups = statGroups.filter((group) => group.completed);
 
+export function statGroupById(groupId: string | undefined, groups: readonly StatGroup[] = statGroups): StatGroup | undefined {
+  if (!groupId) return undefined;
+  return groups.find((group) => group.id === groupId || group.aliases?.includes(groupId));
+}
+
 export function eventTypesForGroup(groupId: string): string[] {
-  return [...(statGroups.find((group) => group.id === groupId)?.eventTypes ?? [])];
+  return [...(statGroupById(groupId)?.eventTypes ?? [])];
 }
