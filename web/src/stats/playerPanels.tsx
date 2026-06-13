@@ -328,49 +328,67 @@ function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) 
 }
 
 function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
-  const rows = [
-    {
-      key: "most_back",
-      label: "Most back",
-      player: shareOf(stats.time_most_back_seconds, stats.active_time_seconds),
-      teammates: shareOf(stats.teammate_time_most_back_seconds, stats.teammate_active_time_seconds),
-    },
-    {
-      key: "most_forward",
-      label: "Most forward",
-      player: shareOf(stats.time_most_forward_seconds, stats.active_time_seconds),
-      teammates: shareOf(stats.teammate_time_most_forward_seconds, stats.teammate_active_time_seconds),
-    },
-  ].filter((row) => row.player != null);
+  const mostBack = shareOf(stats.time_most_back_seconds, stats.active_time_seconds);
+  const mostForward = shareOf(stats.time_most_forward_seconds, stats.active_time_seconds);
+  if (mostBack == null && mostForward == null) return null;
 
-  if (rows.length === 0) return null;
+  const playerBack = mostBack ?? 0;
+  const playerForward = mostForward ?? 0;
+  const playerNeutral = Math.max(0, 1 - playerBack - playerForward);
+  const teammateBack = shareOf(stats.teammate_time_most_back_seconds, stats.teammate_active_time_seconds);
+  const teammateForward = shareOf(stats.teammate_time_most_forward_seconds, stats.teammate_active_time_seconds);
+  const hasTeammates = teammateBack != null || teammateForward != null;
+  const teammateBackPosition = teammateBack == null ? null : barPercent(teammateBack, 1);
+  const teammateForwardPosition = teammateForward == null ? null : 100 - barPercent(teammateForward, 1);
+
   return (
-    <div className="rotation-share-block">
+    <div className="rotation-share-block field-position-tug-block">
       <h4>Field position share</h4>
-      <div className="rate-chart-rows">
-        {rows.map((row) => (
-          <div className="rate-chart-row" key={row.key}>
-            <div className="rate-chart-label">{row.label}</div>
-            <div className="rate-chart-track" aria-label={`${row.label} share of active time`}>
-              <span
-                className="rate-chart-fill"
-                style={{ width: `${barPercent(row.player ?? 0, 1)}%` }}
-                title={`You: ${formatShare(row.player)} of active time`}
-              />
-              {row.teammates != null ? (
-                <span
-                  className="rate-chart-teammate-marker"
-                  style={{ left: `${barPercent(row.teammates, 1)}%` }}
-                  title={`Teammates: ${formatShare(row.teammates)} of active time`}
-                />
-              ) : null}
-            </div>
-            <div className="rate-chart-value">
-              <strong>{formatShare(row.player)}</strong>
-              {row.teammates != null ? <span className="subtle"> vs {formatShare(row.teammates)}</span> : null}
-            </div>
-          </div>
-        ))}
+      <div className="field-position-tug">
+        <div className="field-position-tug-track" role="img" aria-label="Most back versus most forward share">
+          <span
+            className="source-segment positioning-segment-role-most_back"
+            style={{ flexGrow: playerBack }}
+            title={`Most back: ${formatShare(mostBack)} of active time`}
+          />
+          <span
+            className="source-segment positioning-segment-role-mid"
+            style={{ flexGrow: playerNeutral }}
+            title={`Middle/other: ${formatShare(playerNeutral)} of active time`}
+          />
+          <span
+            className="source-segment positioning-segment-role-most_forward"
+            style={{ flexGrow: playerForward }}
+            title={`Most forward: ${formatShare(mostForward)} of active time`}
+          />
+          {teammateBackPosition != null ? (
+            <span
+              className="field-position-teammate-marker back"
+              style={{ left: `${teammateBackPosition}%` }}
+              title={`Teammates most back: ${formatShare(teammateBack)}`}
+            />
+          ) : null}
+          {teammateForwardPosition != null ? (
+            <span
+              className="field-position-teammate-marker forward"
+              style={{ left: `${teammateForwardPosition}%` }}
+              title={`Teammates most forward: ${formatShare(teammateForward)}`}
+            />
+          ) : null}
+        </div>
+        <div className="rotation-depth-tug-labels field-position-tug-labels">
+          <span className="rotation-depth-tug-label">
+            <span className="rotation-legend-swatch source-segment positioning-segment-role-most_back" />
+            Most back
+            <strong>{formatShare(mostBack)}</strong>
+          </span>
+          {hasTeammates ? <span className="field-position-teammate-label">Markers show teammate averages</span> : null}
+          <span className="rotation-depth-tug-label rotation-depth-tug-label-right">
+            <strong>{formatShare(mostForward)}</strong>
+            Most forward
+            <span className="rotation-legend-swatch source-segment positioning-segment-role-most_forward" />
+          </span>
+        </div>
       </div>
     </div>
   );

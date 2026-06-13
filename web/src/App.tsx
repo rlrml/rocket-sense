@@ -2727,10 +2727,17 @@ function PlayerAggregateStatsSections({
           </h2>
           <p>{activeGroup.description}</p>
         </div>
-        <div className="stat-detail-counts">
-          <Metric label="Stats" value={sectionStats.length.toLocaleString()} />
-          <Metric label="Events" value={sectionEventCount.toLocaleString()} />
-        </div>
+        {activeGroup.id === "kickoffs" ? (
+          <div className="stat-detail-counts">
+            <Metric label="Taker attempts" value={kickoffTakerSummary?.event_count.toLocaleString() ?? "Unknown"} />
+            <Metric label="Support appearances" value={kickoffSupportSummary?.event_count.toLocaleString() ?? "Unknown"} />
+          </div>
+        ) : (
+          <div className="stat-detail-counts">
+            <Metric label="Stats" value={sectionStats.length.toLocaleString()} />
+            <Metric label="Events" value={sectionEventCount.toLocaleString()} />
+          </div>
+        )}
       </header>
 
       {activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
@@ -2765,77 +2772,79 @@ function PlayerAggregateStatsSections({
         <RotationTimeSharePanel overview={overview} stats={stats} />
       ) : null}
 
-      <div className="player-stats-section-grid stat-section-grid">
-        <section className="stat-panel">
-          <h3>Player rates</h3>
-          <div className="table-frame compact-table">
-            <table className="player-stat-table">
-              <thead>
-                <tr>
-                  <th>Stat</th>
-                  <th>Per active min</th>
-                  <th>Count</th>
-                  <th>Teammates / min</th>
-                </tr>
-              </thead>
-              <tbody>
-                {topStats.map((stat) => (
-                  <tr key={stat.key}>
-                    <td>
-                      <strong>{stat.display_name}</strong>
-                      <div className="subtle">{stat.category}</div>
-                    </td>
-                    <td>{formatNumber(stat.per_active_minute)}</td>
-                    <td>{stat.event_count.toLocaleString()}</td>
-                    <td>{formatNumber(stat.teammate_per_active_minute)}</td>
-                  </tr>
-                ))}
-                {topStats.length === 0 ? (
+      {activeGroup.id === "kickoffs" || activeGroup.id === "positioning" ? null : (
+        <div className="player-stats-section-grid stat-section-grid">
+          <section className="stat-panel">
+            <h3>Player rates</h3>
+            <div className="table-frame compact-table">
+              <table className="player-stat-table">
+                <thead>
                   <tr>
-                    <td colSpan={4}>No aggregate stats are available for this section yet.</td>
+                    <th>Stat</th>
+                    <th>Per active min</th>
+                    <th>Count</th>
+                    <th>Teammates / min</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <section className="stat-panel">
-          <h3>Playlist splits</h3>
-          <div className="table-frame compact-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Playlist</th>
-                  <th>Replays</th>
-                  <th>Active</th>
-                  <th>Top rate</th>
-                </tr>
-              </thead>
-              <tbody>
-                {playlistGroups.map((group) => {
-                  const topRate = group.stats[0];
-                  return (
-                    <tr key={group.group.key}>
+                </thead>
+                <tbody>
+                  {topStats.map((stat) => (
+                    <tr key={stat.key}>
                       <td>
-                        <strong>{group.group.display_name}</strong>
+                        <strong>{stat.display_name}</strong>
+                        <div className="subtle">{stat.category}</div>
                       </td>
-                      <td>{group.group.replay_count.toLocaleString()}</td>
-                      <td>{formatDuration(group.group.active_time_seconds)}</td>
-                      <td>{topRate ? `${topRate.display_name}: ${formatNumber(topRate.per_active_minute)}` : "Unknown"}</td>
+                      <td>{formatNumber(stat.per_active_minute)}</td>
+                      <td>{stat.event_count.toLocaleString()}</td>
+                      <td>{formatNumber(stat.teammate_per_active_minute)}</td>
                     </tr>
-                  );
-                })}
-                {playlistGroups.length === 0 ? (
+                  ))}
+                  {topStats.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>No aggregate stats are available for this section yet.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+
+          <section className="stat-panel">
+            <h3>Playlist splits</h3>
+            <div className="table-frame compact-table">
+              <table>
+                <thead>
                   <tr>
-                    <td colSpan={4}>No playlist splits are available for this section yet.</td>
+                    <th>Playlist</th>
+                    <th>Replays</th>
+                    <th>Active</th>
+                    <th>Top rate</th>
                   </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </div>
+                </thead>
+                <tbody>
+                  {playlistGroups.map((group) => {
+                    const topRate = group.stats[0];
+                    return (
+                      <tr key={group.group.key}>
+                        <td>
+                          <strong>{group.group.display_name}</strong>
+                        </td>
+                        <td>{group.group.replay_count.toLocaleString()}</td>
+                        <td>{formatDuration(group.group.active_time_seconds)}</td>
+                        <td>{topRate ? `${topRate.display_name}: ${formatNumber(topRate.per_active_minute)}` : "Unknown"}</td>
+                      </tr>
+                    );
+                  })}
+                  {playlistGroups.length === 0 ? (
+                    <tr>
+                      <td colSpan={4}>No playlist splits are available for this section yet.</td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

@@ -5225,6 +5225,46 @@ button.status-stale:hover {
   background: rgba(248, 250, 252, 0.7);
 }
 
+.field-position-tug {
+  display: grid;
+  gap: 8px;
+}
+
+.field-position-tug-track {
+  position: relative;
+  display: flex;
+  height: 24px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.field-position-tug-track .source-segment {
+  display: block;
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+.field-position-teammate-marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  transform: translateX(-50%);
+  border-radius: 2px;
+  background: #f8fafc;
+  box-shadow: 0 0 0 1px #0f172a;
+}
+
+.field-position-teammate-label {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .rotation-depth-tug-labels {
   display: flex;
   align-items: center;
