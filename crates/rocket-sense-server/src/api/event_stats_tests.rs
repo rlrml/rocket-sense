@@ -78,6 +78,7 @@ fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
         taker_count: 1,
         support_count: 0,
         touched_count: 1,
+        first_touch_count: 1,
         missed_count: 0,
         fake_count: 0,
         win_count: 1,
@@ -98,6 +99,11 @@ fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
         .find(|metric| metric.key == "avg_taker_time_to_touch")
         .expect("taker time-to-touch metric should be exposed");
     assert_eq!(time_to_touch.value, Some(2.1));
+    let first_touch_share = metrics
+        .iter()
+        .find(|metric| metric.key == "first_touch_share")
+        .expect("first touch percentage metric should be exposed");
+    assert_eq!(first_touch_share.value, Some(1.0));
     // The old key averaged absolute replay timestamps pooled across roles.
     assert!(metrics
         .iter()

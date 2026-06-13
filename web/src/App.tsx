@@ -2377,7 +2377,8 @@ function PlayerStatsPage() {
   const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
-  const [kickoffSummary, setKickoffSummary] = useState<EventStatSummaryResponse | null>(null);
+  const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(null);
+  const [kickoffSupportSummary, setKickoffSupportSummary] = useState<EventStatSummaryResponse | null>(null);
   const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(null);
   const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -2392,7 +2393,8 @@ function PlayerStatsPage() {
     setError(null);
     setStatsError(null);
     setOverview(null);
-    setKickoffSummary(null);
+    setKickoffTakerSummary(null);
+    setKickoffSupportSummary(null);
     setKickoffFilterSummary(null);
     setPossessionSummary(null);
     const pageSearchParams = new URLSearchParams(location.search);
@@ -2424,12 +2426,17 @@ function PlayerStatsPage() {
         if (!cancelled) setOverview(response);
       })
       .catch(() => {});
-    getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search))
+    getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search), "taker")
       .then((response) => {
-        if (!cancelled) setKickoffSummary(response);
+        if (!cancelled) setKickoffTakerSummary(response);
       })
       .catch(() => {});
-    getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(new URLSearchParams(location.search)))
+    getPlayerKickoffSummary(platform, platformPlayerId, new URLSearchParams(location.search), "support")
+      .then((response) => {
+        if (!cancelled) setKickoffSupportSummary(response);
+      })
+      .catch(() => {});
+    getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(new URLSearchParams(location.search)), "taker")
       .then((response) => {
         if (!cancelled) setKickoffFilterSummary(response);
       })
@@ -2498,7 +2505,8 @@ function PlayerStatsPage() {
             <PlayerAggregateStatsSections
               activeGroup={activeGroup}
               kickoffFilterSummary={kickoffFilterSummary}
-              kickoffSummary={kickoffSummary}
+              kickoffSupportSummary={kickoffSupportSummary}
+              kickoffTakerSummary={kickoffTakerSummary}
               possessionSummary={possessionSummary}
               overview={overview}
               platform={platform}
@@ -2642,7 +2650,8 @@ function PlayerStatsSegmentBar() {
 function PlayerAggregateStatsSections({
   activeGroup,
   kickoffFilterSummary,
-  kickoffSummary,
+  kickoffSupportSummary,
+  kickoffTakerSummary,
   overview,
   possessionSummary,
   platform,
@@ -2652,7 +2661,8 @@ function PlayerAggregateStatsSections({
 }: {
   activeGroup: StatGroup;
   kickoffFilterSummary: EventStatSummaryResponse | null;
-  kickoffSummary: EventStatSummaryResponse | null;
+  kickoffSupportSummary: EventStatSummaryResponse | null;
+  kickoffTakerSummary: EventStatSummaryResponse | null;
   overview: PlayerStatOverviewResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   platform: string;
@@ -2733,7 +2743,7 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
 
-      {activeGroup.id === "positioning" || activeGroup.id === "rotation" ? null : (
+      {activeGroup.id === "kickoffs" || activeGroup.id === "positioning" || activeGroup.id === "rotation" ? null : (
         <PlayerRateComparisonChart stats={topStats} />
       )}
 
@@ -2746,7 +2756,8 @@ function PlayerAggregateStatsSections({
           allGoalsHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals`}
         />
       ) : null}
-      {activeGroup.id === "kickoffs" && kickoffSummary ? <KickoffSummaryPanel summary={kickoffSummary} /> : null}
+      {activeGroup.id === "kickoffs" && kickoffTakerSummary ? <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} /> : null}
+      {activeGroup.id === "kickoffs" && kickoffSupportSummary ? <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} /> : null}
       {activeGroup.id === "possession-territory" && possessionSummary ? (
         <PossessionSummaryPanel summary={possessionSummary} />
       ) : null}

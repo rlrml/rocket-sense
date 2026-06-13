@@ -241,9 +241,13 @@ export function getPlayerKickoffSummary(
   platform: string,
   platformPlayerId: string,
   searchParams: URLSearchParams,
+  role?: "taker" | "support",
 ): Promise<EventStatSummaryResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
+  if (role) {
+    params.set("role", role);
+  }
   params.set("include-samples", "false");
   return request<EventStatSummaryResponse>(`/api/v1/stats/events/kickoff/summary?${params.toString()}`);
 }

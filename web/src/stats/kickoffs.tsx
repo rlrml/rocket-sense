@@ -131,6 +131,8 @@ interface PlayerKickoffSummary {
   advantagesFor: number;
   advantagesAgainst: number;
   touched: number;
+  firstTouchesAsTaker: number;
+  firstTouchesAsSupport: number;
   faked: number;
   missed: number;
   kickoffGoalsFor: number;
@@ -376,6 +378,7 @@ const TAKER_COLUMNS: KickoffPlayerColumn[] = [
   PLAYER_COLUMN,
   { key: "takes", label: "Takes", render: (summary) => summary.takerCount },
   { key: "touched", label: "Touch", render: (summary) => summary.touched },
+  { key: "firstTouch", label: "1st touch", render: (summary) => formatCountShare(summary.firstTouchesAsTaker, summary.takerCount) },
   { key: "faked", label: "Fake", render: (summary) => summary.faked },
   { key: "missed", label: "Miss", render: (summary) => summary.missed },
   { key: "toBall", label: "To ball", render: (summary) => formatAverageDuration(summary.timeToBallSum, summary.timeToBallCount) },
@@ -389,6 +392,7 @@ const TAKER_COLUMNS: KickoffPlayerColumn[] = [
 const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
   PLAYER_COLUMN,
   { key: "plays", label: "Plays", render: (summary) => summary.supportCount },
+  { key: "firstTouch", label: "1st touch", render: (summary) => formatCountShare(summary.firstTouchesAsSupport, summary.supportCount) },
   { key: "habit", label: "Habit", render: (summary) => topMapLabel(summary.supportBehaviors) },
   ADVANTAGE_COLUMN,
   GOALS_COLUMN,
@@ -1391,6 +1395,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         advantagesFor: 0,
         advantagesAgainst: 0,
         touched: 0,
+        firstTouchesAsTaker: 0,
+        firstTouchesAsSupport: 0,
         faked: 0,
         missed: 0,
         kickoffGoalsFor: 0,
@@ -1416,6 +1422,7 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         summary.takerCount += 1;
         incrementMap(summary.approaches, behavior.approach);
         if (behavior.outcome === "touched") summary.touched += 1;
+        if (isFirstToucher(kickoff, behavior)) summary.firstTouchesAsTaker += 1;
         if (behavior.outcome === "fake") summary.faked += 1;
         if (behavior.outcome === "missed") summary.missed += 1;
         if (behavior.timeToBall != null) {
@@ -1432,6 +1439,7 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         }
       } else {
         summary.supportCount += 1;
+        if (isFirstToucher(kickoff, behavior)) summary.firstTouchesAsSupport += 1;
         incrementMap(summary.supportBehaviors, behavior.supportBehavior);
       }
       if (kickoff.kickoffGoal && behavior.team != null && kickoff.scoringTeam != null) {
@@ -1458,6 +1466,8 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         advantagesFor: 0,
         advantagesAgainst: 0,
         touched: 0,
+        firstTouchesAsTaker: 0,
+        firstTouchesAsSupport: 0,
         faked: 0,
         missed: 0,
         kickoffGoalsFor: 0,
@@ -1718,4 +1728,9 @@ function formatAverageDuration(sum: number, count: number): string {
 
 function formatAverageBoost(sum: number, count: number): string {
   return count > 0 ? formatBoostAmount(sum / count) : "-";
+}
+
+function formatCountShare(count: number, total: number): string {
+  if (total <= 0) return "-";
+  return `${Math.round((count / total) * 100)}% (${count})`;
 }

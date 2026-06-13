@@ -116,6 +116,7 @@ struct KickoffSummaryRow {
     taker_count: u64,
     support_count: u64,
     touched_count: u64,
+    first_touch_count: u64,
     missed_count: u64,
     fake_count: u64,
     win_count: u64,
@@ -271,6 +272,11 @@ const KICKOFF_DIMENSIONS: &[EventStatsDimension] = &[
         label: "Player result",
         expression: "CASE WHEN kickoff.winning_team IS NULL THEN 'neutral' WHEN kickoff.winning_team = detail.team THEN 'win' ELSE 'loss' END",
     },
+    EventStatsDimension {
+        key: "win_strength_result",
+        label: "Win strength",
+        expression: "CASE WHEN kickoff.winning_team IS NULL THEN 'neutral' WHEN kickoff.winning_team = detail.team THEN concat('win_', COALESCE(kickoff.win_strength_band, 'unknown')) ELSE concat('loss_', COALESCE(kickoff.win_strength_band, 'unknown')) END",
+    },
     // Player-relative kickoff advantage: who the kickoff ended up being good
     // for (possession run, established pressure, or kickoff goal) and whether
     // that was this player's team, e.g. `won_possession` / `lost_pressure`.
@@ -415,6 +421,7 @@ async fn load_kickoff_summary(
             COUNT(*) FILTER (WHERE detail.role = 'taker') AS taker_count,
             COUNT(*) FILTER (WHERE detail.role = 'support') AS support_count,
             COUNT(*) FILTER (WHERE detail.taker_outcome = 'touched') AS touched_count,
+            COUNT(*) FILTER (WHERE kickoff.first_touch_subject_id = detail.player_subject_id) AS first_touch_count,
             COUNT(*) FILTER (WHERE detail.taker_outcome = 'missed') AS missed_count,
             COUNT(*) FILTER (WHERE detail.taker_outcome = 'fake') AS fake_count,
             COUNT(*) FILTER (WHERE kickoff.winning_team = detail.team) AS win_count,
@@ -448,6 +455,7 @@ async fn load_kickoff_summary(
         taker_count: count_column(&row, "taker_count")?,
         support_count: count_column(&row, "support_count")?,
         touched_count: count_column(&row, "touched_count")?,
+        first_touch_count: count_column(&row, "first_touch_count")?,
         missed_count: count_column(&row, "missed_count")?,
         fake_count: count_column(&row, "fake_count")?,
         win_count: count_column(&row, "win_count")?,
@@ -652,6 +660,16 @@ fn kickoff_metrics(summary: KickoffSummaryRow) -> Vec<EventStatMetricResponse> {
         count_metric("taker_count", "Taker rows", summary.taker_count),
         count_metric("support_count", "Support rows", summary.support_count),
         count_metric("touched_count", "Touches", summary.touched_count),
+        count_metric(
+            "first_touch_count",
+            "First touches",
+            summary.first_touch_count,
+        ),
+        share_metric(
+            "first_touch_share",
+            "First touch rate",
+            ratio(summary.first_touch_count, summary.event_count),
+        ),
         count_metric("missed_count", "Misses", summary.missed_count),
         count_metric("fake_count", "Fakes", summary.fake_count),
         count_metric("win_count", "Wins", summary.win_count),
@@ -712,6 +730,19 @@ fn average_metric(key: &str, label: &str, value: Option<f64>) -> EventStatMetric
         value,
         kind: "average".to_owned(),
     }
+}
+
+fn share_metric(key: &str, label: &str, value: Option<f64>) -> EventStatMetricResponse {
+    EventStatMetricResponse {
+        key: key.to_owned(),
+        label: label.to_owned(),
+        value,
+        kind: "share".to_owned(),
+    }
+}
+
+fn ratio(numerator: u64, denominator: u64) -> Option<f64> {
+    (denominator > 0).then(|| numerator as f64 / denominator as f64)
 }
 
 fn sample_from_row(row: sqlx::postgres::PgRow) -> Result<EventStatSampleResponse, sqlx::Error> {

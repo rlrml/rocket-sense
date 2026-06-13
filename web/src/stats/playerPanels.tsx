@@ -376,10 +376,13 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
   );
 }
 
-const kickoffDimensionKeys = ["approach", "spawn_position", "taker_outcome", "support_behavior", "player_result", "advantage_result"];
+type KickoffSummaryRole = "taker" | "support";
+
+const kickoffTakerDimensionKeys = ["approach", "taker_outcome", "player_result", "advantage_result"];
+const kickoffSupportDimensionKeys = ["support_behavior", "player_result", "advantage_result"];
 
 /** Kickoff outcome shares, headline metrics, and per-dimension distributions. */
-export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResponse }) {
+export function KickoffSummaryPanel({ role, summary }: { role: KickoffSummaryRole; summary: EventStatSummaryResponse }) {
   const metric = (key: string) => summary.metrics.find((entry) => entry.key === key)?.value ?? null;
   const wins = metric("win_count") ?? 0;
   const losses = metric("loss_count") ?? 0;
@@ -389,6 +392,7 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
   // touch rate alongside so the conditioning is visible.
   const takerCount = metric("taker_count") ?? 0;
   const takerTouchRate = takerCount > 0 ? (metric("touched_count") ?? 0) / takerCount : null;
+  const firstTouchRate = metric("first_touch_share");
   // Who the kickoff was actually good for once play settled (possession run,
   // established pressure, or kickoff goal), independent of the immediate
   // win/loss read above. Zero for replay sets processed before the advantage
@@ -397,20 +401,33 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
   const advantagesAgainst = metric("advantages_against") ?? 0;
   const noAdvantage = metric("no_advantage_count") ?? 0;
   const advantageTotal = advantagesFor + advantagesAgainst + noAdvantage;
-  const dimensions = kickoffDimensionKeys
-    .filter((key) => key !== "spawn_position")
+  const strengthDimension = summary.dimensions.find((dimension) => dimension.key === "win_strength_result");
+  const strengthSegments = kickoffStrengthSegments(strengthDimension);
+  const strengthTotal = strengthSegments.reduce((total, segment) => total + segment.value, 0);
+  const dimensionKeys = role === "taker" ? kickoffTakerDimensionKeys : kickoffSupportDimensionKeys;
+  const dimensions = dimensionKeys
     .map((key) => summary.dimensions.find((dimension) => dimension.key === key))
     .filter((dimension): dimension is EventStatDimensionResponse => Boolean(dimension && dimension.values.length > 0));
 
   return (
     <section className="chart-panel full-span kickoff-summary-panel">
       <header className="chart-panel-header">
-        <h3>Kickoffs</h3>
+        <h3>{role === "taker" ? "Kickoff taker" : "Kickoff support"}</h3>
         <span>
-          {summary.event_count.toLocaleString()} kickoffs across {summary.replay_count.toLocaleString()} replays
+          {summary.event_count.toLocaleString()} {role === "taker" ? "attempts" : "support appearances"} across{" "}
+          {summary.replay_count.toLocaleString()} replays
         </span>
       </header>
-      {outcomeTotal > 0 ? (
+      {strengthTotal > 0 ? (
+        <div className="kickoff-outcome-share">
+          <SegmentedBar
+            ariaLabel="Kickoff win strength share"
+            className="positioning-track"
+            segments={strengthSegments}
+            total={strengthTotal}
+          />
+        </div>
+      ) : outcomeTotal > 0 ? (
         <div className="kickoff-outcome-share">
           <SegmentedBar
             ariaLabel="Kickoff outcome share"
@@ -441,12 +458,15 @@ export function KickoffSummaryPanel({ summary }: { summary: EventStatSummaryResp
       <div className="kickoff-headline-metrics">
         <KickoffMetric label="Kickoff goals for" value={formatCount(metric("kickoff_goals_for"))} />
         <KickoffMetric label="Kickoff goals against" value={formatCount(metric("kickoff_goals_against"))} />
-        <KickoffMetric label="Avg time to touch (taker)" value={formatSecondsValue(metric("avg_taker_time_to_touch"))} />
-        <KickoffMetric label="Taker touch rate" value={formatShare(takerTouchRate)} />
+        <KickoffMetric label="First touch rate" value={formatShare(firstTouchRate)} />
+        {role === "taker" ? (
+          <>
+            <KickoffMetric label="Taker touch rate" value={formatShare(takerTouchRate)} />
+            <KickoffMetric label="Avg time to touch" value={formatSecondsValue(metric("avg_taker_time_to_touch"))} />
+          </>
+        ) : null}
         {/* avg_boost_delta arrives in raw 0-255 replay units; rescale to the 0-100 display scale. */}
         <KickoffMetric label="Avg boost delta" value={formatSigned(boostAmountToPercent(metric("avg_boost_delta")))} />
-        <KickoffMetric label="Taker rows" value={formatCount(metric("taker_count"))} />
-        <KickoffMetric label="Support rows" value={formatCount(metric("support_count"))} />
       </div>
       {dimensions.length > 0 ? (
         <div className="kickoff-dimension-grid">
@@ -507,6 +527,56 @@ function kickoffOutcomeSegment(id: string, label: string, value: number, total: 
     visibleLabel: share >= 0.08 ? `${label}: ${formatShare(share)}` : undefined,
     title: `${label}: ${value.toLocaleString()} (${formatShare(share)})`,
   };
+}
+
+function kickoffStrengthSegments(dimension: EventStatDimensionResponse | undefined): SegmentedBarSegment[] {
+  if (!dimension) return [];
+  const order = ["win_strong", "win_clear", "win_narrow", "win_unknown", "neutral", "loss_narrow", "loss_clear", "loss_strong", "loss_unknown"];
+  const counts = new Map(dimension.values.map((value) => [value.key ?? "unknown", value.count]));
+  const total = dimension.values.reduce((sum, value) => sum + value.count, 0);
+  return order
+    .map((key) => ({ key, count: counts.get(key) ?? 0 }))
+    .filter(({ count }) => count > 0)
+    .map(({ key, count }) => kickoffStrengthSegment(key, count, total));
+}
+
+function kickoffStrengthSegment(key: string, value: number, total: number): SegmentedBarSegment {
+  const share = total > 0 ? value / total : 0;
+  const outcome = key.startsWith("win_") ? "win" : key.startsWith("loss_") ? "loss" : "neutral";
+  const label = kickoffStrengthLabel(key);
+  return {
+    key,
+    className: `kickoff-outcome-segment-${outcome}`,
+    label,
+    value,
+    visibleLabel: share >= 0.08 ? `${label}: ${formatShare(share)}` : undefined,
+    title: `${label}: ${value.toLocaleString()} (${formatShare(share)})`,
+  };
+}
+
+function kickoffStrengthLabel(key: string): string {
+  switch (key) {
+    case "win_strong":
+      return "Strong win";
+    case "win_clear":
+      return "Clear win";
+    case "win_narrow":
+      return "Narrow win";
+    case "win_unknown":
+      return "Win";
+    case "loss_narrow":
+      return "Narrow loss";
+    case "loss_clear":
+      return "Clear loss";
+    case "loss_strong":
+      return "Strong loss";
+    case "loss_unknown":
+      return "Loss";
+    case "neutral":
+      return "Neutral";
+    default:
+      return key.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+  }
 }
 
 function orderTimeShares(
