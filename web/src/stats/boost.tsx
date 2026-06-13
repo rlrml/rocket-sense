@@ -3,7 +3,7 @@ import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContaine
 import { listBoostTracks } from "../api";
 import type { BoostTrack, MechanicEventResponse, ReplayPlayer } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
-import { StatPlayerLabel } from "./shared";
+import { StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
 // collection (with a `detection` provenance attribute) plus respawn events.
@@ -18,6 +18,7 @@ interface BoostPlayerSummary {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
+  rank: StatPlayerRank | null;
   team: number | null;
   average: number | null;
   bpm: number | null;
@@ -551,6 +552,7 @@ function PlayerBoostEconomyChart({
           name: summary.name,
           platform: summary.platform,
           profilePath: playerProfilePath(summary),
+          rank: summary.rank,
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -597,6 +599,7 @@ function PlayerBoostEconomyChart({
           name: summary.name,
           platform: summary.platform,
           profilePath: playerProfilePath(summary),
+          rank: summary.rank,
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -623,6 +626,7 @@ function PlayerBoostEconomyChart({
             name: summary.name,
             platform: summary.platform,
             profilePath: playerProfilePath(summary),
+          rank: summary.rank,
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -671,6 +675,7 @@ function PlayerBoostEconomyChart({
             name: summary.name,
             platform: summary.platform,
             profilePath: playerProfilePath(summary),
+          rank: summary.rank,
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -711,6 +716,7 @@ function PlayerBoostEconomyChart({
           name: summary.name,
           platform: summary.platform,
           profilePath: playerProfilePath(summary),
+          rank: summary.rank,
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -745,6 +751,7 @@ function PlayerBoostEconomyChart({
           name: summary.name,
           platform: summary.platform,
           profilePath: playerProfilePath(summary),
+          rank: summary.rank,
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -766,6 +773,7 @@ function PlayerBoostEconomyChart({
           name: summary.name,
           platform: summary.platform,
           profilePath: playerProfilePath(summary),
+          rank: summary.rank,
           showPlatformBadge: comparisonMode === "players",
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
@@ -799,6 +807,7 @@ function PlayerBoostEconomyChart({
             name: summary.name,
             platform: summary.platform,
             profilePath: playerProfilePath(summary),
+          rank: summary.rank,
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -841,6 +850,7 @@ interface BoostComparisonRow {
   name: string;
   platform: string | null;
   profilePath: string | null;
+  rank: StatPlayerRank | null;
   showPlatformBadge: boolean;
   team: number | null;
   playerIndex: number | null;
@@ -873,6 +883,7 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
               name={row.name}
               platform={row.platform}
               profilePath={row.profilePath}
+              rank={row.rank}
               showPlatformBadge={row.showPlatformBadge}
               subtitle={teamLabel(row.team)}
             />
@@ -935,6 +946,7 @@ interface PickupMapSubject {
   name: string;
   platform: string | null;
   profilePath: string | null;
+  rank: StatPlayerRank | null;
   team: number | null;
   playerIndex: number | null;
   points: BoostPickupMapPoint[];
@@ -977,6 +989,7 @@ function PadPickupMaps({
               platform: player.platform,
               platformPlayerId: player.platform_player_id,
             }),
+            rank: statPlayerRank(player),
             team: player.team,
             playerIndex: playerIndexByKey.get(key) ?? null,
             points: points.filter((point) => point.playerKey === key),
@@ -999,6 +1012,7 @@ function PadPickupMaps({
                 name={subject.name}
                 platform={subject.platform}
                 profilePath={subject.profilePath}
+                rank={subject.rank}
                 showPlatformBadge={subject.playerIndex != null}
                 subtitle={subject.playerIndex == null ? "Team" : teamLabel(subject.team)}
               />
@@ -1255,6 +1269,7 @@ function teamPickupMapSubjects(points: BoostPickupMapPoint[]): PickupMapSubject[
     name: `${teamLabel(team)} team`,
     platform: null,
     profilePath: null,
+    rank: null,
     team,
     playerIndex: null,
     points: teamPoints[index],
@@ -1375,6 +1390,7 @@ const boostStatColumns: Array<{
         name={summary.name}
         platform={summary.platform}
         profilePath={playerProfilePath(summary)}
+        rank={summary.rank}
         subtitle={teamLabel(summary.team)}
       />
     ),
@@ -1602,6 +1618,7 @@ function boostPlayerSummaries(
       name: player.name || player.platform_player_id || "Unknown",
       platform: player.platform,
       platformPlayerId: player.platform_player_id,
+      rank: statPlayerRank(player),
       team: player.team,
       average: timeWeightedBoostAverage(matchingSamples, durationSeconds),
       bpm: perMinute(used, durationSeconds),
@@ -1642,6 +1659,7 @@ function teamBoostSummary(summaries: BoostPlayerSummary[], team: 0 | 1, duration
     name: `${teamLabel(team)} team`,
     platform: null,
     platformPlayerId: null,
+    rank: null,
     team,
     average: average(teamRows.map((summary) => summary.average).filter(isNumber)),
     bpm: perMinute(sum((summary) => summary.used), durationSeconds),

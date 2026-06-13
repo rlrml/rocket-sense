@@ -1877,6 +1877,7 @@ function ReplayGroupStatsPage() {
                   className="group-participant-chip"
                   key={groupParticipantKey(player, index)}
                   player={player}
+                  showRank
                 />
               ))}
             </div>
@@ -2143,7 +2144,7 @@ function PlayerTimingSection({ groupId, players }: { groupId: string; players: R
             {players.map((player, index) => (
               <tr key={playerIdentityKey(player, index)}>
                 <td>
-                  <PlayerIdentity player={player} />
+                  <PlayerIdentity player={player} showRank />
                 </td>
                 <td>{replayLocalTeamLabel(player.team)}</td>
                 <td>{formatSeconds(player.active_time_seconds)}</td>
@@ -2424,6 +2425,7 @@ function GroupParticipantLeaderboard({
                     <PlayerIdentity
                       detail={`${(player.appearance_count ?? 0).toLocaleString()} games`}
                       player={player}
+                      showRank
                     />
                   </td>
                   <td>{(player.appearance_count ?? 0).toLocaleString()}</td>

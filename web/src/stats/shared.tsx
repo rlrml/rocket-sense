@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PlatformIcon } from "../platform";
+import { RankBadge } from "../rank";
 
 export interface SegmentedBarSegment {
   key: string;
@@ -78,6 +79,7 @@ export function StatPlayerLabel({
   name,
   platform,
   profilePath,
+  rank,
   showPlatformBadge = true,
   subtitle,
 }: {
@@ -86,17 +88,25 @@ export function StatPlayerLabel({
   name: string;
   platform: string | null;
   profilePath?: string | null;
+  rank?: StatPlayerRank | null;
   showPlatformBadge?: boolean;
   subtitle: string;
 }) {
-  const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
   const content = (
     <>
-      <strong className="stat-player-name-line">
-        {showPlatformBadge ? <PlatformIcon platform={platform} /> : null}
-        <span className="stat-player-name-text">{nameNode}</span>
-      </strong>
-      <span className="stat-player-subtitle">{subtitle}</span>
+      <StatPlayerName name={name} platform={platform} profilePath={profilePath} showPlatformBadge={showPlatformBadge} />
+      <span className="stat-player-subtitle">
+        <span className="stat-player-subtitle-text">{subtitle}</span>
+        {rank ? (
+          <RankBadge
+            tier={rank.tier}
+            division={rank.division}
+            mmr={rank.mmr}
+            approximate={rank.approximate}
+            approximateAsOf={rank.approximateAsOf}
+          />
+        ) : null}
+      </span>
     </>
   );
 
@@ -108,6 +118,53 @@ export function StatPlayerLabel({
     <div className={`player-bar-label ${className}`.trim()}>
       {content}
     </div>
+  );
+}
+
+export interface StatPlayerRank {
+  tier: number | null | undefined;
+  division: number | null | undefined;
+  mmr: number | null | undefined;
+  approximate?: boolean;
+  approximateAsOf?: string | null;
+}
+
+export function statPlayerRank(player: {
+  rank_tier?: number | null;
+  rank_division?: number | null;
+  rank_mmr?: number | null;
+  rank_is_fallback?: boolean;
+  rank_fallback_replay_date?: string | null;
+}): StatPlayerRank | null {
+  if (player.rank_tier == null) return null;
+  return {
+    tier: player.rank_tier,
+    division: player.rank_division,
+    mmr: player.rank_mmr,
+    approximate: player.rank_is_fallback,
+    approximateAsOf: player.rank_fallback_replay_date,
+  };
+}
+
+export function StatPlayerName({
+  className = "",
+  name,
+  platform,
+  profilePath,
+  showPlatformBadge = true,
+}: {
+  className?: string;
+  name: string;
+  platform: string | null;
+  profilePath?: string | null;
+  showPlatformBadge?: boolean;
+}) {
+  const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
+  return (
+    <strong className={`stat-player-name-line ${className}`.trim()}>
+      {showPlatformBadge ? <PlatformIcon platform={platform} /> : null}
+      <span className="stat-player-name-text">{nameNode}</span>
+    </strong>
   );
 }
 

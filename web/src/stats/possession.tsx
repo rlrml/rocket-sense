@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { SegmentedBar, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
+import { SegmentedBar, StatPlayerLabel, statPlayerRank, type SegmentedBarSegment, type StatPlayerRank } from "./shared";
 
 export const possessionEventTypes = ["possession"];
 
@@ -260,6 +260,7 @@ interface PlayerPossessionSummary {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
+  rank: StatPlayerRank | null;
   team: number | null;
   seconds: number;
   spans: number;
@@ -271,6 +272,7 @@ interface PossessionZoneSubject {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
+  rank: StatPlayerRank | null;
   showPlatformBadge: boolean;
   team: number | null;
   zoneSeconds: Record<PossessionZone, number>;
@@ -300,6 +302,7 @@ function PlayerPossessionChart({
               name={summary.name}
               platform={summary.platform}
               profilePath={playerProfilePath(summary)}
+              rank={summary.rank}
               subtitle={teamLabel(summary.team)}
             />
             <SegmentedBar
@@ -356,6 +359,7 @@ function PossessionZoneChart({
               name={subject.name}
               platform={subject.platform}
               profilePath={playerProfilePath(subject)}
+              rank={subject.rank}
               showPlatformBadge={subject.showPlatformBadge}
               subtitle={subject.showPlatformBadge ? teamLabel(subject.team) : "Team"}
             />
@@ -417,6 +421,7 @@ function PlayerPossessionLeaderboard({
                   name={summary.name}
                   platform={summary.platform}
                   profilePath={playerProfilePath(summary)}
+                  rank={summary.rank}
                   subtitle={summary.team == null ? "Mixed colors" : teamLabel(summary.team)}
                 />
               </td>
@@ -553,6 +558,7 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
       name: player.name || player.platform_player_id || "Unknown",
       platform: player.platform,
       platformPlayerId: player.platform_player_id,
+      rank: statPlayerRank(player),
       team: player.team,
       seconds,
       spans: playerSpans.length,
@@ -567,6 +573,7 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
       name: span.playerName || span.playerId,
       platform: null,
       platformPlayerId: null,
+      rank: null,
       team: null,
       seconds: span.duration,
       spans: 1,
@@ -595,6 +602,7 @@ function playerPossessionZoneSubjects(players: ReplayPlayer[], spans: Possession
     name: player.name || player.platform_player_id || "Unknown",
     platform: player.platform,
     platformPlayerId: player.platform_player_id,
+    rank: statPlayerRank(player),
     showPlatformBadge: true,
     team: player.team,
     zoneSeconds: emptyZoneSeconds(),
@@ -618,6 +626,7 @@ function teamPossessionZoneSubjects(spans: PossessionSpan[]): PossessionZoneSubj
     name: teamLabel(team),
     platform: null,
     platformPlayerId: null,
+    rank: null,
     showPlatformBadge: false,
     team,
     zoneSeconds: emptyZoneSeconds(),

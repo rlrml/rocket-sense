@@ -1,5 +1,12 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { MetricMeter, PlayerSegmentedBarRows, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
+import {
+  MetricMeter,
+  PlayerSegmentedBarRows,
+  StatPlayerLabel,
+  statPlayerRank,
+  type SegmentedBarSegment,
+  type StatPlayerRank,
+} from "./shared";
 
 export const positioningEventTypes = [
   // PlayerStateSpan facet streams (current analysis runs).
@@ -29,6 +36,7 @@ interface PlayerPositioningSummary {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
+  rank: StatPlayerRank | null;
   team: number | null;
   activeSeconds: number;
   trackedSeconds: number;
@@ -238,6 +246,7 @@ function positioningPlayerLabel(summary: PlayerPositioningSummary) {
       name={summary.name}
       platform={summary.platform}
       profilePath={playerProfilePath(summary)}
+      rank={summary.rank}
       subtitle={teamLabel(summary.team)}
     />
   );
@@ -416,6 +425,7 @@ function emptySummary(player: ReplayPlayer, index: number): PlayerPositioningSum
     name: player.name || player.platform_player_id || "Unknown",
     platform: player.platform,
     platformPlayerId: player.platform_player_id,
+    rank: statPlayerRank(player),
     team: player.team,
     activeSeconds: player.active_time_seconds ?? 0,
     trackedSeconds: 0,

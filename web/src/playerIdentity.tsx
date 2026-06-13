@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PlatformIcon } from "./platform";
+import { RankBadge } from "./rank";
 import type { ReplayPlayer } from "./types";
 
 export interface PlayerIdentityData {
@@ -8,6 +9,11 @@ export interface PlayerIdentityData {
   platform?: string | null;
   platform_player_id?: string | null;
   team?: number | null;
+  rank_tier?: number | null;
+  rank_division?: number | null;
+  rank_mmr?: number | null;
+  rank_is_fallback?: boolean;
+  rank_fallback_replay_date?: string | null;
 }
 
 export function playerProfilePath(platform: string | null | undefined, platformPlayerId: string | null | undefined): string | null {
@@ -42,9 +48,11 @@ export function PlayerIdentity({
   platformPlayerId,
   team,
   detail,
+  rank,
   suffix,
   className = "",
   showPlatform = true,
+  showRank = false,
   showTeam = true,
   link = true,
 }: {
@@ -54,9 +62,17 @@ export function PlayerIdentity({
   platformPlayerId?: string | null;
   team?: number | null;
   detail?: ReactNode;
+  rank?: {
+    tier: number | null | undefined;
+    division: number | null | undefined;
+    mmr: number | null | undefined;
+    approximate?: boolean;
+    approximateAsOf?: string | null;
+  } | null;
   suffix?: ReactNode;
   className?: string;
   showPlatform?: boolean;
+  showRank?: boolean;
   showTeam?: boolean;
   link?: boolean;
 }) {
@@ -65,6 +81,13 @@ export function PlayerIdentity({
   const resolvedPlatformPlayerId = platformPlayerId ?? player?.platform_player_id ?? null;
   const resolvedTeam = team ?? player?.team ?? null;
   const resolvedDetail = detail ?? (showTeam ? replayLocalTeamLabel(resolvedTeam) : null);
+  const resolvedRank = rank ?? (player ? {
+    tier: player.rank_tier,
+    division: player.rank_division,
+    mmr: player.rank_mmr,
+    approximate: player.rank_is_fallback,
+    approximateAsOf: player.rank_fallback_replay_date,
+  } : null);
   const href = link ? playerProfilePath(resolvedPlatform, resolvedPlatformPlayerId) : null;
   const classes = [
     "player-identity",
@@ -82,7 +105,20 @@ export function PlayerIdentity({
         </span>
         {suffix}
       </span>
-      {resolvedDetail ? <span className="player-identity-detail">{resolvedDetail}</span> : null}
+      {resolvedDetail || (showRank && resolvedRank?.tier != null) ? (
+        <span className="player-identity-detail">
+          {resolvedDetail ? <span className="player-identity-detail-text">{resolvedDetail}</span> : null}
+          {showRank ? (
+            <RankBadge
+              tier={resolvedRank?.tier}
+              division={resolvedRank?.division}
+              mmr={resolvedRank?.mmr}
+              approximate={resolvedRank?.approximate}
+              approximateAsOf={resolvedRank?.approximateAsOf}
+            />
+          ) : null}
+        </span>
+      ) : null}
     </>
   );
 

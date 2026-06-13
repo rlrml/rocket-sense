@@ -1,5 +1,13 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { MetricMeter, PlayerSegmentedBarRows, SegmentedBar, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
+import {
+  MetricMeter,
+  PlayerSegmentedBarRows,
+  SegmentedBar,
+  StatPlayerLabel,
+  statPlayerRank,
+  type SegmentedBarSegment,
+  type StatPlayerRank,
+} from "./shared";
 
 export const movementEventTypes = ["movement", "powerslide", "flip_impulse", "movement.dodge_refresh"];
 
@@ -8,6 +16,7 @@ interface PlayerMovementSummary {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
+  rank: StatPlayerRank | null;
   team: number | null;
   activeSeconds: number;
   totalDistance: number;
@@ -205,6 +214,7 @@ function movementPlayerLabel(summary: PlayerMovementSummary) {
       name={summary.name}
       platform={summary.platform}
       profilePath={playerProfilePath(summary)}
+      rank={summary.rank}
       subtitle={teamLabel(summary.team)}
     />
   );
@@ -290,6 +300,7 @@ function emptySummary(player: ReplayPlayer, index: number, durationSeconds: numb
     name: player.name || player.platform_player_id || "Unknown",
     platform: player.platform,
     platformPlayerId: player.platform_player_id,
+    rank: statPlayerRank(player),
     team: player.team,
     activeSeconds: player.non_demo_active_time_seconds ?? player.active_time_seconds ?? durationSeconds ?? 0,
     totalDistance: 0,

@@ -576,6 +576,9 @@ tbody tr:last-child td {
 }
 
 .player-identity-detail {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
@@ -584,6 +587,22 @@ tbody tr:last-child td {
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.player-identity-detail-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-identity-detail .rank-badge img {
+  width: 16px;
+  height: 16px;
+}
+
+.player-identity-detail .rank-mmr {
+  font-size: 10px;
 }
 
 .player-identity:hover .player-name {
@@ -3302,6 +3321,29 @@ button.status-stale:hover {
 .metric-bar-line span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.player-bar-label .stat-player-subtitle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stat-player-subtitle-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-bar-label .rank-badge img {
+  width: 16px;
+  height: 16px;
+}
+
+.player-bar-label .rank-mmr {
+  font-size: 10px;
 }
 
 .paired-bars {

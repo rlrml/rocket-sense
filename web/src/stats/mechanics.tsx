@@ -1,5 +1,6 @@
-import { PlayerIdentity, type PlayerIdentityData } from "../playerIdentity";
+import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import { StatPlayerLabel, statPlayerRank } from "./shared";
 
 export const mechanicEventTypes = [
   "ceiling_shot",
@@ -39,7 +40,7 @@ interface MechanicsDetailProps {
 interface PlayerMechanicRow {
   key: string;
   name: string;
-  player: PlayerIdentityData | null;
+  player: ReplayPlayer | null;
   games: number | null;
   count: number;
   uniqueMechanics: number;
@@ -111,10 +112,12 @@ function PlayerMechanicLeaderboard({ rows }: { rows: PlayerMechanicRow[] }) {
           {rows.map((row) => (
             <tr key={row.key}>
               <td>
-                <PlayerIdentity
-                  detail={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
+                <StatPlayerLabel
                   name={row.name}
-                  player={row.player}
+                  platform={row.player?.platform ?? null}
+                  profilePath={playerProfilePath(row.player?.platform, row.player?.platform_player_id)}
+                  rank={row.player ? statPlayerRank(row.player) : null}
+                  subtitle={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
                 />
               </td>
               <td>{row.count.toLocaleString()}</td>

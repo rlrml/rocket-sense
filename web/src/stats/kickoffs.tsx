@@ -153,6 +153,11 @@ interface PlayerKickoffSummary {
   name: string;
   platform: string | null;
   platform_player_id: string | null;
+  rank_tier: number | null;
+  rank_division: number | null;
+  rank_mmr: number | null;
+  rank_is_fallback?: boolean;
+  rank_fallback_replay_date?: string | null;
   team: number | null;
   takerCount: number;
   supportCount: number;
@@ -470,7 +475,7 @@ interface KickoffPlayerColumn {
 const PLAYER_COLUMN: KickoffPlayerColumn = {
   key: "player",
   label: "Player",
-  render: (summary) => <PlayerIdentity className="kickoff-player-cell" player={summary} />,
+  render: (summary) => <PlayerIdentity className="kickoff-player-cell" player={summary} showRank />,
 };
 
 // Kickoffs where the player's team came away with the advantage (possession,
@@ -1655,11 +1660,17 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
     const key = behavior.playerKey ?? `${behavior.team ?? "unknown"}:${behavior.playerName}`;
     if (!summaries.has(key)) {
       const identity = playerIdentityFromRemoteKey(behavior.playerKey);
+      const player = behavior.playerKey ? playerByRemoteKey(players, behavior.playerKey) : null;
       summaries.set(key, {
         key,
         name: behavior.playerName,
         platform: identity.platform ?? behavior.platform,
         platform_player_id: identity.platform_player_id ?? behavior.platformPlayerId,
+        rank_tier: player?.rank_tier ?? null,
+        rank_division: player?.rank_division ?? null,
+        rank_mmr: player?.rank_mmr ?? null,
+        rank_is_fallback: player?.rank_is_fallback,
+        rank_fallback_replay_date: player?.rank_fallback_replay_date,
         team: behavior.team,
         takerCount: 0,
         supportCount: 0,
@@ -1750,6 +1761,11 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
         name: player.name || key,
         platform: player.platform,
         platform_player_id: player.platform_player_id,
+        rank_tier: player.rank_tier ?? null,
+        rank_division: player.rank_division ?? null,
+        rank_mmr: player.rank_mmr ?? null,
+        rank_is_fallback: player.rank_is_fallback,
+        rank_fallback_replay_date: player.rank_fallback_replay_date,
         team: player.team,
         takerCount: 0,
         supportCount: 0,

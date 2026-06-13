@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { PlayerIdentity, type PlayerIdentityData } from "../playerIdentity";
+import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import {
@@ -9,6 +9,7 @@ import {
   numberField,
   useEventPreviewSelection,
 } from "./eventPreview";
+import { StatPlayerLabel, statPlayerRank } from "./shared";
 
 export const goalEventTypes = ["goal_context"];
 
@@ -199,10 +200,12 @@ function GoalScorerLeaderboard({ goals, players }: { goals: GoalRow[]; players: 
           {rows.map((row) => (
             <tr key={row.key}>
               <td>
-                <PlayerIdentity
-                  detail={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
+                <StatPlayerLabel
                   name={row.name}
-                  player={row.player}
+                  platform={row.player?.platform ?? null}
+                  profilePath={playerProfilePath(row.player?.platform, row.player?.platform_player_id)}
+                  rank={row.player ? statPlayerRank(row.player) : null}
+                  subtitle={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
                 />
               </td>
               <td>{row.goals.toLocaleString()}</td>
@@ -342,7 +345,7 @@ export function GoalCard({
 interface ScorerRow {
   key: string;
   name: string;
-  player: PlayerIdentityData | null;
+  player: ReplayPlayer | null;
   games: number | null;
   goals: number;
   taggedGoals: number;
