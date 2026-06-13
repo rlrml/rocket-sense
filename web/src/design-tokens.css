@@ -1,0 +1,134 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f6f7f8;
+  color: #17202a;
+
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --rs-bg: #f6f7f8;
+  --text: #17202a;
+  --text-strong: #243142;
+  --surface: #ffffff;
+  --surface-subtle: #edf1f5;
+  --border: #d8dee6;
+  --border-strong: #cbd5e1;
+  --muted: #617181;
+  --panel: var(--surface);
+  --nav: #111827;
+  --nav-muted: #9ca3af;
+
+  --team-blue: #2563eb;
+  --team-orange: #ea580c;
+  --team-unknown: #64748b;
+  --possession-neutral: #64748b;
+  --blue: var(--team-blue);
+  --orange: var(--team-orange);
+
+  --chart-grid: #e4e9ef;
+  --chart-axis: #9aa8b8;
+
+  --boost-neutral: #64748b;
+  --boost-big: #0f766e;
+  --boost-big-offensive: #dc2626;
+  --boost-big-neutral: #64748b;
+  --boost-big-defensive: #2563eb;
+  --boost-small: #94a3b8;
+  --boost-small-offensive: #f87171;
+  --boost-small-defensive: #93c5fd;
+  --boost-grant: #a855f7;
+  --boost-other: #64748b;
+  --boost-stolen-big: #dc2626;
+  --boost-stolen-small: #fca5a5;
+  --boost-overfill: #d97706;
+  --boost-supersonic: #475569;
+  --boost-level-empty: #1f2937;
+  --boost-level-low: #52616f;
+  --boost-level-medium: #7d91a5;
+  --boost-level-high: #9db7d1;
+  --boost-level-full: #5d9cec;
+  --boost-level-over: #2563eb;
+
+  --field-bg: #f8fafc;
+  --field-line: #cbd5e1;
+  --field-pad-outline: #64748b;
+  --leader-outline: #111827;
+
+  --status-processed-bg: #dcfce7;
+  --status-processed-fg: #166534;
+  --status-failed-bg: #fee2e2;
+  --status-failed-fg: #991b1b;
+  --status-pending-bg: #dbeafe;
+  --status-pending-fg: #1e40af;
+  --status-stale-bg: #fef3c7;
+  --status-stale-fg: #92400e;
+  --status-neutral-bg: #e5e7eb;
+  --status-neutral-fg: #374151;
+
+  --badge-ranked-bg: #dcfce7;
+  --badge-ranked-fg: #166534;
+  --badge-casual-bg: #dbeafe;
+  --badge-casual-fg: #1e40af;
+  --badge-context-bg: #ede9fe;
+  --badge-context-fg: #5b21b6;
+  --badge-size-bg: #f1f5f9;
+  --badge-size-fg: #334155;
+  --badge-neutral-bg: #eef2f7;
+  --badge-neutral-fg: #445466;
+
+  --mvp-bg: #fef3c7;
+  --mvp-fg: #92400e;
+  --chip-blue-bg: #dbeafe;
+  --chip-blue-fg: #1d4ed8;
+  --chip-orange-bg: #ffedd5;
+  --chip-orange-fg: #c2410c;
+  --chip-neutral-bg: #e2e8f0;
+  --chip-neutral-fg: #334155;
+
+  --team-soft-blue-bg: #eff6ff;
+  --team-soft-blue-border: #bfdbfe;
+  --team-soft-orange-bg: #fff7ed;
+  --team-soft-orange-border: #fed7aa;
+  --team-soft-neutral-bg: #f8fafc;
+  --team-soft-neutral-border: #d7e0ec;
+
+  --danger: #b91c1c;
+
+  --space-1: 4px;
+  --space-2: 6px;
+  --space-3: 8px;
+  --space-4: 10px;
+  --space-5: 12px;
+  --space-6: 14px;
+  --space-7: 16px;
+  --space-8: 18px;
+  --space-9: 22px;
+  --space-10: 28px;
+  --space-11: 32px;
+
+  --sidebar-width: 248px;
+  --page-max: 1280px;
+  --main-pad-y: 28px;
+  --main-pad-x: 32px;
+
+  --control-h: 40px;
+  --control-h-sm: 38px;
+  --control-h-xs: 30px;
+
+  --radius-sm: 6px;
+  --radius-md: 7px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-pill: 999px;
+
+  --border-width: 1px;
+  --border-hairline: 1px solid var(--border);
+
+  --shadow-card-hover: 0 12px 24px rgba(15, 23, 42, 0.1);
+  --shadow-card-selected: 0 14px 28px rgba(15, 23, 42, 0.12);
+  --shadow-tooltip: 0 16px 32px rgba(15, 23, 42, 0.22);
+}
