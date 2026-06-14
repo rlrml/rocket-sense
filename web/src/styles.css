@@ -2801,6 +2801,38 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+/* Movement comparison charts: a slightly wider value column so "1,419 uu/s" and
+   "184k uu" fit without clipping. */
+.player-comparison-chart.movement-chart .player-comparison-row {
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 92px;
+}
+
+/* Fixed per-metric magnitude hues for replay-group views (no replay-local team
+   to color by). Single games override these with team/player shading. */
+.source-segment.movement-bar-speed {
+  background: #0f766e;
+}
+
+.source-segment.movement-bar-distance {
+  background: #7c3aed;
+}
+
+.source-segment.movement-bar-powerslide {
+  background: #475569;
+}
+
+.source-segment.movement-bar-speed-flip {
+  background: #be123c;
+}
+
+.source-segment.movement-bar-wavedash {
+  background: #7c3aed;
+}
+
+.source-segment.movement-bar-half-flip {
+  background: #0f766e;
+}
+
 .movement-speed-chart,
 .movement-share-rows {
   display: grid;
