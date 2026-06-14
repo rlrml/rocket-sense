@@ -1,4 +1,10 @@
-import { canonicalSpawn, fieldProjection, FIELD, spawnForShape, supportSpawnForShape } from "./kickoffField";
+import {
+  canonicalSpawn,
+  fieldProjection,
+  FIELD,
+  spawnForShape,
+  supportSpawnForShape,
+} from "./kickoffField";
 
 interface KickoffShapeIconProps {
   type: string;
@@ -39,16 +45,15 @@ export function KickoffShapeIcon({
   const aspect = projection.width / projection.height;
   const pixelWidth = size * aspect;
 
-  const renderPlayer = (
-    spawn: string,
-    team: 0 | 1,
-    role: "taker" | "support",
-  ) => {
+  const renderPlayer = (spawn: string, team: 0 | 1, role: "taker" | "support") => {
     const point = canonicalSpawn(spawn, team);
     if (!point) return null;
     const projected = project(point.x, point.y);
     return (
-      <g className={`kickoff-icon-${role} ${team === 0 ? "blue" : "orange"}`} key={`${role}-${team}`}>
+      <g
+        className={`kickoff-icon-${role} ${team === 0 ? "blue" : "orange"}`}
+        key={`${role}-${team}`}
+      >
         {role === "taker" && showLanes ? (
           <line
             className="kickoff-icon-lane"
@@ -59,7 +64,12 @@ export function KickoffShapeIcon({
             vectorEffect="non-scaling-stroke"
           />
         ) : null}
-        <circle cx={projected.x} cy={projected.y} r={role === "taker" ? takerR : supportR} vectorEffect="non-scaling-stroke" />
+        <circle
+          cx={projected.x}
+          cy={projected.y}
+          r={role === "taker" ? takerR : supportR}
+          vectorEffect="non-scaling-stroke"
+        />
       </g>
     );
   };

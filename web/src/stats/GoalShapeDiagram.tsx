@@ -2,7 +2,14 @@ import type { ReplayModel } from "@rlrml/viewer";
 import { useEffect, useId, useMemo, useState } from "react";
 import { fieldProjection, type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
-import { clampFrame, matchPlayer, type PathPlayerRef, pointsToString, sampleBallPath, samplePath } from "./replayPaths";
+import {
+  clampFrame,
+  matchPlayer,
+  type PathPlayerRef,
+  pointsToString,
+  sampleBallPath,
+  samplePath,
+} from "./replayPaths";
 
 export interface GoalPathPlayer extends PathPlayerRef {
   team: number | null;
@@ -35,7 +42,12 @@ const FALLBACK_BUILDUP_FRAMES = 150;
 // Goal windows run longer than kickoffs, so allow a few more points per path.
 const MAX_PATH_POINTS = 120;
 
-export function GoalShapeDiagram({ replayId, startFrame, goalFrame, players }: GoalShapeDiagramProps) {
+export function GoalShapeDiagram({
+  replayId,
+  startFrame,
+  goalFrame,
+  players,
+}: GoalShapeDiagramProps) {
   const [replay, setReplay] = useState<ReplayModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const markerId = useId().replace(/:/g, "");
@@ -81,20 +93,52 @@ export function GoalShapeDiagram({ replayId, startFrame, goalFrame, players }: G
         aria-label="Goal buildup player paths and ball trajectory"
       >
         <defs>
-          <marker id={`${markerId}-arrow-blue`} className="kickoff-arrow blue" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <marker
+            id={`${markerId}-arrow-blue`}
+            className="kickoff-arrow blue"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L6,3 L0,6 Z" />
           </marker>
-          <marker id={`${markerId}-arrow-orange`} className="kickoff-arrow orange" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <marker
+            id={`${markerId}-arrow-orange`}
+            className="kickoff-arrow orange"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L6,3 L0,6 Z" />
           </marker>
         </defs>
 
-        <KickoffFieldBackground projection={projection} showCenter={false} ballRadius={projection.toUnits(120)} />
+        <KickoffFieldBackground
+          projection={projection}
+          showCenter={false}
+          ballRadius={projection.toUnits(120)}
+        />
 
         {/* Ball trajectory through the buildup, ending where it crosses the line. */}
-        {ballPoints ? <polyline className="kickoff-ball-path" points={ballPoints} vectorEffect="non-scaling-stroke" /> : null}
+        {ballPoints ? (
+          <polyline
+            className="kickoff-ball-path"
+            points={ballPoints}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
         {ballEnd ? (
-          <circle className="kickoff-ball-end goal-ball-end" cx={ballEnd.x} cy={ballEnd.y} r={projection.toUnits(150)} vectorEffect="non-scaling-stroke" />
+          <circle
+            className="kickoff-ball-end goal-ball-end"
+            cx={ballEnd.x}
+            cy={ballEnd.y}
+            r={projection.toUnits(150)}
+            vectorEffect="non-scaling-stroke"
+          />
         ) : null}
 
         {paths.map((path, index) => (

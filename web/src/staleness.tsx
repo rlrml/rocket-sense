@@ -1,11 +1,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Cpu, Info, RefreshCw, X } from "lucide-react";
 
-import {
-  getPlayerProcessingVersions,
-  reprocessReplay,
-  reprocessReplayClient,
-} from "./api";
+import { getPlayerProcessingVersions, reprocessReplay, reprocessReplayClient } from "./api";
 import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
 import type {
   ProcessingVersionBreakdownResponse,
@@ -31,13 +27,7 @@ function versionWithSha(version?: string | null, sha?: string | null) {
 }
 
 /** A git sha rendered as a link to its GitHub commit, short text + full title. */
-function GitSha({
-  repo,
-  sha,
-}: {
-  repo: keyof typeof GITHUB_REPO;
-  sha?: string | null;
-}) {
+function GitSha({ repo, sha }: { repo: keyof typeof GITHUB_REPO; sha?: string | null }) {
   if (!sha) return <span className="subtle">unknown</span>;
   return (
     <a
@@ -166,8 +156,8 @@ function StalenessDetailModal({
         </header>
 
         <p className="muted-text">
-          This replay was processed with an older pipeline. Reprocessing it will
-          bring its stats up to date with the current build.
+          This replay was processed with an older pipeline. Reprocessing it will bring its stats up
+          to date with the current build.
         </p>
 
         <table className="version-breakdown-table staleness-detail-table">
@@ -242,7 +232,10 @@ function ReprocessControls({
           : "Already up to date — nothing needed reprocessing.",
       });
     } catch (error) {
-      setResult({ error: true, message: error instanceof Error ? error.message : "Reprocess failed." });
+      setResult({
+        error: true,
+        message: error instanceof Error ? error.message : "Reprocess failed.",
+      });
     } finally {
       setRunning(null);
     }
@@ -257,9 +250,15 @@ function ReprocessControls({
         subtrActorGitSha: __SUBTR_ACTOR_REV__,
         scaffoldJson,
       });
-      setResult({ error: false, message: "Reprocessed locally — refresh to see the regenerated analysis." });
+      setResult({
+        error: false,
+        message: "Reprocessed locally — refresh to see the regenerated analysis.",
+      });
     } catch (error) {
-      setResult({ error: true, message: error instanceof Error ? error.message : "Local reprocess failed." });
+      setResult({
+        error: true,
+        message: error instanceof Error ? error.message : "Local reprocess failed.",
+      });
     } finally {
       setRunning(null);
     }
@@ -297,12 +296,13 @@ function ReprocessControls({
         </button>
       </div>
       {result ? (
-        <p className={`reprocess-message${result.error ? " reprocess-error" : ""}`}>{result.message}</p>
+        <p className={`reprocess-message${result.error ? " reprocess-error" : ""}`}>
+          {result.message}
+        </p>
       ) : null}
     </div>
   );
 }
-
 
 /**
  * Small info-icon trigger + modal showing how the replays contributing to an
@@ -439,7 +439,9 @@ function ProcessingVersionModal({
                 </thead>
                 <tbody>
                   {breakdown.rows.map((row, index) => (
-                    <tr key={`${row.event_stream_schema_version ?? "?"}-${row.subtr_actor_version ?? "?"}-${index}`}>
+                    <tr
+                      key={`${row.event_stream_schema_version ?? "?"}-${row.subtr_actor_version ?? "?"}-${index}`}
+                    >
                       <td>{row.event_stream_schema_version ?? "unknown"}</td>
                       <td>
                         {row.subtr_actor_version ?? "unknown"}

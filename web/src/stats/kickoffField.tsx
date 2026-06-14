@@ -241,7 +241,13 @@ export function KickoffFieldBackground({
             r={toUnits(FIELD.centerCircleRadius)}
             vectorEffect="non-scaling-stroke"
           />
-          <circle className="kickoff-ball-dot" cx={center.x} cy={center.y} r={dotRadius} vectorEffect="non-scaling-stroke" />
+          <circle
+            className="kickoff-ball-dot"
+            cx={center.x}
+            cy={center.y}
+            r={dotRadius}
+            vectorEffect="non-scaling-stroke"
+          />
         </>
       ) : null}
     </g>

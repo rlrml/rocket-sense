@@ -97,7 +97,8 @@ export function KickoffSpawnBreakdown({
       <div className="kickoff-spawn-breakdown-header">
         <h4>{dimension.label}</h4>
         <strong>
-          {filteredCount.toLocaleString()} of {total.toLocaleString()} · {formatShare(filteredCount, total)}
+          {filteredCount.toLocaleString()} of {total.toLocaleString()} ·{" "}
+          {formatShare(filteredCount, total)}
         </strong>
       </div>
       <div className="kickoff-filter-stack" aria-label="Kickoff spawn filters">
@@ -125,7 +126,9 @@ export function KickoffSpawnBreakdown({
           <KickoffSpawnCardView card={card} total={total} key={card.key} />
         ))}
       </div>
-      {cards.length === 0 ? <p className="kickoff-spawn-empty subtle">No kickoffs match this shape and side.</p> : null}
+      {cards.length === 0 ? (
+        <p className="kickoff-spawn-empty subtle">No kickoffs match this shape and side.</p>
+      ) : null}
     </div>
   );
 }
@@ -179,7 +182,10 @@ function KickoffSpawnCardView({ card, total }: { card: KickoffSpawnCard; total: 
           </span>
         </div>
       </div>
-      <div className="kickoff-spawn-share-track" aria-label={`${card.label}: ${formatShare(card.count, total)}`}>
+      <div
+        className="kickoff-spawn-share-track"
+        aria-label={`${card.label}: ${formatShare(card.count, total)}`}
+      >
         <span style={{ width: `${barPercent(share)}%` }} />
       </div>
       {sideRows.length > 1 ? (
@@ -187,8 +193,15 @@ function KickoffSpawnCardView({ card, total }: { card: KickoffSpawnCard; total: 
           {sideRows.map((bucket) => (
             <div className="kickoff-spawn-side-row" key={bucket.key}>
               <span>{bucket.side ? sideLabels[bucket.side] : bucket.label}</span>
-              <div className="kickoff-spawn-mini-track" aria-label={`${bucket.label}: ${formatShare(bucket.count, card.count)}`}>
-                <span style={{ width: `${barPercent(card.count > 0 ? bucket.count / card.count : null)}%` }} />
+              <div
+                className="kickoff-spawn-mini-track"
+                aria-label={`${bucket.label}: ${formatShare(bucket.count, card.count)}`}
+              >
+                <span
+                  style={{
+                    width: `${barPercent(card.count > 0 ? bucket.count / card.count : null)}%`,
+                  }}
+                />
               </div>
               <strong>{formatShare(bucket.count, card.count)}</strong>
             </div>
@@ -240,7 +253,9 @@ function buildSpawnBuckets(values: EventStatDimensionValueResponse[]): KickoffSp
   return [...grouped.values()].sort(compareBuckets);
 }
 
-function parseSpawnValue(value: EventStatDimensionValueResponse): Omit<KickoffSpawnBucket, "count" | "values"> {
+function parseSpawnValue(
+  value: EventStatDimensionValueResponse,
+): Omit<KickoffSpawnBucket, "count" | "values"> {
   switch (value.key) {
     case "diagonal_left":
       return { key: "diagonal_left", label: "Diagonal left", shape: "diagonal", side: "left" };
@@ -248,10 +263,20 @@ function parseSpawnValue(value: EventStatDimensionValueResponse): Omit<KickoffSp
       return { key: "diagonal_right", label: "Diagonal right", shape: "diagonal", side: "right" };
     case "off_center_left":
     case "center_offset_left":
-      return { key: "center_offset_left", label: "Center offset left", shape: "center_offset", side: "left" };
+      return {
+        key: "center_offset_left",
+        label: "Center offset left",
+        shape: "center_offset",
+        side: "left",
+      };
     case "off_center_right":
     case "center_offset_right":
-      return { key: "center_offset_right", label: "Center offset right", shape: "center_offset", side: "right" };
+      return {
+        key: "center_offset_right",
+        label: "Center offset right",
+        shape: "center_offset",
+        side: "right",
+      };
     case "center":
       return { key: "center", label: "Center", shape: "center", side: null };
     default:
@@ -304,24 +329,40 @@ function buildSpawnCards(
   return [...cards.values()].sort(compareCards);
 }
 
-function bucketMatches(bucket: KickoffSpawnBucket, shapeFilter: KickoffShapeFilter, sideFilter: KickoffSideFilter): boolean {
+function bucketMatches(
+  bucket: KickoffSpawnBucket,
+  shapeFilter: KickoffShapeFilter,
+  sideFilter: KickoffSideFilter,
+): boolean {
   if (shapeFilter !== "all" && bucket.shape !== shapeFilter) return false;
   if (sideFilter !== "all" && bucket.side !== sideFilter) return false;
   return true;
 }
 
-function countBuckets(buckets: KickoffSpawnBucket[], shapeFilter: KickoffShapeFilter, sideFilter: KickoffSideFilter): number {
+function countBuckets(
+  buckets: KickoffSpawnBucket[],
+  shapeFilter: KickoffShapeFilter,
+  sideFilter: KickoffSideFilter,
+): number {
   return buckets
     .filter((bucket) => bucketMatches(bucket, shapeFilter, sideFilter))
     .reduce((sum, bucket) => sum + bucket.count, 0);
 }
 
 function compareBuckets(left: KickoffSpawnBucket, right: KickoffSpawnBucket): number {
-  return shapeOrder(left.shape) - shapeOrder(right.shape) || sideOrder(left.side) - sideOrder(right.side) || left.label.localeCompare(right.label);
+  return (
+    shapeOrder(left.shape) - shapeOrder(right.shape) ||
+    sideOrder(left.side) - sideOrder(right.side) ||
+    left.label.localeCompare(right.label)
+  );
 }
 
 function compareCards(left: KickoffSpawnCard, right: KickoffSpawnCard): number {
-  return shapeOrder(left.shape) - shapeOrder(right.shape) || sideOrder(left.side) - sideOrder(right.side) || left.label.localeCompare(right.label);
+  return (
+    shapeOrder(left.shape) - shapeOrder(right.shape) ||
+    sideOrder(left.side) - sideOrder(right.side) ||
+    left.label.localeCompare(right.label)
+  );
 }
 
 function shapeOrder(shape: KickoffSpawnBucket["shape"]): number {

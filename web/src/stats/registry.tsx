@@ -1,4 +1,15 @@
-import { BatteryCharging, CircleDotDashed, Gauge, Goal, Hand, type LucideIcon, Map as MapIcon, MapPinned, RotateCw, Sparkles } from "lucide-react";
+import {
+  BatteryCharging,
+  CircleDotDashed,
+  Gauge,
+  Goal,
+  Hand,
+  type LucideIcon,
+  Map as MapIcon,
+  MapPinned,
+  RotateCw,
+  Sparkles,
+} from "lucide-react";
 import type { ComponentType } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { BoostDetail, boostEventTypes } from "./boost";
@@ -36,7 +47,8 @@ export const statGroups: StatGroup[] = [
     id: "goals",
     label: "Goals",
     icon: Goal,
-    description: "Every goal with scorer, scoring team, ball speed, air time, and detected goal types, with clip preview.",
+    description:
+      "Every goal with scorer, scoring team, ball speed, air time, and detected goal types, with clip preview.",
     terms: ["goal", "score", "finish", "aerial", "flick", "double tap"],
     completed: true,
     usesAggregateStats: false,
@@ -58,7 +70,8 @@ export const statGroups: StatGroup[] = [
     id: "kickoffs",
     label: "Kickoffs",
     icon: CircleDotDashed,
-    description: "Kickoff outcomes, taker approach, support behavior, first touches, and kickoff goals.",
+    description:
+      "Kickoff outcomes, taker approach, support behavior, first touches, and kickoff goals.",
     terms: ["kickoff"],
     completed: true,
     usesAggregateStats: false,
@@ -70,7 +83,17 @@ export const statGroups: StatGroup[] = [
     label: "Movement",
     icon: Gauge,
     description: "Speed, aerial movement, ground movement, recoveries, jumps, and dodges.",
-    terms: ["speed", "movement", "aerial", "air", "ground", "jump", "dodge", "supersonic", "recovery"],
+    terms: [
+      "speed",
+      "movement",
+      "aerial",
+      "air",
+      "ground",
+      "jump",
+      "dodge",
+      "supersonic",
+      "recovery",
+    ],
     completed: true,
     usesAggregateStats: false,
     eventTypes: movementEventTypes,
@@ -80,7 +103,8 @@ export const statGroups: StatGroup[] = [
     id: "positioning",
     label: "Positioning",
     icon: MapPinned,
-    description: "Field position, team depth, offensive/defensive half time, and forward/back roles.",
+    description:
+      "Field position, team depth, offensive/defensive half time, and forward/back roles.",
     terms: ["position", "offensive", "defensive", "half", "most back", "most forward", "depth"],
     completed: true,
     usesAggregateStats: false,
@@ -91,8 +115,19 @@ export const statGroups: StatGroup[] = [
     id: "mechanics",
     label: "Mechanics",
     icon: Sparkles,
-    description: "Detected mechanics such as flip resets, double taps, air dribbles, and recoveries.",
-    terms: ["mechanic", "flip", "reset", "double", "tap", "air dribble", "flick", "wavedash", "ceiling"],
+    description:
+      "Detected mechanics such as flip resets, double taps, air dribbles, and recoveries.",
+    terms: [
+      "mechanic",
+      "flip",
+      "reset",
+      "double",
+      "tap",
+      "air dribble",
+      "flick",
+      "wavedash",
+      "ceiling",
+    ],
     completed: true,
     usesAggregateStats: false,
     eventTypes: mechanicEventTypes,
@@ -134,7 +169,10 @@ export const statGroups: StatGroup[] = [
 
 export const completedStatGroups = statGroups.filter((group) => group.completed);
 
-export function statGroupById(groupId: string | undefined, groups: readonly StatGroup[] = statGroups): StatGroup | undefined {
+export function statGroupById(
+  groupId: string | undefined,
+  groups: readonly StatGroup[] = statGroups,
+): StatGroup | undefined {
   if (!groupId) return undefined;
   return groups.find((group) => group.id === groupId || group.aliases?.includes(groupId));
 }

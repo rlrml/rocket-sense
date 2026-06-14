@@ -83,9 +83,24 @@ export function PositioningDetail({
             summaries={summaries}
             emptyLabel="No field-zone positioning spans are available for this replay."
             segments={(summary) => [
-              positioningSegment("defensive", "Defensive", summary.defensiveThirdSeconds, summary.trackedSeconds),
-              positioningSegment("neutral", "Neutral", summary.neutralThirdSeconds, summary.trackedSeconds),
-              positioningSegment("offensive", "Offensive", summary.offensiveThirdSeconds, summary.trackedSeconds),
+              positioningSegment(
+                "defensive",
+                "Defensive",
+                summary.defensiveThirdSeconds,
+                summary.trackedSeconds,
+              ),
+              positioningSegment(
+                "neutral",
+                "Neutral",
+                summary.neutralThirdSeconds,
+                summary.trackedSeconds,
+              ),
+              positioningSegment(
+                "offensive",
+                "Offensive",
+                summary.offensiveThirdSeconds,
+                summary.trackedSeconds,
+              ),
             ]}
             sortValue={(summary) => share(summary.offensiveThirdSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
@@ -101,9 +116,24 @@ export function PositioningDetail({
             summaries={summaries}
             emptyLabel="No ball-depth positioning spans are available for this replay."
             segments={(summary) => [
-              positioningSegment("behind", "Behind ball", summary.behindBallSeconds, summary.trackedSeconds),
-              positioningSegment("level", "Level", summary.levelWithBallSeconds, summary.trackedSeconds),
-              positioningSegment("ahead", "Ahead", summary.inFrontOfBallSeconds, summary.trackedSeconds),
+              positioningSegment(
+                "behind",
+                "Behind ball",
+                summary.behindBallSeconds,
+                summary.trackedSeconds,
+              ),
+              positioningSegment(
+                "level",
+                "Level",
+                summary.levelWithBallSeconds,
+                summary.trackedSeconds,
+              ),
+              positioningSegment(
+                "ahead",
+                "Ahead",
+                summary.inFrontOfBallSeconds,
+                summary.trackedSeconds,
+              ),
             ]}
             sortValue={(summary) => share(summary.inFrontOfBallSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
@@ -119,7 +149,14 @@ export function PositioningDetail({
             summaries={summaries}
             emptyLabel="No teammate-role spans are available for this replay."
             segments={(summary) =>
-              roleOrder.map((role) => positioningSegment(`role-${role}`, roleLabel(role), summary.roleSeconds[role], roleTotal(summary)))
+              roleOrder.map((role) =>
+                positioningSegment(
+                  `role-${role}`,
+                  roleLabel(role),
+                  summary.roleSeconds[role],
+                  roleTotal(summary),
+                ),
+              )
             }
             sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
             total={roleTotal}
@@ -135,9 +172,24 @@ export function PositioningDetail({
             summaries={summaries}
             emptyLabel="No ball-priority spans are available for this replay."
             segments={(summary) => [
-              positioningSegment("closest", "Closest", summary.closestTeamSeconds, ballPriorityTotal(summary)),
-              positioningSegment("other", "Other", otherBallPrioritySeconds(summary), ballPriorityTotal(summary)),
-              positioningSegment("farthest", "Farthest", summary.farthestSeconds, ballPriorityTotal(summary)),
+              positioningSegment(
+                "closest",
+                "Closest",
+                summary.closestTeamSeconds,
+                ballPriorityTotal(summary),
+              ),
+              positioningSegment(
+                "other",
+                "Other",
+                otherBallPrioritySeconds(summary),
+                ballPriorityTotal(summary),
+              ),
+              positioningSegment(
+                "farthest",
+                "Farthest",
+                summary.farthestSeconds,
+                ballPriorityTotal(summary),
+              ),
             ]}
             sortValue={(summary) => share(summary.closestTeamSeconds, ballPriorityTotal(summary))}
             total={ballPriorityTotal}
@@ -193,17 +245,34 @@ function PositioningBarRows({
 }
 
 function PositioningProximityChart({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  const rows = sortedSummaries(summaries, (summary) => share(summary.closestTeamSeconds, summary.trackedSeconds)).map((summary) => ({
+  const rows = sortedSummaries(summaries, (summary) =>
+    share(summary.closestTeamSeconds, summary.trackedSeconds),
+  ).map((summary) => ({
     summary,
     ballDistance: weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
-    teammateDistance: weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight),
+    teammateDistance: weightedAverage(
+      summary.distanceToTeammatesWeighted,
+      summary.distanceToTeammatesWeight,
+    ),
   }));
-  const maxDistance = Math.max(1, ...rows.flatMap((row) => [row.ballDistance ?? 0, row.teammateDistance ?? 0]));
+  const maxDistance = Math.max(
+    1,
+    ...rows.flatMap((row) => [row.ballDistance ?? 0, row.teammateDistance ?? 0]),
+  );
   const maxCaughtAhead = Math.max(1, ...summaries.map((summary) => summary.caughtAheadGoals));
   const showCaughtAhead = summaries.some((summary) => summary.caughtAheadGoals > 0);
 
-  if (!summaries.some((summary) => summary.trackedSeconds > 0 || summary.distanceToBallWeight > 0 || summary.distanceToTeammatesWeight > 0)) {
-    return <div className="stat-empty">No distance or proximity rows are available for this replay.</div>;
+  if (
+    !summaries.some(
+      (summary) =>
+        summary.trackedSeconds > 0 ||
+        summary.distanceToBallWeight > 0 ||
+        summary.distanceToTeammatesWeight > 0,
+    )
+  ) {
+    return (
+      <div className="stat-empty">No distance or proximity rows are available for this replay.</div>
+    );
   }
 
   return (
@@ -254,7 +323,9 @@ function positioningPlayerLabel(summary: PlayerPositioningSummary) {
 
 function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
   if (!summaries.some((summary) => summary.trackedSeconds > 0 || roleTotal(summary) > 0)) {
-    return <div className="stat-empty">No raw positioning totals are available for this replay.</div>;
+    return (
+      <div className="stat-empty">No raw positioning totals are available for this replay.</div>
+    );
   }
 
   return (
@@ -298,8 +369,19 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
               <td>{formatSeconds(summary.closestTeamSeconds)}</td>
               <td>{formatSeconds(otherBallPrioritySeconds(summary))}</td>
               <td>{formatSeconds(summary.farthestSeconds)}</td>
-              <td>{formatDistance(weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight))}</td>
-              <td>{formatDistance(weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight))}</td>
+              <td>
+                {formatDistance(
+                  weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
+                )}
+              </td>
+              <td>
+                {formatDistance(
+                  weightedAverage(
+                    summary.distanceToTeammatesWeighted,
+                    summary.distanceToTeammatesWeight,
+                  ),
+                )}
+              </td>
               <td>{summary.caughtAheadGoals.toLocaleString()}</td>
             </tr>
           ))}
@@ -309,7 +391,10 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
   );
 }
 
-function playerPositioningSummaries(players: ReplayPlayer[], events: MechanicEventResponse[]): PlayerPositioningSummary[] {
+function playerPositioningSummaries(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): PlayerPositioningSummary[] {
   const summaries = players.map(emptySummary);
   const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
 
@@ -372,18 +457,26 @@ function playerPositioningSummaries(players: ReplayPlayer[], events: MechanicEve
 
     if (event.event_type === "positioning_field_zone") {
       summary.trackedSeconds += duration;
-      summary.defensiveThirdSeconds += duration * fractionPayload(event.payload, "defensive_zone_fraction");
-      summary.neutralThirdSeconds += duration * fractionPayload(event.payload, "neutral_zone_fraction");
-      summary.offensiveThirdSeconds += duration * fractionPayload(event.payload, "offensive_zone_fraction");
-      summary.defensiveHalfSeconds += duration * fractionPayload(event.payload, "defensive_half_fraction");
-      summary.offensiveHalfSeconds += duration * fractionPayload(event.payload, "offensive_half_fraction");
+      summary.defensiveThirdSeconds +=
+        duration * fractionPayload(event.payload, "defensive_zone_fraction");
+      summary.neutralThirdSeconds +=
+        duration * fractionPayload(event.payload, "neutral_zone_fraction");
+      summary.offensiveThirdSeconds +=
+        duration * fractionPayload(event.payload, "offensive_zone_fraction");
+      summary.defensiveHalfSeconds +=
+        duration * fractionPayload(event.payload, "defensive_half_fraction");
+      summary.offensiveHalfSeconds +=
+        duration * fractionPayload(event.payload, "offensive_half_fraction");
       continue;
     }
 
     if (event.event_type === "positioning_ball_relative_depth") {
-      summary.behindBallSeconds += duration * fractionPayload(event.payload, "behind_ball_fraction");
-      summary.levelWithBallSeconds += duration * fractionPayload(event.payload, "level_with_ball_fraction");
-      summary.inFrontOfBallSeconds += duration * fractionPayload(event.payload, "in_front_of_ball_fraction");
+      summary.behindBallSeconds +=
+        duration * fractionPayload(event.payload, "behind_ball_fraction");
+      summary.levelWithBallSeconds +=
+        duration * fractionPayload(event.payload, "level_with_ball_fraction");
+      summary.inFrontOfBallSeconds +=
+        duration * fractionPayload(event.payload, "in_front_of_ball_fraction");
       continue;
     }
 
@@ -393,8 +486,10 @@ function playerPositioningSummaries(players: ReplayPlayer[], events: MechanicEve
     }
 
     if (event.event_type === "positioning_ball_proximity") {
-      if (booleanPayload(event.payload, "closest_to_ball_team")) summary.closestTeamSeconds += duration;
-      if (booleanPayload(event.payload, "closest_to_ball_absolute")) summary.closestAbsoluteSeconds += duration;
+      if (booleanPayload(event.payload, "closest_to_ball_team"))
+        summary.closestTeamSeconds += duration;
+      if (booleanPayload(event.payload, "closest_to_ball_absolute"))
+        summary.closestAbsoluteSeconds += duration;
       if (booleanPayload(event.payload, "farthest_from_ball")) summary.farthestSeconds += duration;
       continue;
     }
@@ -411,7 +506,10 @@ function playerPositioningSummaries(players: ReplayPlayer[], events: MechanicEve
       continue;
     }
 
-    if (event.event_type === "positioning_goal_context" && booleanPayload(event.payload, "caught_ahead_of_play_on_conceded_goal")) {
+    if (
+      event.event_type === "positioning_goal_context" &&
+      booleanPayload(event.payload, "caught_ahead_of_play_on_conceded_goal")
+    ) {
       summary.caughtAheadGoals += 1;
     }
   }
@@ -472,13 +570,20 @@ function summaryForEvent(
 }
 
 function eventPlayerKeys(event: MechanicEventResponse): string[] {
-  const keys = [event.player_id, stringPayload(event.payload, "player_id"), remoteIdKey(event.payload.player)].filter(
-    (key): key is string => Boolean(key),
-  );
+  const keys = [
+    event.player_id,
+    stringPayload(event.payload, "player_id"),
+    remoteIdKey(event.payload.player),
+  ].filter((key): key is string => Boolean(key));
   return keys.flatMap((key) => [key, normalizePlayerKey(key)]);
 }
 
-function positioningSegment(id: string, label: string, seconds: number, total: number): SegmentedBarSegment {
+function positioningSegment(
+  id: string,
+  label: string,
+  seconds: number,
+  total: number,
+): SegmentedBarSegment {
   const percent = percentage(seconds, total);
   return {
     key: id,
@@ -493,7 +598,8 @@ function positioningSegment(id: string, label: string, seconds: number, total: n
 function eventDuration(event: MechanicEventResponse): number {
   const duration = numberPayload(event.payload, "duration");
   if (duration != null) return duration;
-  if (event.start_time != null && event.end_time != null) return Math.max(0, event.end_time - event.start_time);
+  if (event.start_time != null && event.end_time != null)
+    return Math.max(0, event.end_time - event.start_time);
   return 0;
 }
 
@@ -509,7 +615,12 @@ function ballPriorityTotal(summary: PlayerPositioningSummary): number {
   return summary.closestTeamSeconds + otherBallPrioritySeconds(summary) + summary.farthestSeconds;
 }
 
-function addWeightedPayload(payload: Record<string, unknown>, key: string, duration: number, add: (weightedValue: number) => void) {
+function addWeightedPayload(
+  payload: Record<string, unknown>,
+  key: string,
+  duration: number,
+  add: (weightedValue: number) => void,
+) {
   const value = numberPayload(payload, key);
   if (value == null || duration <= 0) return;
   add(value * duration);
@@ -536,7 +647,8 @@ function compareSummaries(left: PlayerPositioningSummary, right: PlayerPositioni
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {
-  if (player.platform && player.platform_player_id) return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
+  if (player.platform && player.platform_player_id)
+    return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
   return `name:${player.name || index}`;
 }
 
@@ -550,11 +662,13 @@ function remoteIdKey(value: unknown): string | null {
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length !== 1) return null;
   const [platform, id] = entries[0];
-  if (typeof id === "string" || typeof id === "number") return `${normalizePlatform(platform)}:${String(id)}`;
+  if (typeof id === "string" || typeof id === "number")
+    return `${normalizePlatform(platform)}:${String(id)}`;
   if (id && typeof id === "object" && !Array.isArray(id)) {
     const nested = id as Record<string, unknown>;
     const onlineId = nested.online_id ?? nested.id;
-    if (typeof onlineId === "string" || typeof onlineId === "number") return `${normalizePlatform(platform)}:${String(onlineId)}`;
+    if (typeof onlineId === "string" || typeof onlineId === "number")
+      return `${normalizePlatform(platform)}:${String(onlineId)}`;
   }
   return null;
 }

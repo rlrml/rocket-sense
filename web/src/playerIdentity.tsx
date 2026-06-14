@@ -16,12 +16,17 @@ export interface PlayerIdentityData {
   rank_fallback_replay_date?: string | null;
 }
 
-export function playerProfilePath(platform: string | null | undefined, platformPlayerId: string | null | undefined): string | null {
+export function playerProfilePath(
+  platform: string | null | undefined,
+  platformPlayerId: string | null | undefined,
+): string | null {
   if (!platform || !platformPlayerId) return null;
   return `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`;
 }
 
-export function playerDisplayName(player: PlayerIdentityData | ReplayPlayer | null | undefined): string {
+export function playerDisplayName(
+  player: PlayerIdentityData | ReplayPlayer | null | undefined,
+): string {
   return player?.name || player?.platform_player_id || "Unknown";
 }
 
@@ -37,7 +42,10 @@ export function replayLocalTeamClass(team: number | null | undefined): string {
   return "unknown";
 }
 
-export function playerIdentityKey(player: PlayerIdentityData | ReplayPlayer, fallback: string | number): string {
+export function playerIdentityKey(
+  player: PlayerIdentityData | ReplayPlayer,
+  fallback: string | number,
+): string {
   return `${player.platform ?? "unknown"}:${player.platform_player_id ?? player.name ?? fallback}`;
 }
 
@@ -81,13 +89,17 @@ export function PlayerIdentity({
   const resolvedPlatformPlayerId = platformPlayerId ?? player?.platform_player_id ?? null;
   const resolvedTeam = team ?? player?.team ?? null;
   const resolvedDetail = detail ?? (showTeam ? replayLocalTeamLabel(resolvedTeam) : null);
-  const resolvedRank = rank ?? (player ? {
-    tier: player.rank_tier,
-    division: player.rank_division,
-    mmr: player.rank_mmr,
-    approximate: player.rank_is_fallback,
-    approximateAsOf: player.rank_fallback_replay_date,
-  } : null);
+  const resolvedRank =
+    rank ??
+    (player
+      ? {
+          tier: player.rank_tier,
+          division: player.rank_division,
+          mmr: player.rank_mmr,
+          approximate: player.rank_is_fallback,
+          approximateAsOf: player.rank_fallback_replay_date,
+        }
+      : null);
   const href = link ? playerProfilePath(resolvedPlatform, resolvedPlatformPlayerId) : null;
   const classes = [
     "player-identity",
@@ -107,7 +119,9 @@ export function PlayerIdentity({
       </span>
       {resolvedDetail || (showRank && resolvedRank?.tier != null) ? (
         <span className="player-identity-detail">
-          {resolvedDetail ? <span className="player-identity-detail-text">{resolvedDetail}</span> : null}
+          {resolvedDetail ? (
+            <span className="player-identity-detail-text">{resolvedDetail}</span>
+          ) : null}
           {showRank ? (
             <RankBadge
               tier={resolvedRank?.tier}

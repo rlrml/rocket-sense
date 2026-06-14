@@ -39,7 +39,8 @@ export function ReplayGoalPlaylistPage() {
 
   const goals = useMemo(() => playlistGoals(events, goalType), [events, goalType]);
   const typeHref = useCallback(
-    (type: GoalType) => `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}`,
+    (type: GoalType) =>
+      `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}`,
     [replayId],
   );
 
@@ -317,7 +318,9 @@ function GoalPlaylist({
         <div className="stat-empty">Loading goals…</div>
       ) : goals.length === 0 ? (
         <div className="stat-empty">
-          {goalTypeKey ? `No ${typeLabel.toLowerCase()} goals found here yet.` : "No goals found here yet."}
+          {goalTypeKey
+            ? `No ${typeLabel.toLowerCase()} goals found here yet.`
+            : "No goals found here yet."}
         </div>
       ) : (
         <div className="goal-playlist-layout">
@@ -331,7 +334,10 @@ function GoalPlaylist({
                 </h3>
               </div>
               <div className="goal-playlist-controls">
-                <label className="goal-playlist-autoplay" title="Move to the next goal when the clip ends">
+                <label
+                  className="goal-playlist-autoplay"
+                  title="Move to the next goal when the clip ends"
+                >
                   <input
                     type="checkbox"
                     checked={autoAdvance}
@@ -339,10 +345,20 @@ function GoalPlaylist({
                   />
                   Auto-advance
                 </label>
-                <button type="button" className="icon-button" title="Previous goal" onClick={() => step(-1)}>
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="Previous goal"
+                  onClick={() => step(-1)}
+                >
                   <ChevronLeft size={17} />
                 </button>
-                <button type="button" className="icon-button" title="Next goal" onClick={() => step(1)}>
+                <button
+                  type="button"
+                  className="icon-button"
+                  title="Next goal"
+                  onClick={() => step(1)}
+                >
                   <ChevronRight size={17} />
                 </button>
                 {activeGoal ? (
@@ -357,7 +373,11 @@ function GoalPlaylist({
               </div>
             </div>
             {activeGoal ? (
-              <EventClipPlayer replayId={activeGoal.event.replay_id} clip={clip} onClipEnd={onClipEnd} />
+              <EventClipPlayer
+                replayId={activeGoal.event.replay_id}
+                clip={clip}
+                onClipEnd={onClipEnd}
+              />
             ) : null}
           </section>
 
@@ -371,7 +391,8 @@ function GoalPlaylist({
               {goals.map((goal, index) => {
                 const previous = goals[index - 1];
                 const startsNewReplay =
-                  showReplayGroups && (!previous || previous.event.replay_id !== goal.event.replay_id);
+                  showReplayGroups &&
+                  (!previous || previous.event.replay_id !== goal.event.replay_id);
                 return (
                   <Fragment key={goal.event.id}>
                     {startsNewReplay ? (
@@ -381,7 +402,8 @@ function GoalPlaylist({
                       >
                         Game {replayOrdinals.get(goal.event.replay_id)}
                         {" · "}
-                        {replayDateLabels.get(goal.event.replay_id) ?? goal.event.replay_id.slice(0, 8)}
+                        {replayDateLabels.get(goal.event.replay_id) ??
+                          goal.event.replay_id.slice(0, 8)}
                       </Link>
                     ) : null}
                     <GoalCard

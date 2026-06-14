@@ -9,7 +9,12 @@ import {
   type StatPlayerRank,
 } from "./shared";
 
-export const movementEventTypes = ["movement", "powerslide", "flip_impulse", "movement.dodge_refresh"];
+export const movementEventTypes = [
+  "movement",
+  "powerslide",
+  "flip_impulse",
+  "movement.dodge_refresh",
+];
 
 interface PlayerMovementSummary {
   key: string;
@@ -70,8 +75,18 @@ export function MovementDetail({
           total={movementTimeTotal}
           segments={(summary) => [
             movementSegment("ground", "Ground", summary.groundSeconds, movementTimeTotal(summary)),
-            movementSegment("low-air", "Low air", summary.lowAirSeconds, movementTimeTotal(summary)),
-            movementSegment("high-air", "High air", summary.highAirSeconds, movementTimeTotal(summary)),
+            movementSegment(
+              "low-air",
+              "Low air",
+              summary.lowAirSeconds,
+              movementTimeTotal(summary),
+            ),
+            movementSegment(
+              "high-air",
+              "High air",
+              summary.highAirSeconds,
+              movementTimeTotal(summary),
+            ),
           ]}
         />
       </section>
@@ -189,7 +204,10 @@ function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) 
             <MetricMeter
               className="movement-meter-powerslide-avg"
               label="Average"
-              percent={barPercent(averagePowerslideDuration(summary), Math.max(0.01, ...summaries.map(averagePowerslideDuration)))}
+              percent={barPercent(
+                averagePowerslideDuration(summary),
+                Math.max(0.01, ...summaries.map(averagePowerslideDuration)),
+              )}
               rootClassName="movement-meter"
               value={formatSeconds(averagePowerslideDuration(summary))}
             />
@@ -220,7 +238,11 @@ function movementPlayerLabel(summary: PlayerMovementSummary) {
   );
 }
 
-function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventResponse[], durationSeconds: number | null): PlayerMovementSummary[] {
+function playerMovementSummaries(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+  durationSeconds: number | null,
+): PlayerMovementSummary[] {
   const summaries = players.map((player, index) => emptySummary(player, index, durationSeconds));
   const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
 
@@ -240,21 +262,55 @@ function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventR
 function addMovementEvent(summary: PlayerMovementSummary, event: MechanicEventResponse) {
   const payload = event.payload;
   const duration = eventDuration(event);
-  const explicitTotal = firstNumber(payload, ["active_time_seconds", "movement_time_seconds", "total_time_seconds", "duration"]);
+  const explicitTotal = firstNumber(payload, [
+    "active_time_seconds",
+    "movement_time_seconds",
+    "total_time_seconds",
+    "duration",
+  ]);
 
   if (explicitTotal != null) {
     summary.activeSeconds = Math.max(summary.activeSeconds, explicitTotal);
   } else {
     summary.activeSeconds += duration;
   }
-  summary.totalDistance += firstNumber(payload, ["total_distance", "distance", "distance_traveled", "distance_uu"]) ?? 0;
+  summary.totalDistance +=
+    firstNumber(payload, ["total_distance", "distance", "distance_traveled", "distance_uu"]) ?? 0;
 
-  addMax(summary, "slowSeconds", payload, ["time_slow_speed", "slow_speed_seconds", "slow_speed_time_seconds", "time_slow_speed_seconds"]);
-  addMax(summary, "boostSeconds", payload, ["time_boost_speed", "boost_speed_seconds", "boost_speed_time_seconds", "time_boost_speed_seconds"]);
-  addMax(summary, "supersonicSeconds", payload, ["time_supersonic_speed", "supersonic_seconds", "supersonic_speed_time_seconds", "time_supersonic_speed_seconds"]);
-  addMax(summary, "groundSeconds", payload, ["time_ground", "ground_seconds", "ground_time_seconds", "time_on_ground"]);
-  addMax(summary, "lowAirSeconds", payload, ["time_low_air", "low_air_seconds", "low_air_time_seconds"]);
-  addMax(summary, "highAirSeconds", payload, ["time_high_air", "high_air_seconds", "high_air_time_seconds"]);
+  addMax(summary, "slowSeconds", payload, [
+    "time_slow_speed",
+    "slow_speed_seconds",
+    "slow_speed_time_seconds",
+    "time_slow_speed_seconds",
+  ]);
+  addMax(summary, "boostSeconds", payload, [
+    "time_boost_speed",
+    "boost_speed_seconds",
+    "boost_speed_time_seconds",
+    "time_boost_speed_seconds",
+  ]);
+  addMax(summary, "supersonicSeconds", payload, [
+    "time_supersonic_speed",
+    "supersonic_seconds",
+    "supersonic_speed_time_seconds",
+    "time_supersonic_speed_seconds",
+  ]);
+  addMax(summary, "groundSeconds", payload, [
+    "time_ground",
+    "ground_seconds",
+    "ground_time_seconds",
+    "time_on_ground",
+  ]);
+  addMax(summary, "lowAirSeconds", payload, [
+    "time_low_air",
+    "low_air_seconds",
+    "low_air_time_seconds",
+  ]);
+  addMax(summary, "highAirSeconds", payload, [
+    "time_high_air",
+    "high_air_seconds",
+    "high_air_time_seconds",
+  ]);
 
   const speed = firstNumber(payload, ["avg_speed", "average_speed", "speed"]);
   if (speed != null && duration > 0) {
@@ -282,19 +338,34 @@ function addMovementEvent(summary: PlayerMovementSummary, event: MechanicEventRe
 
 function addPowerslideEvent(summary: PlayerMovementSummary, event: MechanicEventResponse) {
   const duration = eventDuration(event);
-  const totalDuration = firstNumber(event.payload, ["total_duration", "total_duration_seconds", "duration_seconds", "duration"]) ?? duration;
+  const totalDuration =
+    firstNumber(event.payload, [
+      "total_duration",
+      "total_duration_seconds",
+      "duration_seconds",
+      "duration",
+    ]) ?? duration;
   const count = firstNumber(event.payload, ["count", "powerslide_count"]);
   summary.powerslideSeconds += totalDuration;
   summary.powerslideCount += count ?? (totalDuration > 0 ? 1 : 0);
 }
 
-function addMax(summary: PlayerMovementSummary, key: keyof PlayerMovementSummary, payload: Record<string, unknown>, names: string[]) {
+function addMax(
+  summary: PlayerMovementSummary,
+  key: keyof PlayerMovementSummary,
+  payload: Record<string, unknown>,
+  names: string[],
+) {
   const value = firstNumber(payload, names);
   if (value == null || typeof summary[key] !== "number") return;
   summary[key] = Math.max(summary[key] as number, value) as never;
 }
 
-function emptySummary(player: ReplayPlayer, index: number, durationSeconds: number | null): PlayerMovementSummary {
+function emptySummary(
+  player: ReplayPlayer,
+  index: number,
+  durationSeconds: number | null,
+): PlayerMovementSummary {
   return {
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
@@ -302,7 +373,8 @@ function emptySummary(player: ReplayPlayer, index: number, durationSeconds: numb
     platformPlayerId: player.platform_player_id,
     rank: statPlayerRank(player),
     team: player.team,
-    activeSeconds: player.non_demo_active_time_seconds ?? player.active_time_seconds ?? durationSeconds ?? 0,
+    activeSeconds:
+      player.non_demo_active_time_seconds ?? player.active_time_seconds ?? durationSeconds ?? 0,
     totalDistance: 0,
     speedWeighted: 0,
     speedWeight: 0,
@@ -333,13 +405,20 @@ function summaryForEvent(
 }
 
 function eventPlayerKeys(event: MechanicEventResponse): string[] {
-  const keys = [event.player_id, stringPayload(event.payload, "player_id"), remoteIdKey(event.payload.player)].filter(
-    (key): key is string => Boolean(key),
-  );
+  const keys = [
+    event.player_id,
+    stringPayload(event.payload, "player_id"),
+    remoteIdKey(event.payload.player),
+  ].filter((key): key is string => Boolean(key));
   return keys.flatMap((key) => [key, normalizePlayerKey(key)]);
 }
 
-function movementSegment(id: string, label: string, seconds: number, total: number): SegmentedBarSegment {
+function movementSegment(
+  id: string,
+  label: string,
+  seconds: number,
+  total: number,
+): SegmentedBarSegment {
   const share = percentage(seconds, total);
   return {
     key: id,
@@ -364,7 +443,9 @@ function hasMovementData(summary: PlayerMovementSummary): boolean {
 
 function averageSpeed(summary: PlayerMovementSummary): number | null {
   if (summary.speedWeight > 0) return summary.speedWeighted / summary.speedWeight;
-  return summary.activeSeconds > 0 && summary.totalDistance > 0 ? summary.totalDistance / summary.activeSeconds : null;
+  return summary.activeSeconds > 0 && summary.totalDistance > 0
+    ? summary.totalDistance / summary.activeSeconds
+    : null;
 }
 
 function averagePowerslideDuration(summary: PlayerMovementSummary): number {
@@ -382,7 +463,8 @@ function movementTimeTotal(summary: PlayerMovementSummary): number {
 function eventDuration(event: MechanicEventResponse): number {
   const duration = firstNumber(event.payload, ["duration", "duration_seconds"]);
   if (duration != null) return duration;
-  if (event.start_time != null && event.end_time != null) return Math.max(0, event.end_time - event.start_time);
+  if (event.start_time != null && event.end_time != null)
+    return Math.max(0, event.end_time - event.start_time);
   return 0;
 }
 
@@ -422,11 +504,13 @@ function remoteIdKey(value: unknown): string | null {
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length !== 1) return null;
   const [platform, id] = entries[0];
-  if (typeof id === "string" || typeof id === "number") return `${normalizePlatform(platform)}:${String(id)}`;
+  if (typeof id === "string" || typeof id === "number")
+    return `${normalizePlatform(platform)}:${String(id)}`;
   if (id && typeof id === "object" && !Array.isArray(id)) {
     const nested = id as Record<string, unknown>;
     const onlineId = nested.online_id ?? nested.id;
-    if (typeof onlineId === "string" || typeof onlineId === "number") return `${normalizePlatform(platform)}:${String(onlineId)}`;
+    if (typeof onlineId === "string" || typeof onlineId === "number")
+      return `${normalizePlatform(platform)}:${String(onlineId)}`;
   }
   return null;
 }
@@ -440,7 +524,8 @@ function compareSummaries(left: PlayerMovementSummary, right: PlayerMovementSumm
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {
-  if (player.platform && player.platform_player_id) return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
+  if (player.platform && player.platform_player_id)
+    return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
   return `name:${player.name || index}`;
 }
 
@@ -462,7 +547,10 @@ function normalizePlatform(value: string): string {
 }
 
 function normalizeKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 }
 
 function percentage(value: number, total: number): number {
