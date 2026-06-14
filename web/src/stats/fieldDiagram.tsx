@@ -52,9 +52,10 @@ export interface TouchMark {
   team: number;
   /** SVG-space heading in degrees (car nose points toward +x at 0°), if known. */
   headingDeg: number | null;
-  /** scoring = the finish (big, ringed); buildup = a contact during the play;
-   *  endpoint = where a player ends up (a quiet car in place of a path arrow). */
-  kind: "scoring" | "buildup" | "endpoint";
+  /** scoring = the finish (big, ringed); buildup = a contact during the play. */
+  kind: "scoring" | "buildup";
+  /** Sequence number shown inside the touch circle (1 = first contact). */
+  num?: number;
   playerName?: string;
 }
 
@@ -68,6 +69,8 @@ export interface SurfacePath {
   points: string;
   /** Per-diagram start marker (dot, labelled circle, …); team colour comes from CSS. */
   startMarker?: ReactNode;
+  /** Per-diagram end marker (e.g. an arrow fledge at the run's end). */
+  endMarker?: ReactNode;
 }
 
 export interface FieldDiagramModel {
@@ -190,42 +193,29 @@ export function contactToMark(
   };
 }
 
-/** A small top-down car glyph, nose pointing toward +x before `headingDeg` rotates it. */
-export function CarGlyph({
+/** An open chevron ("arrow fledge") marking where a run ends and which way it points.
+ *  The tip sits at (x, y); `headingDeg` rotates it to the direction of travel. */
+export function Fledge({
   x,
   y,
   headingDeg,
-  length,
+  size,
   className,
 }: {
   x: number;
   y: number;
   headingDeg: number | null;
-  length: number;
+  size: number;
   className?: string;
 }) {
-  const halfL = length / 2;
-  const halfW = (length * 0.6) / 2;
   return (
-    <g
+    <path
       className={className}
+      d={`M ${round(-size)} ${round(-size * 0.72)} L 0 0 L ${round(-size)} ${round(size * 0.72)}`}
+      fill="none"
       transform={`translate(${round(x)} ${round(y)}) rotate(${round(headingDeg ?? 0)})`}
-    >
-      <rect
-        className="field-car-body"
-        x={round(-halfL)}
-        y={round(-halfW)}
-        width={round(length)}
-        height={round(halfW * 2)}
-        rx={round(halfW * 0.5)}
-        vectorEffect="non-scaling-stroke"
-      />
-      {/* Small nose wedge at the front so orientation reads without dominating. */}
-      <path
-        className="field-car-nose"
-        d={`M ${round(halfL)} 0 L ${round(halfL * 0.5)} ${round(-halfW * 0.8)} L ${round(halfL * 0.5)} ${round(halfW * 0.8)} Z`}
-      />
-    </g>
+      vectorEffect="non-scaling-stroke"
+    />
   );
 }
 
@@ -257,9 +247,10 @@ export function FieldDiagramSurface({
   const markerId = rawId.replace(/:/g, "");
   const arrow = (team: number) => `url(#${markerId}-arrow-${teamColorClass(team)})`;
   const { paths, ballPoints, ballEnd, ballEndClassName, touches } = model;
-  // Touch cars are drawn well above real scale (a real car is ~150uu) so they stay
-  // legible on a thumbnail-sized diagram.
-  const carLength = projection.toUnits(300);
+  // Touch circles are drawn well above real scale so the numbers inside stay legible
+  // on a thumbnail-sized diagram; the scoring touch is larger still.
+  const touchRadius = projection.toUnits(200);
+  const scoringRadius = projection.toUnits(300);
 
   return (
     <div className="kickoff-path-diagram">
@@ -321,37 +312,9 @@ export function FieldDiagramSurface({
               vectorEffect="non-scaling-stroke"
             />
             {path.startMarker}
+            {path.endMarker}
           </g>
         ))}
-
-        {/* Where each (non-scoring) player ends up — a quiet little car instead of an
-            arrowhead, so the runs read as cars without competing with the touches. */}
-        {touches?.map((touch, index) =>
-          touch.kind === "endpoint" ? (
-            <CarGlyph
-              key={`end-${index}`}
-              x={touch.at.x}
-              y={touch.at.y}
-              headingDeg={touch.headingDeg}
-              length={carLength * 0.85}
-              className={`field-touch-car endpoint team-${teamColorClass(touch.team)}`}
-            />
-          ) : null,
-        )}
-
-        {/* Buildup touches: clearly visible team-coloured cars. */}
-        {touches?.map((touch, index) =>
-          touch.kind === "buildup" ? (
-            <CarGlyph
-              key={`buildup-${index}`}
-              x={touch.at.x}
-              y={touch.at.y}
-              headingDeg={touch.headingDeg}
-              length={carLength}
-              className={`field-touch-car buildup team-${teamColorClass(touch.team)}`}
-            />
-          ) : null,
-        )}
 
         {ballEnd ? (
           <circle
@@ -363,36 +326,40 @@ export function FieldDiagramSurface({
           />
         ) : null}
 
-        {/* The decisive scoring touch is drawn last and biggest, ringed so it pops. */}
-        {touches?.map((touch, index) =>
-          touch.kind === "scoring" ? (
+        {/* Touches: numbered, team-coloured circles in contact order. The scoring
+            touch is the largest and gets a white ring so it reads as the finish.
+            Drawn after the paths/ball so they sit on top, scoring last of all. */}
+        {touches?.map((touch, index) => {
+          const scoring = touch.kind === "scoring";
+          const r = scoring ? scoringRadius : touchRadius;
+          return (
             <g
-              key={`scoring-${index}`}
-              className={`field-scoring team-${teamColorClass(touch.team)}`}
+              key={`touch-${index}`}
+              className={`field-touch ${scoring ? "scoring" : "buildup"} team-${teamColorClass(touch.team)}`}
             >
-              <circle
-                className="field-scoring-disc"
-                cx={touch.at.x}
-                cy={touch.at.y}
-                r={carLength * 1.35}
-              />
-              <circle
-                className="field-scoring-ring"
-                cx={touch.at.x}
-                cy={touch.at.y}
-                r={carLength * 1.35}
-                vectorEffect="non-scaling-stroke"
-              />
-              <CarGlyph
-                x={touch.at.x}
-                y={touch.at.y}
-                headingDeg={touch.headingDeg}
-                length={carLength * 1.6}
-                className={`field-touch-car scoring team-${teamColorClass(touch.team)}`}
-              />
+              {scoring ? (
+                <circle
+                  className="field-touch-ring"
+                  cx={touch.at.x}
+                  cy={touch.at.y}
+                  r={round(r * 1.4)}
+                  vectorEffect="non-scaling-stroke"
+                />
+              ) : null}
+              <circle className="field-touch-dot" cx={touch.at.x} cy={touch.at.y} r={round(r)} />
+              {touch.num != null ? (
+                <text
+                  className="field-touch-num"
+                  x={touch.at.x}
+                  y={touch.at.y}
+                  fontSize={round(r * 1.4)}
+                >
+                  {touch.num}
+                </text>
+              ) : null}
             </g>
-          ) : null,
-        )}
+          );
+        })}
       </svg>
     </div>
   );
