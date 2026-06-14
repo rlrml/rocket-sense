@@ -1,3 +1,5 @@
+import type { PlayerCameraFrame } from "./PlayerCameraFrame.ts";
+import type { PlayerInputFrame } from "./PlayerInputFrame.ts";
 import type { RigidBodyTs } from "./RigidBodyTs.ts";
 /**
  * Represents a player's state for a single frame in a Rocket League replay.
@@ -52,6 +54,14 @@ export type PlayerFrame = "Empty" | {
          * Whether the player is on team 0 (blue team typically)
          */
         is_team_0: boolean | null;
+        /**
+         * Replay-driven camera state (ball cam, look direction) for the player
+         */
+        camera: PlayerCameraFrame;
+        /**
+         * Replay-driven vehicle inputs (throttle, steer, dodge vectors)
+         */
+        input: PlayerInputFrame;
     };
 };
 //# sourceMappingURL=PlayerFrame.d.ts.map

@@ -10,6 +10,7 @@ export interface ReplayPlayerInitialSettings {
     attachedPlayerId: string | null;
     cameraViewMode: ReplayCameraViewMode;
     ballCamEnabled: boolean;
+    useReplayBallCam: boolean;
     boostMeterEnabled: boolean;
     boostPickupAnimationEnabled: boolean;
     hitboxWireframesEnabled: boolean;

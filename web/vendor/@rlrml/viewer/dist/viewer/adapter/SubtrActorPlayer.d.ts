@@ -55,6 +55,16 @@ type RawPlayerFrame = "Empty" | {
         player_name: string | null;
         team: number | null;
         is_team_0: boolean | null;
+        camera?: {
+            pitch?: number | null;
+            yaw?: number | null;
+        };
+        input?: {
+            throttle?: number | null;
+            steer?: number | null;
+            dodge_impulse?: [number, number, number] | null;
+            dodge_torque?: [number, number, number] | null;
+        };
     };
 };
 type RawBoostPadEventKind = "Available" | {
@@ -103,6 +113,15 @@ interface RawReplayData {
         time: number;
         frame: number;
     }>;
+    player_camera_events?: Array<[
+        unknown,
+        Array<{
+            frame: number;
+            ball_cam_active: boolean | null;
+            behind_view_active: boolean | null;
+            driving: boolean | null;
+        }>
+    ]>;
 }
 interface RawPlayerInfo {
     remote_id: unknown;
@@ -259,6 +278,8 @@ export declare class SubtrActorPlayer extends EventEmitter {
     private _playerTimelines;
     private _ballFlags;
     private _playerFlags;
+    /** Coalesced ball-cam change timeline per player name (last-before on seek). */
+    private _playerCameraEvents;
     private _teams;
     private _timelineCompaction;
     constructor(raw: RawReplayData, options?: SubtrActorPlayerOptions);
