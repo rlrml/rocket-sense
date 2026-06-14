@@ -1213,9 +1213,8 @@ function KickoffStrengthSummary({
 
   if (total === 0) return null;
 
-  const wins = rawSegments.filter((segment) => segment.key.startsWith("win-")).reduce((sum, segment) => sum + segment.value, 0);
-  const losses = rawSegments.filter((segment) => segment.key.startsWith("loss-")).reduce((sum, segment) => sum + segment.value, 0);
-
+  // No W/L caption: the win/loss bar reads as a plain labeled distribution like
+  // the First touch / Control bars beside it, with per-segment counts inline.
   return (
     <KickoffOutcomeBar
       ariaLabel="Kickoff outcomes from the player's team wins to opponent wins"
@@ -1223,12 +1222,6 @@ function KickoffStrengthSummary({
       colors={colors}
       segments={rawSegments}
       total={total}
-      caption={
-        <>
-          <span className="outcome-distribution-caption-positive">{wins}W</span>
-          <span className="outcome-distribution-caption-negative">{losses}L</span>
-        </>
-      }
     />
   );
 }
