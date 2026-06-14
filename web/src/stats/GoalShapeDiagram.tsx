@@ -68,6 +68,7 @@ export function GoalShapeDiagram({
       ariaLabel="Goal buildup player paths and ball trajectory"
       showCenter={false}
       showBoosts={false}
+      showPathArrows={false}
       model={model}
     />
   );
@@ -87,6 +88,7 @@ function buildGoalModel(
 
   const paths: SurfacePath[] = [];
   let scorerIndex = -1;
+  const shownIndices: number[] = [];
   replay.players.forEach((track, index) => {
     const meta = matchPlayer(track, players);
     const team = meta?.team ?? (track.isTeamZero ? 0 : 1);
@@ -94,6 +96,7 @@ function buildGoalModel(
     if (isScorer) scorerIndex = index;
     const points = samplePath(track, from, end, projection, MAX_PATH_POINTS);
     if (points.length < 2) return;
+    shownIndices.push(index);
     // No start dot: a circle at each run's start reads as a touch and is confusing.
     // The only marked points are real touches (the cars) and the ball end.
     paths.push({
@@ -109,13 +112,21 @@ function buildGoalModel(
       Number(a.groupClassName?.includes("scorer")) - Number(b.groupClassName?.includes("scorer")),
   );
 
-  // The decisive scoring touch is the scorer's car at the last-touch frame.
+  // Buildup contacts (passes/dribbles) plus where each player ends up. The scorer's
+  // final-frame contact is the decisive scoring touch (big, ringed); everyone else
+  // gets a quiet endpoint car in place of a path arrowhead.
   const touches: TouchMark[] = detectBallContacts(replay, from, end, projection, {
     excludeFrame: end,
   });
-  if (scorerIndex >= 0) {
-    const scoring = contactToMark(replay, end, scorerIndex, projection, "scoring");
-    if (scoring) touches.push(scoring);
+  for (const index of shownIndices) {
+    const mark = contactToMark(
+      replay,
+      end,
+      index,
+      projection,
+      index === scorerIndex ? "scoring" : "endpoint",
+    );
+    if (mark) touches.push(mark);
   }
 
   const ball = sampleBallPath(replay, from, end, projection, MAX_PATH_POINTS);
