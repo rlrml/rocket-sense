@@ -35,6 +35,19 @@ export interface GoalScoringTouch {
   /** Scorer's car position at that moment, if known (used to orient the car). */
   player: { x: number; y: number } | null;
   team: number | null;
+  /** subtr-actor touch id, so the matching buildup touch event can be de-duped. */
+  touchId: number | null;
+}
+
+/** A real attributed buildup touch from a subtr-actor `touch` event — accurate
+ *  (both sides of a 50/50 each get one) where the proximity heuristic guessed. */
+export interface GoalBuildupTouch {
+  /** The toucher's car position (uu) at the touch. */
+  at: { x: number; y: number };
+  /** team_is_team_0 from the event (null on older data without it). */
+  teamHint: number | null;
+  /** subtr-actor frame, for chronological ordering / numbering / team resolution. */
+  frame: number;
 }
 
 export interface GoalShapeDiagramProps {
@@ -46,6 +59,9 @@ export interface GoalShapeDiagramProps {
   /** Exact scoring-touch coordinate from the goal payload (preferred over deriving
    *  it from a frame, which lands on the scorer's position at goal time, not the touch). */
   scoringTouch: GoalScoringTouch | null;
+  /** Real attributed buildup touches (subtr-actor `touch` events) in the window.
+   *  When null we fall back to the proximity heuristic. */
+  buildupTouches: GoalBuildupTouch[] | null;
   players: GoalPathPlayer[];
 }
 
@@ -61,6 +77,7 @@ export function GoalShapeDiagram({
   startFrame,
   goalFrame,
   scoringTouch,
+  buildupTouches,
   players,
 }: GoalShapeDiagramProps) {
   const { replay, error } = useReplayModel(replayId);
@@ -69,9 +86,17 @@ export function GoalShapeDiagram({
   const model = useMemo(
     () =>
       replay
-        ? buildGoalModel(replay, projection, startFrame, goalFrame, scoringTouch, players)
+        ? buildGoalModel(
+            replay,
+            projection,
+            startFrame,
+            goalFrame,
+            scoringTouch,
+            buildupTouches,
+            players,
+          )
         : null,
-    [replay, projection, startFrame, goalFrame, scoringTouch, players],
+    [replay, projection, startFrame, goalFrame, scoringTouch, buildupTouches, players],
   );
 
   if (error) {
@@ -93,12 +118,36 @@ export function GoalShapeDiagram({
   );
 }
 
+/** Team of the car nearest a field-space (uu) point at `frame` — used to colour a
+ *  touch when the event itself doesn't carry the team. */
+function nearestPlayerTeam(
+  replay: ReplayModel,
+  frame: number,
+  at: { x: number; y: number },
+): number {
+  let bestSq = Infinity;
+  let team = 0;
+  for (const track of replay.players) {
+    const pos = track.frames[frame]?.position;
+    if (!pos) continue;
+    const dx = pos.x - at.x;
+    const dy = pos.y - at.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestSq) {
+      bestSq = d;
+      team = track.isTeamZero ? 0 : 1;
+    }
+  }
+  return team;
+}
+
 function buildGoalModel(
   replay: ReplayModel,
   projection: FieldProjection,
   startFrame: number | null,
   goalFrame: number | null,
   scoringTouch: GoalScoringTouch | null,
+  buildupTouches: GoalBuildupTouch[] | null,
   players: GoalPathPlayer[],
 ): FieldDiagramModel {
   const frameCount = replay.frames.length;
@@ -146,9 +195,6 @@ function buildGoalModel(
       Number(a.groupClassName?.includes("scorer")) - Number(b.groupClassName?.includes("scorer")),
   );
 
-  // Buildup contacts (passes/dribbles), in chronological order.
-  const buildup = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
-
   // The decisive scoring touch uses subtr-actor's exact recorded contact point
   // (scorer_last_touch.ball_position), not a frame lookup — the latter lands on the
   // scorer's position when the ball crosses the line, which is not the touch. Fall
@@ -164,24 +210,41 @@ function buildGoalModel(
       ? contactToMark(replay, end, scorerIndex, projection, "scoring")
       : null;
 
-  // Drop the scorer's own last contact if proximity detection already surfaced it
-  // near the scoring point, so it isn't both a numbered buildup dot and the finish.
-  const minSep = projection.toUnits(350);
-  const buildupTouches =
-    scoringMark != null
-      ? buildup.filter(
-          (b) => Math.hypot(b.at.x - scoringMark.at.x, b.at.y - scoringMark.at.y) > minSep,
-        )
-      : buildup;
+  // Prefer the real attributed touch events (the scoring touch is already excluded
+  // upstream by id, so we keep every other contact — both sides of a 50/50). Only
+  // when no touch data is available fall back to the proximity heuristic, which then
+  // needs a position de-dup to avoid drawing the scorer's own last contact twice.
+  let buildupMarks: TouchMark[];
+  if (buildupTouches) {
+    buildupMarks = [...buildupTouches]
+      .sort((a, b) => a.frame - b.frame)
+      .map((t) => ({
+        // team_is_team_0 is missing on older replays, so fall back to whichever car
+        // sits on the touch point at that frame (player_position is that car).
+        at: projection.project(t.at.x, t.at.y),
+        team: t.teamHint ?? nearestPlayerTeam(replay, t.frame, t.at),
+        headingDeg: null,
+        kind: "buildup" as const,
+      }));
+  } else {
+    const detected = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
+    const minSep = projection.toUnits(350);
+    buildupMarks =
+      scoringMark != null
+        ? detected.filter(
+            (b) => Math.hypot(b.at.x - scoringMark.at.x, b.at.y - scoringMark.at.y) > minSep,
+          )
+        : detected;
+  }
 
   // Number them in contact order; the scoring touch is the last number.
   const touches: TouchMark[] = [];
-  buildupTouches.forEach((touch, i) => {
+  buildupMarks.forEach((touch, i) => {
     touch.num = i + 1;
     touches.push(touch);
   });
   if (scoringMark) {
-    scoringMark.num = buildupTouches.length + 1;
+    scoringMark.num = buildupMarks.length + 1;
     touches.push(scoringMark);
   }
 
