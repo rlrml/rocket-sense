@@ -382,8 +382,10 @@ export interface ComparisonRow {
   total: number;
   /** Cross-row scale for magnitude charts. Omit to fill the track (distributions). */
   maxValue?: number;
-  /** Right-column value (e.g. "2.10s", "67%", "+1 / -0"). */
-  valueLabel: ReactNode;
+  /** Right-column value (e.g. "2.10s", "67%", "+1 / -0"). Omit to drop the column. */
+  valueLabel?: ReactNode;
+  /** Value floated at the bar's end instead of a right column (magnitude bars). */
+  valueInBar?: ReactNode;
   /** Extra CSS vars for the track, e.g. outcomeDistributionColorStyle(colors). */
   style?: CSSProperties;
   /** Shown on the track when there are no filled segments (e.g. a zero value). */
@@ -422,10 +424,13 @@ export function PlayerComparisonChart({
                 maxValue={row.maxValue}
                 style={row.style}
                 placeholder={row.placeholder}
+                valueInBar={row.valueInBar}
               />
-              <strong className="metric-value player-comparison-value">
-                <span>{row.valueLabel}</span>
-              </strong>
+              {row.valueLabel != null ? (
+                <strong className="metric-value player-comparison-value">
+                  <span>{row.valueLabel}</span>
+                </strong>
+              ) : null}
             </div>
           ))}
         </div>
@@ -449,6 +454,7 @@ export function ComparisonBar({
   maxValue,
   style,
   placeholder,
+  valueInBar,
 }: {
   ariaLabel: string;
   segments: SegmentedBarSegment[];
@@ -456,10 +462,16 @@ export function ComparisonBar({
   maxValue?: number;
   style?: CSSProperties;
   placeholder?: ReactNode;
+  /** Value floated at the bar's end: inside the fill when nearly full, in the
+   *  empty track otherwise, so it stays readable on bars of any length. */
+  valueInBar?: ReactNode;
 }) {
   const visible = segments.filter((segment) => segment.value > 0);
   const scaleMax = maxValue ?? total;
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
+  // Past this fill the bar is wide enough to hold the value inside its end;
+  // shorter bars float it into the empty track to the right of the fill.
+  const valueInside = fillPercent > 72;
   return (
     <div
       className="metric-bar-track source-bar-track player-comparison-track"
@@ -480,6 +492,14 @@ export function ComparisonBar({
           </span>
         ))}
       </span>
+      {valueInBar != null && visible.length > 0 ? (
+        <span
+          className={`player-comparison-inbar-value${valueInside ? " inside" : ""}`}
+          style={valueInside ? { right: `${100 - fillPercent}%` } : { left: `${fillPercent}%` }}
+        >
+          {valueInBar}
+        </span>
+      ) : null}
       {visible.length === 0 && placeholder != null ? (
         <span className="player-comparison-placeholder">{placeholder}</span>
       ) : null}

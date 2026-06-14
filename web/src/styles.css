@@ -2826,10 +2826,10 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
-/* Movement comparison charts: a slightly wider value column so "1,419 uu/s" and
-   "184k uu" fit without clipping. */
+/* Movement bars carry their value inside the track (see .player-comparison-inbar-value),
+   so the row drops the right-hand value column. */
 .player-comparison-chart.movement-chart .player-comparison-row {
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 92px;
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
 }
 
 /* Fixed per-metric magnitude hues for replay-group views (no replay-local team
@@ -3431,6 +3431,31 @@ tbody tr:last-child td {
 
 .player-comparison-track {
   height: 18px;
+}
+
+/* Magnitude value floated at the bar's end. Default sits just past the fill in
+   the empty track (dark); `.inside` right-aligns within a nearly-full fill (white). */
+.player-comparison-inbar-value {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--text-strong);
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.player-comparison-inbar-value.inside {
+  left: 0;
+  justify-content: flex-end;
+  color: #fff;
+  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.35);
 }
 
 /* Shown when a bar has no filled segments (e.g. a zero value) so it still reads. */

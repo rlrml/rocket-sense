@@ -287,7 +287,7 @@ function magnitudeRows(
         ],
         total: value,
         maxValue: options.maxValue,
-        valueLabel: options.format(value),
+        valueInBar: value > 0 ? options.format(value) : undefined,
         placeholder: value > 0 ? undefined : "0",
       };
     });
@@ -337,7 +337,6 @@ function distributionRows(
         ariaLabel: `${summary.name} ${bands.map((band) => band.label).join(" / ")}`,
         segments,
         total,
-        valueLabel: options.format(total),
         style: outcomeDistributionColorStyle(colors),
         placeholder: total > 0 ? undefined : "—",
       };
