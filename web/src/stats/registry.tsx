@@ -16,7 +16,7 @@ import { BoostDetail, boostEventTypes } from "./boost";
 import { GoalsDetail, goalEventTypes } from "./goals";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
 import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
-import { MovementDetail, movementEventTypes } from "./movement";
+import { MovementDetail, movementEventTypes, movementMechanicEventTypes } from "./movement";
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
 import { RotationDetail, rotationEventTypes } from "./rotation";
@@ -86,21 +86,25 @@ export const statGroups: StatGroup[] = [
     id: "movement",
     label: "Movement",
     icon: Gauge,
-    description: "Speed, aerial movement, ground movement, recoveries, jumps, and dodges.",
+    description:
+      "Speed, aerial movement, ground movement, powerslides, speed flips, wavedashes, and half flips.",
     terms: [
       "speed",
       "movement",
       "aerial",
       "air",
       "ground",
-      "jump",
+      "powerslide",
       "dodge",
       "supersonic",
       "recovery",
+      "speed flip",
+      "wavedash",
+      "half flip",
     ],
     completed: true,
     usesAggregateStats: false,
-    eventTypes: movementEventTypes,
+    eventTypes: [...movementEventTypes, ...movementMechanicEventTypes],
     Detail: MovementDetail,
   },
   {

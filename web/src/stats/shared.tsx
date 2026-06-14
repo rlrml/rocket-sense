@@ -257,6 +257,33 @@ export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
   "negative-unknown": "#ddd6fe",
 };
 
+// Team-colored ramp for OutcomeDistributionBar / comparison distribution rows:
+// blue maps to the positive tone, orange to negative, and the level tiers a
+// single team color from light (unknown) -> base (clear) -> dark (strong).
+// Shared so any per-player breakdown (kickoff outcomes, movement bands, ...)
+// tiers team colors identically instead of re-deriving shades. Avoid the
+// "narrow" level here — the track renders it as an outline rather than a fill.
+export const TEAM_OUTCOME_COLORS: OutcomeDistributionColors = {
+  positive: "#2563eb",
+  "positive-strong": "#1e3a8a",
+  "positive-clear": "#2563eb",
+  "positive-unknown": "#bfdbfe",
+  neutral: "#64748b",
+  "neutral-clear": "#cbd5e1",
+  negative: "#ea580c",
+  "negative-strong": "#9a3412",
+  "negative-clear": "#ea580c",
+  "negative-unknown": "#fed7aa",
+};
+
+// Which tone a replay-local team paints as. Pair with TEAM_OUTCOME_COLORS so a
+// blue player's segments render blue and an orange player's render orange.
+export function teamOutcomeTone(team: number | null): OutcomeDistributionTone {
+  if (team === 0) return "positive";
+  if (team === 1) return "negative";
+  return "neutral";
+}
+
 export interface OutcomeDistributionSegment {
   key: string;
   label: string;
