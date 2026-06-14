@@ -19,6 +19,8 @@ export class EffectsManager {
     camera: any;
     explosions: {
         active: never[];
+        goalEvents: Map<any, any>;
+        demoEvents: Map<any, any>;
     };
     boostTrails: Map<any, any>;
     supersonicTrails: Map<any, any>;
@@ -30,6 +32,12 @@ export class EffectsManager {
     setRenderContext(renderer: any, camera: any): void;
     reset(): void;
     clearEvents(): void;
+    /**
+     * Register the replay's goal events so the goal explosion fires when playback
+     * reaches each one. Each event is `{ frame, time, team, playerName }` (team:
+     * 0 = blue, 1 = orange). Static per replay — call once after load.
+     */
+    setGoalEvents(events: any): void;
     /**
      * Reset ball trail (call when seeking to avoid stale segments)
      */

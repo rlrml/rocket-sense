@@ -1,6 +1,7 @@
 export class ArenaManager {
-    constructor(scene: any);
+    constructor(scene: any, options?: {});
     scene: any;
+    assetBase: any;
     arenaMeshes: any[];
     drawingCollider: THREE.Group<THREE.Object3DEventMap> | null;
     drawingColliderMeshes: any[];
