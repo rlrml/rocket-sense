@@ -5651,19 +5651,25 @@ tbody tr:last-child td {
   flex: 1 1 auto;
 }
 
-/* No chrome around the field: the diagram fills its slot edge to edge, sized as
-   large as is reasonable at rest (scaling with the viewport) with its width coming
-   from the field aspect ratio. The card grows to fit it. */
+/* No chrome around the field: the diagram fills its slot edge to edge, kept
+   compact at rest (its width comes from the field aspect ratio). The card grows
+   to fit it. */
 .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
   display: grid;
   flex: 0 0 auto;
-  height: clamp(200px, 26vw, 360px);
+  height: clamp(110px, 13vw, 185px);
   aspect-ratio: 640 / 536;
   margin: 0;
   padding: 0;
   border: none;
   background: none;
   min-height: 0;
+  /* Anchored to its right edge and vertical centre so the hover magnify grows
+     left/up/down around the card without shoving off the right side. */
+  transform-origin: center right;
+  transition:
+    transform 0.32s ease,
+    box-shadow 0.32s ease;
 }
 
 .goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
@@ -5673,9 +5679,10 @@ tbody tr:last-child td {
   max-height: none;
 }
 
-/* The buildup tracks the text height, so it is small at rest. On hover, blow it up
-   to the full width of the card (≈ the page content width) as an overlay so the
-   touch cars and runs read large; the cards below stay put underneath it. */
+/* Small at rest; on hover it magnifies in place (transform doesn't reflow, so the
+   cards below stay put underneath). The scale is tied to the rest height, which is
+   viewport-capped, so the enlarged diagram stays on screen rather than running off
+   the bottom. */
 @media (hover: hover) {
   .goal-card:has(.goal-diagram-panel):hover {
     position: relative;
@@ -5683,23 +5690,11 @@ tbody tr:last-child td {
   }
 
   .goal-card:has(.goal-diagram-panel):hover > .goal-diagram-panel {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: auto;
+    transform: scale(2.8);
     z-index: 30;
-    padding: 8px;
-    border-radius: 10px;
+    border-radius: 4px;
     background: #f8fafc;
-    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.32);
-  }
-
-  .goal-card:has(.goal-diagram-panel):hover .kickoff-path-svg {
-    width: 100%;
-    max-width: none;
-    height: auto;
-    max-height: none;
+    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.3);
   }
 }
 
