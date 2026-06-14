@@ -4,7 +4,10 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "vendor": "../scripts/ensure-subtr-vendor",
+    "predev": "npm run vendor",
     "dev": "vite --host 127.0.0.1",
+    "predev:lan": "npm run vendor",
     "dev:lan": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 127.0.0.1",

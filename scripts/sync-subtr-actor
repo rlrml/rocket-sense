@@ -118,9 +118,14 @@ printf '%s\n' "$resolved_rev" > "$static_dir/.subtr-actor-rev"
 # Refresh package-lock.json/node_modules for the vendored file: deps.
 (cd "$repo_root/web" && npm install)
 
-# -f: web/vendor contents include dist/ trees that broad global gitignore
-# rules (e.g. `dist`, `node_modules`) would otherwise hide from git.
+# -f: the static player assets still ship committed dist/ trees that broad
+# global gitignore rules (e.g. `dist`, `node_modules`) would otherwise hide.
 git -C "$repo_root" add -f \
   .gitmodules Cargo.toml Cargo.lock flake.lock vendor/subtr-actor "$static_dir" \
-  "$repo_root/web/vendor" "$repo_root/web/package.json" "$repo_root/web/package-lock.json"
+  "$repo_root/web/package.json" "$repo_root/web/package-lock.json"
+# web/vendor/@rlrml built output is NOT committed (generated at build time from
+# the submodule flake — see web/vendor/.gitignore). Only the package.json
+# manifests + .subtr-actor-rev marker are tracked, so a plain add (gitignore
+# honored) stages exactly those.
+git -C "$repo_root" add "$repo_root/web/vendor"
 echo "Synced subtr-actor assets from $resolved_rev"

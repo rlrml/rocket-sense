@@ -1,6 +1,11 @@
-# Everything under web/vendor/ is committed build output synced from the
-# vendored subtr-actor submodule by scripts/sync-subtr-actor (precedent:
-# crates/rocket-sense-server/static/subtr-actor). The negation defeats
-# broad global excludes like `dist` or `node_modules` that would otherwise
-# hide these packages from git.
-!**
+# The @rlrml/* packages here are generated from the vendored subtr-actor
+# submodule (scripts/ensure-subtr-vendor populates them locally; the Nix web
+# build pulls them straight from the submodule flake). Their built output
+# (dist/, *.wasm, *.js, *.d.ts, public/, docs/, ...) is NOT committed — only the
+# package.json manifests (so the npm lockfile's file: deps resolve) and the
+# .subtr-actor-rev marker. Ignore everything, re-include directories so git
+# descends, then keep the manifests + marker.
+*
+!*/
+!@rlrml/.subtr-actor-rev
+!@rlrml/*/package.json

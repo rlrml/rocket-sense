@@ -8,9 +8,13 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # A flake input (not flake = false) so the web build can reference the
+    # submodule's js package outputs (js-wasm-pkg / js-player-pkg /
+    # js-viewer-pkg) directly instead of consuming committed copies under
+    # web/vendor/@rlrml. `${subtr-actor-src}` still resolves to its source tree
+    # for the Rust submodule injection below.
     subtr-actor-src = {
       url = "git+file:./vendor/subtr-actor";
-      flake = false;
     };
   };
 
@@ -105,11 +109,18 @@
           # resolution from inside the packages stays within the web tree.
           npmInstallFlags = [ "--install-links" ];
           npmBuildScript = "build";
+          # Populate the @rlrml/* packages straight from the subtr-actor flake
+          # outputs. web/vendor/@rlrml now ships only package.json manifests in
+          # git (built dist/wasm is gitignored + generated), so npm links empty
+          # shells from the manifest-only vendor dirs; overwrite them here with
+          # the real built packages for the exact pinned submodule rev.
           preBuild = ''
             mkdir -p node_modules/@rlrml
-            cp -R vendor/@rlrml/player node_modules/@rlrml/player
-            cp -R vendor/@rlrml/subtr-actor node_modules/@rlrml/subtr-actor
-            chmod -R u+w node_modules/@rlrml/player node_modules/@rlrml/subtr-actor
+            rm -rf node_modules/@rlrml/subtr-actor node_modules/@rlrml/player node_modules/@rlrml/viewer
+            cp -R ${subtr-actor-src.packages.${system}.js-wasm-pkg} node_modules/@rlrml/subtr-actor
+            cp -R ${subtr-actor-src.packages.${system}.js-player-pkg} node_modules/@rlrml/player
+            cp -R ${subtr-actor-src.packages.${system}.js-viewer-pkg} node_modules/@rlrml/viewer
+            chmod -R u+w node_modules/@rlrml
           '';
           installPhase = ''
             runHook preInstall

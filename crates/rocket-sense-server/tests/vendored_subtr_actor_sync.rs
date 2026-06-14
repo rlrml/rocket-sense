@@ -1,8 +1,10 @@
 //! Guards against bumping the vendored subtr-actor submodule without re-running
-//! scripts/sync-subtr-actor. The script vendors build artifacts derived from
-//! the submodule rev in three places (flake.lock, the static player assets,
-//! and the web app's @rlrml npm packages); a gitlink bump that skips the sync
-//! would silently ship stale wasm — exactly the class of bug this prevents.
+//! scripts/sync-subtr-actor. The build artifacts derived from the submodule rev
+//! (the web app's @rlrml npm packages, the static player assets) are generated
+//! at build time, not committed — but their pinned rev is recorded in three
+//! committed places (flake.lock and the two .subtr-actor-rev markers). A gitlink
+//! bump that skips the sync would leave those pins stale and silently build/ship
+//! the wrong wasm — exactly the class of bug this prevents.
 
 use std::{
     path::{Path, PathBuf},

@@ -9,16 +9,22 @@ default:
 build: web-build
     {{nix_develop}} cargo build --workspace
 
+# Populate generated subtr-actor artifacts (web/vendor/@rlrml + the server's
+# static/subtr-actor assets) from the submodule flake. Idempotent fast no-op
+# when already current; rebuilds only what's missing or stale.
+vendor:
+    ./scripts/ensure-subtr-vendor
+
 web-dev:
     cd web && npm run dev
 
 web-dev-lan:
     cd web && npm run dev:lan
 
-web-build:
+web-build: vendor
     cd web && npm run build
 
-web-typecheck:
+web-typecheck: vendor
     cd web && npm run typecheck
 
 # Lint + Prettier check the web sources (matches CI)

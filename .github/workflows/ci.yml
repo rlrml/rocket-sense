@@ -28,6 +28,14 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      # The @rlrml/* packages under web/vendor are generated from the
+      # vendor/subtr-actor submodule flake (not committed), so CI needs Nix to
+      # build them before npm can resolve the file: deps.
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Generate vendored @rlrml packages
+        run: scripts/ensure-subtr-vendor
+
       - name: Install web dependencies
         working-directory: web
         run: npm ci
