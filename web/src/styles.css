@@ -5683,12 +5683,6 @@ tbody tr:last-child td {
   border: none;
   background: none;
   min-height: 0;
-  /* Anchored to its right edge and vertical centre so the hover magnify grows
-     left/up/down around the card without shoving off the right side. */
-  transform-origin: center right;
-  transition:
-    transform 0.32s ease,
-    box-shadow 0.32s ease;
 }
 
 .goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
@@ -5698,22 +5692,37 @@ tbody tr:last-child td {
   max-height: none;
 }
 
-/* Small at rest; on hover it magnifies in place (transform doesn't reflow, so the
-   cards below stay put underneath). The scale is tied to the rest height, which is
-   viewport-capped, so the enlarged diagram stays on screen rather than running off
-   the bottom. */
+/* Small at rest; on hover it lifts into a viewport-centred overlay sized to fit the
+   screen — so it grows to use a big display but is clamped (min of 82vh and 72vw,
+   the field aspect being ~1.19) so it can never run off-screen. A quick zoom-in
+   covers the jump from the in-card thumbnail to the centred view. */
 @media (hover: hover) {
-  .goal-card:has(.goal-diagram-panel):hover {
-    position: relative;
-    z-index: 30;
-  }
-
   .goal-card:has(.goal-diagram-panel):hover > .goal-diagram-panel {
-    transform: scale(2.8);
-    z-index: 30;
-    border-radius: 4px;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    height: min(82vh, 72vw);
+    width: auto;
+    transform: translate(-50%, -50%);
+    z-index: 70;
+    padding: 10px;
+    border-radius: 10px;
     background: #f8fafc;
-    box-shadow: 0 5px 14px rgba(15, 23, 42, 0.3);
+    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.45);
+    animation: goal-diagram-zoom 0.22s ease;
+  }
+}
+
+@keyframes goal-diagram-zoom {
+  from {
+    transform: translate(-50%, -50%) scale(0.9);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
   }
 }
 
