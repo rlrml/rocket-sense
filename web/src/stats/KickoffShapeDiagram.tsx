@@ -2,7 +2,14 @@ import type { ReplayModel } from "@rlrml/viewer";
 import { useEffect, useId, useMemo, useState } from "react";
 import { fieldProjection, type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
-import { clampFrame, matchPlayer, type PathPlayerRef, pointsToString, sampleBallPath, samplePath } from "./replayPaths";
+import {
+  clampFrame,
+  matchPlayer,
+  type PathPlayerRef,
+  pointsToString,
+  sampleBallPath,
+  samplePath,
+} from "./replayPaths";
 
 export interface KickoffPathPlayer extends PathPlayerRef {
   team: number | null;
@@ -36,7 +43,13 @@ const FALLBACK_PATH_FRAMES = 150;
 // this keeps the SVG light if a replay has an unusually high frame rate.
 const MAX_PATH_POINTS = 90;
 
-export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTeam, players }: KickoffShapeDiagramProps) {
+export function KickoffShapeDiagram({
+  replayId,
+  startFrame,
+  endFrame,
+  winningTeam,
+  players,
+}: KickoffShapeDiagramProps) {
   const [replay, setReplay] = useState<ReplayModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const markerId = useId().replace(/:/g, "");
@@ -60,7 +73,8 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
   const projection = useMemo(() => fieldProjection(520, 60, "landscape"), []);
 
   const extracted = useMemo(
-    () => (replay ? extractPaths(replay, projection, startFrame, endFrame, winningTeam, players) : null),
+    () =>
+      replay ? extractPaths(replay, projection, startFrame, endFrame, winningTeam, players) : null,
     [replay, projection, startFrame, endFrame, winningTeam, players],
   );
 
@@ -82,10 +96,26 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
         aria-label="Kickoff player paths and ball trajectory"
       >
         <defs>
-          <marker id={`${markerId}-arrow-blue`} className="kickoff-arrow blue" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <marker
+            id={`${markerId}-arrow-blue`}
+            className="kickoff-arrow blue"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L6,3 L0,6 Z" />
           </marker>
-          <marker id={`${markerId}-arrow-orange`} className="kickoff-arrow orange" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <marker
+            id={`${markerId}-arrow-orange`}
+            className="kickoff-arrow orange"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L6,3 L0,6 Z" />
           </marker>
         </defs>
@@ -93,9 +123,21 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
         <KickoffFieldBackground projection={projection} ballRadius={projection.toUnits(120)} />
 
         {/* Ball trajectory through the kickoff, up to its resolution (follow-up touch or kickoff end). */}
-        {ballPoints ? <polyline className="kickoff-ball-path" points={ballPoints} vectorEffect="non-scaling-stroke" /> : null}
+        {ballPoints ? (
+          <polyline
+            className="kickoff-ball-path"
+            points={ballPoints}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
         {ballEnd ? (
-          <circle className="kickoff-ball-end" cx={ballEnd.x} cy={ballEnd.y} r={projection.toUnits(150)} vectorEffect="non-scaling-stroke" />
+          <circle
+            className="kickoff-ball-end"
+            cx={ballEnd.x}
+            cy={ballEnd.y}
+            r={projection.toUnits(150)}
+            vectorEffect="non-scaling-stroke"
+          />
         ) : null}
 
         {paths.map((path, index) => (
@@ -111,7 +153,12 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
             />
             {path.start ? (
               <g className="kickoff-path-start">
-                <circle cx={path.start.x} cy={path.start.y} r={projection.toUnits(path.role === "taker" ? 320 : 240)} vectorEffect="non-scaling-stroke" />
+                <circle
+                  cx={path.start.x}
+                  cy={path.start.y}
+                  r={projection.toUnits(path.role === "taker" ? 320 : 240)}
+                  vectorEffect="non-scaling-stroke"
+                />
                 <text x={path.start.x} y={path.start.y + projection.toUnits(120)}>
                   {path.role === "taker" ? "T" : "S"}
                 </text>

@@ -1,6 +1,24 @@
 import type { ReplayModel } from "@rlrml/viewer";
-import { Anchor, CircleDotDashed, Gauge, Goal, type LucideIcon, ShieldCheck, Trophy, Video } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, lazy, type ReactNode, Suspense, useCallback, useMemo, useState } from "react";
+import {
+  Anchor,
+  CircleDotDashed,
+  Gauge,
+  Goal,
+  type LucideIcon,
+  ShieldCheck,
+  Trophy,
+  Video,
+} from "lucide-react";
+import {
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  lazy,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useMemo,
+  useState,
+} from "react";
 import { PlayerIdentity } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
@@ -240,7 +258,11 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
         .filter((event) => event.event_type === "possession")
         .map((event) => possessionSpan(event, players))
         .filter((span): span is PossessionSpan => Boolean(span))
-        .sort((left, right) => (left.startTime ?? Number.POSITIVE_INFINITY) - (right.startTime ?? Number.POSITIVE_INFINITY)),
+        .sort(
+          (left, right) =>
+            (left.startTime ?? Number.POSITIVE_INFINITY) -
+            (right.startTime ?? Number.POSITIVE_INFINITY),
+        ),
     [events, players],
   );
   const kickoffs = useMemo(
@@ -248,7 +270,11 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
       events
         .filter((event) => event.event_type === "kickoff")
         .map((event, index) => kickoffRow(event, index, players, possessionSpans))
-        .sort((left, right) => (left.startTime ?? Number.POSITIVE_INFINITY) - (right.startTime ?? Number.POSITIVE_INFINITY)),
+        .sort(
+          (left, right) =>
+            (left.startTime ?? Number.POSITIVE_INFINITY) -
+            (right.startTime ?? Number.POSITIVE_INFINITY),
+        ),
     [events, players, possessionSpans],
   );
   // The player-behavior charts can be narrowed to a kickoff shape/side (the same
@@ -261,46 +287,61 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
     () => kickoffs.filter((kickoff) => matchesKickoffFilter(kickoff, shapeFilter, sideFilter)),
     [kickoffs, shapeFilter, sideFilter],
   );
-  const playerSummaries = useMemo(() => kickoffPlayerSummaries(behaviorKickoffs, players), [behaviorKickoffs, players]);
+  const playerSummaries = useMemo(
+    () => kickoffPlayerSummaries(behaviorKickoffs, players),
+    [behaviorKickoffs, players],
+  );
   const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
   const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
   // Hovering a player chip inside a kickoff card temporarily reseats the preview
   // camera on that player (loser and support players included); leaving the chip
   // falls back to the default winner perspective.
   const [perspective, setPerspective] = useState<KickoffPerspective | null>(null);
-  const perspectiveKey = perspective ? perspectiveChipKey(perspective.playerKey, perspective.playerName) : null;
-  const buildClip = useCallback((kickoff: KickoffRow, replayNonce: number): EventClip | null => {
-    const previewStart = kickoffPreviewStart(kickoff);
-    if (!previewStart) {
-      return null;
-    }
-    // Try the hovered perspective first, then the winner; fall back to a free
-    // camera if neither resolves to a player track in the parsed replay.
-    const followTargets = [perspective, kickoffWinnerPreviewPlayer(kickoff)].filter(
-      (target): target is { playerKey: string | null; playerName: string | null } => Boolean(target),
-    );
-    return {
-      // start/end are inert fallbacks: startFrame + resolveStart/resolveEnd drive
-      // playback against the parsed frames (frame indices are rebase-safe; absolute
-      // event timestamps are not).
-      start: 0,
-      end: 0,
-      startFrame: previewStart.frame,
-      resolveStart: previewStart.resolveStart,
-      resolveEnd: (replay) => kickoffClipEndTime(replay, kickoff, previewStart.frame),
-      camera: (cam) => {
-        for (const target of followTargets) {
-          if (cam.followPlayer({ playerKey: target.playerKey, playerName: target.playerName, ballCam: true })) {
-            return;
+  const perspectiveKey = perspective
+    ? perspectiveChipKey(perspective.playerKey, perspective.playerName)
+    : null;
+  const buildClip = useCallback(
+    (kickoff: KickoffRow, replayNonce: number): EventClip | null => {
+      const previewStart = kickoffPreviewStart(kickoff);
+      if (!previewStart) {
+        return null;
+      }
+      // Try the hovered perspective first, then the winner; fall back to a free
+      // camera if neither resolves to a player track in the parsed replay.
+      const followTargets = [perspective, kickoffWinnerPreviewPlayer(kickoff)].filter(
+        (target): target is { playerKey: string | null; playerName: string | null } =>
+          Boolean(target),
+      );
+      return {
+        // start/end are inert fallbacks: startFrame + resolveStart/resolveEnd drive
+        // playback against the parsed frames (frame indices are rebase-safe; absolute
+        // event timestamps are not).
+        start: 0,
+        end: 0,
+        startFrame: previewStart.frame,
+        resolveStart: previewStart.resolveStart,
+        resolveEnd: (replay) => kickoffClipEndTime(replay, kickoff, previewStart.frame),
+        camera: (cam) => {
+          for (const target of followTargets) {
+            if (
+              cam.followPlayer({
+                playerKey: target.playerKey,
+                playerName: target.playerName,
+                ballCam: true,
+              })
+            ) {
+              return;
+            }
           }
-        }
-        cam.freeCamera("side");
-      },
-      // The perspective is intentionally NOT part of the key: same key means the
-      // player re-aims the camera without restarting the loop (see applyClip).
-      key: `${kickoff.event.id}:${replayNonce}`,
-    };
-  }, [perspective]);
+          cam.freeCamera("side");
+        },
+        // The perspective is intentionally NOT part of the key: same key means the
+        // player re-aims the camera without restarting the loop (see applyClip).
+        key: `${kickoff.event.id}:${replayNonce}`,
+      };
+    },
+    [perspective],
+  );
   const {
     activeItem: activeKickoff,
     activeKey: activeKickoffId,
@@ -315,14 +356,30 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
           <h2>Kickoffs</h2>
         </div>
         <div className="kickoff-hero-metrics">
-          <KickoffMetric icon={CircleDotDashed} label="Kickoffs" value={kickoffs.length.toLocaleString()} />
+          <KickoffMetric
+            icon={CircleDotDashed}
+            label="Kickoffs"
+            value={kickoffs.length.toLocaleString()}
+          />
           {/* Blue/Orange wins and advantage are replay-local; only show them per game. */}
           {grouped ? null : (
             <>
-              <KickoffMetric icon={Trophy} label="Blue wins" value={summary.blueWins.toLocaleString()} />
-              <KickoffMetric icon={Trophy} label="Orange wins" value={summary.orangeWins.toLocaleString()} />
+              <KickoffMetric
+                icon={Trophy}
+                label="Blue wins"
+                value={summary.blueWins.toLocaleString()}
+              />
+              <KickoffMetric
+                icon={Trophy}
+                label="Orange wins"
+                value={summary.orangeWins.toLocaleString()}
+              />
               {summary.blueAdvantages + summary.orangeAdvantages + summary.noAdvantage > 0 ? (
-                <KickoffMetric icon={Anchor} label="Advantage" value={`${summary.blueAdvantages} – ${summary.orangeAdvantages}`} />
+                <KickoffMetric
+                  icon={Anchor}
+                  label="Advantage"
+                  value={`${summary.blueAdvantages} – ${summary.orangeAdvantages}`}
+                />
               ) : null}
             </>
           )}
@@ -333,10 +390,22 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
       {kickoffs.length ? (
         <>
           <div className="kickoff-tabs" role="tablist" aria-label="Kickoff view">
-            <button type="button" role="tab" aria-selected={tab === "stats"} className={tab === "stats" ? "active" : ""} onClick={() => setTab("stats")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "stats"}
+              className={tab === "stats" ? "active" : ""}
+              onClick={() => setTab("stats")}
+            >
               Stats
             </button>
-            <button type="button" role="tab" aria-selected={tab === "byKickoff"} className={tab === "byKickoff" ? "active" : ""} onClick={() => setTab("byKickoff")}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "byKickoff"}
+              className={tab === "byKickoff" ? "active" : ""}
+              onClick={() => setTab("byKickoff")}
+            >
               Kickoff by kickoff
             </button>
           </div>
@@ -380,7 +449,9 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
                 <div className="chart-panel-header">
                   <div>
                     <h3>Kickoff by kickoff</h3>
-                    <span>Outcome, possession, first touch, and every player&apos;s assignment.</span>
+                    <span>
+                      Outcome, possession, first touch, and every player&apos;s assignment.
+                    </span>
                   </div>
                 </div>
                 <div className="kickoff-card-list">
@@ -414,7 +485,9 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
                   <EventClipPreview
                     replayId={replayId}
                     clip={clip}
-                    label={activeKickoff ? kickoffPreviewLabel(activeKickoff, perspective) : "Loading…"}
+                    label={
+                      activeKickoff ? kickoffPreviewLabel(activeKickoff, perspective) : "Loading…"
+                    }
                     openHref={`/replays/${encodeURIComponent(replayId)}/player`}
                   />
                 </Suspense>
@@ -454,7 +527,10 @@ function KickoffTeamOutcomeSummary({ summary }: { summary: ReturnType<typeof kic
       {/* Blue-relative (team 0): Blue wins fill from the left shaded by strength,
           Orange wins fill from the right, neutral holds the center — the same
           gradated ramp the taker rows use, framed as Blue vs Orange. */}
-      <KickoffTeamWinBar ariaLabel="Kickoff wins by replay-local team and strength" outcomes={summary.teamStrengthOutcomes} />
+      <KickoffTeamWinBar
+        ariaLabel="Kickoff wins by replay-local team and strength"
+        outcomes={summary.teamStrengthOutcomes}
+      />
       {advantageTotal > 0 ? (
         <KickoffTeamOutcomeBar
           ariaLabel="Kickoff advantage by replay-local team"
@@ -516,7 +592,12 @@ function KickoffTeamOutcomeBar({
   );
 }
 
-function teamOutcomeSegment(team: "blue" | "neutral" | "orange", label: string, value: number, total: number): SegmentedBarSegment {
+function teamOutcomeSegment(
+  team: "blue" | "neutral" | "orange",
+  label: string,
+  value: number,
+  total: number,
+): SegmentedBarSegment {
   const tone = team === "blue" ? "positive" : team === "orange" ? "negative" : "neutral";
   const share = total > 0 ? value / total : 0;
   return {
@@ -525,7 +606,10 @@ function teamOutcomeSegment(team: "blue" | "neutral" | "orange", label: string, 
     label,
     value,
     // Fold the per-team count into the bar so the section needs no caption beneath it.
-    visibleLabel: share >= 0.1 ? `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})` : undefined,
+    visibleLabel:
+      share >= 0.1
+        ? `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})`
+        : undefined,
     title: `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})`,
   };
 }
@@ -534,31 +618,61 @@ function teamOutcomeSegment(team: "blue" | "neutral" | "orange", label: string, 
 // KickoffStrengthSummary but rendered full-width (no left label) to match the
 // advantage bar above it, and with team-relative labels: a "loss" band is Blue
 // losing decisively, i.e. an Orange win, so it reads as "Orange <strength> win".
-const TEAM_WIN_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLevel; label: string }> = [
+const TEAM_WIN_BANDS: Array<{
+  band: KickoffStrengthBand;
+  level: OutcomeDistributionLevel;
+  label: string;
+}> = [
   { band: "strong", level: "strong", label: "Blue strong win" },
   { band: "clear", level: "clear", label: "Blue clear win" },
   { band: "narrow", level: "narrow", label: "Blue narrow win" },
   { band: "unknown", level: "unknown", label: "Blue win" },
 ];
 
-const TEAM_LOSS_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLevel; label: string }> = [
+const TEAM_LOSS_BANDS: Array<{
+  band: KickoffStrengthBand;
+  level: OutcomeDistributionLevel;
+  label: string;
+}> = [
   { band: "unknown", level: "unknown", label: "Orange win" },
   { band: "narrow", level: "narrow", label: "Orange narrow win" },
   { band: "clear", level: "clear", label: "Orange clear win" },
   { band: "strong", level: "strong", label: "Orange strong win" },
 ];
 
-function KickoffTeamWinBar({ ariaLabel, outcomes }: { ariaLabel: string; outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome> }) {
+function KickoffTeamWinBar({
+  ariaLabel,
+  outcomes,
+}: {
+  ariaLabel: string;
+  outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
+}) {
   const rawSegments: OutcomeDistributionSegment[] = [
-    ...TEAM_WIN_BANDS.map(({ band, level, label }) => ({ key: `blue-${band}`, tone: "positive" as const, level, label, value: outcomes[band].wins })),
+    ...TEAM_WIN_BANDS.map(({ band, level, label }) => ({
+      key: `blue-${band}`,
+      tone: "positive" as const,
+      level,
+      label,
+      value: outcomes[band].wins,
+    })),
     {
       key: "neutral",
       tone: "neutral" as const,
       level: "clear" as const,
       label: "Neutral",
-      value: outcomes.narrow.neutral + outcomes.clear.neutral + outcomes.strong.neutral + outcomes.unknown.neutral,
+      value:
+        outcomes.narrow.neutral +
+        outcomes.clear.neutral +
+        outcomes.strong.neutral +
+        outcomes.unknown.neutral,
     },
-    ...TEAM_LOSS_BANDS.map(({ band, level, label }) => ({ key: `orange-${band}`, tone: "negative" as const, level, label, value: outcomes[band].losses })),
+    ...TEAM_LOSS_BANDS.map(({ band, level, label }) => ({
+      key: `orange-${band}`,
+      tone: "negative" as const,
+      level,
+      label,
+      value: outcomes[band].losses,
+    })),
   ];
   const total = rawSegments.reduce((sum, segment) => sum + segment.value, 0);
   if (total === 0) return null;
@@ -571,15 +685,30 @@ function KickoffTeamWinBar({ ariaLabel, outcomes }: { ariaLabel: string; outcome
     label: segment.label,
     value: segment.value,
     // Always show count with the percentage in parentheses.
-    visibleLabel: segment.value > 0 ? `${segment.value} (${formatSharePercent(segment.value / total)})` : undefined,
-    title: segment.value > 0 ? `${segment.label}: ${segment.value} (${formatSharePercent(segment.value / total)})` : undefined,
+    visibleLabel:
+      segment.value > 0
+        ? `${segment.value} (${formatSharePercent(segment.value / total)})`
+        : undefined,
+    title:
+      segment.value > 0
+        ? `${segment.label}: ${segment.value} (${formatSharePercent(segment.value / total)})`
+        : undefined,
   }));
 
   // outcomes is Blue-relative: wins = Blue wins, losses = Orange wins. Frame each
   // win-rate by the team that came out ahead ("all" = decided, "clear" = narrow
   // excluded), so the percentage always names the advantaged team.
-  const allLeader = teamWinLeader(outcomes.narrow.wins + outcomes.clear.wins + outcomes.strong.wins + outcomes.unknown.wins, outcomes.narrow.losses + outcomes.clear.losses + outcomes.strong.losses + outcomes.unknown.losses);
-  const clearLeader = teamWinLeader(outcomes.clear.wins + outcomes.strong.wins + outcomes.unknown.wins, outcomes.clear.losses + outcomes.strong.losses + outcomes.unknown.losses);
+  const allLeader = teamWinLeader(
+    outcomes.narrow.wins + outcomes.clear.wins + outcomes.strong.wins + outcomes.unknown.wins,
+    outcomes.narrow.losses +
+      outcomes.clear.losses +
+      outcomes.strong.losses +
+      outcomes.unknown.losses,
+  );
+  const clearLeader = teamWinLeader(
+    outcomes.clear.wins + outcomes.strong.wins + outcomes.unknown.wins,
+    outcomes.clear.losses + outcomes.strong.losses + outcomes.unknown.losses,
+  );
 
   return (
     <div className="kickoff-team-row">
@@ -632,14 +761,25 @@ function TeamWinRate({ term, leader }: { term: string; leader: TeamWinRateLeader
   );
 }
 
-function matchesKickoffFilter(kickoff: KickoffRow, shape: KickoffShapeFilter, side: KickoffSideFilter): boolean {
+function matchesKickoffFilter(
+  kickoff: KickoffRow,
+  shape: KickoffShapeFilter,
+  side: KickoffSideFilter,
+): boolean {
   if (shape !== "all" && kickoff.kickoffType !== shape) return false;
   if (side !== "all" && kickoff.kickoffDirection !== side) return false;
   return true;
 }
 
-function countMatchingKickoffs(kickoffs: KickoffRow[], shape: KickoffShapeFilter, side: KickoffSideFilter): number {
-  return kickoffs.reduce((count, kickoff) => (matchesKickoffFilter(kickoff, shape, side) ? count + 1 : count), 0);
+function countMatchingKickoffs(
+  kickoffs: KickoffRow[],
+  shape: KickoffShapeFilter,
+  side: KickoffSideFilter,
+): number {
+  return kickoffs.reduce(
+    (count, kickoff) => (matchesKickoffFilter(kickoff, shape, side) ? count + 1 : count),
+    0,
+  );
 }
 
 function KickoffPlayerBehavior({
@@ -797,10 +937,14 @@ function magnitudeChart(
 ): ReactNode {
   const entries = summaries
     .map((summary) => ({ summary, value: spec.value(summary) }))
-    .filter((entry): entry is { summary: PlayerKickoffSummary; value: number } => entry.value != null);
+    .filter(
+      (entry): entry is { summary: PlayerKickoffSummary; value: number } => entry.value != null,
+    );
   if (!entries.length) return null;
   if (spec.sort) {
-    entries.sort((left, right) => (spec.sort === "asc" ? left.value - right.value : right.value - left.value));
+    entries.sort((left, right) =>
+      spec.sort === "asc" ? left.value - right.value : right.value - left.value,
+    );
   }
   const scaleMax = spec.scaleMax ?? entries.reduce((max, entry) => Math.max(max, entry.value), 0);
   const rows: ComparisonRow[] = entries.map(({ summary, value }) => ({
@@ -824,7 +968,14 @@ function magnitudeChart(
     // Zero-value bars have nothing to fill; still show the value on the track.
     placeholder: spec.format(value),
   }));
-  return <PlayerComparisonChart key={spec.key} title={spec.title} rows={rows} emptyLabel={spec.emptyLabel} />;
+  return (
+    <PlayerComparisonChart
+      key={spec.key}
+      title={spec.title}
+      rows={rows}
+      emptyLabel={spec.emptyLabel}
+    />
+  );
 }
 
 function bandTotals(outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>): {
@@ -835,23 +986,61 @@ function bandTotals(outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome
 } {
   const wins = WIN_BANDS.reduce((sum, { band }) => sum + outcomes[band].wins, 0);
   const losses = LOSS_BANDS.reduce((sum, { band }) => sum + outcomes[band].losses, 0);
-  const neutral = outcomes.narrow.neutral + outcomes.clear.neutral + outcomes.strong.neutral + outcomes.unknown.neutral;
+  const neutral =
+    outcomes.narrow.neutral +
+    outcomes.clear.neutral +
+    outcomes.strong.neutral +
+    outcomes.unknown.neutral;
   return { wins, losses, neutral, total: wins + losses + neutral };
 }
 
-function strengthSegments(outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>, total: number): SegmentedBarSegment[] {
-  const raw: Array<{ key: string; tone: OutcomeDistributionSegment["tone"]; level: OutcomeDistributionLevel; label: string; value: number }> = [
-    ...WIN_BANDS.map(({ band, level, label }) => ({ key: `win-${band}`, tone: "positive" as const, level, label, value: outcomes[band].wins })),
+function strengthSegments(
+  outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>,
+  total: number,
+): SegmentedBarSegment[] {
+  const raw: Array<{
+    key: string;
+    tone: OutcomeDistributionSegment["tone"];
+    level: OutcomeDistributionLevel;
+    label: string;
+    value: number;
+  }> = [
+    ...WIN_BANDS.map(({ band, level, label }) => ({
+      key: `win-${band}`,
+      tone: "positive" as const,
+      level,
+      label,
+      value: outcomes[band].wins,
+    })),
     {
       key: "neutral",
       tone: "neutral" as const,
       level: "clear" as const,
       label: "Neutral",
-      value: outcomes.narrow.neutral + outcomes.clear.neutral + outcomes.strong.neutral + outcomes.unknown.neutral,
+      value:
+        outcomes.narrow.neutral +
+        outcomes.clear.neutral +
+        outcomes.strong.neutral +
+        outcomes.unknown.neutral,
     },
-    ...LOSS_BANDS.map(({ band, level, label }) => ({ key: `loss-${band}`, tone: "negative" as const, level, label, value: outcomes[band].losses })),
+    ...LOSS_BANDS.map(({ band, level, label }) => ({
+      key: `loss-${band}`,
+      tone: "negative" as const,
+      level,
+      label,
+      value: outcomes[band].losses,
+    })),
   ];
-  return raw.map((segment) => outcomeBarSegment(segment.key, segment.tone, segment.level, segment.label, segment.value, total));
+  return raw.map((segment) =>
+    outcomeBarSegment(
+      segment.key,
+      segment.tone,
+      segment.level,
+      segment.label,
+      segment.value,
+      total,
+    ),
+  );
 }
 
 // In-bar text, tiered by how much room the segment has: name + count + % when
@@ -893,7 +1082,10 @@ function outcomeBarSegment(
 
 // Per-game: tint by the player's team (own team good, opponent bad). Grouped:
 // the team-neutral player-relative palette, matching the career kickoff panel.
-function distributionColors(summary: PlayerKickoffSummary, teamColored: boolean): OutcomeDistributionColors {
+function distributionColors(
+  summary: PlayerKickoffSummary,
+  teamColored: boolean,
+): OutcomeDistributionColors {
   return teamColored ? kickoffPlayerOutcomeColors(summary.team) : PLAYER_RELATIVE_OUTCOME_COLORS;
 }
 
@@ -920,7 +1112,9 @@ function withGuaranteedLabel(
 
 function winLossChart(
   summaries: PlayerKickoffSummary[],
-  outcomesOf: (summary: PlayerKickoffSummary) => Record<KickoffStrengthBand, KickoffStrengthOutcome>,
+  outcomesOf: (
+    summary: PlayerKickoffSummary,
+  ) => Record<KickoffStrengthBand, KickoffStrengthOutcome>,
   teamColored: boolean,
 ): ReactNode {
   const entries = summaries
@@ -936,7 +1130,9 @@ function winLossChart(
       const exclPct = decidedDecisive > 0 ? winsDecisive / decidedDecisive : null;
       // Sort by the average of whichever win-rate percentages are defined.
       const defined = [inclPct, exclPct].filter((value): value is number => value != null);
-      const sortKey = defined.length ? defined.reduce((sum, value) => sum + value, 0) / defined.length : -1;
+      const sortKey = defined.length
+        ? defined.reduce((sum, value) => sum + value, 0) / defined.length
+        : -1;
       return { summary, outcomes, totals, inclPct, exclPct, sortKey };
     })
     .filter((entry) => entry.totals.total > 0)
@@ -947,7 +1143,9 @@ function winLossChart(
       key: summary.key,
       label: comparisonLabel(summary),
       ariaLabel: `${summary.name} kickoff win rate`,
-      segments: withGuaranteedLabel(strengthSegments(outcomes, totals.total), (segment) => String(segment.value)),
+      segments: withGuaranteedLabel(strengthSegments(outcomes, totals.total), (segment) =>
+        String(segment.value),
+      ),
       total: totals.total,
       valueLabel: (
         <span className="winloss-value">
@@ -968,7 +1166,13 @@ function winLossChart(
     };
   });
   return (
-    <PlayerComparisonChart key="winloss" title="Win / loss" rows={rows} emptyLabel="No kickoff outcomes yet." className="winloss-chart" />
+    <PlayerComparisonChart
+      key="winloss"
+      title="Win / loss"
+      rows={rows}
+      emptyLabel="No kickoff outcomes yet."
+      className="winloss-chart"
+    />
   );
 }
 
@@ -1004,12 +1208,23 @@ function controlChart(
     valueLabel: `${Math.round((advFor / total) * 100)}%`,
     style: outcomeDistributionColorStyle(distributionColors(summary, teamColored)),
   }));
-  return <PlayerComparisonChart key="control" title="Control / advantage" rows={rows} emptyLabel="No control data yet." />;
+  return (
+    <PlayerComparisonChart
+      key="control"
+      title="Control / advantage"
+      rows={rows}
+      emptyLabel="No control data yet."
+    />
+  );
 }
 
 function goalsChart(summaries: PlayerKickoffSummary[], teamColored: boolean): ReactNode {
   const entries = summaries
-    .map((summary) => ({ summary, forGoals: summary.kickoffGoalsFor, against: summary.kickoffGoalsAgainst }))
+    .map((summary) => ({
+      summary,
+      forGoals: summary.kickoffGoalsFor,
+      against: summary.kickoffGoalsAgainst,
+    }))
     .filter((entry) => entry.forGoals + entry.against > 0);
   if (!entries.length) return null;
   const rows: ComparisonRow[] = entries.map(({ summary, forGoals, against }) => {
@@ -1030,7 +1245,14 @@ function goalsChart(summaries: PlayerKickoffSummary[], teamColored: boolean): Re
       style: outcomeDistributionColorStyle(distributionColors(summary, teamColored)),
     };
   });
-  return <PlayerComparisonChart key="goals" title="Kickoff goals" rows={rows} emptyLabel="No kickoff goals from these kickoffs." />;
+  return (
+    <PlayerComparisonChart
+      key="goals"
+      title="Kickoff goals"
+      rows={rows}
+      emptyLabel="No kickoff goals from these kickoffs."
+    />
+  );
 }
 
 // Assign each category a stable color index across all players (most-used first)
@@ -1046,7 +1268,9 @@ function categoryColorIndex(
     }
   }
   return new Map(
-    [...totals.entries()].sort((left, right) => right[1] - left[1]).map(([key], index) => [key, index]),
+    [...totals.entries()]
+      .sort((left, right) => right[1] - left[1])
+      .map(([key], index) => [key, index]),
   );
 }
 
@@ -1078,7 +1302,9 @@ function categoryChart(
     .filter((entry) => entry.total > 0);
   if (!entries.length) return null;
   const rows: ComparisonRow[] = entries.map(({ summary, items, total }) => {
-    const ordered = [...items].sort((left, right) => (colorIndex.get(left[0]) ?? 0) - (colorIndex.get(right[0]) ?? 0));
+    const ordered = [...items].sort(
+      (left, right) => (colorIndex.get(left[0]) ?? 0) - (colorIndex.get(right[0]) ?? 0),
+    );
     const top = [...items].sort((left, right) => right[1] - left[1])[0];
     return {
       key: summary.key,
@@ -1108,10 +1334,25 @@ function categoryChart(
 
 // Breakdown of each taker's takes into outcome segments (touched / fake / miss /
 // other). Sorted by number of takes rather than by player, per request.
-const TAKE_OUTCOME_SEGMENTS: Array<{ key: string; className: string; label: string; value: (summary: PlayerKickoffSummary) => number }> = [
-  { key: "touched", className: "kickoff-take-touched", label: "Touched", value: (summary) => summary.touched },
+const TAKE_OUTCOME_SEGMENTS: Array<{
+  key: string;
+  className: string;
+  label: string;
+  value: (summary: PlayerKickoffSummary) => number;
+}> = [
+  {
+    key: "touched",
+    className: "kickoff-take-touched",
+    label: "Touched",
+    value: (summary) => summary.touched,
+  },
   { key: "fake", className: "kickoff-take-fake", label: "Fake", value: (summary) => summary.faked },
-  { key: "miss", className: "kickoff-take-miss", label: "Miss", value: (summary) => summary.missed },
+  {
+    key: "miss",
+    className: "kickoff-take-miss",
+    label: "Miss",
+    value: (summary) => summary.missed,
+  },
 ];
 
 function takeOutcomeChart(summaries: PlayerKickoffSummary[]): ReactNode {
@@ -1121,9 +1362,15 @@ function takeOutcomeChart(summaries: PlayerKickoffSummary[]): ReactNode {
     .sort((left, right) => right.takes - left.takes);
   if (!entries.length) return null;
   const rows: ComparisonRow[] = entries.map(({ summary, takes }) => {
-    const named = TAKE_OUTCOME_SEGMENTS.map((segment) => ({ ...segment, count: segment.value(summary) }));
+    const named = TAKE_OUTCOME_SEGMENTS.map((segment) => ({
+      ...segment,
+      count: segment.value(summary),
+    }));
     const other = Math.max(0, takes - named.reduce((sum, segment) => sum + segment.count, 0));
-    const parts = [...named, { key: "other", className: "kickoff-take-other", label: "Other", count: other }];
+    const parts = [
+      ...named,
+      { key: "other", className: "kickoff-take-other", label: "Other", count: other },
+    ];
     return {
       key: summary.key,
       label: comparisonLabel(summary),
@@ -1146,7 +1393,14 @@ function takeOutcomeChart(summaries: PlayerKickoffSummary[]): ReactNode {
       valueLabel: `${takes}`,
     };
   });
-  return <PlayerComparisonChart key="take-outcomes" title="Take outcomes" rows={rows} emptyLabel="No takes yet." />;
+  return (
+    <PlayerComparisonChart
+      key="take-outcomes"
+      title="Take outcomes"
+      rows={rows}
+      emptyLabel="No takes yet."
+    />
+  );
 }
 
 function takerComparisonCharts(
@@ -1158,12 +1412,19 @@ function takerComparisonCharts(
     // Good-vs-bad outcomes first, then the descriptive breakdowns (approach,
     // take outcomes) at the end since they aren't a directional good/bad metric.
     winLossChart(summaries, (summary) => summary.takerStrengthOutcomes, teamColored),
-    controlChart(summaries, (summary) => summary.takerAdvantagesFor, (summary) => summary.takerAdvantagesAgainst, (summary) => summary.takerCount, teamColored),
+    controlChart(
+      summaries,
+      (summary) => summary.takerAdvantagesFor,
+      (summary) => summary.takerAdvantagesAgainst,
+      (summary) => summary.takerCount,
+      teamColored,
+    ),
     magnitudeChart(
       {
         key: "first-touch",
         title: "First touch %",
-        value: (summary) => (summary.takerCount > 0 ? (summary.firstTouchesAsTaker / summary.takerCount) * 100 : null),
+        value: (summary) =>
+          summary.takerCount > 0 ? (summary.firstTouchesAsTaker / summary.takerCount) * 100 : null,
         format: (value) => `${Math.round(value)}%`,
         scaleMax: 100,
         sort: "desc",
@@ -1178,7 +1439,8 @@ function takerComparisonCharts(
       {
         key: "boost-after",
         title: "Boost after ball",
-        value: (summary) => (summary.boostAfterCount > 0 ? summary.boostAfterSum / summary.boostAfterCount : null),
+        value: (summary) =>
+          summary.boostAfterCount > 0 ? summary.boostAfterSum / summary.boostAfterCount : null,
         format: (value) => formatBoostAmount(value),
         emptyLabel: "No boost-after data yet.",
       },
@@ -1190,7 +1452,8 @@ function takerComparisonCharts(
       {
         key: "boost-used",
         title: "Boost used",
-        value: (summary) => (summary.boostUsedCount > 0 ? summary.boostUsedSum / summary.boostUsedCount : null),
+        value: (summary) =>
+          summary.boostUsedCount > 0 ? summary.boostUsedSum / summary.boostUsedCount : null,
         format: (value) => formatBoostAmount(value),
         sort: "desc",
         emptyLabel: "No boost-used data yet.",
@@ -1203,7 +1466,8 @@ function takerComparisonCharts(
       {
         key: "time-to-ball",
         title: "Time to ball",
-        value: (summary) => (summary.timeToBallCount > 0 ? summary.timeToBallSum / summary.timeToBallCount : null),
+        value: (summary) =>
+          summary.timeToBallCount > 0 ? summary.timeToBallSum / summary.timeToBallCount : null,
         format: (value) => formatDuration(value),
         sort: "asc",
         emptyLabel: "No time-to-ball data yet.",
@@ -1212,7 +1476,13 @@ function takerComparisonCharts(
       teamColored,
       playerIndexByKey,
     ),
-    categoryChart("taker-approach", "Approach", summaries, (summary) => summary.approaches, "No approach data yet."),
+    categoryChart(
+      "taker-approach",
+      "Approach",
+      summaries,
+      (summary) => summary.approaches,
+      "No approach data yet.",
+    ),
     takeOutcomeChart(summaries),
   ];
 }
@@ -1223,13 +1493,22 @@ function supportComparisonCharts(
   playerIndexByKey: Map<string, number>,
 ): ReactNode[] {
   return [
-    controlChart(summaries, (summary) => summary.supportAdvantagesFor, (summary) => summary.supportAdvantagesAgainst, (summary) => summary.supportCount, teamColored),
+    controlChart(
+      summaries,
+      (summary) => summary.supportAdvantagesFor,
+      (summary) => summary.supportAdvantagesAgainst,
+      (summary) => summary.supportCount,
+      teamColored,
+    ),
     goalsChart(summaries, teamColored),
     magnitudeChart(
       {
         key: "support-boost-after",
         title: "Boost after ball",
-        value: (summary) => (summary.supportBoostAfterCount > 0 ? summary.supportBoostAfterSum / summary.supportBoostAfterCount : null),
+        value: (summary) =>
+          summary.supportBoostAfterCount > 0
+            ? summary.supportBoostAfterSum / summary.supportBoostAfterCount
+            : null,
         format: (value) => formatBoostAmount(value),
         emptyLabel: "No boost-after data yet.",
       },
@@ -1241,7 +1520,10 @@ function supportComparisonCharts(
       {
         key: "support-boost-used",
         title: "Boost used",
-        value: (summary) => (summary.supportBoostUsedCount > 0 ? summary.supportBoostUsedSum / summary.supportBoostUsedCount : null),
+        value: (summary) =>
+          summary.supportBoostUsedCount > 0
+            ? summary.supportBoostUsedSum / summary.supportBoostUsedCount
+            : null,
         format: (value) => formatBoostAmount(value),
         sort: "desc",
         emptyLabel: "No boost-used data yet.",
@@ -1254,7 +1536,10 @@ function supportComparisonCharts(
       {
         key: "support-time-to-ball",
         title: "Time to ball",
-        value: (summary) => (summary.supportTimeToBallCount > 0 ? summary.supportTimeToBallSum / summary.supportTimeToBallCount : null),
+        value: (summary) =>
+          summary.supportTimeToBallCount > 0
+            ? summary.supportTimeToBallSum / summary.supportTimeToBallCount
+            : null,
         format: (value) => formatDuration(value),
         sort: "asc",
         emptyLabel: "No time-to-ball data yet.",
@@ -1263,7 +1548,13 @@ function supportComparisonCharts(
       teamColored,
       playerIndexByKey,
     ),
-    categoryChart("support-behavior", "Support behavior", summaries, (summary) => summary.supportBehaviors, "No support behavior yet."),
+    categoryChart(
+      "support-behavior",
+      "Support behavior",
+      summaries,
+      (summary) => summary.supportBehaviors,
+      "No support behavior yet.",
+    ),
   ];
 }
 
@@ -1311,11 +1602,29 @@ function KickoffCard({
       onFocus={() => activate(false)}
       onKeyDown={onKeyDown}
     >
-      <KickoffTakerSection kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+      <KickoffTakerSection
+        kickoff={kickoff}
+        perspectiveKey={perspectiveKey}
+        onPerspective={onPerspective}
+      />
 
       <div className="kickoff-team-grid">
-        <KickoffTeamColumn label="Blue support" team={0} behaviors={blueSupport} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
-        <KickoffTeamColumn label="Orange support" team={1} behaviors={orangeSupport} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+        <KickoffTeamColumn
+          label="Blue support"
+          team={0}
+          behaviors={blueSupport}
+          kickoff={kickoff}
+          perspectiveKey={perspectiveKey}
+          onPerspective={onPerspective}
+        />
+        <KickoffTeamColumn
+          label="Orange support"
+          team={1}
+          behaviors={orangeSupport}
+          kickoff={kickoff}
+          perspectiveKey={perspectiveKey}
+          onPerspective={onPerspective}
+        />
       </div>
 
       <div className="kickoff-card-body">
@@ -1354,19 +1663,55 @@ function KickoffCard({
               ))}
               <span className="kickoff-time-pill">{formatSeconds(kickoff.startTime)}</span>
               <span className="kickoff-type-pill muted">
-                {kickoff.takerDelayFrames == null ? "No taker gap" : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}
+                {kickoff.takerDelayFrames == null
+                  ? "No taker gap"
+                  : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}
               </span>
-              {kickoff.kickoffGoal ? <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>Goal in {formatSeconds(kickoff.timeToGoal)}</span> : null}
+              {kickoff.kickoffGoal ? (
+                <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>
+                  Goal in {formatSeconds(kickoff.timeToGoal)}
+                </span>
+              ) : null}
             </div>
           </header>
 
           <div className="kickoff-outcome-grid">
-            <KickoffFact icon={Trophy} label="Winner" value={teamLabel(kickoff.winningTeam)} team={kickoff.winningTeam} />
-            <KickoffFact icon={ShieldCheck} label="Possession" value={kickoffPossessionLabel(kickoff)} team={kickoff.possessionTeam} />
-            <KickoffFact icon={ShieldCheck} label="Next possession" value={formatNextPossession(kickoff.nextPossession)} team={kickoff.nextPossession?.team ?? kickoff.possessionTeam} />
-            <KickoffFact icon={Anchor} label="Advantage" value={kickoffAdvantageLabel(kickoff)} team={kickoff.advantageTeam} />
-            <KickoffFact icon={CircleDotDashed} label="First touch" value={kickoff.firstTouch.playerName} team={kickoff.firstTouch.team} />
-            <KickoffFact icon={Gauge} label="Exit speed" value={formatSpeed(kickoff.exitSpeed)} team={null} />
+            <KickoffFact
+              icon={Trophy}
+              label="Winner"
+              value={teamLabel(kickoff.winningTeam)}
+              team={kickoff.winningTeam}
+            />
+            <KickoffFact
+              icon={ShieldCheck}
+              label="Possession"
+              value={kickoffPossessionLabel(kickoff)}
+              team={kickoff.possessionTeam}
+            />
+            <KickoffFact
+              icon={ShieldCheck}
+              label="Next possession"
+              value={formatNextPossession(kickoff.nextPossession)}
+              team={kickoff.nextPossession?.team ?? kickoff.possessionTeam}
+            />
+            <KickoffFact
+              icon={Anchor}
+              label="Advantage"
+              value={kickoffAdvantageLabel(kickoff)}
+              team={kickoff.advantageTeam}
+            />
+            <KickoffFact
+              icon={CircleDotDashed}
+              label="First touch"
+              value={kickoff.firstTouch.playerName}
+              team={kickoff.firstTouch.team}
+            />
+            <KickoffFact
+              icon={Gauge}
+              label="Exit speed"
+              value={formatSpeed(kickoff.exitSpeed)}
+              team={null}
+            />
           </div>
         </div>
       </div>
@@ -1419,13 +1764,16 @@ function perspectiveHoverProps(
     return {};
   }
   return {
-    onMouseEnter: () => onPerspective({ playerKey: behavior.playerKey, playerName: behavior.playerName }),
+    onMouseEnter: () =>
+      onPerspective({ playerKey: behavior.playerKey, playerName: behavior.playerName }),
     onMouseLeave: () => onPerspective(null),
   };
 }
 
 function kickoffPathStartFrame(kickoff: KickoffRow): number | null {
-  return kickoff.liveActionStartFrame ?? kickoff.movementStartFrame ?? kickoff.event.start_frame ?? null;
+  return (
+    kickoff.liveActionStartFrame ?? kickoff.movementStartFrame ?? kickoff.event.start_frame ?? null
+  );
 }
 
 function kickoffPathEndFrame(kickoff: KickoffRow): number | null {
@@ -1438,7 +1786,12 @@ function kickoffPathEndFrame(kickoff: KickoffRow): number | null {
 }
 
 function kickoffPathPlayers(kickoff: KickoffRow): KickoffPathPlayer[] {
-  return [kickoff.teamZeroTaker, kickoff.teamOneTaker, ...kickoff.teamZeroSupport, ...kickoff.teamOneSupport]
+  return [
+    kickoff.teamZeroTaker,
+    kickoff.teamOneTaker,
+    ...kickoff.teamZeroSupport,
+    ...kickoff.teamOneSupport,
+  ]
     .filter(Boolean)
     .map((behavior) => {
       const player = behavior as KickoffPlayerBehavior;
@@ -1471,19 +1824,37 @@ function KickoffFact({
   );
 }
 
-function KickoffTakerSection({ kickoff, perspectiveKey, onPerspective }: { kickoff: KickoffRow } & KickoffPerspectiveProps) {
+function KickoffTakerSection({
+  kickoff,
+  perspectiveKey,
+  onPerspective,
+}: { kickoff: KickoffRow } & KickoffPerspectiveProps) {
   return (
     <section className="kickoff-taker-section">
       <div className="kickoff-section-title">
         <span>Takers</span>
         <strong>
           {strengthBandLabel(kickoff.winStrengthBand)} win
-          {kickoff.winStrength == null ? "" : ` · ${Math.round(clampFraction(kickoff.winStrength) * 100)}%`}
+          {kickoff.winStrength == null
+            ? ""
+            : ` · ${Math.round(clampFraction(kickoff.winStrength) * 100)}%`}
         </strong>
       </div>
       <div className="kickoff-taker-grid">
-        <KickoffTakerTile behavior={kickoff.teamZeroTaker} team={0} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
-        <KickoffTakerTile behavior={kickoff.teamOneTaker} team={1} kickoff={kickoff} perspectiveKey={perspectiveKey} onPerspective={onPerspective} />
+        <KickoffTakerTile
+          behavior={kickoff.teamZeroTaker}
+          team={0}
+          kickoff={kickoff}
+          perspectiveKey={perspectiveKey}
+          onPerspective={onPerspective}
+        />
+        <KickoffTakerTile
+          behavior={kickoff.teamOneTaker}
+          team={1}
+          kickoff={kickoff}
+          perspectiveKey={perspectiveKey}
+          onPerspective={onPerspective}
+        />
       </div>
     </section>
   );
@@ -1508,9 +1879,13 @@ function KickoffTakerTile({
     won ? `winner strength-${kickoff.winStrengthBand}` : "",
     winShade == null ? "" : "shade-scaled",
     winShade != null && winShade >= 0.55 ? "shade-dark" : "",
-  ].filter(Boolean).join(" ");
-  const boostAfter = behavior?.boostAfter == null ? "-" : `${formatBoostAmount(behavior.boostAfter)} after`;
-  const boostUsed = behavior?.boostUsed == null ? "-" : `${formatBoostAmount(behavior.boostUsed)} used`;
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const boostAfter =
+    behavior?.boostAfter == null ? "-" : `${formatBoostAmount(behavior.boostAfter)} after`;
+  const boostUsed =
+    behavior?.boostUsed == null ? "-" : `${formatBoostAmount(behavior.boostUsed)} used`;
   const touchTime = behavior ? playerKickoffTime(kickoff, behavior) : null;
 
   return (
@@ -1613,9 +1988,14 @@ function KickoffBehaviorRow({
 } & KickoffPerspectiveProps) {
   const primary = behavior.role === "taker" ? behavior.outcome : behavior.supportBehavior;
   const secondary = behavior.role === "taker" ? behavior.approach : behavior.spawn;
-  const boostDelta = behavior.startBoost == null || behavior.boostAfter == null ? null : behavior.boostAfter - behavior.startBoost;
-  const showTakerBoost = behavior.role === "taker" && (behavior.boostCollected != null || behavior.boostUsed != null);
-  const ballDistance = behavior.distanceToBallAtFirstTouch ?? startDistanceToCenteredBall(behavior.startPosition);
+  const boostDelta =
+    behavior.startBoost == null || behavior.boostAfter == null
+      ? null
+      : behavior.boostAfter - behavior.startBoost;
+  const showTakerBoost =
+    behavior.role === "taker" && (behavior.boostCollected != null || behavior.boostUsed != null);
+  const ballDistance =
+    behavior.distanceToBallAtFirstTouch ?? startDistanceToCenteredBall(behavior.startPosition);
   const boostAtFifty = behavior.boostAtFirstTouch ?? behavior.boostAfter;
 
   return (
@@ -1635,9 +2015,13 @@ function KickoffBehaviorRow({
         ) : null}
         <span>{formatLabel(primary) || "Unknown"}</span>
         {secondary ? <span>{formatLabel(secondary)}</span> : null}
-        {behavior.role === "taker" && behavior.timeToBall != null ? <span>{formatDuration(behavior.timeToBall)} to ball</span> : null}
+        {behavior.role === "taker" && behavior.timeToBall != null ? (
+          <span>{formatDuration(behavior.timeToBall)} to ball</span>
+        ) : null}
         {showTakerBoost && behavior.boostCollected != null ? (
-          <span className="boost-positive">+{formatBoostAmount(behavior.boostCollected)} boost</span>
+          <span className="boost-positive">
+            +{formatBoostAmount(behavior.boostCollected)} boost
+          </span>
         ) : null}
         {showTakerBoost && behavior.boostUsed != null ? (
           <span className="boost-negative">{formatBoostAmount(behavior.boostUsed)} used</span>
@@ -1652,7 +2036,9 @@ function KickoffBehaviorRow({
       {behavior.role === "support" ? (
         <div className="kickoff-support-details">
           <span>
-            <strong>Ball dist {behavior.distanceToBallAtFirstTouch == null ? "start" : "50/50"}</strong>
+            <strong>
+              Ball dist {behavior.distanceToBallAtFirstTouch == null ? "start" : "50/50"}
+            </strong>
             {formatDistance(ballDistance)}
           </span>
           <span>
@@ -1676,7 +2062,11 @@ function KickoffBehaviorRow({
 // The outcomes column is player-relative: wins fill from the left, losses fill
 // from the right, and neutral kickoffs hold the center. Within each side the
 // strength band sets the shade (darkest = strongest result).
-const WIN_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLevel; label: string }> = [
+const WIN_BANDS: Array<{
+  band: KickoffStrengthBand;
+  level: OutcomeDistributionLevel;
+  label: string;
+}> = [
   { band: "strong", level: "strong", label: "Strong win" },
   { band: "clear", level: "clear", label: "Clear win" },
   { band: "narrow", level: "narrow", label: "Narrow win" },
@@ -1684,7 +2074,11 @@ const WIN_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLe
 ];
 
 // Losses mirror the win ramp so the strongest loss sits at the far (right) edge.
-const LOSS_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLevel; label: string }> = [
+const LOSS_BANDS: Array<{
+  band: KickoffStrengthBand;
+  level: OutcomeDistributionLevel;
+  label: string;
+}> = [
   { band: "unknown", level: "unknown", label: "Loss" },
   { band: "narrow", level: "narrow", label: "Narrow loss" },
   { band: "clear", level: "clear", label: "Clear loss" },
@@ -1727,11 +2121,19 @@ function kickoffPlayerOutcomeColors(team: number | null): OutcomeDistributionCol
   return PLAYER_RELATIVE_OUTCOME_COLORS;
 }
 
-function kickoffRow(event: MechanicEventResponse, index: number, players: ReplayPlayer[], possessionSpans: PossessionSpan[]): KickoffRow {
+function kickoffRow(
+  event: MechanicEventResponse,
+  index: number,
+  players: ReplayPlayer[],
+  possessionSpans: PossessionSpan[],
+): KickoffRow {
   const payload = event.payload;
   const teamZeroTouchFrame = numberField(payload, "team_zero_taker_touch_frame");
   const teamOneTouchFrame = numberField(payload, "team_one_taker_touch_frame");
-  const takerDelayFrames = teamZeroTouchFrame == null || teamOneTouchFrame == null ? null : Math.abs(teamZeroTouchFrame - teamOneTouchFrame);
+  const takerDelayFrames =
+    teamZeroTouchFrame == null || teamOneTouchFrame == null
+      ? null
+      : Math.abs(teamZeroTouchFrame - teamOneTouchFrame);
   const startTime = numberField(payload, "start_time") ?? event.start_time;
   const endTime = numberField(payload, "end_time") ?? event.end_time;
   const possessionTeam = teamField(payload, "kickoff_possession_team_is_team_0");
@@ -1768,18 +2170,39 @@ function kickoffRow(event: MechanicEventResponse, index: number, players: Replay
     advantageTeam: teamField(payload, "advantage_team_is_team_0"),
     advantagePlayerName: advantagePlayerName(payload, players),
     advantageSecondsAfterFirstTouch: numberField(payload, "advantage_seconds_after_first_touch"),
-    teamZeroTaker: kickoffPlayerBehavior(objectField(payload, "team_zero_taker"), 0, "taker", players),
-    teamOneTaker: kickoffPlayerBehavior(objectField(payload, "team_one_taker"), 1, "taker", players),
-    teamZeroSupport: arrayField(payload, "team_zero_non_takers").map((item) => kickoffPlayerBehavior(item, 0, "support", players)).filter(Boolean) as KickoffPlayerBehavior[],
-    teamOneSupport: arrayField(payload, "team_one_non_takers").map((item) => kickoffPlayerBehavior(item, 1, "support", players)).filter(Boolean) as KickoffPlayerBehavior[],
+    teamZeroTaker: kickoffPlayerBehavior(
+      objectField(payload, "team_zero_taker"),
+      0,
+      "taker",
+      players,
+    ),
+    teamOneTaker: kickoffPlayerBehavior(
+      objectField(payload, "team_one_taker"),
+      1,
+      "taker",
+      players,
+    ),
+    teamZeroSupport: arrayField(payload, "team_zero_non_takers")
+      .map((item) => kickoffPlayerBehavior(item, 0, "support", players))
+      .filter(Boolean) as KickoffPlayerBehavior[],
+    teamOneSupport: arrayField(payload, "team_one_non_takers")
+      .map((item) => kickoffPlayerBehavior(item, 1, "support", players))
+      .filter(Boolean) as KickoffPlayerBehavior[],
   };
 }
 
-function possessionSpan(event: MechanicEventResponse, players: ReplayPlayer[]): PossessionSpan | null {
+function possessionSpan(
+  event: MechanicEventResponse,
+  players: ReplayPlayer[],
+): PossessionSpan | null {
   const payload = event.payload;
   const playerKey = remoteIdKey(payload.player_id) ?? normalizedRemoteKey(event.player_id);
   const player = playerKey ? playerByRemoteKey(players, playerKey) : null;
-  const team = possessionStateTeam(stringField(payload, "possession_state")) ?? event.team ?? player?.team ?? null;
+  const team =
+    possessionStateTeam(stringField(payload, "possession_state")) ??
+    event.team ??
+    player?.team ??
+    null;
   return {
     playerKey,
     playerName: player?.name || event.player_name || playerKey || teamLabel(team),
@@ -1802,7 +2225,12 @@ function nextKickoffPossession(
     if (span.startTime == null) return false;
     if (span.playerKey == null && span.team == null) return false;
     if (possessionTeam != null && span.team != null && span.team !== possessionTeam) return false;
-    return span.startTime >= cutoff - 0.1 || (span.endTime != null && span.endTime >= cutoff && span.startTime >= (startTime ?? cutoff) - 0.1);
+    return (
+      span.startTime >= cutoff - 0.1 ||
+      (span.endTime != null &&
+        span.endTime >= cutoff &&
+        span.startTime >= (startTime ?? cutoff) - 0.1)
+    );
   });
   if (!matchingSpan) return null;
   return {
@@ -1814,7 +2242,10 @@ function nextKickoffPossession(
   };
 }
 
-function advantagePlayerName(payload: Record<string, unknown>, players: ReplayPlayer[]): string | null {
+function advantagePlayerName(
+  payload: Record<string, unknown>,
+  players: ReplayPlayer[],
+): string | null {
   const playerKey = remoteIdKey(payload.advantage_player);
   if (!playerKey) return null;
   return playerByRemoteKey(players, playerKey)?.name || playerKey;
@@ -1830,12 +2261,17 @@ function kickoffAdvantageLabel(kickoff: KickoffRow): string {
   if (!kickoff.advantage) return "Unknown";
   if (kickoff.advantage === "no_advantage") return "None";
   const kind = kickoff.advantage.replace(/^team_(zero|one)_/, "");
-  const kindLabel = kind === "possession" ? (kickoff.advantagePlayerName ?? "Possession") : formatLabel(kind);
+  const kindLabel =
+    kind === "possession" ? (kickoff.advantagePlayerName ?? "Possession") : formatLabel(kind);
   const seconds = kickoff.advantageSecondsAfterFirstTouch;
   return seconds == null ? kindLabel : `${kindLabel} · ${seconds.toFixed(1)}s`;
 }
 
-function kickoffTouch(payload: Record<string, unknown>, prefix: string, players: ReplayPlayer[]): KickoffTouch {
+function kickoffTouch(
+  payload: Record<string, unknown>,
+  prefix: string,
+  players: ReplayPlayer[],
+): KickoffTouch {
   const playerValue = payload[`${prefix}_player`];
   const playerKey = remoteIdKey(playerValue);
   const player = playerKey ? playerByRemoteKey(players, playerKey) : null;
@@ -1871,13 +2307,16 @@ function kickoffPlayerBehavior(
     supportBehavior: stringField(payload, "support_behavior"),
     startBoost: numberField(payload, "start_boost"),
     boostAfter: numberField(payload, "boost_after"),
-    boostAtFirstTouch: numberField(payload, "boost_at_first_touch") ?? numberField(payload, "boost_at_kickoff_50"),
+    boostAtFirstTouch:
+      numberField(payload, "boost_at_first_touch") ?? numberField(payload, "boost_at_kickoff_50"),
     timeToBall: numberField(payload, "time_to_ball"),
     boostCollected: numberField(payload, "boost_collected"),
     boostUsed: numberField(payload, "boost_used"),
     firstTouchTime: numberField(payload, "first_touch_time"),
     startPosition: vector3Field(payload, "start_position"),
-    distanceToBallAtFirstTouch: numberField(payload, "distance_to_ball_at_first_touch") ?? numberField(payload, "distance_to_ball_at_kickoff_50"),
+    distanceToBallAtFirstTouch:
+      numberField(payload, "distance_to_ball_at_first_touch") ??
+      numberField(payload, "distance_to_ball_at_kickoff_50"),
   };
 }
 
@@ -1895,7 +2334,10 @@ function kickoffType(payload: Record<string, unknown>): KickoffType {
   );
 }
 
-function kickoffTypeFromSpawns(teamZeroSpawn: string | null, teamOneSpawn: string | null): KickoffType {
+function kickoffTypeFromSpawns(
+  teamZeroSpawn: string | null,
+  teamOneSpawn: string | null,
+): KickoffType {
   if (isSymmetricSpawn(teamZeroSpawn, teamOneSpawn, "diagonal")) {
     return "diagonal";
   }
@@ -1908,7 +2350,11 @@ function kickoffTypeFromSpawns(teamZeroSpawn: string | null, teamOneSpawn: strin
   return "unknown";
 }
 
-function isSymmetricSpawn(teamZeroSpawn: string | null, teamOneSpawn: string | null, family: "diagonal" | "off_center"): boolean {
+function isSymmetricSpawn(
+  teamZeroSpawn: string | null,
+  teamOneSpawn: string | null,
+  family: "diagonal" | "off_center",
+): boolean {
   return (
     (teamZeroSpawn === `${family}_left` && teamOneSpawn === `${family}_left`) ||
     (teamZeroSpawn === `${family}_right` && teamOneSpawn === `${family}_right`)
@@ -1917,10 +2363,7 @@ function isSymmetricSpawn(teamZeroSpawn: string | null, teamOneSpawn: string | n
 
 function isKickoffType(value: string | null): value is KickoffType {
   return (
-    value === "diagonal" ||
-    value === "center_offset" ||
-    value === "center" ||
-    value === "unknown"
+    value === "diagonal" || value === "center_offset" || value === "center" || value === "unknown"
   );
 }
 
@@ -1942,11 +2385,20 @@ function kickoffDirection(payload: Record<string, unknown>): KickoffDirection {
   );
 }
 
-function kickoffDirectionFromSpawns(teamZeroSpawn: string | null, teamOneSpawn: string | null): KickoffDirection {
-  if ((teamZeroSpawn === "diagonal_left" && teamOneSpawn === "diagonal_left") || (teamZeroSpawn === "off_center_left" && teamOneSpawn === "off_center_left")) {
+function kickoffDirectionFromSpawns(
+  teamZeroSpawn: string | null,
+  teamOneSpawn: string | null,
+): KickoffDirection {
+  if (
+    (teamZeroSpawn === "diagonal_left" && teamOneSpawn === "diagonal_left") ||
+    (teamZeroSpawn === "off_center_left" && teamOneSpawn === "off_center_left")
+  ) {
     return "left";
   }
-  if ((teamZeroSpawn === "diagonal_right" && teamOneSpawn === "diagonal_right") || (teamZeroSpawn === "off_center_right" && teamOneSpawn === "off_center_right")) {
+  if (
+    (teamZeroSpawn === "diagonal_right" && teamOneSpawn === "diagonal_right") ||
+    (teamZeroSpawn === "off_center_right" && teamOneSpawn === "off_center_right")
+  ) {
     return "right";
   }
   if (teamZeroSpawn === "center" && teamOneSpawn === "center") {
@@ -1968,7 +2420,9 @@ function kickoffPreviewLabel(kickoff: KickoffRow, perspective: KickoffPerspectiv
   return followedPlayer?.playerName ? `${base} · Following ${followedPlayer.playerName}` : base;
 }
 
-function kickoffPreviewStart(kickoff: KickoffRow): { frame: number | null; resolveStart?: EventClip["resolveStart"] } | null {
+function kickoffPreviewStart(
+  kickoff: KickoffRow,
+): { frame: number | null; resolveStart?: EventClip["resolveStart"] } | null {
   // Indexed live-action frame (reprocessed replays): rebase-safe, seek straight to it.
   if (kickoff.liveActionStartFrame != null) {
     return { frame: kickoff.liveActionStartFrame };
@@ -2022,10 +2476,16 @@ function kickoffLiveActionFrameTime(replay: ReplayModel, startFrame: number): nu
 // taker's first touch, clamped to a [min, max] window from the clip's start frame
 // so the loop never overshoots into open play or feels too abrupt. All bounds come
 // from frame indices (rebase-safe), resolved against the parsed frames.
-function kickoffClipEndTime(replay: ReplayModel, kickoff: KickoffRow, startFrame: number | null): number {
+function kickoffClipEndTime(
+  replay: ReplayModel,
+  kickoff: KickoffRow,
+  startFrame: number | null,
+): number {
   const frames = replay.frames;
   const timeAtFrame = (frameIndex: number | null): number | null =>
-    frameIndex != null && frameIndex >= 0 && frameIndex < frames.length ? frames[frameIndex].time : null;
+    frameIndex != null && frameIndex >= 0 && frameIndex < frames.length
+      ? frames[frameIndex].time
+      : null;
 
   const startTime = timeAtFrame(startFrame) ?? 0;
   const cap = Math.min(startTime + KICKOFF_CLIP_MAX_DURATION_SECONDS, replay.duration);
@@ -2047,23 +2507,40 @@ function kickoffClipEndTime(replay: ReplayModel, kickoff: KickoffRow, startFrame
   return Math.min(cap, Math.max(floor, end));
 }
 
-function kickoffWinnerPreviewPlayer(kickoff: KickoffRow): { playerKey: string | null; playerName: string | null } | null {
+function kickoffWinnerPreviewPlayer(
+  kickoff: KickoffRow,
+): { playerKey: string | null; playerName: string | null } | null {
   const perspectiveTeam = kickoff.winningTeam ?? kickoff.possessionTeam;
   const winningTaker =
-    perspectiveTeam === 0 ? kickoff.teamZeroTaker : perspectiveTeam === 1 ? kickoff.teamOneTaker : null;
+    perspectiveTeam === 0
+      ? kickoff.teamZeroTaker
+      : perspectiveTeam === 1
+        ? kickoff.teamOneTaker
+        : null;
   if (winningTaker?.playerKey || winningTaker?.playerName) {
     return { playerKey: winningTaker.playerKey, playerName: winningTaker.playerName };
   }
-  if (kickoff.firstTouch.team === perspectiveTeam && (kickoff.firstTouch.playerKey || kickoff.firstTouch.playerName)) {
+  if (
+    kickoff.firstTouch.team === perspectiveTeam &&
+    (kickoff.firstTouch.playerKey || kickoff.firstTouch.playerName)
+  ) {
     return { playerKey: kickoff.firstTouch.playerKey, playerName: kickoff.firstTouch.playerName };
   }
-  if (kickoff.followUpTouch.team === perspectiveTeam && (kickoff.followUpTouch.playerKey || kickoff.followUpTouch.playerName)) {
-    return { playerKey: kickoff.followUpTouch.playerKey, playerName: kickoff.followUpTouch.playerName };
+  if (
+    kickoff.followUpTouch.team === perspectiveTeam &&
+    (kickoff.followUpTouch.playerKey || kickoff.followUpTouch.playerName)
+  ) {
+    return {
+      playerKey: kickoff.followUpTouch.playerKey,
+      playerName: kickoff.followUpTouch.playerName,
+    };
   }
   return null;
 }
 
-function kickoffTypeChips(kickoff: KickoffRow): Array<{ key: string; value: string; muted?: boolean }> {
+function kickoffTypeChips(
+  kickoff: KickoffRow,
+): Array<{ key: string; value: string; muted?: boolean }> {
   return [
     {
       key: "type",
@@ -2129,42 +2606,67 @@ function kickoffSummary(kickoffs: KickoffRow[]) {
       else summary.neutral += 1;
       // Blue-relative (team 0): wins = Blue wins, losses = Orange wins. Drives the
       // gradated team win bar so it shades wins by strength like the taker rows.
-      incrementStrengthOutcome(summary.teamStrengthOutcomes, kickoff.winStrengthBand, kickoff.winningTeam, 0);
+      incrementStrengthOutcome(
+        summary.teamStrengthOutcomes,
+        kickoff.winStrengthBand,
+        kickoff.winningTeam,
+        0,
+      );
       if (kickoff.kickoffGoal) summary.goals += 1;
       if (kickoff.advantageTeam === 0) summary.blueAdvantages += 1;
       else if (kickoff.advantageTeam === 1) summary.orangeAdvantages += 1;
       else if (kickoff.advantage === "no_advantage") summary.noAdvantage += 1;
       return summary;
     },
-    { blueWins: 0, orangeWins: 0, neutral: 0, goals: 0, blueAdvantages: 0, orangeAdvantages: 0, noAdvantage: 0, teamStrengthOutcomes: emptyStrengthOutcomes() },
+    {
+      blueWins: 0,
+      orangeWins: 0,
+      neutral: 0,
+      goals: 0,
+      blueAdvantages: 0,
+      orangeAdvantages: 0,
+      noAdvantage: 0,
+      teamStrengthOutcomes: emptyStrengthOutcomes(),
+    },
   );
 }
 
-function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[]): PlayerKickoffSummary[] {
+function kickoffPlayerSummaries(
+  kickoffs: KickoffRow[],
+  players: ReplayPlayer[],
+): PlayerKickoffSummary[] {
   const summaries = new Map<string, PlayerKickoffSummary>();
   const ensureSummary = (behavior: KickoffPlayerBehavior): PlayerKickoffSummary => {
     const key = behavior.playerKey ?? `${behavior.team ?? "unknown"}:${behavior.playerName}`;
     if (!summaries.has(key)) {
       const identity = playerIdentityFromRemoteKey(behavior.playerKey);
       const player = behavior.playerKey ? playerByRemoteKey(players, behavior.playerKey) : null;
-      summaries.set(key, emptyPlayerKickoffSummary({
+      summaries.set(
         key,
-        name: behavior.playerName,
-        platform: identity.platform ?? behavior.platform,
-        platform_player_id: identity.platform_player_id ?? behavior.platformPlayerId,
-        rank_tier: player?.rank_tier ?? null,
-        rank_division: player?.rank_division ?? null,
-        rank_mmr: player?.rank_mmr ?? null,
-        rank_is_fallback: player?.rank_is_fallback,
-        rank_fallback_replay_date: player?.rank_fallback_replay_date,
-        team: behavior.team,
-      }));
+        emptyPlayerKickoffSummary({
+          key,
+          name: behavior.playerName,
+          platform: identity.platform ?? behavior.platform,
+          platform_player_id: identity.platform_player_id ?? behavior.platformPlayerId,
+          rank_tier: player?.rank_tier ?? null,
+          rank_division: player?.rank_division ?? null,
+          rank_mmr: player?.rank_mmr ?? null,
+          rank_is_fallback: player?.rank_is_fallback,
+          rank_fallback_replay_date: player?.rank_fallback_replay_date,
+          team: behavior.team,
+        }),
+      );
     }
     return summaries.get(key)!;
   };
 
   for (const kickoff of kickoffs) {
-    for (const behavior of [kickoff.teamZeroTaker, kickoff.teamOneTaker, ...kickoff.teamZeroSupport, ...kickoff.teamOneSupport].filter(Boolean) as KickoffPlayerBehavior[]) {
+    for (const behavior of [
+      kickoff.teamZeroTaker,
+      kickoff.teamOneTaker,
+      ...kickoff.teamZeroSupport,
+      ...kickoff.teamOneSupport,
+    ].filter(Boolean) as KickoffPlayerBehavior[]) {
       const summary = ensureSummary(behavior);
       if (behavior.role === "taker") {
         summary.takerCount += 1;
@@ -2222,7 +2724,12 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
           else summary.supportAdvantagesAgainst += 1;
         }
       }
-      incrementStrengthOutcome(summary.strengthOutcomes, kickoff.winStrengthBand, kickoff.winningTeam, behavior.team);
+      incrementStrengthOutcome(
+        summary.strengthOutcomes,
+        kickoff.winStrengthBand,
+        kickoff.winningTeam,
+        behavior.team,
+      );
       incrementStrengthOutcome(
         behavior.role === "taker" ? summary.takerStrengthOutcomes : summary.supportStrengthOutcomes,
         kickoff.winStrengthBand,
@@ -2235,22 +2742,27 @@ function kickoffPlayerSummaries(kickoffs: KickoffRow[], players: ReplayPlayer[])
   for (const player of players) {
     const key = playerKey(player);
     if (key && !summaries.has(key)) {
-      summaries.set(key, emptyPlayerKickoffSummary({
+      summaries.set(
         key,
-        name: player.name || key,
-        platform: player.platform,
-        platform_player_id: player.platform_player_id,
-        rank_tier: player.rank_tier ?? null,
-        rank_division: player.rank_division ?? null,
-        rank_mmr: player.rank_mmr ?? null,
-        rank_is_fallback: player.rank_is_fallback,
-        rank_fallback_replay_date: player.rank_fallback_replay_date,
-        team: player.team,
-      }));
+        emptyPlayerKickoffSummary({
+          key,
+          name: player.name || key,
+          platform: player.platform,
+          platform_player_id: player.platform_player_id,
+          rank_tier: player.rank_tier ?? null,
+          rank_division: player.rank_division ?? null,
+          rank_mmr: player.rank_mmr ?? null,
+          rank_is_fallback: player.rank_is_fallback,
+          rank_fallback_replay_date: player.rank_fallback_replay_date,
+          team: player.team,
+        }),
+      );
     }
   }
 
-  return [...summaries.values()].sort((left, right) => (left.team ?? 99) - (right.team ?? 99) || left.name.localeCompare(right.name));
+  return [...summaries.values()].sort(
+    (left, right) => (left.team ?? 99) - (right.team ?? 99) || left.name.localeCompare(right.name),
+  );
 }
 
 // Identity-only seed for a player's kickoff aggregates; every counter starts at
@@ -2305,7 +2817,10 @@ function emptyPlayerKickoffSummary(identity: {
   };
 }
 
-function playerIdentityFromRemoteKey(playerKey: string | null): { platform: string | null; platform_player_id: string | null } {
+function playerIdentityFromRemoteKey(playerKey: string | null): {
+  platform: string | null;
+  platform_player_id: string | null;
+} {
   const separator = playerKey?.indexOf(":") ?? -1;
   if (!playerKey || separator <= 0 || separator === playerKey.length - 1) {
     return { platform: null, platform_player_id: null };
@@ -2335,11 +2850,13 @@ function remoteIdKey(value: unknown): string | null {
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length !== 1) return null;
   const [platform, id] = entries[0];
-  if (typeof id === "string" || typeof id === "number") return `${normalizePlatform(platform)}:${String(id)}`;
+  if (typeof id === "string" || typeof id === "number")
+    return `${normalizePlatform(platform)}:${String(id)}`;
   if (id && typeof id === "object" && !Array.isArray(id)) {
     const nested = id as Record<string, unknown>;
     const onlineId = nested.online_id ?? nested.id;
-    if (typeof onlineId === "string" || typeof onlineId === "number") return `${normalizePlatform(platform)}:${String(onlineId)}`;
+    if (typeof onlineId === "string" || typeof onlineId === "number")
+      return `${normalizePlatform(platform)}:${String(onlineId)}`;
   }
   return null;
 }
@@ -2376,7 +2893,11 @@ function isFirstToucher(kickoff: KickoffRow, behavior: KickoffPlayerBehavior): b
   if (touch.playerKey != null && behavior.playerKey != null) {
     return touch.playerKey === behavior.playerKey;
   }
-  return touch.playerName !== "" && touch.playerName !== "Unknown" && touch.playerName === behavior.playerName;
+  return (
+    touch.playerName !== "" &&
+    touch.playerName !== "Unknown" &&
+    touch.playerName === behavior.playerName
+  );
 }
 
 // win_strength is a 0..1 half-field fraction; clamping also tames values from
@@ -2416,7 +2937,9 @@ function shortSpawnLabel(value: string | null): string {
 function playerKickoffTime(kickoff: KickoffRow, behavior: KickoffPlayerBehavior): number | null {
   if (behavior.timeToBall != null) return behavior.timeToBall;
   if (behavior.firstTouchTime == null) return null;
-  return kickoff.startTime == null ? behavior.firstTouchTime : Math.max(0, behavior.firstTouchTime - kickoff.startTime);
+  return kickoff.startTime == null
+    ? behavior.firstTouchTime
+    : Math.max(0, behavior.firstTouchTime - kickoff.startTime);
 }
 
 function emptyStrengthOutcomes(): Record<KickoffStrengthBand, KickoffStrengthOutcome> {
@@ -2443,17 +2966,30 @@ function incrementStrengthOutcome(
   }
 }
 
-function objectField(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
+function objectField(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | null {
   const value = payload[key];
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function arrayField(payload: Record<string, unknown>, key: string): Record<string, unknown>[] {
   const value = payload[key];
-  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item)) : [];
+  return Array.isArray(value)
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
+    : [];
 }
 
-function vector3Field(payload: Record<string, unknown>, key: string): [number, number, number] | null {
+function vector3Field(
+  payload: Record<string, unknown>,
+  key: string,
+): [number, number, number] | null {
   const value = payload[key];
   if (!Array.isArray(value) || value.length < 3) return null;
   const [x, y, z] = value;
@@ -2514,7 +3050,9 @@ function formatSpeed(value: number | null): string {
 }
 
 function formatFrames(value: number | null): string {
-  return value == null ? "-" : `${Math.round(value).toLocaleString()} ${Math.round(value) === 1 ? "frame" : "frames"}`;
+  return value == null
+    ? "-"
+    : `${Math.round(value).toLocaleString()} ${Math.round(value) === 1 ? "frame" : "frames"}`;
 }
 
 function formatNextPossession(value: KickoffPossession | null): string {

@@ -1,18 +1,37 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  ReferenceArea,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { listBoostTracks, listReplayGroupBoostTotals } from "../api";
-import type { BoostTrack, GroupBoostTotal, GroupBoostTotalsResponse, MechanicEventResponse, ReplayPlayer } from "../types";
+import type {
+  BoostTrack,
+  GroupBoostTotal,
+  GroupBoostTotalsResponse,
+  MechanicEventResponse,
+  ReplayPlayer,
+} from "../types";
 import { boostAmountToPercent } from "./boostUnits";
-import { SegmentedBar, type SegmentedBarSegment, StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
+import {
+  SegmentedBar,
+  type SegmentedBarSegment,
+  StatPlayerLabel,
+  statPlayerRank,
+  type StatPlayerRank,
+} from "./shared";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
 // collection (with a `detection` provenance attribute) plus respawn events.
 // Continuous boost amount and cumulative totals come from accumulation tracks
 // fetched separately (see useBoostTracks), not from discrete events.
-export const boostEventTypes = [
-  "boost_pickup",
-  "boost_respawn",
-];
+export const boostEventTypes = ["boost_pickup", "boost_respawn"];
 interface BoostPlayerSummary {
   key: string;
   name: string;
@@ -135,25 +154,54 @@ export function BoostDetail({
   const summaries = useMemo(
     () =>
       isGroup
-        ? groupBoostPlayerSummaries(players, pickupEvents, respawnEvents, groupTotalsByKey, groupDurationSeconds)
+        ? groupBoostPlayerSummaries(
+            players,
+            pickupEvents,
+            respawnEvents,
+            groupTotalsByKey,
+            groupDurationSeconds,
+          )
         : boostPlayerSummaries(players, stateSamples, pickupEvents, respawnEvents, trackTotals),
-    [isGroup, players, stateSamples, pickupEvents, respawnEvents, trackTotals, groupTotalsByKey, groupDurationSeconds],
+    [
+      isGroup,
+      players,
+      stateSamples,
+      pickupEvents,
+      respawnEvents,
+      trackTotals,
+      groupTotalsByKey,
+      groupDurationSeconds,
+    ],
   );
   const pickupMapPoints = boostPickupMapPoints(players, pickupEvents);
   const chartDuration = isGroup
     ? Math.max(1, groupDurationSeconds)
-    : durationSeconds ?? Math.max(60, ...stateSamples.map((sample) => sample.time), ...boostEvents.map((event) => event.event_time ?? 0));
+    : (durationSeconds ??
+      Math.max(
+        60,
+        ...stateSamples.map((sample) => sample.time),
+        ...boostEvents.map((event) => event.event_time ?? 0),
+      ));
   const playerLevelRows = useMemo(
-    () => (isGroup ? groupBoostLevelDistribution(players, groupTotalsByKey) : boostLevelDistribution(stateSamples, players, chartDuration)),
+    () =>
+      isGroup
+        ? groupBoostLevelDistribution(players, groupTotalsByKey)
+        : boostLevelDistribution(stateSamples, players, chartDuration),
     [isGroup, players, groupTotalsByKey, stateSamples, chartDuration],
   );
   const isOneVOne = isOneVOneMatch(players);
-  const [selectedComparisonMode, setSelectedComparisonMode] = useState<BoostComparisonMode>("players");
+  const [selectedComparisonMode, setSelectedComparisonMode] =
+    useState<BoostComparisonMode>("players");
   const comparisonMode = isOneVOne ? "players" : selectedComparisonMode;
 
   return (
     <div className="boost-detail">
-      {isOneVOne ? null : <BoostComparisonModeToggle comparisonMode={comparisonMode} onComparisonModeChange={setSelectedComparisonMode} />}
+      {isOneVOne ? null : (
+        <BoostComparisonModeToggle
+          comparisonMode={comparisonMode}
+          onComparisonModeChange={setSelectedComparisonMode}
+        />
+      )}
       <div className="stat-section-grid">
         <section className="chart-panel full-span">
           <PlayerBoostEconomyChart
@@ -166,16 +214,29 @@ export function BoostDetail({
         </section>
 
         <section className="chart-panel full-span">
-          <BoostStatTable comparisonMode={comparisonMode} summaries={summaries} durationSeconds={chartDuration} />
+          <BoostStatTable
+            comparisonMode={comparisonMode}
+            summaries={summaries}
+            durationSeconds={chartDuration}
+          />
         </section>
 
         <section className="chart-panel full-span">
-          <PadPickupMaps comparisonMode={comparisonMode} players={players} points={pickupMapPoints} />
+          <PadPickupMaps
+            comparisonMode={comparisonMode}
+            players={players}
+            points={pickupMapPoints}
+          />
         </section>
 
         {isGroup ? null : (
           <section className="chart-panel full-span">
-            <TeamBoostStackedLineChart comparisonMode={comparisonMode} samples={stateSamples} players={players} durationSeconds={chartDuration} />
+            <TeamBoostStackedLineChart
+              comparisonMode={comparisonMode}
+              samples={stateSamples}
+              players={players}
+              durationSeconds={chartDuration}
+            />
           </section>
         )}
       </div>
@@ -232,7 +293,9 @@ function TeamBoostStackedLineChart({
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
   const maxTotal = Math.max(
     100,
-    ...timeSeries.map((point) => teamContributionTotal(point.blue) + teamContributionTotal(point.orange)),
+    ...timeSeries.map(
+      (point) => teamContributionTotal(point.blue) + teamContributionTotal(point.orange),
+    ),
   );
   const yMax = Math.ceil(maxTotal / 25) * 25;
   const blueSeries = teamBoostAreaSeries(timeSeries, players, 0, durationSeconds);
@@ -303,7 +366,11 @@ function TeamBoostStackedLineChart({
     <div className="chart-wrap team-boost-chart">
       {zoomDomain ? (
         <div className="chart-control-row">
-          <button className="secondary-button compact-button" type="button" onClick={() => setZoomDomain(null)}>
+          <button
+            className="secondary-button compact-button"
+            type="button"
+            onClick={() => setZoomDomain(null)}
+          >
             Reset zoom
           </button>
         </div>
@@ -332,7 +399,9 @@ function TeamBoostStackedLineChart({
           />
           <YAxis
             domain={[0, yMax]}
-            ticks={[0, 50, 100, yMax].filter((value, index, values) => value <= yMax && values.indexOf(value) === index)}
+            ticks={[0, 50, 100, yMax].filter(
+              (value, index, values) => value <= yMax && values.indexOf(value) === index,
+            )}
             tick={{ fill: chartPalette.muted, fontSize: 12 }}
             tickFormatter={(value) => formatBoost(typeof value === "number" ? value : null)}
             tickLine={false}
@@ -340,7 +409,11 @@ function TeamBoostStackedLineChart({
           />
           <Tooltip
             content={(props: BoostTimelineTooltipProps) => (
-              <BoostTimelineTooltip {...props} showTeamTotals={comparisonMode === "players"} stackedDataKeys={stackedDataKeys} />
+              <BoostTimelineTooltip
+                {...props}
+                showTeamTotals={comparisonMode === "players"}
+                stackedDataKeys={stackedDataKeys}
+              />
             )}
           />
           {stackedSeries.map((player) => (
@@ -381,13 +454,23 @@ function TeamBoostStackedLineChart({
             </>
           ) : null}
           {selectionStart != null && selectionEnd != null ? (
-            <ReferenceArea ifOverflow="visible" x1={selectionStart} x2={selectionEnd} strokeOpacity={0.28} fill={chartPalette.selection} fillOpacity={0.18} />
+            <ReferenceArea
+              ifOverflow="visible"
+              x1={selectionStart}
+              x2={selectionEnd}
+              strokeOpacity={0.28}
+              fill={chartPalette.selection}
+              fillOpacity={0.18}
+            />
           ) : null}
         </AreaChart>
       </ResponsiveContainer>
       <div className="chart-legend">
         {stackedSeries.map((player) => (
-          <span className={`legend-team-${player.team} legend-player-${player.playerIndex}`} key={player.key}>
+          <span
+            className={`legend-team-${player.team} legend-player-${player.playerIndex}`}
+            key={player.key}
+          >
             {player.name}
           </span>
         ))}
@@ -421,11 +504,19 @@ interface BoostTimelineTooltipProps {
   stackedDataKeys?: readonly string[];
 }
 
-function BoostTimelineTooltip({ active, label, payload, showTeamTotals = false, stackedDataKeys = [] }: BoostTimelineTooltipProps) {
+function BoostTimelineTooltip({
+  active,
+  label,
+  payload,
+  showTeamTotals = false,
+  stackedDataKeys = [],
+}: BoostTimelineTooltipProps) {
   if (!active || !payload?.length) return null;
 
   const stackedKeySet = new Set(stackedDataKeys);
-  const playerRows = payload.filter((item) => typeof item.dataKey === "string" && stackedKeySet.has(item.dataKey));
+  const playerRows = payload.filter(
+    (item) => typeof item.dataKey === "string" && stackedKeySet.has(item.dataKey),
+  );
   const dataRow = payload.find((item) => item.payload)?.payload ?? {};
   const blueTotal = numericRecordValue(dataRow, "blue_total");
   const orangeTotal = numericRecordValue(dataRow, "orange_total");
@@ -433,14 +524,18 @@ function BoostTimelineTooltip({ active, label, payload, showTeamTotals = false, 
 
   return (
     <div className="boost-timeline-tooltip">
-      <div className="boost-timeline-tooltip-title">Time {formatSeconds(typeof label === "number" ? label : null)}</div>
+      <div className="boost-timeline-tooltip-title">
+        Time {formatSeconds(typeof label === "number" ? label : null)}
+      </div>
       <div className="boost-timeline-tooltip-list">
         {playerRows.map((item) => (
           <div className="boost-timeline-tooltip-row" key={String(item.dataKey)}>
-              <span className="boost-timeline-tooltip-label">
-                <span className="boost-timeline-tooltip-swatch" style={{ background: item.color }} />
-              {typeof item.name === "string" || typeof item.name === "number" ? item.name : "Unknown"}
-              </span>
+            <span className="boost-timeline-tooltip-label">
+              <span className="boost-timeline-tooltip-swatch" style={{ background: item.color }} />
+              {typeof item.name === "string" || typeof item.name === "number"
+                ? item.name
+                : "Unknown"}
+            </span>
             <strong>{formatBoost(typeof item.value === "number" ? item.value : null)}</strong>
           </div>
         ))}
@@ -470,67 +565,6 @@ function numericRecordValue(record: Record<string, unknown>, key: string): numbe
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function TeamBoostRechartsLane({
-  label,
-  team,
-  series,
-  showXAxis,
-  yMax,
-}: {
-  label: string;
-  team: "blue" | "orange";
-  series: TeamBoostAreaSeries;
-  showXAxis: boolean;
-  yMax: number;
-}) {
-  return (
-    <div className={`team-boost-lane lane-${team}`}>
-      <div className="team-boost-lane-label">{label}</div>
-      <ResponsiveContainer width="100%" height={showXAxis ? 166 : 138}>
-        <AreaChart data={series.data} margin={{ top: 10, right: 10, bottom: showXAxis ? 12 : 0, left: -18 }}>
-          <CartesianGrid stroke={chartPalette.grid} vertical={false} />
-          <XAxis
-            dataKey="time"
-            domain={["dataMin", "dataMax"]}
-            height={showXAxis ? 28 : 0}
-            minTickGap={48}
-            tick={showXAxis ? { fill: chartPalette.muted, fontSize: 12 } : false}
-            tickFormatter={(value) => formatSeconds(typeof value === "number" ? value : null)}
-            tickLine={false}
-            type="number"
-            axisLine={showXAxis ? { stroke: chartPalette.axis } : false}
-          />
-          <YAxis
-            domain={[0, yMax]}
-            ticks={[0, 50, 100].filter((value) => value <= yMax)}
-            tick={{ fill: chartPalette.muted, fontSize: 12 }}
-            tickLine={false}
-            axisLine={{ stroke: chartPalette.axis }}
-          />
-          <Tooltip
-            formatter={(value, name) => [formatBoost(typeof value === "number" ? value : null), name]}
-            labelFormatter={(value) => `Time ${formatSeconds(typeof value === "number" ? value : null)}`}
-          />
-          {series.players.map((player) => (
-            <Area
-              dataKey={player.dataKey}
-              fill={player.color}
-              fillOpacity={0.48}
-              isAnimationActive={false}
-              key={player.key}
-              name={player.name}
-              stackId={team}
-              stroke={player.color}
-              strokeWidth={2}
-              type="linear"
-            />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
 function PlayerBoostEconomyChart({
   comparisonMode,
   summaries,
@@ -544,7 +578,8 @@ function PlayerBoostEconomyChart({
   players: ReplayPlayer[];
   durationSeconds: number;
 }) {
-  const levelRows = comparisonMode === "players" ? playerLevelRows : teamBoostLevelDistribution(playerLevelRows);
+  const levelRows =
+    comparisonMode === "players" ? playerLevelRows : teamBoostLevelDistribution(playerLevelRows);
   const boostLevelsByPlayer = new Map(levelRows.map((row) => [row.key, row]));
   const playerIndexByKey = teamLocalPlayerIndexByKey(players);
   const summaryPlayerIndex = (summary: BoostPlayerSummary) =>
@@ -552,7 +587,10 @@ function PlayerBoostEconomyChart({
   const comparisonSummaries =
     comparisonMode === "players"
       ? summaries
-      : [teamBoostSummary(summaries, 0, durationSeconds), teamBoostSummary(summaries, 1, durationSeconds)];
+      : [
+          teamBoostSummary(summaries, 0, durationSeconds),
+          teamBoostSummary(summaries, 1, durationSeconds),
+        ];
   const boostAmountScaleMax = maxSummaryValue(comparisonSummaries, (summary) =>
     Math.max(
       summary.collected,
@@ -633,7 +671,14 @@ function PlayerBoostEconomyChart({
           sortValue: summary.used,
           total: summary.used,
           valueLabel: formatBoostWithPerMinute(summary.used, durationSeconds),
-          segments: [{ className: "neutral-fill", label: "Used", value: summary.used, visibleLabel: `Used / ${formatBoostWithPerMinute(summary.used, durationSeconds)}` }],
+          segments: [
+            {
+              className: "neutral-fill",
+              label: "Used",
+              value: summary.used,
+              visibleLabel: `Used / ${formatBoostWithPerMinute(summary.used, durationSeconds)}`,
+            },
+          ],
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
     },
@@ -653,7 +698,7 @@ function PlayerBoostEconomyChart({
             name: summary.name,
             platform: summary.platform,
             profilePath: playerProfilePath(summary),
-          rank: summary.rank,
+            rank: summary.rank,
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -702,7 +747,7 @@ function PlayerBoostEconomyChart({
             name: summary.name,
             platform: summary.platform,
             profilePath: playerProfilePath(summary),
-          rank: summary.rank,
+            rank: summary.rank,
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -785,7 +830,14 @@ function PlayerBoostEconomyChart({
           sortValue: summary.overfill,
           total: summary.overfill,
           valueLabel: formatBoostWithPerMinute(summary.overfill, durationSeconds),
-          segments: [{ className: "overfill-source", label: "Overfill", value: summary.overfill, visibleLabel: formatBoostWithPerMinute(summary.overfill, durationSeconds) }],
+          segments: [
+            {
+              className: "overfill-source",
+              label: "Overfill",
+              value: summary.overfill,
+              visibleLabel: formatBoostWithPerMinute(summary.overfill, durationSeconds),
+            },
+          ],
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
     },
@@ -834,7 +886,7 @@ function PlayerBoostEconomyChart({
             name: summary.name,
             platform: summary.platform,
             profilePath: playerProfilePath(summary),
-          rank: summary.rank,
+            rank: summary.rank,
             showPlatformBadge: comparisonMode === "players",
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
@@ -918,7 +970,10 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
               subtitle={teamLabel(row.team)}
             />
             <div className="metric-bar-track source-bar-track comparison-track">
-              <span className="source-bar-fill" style={{ width: `${barWidthPercent(row.total, group.maxValue)}%` }}>
+              <span
+                className="source-bar-fill"
+                style={{ width: `${barWidthPercent(row.total, group.maxValue)}%` }}
+              >
                 {row.segments.map((segment) => (
                   <BoostSourceSegment
                     key={`${row.key}:${segment.label}`}
@@ -962,7 +1017,10 @@ function BoostSourceSegment({
   );
 }
 
-function maxSummaryValue(summaries: BoostPlayerSummary[], selector: (summary: BoostPlayerSummary) => number): number {
+function maxSummaryValue(
+  summaries: BoostPlayerSummary[],
+  selector: (summary: BoostPlayerSummary) => number,
+): number {
   return Math.max(1, ...summaries.map(selector));
 }
 
@@ -1030,11 +1088,18 @@ function PadPickupMaps({
   const marginPoints = shouldShowPadControl ? teamPadMarginPoints(points) : [];
   const mapCards = subjects.map((subject) => {
     const maxCount = Math.max(1, ...subject.points.map((point) => point.count));
-    const bigLeaderCount = subject.points.filter((point) => point.leader && point.padSize === "big").length;
-    const smallLeaderCount = subject.points.filter((point) => point.leader && point.padSize === "small").length;
+    const bigLeaderCount = subject.points.filter(
+      (point) => point.leader && point.padSize === "big",
+    ).length;
+    const smallLeaderCount = subject.points.filter(
+      (point) => point.leader && point.padSize === "small",
+    ).length;
 
     return (
-      <div className={`pickup-map-card pickup-map-team-card team-accent-${teamClass(subject.team)}`} key={subject.key}>
+      <div
+        className={`pickup-map-card pickup-map-team-card team-accent-${teamClass(subject.team)}`}
+        key={subject.key}
+      >
         <div className="pickup-map-header">
           <StatPlayerLabel
             name={subject.name}
@@ -1048,7 +1113,12 @@ function PadPickupMaps({
             Leader: {bigLeaderCount} big / {smallLeaderCount} small
           </span>
         </div>
-        <svg className="pickup-map" viewBox="0 0 100 125" role="img" aria-label={`${subject.name} boost pickup map`}>
+        <svg
+          className="pickup-map"
+          viewBox="0 0 100 125"
+          role="img"
+          aria-label={`${subject.name} boost pickup map`}
+        >
           <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
           <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
           <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
@@ -1069,7 +1139,10 @@ function PadPickupMaps({
           })}
           {subject.points.map((point) => {
             const projected = projectFieldPosition(point.x, point.y);
-            const radius = point.padSize === "big" ? 2.8 + (point.count / maxCount) * 2.4 : 1.7 + (point.count / maxCount) * 1.8;
+            const radius =
+              point.padSize === "big"
+                ? 2.8 + (point.count / maxCount) * 2.4
+                : 1.7 + (point.count / maxCount) * 1.8;
             const showCount = point.padSize === "big" || point.count >= 3 || point.leader;
             return (
               <g className="pickup-marker" key={point.key}>
@@ -1093,7 +1166,11 @@ function PadPickupMaps({
   });
 
   if (shouldShowPadControl && mapCards.length > 1) {
-    mapCards.splice(Math.floor(mapCards.length / 2), 0, <TeamPadMarginMapCard key="__pad-margin" points={marginPoints} />);
+    mapCards.splice(
+      Math.floor(mapCards.length / 2),
+      0,
+      <TeamPadMarginMapCard key="__pad-margin" points={marginPoints} />,
+    );
   }
 
   return (
@@ -1128,7 +1205,9 @@ function TeamPadMarginBars({ points }: { points: TeamPadMarginPoint[] }) {
   const summary = (size: "big" | "small") => ({
     blue: points.filter((point) => point.padSize === size && point.winner === 0).length,
     orange: points.filter((point) => point.padSize === size && point.winner === 1).length,
-    tied: points.filter((point) => point.padSize === size && point.winner == null && point.total > 0).length,
+    tied: points.filter(
+      (point) => point.padSize === size && point.winner == null && point.total > 0,
+    ).length,
   });
   const bigSummary = summary("big");
   const smallSummary = summary("small");
@@ -1147,49 +1226,54 @@ function TeamPadMarginBars({ points }: { points: TeamPadMarginPoint[] }) {
 function TeamPadMarginMapCard({ points }: { points: TeamPadMarginPoint[] }) {
   return (
     <div className="pickup-map-card team-margin-map-card">
-        <div className="pickup-map-header">
-          <div className="pickup-map-margin-identity">
-            <span className="pickup-map-margin-name">Margin</span>
-            <span className="pickup-map-margin-subtitle">Net pickups per pad</span>
-          </div>
+      <div className="pickup-map-header">
+        <div className="pickup-map-margin-identity">
+          <span className="pickup-map-margin-name">Margin</span>
+          <span className="pickup-map-margin-subtitle">Net pickups per pad</span>
         </div>
-        <svg className="pickup-map team-margin-map" viewBox="0 0 100 125" role="img" aria-label="Team boost pad pickup margin map">
-          <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
-          <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
-          <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
-          <circle className="field-line-fillless" cx="50" cy="62.5" r="10" />
-          <rect className="field-line-fillless" x="24" y="4" width="52" height="20" />
-          <rect className="field-line-fillless" x="24" y="101" width="52" height="20" />
-          {points.map((point) => {
-            const projected = projectFieldPosition(point.x, point.y);
-            const radius = point.padSize === "big" ? 5.2 : 3.2;
-            const fill =
-              point.winner === 0
-                ? `rgba(37, 99, 235, ${0.2 + point.intensity * 0.75})`
-                : point.winner === 1
-                  ? `rgba(234, 88, 12, ${0.2 + point.intensity * 0.75})`
-                  : "rgba(100, 116, 139, 0.2)";
-            const showLabel = point.margin > 0 || point.total > 0;
-
-            return (
-              <g className="team-margin-marker" key={point.key}>
-                <circle
-                  className={`team-margin-dot ${point.padSize} ${point.winner == null ? "tied" : `team-pickup-${teamClass(point.winner)}`}`}
-                  cx={projected.x}
-                  cy={projected.y}
-                  fill={fill}
-                  r={radius}
-                />
-                {showLabel ? (
-                  <text className="team-margin-count" x={projected.x} y={projected.y + 1.4}>
-                    {point.margin}
-                  </text>
-                ) : null}
-              </g>
-            );
-          })}
-        </svg>
       </div>
+      <svg
+        className="pickup-map team-margin-map"
+        viewBox="0 0 100 125"
+        role="img"
+        aria-label="Team boost pad pickup margin map"
+      >
+        <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
+        <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
+        <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
+        <circle className="field-line-fillless" cx="50" cy="62.5" r="10" />
+        <rect className="field-line-fillless" x="24" y="4" width="52" height="20" />
+        <rect className="field-line-fillless" x="24" y="101" width="52" height="20" />
+        {points.map((point) => {
+          const projected = projectFieldPosition(point.x, point.y);
+          const radius = point.padSize === "big" ? 5.2 : 3.2;
+          const fill =
+            point.winner === 0
+              ? `rgba(37, 99, 235, ${0.2 + point.intensity * 0.75})`
+              : point.winner === 1
+                ? `rgba(234, 88, 12, ${0.2 + point.intensity * 0.75})`
+                : "rgba(100, 116, 139, 0.2)";
+          const showLabel = point.margin > 0 || point.total > 0;
+
+          return (
+            <g className="team-margin-marker" key={point.key}>
+              <circle
+                className={`team-margin-dot ${point.padSize} ${point.winner == null ? "tied" : `team-pickup-${teamClass(point.winner)}`}`}
+                cx={projected.x}
+                cy={projected.y}
+                fill={fill}
+                r={radius}
+              />
+              {showLabel ? (
+                <text className="team-margin-count" x={projected.x} y={projected.y + 1.4}>
+                  {point.margin}
+                </text>
+              ) : null}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 
@@ -1266,7 +1350,12 @@ function teamPadMarginPoints(points: BoostPickupMapPoint[]): TeamPadMarginPoint[
       orangeCount: counts.orangeCount,
       margin,
       total: counts.blueCount + counts.orangeCount,
-      winner: counts.blueCount === counts.orangeCount ? null : counts.blueCount > counts.orangeCount ? (0 as const) : (1 as const),
+      winner:
+        counts.blueCount === counts.orangeCount
+          ? null
+          : counts.blueCount > counts.orangeCount
+            ? (0 as const)
+            : (1 as const),
       intensity: 0,
     };
   });
@@ -1332,17 +1421,38 @@ function BoostStatTable({
   const [teamSort, setTeamSort] = useState<BoostStatSort>({ key: "name", direction: "asc" });
   const [playerSort, setPlayerSort] = useState<BoostStatSort>({ key: "name", direction: "asc" });
   const teamRows = useMemo(
-    () => sortBoostStatRows([teamBoostSummary(summaries, 0, durationSeconds), teamBoostSummary(summaries, 1, durationSeconds)], teamSort),
+    () =>
+      sortBoostStatRows(
+        [
+          teamBoostSummary(summaries, 0, durationSeconds),
+          teamBoostSummary(summaries, 1, durationSeconds),
+        ],
+        teamSort,
+      ),
     [durationSeconds, summaries, teamSort],
   );
-  const playerRows = useMemo(() => sortBoostStatRows(summaries, playerSort), [playerSort, summaries]);
+  const playerRows = useMemo(
+    () => sortBoostStatRows(summaries, playerSort),
+    [playerSort, summaries],
+  );
 
   return (
     <div className="split-boost-tables">
       {comparisonMode === "teams" ? (
-        <SortableBoostStatTable label="Teams" rows={teamRows} sort={teamSort} onSort={setTeamSort} teamRows />
+        <SortableBoostStatTable
+          label="Teams"
+          rows={teamRows}
+          sort={teamSort}
+          onSort={setTeamSort}
+          teamRows
+        />
       ) : (
-        <SortableBoostStatTable label="Players" rows={playerRows} sort={playerSort} onSort={setPlayerSort} />
+        <SortableBoostStatTable
+          label="Players"
+          rows={playerRows}
+          sort={playerSort}
+          onSort={setPlayerSort}
+        />
       )}
     </div>
   );
@@ -1377,9 +1487,15 @@ function SortableBoostStatTable({
             <tr>
               {boostStatColumns.map((column) => (
                 <th key={column.key}>
-                  <button className="sort-header" onClick={() => toggleSort(column.key)} type="button">
+                  <button
+                    className="sort-header"
+                    onClick={() => toggleSort(column.key)}
+                    type="button"
+                  >
                     <span>{column.label}</span>
-                    {sort.key === column.key ? <span aria-hidden="true">{sort.direction === "asc" ? "↑" : "↓"}</span> : null}
+                    {sort.key === column.key ? (
+                      <span aria-hidden="true">{sort.direction === "asc" ? "↑" : "↓"}</span>
+                    ) : null}
                   </button>
                 </th>
               ))}
@@ -1387,7 +1503,10 @@ function SortableBoostStatTable({
           </thead>
           <tbody>
             {rows.map((summary) => (
-              <tr className={`${teamRows ? "team-summary-row " : ""}boost-table-row team-row-${teamClass(summary.team)}`} key={summary.key}>
+              <tr
+                className={`${teamRows ? "team-summary-row " : ""}boost-table-row team-row-${teamClass(summary.team)}`}
+                key={summary.key}
+              >
                 {boostStatColumns.map((column) => (
                   <td key={column.key}>{column.render(summary)}</td>
                 ))}
@@ -1442,18 +1561,54 @@ const boostStatColumns: Array<{
   { key: "average", label: "Avg", render: (summary) => formatBoost(summary.average) },
   { key: "bpm", label: "BPM", render: (summary) => formatNumber(summary.bpm) },
   { key: "bcpm", label: "BCPM", render: (summary) => formatNumber(summary.bcpm) },
-  { key: "timeZeroBoost", label: "0 boost", render: (summary) => formatSeconds(summary.timeZeroBoost) },
-  { key: "timeHundredBoost", label: "100 boost", render: (summary) => formatSeconds(summary.timeHundredBoost) },
-  { key: "timeBoost0To25", label: "0-25", render: (summary) => formatSeconds(summary.timeBoost0To25) },
-  { key: "timeBoost25To50", label: "25-50", render: (summary) => formatSeconds(summary.timeBoost25To50) },
-  { key: "timeBoost50To75", label: "50-75", render: (summary) => formatSeconds(summary.timeBoost50To75) },
-  { key: "timeBoost75To100", label: "75-100", render: (summary) => formatSeconds(summary.timeBoost75To100) },
-  { key: "usedWhileSupersonic", label: "Supersonic use", render: (summary) => formatBoost(summary.usedWhileSupersonic) },
+  {
+    key: "timeZeroBoost",
+    label: "0 boost",
+    render: (summary) => formatSeconds(summary.timeZeroBoost),
+  },
+  {
+    key: "timeHundredBoost",
+    label: "100 boost",
+    render: (summary) => formatSeconds(summary.timeHundredBoost),
+  },
+  {
+    key: "timeBoost0To25",
+    label: "0-25",
+    render: (summary) => formatSeconds(summary.timeBoost0To25),
+  },
+  {
+    key: "timeBoost25To50",
+    label: "25-50",
+    render: (summary) => formatSeconds(summary.timeBoost25To50),
+  },
+  {
+    key: "timeBoost50To75",
+    label: "50-75",
+    render: (summary) => formatSeconds(summary.timeBoost50To75),
+  },
+  {
+    key: "timeBoost75To100",
+    label: "75-100",
+    render: (summary) => formatSeconds(summary.timeBoost75To100),
+  },
+  {
+    key: "usedWhileSupersonic",
+    label: "Supersonic use",
+    render: (summary) => formatBoost(summary.usedWhileSupersonic),
+  },
   { key: "overfill", label: "Overfill", render: (summary) => formatBoost(summary.overfill) },
-  { key: "stolenOverfill", label: "Stolen overfill", render: (summary) => formatBoost(summary.stolenOverfill) },
+  {
+    key: "stolenOverfill",
+    label: "Stolen overfill",
+    render: (summary) => formatBoost(summary.stolenOverfill),
+  },
 ];
 
-function compareBoostStatRows(left: BoostPlayerSummary, right: BoostPlayerSummary, key: BoostStatSortKey): number {
+function compareBoostStatRows(
+  left: BoostPlayerSummary,
+  right: BoostPlayerSummary,
+  key: BoostStatSortKey,
+): number {
   if (key === "name") return left.name.localeCompare(right.name);
   return boostStatSortValue(left, key) - boostStatSortValue(right, key);
 }
@@ -1558,7 +1713,10 @@ function cumulativeTrackTotals(tracks: BoostTrack[]): Map<string, number> {
 
 // Time-weighted mean boost amount over the tracked window. The change-point
 // samples are irregularly spaced, so weight each by the time it holds.
-function timeWeightedBoostAverage(samples: BoostStateSample[], durationSeconds: number): number | null {
+function timeWeightedBoostAverage(
+  samples: BoostStateSample[],
+  durationSeconds: number,
+): number | null {
   const sorted = samples.slice().sort((left, right) => left.time - right.time);
   let weightedSum = 0;
   let trackedSeconds = 0;
@@ -1574,14 +1732,20 @@ function timeWeightedBoostAverage(samples: BoostStateSample[], durationSeconds: 
 }
 
 function sumPickupAmounts(events: MechanicEventResponse[], field: string): number {
-  return events.reduce((total, event) => total + (boostAmountToPercent(numericPayload(event.payload, field)) ?? 0), 0);
+  return events.reduce(
+    (total, event) => total + (boostAmountToPercent(numericPayload(event.payload, field)) ?? 0),
+    0,
+  );
 }
 
 function isStealPickup(event: MechanicEventResponse): boolean {
   return event.payload.is_steal === true;
 }
 
-function bigPadZoneCounts(events: MechanicEventResponse[], player: ReplayPlayer): Record<BigPadZone, number> {
+function bigPadZoneCounts(
+  events: MechanicEventResponse[],
+  player: ReplayPlayer,
+): Record<BigPadZone, number> {
   const counts: Record<BigPadZone, number> = {
     offensive: 0,
     neutral: 0,
@@ -1600,7 +1764,8 @@ function bigPadZone(event: MechanicEventResponse, player: ReplayPlayer): BigPadZ
   if (boostPadSize(event) !== "big") return null;
 
   const payloadZone = event.payload.pad_zone ?? event.payload.big_pad_zone;
-  if (payloadZone === "offensive" || payloadZone === "neutral" || payloadZone === "defensive") return payloadZone;
+  if (payloadZone === "offensive" || payloadZone === "neutral" || payloadZone === "defensive")
+    return payloadZone;
 
   const position = eventPosition(event);
   const pad = position ? nearestBoostPad(position, "big") : null;
@@ -1620,7 +1785,10 @@ function bigPadZoneForPad(team: number | null, pad: BoostPadLocation): BigPadZon
   return isOpponentSide ? "offensive" : "defensive";
 }
 
-function smallPadHalfCounts(events: MechanicEventResponse[], player: ReplayPlayer): Record<"offensive" | "defensive", number> {
+function smallPadHalfCounts(
+  events: MechanicEventResponse[],
+  player: ReplayPlayer,
+): Record<"offensive" | "defensive", number> {
   const counts = { offensive: 0, defensive: 0 };
   for (const event of events) {
     if (boostPadSize(event) !== "small") continue;
@@ -1630,7 +1798,10 @@ function smallPadHalfCounts(events: MechanicEventResponse[], player: ReplayPlaye
   return counts;
 }
 
-function smallPadHalf(event: MechanicEventResponse, player: ReplayPlayer): "offensive" | "defensive" | null {
+function smallPadHalf(
+  event: MechanicEventResponse,
+  player: ReplayPlayer,
+): "offensive" | "defensive" | null {
   const payloadZone = event.payload.pad_zone;
   if (payloadZone === "offensive" || payloadZone === "defensive") return payloadZone;
 
@@ -1681,8 +1852,14 @@ function boostEventFields(
   const matchingRespawns = respawnEvents.filter((event) => eventMatchesPlayer(event, player));
 
   const collectedPads = sumPickupAmounts(matchingPickups, "collected_amount");
-  const collectedBig = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "big"), "collected_amount");
-  const collectedSmall = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "small"), "collected_amount");
+  const collectedBig = sumPickupAmounts(
+    matchingPickups.filter((event) => boostPadSize(event) === "big"),
+    "collected_amount",
+  );
+  const collectedSmall = sumPickupAmounts(
+    matchingPickups.filter((event) => boostPadSize(event) === "small"),
+    "collected_amount",
+  );
   const collectedGrant = sumPickupAmounts(matchingRespawns, "boost_granted");
 
   const stealPickups = matchingPickups.filter(isStealPickup);
@@ -1770,7 +1947,8 @@ function groupBoostPlayerSummaries(
     const used = totals?.boost_used ?? 0;
     const usedWhileSupersonic = totals?.boost_used_supersonic ?? 0;
     const trackedSeconds = totals?.tracked_seconds ?? 0;
-    const average = trackedSeconds > 0 ? (totals?.boost_amount_weighted_sum ?? 0) / trackedSeconds : null;
+    const average =
+      trackedSeconds > 0 ? (totals?.boost_amount_weighted_sum ?? 0) / trackedSeconds : null;
 
     return {
       key,
@@ -1828,7 +2006,10 @@ function groupBoostLevelDistribution(
       ["full", totals?.time_full ?? 0],
       ["over", totals?.time_over ?? 0],
     ]);
-    const knownSeconds = Array.from(secondsByBand.values()).reduce((total, seconds) => total + seconds, 0);
+    const knownSeconds = Array.from(secondsByBand.values()).reduce(
+      (total, seconds) => total + seconds,
+      0,
+    );
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
@@ -1842,9 +2023,14 @@ function groupBoostLevelDistribution(
   });
 }
 
-function teamBoostSummary(summaries: BoostPlayerSummary[], team: 0 | 1, durationSeconds: number): BoostPlayerSummary {
+function teamBoostSummary(
+  summaries: BoostPlayerSummary[],
+  team: 0 | 1,
+  durationSeconds: number,
+): BoostPlayerSummary {
   const teamRows = summaries.filter((summary) => summary.team === team);
-  const sum = (selector: (summary: BoostPlayerSummary) => number) => teamRows.reduce((total, summary) => total + selector(summary), 0);
+  const sum = (selector: (summary: BoostPlayerSummary) => number) =>
+    teamRows.reduce((total, summary) => total + selector(summary), 0);
 
   return {
     key: `team:${team}`,
@@ -1854,8 +2040,14 @@ function teamBoostSummary(summaries: BoostPlayerSummary[], team: 0 | 1, duration
     rank: null,
     team,
     average: average(teamRows.map((summary) => summary.average).filter(isNumber)),
-    bpm: perMinute(sum((summary) => summary.used), durationSeconds),
-    bcpm: perMinute(sum((summary) => summary.collected), durationSeconds),
+    bpm: perMinute(
+      sum((summary) => summary.used),
+      durationSeconds,
+    ),
+    bcpm: perMinute(
+      sum((summary) => summary.collected),
+      durationSeconds,
+    ),
     collected: sum((summary) => summary.collected),
     collectedBig: sum((summary) => summary.collectedBig),
     collectedSmall: sum((summary) => summary.collectedSmall),
@@ -1957,8 +2149,12 @@ function boostPickupMapPoints(
   return points;
 }
 
-function nearestBoostPad(position: { x: number; y: number }, size: "big" | "small" | null): BoostPadLocation | null {
-  const candidates = size == null ? boostPadLocations : boostPadLocations.filter((pad) => pad.size === size);
+function nearestBoostPad(
+  position: { x: number; y: number },
+  size: "big" | "small" | null,
+): BoostPadLocation | null {
+  const candidates =
+    size == null ? boostPadLocations : boostPadLocations.filter((pad) => pad.size === size);
   return candidates.reduce<BoostPadLocation | null>((nearest, pad) => {
     const distance = Math.hypot(position.x - pad.x, position.y - pad.y);
     if (nearest == null) return pad;
@@ -2004,7 +2200,9 @@ function eventPosition(event: MechanicEventResponse): { x: number; y: number } |
   const position = event.payload.player_position;
   if (!Array.isArray(position) || position.length < 2) return null;
   const [x, y] = position;
-  return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
+  return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)
+    ? { x, y }
+    : null;
 }
 
 function projectFieldPosition(x: number, y: number): { x: number; y: number } {
@@ -2058,7 +2256,7 @@ function teamBoostContributionsOverTime(
     .map((sample) => ({
       ...sample,
       playerKey: sample.playerId,
-  }));
+    }));
   let sampleIndex = 0;
   const latestByPlayer = new Map<string, number>();
   const points = [
@@ -2132,7 +2330,7 @@ function teamBoostAreaSeries(
   points: ReturnType<typeof teamBoostContributionsOverTime>,
   players: ReplayPlayer[],
   team: 0 | 1,
-  durationSeconds: number,
+  _durationSeconds: number,
 ): TeamBoostAreaSeries {
   const teamKey: "blue" | "orange" = team === 0 ? "blue" : "orange";
   const teamPlayers = players
@@ -2155,7 +2353,9 @@ function teamBoostAreaSeries(
       };
       const contributions = team === 0 ? point.blue : point.orange;
       for (const player of teamPlayers) {
-        row[player.dataKey] = contributions.find((contribution) => contribution.key === player.key)?.normalizedAmount ?? 0;
+        row[player.dataKey] =
+          contributions.find((contribution) => contribution.key === player.key)?.normalizedAmount ??
+          0;
       }
       return row;
     }),
@@ -2180,7 +2380,11 @@ function playerChartColor(team: 0 | 1, index: number): string {
   return palette[index % palette.length];
 }
 
-function boostLevelDistribution(samples: BoostStateSample[], players: ReplayPlayer[], durationSeconds: number) {
+function boostLevelDistribution(
+  samples: BoostStateSample[],
+  players: ReplayPlayer[],
+  durationSeconds: number,
+) {
   return players.map((player) => {
     const key = playerKey(player);
     const matchingSamples = samples
@@ -2198,7 +2402,10 @@ function boostLevelDistribution(samples: BoostStateSample[], players: ReplayPlay
       secondsByBand.set(band.id, (secondsByBand.get(band.id) ?? 0) + seconds);
     }
 
-    const knownSeconds = Array.from(secondsByBand.values()).reduce((total, seconds) => total + seconds, 0);
+    const knownSeconds = Array.from(secondsByBand.values()).reduce(
+      (total, seconds) => total + seconds,
+      0,
+    );
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
@@ -2223,7 +2430,10 @@ function teamBoostLevelDistribution(rows: ReturnType<typeof boostLevelDistributi
       }
     }
 
-    const knownSeconds = Array.from(secondsByBand.values()).reduce((total, seconds) => total + seconds, 0);
+    const knownSeconds = Array.from(secondsByBand.values()).reduce(
+      (total, seconds) => total + seconds,
+      0,
+    );
     return {
       key: `team:${team}`,
       name: `${teamLabel(team)} team`,
@@ -2268,7 +2478,10 @@ function boostBandDurations(samples: BoostStateSample[], durationSeconds: number
 }
 
 function boostBandForAmount(amount: number) {
-  return boostLevelBands.find((band) => amount >= band.min && amount < band.max) ?? boostLevelBands[boostLevelBands.length - 1];
+  return (
+    boostLevelBands.find((band) => amount >= band.min && amount < band.max) ??
+    boostLevelBands[boostLevelBands.length - 1]
+  );
 }
 
 function eventMatchesPlayer(event: MechanicEventResponse, player: ReplayPlayer): boolean {
@@ -2279,10 +2492,15 @@ function eventMatchesPlayer(event: MechanicEventResponse, player: ReplayPlayer):
 }
 
 function playerKey(player: ReplayPlayer): string {
-  return player.platform && player.platform_player_id ? `${player.platform}:${player.platform_player_id}` : `name:${player.name || "unknown"}`;
+  return player.platform && player.platform_player_id
+    ? `${player.platform}:${player.platform_player_id}`
+    : `name:${player.name || "unknown"}`;
 }
 
-function playerProfilePath(player: { platform: string | null; platformPlayerId: string | null }): string | null {
+function playerProfilePath(player: {
+  platform: string | null;
+  platformPlayerId: string | null;
+}): string | null {
   if (!player.platform || !player.platformPlayerId) return null;
   return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/boost`;
 }
@@ -2305,10 +2523,6 @@ function teamClass(team: number | null): "blue" | "orange" | "unknown" {
   if (team === 0) return "blue";
   if (team === 1) return "orange";
   return "unknown";
-}
-
-function playerIndex(player: ReplayPlayer, players: ReplayPlayer[]): number {
-  return Math.max(0, players.findIndex((candidate) => playerKey(candidate) === playerKey(player)));
 }
 
 function teamLocalPlayerIndexByKey(players: ReplayPlayer[]): Map<string, number> {
@@ -2361,11 +2575,6 @@ function formatBoostWithPerMinute(value: number, durationSeconds: number): strin
 function formatCountWithPerMinute(count: number, durationSeconds: number): string {
   const perMinuteValue = perMinute(count, durationSeconds);
   return `${count.toLocaleString()} (${formatNumber(perMinuteValue)}/m)`;
-}
-
-function formatPercent(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "Unknown";
-  return `${Math.round(value * 100)}%`;
 }
 
 function teamLabel(team: number | null): string {

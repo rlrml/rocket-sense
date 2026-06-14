@@ -721,7 +721,6 @@ tbody tr:last-child td {
   font-variant-numeric: tabular-nums;
 }
 
-
 .player-statline {
   display: inline-flex;
   flex: none;
@@ -1657,7 +1656,10 @@ tbody tr:last-child td {
 }
 
 .source-segment.outcome-dist-positive.outcome-dist-level-unknown {
-  background: var(--outcome-positive-unknown, var(--outcome-positive-clear, var(--outcome-positive)));
+  background: var(
+    --outcome-positive-unknown,
+    var(--outcome-positive-clear, var(--outcome-positive))
+  );
 }
 
 .source-segment.outcome-dist-neutral {
@@ -1678,7 +1680,10 @@ tbody tr:last-child td {
 }
 
 .source-segment.outcome-dist-negative.outcome-dist-level-unknown {
-  background: var(--outcome-negative-unknown, var(--outcome-negative-clear, var(--outcome-negative)));
+  background: var(
+    --outcome-negative-unknown,
+    var(--outcome-negative-clear, var(--outcome-negative))
+  );
 }
 
 .outcome-distribution-caption {
@@ -4999,7 +5004,6 @@ tbody tr:last-child td {
   .pickup-map-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
 }
 
 @media (max-width: 820px) {
@@ -5453,7 +5457,9 @@ tbody tr:last-child td {
   cursor: pointer;
   width: 100%;
   text-align: left;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition:
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
 }
 
 .goal-card:hover {
@@ -6224,7 +6230,9 @@ tbody tr:last-child td {
 /* Goal playlist: clickable goal-type chips and the playlist watch page. */
 .goal-type-chip-link {
   cursor: pointer;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
 }
 
 .goal-type-chip-link:hover,

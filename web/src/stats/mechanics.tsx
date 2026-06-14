@@ -77,11 +77,20 @@ export function MechanicsDetail({ events, players, scope = "replay" }: Mechanics
   const mechanicEvents = events.filter((event) => mechanicEventTypes.includes(event.event_type));
 
   if (!mechanicEvents.length) {
-    return <div className="stat-empty">No mechanic events are available for this {scope === "group" ? "group" : "replay"} yet.</div>;
+    return (
+      <div className="stat-empty">
+        No mechanic events are available for this {scope === "group" ? "group" : "replay"} yet.
+      </div>
+    );
   }
 
   if (scope === "group") {
-    return <MechanicLeaderboards mechanics={mechanicLeaderboards(mechanicEvents, players)} totalEvents={mechanicEvents.length} />;
+    return (
+      <MechanicLeaderboards
+        mechanics={mechanicLeaderboards(mechanicEvents, players)}
+        totalEvents={mechanicEvents.length}
+      />
+    );
   }
 
   const playerRows = playerMechanicRows(players, mechanicEvents);
@@ -110,9 +119,17 @@ export function MechanicsDetail({ events, players, scope = "replay" }: Mechanics
   );
 }
 
-function MechanicLeaderboards({ mechanics, totalEvents }: { mechanics: MechanicLeaderboard[]; totalEvents: number }) {
+function MechanicLeaderboards({
+  mechanics,
+  totalEvents,
+}: {
+  mechanics: MechanicLeaderboard[];
+  totalEvents: number;
+}) {
   if (!mechanics.length) {
-    return <div className="stat-empty">No mechanic leaderboards are available for this group yet.</div>;
+    return (
+      <div className="stat-empty">No mechanic leaderboards are available for this group yet.</div>
+    );
   }
 
   return (
@@ -125,7 +142,8 @@ function MechanicLeaderboards({ mechanics, totalEvents }: { mechanics: MechanicL
               <header className="chart-panel-header">
                 <h3>{mechanic.label}</h3>
                 <span>
-                  {mechanic.total.toLocaleString()} events · {formatShare(mechanic.total, totalEvents)} of mechanics
+                  {mechanic.total.toLocaleString()} events ·{" "}
+                  {formatShare(mechanic.total, totalEvents)} of mechanics
                 </span>
               </header>
               <div className="mechanic-leaderboard-rows">
@@ -134,9 +152,16 @@ function MechanicLeaderboards({ mechanics, totalEvents }: { mechanics: MechanicL
                     <StatPlayerLabel
                       name={entry.name}
                       platform={entry.player.platform ?? null}
-                      profilePath={playerProfilePath(entry.player.platform, entry.player.platform_player_id)}
+                      profilePath={playerProfilePath(
+                        entry.player.platform,
+                        entry.player.platform_player_id,
+                      )}
                       rank={statPlayerRank(entry.player)}
-                      subtitle={entry.games == null ? "Games unknown" : `${entry.games.toLocaleString()} games`}
+                      subtitle={
+                        entry.games == null
+                          ? "Games unknown"
+                          : `${entry.games.toLocaleString()} games`
+                      }
                     />
                     <SegmentedBar
                       ariaLabel={`${entry.name}: ${entry.count.toLocaleString()} ${mechanic.label}`}
@@ -152,7 +177,9 @@ function MechanicLeaderboards({ mechanics, totalEvents }: { mechanics: MechanicL
                       ]}
                       total={entry.count}
                     />
-                    <strong className="mechanic-leaderboard-count">{entry.count.toLocaleString()}</strong>
+                    <strong className="mechanic-leaderboard-count">
+                      {entry.count.toLocaleString()}
+                    </strong>
                   </div>
                 ))}
               </div>
@@ -189,16 +216,23 @@ function PlayerMechanicLeaderboard({ rows }: { rows: PlayerMechanicRow[] }) {
                 <StatPlayerLabel
                   name={row.name}
                   platform={row.player?.platform ?? null}
-                  profilePath={playerProfilePath(row.player?.platform, row.player?.platform_player_id)}
+                  profilePath={playerProfilePath(
+                    row.player?.platform,
+                    row.player?.platform_player_id,
+                  )}
                   rank={row.player ? statPlayerRank(row.player) : null}
-                  subtitle={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
+                  subtitle={
+                    row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`
+                  }
                 />
               </td>
               <td>{row.count.toLocaleString()}</td>
               <td>{row.games == null ? "Unknown" : row.games.toLocaleString()}</td>
               <td>{formatDecimal(rate(row.count, row.games), 2)}</td>
               <td>{row.uniqueMechanics.toLocaleString()}</td>
-              <td>{row.topMechanic ? `${row.topMechanic.label} (${row.topMechanic.count})` : "-"}</td>
+              <td>
+                {row.topMechanic ? `${row.topMechanic.label} (${row.topMechanic.count})` : "-"}
+              </td>
             </tr>
           ))}
         </tbody>
@@ -207,7 +241,13 @@ function PlayerMechanicLeaderboard({ rows }: { rows: PlayerMechanicRow[] }) {
   );
 }
 
-function MechanicTypeLeaderboard({ rows, totalEvents }: { rows: MechanicTypeRow[]; totalEvents: number }) {
+function MechanicTypeLeaderboard({
+  rows,
+  totalEvents,
+}: {
+  rows: MechanicTypeRow[];
+  totalEvents: number;
+}) {
   if (!rows.length) {
     return <div className="stat-empty">No mechanic type rows are available yet.</div>;
   }
@@ -227,7 +267,9 @@ function MechanicTypeLeaderboard({ rows, totalEvents }: { rows: MechanicTypeRow[
         <tbody>
           {rows.map((row) => (
             <tr key={row.key}>
-              <td><strong>{row.label}</strong></td>
+              <td>
+                <strong>{row.label}</strong>
+              </td>
               <td>{row.count.toLocaleString()}</td>
               <td>{formatShare(row.count, totalEvents)}</td>
               <td>{row.playerCount.toLocaleString()}</td>
@@ -240,7 +282,10 @@ function MechanicTypeLeaderboard({ rows, totalEvents }: { rows: MechanicTypeRow[
   );
 }
 
-function playerMechanicRows(players: ReplayPlayer[], events: MechanicEventResponse[]): PlayerMechanicRow[] {
+function playerMechanicRows(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): PlayerMechanicRow[] {
   const eventCounts = new Map<string, number>();
   const mechanicCountsByPlayer = new Map<string, Map<string, MechanicCount>>();
 
@@ -260,7 +305,9 @@ function playerMechanicRows(players: ReplayPlayer[], events: MechanicEventRespon
   return players
     .map((player, index) => {
       const key = playerKey(player, index);
-      const mechanicCounts = [...(mechanicCountsByPlayer.get(key)?.values() ?? [])].sort(compareCounts);
+      const mechanicCounts = [...(mechanicCountsByPlayer.get(key)?.values() ?? [])].sort(
+        compareCounts,
+      );
       return {
         key,
         name: player.name || player.platform_player_id || "Unknown",
@@ -278,7 +325,10 @@ function playerMechanicRows(players: ReplayPlayer[], events: MechanicEventRespon
     });
 }
 
-function mechanicTypeRows(events: MechanicEventResponse[], players: ReplayPlayer[]): MechanicTypeRow[] {
+function mechanicTypeRows(
+  events: MechanicEventResponse[],
+  players: ReplayPlayer[],
+): MechanicTypeRow[] {
   const rows = new Map<string, MechanicTypeRow>();
   const playerCountsByMechanic = new Map<string, Map<string, number>>();
 
@@ -305,20 +355,34 @@ function mechanicTypeRows(events: MechanicEventResponse[], players: ReplayPlayer
   for (const row of rows.values()) {
     const counts = playerCountsByMechanic.get(row.key) ?? new Map<string, number>();
     row.playerCount = counts.size;
-    row.leader = [...counts.entries()]
-      .map(([key, count]) => ({ name: playerNameForKey(players, key), count }))
-      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))[0] ?? null;
+    row.leader =
+      [...counts.entries()]
+        .map(([key, count]) => ({ name: playerNameForKey(players, key), count }))
+        .sort(
+          (left, right) => right.count - left.count || left.name.localeCompare(right.name),
+        )[0] ?? null;
   }
 
   return [...rows.values()].sort(compareCounts);
 }
 
-function mechanicLeaderboards(events: MechanicEventResponse[], players: ReplayPlayer[]): MechanicLeaderboard[] {
-  const boards = new Map<string, { key: string; label: string; total: number; counts: Map<string, MechanicPlayerCount> }>();
+function mechanicLeaderboards(
+  events: MechanicEventResponse[],
+  players: ReplayPlayer[],
+): MechanicLeaderboard[] {
+  const boards = new Map<
+    string,
+    { key: string; label: string; total: number; counts: Map<string, MechanicPlayerCount> }
+  >();
 
   for (const event of events) {
     const mechanic = mechanicCount(event);
-    const board = boards.get(mechanic.key) ?? { key: mechanic.key, label: mechanic.label, total: 0, counts: new Map<string, MechanicPlayerCount>() };
+    const board = boards.get(mechanic.key) ?? {
+      key: mechanic.key,
+      label: mechanic.label,
+      total: 0,
+      counts: new Map<string, MechanicPlayerCount>(),
+    };
     board.total += 1;
 
     for (const playerIndex of creditedPlayerIndexes(event, players)) {
@@ -341,7 +405,9 @@ function mechanicLeaderboards(events: MechanicEventResponse[], players: ReplayPl
       key: board.key,
       label: board.label,
       total: board.total,
-      players: [...board.counts.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+      players: [...board.counts.values()].sort(
+        (left, right) => right.count - left.count || left.name.localeCompare(right.name),
+      ),
     }))
     .filter((board) => board.players.length > 0)
     .sort((left, right) => right.total - left.total || left.label.localeCompare(right.label));
@@ -395,7 +461,10 @@ function mechanicCount(event: MechanicEventResponse): MechanicCount {
 
 function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
   const eventPlayerId = (event.player_id ?? stringPayloadValue(event.payload, "player_id"))?.trim();
-  if (eventPlayerId && (player.platform_player_id === eventPlayerId || playerIdentity(player) === eventPlayerId)) {
+  if (
+    eventPlayerId &&
+    (player.platform_player_id === eventPlayerId || playerIdentity(player) === eventPlayerId)
+  ) {
     return true;
   }
   const eventName = event.player_name?.trim().toLowerCase();

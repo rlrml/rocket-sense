@@ -38,7 +38,9 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
       stat,
       playerRate: (stat.per_active_minute ?? 0) * rateWindowMinutes,
       teammateRate:
-        stat.teammate_per_active_minute != null ? stat.teammate_per_active_minute * rateWindowMinutes : null,
+        stat.teammate_per_active_minute != null
+          ? stat.teammate_per_active_minute * rateWindowMinutes
+          : null,
     }));
   const maxRate = rows.reduce(
     (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
@@ -61,7 +63,10 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
             <div className="rate-chart-label" title={stat.display_name}>
               {stat.display_name}
             </div>
-            <div className="rate-chart-track" aria-label={`${stat.display_name} per ${rateWindowMinutes} minutes`}>
+            <div
+              className="rate-chart-track"
+              aria-label={`${stat.display_name} per ${rateWindowMinutes} minutes`}
+            >
               <span
                 className="rate-chart-fill"
                 style={{ width: `${barPercent(playerRate, maxRate)}%` }}
@@ -77,7 +82,9 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
             </div>
             <div className="rate-chart-value">
               <strong>{formatRate(playerRate)}</strong>
-              {teammateRate != null ? <span className="subtle"> vs {formatRate(teammateRate)}</span> : null}
+              {teammateRate != null ? (
+                <span className="subtle"> vs {formatRate(teammateRate)}</span>
+              ) : null}
             </div>
           </div>
         ))}
@@ -199,7 +206,9 @@ const rotationDepthLabels: Record<string, string> = {
 /** Single tug-of-war bar: defensive (behind play) vs offensive (ahead of play), level/unknown as a neutral center band. */
 function RotationDepthTugOfWar({ depths }: { depths: RotationTimeShareResponse[] }) {
   const secondsFor = (suffix: string) =>
-    depths.filter((share) => depthSuffix(share.key) === suffix).reduce((total, share) => total + share.seconds, 0);
+    depths
+      .filter((share) => depthSuffix(share.key) === suffix)
+      .reduce((total, share) => total + share.seconds, 0);
   const behind = secondsFor("behind_play");
   const level = secondsFor("level_with_play");
   const ahead = secondsFor("ahead_of_play");
@@ -210,9 +219,24 @@ function RotationDepthTugOfWar({ depths }: { depths: RotationTimeShareResponse[]
   if (total <= 0) return null;
 
   const segments: Array<{ key: string; className: string; label: string; seconds: number }> = [
-    { key: "behind_play", className: "positioning-segment-behind", label: rotationDepthLabels.behind_play, seconds: behind },
-    { key: "neutral", className: "positioning-segment-neutral", label: rotationDepthLabels.level_with_play, seconds: neutral },
-    { key: "ahead_of_play", className: "positioning-segment-ahead", label: rotationDepthLabels.ahead_of_play, seconds: ahead },
+    {
+      key: "behind_play",
+      className: "positioning-segment-behind",
+      label: rotationDepthLabels.behind_play,
+      seconds: behind,
+    },
+    {
+      key: "neutral",
+      className: "positioning-segment-neutral",
+      label: rotationDepthLabels.level_with_play,
+      seconds: neutral,
+    },
+    {
+      key: "ahead_of_play",
+      className: "positioning-segment-ahead",
+      label: rotationDepthLabels.ahead_of_play,
+      seconds: ahead,
+    },
   ];
 
   return (
@@ -305,7 +329,9 @@ function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) 
             key={bucket.min_seconds}
             title={
               `${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints (${formatShare(playerShare)})` +
-              (hasTeammates ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})` : "")
+              (hasTeammates
+                ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})`
+                : "")
             }
           >
             <div className="rotation-histogram-plot">
@@ -342,17 +368,28 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
   const playerBack = mostBack ?? 0;
   const playerForward = mostForward ?? 0;
   const playerNeutral = Math.max(0, 1 - playerBack - playerForward);
-  const teammateBack = shareOf(stats.teammate_time_most_back_seconds, stats.teammate_active_time_seconds);
-  const teammateForward = shareOf(stats.teammate_time_most_forward_seconds, stats.teammate_active_time_seconds);
+  const teammateBack = shareOf(
+    stats.teammate_time_most_back_seconds,
+    stats.teammate_active_time_seconds,
+  );
+  const teammateForward = shareOf(
+    stats.teammate_time_most_forward_seconds,
+    stats.teammate_active_time_seconds,
+  );
   const hasTeammates = teammateBack != null || teammateForward != null;
   const teammateBackPosition = teammateBack == null ? null : barPercent(teammateBack, 1);
-  const teammateForwardPosition = teammateForward == null ? null : 100 - barPercent(teammateForward, 1);
+  const teammateForwardPosition =
+    teammateForward == null ? null : 100 - barPercent(teammateForward, 1);
 
   return (
     <div className="rotation-share-block field-position-tug-block">
       <h4>Field position share</h4>
       <div className="field-position-tug">
-        <div className="field-position-tug-track" role="img" aria-label="Most back versus most forward share">
+        <div
+          className="field-position-tug-track"
+          role="img"
+          aria-label="Most back versus most forward share"
+        >
           <span
             className="source-segment positioning-segment-role-most_back"
             style={{ flexGrow: playerBack }}
@@ -389,7 +426,9 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
             Most back
             <strong>{formatShare(mostBack)}</strong>
           </span>
-          {hasTeammates ? <span className="field-position-teammate-label">Markers show teammate averages</span> : null}
+          {hasTeammates ? (
+            <span className="field-position-teammate-label">Markers show teammate averages</span>
+          ) : null}
           <span className="rotation-depth-tug-label rotation-depth-tug-label-right">
             <strong>{formatShare(mostForward)}</strong>
             Most forward
@@ -403,11 +442,22 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
 
 type KickoffSummaryRole = "taker" | "support";
 
-const kickoffTakerDimensionKeys = ["approach", "taker_outcome", "player_result", "advantage_result"];
+const kickoffTakerDimensionKeys = [
+  "approach",
+  "taker_outcome",
+  "player_result",
+  "advantage_result",
+];
 const kickoffSupportDimensionKeys = ["support_behavior", "player_result", "advantage_result"];
 
 /** Kickoff outcome shares, headline metrics, and per-dimension distributions. */
-export function KickoffSummaryPanel({ role, summary }: { role: KickoffSummaryRole; summary: EventStatSummaryResponse }) {
+export function KickoffSummaryPanel({
+  role,
+  summary,
+}: {
+  role: KickoffSummaryRole;
+  summary: EventStatSummaryResponse;
+}) {
   const metric = (key: string) => summary.metrics.find((entry) => entry.key === key)?.value ?? null;
   const wins = metric("win_count") ?? 0;
   const losses = metric("loss_count") ?? 0;
@@ -426,20 +476,25 @@ export function KickoffSummaryPanel({ role, summary }: { role: KickoffSummaryRol
   const advantagesAgainst = metric("advantages_against") ?? 0;
   const noAdvantage = metric("no_advantage_count") ?? 0;
   const advantageTotal = advantagesFor + advantagesAgainst + noAdvantage;
-  const strengthDimension = summary.dimensions.find((dimension) => dimension.key === "win_strength_result");
+  const strengthDimension = summary.dimensions.find(
+    (dimension) => dimension.key === "win_strength_result",
+  );
   const strengthSegments = kickoffStrengthSegments(strengthDimension);
   const strengthTotal = strengthSegments.reduce((total, segment) => total + segment.value, 0);
   const dimensionKeys = role === "taker" ? kickoffTakerDimensionKeys : kickoffSupportDimensionKeys;
   const dimensions = dimensionKeys
     .map((key) => summary.dimensions.find((dimension) => dimension.key === key))
-    .filter((dimension): dimension is EventStatDimensionResponse => Boolean(dimension && dimension.values.length > 0));
+    .filter((dimension): dimension is EventStatDimensionResponse =>
+      Boolean(dimension && dimension.values.length > 0),
+    );
 
   return (
     <section className="chart-panel full-span kickoff-summary-panel">
       <header className="chart-panel-header">
         <h3>{role === "taker" ? "Kickoff taker" : "Kickoff support"}</h3>
         <span>
-          {summary.event_count.toLocaleString()} {role === "taker" ? "attempts" : "support appearances"} across{" "}
+          {summary.event_count.toLocaleString()}{" "}
+          {role === "taker" ? "attempts" : "support appearances"} across{" "}
           {summary.replay_count.toLocaleString()} replays
         </span>
       </header>
@@ -474,7 +529,12 @@ export function KickoffSummaryPanel({ role, summary }: { role: KickoffSummaryRol
             segments={[
               kickoffOutcomeSegment("win", "Advantage gained", advantagesFor, advantageTotal),
               kickoffOutcomeSegment("neutral", "No advantage", noAdvantage, advantageTotal),
-              kickoffOutcomeSegment("loss", "Advantage conceded", advantagesAgainst, advantageTotal),
+              kickoffOutcomeSegment(
+                "loss",
+                "Advantage conceded",
+                advantagesAgainst,
+                advantageTotal,
+              ),
             ]}
             total={advantageTotal}
           />
@@ -482,16 +542,25 @@ export function KickoffSummaryPanel({ role, summary }: { role: KickoffSummaryRol
       ) : null}
       <div className="kickoff-headline-metrics">
         <KickoffMetric label="Kickoff goals for" value={formatCount(metric("kickoff_goals_for"))} />
-        <KickoffMetric label="Kickoff goals against" value={formatCount(metric("kickoff_goals_against"))} />
+        <KickoffMetric
+          label="Kickoff goals against"
+          value={formatCount(metric("kickoff_goals_against"))}
+        />
         {role === "taker" ? (
           <>
             <KickoffMetric label="First touch" value={formatYesNoShare(firstTouchRate)} />
             <KickoffMetric label="Taker touch rate" value={formatShare(takerTouchRate)} />
-            <KickoffMetric label="Avg time to touch" value={formatSecondsValue(metric("avg_taker_time_to_touch"))} />
+            <KickoffMetric
+              label="Avg time to touch"
+              value={formatSecondsValue(metric("avg_taker_time_to_touch"))}
+            />
           </>
         ) : null}
         {/* avg_boost_delta arrives in raw 0-255 replay units; rescale to the 0-100 display scale. */}
-        <KickoffMetric label="Avg boost delta" value={formatSigned(boostAmountToPercent(metric("avg_boost_delta")))} />
+        <KickoffMetric
+          label="Avg boost delta"
+          value={formatSigned(boostAmountToPercent(metric("avg_boost_delta")))}
+        />
       </div>
       {dimensions.length > 0 ? (
         <div className="kickoff-dimension-grid">
@@ -524,11 +593,18 @@ function KickoffDimensionList({ dimension }: { dimension: EventStatDimensionResp
             <div className="rate-chart-label" title={value.display_name}>
               {value.display_name}
             </div>
-            <div className="rate-chart-track" aria-label={`${dimension.label}: ${value.display_name}`}>
+            <div
+              className="rate-chart-track"
+              aria-label={`${dimension.label}: ${value.display_name}`}
+            >
               <span
                 className="rate-chart-fill kickoff-dimension-fill"
                 style={{ width: `${barPercent(value.count, total)}%` }}
-                title={shareTitle(value.display_name, total > 0 ? value.count / total : null, value.count)}
+                title={shareTitle(
+                  value.display_name,
+                  total > 0 ? value.count / total : null,
+                  value.count,
+                )}
               />
             </div>
             <div className="rate-chart-value">
@@ -542,7 +618,12 @@ function KickoffDimensionList({ dimension }: { dimension: EventStatDimensionResp
   );
 }
 
-function kickoffOutcomeSegment(id: string, label: string, value: number, total: number): OutcomeDistributionSegment {
+function kickoffOutcomeSegment(
+  id: string,
+  label: string,
+  value: number,
+  total: number,
+): OutcomeDistributionSegment {
   const share = total > 0 ? value / total : 0;
   return {
     key: id,
@@ -554,9 +635,21 @@ function kickoffOutcomeSegment(id: string, label: string, value: number, total: 
   };
 }
 
-function kickoffStrengthSegments(dimension: EventStatDimensionResponse | undefined): OutcomeDistributionSegment[] {
+function kickoffStrengthSegments(
+  dimension: EventStatDimensionResponse | undefined,
+): OutcomeDistributionSegment[] {
   if (!dimension) return [];
-  const order = ["win_strong", "win_clear", "win_narrow", "win_unknown", "neutral", "loss_narrow", "loss_clear", "loss_strong", "loss_unknown"];
+  const order = [
+    "win_strong",
+    "win_clear",
+    "win_narrow",
+    "win_unknown",
+    "neutral",
+    "loss_narrow",
+    "loss_clear",
+    "loss_strong",
+    "loss_unknown",
+  ];
   const counts = new Map(dimension.values.map((value) => [value.key ?? "unknown", value.count]));
   const total = dimension.values.reduce((sum, value) => sum + value.count, 0);
   return order
@@ -565,7 +658,11 @@ function kickoffStrengthSegments(dimension: EventStatDimensionResponse | undefin
     .map(({ key, count }) => kickoffStrengthSegment(key, count, total));
 }
 
-function kickoffStrengthSegment(key: string, value: number, total: number): OutcomeDistributionSegment {
+function kickoffStrengthSegment(
+  key: string,
+  value: number,
+  total: number,
+): OutcomeDistributionSegment {
   const share = total > 0 ? value / total : 0;
   const outcome = key.startsWith("win_") ? "win" : key.startsWith("loss_") ? "loss" : "neutral";
   const label = kickoffStrengthLabel(key);
@@ -619,7 +716,9 @@ function orderTimeShares(
 ): RotationTimeShareResponse[] {
   return shares
     .slice()
-    .sort((left, right) => orderIndex(left.key, prefix, order) - orderIndex(right.key, prefix, order));
+    .sort(
+      (left, right) => orderIndex(left.key, prefix, order) - orderIndex(right.key, prefix, order),
+    );
 }
 
 function orderIndex(key: string, prefix: string, order: string[]): number {
@@ -698,8 +797,10 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
   const controlledPlays = summary.controlled_plays;
   const touches = summary.touches;
   const locations = summary.locations;
-  const possessionsPerGame = summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
-  const possessionTimePerGame = summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
+  const possessionsPerGame =
+    summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
+  const possessionTimePerGame =
+    summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
   const ownHalfPossessionShare = possessionLocationShare(locations.halves, "own_side");
   const opponentHalfPossessionShare = possessionLocationShare(locations.halves, "opponent_side");
   const surfaceTotal = touches.surfaces.reduce((sum, value) => sum + value.count, 0);
@@ -718,23 +819,51 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
       <header className="chart-panel-header">
         <h3>Possession</h3>
         <span>
-          {spans.possession_count.toLocaleString()} possessions across {summary.replay_count.toLocaleString()} replays
+          {spans.possession_count.toLocaleString()} possessions across{" "}
+          {summary.replay_count.toLocaleString()} replays
         </span>
       </header>
       <div className="kickoff-headline-metrics">
-        <PossessionMetric label="Possessions per game" value={possessionsPerGame != null ? formatRate(possessionsPerGame) : "—"} />
-        <PossessionMetric label="Possession time per game" value={possessionTimePerGame != null ? formatDurationSeconds(possessionTimePerGame) : "—"} />
-        <PossessionMetric label="Avg possession length" value={formatSecondsValue(spans.avg_duration_seconds)} />
-        <PossessionMetric label="Avg touches per possession" value={spans.avg_touches_per_possession != null ? formatRate(spans.avg_touches_per_possession) : "—"} />
-        <PossessionMetric label="Ball advanced per possession" value={formatDistance(spans.avg_advance_distance)} />
+        <PossessionMetric
+          label="Possessions per game"
+          value={possessionsPerGame != null ? formatRate(possessionsPerGame) : "—"}
+        />
+        <PossessionMetric
+          label="Possession time per game"
+          value={possessionTimePerGame != null ? formatDurationSeconds(possessionTimePerGame) : "—"}
+        />
+        <PossessionMetric
+          label="Avg possession length"
+          value={formatSecondsValue(spans.avg_duration_seconds)}
+        />
+        <PossessionMetric
+          label="Avg touches per possession"
+          value={
+            spans.avg_touches_per_possession != null
+              ? formatRate(spans.avg_touches_per_possession)
+              : "—"
+          }
+        />
+        <PossessionMetric
+          label="Ball advanced per possession"
+          value={formatDistance(spans.avg_advance_distance)}
+        />
         <PossessionMetric label="Own-half possession" value={formatShare(ownHalfPossessionShare)} />
-        <PossessionMetric label="Opponent-half possession" value={formatShare(opponentHalfPossessionShare)} />
+        <PossessionMetric
+          label="Opponent-half possession"
+          value={formatShare(opponentHalfPossessionShare)}
+        />
         <PossessionMetric label="Carry time share" value={formatShare(spans.carry_time_share)} />
-        <PossessionMetric label="First-touch control rate" value={formatShare(touches.first_touch_control_share)} />
+        <PossessionMetric
+          label="First-touch control rate"
+          value={formatShare(touches.first_touch_control_share)}
+        />
         <PossessionMetric
           label="Contested touch share"
           value={formatShare(
-            touches.classified_touch_count > 0 ? touches.contested_touch_count / touches.classified_touch_count : null,
+            touches.classified_touch_count > 0
+              ? touches.contested_touch_count / touches.classified_touch_count
+              : null,
           )}
         />
       </div>
@@ -751,7 +880,9 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
           <SegmentedBar
             ariaLabel="Touch surface share"
             className="positioning-track"
-            segments={touches.surfaces.map((value) => possessionSurfaceSegment(value, surfaceTotal))}
+            segments={touches.surfaces.map((value) =>
+              possessionSurfaceSegment(value, surfaceTotal),
+            )}
             total={surfaceTotal}
           />
         </div>
@@ -784,7 +915,10 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
                   <div className="rate-chart-label" title={style.label}>
                     {style.label}
                   </div>
-                  <div className="rate-chart-track" aria-label={`Possessions including ${style.label}`}>
+                  <div
+                    className="rate-chart-track"
+                    aria-label={`Possessions including ${style.label}`}
+                  >
                     <span
                       className="rate-chart-fill kickoff-dimension-fill"
                       style={{ width: `${Math.max(0, Math.min(100, (style.share ?? 0) * 100))}%` }}
@@ -808,15 +942,24 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
                   <div className="rate-chart-label" title={bucket.label}>
                     {bucket.label}
                   </div>
-                  <div className="rate-chart-track" aria-label={`Possession length ${bucket.label}`}>
+                  <div
+                    className="rate-chart-track"
+                    aria-label={`Possession length ${bucket.label}`}
+                  >
                     <span
                       className="rate-chart-fill kickoff-dimension-fill"
                       style={{ width: `${barPercent(bucket.count, histogramMax)}%` }}
-                      title={shareTitle(bucket.label, histogramTotal > 0 ? bucket.count / histogramTotal : null, bucket.count)}
+                      title={shareTitle(
+                        bucket.label,
+                        histogramTotal > 0 ? bucket.count / histogramTotal : null,
+                        bucket.count,
+                      )}
                     />
                   </div>
                   <div className="rate-chart-value">
-                    <strong>{formatShare(histogramTotal > 0 ? bucket.count / histogramTotal : null)}</strong>
+                    <strong>
+                      {formatShare(histogramTotal > 0 ? bucket.count / histogramTotal : null)}
+                    </strong>
                     <span className="subtle"> {bucket.count.toLocaleString()}×</span>
                   </div>
                 </div>
@@ -853,7 +996,10 @@ function PossessionLocationBreakdown({
       />
       <div className="possession-location-list">
         {buckets.map((bucket) => (
-          <div className={`possession-location-row ${possessionLocationClass(bucket.key)}`} key={bucket.key}>
+          <div
+            className={`possession-location-row ${possessionLocationClass(bucket.key)}`}
+            key={bucket.key}
+          >
             <span>{bucket.label}</span>
             <strong>{formatShare(bucket.share)}</strong>
             <span>{formatDurationSeconds(bucket.duration_seconds)}</span>
@@ -977,7 +1123,8 @@ function ControlledPlayHistogram({
   teammates: PossessionSpanSummary | null;
 }) {
   const playerTotal = player.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
-  const teammateTotal = teammates?.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0) ?? 0;
+  const teammateTotal =
+    teammates?.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0) ?? 0;
   if (playerTotal === 0 && teammateTotal === 0) return null;
 
   const teammateCountFor = (key: string) =>
@@ -1018,7 +1165,9 @@ function ControlledPlayHistogram({
             </div>
             <div className="rate-chart-value">
               <strong>{formatShare(playerShare)}</strong>
-              {teammateTotal > 0 ? <span className="subtle"> vs {formatShare(teammateShare)}</span> : null}
+              {teammateTotal > 0 ? (
+                <span className="subtle"> vs {formatShare(teammateShare)}</span>
+              ) : null}
             </div>
           </div>
         ))}
@@ -1052,7 +1201,11 @@ function PossessionMixList({ title, values }: { title: string; values: Possessio
               <span
                 className="rate-chart-fill kickoff-dimension-fill"
                 style={{ width: `${barPercent(value.count, total)}%` }}
-                title={shareTitle(value.display_name, total > 0 ? value.count / total : null, value.count)}
+                title={shareTitle(
+                  value.display_name,
+                  total > 0 ? value.count / total : null,
+                  value.count,
+                )}
               />
             </div>
             <div className="rate-chart-value">
@@ -1078,7 +1231,10 @@ function possessionSurfaceSegment(value: PossessionMixValue, total: number): Seg
   };
 }
 
-function possessionLocationSegment(bucket: PossessionTimeBucket, totalSeconds: number): SegmentedBarSegment {
+function possessionLocationSegment(
+  bucket: PossessionTimeBucket,
+  totalSeconds: number,
+): SegmentedBarSegment {
   const share = totalSeconds > 0 ? bucket.duration_seconds / totalSeconds : 0;
   return {
     key: bucket.key,

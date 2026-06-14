@@ -30,7 +30,10 @@ export function SegmentedBar({
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
 
   return (
-    <div className={`metric-bar-track source-bar-track stat-segmented-track ${className}`} aria-label={ariaLabel}>
+    <div
+      className={`metric-bar-track source-bar-track stat-segmented-track ${className}`}
+      aria-label={ariaLabel}
+    >
       <span className="source-bar-fill" style={{ width: `${fillPercent}%` }}>
         {visibleSegments.map((segment) => (
           <span
@@ -39,7 +42,9 @@ export function SegmentedBar({
             style={{ flexGrow: total > 0 ? segment.value : 0 }}
             title={segment.title ?? `${segment.label}: ${segment.value.toLocaleString()}`}
           >
-            {segment.visibleLabel ? <span className="source-segment-label">{segment.visibleLabel}</span> : null}
+            {segment.visibleLabel ? (
+              <span className="source-segment-label">{segment.visibleLabel}</span>
+            ) : null}
           </span>
         ))}
       </span>
@@ -66,7 +71,10 @@ export function MetricMeter({
     <div className={`positioning-meter ${rootClassName}`.trim()} title={`${label}: ${value}`}>
       <span className="positioning-meter-label">{label}</span>
       <span className="positioning-meter-track" aria-label={`${label}: ${value}`}>
-        <span className={`positioning-meter-fill ${className}`} style={{ width: `${clampedPercent}%` }} />
+        <span
+          className={`positioning-meter-fill ${className}`}
+          style={{ width: `${clampedPercent}%` }}
+        />
       </span>
       <strong>{value}</strong>
     </div>
@@ -94,7 +102,12 @@ export function StatPlayerLabel({
 }) {
   const content = (
     <>
-      <StatPlayerName name={name} platform={platform} profilePath={profilePath} showPlatformBadge={showPlatformBadge} />
+      <StatPlayerName
+        name={name}
+        platform={platform}
+        profilePath={profilePath}
+        showPlatformBadge={showPlatformBadge}
+      />
       <span className="stat-player-subtitle">
         <span className="stat-player-subtitle-text">{subtitle}</span>
         {rank ? (
@@ -111,14 +124,14 @@ export function StatPlayerLabel({
   );
 
   if (inline) {
-    return <span className={`player-bar-label player-bar-label-inline ${className}`.trim()}>{content}</span>;
+    return (
+      <span className={`player-bar-label player-bar-label-inline ${className}`.trim()}>
+        {content}
+      </span>
+    );
   }
 
-  return (
-    <div className={`player-bar-label ${className}`.trim()}>
-      {content}
-    </div>
-  );
+  return <div className={`player-bar-label ${className}`.trim()}>{content}</div>;
 }
 
 export interface StatPlayerRank {
@@ -224,7 +237,9 @@ function rowKey<T>(item: T, index: number): string {
 
 export type OutcomeDistributionTone = "positive" | "neutral" | "negative";
 export type OutcomeDistributionLevel = "strong" | "clear" | "narrow" | "unknown";
-export type OutcomeDistributionColorKey = OutcomeDistributionTone | `${OutcomeDistributionTone}-${OutcomeDistributionLevel}`;
+export type OutcomeDistributionColorKey =
+  | OutcomeDistributionTone
+  | `${OutcomeDistributionTone}-${OutcomeDistributionLevel}`;
 export type OutcomeDistributionColors = Partial<Record<OutcomeDistributionColorKey, string>>;
 
 export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
@@ -275,7 +290,10 @@ export function OutcomeDistributionBar({
     const level = segment.level ?? "clear";
     const visibleLabel =
       segment.visibleLabel ??
-      (visibleCountThreshold != null && segment.value > 0 && total > 0 && segment.value / total >= visibleCountThreshold
+      (visibleCountThreshold != null &&
+      segment.value > 0 &&
+      total > 0 &&
+      segment.value / total >= visibleCountThreshold
         ? String(segment.value)
         : undefined);
     return {
@@ -289,7 +307,10 @@ export function OutcomeDistributionBar({
   });
 
   return (
-    <div className={`outcome-distribution ${className}`} style={outcomeDistributionColorStyle(colors)}>
+    <div
+      className={`outcome-distribution ${className}`}
+      style={outcomeDistributionColorStyle(colors)}
+    >
       <SegmentedBar
         ariaLabel={ariaLabel}
         className="outcome-distribution-track"
@@ -311,7 +332,9 @@ export function outcomeSegmentClassName(
 }
 
 /** Build the `--outcome-*` CSS-var style an outcome palette resolves against. */
-export function outcomeDistributionColorStyle(colors: OutcomeDistributionColors | undefined): CSSProperties | undefined {
+export function outcomeDistributionColorStyle(
+  colors: OutcomeDistributionColors | undefined,
+): CSSProperties | undefined {
   if (!colors) return undefined;
 
   const style: Record<string, string> = {};
@@ -411,7 +434,11 @@ export function ComparisonBar({
   const scaleMax = maxValue ?? total;
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
   return (
-    <div className="metric-bar-track source-bar-track player-comparison-track" style={style} aria-label={ariaLabel}>
+    <div
+      className="metric-bar-track source-bar-track player-comparison-track"
+      style={style}
+      aria-label={ariaLabel}
+    >
       <span className="source-bar-fill" style={{ width: `${fillPercent}%` }}>
         {visible.map((segment) => (
           <span
@@ -420,7 +447,9 @@ export function ComparisonBar({
             style={{ flexGrow: segment.value }}
             title={segment.title ?? `${segment.label}: ${segment.value.toLocaleString()}`}
           >
-            {segment.visibleLabel ? <span className="source-segment-label">{segment.visibleLabel}</span> : null}
+            {segment.visibleLabel ? (
+              <span className="source-segment-label">{segment.visibleLabel}</span>
+            ) : null}
           </span>
         ))}
       </span>
