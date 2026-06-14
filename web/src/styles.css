@@ -2180,9 +2180,22 @@ tbody tr:last-child td {
   stroke-width: 2.5;
 }
 
+/* Thinner lines on the goal buildup than on the kickoff diagram. */
+.goal-diagram-panel .kickoff-path-line {
+  stroke-width: 1.5;
+}
+
+.goal-diagram-panel .kickoff-path.winner .kickoff-path-line {
+  stroke-width: 2;
+}
+
+.goal-diagram-panel .kickoff-ball-path {
+  stroke-width: 1.5;
+}
+
 /* Non-scoring players' runs sit back so the scorer's emphasized path stands out. */
 .goal-diagram-panel .kickoff-path:not(.scorer) .kickoff-path-line {
-  stroke-width: 2;
+  stroke-width: 1.4;
   opacity: 0.5;
 }
 
@@ -2227,8 +2240,8 @@ tbody tr:last-child td {
 
 .field-touch-car.scoring .field-car-body {
   stroke: #b45309;
-  stroke-width: 2;
-  filter: drop-shadow(0 0 3px rgba(180, 83, 9, 0.65));
+  stroke-width: 2.5;
+  filter: drop-shadow(0 0 5px rgba(180, 83, 9, 0.9)) drop-shadow(0 0 2px rgba(180, 83, 9, 0.9));
 }
 
 .field-touch-car.scoring .field-car-nose {
@@ -5638,8 +5651,11 @@ tbody tr:last-child td {
 .goal-card:has(.goal-diagram-panel) {
   display: flex;
   flex-direction: row;
-  align-items: center;
+  align-items: stretch;
   gap: 18px;
+  /* Positioning context for the absolutely-placed diagram, which is taken out of
+     flow so only the text column decides the card's height. */
+  position: relative;
 }
 
 .goal-card-info {
@@ -5651,13 +5667,17 @@ tbody tr:last-child td {
   flex: 1 1 auto;
 }
 
-/* No chrome around the field: the diagram fills its slot edge to edge, kept
-   compact at rest (its width comes from the field aspect ratio). The card grows
-   to fit it. */
+/* No chrome around the field: the diagram fills its slot edge to edge. It takes
+   its height from the rest of the row (the text column) and its width from the
+   field aspect ratio, so it just fits whatever the card already is. */
 .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
   display: grid;
-  flex: 0 0 auto;
-  height: clamp(110px, 13vw, 185px);
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  /* Height comes from the card (= the text column); width follows the field
+     aspect ratio. So the diagram just fits whatever the row already is. */
   aspect-ratio: 640 / 536;
   margin: 0;
   padding: 0;

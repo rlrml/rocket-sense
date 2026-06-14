@@ -67,6 +67,7 @@ export function GoalShapeDiagram({
       projection={projection}
       ariaLabel="Goal buildup player paths and ball trajectory"
       showCenter={false}
+      showBoosts={false}
       model={model}
     />
   );
@@ -93,21 +94,13 @@ function buildGoalModel(
     if (isScorer) scorerIndex = index;
     const points = samplePath(track, from, end, projection, MAX_PATH_POINTS);
     if (points.length < 2) return;
-    const start = points[0];
+    // No start dot: a circle at each run's start reads as a touch and is confusing.
+    // The only marked points are real touches (the cars) and the ball end.
     paths.push({
       key: `${meta?.playerName ?? track.name}-${index}`,
       team,
       groupClassName: isScorer ? "winner scorer" : "",
       points: pointsToString(points),
-      startMarker: (
-        <circle
-          className="kickoff-path-start-dot"
-          cx={start.x}
-          cy={start.y}
-          r={projection.toUnits(isScorer ? 220 : 150)}
-          vectorEffect="non-scaling-stroke"
-        />
-      ),
     });
   });
   // Scorer drawn last (on top), emphasized via CSS.
