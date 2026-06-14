@@ -2663,6 +2663,37 @@ button.status-stale:hover {
   background: var(--surface-subtle);
 }
 
+.mechanic-leaderboard-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.mechanic-leaderboard-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.mechanic-leaderboard-track {
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.source-segment.mechanic-leaderboard-segment {
+  background: var(--blue);
+}
+
+.mechanic-leaderboard-count {
+  min-width: 30px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 .source-segment.positioning-segment-defensive,
 .source-segment.positioning-segment-behind,
 .source-segment.positioning-segment-role-most_back,
@@ -5148,6 +5179,14 @@ button.status-stale:hover {
 
   .positioning-bar-row {
     grid-template-columns: 1fr;
+  }
+
+  .mechanic-leaderboard-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .mechanic-leaderboard-row > .player-bar-label {
+    grid-column: 1 / -1;
   }
 
   .kickoff-hero {
