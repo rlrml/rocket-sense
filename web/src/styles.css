@@ -5697,16 +5697,23 @@ tbody tr:last-child td {
    the field aspect being ~1.19) so it can never run off-screen. A quick zoom-in
    covers the jump from the in-card thumbnail to the centred view. */
 @media (hover: hover) {
+  /* The generic .goal-card:hover lift uses a transform, which would make the fixed
+     overlay below positioned/stacked relative to the card — trapping it behind the
+     page chrome. Drop it for diagram cards so the overlay escapes to the viewport. */
+  .goal-card:has(.goal-diagram-panel):hover {
+    transform: none;
+  }
+
   .goal-card:has(.goal-diagram-panel):hover > .goal-diagram-panel {
     position: fixed;
     top: 50%;
     left: 50%;
     right: auto;
     bottom: auto;
-    height: min(82vh, 72vw);
+    height: min(68vh, 58vw);
     width: auto;
     transform: translate(-50%, -50%);
-    z-index: 70;
+    z-index: 200;
     padding: 10px;
     border-radius: 10px;
     background: #f8fafc;
