@@ -1606,7 +1606,7 @@ function ReplayStatsPage() {
 
     setReplayLoading(true);
     setReplayError(null);
-    const replayPromise = getReplay(replayId);
+    const replayPromise = getReplay(replayId, { forceRefresh: true });
     replayPromise
       .then((response) => {
         if (!cancelled) setReplay(response);
