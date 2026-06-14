@@ -79,6 +79,7 @@ use utoipa::{
             players::PlayerProfileReplayTeamScoresResponse,
             player_overview::PlayerStatOverviewResponse,
             player_overview::GoalTagAggregateResponse,
+            player_overview::ScoringRateResponse,
             player_overview::RotationTimeShareResponse,
             possession_stats::PossessionSummaryResponse,
             possession_stats::PossessionTeammateComparison,

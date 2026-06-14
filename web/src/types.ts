@@ -307,6 +307,9 @@ export interface GoalTagAggregateResponse {
   display_name: string;
   count: number;
   share_of_goals: number | null;
+  per_active_minute: number | null;
+  teammate_count: number;
+  teammate_per_active_minute: number | null;
   avg_confidence: number | null;
 }
 
@@ -317,9 +320,18 @@ export interface RotationTimeShareResponse {
   span_count: number;
 }
 
+export interface ScoringRateResponse {
+  count: number;
+  per_active_minute: number | null;
+  teammate_count: number;
+  teammate_per_active_minute: number | null;
+}
+
 export interface PlayerStatOverviewResponse {
   replay_count: number;
   goals_scored: number;
+  goals: ScoringRateResponse;
+  assists: ScoringRateResponse;
   goal_tags: GoalTagAggregateResponse[];
   rotation_roles: RotationTimeShareResponse[];
   rotation_depths: RotationTimeShareResponse[];
