@@ -65,8 +65,10 @@ import {
 import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
 import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
-import { StalenessBadge } from "./staleness";
+import { StalenessChip } from "./staleness";
 import { PlatformIcon } from "./platform";
+import { Chip } from "./chip";
+import type { ChipTone } from "./chip";
 import {
   PlayerIdentity,
   playerIdentityKey,
@@ -605,13 +607,9 @@ function ReplayListPage() {
               </div>
               <div className="replay-card-meta">
                 <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
-                <span>{formatDate(replay.replay_date || replay.created_at)}</span>
-                <span className="subtle">{formatDuration(replay.summary.duration_seconds)}</span>
-                <StatusBadge status={replay.status} />
-                <StalenessBadge
-                  staleness={replay.staleness}
-                  processingVersion={replay.processing_version}
-                />
+                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
+                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
+                <ReplayStatusChip replay={replay} currentUser={currentUser} />
               </div>
             </header>
             <ReplayTeams replay={replay} />
@@ -1058,32 +1056,32 @@ function GameTypeBadges({
   metadata: ReplayPlaylistMetadata | null;
   fallback: string | null;
 }) {
-  const badges: Array<{ key: string; label: string; tone: string }> = [];
+  const badges: Array<{ key: string; label: string; tone: ChipTone }> = [];
   const context = metadata?.ranked
     ? "ranked"
     : metadata?.casual
       ? "casual"
       : metadata?.category;
   if (context) {
-    const tone = context === "ranked" ? "ranked" : context === "casual" ? "casual" : "context";
+    const tone: ChipTone = context === "ranked" ? "green" : context === "casual" ? "blue" : "purple";
     badges.push({ key: "context", label: titleCase(context), tone });
   }
   if (metadata?.ruleset) {
-    badges.push({ key: "ruleset", label: titleCase(metadata.ruleset), tone: "ruleset" });
+    badges.push({ key: "ruleset", label: titleCase(metadata.ruleset), tone: "neutral" });
   }
   if (metadata?.team_size) {
-    badges.push({ key: "size", label: `${metadata.team_size}v${metadata.team_size}`, tone: "size" });
+    badges.push({ key: "size", label: `${metadata.team_size}v${metadata.team_size}`, tone: "slate" });
   }
   if (badges.length === 0) {
-    badges.push({ key: "playlist", label: playlistLabel(metadata, fallback), tone: "context" });
+    badges.push({ key: "playlist", label: playlistLabel(metadata, fallback), tone: "purple" });
   }
   const title = playlistLabel(metadata, fallback);
   return (
     <span className="game-badges" title={title}>
       {badges.map((badge) => (
-        <span key={badge.key} className={`game-badge game-badge-${badge.tone}`}>
+        <Chip key={badge.key} tone={badge.tone}>
           {badge.label}
-        </span>
+        </Chip>
       ))}
     </span>
   );
@@ -1174,9 +1172,9 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
         approximateAsOf={player.rank_fallback_replay_date}
       />
       {isMvp ? (
-        <span className="mvp-chip" title="MVP: highest score on the winning team">
+        <Chip tone="mvp" title="MVP: highest score on the winning team">
           MVP
-        </span>
+        </Chip>
       ) : null}
       {hasStats ? (
         <span className="player-statline" title="Goals / Assists / Saves / Shots · Score">
@@ -1615,9 +1613,11 @@ function ReplayStatsPage() {
         </div>
         <div className="button-row">
           {replay?.staleness.is_stale ? (
-            <StalenessBadge
+            <StalenessChip
               staleness={replay.staleness}
               processingVersion={replay.processing_version}
+              replayId={replayId}
+              canReprocess={canReprocess}
             />
           ) : null}
           {canReprocess ? (
@@ -4677,6 +4677,43 @@ function StatusLine({ loading, error, count, label }: { loading: boolean; error:
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge status-${status}`}>{statusLabel(status)}</span>;
+}
+
+const STATUS_TONE: Record<string, ChipTone> = {
+  processed: "green",
+  processing: "blue",
+  pending: "blue",
+  failed: "red",
+};
+
+/**
+ * Replay-list status chip. A stale-but-processed replay renders as a single
+ * amber "Processed" chip with a folded-in warning that opens the staleness
+ * detail modal; anything else is a plain tone-coded chip.
+ */
+function ReplayStatusChip({
+  replay,
+  currentUser,
+}: {
+  replay: ReplayResponse;
+  currentUser: CurrentUserResponse | null;
+}) {
+  const isStale = replay.status === "processed" && replay.staleness.is_stale;
+  if (isStale) {
+    const canReprocess = Boolean(
+      currentUser && (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
+    );
+    return (
+      <StalenessChip
+        staleness={replay.staleness}
+        processingVersion={replay.processing_version}
+        replayId={replay.id}
+        label={statusLabel(replay.status)}
+        canReprocess={canReprocess}
+      />
+    );
+  }
+  return <Chip tone={STATUS_TONE[replay.status] ?? "neutral"}>{statusLabel(replay.status)}</Chip>;
 }
 
 function statusLabel(status: string): string {

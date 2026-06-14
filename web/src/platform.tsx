@@ -1,5 +1,7 @@
 import { siEpicgames, siPlaystation, siQq, siSteam } from "simple-icons";
 
+import { Chip } from "./chip";
+
 type KnownPlatform = "steam" | "epic" | "playstation" | "xbox" | "switch" | "splitscreen" | "qq";
 
 export function platformLabel(value: string | null): string {
@@ -79,7 +81,7 @@ export function PlatformIcon({ platform }: { platform: string | null }) {
   const key = normalizePlatform(platform);
   const label = platformLabel(platform);
   if (!key) {
-    return <span className="platform-chip">{label}</span>;
+    return <Chip>{label}</Chip>;
   }
   return (
     <span className="platform-icon" title={label} aria-label={label}>
