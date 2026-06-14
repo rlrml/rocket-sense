@@ -92,7 +92,10 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
   const goalKey = useCallback((goal: GoalRow) => goal.event.id, []);
   const buildClip = useCallback(buildGoalClip, []);
   const goalTypeHref = useCallback(
-    (type: GoalType) => replayId ? `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}` : undefined,
+    (type: GoalType) =>
+      replayId
+        ? `/replays/${encodeURIComponent(replayId)}/goals/${encodeURIComponent(type.key)}`
+        : undefined,
     [replayId],
   );
 
@@ -216,9 +219,14 @@ function GoalScorerLeaderboard({ goals, players }: { goals: GoalRow[]; players: 
                 <StatPlayerLabel
                   name={row.name}
                   platform={row.player?.platform ?? null}
-                  profilePath={playerProfilePath(row.player?.platform, row.player?.platform_player_id)}
+                  profilePath={playerProfilePath(
+                    row.player?.platform,
+                    row.player?.platform_player_id,
+                  )}
                   rank={row.player ? statPlayerRank(row.player) : null}
-                  subtitle={row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
+                  subtitle={
+                    row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`
+                  }
                 />
               </td>
               <td>{row.goals.toLocaleString()}</td>
@@ -300,9 +308,13 @@ export function GoalCard({
       <div className="goal-card-info">
         <div className="kickoff-card-header">
           <div className="goal-card-heading">
-            <span className={`goal-card-index team-chip-${teamClass(goal.scoringTeam)}`}>{goal.index + 1}</span>
+            <span className={`goal-card-index team-chip-${teamClass(goal.scoringTeam)}`}>
+              {goal.index + 1}
+            </span>
             <h4>{goal.scorerName}</h4>
-            <span className={`kickoff-goal-chip team-chip-${teamClass(goal.scoringTeam)}`}>{teamLabel(goal.scoringTeam)}</span>
+            <span className={`kickoff-goal-chip team-chip-${teamClass(goal.scoringTeam)}`}>
+              {teamLabel(goal.scoringTeam)}
+            </span>
           </div>
           <strong>{formatSeconds(goal.time)}</strong>
         </div>
@@ -316,7 +328,8 @@ export function GoalCard({
               const confidenceTitle =
                 (type.confidence == null
                   ? displayLabel
-                  : `${displayLabel} — ${(type.confidence * 100).toFixed(0)}% confidence`) + detailSuffix;
+                  : `${displayLabel} — ${(type.confidence * 100).toFixed(0)}% confidence`) +
+                detailSuffix;
               const href = typeHref?.(type);
               // The card itself is a <button>, so the chip can't be a real link;
               // route imperatively instead and keep the card's hover/click intact.
@@ -417,7 +430,10 @@ function scorerRows(goals: GoalRow[], players: ReplayPlayer[]): ScorerRow[] {
 
   for (const goal of goals) {
     const playerIndex = players.findIndex((player) => goalMatchesPlayer(player, goal));
-    const key = playerIndex >= 0 ? playerKey(players[playerIndex], playerIndex) : `name:${goal.scorerName.toLowerCase()}`;
+    const key =
+      playerIndex >= 0
+        ? playerKey(players[playerIndex], playerIndex)
+        : `name:${goal.scorerName.toLowerCase()}`;
     const currentGoals = goalsByPlayer.get(key) ?? [];
     currentGoals.push(goal);
     goalsByPlayer.set(key, currentGoals);
@@ -449,7 +465,9 @@ function goalTagRows(goals: GoalRow[]): GoalTagRow[] {
 
   for (const goal of goals) {
     for (const type of goal.types) {
-      const detailLabel = type.details.map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`).join(", ");
+      const detailLabel = type.details
+        .map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`)
+        .join(", ");
       const row = rows.get(type.key);
       rows.set(type.key, {
         key: type.key,
@@ -470,9 +488,12 @@ function goalTagRows(goals: GoalRow[]): GoalTagRow[] {
   for (const row of rows.values()) {
     const playerCounts = playerCountsByTag.get(row.key) ?? new Map<string, number>();
     row.playerCount = playerCounts.size;
-    row.leader = [...playerCounts.entries()]
-      .map(([key, count]) => ({ name: goalPlayerName(goals, key), count }))
-      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name))[0] ?? null;
+    row.leader =
+      [...playerCounts.entries()]
+        .map(([key, count]) => ({ name: goalPlayerName(goals, key), count }))
+        .sort(
+          (left, right) => right.count - left.count || left.name.localeCompare(right.name),
+        )[0] ?? null;
   }
 
   return [...rows.values()].sort((left, right) => {
@@ -490,19 +511,30 @@ function countsFromGoalTypes(goals: GoalRow[]): CountRow[] {
       counts.set(type.key, { key: type.key, label, count: (row?.count ?? 0) + 1 });
     }
   }
-  return [...counts.values()].sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  return [...counts.values()].sort(
+    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+  );
 }
 
 function goalMatchesPlayer(player: ReplayPlayer, goal: GoalRow): boolean {
   const eventPlayerId = goal.event.player_id?.trim();
-  if (eventPlayerId && (player.platform_player_id === eventPlayerId || playerIdentity(player) === eventPlayerId)) {
+  if (
+    eventPlayerId &&
+    (player.platform_player_id === eventPlayerId || playerIdentity(player) === eventPlayerId)
+  ) {
     return true;
   }
-  return Boolean(goal.scorerName && player.name?.trim().toLowerCase() === goal.scorerName.trim().toLowerCase());
+  return Boolean(
+    goal.scorerName && player.name?.trim().toLowerCase() === goal.scorerName.trim().toLowerCase(),
+  );
 }
 
 function goalPlayerName(goals: GoalRow[], key: string): string {
-  return goals.find((goal) => goal.event.player_id === key || `name:${goal.scorerName.toLowerCase()}` === key)?.scorerName ?? "Unknown";
+  return (
+    goals.find(
+      (goal) => goal.event.player_id === key || `name:${goal.scorerName.toLowerCase()}` === key,
+    )?.scorerName ?? "Unknown"
+  );
 }
 
 function playerIdentity(player: ReplayPlayer): string | null {
@@ -525,7 +557,9 @@ export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
   return events
     .filter((event) => event.event_type === "goal_context")
     .map((event) => ({ event, sortKey: goalTime(event) ?? 0 }))
-    .sort((left, right) => left.sortKey - right.sortKey || left.event.id.localeCompare(right.event.id))
+    .sort(
+      (left, right) => left.sortKey - right.sortKey || left.event.id.localeCompare(right.event.id),
+    )
     .map(({ event }, index) => {
       const payload = (event.payload ?? {}) as Record<string, unknown>;
       return {
@@ -580,15 +614,23 @@ function goalTypeSubLabel(details: GoalTypeDetail[]): string | null {
   return kind && kind !== "other" && kind !== "unknown" ? formatLabel(kind) : null;
 }
 
-function objectField(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
+function objectField(
+  payload: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | null {
   const value = payload[key];
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 function arrayField(payload: Record<string, unknown>, key: string): Record<string, unknown>[] {
   const value = payload[key];
   return Array.isArray(value)
-    ? value.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+    ? value.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) && typeof item === "object" && !Array.isArray(item),
+      )
     : [];
 }
 

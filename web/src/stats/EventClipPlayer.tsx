@@ -1,5 +1,7 @@
 import {
+  createBallchasingOverlayPlugin,
   createViewerFromParsed,
+  fromReplayPlayerPlugin,
   type ReplayModel,
   type ViewerFreeCameraPreset,
   type ViewerPlayer,
@@ -23,7 +25,11 @@ export interface EventClipCameraControls {
    * Returns true if a matching track was found and the camera was attached, false
    * otherwise (so the caller can decide on a fallback).
    */
-  followPlayer(target: { playerKey?: string | null; playerName?: string | null; ballCam?: boolean }): boolean;
+  followPlayer(target: {
+    playerKey?: string | null;
+    playerName?: string | null;
+    ballCam?: boolean;
+  }): boolean;
   /** Switch to a free-roaming camera preset (defaults to "side"). */
   freeCamera(preset?: ViewerFreeCameraPreset): void;
 }
@@ -122,7 +128,12 @@ export function EventClipPreview({
   );
 }
 
-export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }: EventClipPlayerProps) {
+export function EventClipPlayer({
+  replayId,
+  clip,
+  showDebug = false,
+  onClipEnd,
+}: EventClipPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<ViewerPlayer | null>(null);
   const loopRef = useRef<{ start: number; end: number } | null>(null);
@@ -212,30 +223,30 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
     const resolvedStartTime = target.resolveStart
       ? target.resolveStart(replay, target.start)
       : null;
-    const resolvedEndTime = target.resolveEnd
-      ? target.resolveEnd(replay, target.end)
-      : null;
+    const resolvedEndTime = target.resolveEnd ? target.resolveEnd(replay, target.end) : null;
     const start =
       resolvedStartTime != null
         ? resolvedStartTime
         : startFrameTime != null
-        ? startFrameTime
-        : anchorTime != null
-        ? Math.max(0, anchorTime - (target.prerollSeconds ?? 0))
-        : target.start;
+          ? startFrameTime
+          : anchorTime != null
+            ? Math.max(0, anchorTime - (target.prerollSeconds ?? 0))
+            : target.start;
     const end =
       resolvedEndTime != null
         ? resolvedEndTime
         : endFrameTime != null
-        ? endFrameTime
-        : anchorTime != null
-        ? Math.min(replay.duration, anchorTime + (target.postrollSeconds ?? 0))
-        : target.end;
+          ? endFrameTime
+          : anchorTime != null
+            ? Math.min(replay.duration, anchorTime + (target.postrollSeconds ?? 0))
+            : target.end;
     loopRef.current = { start, end };
     const cameraControls: EventClipCameraControls = {
       followPlayer({ playerKey, playerName, ballCam }) {
         const trackId =
-          (playerKey ? trackByPlayerKeyRef.current.get(normalizePlayerKey(playerKey)) : undefined) ??
+          (playerKey
+            ? trackByPlayerKeyRef.current.get(normalizePlayerKey(playerKey))
+            : undefined) ??
           (playerName ? trackByNameRef.current.get(playerName.trim().toLowerCase()) : undefined);
         if (trackId == null) {
           return false;
@@ -310,6 +321,30 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
           // landing outside the requested event context.
           initialSkipKickoffsEnabled: false,
           initialSkipPostGoalTransitionsEnabled: false,
+          // The vendored player dist defaults its asset base to a *relative*
+          // path (right for its GitHub Pages deploy). Embedded at a nested SPA
+          // route that breaks: car/ball/draco URLs resolve against the route and
+          // 404. Pin to the origin root, where the backend serves /models and
+          // /draco (vite proxies both in dev).
+          assetBase: "/",
+          // No skybox: the neutral background matches the prior inline player,
+          // and /skyboxes isn't served at the root (only inside the standalone
+          // player tree), so the default "space" HDR would just 404.
+          environment: false,
+          // Show only the followed-player boost meter — the perspective we're
+          // locked to. The floating per-car bars and top team HUD are sized for
+          // a full-screen player and overwhelm this compact (~208px) clip, so we
+          // disable them here. The meter is scaled down + pinned bottom-right in
+          // styles.css (.event-clip-canvas .sap-bc-followed-*).
+          plugins: [
+            fromReplayPlayerPlugin(
+              createBallchasingOverlayPlugin({
+                showFloatingNames: false,
+                showFloatingBoostBars: false,
+                showTeamBoostHud: false,
+              }),
+            ),
+          ],
         });
         player.setFreeCameraPreset("side");
         unsubscribeBeforeRender = player.onBeforeRender((info) => {
@@ -349,7 +384,9 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
       .catch((error: unknown) => {
         if (!cancelled) {
           setStatus("error");
-          setErrorMessage(error instanceof Error ? `${error.name}: ${error.message}` : String(error));
+          setErrorMessage(
+            error instanceof Error ? `${error.name}: ${error.message}` : String(error),
+          );
         }
         console.error("Failed to load replay for event preview:", error);
       });
@@ -379,7 +416,9 @@ export function EventClipPlayer({ replayId, clip, showDebug = false, onClipEnd }
       {showDebug ? <div className="event-clip-debug">{debug}</div> : null}
       {status !== "ready" ? (
         <div className="event-clip-status">
-          {status === "loading" ? "Loading replay…" : errorMessage ?? "Replay preview unavailable"}
+          {status === "loading"
+            ? "Loading replay…"
+            : (errorMessage ?? "Replay preview unavailable")}
         </div>
       ) : null}
     </div>

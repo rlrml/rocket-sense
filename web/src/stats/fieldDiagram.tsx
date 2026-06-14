@@ -6,7 +6,7 @@
 // shared <FieldDiagramSurface>.
 
 import type { ReplayModel } from "@rlrml/viewer";
-import { type ReactNode, useEffect, useId, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import { type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
 import { type PathPoint, round } from "./replayPaths";
@@ -14,7 +14,10 @@ import { type PathPoint, round } from "./replayPaths";
 type Vec3Like = { x: number; y: number; z: number };
 
 /** Load (and cache) the parsed replay model, exposing simple ready/error state. */
-export function useReplayModel(replayId: string): { replay: ReplayModel | null; error: string | null } {
+export function useReplayModel(replayId: string): {
+  replay: ReplayModel | null;
+  error: string | null;
+} {
   const [replay, setReplay] = useState<ReplayModel | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -237,7 +240,12 @@ export interface FieldDiagramSurfaceProps {
  * Presentational SVG shell: field background, ball trajectory, player paths, touch
  * cars and the ball-end marker. All data arrives pre-projected in `model`.
  */
-export function FieldDiagramSurface({ projection, ariaLabel, model, showCenter = true }: FieldDiagramSurfaceProps) {
+export function FieldDiagramSurface({
+  projection,
+  ariaLabel,
+  model,
+  showCenter = true,
+}: FieldDiagramSurfaceProps) {
   const rawId = useId();
   const markerId = rawId.replace(/:/g, "");
   const arrow = (team: number) => `url(#${markerId}-arrow-${teamColorClass(team)})`;
@@ -254,21 +262,55 @@ export function FieldDiagramSurface({ projection, ariaLabel, model, showCenter =
         aria-label={ariaLabel}
       >
         <defs>
-          <marker id={`${markerId}-arrow-blue`} className="kickoff-arrow blue" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <marker
+            id={`${markerId}-arrow-blue`}
+            className="kickoff-arrow blue"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L6,3 L0,6 Z" />
           </marker>
-          <marker id={`${markerId}-arrow-orange`} className="kickoff-arrow orange" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
+          <marker
+            id={`${markerId}-arrow-orange`}
+            className="kickoff-arrow orange"
+            markerWidth="6"
+            markerHeight="6"
+            refX="3"
+            refY="3"
+            orient="auto"
+          >
             <path d="M0,0 L6,3 L0,6 Z" />
           </marker>
         </defs>
 
-        <KickoffFieldBackground projection={projection} showCenter={showCenter} ballRadius={projection.toUnits(120)} />
+        <KickoffFieldBackground
+          projection={projection}
+          showCenter={showCenter}
+          ballRadius={projection.toUnits(120)}
+        />
 
-        {ballPoints ? <polyline className="kickoff-ball-path" points={ballPoints} vectorEffect="non-scaling-stroke" /> : null}
+        {ballPoints ? (
+          <polyline
+            className="kickoff-ball-path"
+            points={ballPoints}
+            vectorEffect="non-scaling-stroke"
+          />
+        ) : null}
 
         {paths.map((path) => (
-          <g key={path.key} className={`kickoff-path team-${teamColorClass(path.team)} ${path.groupClassName ?? ""}`}>
-            <polyline className="kickoff-path-line" points={path.points} markerEnd={arrow(path.team)} vectorEffect="non-scaling-stroke" />
+          <g
+            key={path.key}
+            className={`kickoff-path team-${teamColorClass(path.team)} ${path.groupClassName ?? ""}`}
+          >
+            <polyline
+              className="kickoff-path-line"
+              points={path.points}
+              markerEnd={arrow(path.team)}
+              vectorEffect="non-scaling-stroke"
+            />
             {path.startMarker}
           </g>
         ))}
@@ -288,7 +330,13 @@ export function FieldDiagramSurface({ projection, ariaLabel, model, showCenter =
         )}
 
         {ballEnd ? (
-          <circle className={`kickoff-ball-end ${ballEndClassName ?? ""}`} cx={ballEnd.x} cy={ballEnd.y} r={projection.toUnits(150)} vectorEffect="non-scaling-stroke" />
+          <circle
+            className={`kickoff-ball-end ${ballEndClassName ?? ""}`}
+            cx={ballEnd.x}
+            cy={ballEnd.y}
+            r={projection.toUnits(150)}
+            vectorEffect="non-scaling-stroke"
+          />
         ) : null}
 
         {/* The decisive scoring touch is drawn last so its car sits on top. */}

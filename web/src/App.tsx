@@ -28,7 +28,15 @@ import {
   Zap,
 } from "lucide-react";
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  NavLink,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import {
   addReplaysToGroup,
   clearAccessToken,
@@ -63,18 +71,16 @@ import {
   uploadReplay,
 } from "./api";
 import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
-import { completedStatGroups, eventTypesForGroup, statGroupById, statGroups } from "./stats/registry";
+import {
+  completedStatGroups,
+  eventTypesForGroup,
+  statGroupById,
+  statGroups,
+} from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
 import { PlatformIcon } from "./platform";
-import { Chip } from "./chip";
-import type { ChipTone } from "./chip";
-import {
-  PlayerIdentity,
-  playerIdentityKey,
-  replayLocalTeamClass,
-  replayLocalTeamLabel,
-} from "./playerIdentity";
+import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
 import { RankBadge } from "./rank";
 import {
   KickoffSpawnBreakdown,
@@ -87,6 +93,7 @@ import {
   PossessionSummaryPanel,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
+  ScoringRatePanel,
 } from "./stats/playerPanels";
 import type {
   AuthOptionsResponse,
@@ -163,7 +170,10 @@ export function App() {
             <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />
             <Route path="/replay-groups/:groupId" element={<ReplayGroupStatsPage />} />
             <Route path="/replay-groups/:groupId/stats" element={<ReplayGroupStatsPage />} />
-            <Route path="/replay-groups/:groupId/stats/:statGroup" element={<ReplayGroupStatsPage />} />
+            <Route
+              path="/replay-groups/:groupId/stats/:statGroup"
+              element={<ReplayGroupStatsPage />}
+            />
             <Route
               path="/replays/:replayId/goals"
               element={
@@ -181,8 +191,14 @@ export function App() {
               }
             />
             <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
-            <Route path="/players/:platform/:platformPlayerId/stats" element={<PlayerStatsPage />} />
-            <Route path="/players/:platform/:platformPlayerId/stats/:statGroup" element={<PlayerStatsPage />} />
+            <Route
+              path="/players/:platform/:platformPlayerId/stats"
+              element={<PlayerStatsPage />}
+            />
+            <Route
+              path="/players/:platform/:platformPlayerId/stats/:statGroup"
+              element={<PlayerStatsPage />}
+            />
             <Route
               path="/players/:platform/:platformPlayerId/goals"
               element={
@@ -206,7 +222,13 @@ export function App() {
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
         )}
-        {warmReplayId ? <SubtrActorPlayerFrame key={warmReplayId} replayId={warmReplayId} visible={Boolean(playerReplayId)} /> : null}
+        {warmReplayId ? (
+          <SubtrActorPlayerFrame
+            key={warmReplayId}
+            replayId={warmReplayId}
+            visible={Boolean(playerReplayId)}
+          />
+        ) : null}
       </main>
     </div>
   );
@@ -369,9 +391,17 @@ function ReplayListPage() {
   const canPageBackward = offset > 0;
   const canPageForward = total == null ? replays.length === pageSize : nextOffset < total;
   const activeFilterChips = replayFilterChips(searchParams);
-  const visiblePageSizeOptions = pageSizeOptions.includes(pageSize) ? pageSizeOptions : [...pageSizeOptions, pageSize].sort((a, b) => a - b);
-  const mapOptions = replayOptionChoices(filters.map, [...filterOptions.maps, ...mapOptionsFromReplays(replays)]);
-  const seasonOptions = replayOptionChoices(filters.season, [...filterOptions.seasons, ...seasonOptionsFromReplays(replays)]);
+  const visiblePageSizeOptions = pageSizeOptions.includes(pageSize)
+    ? pageSizeOptions
+    : [...pageSizeOptions, pageSize].sort((a, b) => a - b);
+  const mapOptions = replayOptionChoices(filters.map, [
+    ...filterOptions.maps,
+    ...mapOptionsFromReplays(replays),
+  ]);
+  const seasonOptions = replayOptionChoices(filters.season, [
+    ...filterOptions.seasons,
+    ...seasonOptionsFromReplays(replays),
+  ]);
   const replayOrder = replayOrderFromParams(searchParams);
   const activeGroupId = searchParams.get("group");
   const replayFilterFields: FilterFieldConfig[] = [
@@ -400,14 +430,20 @@ function ReplayListPage() {
       id: "map",
       label: "Map",
       value: filters.map,
-      options: [{ value: "", label: "Any" }, ...mapOptions.map((option) => ({ value: option.value, label: optionLabel(option) }))],
+      options: [
+        { value: "", label: "Any" },
+        ...mapOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
+      ],
       onChange: (value) => setFilters({ ...filters, map: value }),
     },
     {
       id: "season",
       label: "Season",
       value: filters.season,
-      options: [{ value: "", label: "Any" }, ...seasonOptions.map((option) => ({ value: option.value, label: optionLabel(option) }))],
+      options: [
+        { value: "", label: "Any" },
+        ...seasonOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
+      ],
       onChange: (value) => setFilters({ ...filters, season: value }),
     },
     {
@@ -486,7 +522,10 @@ function ReplayListPage() {
           />
         </label>
         {activeGroupId ? (
-          <Link className="secondary-button" to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}>
+          <Link
+            className="secondary-button"
+            to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}
+          >
             <BarChart3 size={16} />
             Group stats
           </Link>
@@ -530,7 +569,10 @@ function ReplayListPage() {
         <div className="pagination-controls">
           <label>
             Order
-            <select value={replayOrder} onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}>
+            <select
+              value={replayOrder}
+              onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}
+            >
               {replayOrderOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
@@ -540,7 +582,10 @@ function ReplayListPage() {
           </label>
           <label>
             Page size
-            <select value={String(pageSize)} onChange={(event) => updatePageSize(event.currentTarget.value)}>
+            <select
+              value={String(pageSize)}
+              onChange={(event) => updatePageSize(event.currentTarget.value)}
+            >
               {visiblePageSizeOptions.map((value) => (
                 <option key={value} value={value}>
                   {value}
@@ -548,13 +593,25 @@ function ReplayListPage() {
               ))}
             </select>
           </label>
-          <button type="button" className="icon-button" title="Previous page" disabled={!canPageBackward || loading} onClick={() => goToOffset(previousOffset)}>
+          <button
+            type="button"
+            className="icon-button"
+            title="Previous page"
+            disabled={!canPageBackward || loading}
+            onClick={() => goToOffset(previousOffset)}
+          >
             <ChevronLeft size={17} />
           </button>
           <span className="page-count">
             {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
           </span>
-          <button type="button" className="icon-button" title="Next page" disabled={!canPageForward || loading} onClick={() => goToOffset(nextOffset)}>
+          <button
+            type="button"
+            className="icon-button"
+            title="Next page"
+            disabled={!canPageForward || loading}
+            onClick={() => goToOffset(nextOffset)}
+          >
             <ChevronRight size={17} />
           </button>
         </div>
@@ -602,20 +659,35 @@ function ReplayListPage() {
                   <Link className="primary-link" to={`/replays/${replay.id}`}>
                     {replay.original_file_name || replay.id}
                   </Link>
-                  <span className="subtle">{replay.map_code || replay.summary.match_guid || replay.file_sha256.slice(0, 12)}</span>
+                  <span className="subtle">
+                    {replay.map_code ||
+                      replay.summary.match_guid ||
+                      replay.file_sha256.slice(0, 12)}
+                  </span>
                 </div>
               </div>
               <div className="replay-card-meta">
                 <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
-                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
-                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
-                <ReplayStatusChip replay={replay} currentUser={currentUser} />
+                <span>{formatDate(replay.replay_date || replay.created_at)}</span>
+                <span className="subtle">{formatDuration(replay.summary.duration_seconds)}</span>
+                <StatusBadge status={replay.status} />
+                <StalenessChip
+                  canReprocess={Boolean(
+                    currentUser &&
+                    (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
+                  )}
+                  replayId={replay.id}
+                  staleness={replay.staleness}
+                  processingVersion={replay.processing_version}
+                />
               </div>
             </header>
             <ReplayTeams replay={replay} />
           </article>
         ))}
-        {!loading && replays.length === 0 ? <div className="status-line">No replays found.</div> : null}
+        {!loading && replays.length === 0 ? (
+          <div className="status-line">No replays found.</div>
+        ) : null}
       </div>
     </section>
   );
@@ -713,7 +785,13 @@ interface FilterFieldConfig {
   step?: string;
 }
 
-function FilterGrid({ fields, className = "" }: { fields: FilterFieldConfig[]; className?: string }) {
+function FilterGrid({
+  fields,
+  className = "",
+}: {
+  fields: FilterFieldConfig[];
+  className?: string;
+}) {
   return (
     <div className={`filter-grid ${className}`.trim()}>
       {fields.map((field) => (
@@ -728,7 +806,11 @@ function FilterField({ field }: { field: FilterFieldConfig }) {
     <label>
       {field.label}
       {field.options ? (
-        <select value={field.value} name={field.name} onChange={(event) => field.onChange(event.currentTarget.value)}>
+        <select
+          value={field.value}
+          name={field.name}
+          onChange={(event) => field.onChange(event.currentTarget.value)}
+        >
           {field.options.map((option) => (
             <option key={`${field.id}-${option.value}`} value={option.value}>
               {option.label}
@@ -831,14 +913,19 @@ function ReplayGroupListPage() {
                 <BarChart3 size={16} />
                 Stats
               </Link>
-              <Link className="secondary-button" to={`/replays?group=${encodeURIComponent(group.id)}`}>
+              <Link
+                className="secondary-button"
+                to={`/replays?group=${encodeURIComponent(group.id)}`}
+              >
                 <FileVideo size={16} />
                 Replays
               </Link>
             </div>
           </article>
         ))}
-        {!loading && groups.length === 0 ? <div className="status-line">No replay groups found.</div> : null}
+        {!loading && groups.length === 0 ? (
+          <div className="status-line">No replay groups found.</div>
+        ) : null}
       </div>
     </section>
   );
@@ -901,7 +988,11 @@ function replayFiltersToParams(filters: ReplayFilterForm): URLSearchParams {
   return params;
 }
 
-function navigateWithReplayParams(navigate: ReturnType<typeof useNavigate>, currentSearch: string, params: URLSearchParams) {
+function navigateWithReplayParams(
+  navigate: ReturnType<typeof useNavigate>,
+  currentSearch: string,
+  params: URLSearchParams,
+) {
   const existing = new URLSearchParams(currentSearch);
   for (const key of ["count", "group", "project", "uploader", "sort-by", "sort-dir"]) {
     const value = existing.get(key);
@@ -918,7 +1009,10 @@ function setTrimmedParam(params: URLSearchParams, key: string, value: string) {
 }
 
 function appendListParams(params: URLSearchParams, key: string, value: string) {
-  for (const item of value.split(",").map((part) => part.trim()).filter(Boolean)) {
+  for (const item of value
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)) {
     params.append(key, item);
   }
 }
@@ -956,7 +1050,10 @@ function replayOrderFromParams(params: URLSearchParams): ReplayOrder {
   return `${sortBy}:${sortDir}` as ReplayOrder;
 }
 
-function replayOptionChoices(currentValue: string, options: ReplayFilterOption[]): ReplayFilterOption[] {
+function replayOptionChoices(
+  currentValue: string,
+  options: ReplayFilterOption[],
+): ReplayFilterOption[] {
   const byValue = new Map<string, ReplayFilterOption>();
   for (const option of options) {
     if (!option.value.trim()) continue;
@@ -995,7 +1092,8 @@ function optionLabel(option: ReplayFilterOption): string {
 function replayFilterChips(params: URLSearchParams): string[] {
   const chips: string[] = [];
   for (const [key, value] of params.entries()) {
-    if (!value || key === "offset" || key === "count" || key === "sort-by" || key === "sort-dir") continue;
+    if (!value || key === "offset" || key === "count" || key === "sort-by" || key === "sort-dir")
+      continue;
     chips.push(`${filterLabel(key)}: ${filterValueLabel(key, value)}`);
   }
   return chips;
@@ -1056,32 +1154,32 @@ function GameTypeBadges({
   metadata: ReplayPlaylistMetadata | null;
   fallback: string | null;
 }) {
-  const badges: Array<{ key: string; label: string; tone: ChipTone }> = [];
-  const context = metadata?.ranked
-    ? "ranked"
-    : metadata?.casual
-      ? "casual"
-      : metadata?.category;
+  const badges: Array<{ key: string; label: string; tone: string }> = [];
+  const context = metadata?.ranked ? "ranked" : metadata?.casual ? "casual" : metadata?.category;
   if (context) {
-    const tone: ChipTone = context === "ranked" ? "green" : context === "casual" ? "blue" : "purple";
+    const tone = context === "ranked" ? "ranked" : context === "casual" ? "casual" : "context";
     badges.push({ key: "context", label: titleCase(context), tone });
   }
   if (metadata?.ruleset) {
-    badges.push({ key: "ruleset", label: titleCase(metadata.ruleset), tone: "neutral" });
+    badges.push({ key: "ruleset", label: titleCase(metadata.ruleset), tone: "ruleset" });
   }
   if (metadata?.team_size) {
-    badges.push({ key: "size", label: `${metadata.team_size}v${metadata.team_size}`, tone: "slate" });
+    badges.push({
+      key: "size",
+      label: `${metadata.team_size}v${metadata.team_size}`,
+      tone: "size",
+    });
   }
   if (badges.length === 0) {
-    badges.push({ key: "playlist", label: playlistLabel(metadata, fallback), tone: "purple" });
+    badges.push({ key: "playlist", label: playlistLabel(metadata, fallback), tone: "context" });
   }
   const title = playlistLabel(metadata, fallback);
   return (
     <span className="game-badges" title={title}>
       {badges.map((badge) => (
-        <Chip key={badge.key} tone={badge.tone}>
+        <span key={badge.key} className={`game-badge game-badge-${badge.tone}`}>
           {badge.label}
-        </Chip>
+        </span>
       ))}
     </span>
   );
@@ -1104,9 +1202,23 @@ function ReplayTeams({ replay }: { replay: ReplayResponse }) {
 
   return (
     <div className="teams-cell">
-      <TeamBlock label="Blue" players={blue} tone="blue" score={replay.summary.team_scores.blue} mvp={mvp} />
-      <TeamBlock label="Orange" players={orange} tone="orange" score={replay.summary.team_scores.orange} mvp={mvp} />
-      {unknown.length > 0 ? <TeamBlock label="Other" players={unknown} tone="neutral" mvp={mvp} /> : null}
+      <TeamBlock
+        label="Blue"
+        players={blue}
+        tone="blue"
+        score={replay.summary.team_scores.blue}
+        mvp={mvp}
+      />
+      <TeamBlock
+        label="Orange"
+        players={orange}
+        tone="orange"
+        score={replay.summary.team_scores.orange}
+        mvp={mvp}
+      />
+      {unknown.length > 0 ? (
+        <TeamBlock label="Other" players={unknown} tone="neutral" mvp={mvp} />
+      ) : null}
     </div>
   );
 }
@@ -1148,7 +1260,11 @@ function TeamBlock({
       <div className="player-stack">
         {players.length > 0 ? (
           players.map((player, index) => (
-            <PlayerLine key={`${player.platform}-${player.platform_player_id}-${index}`} player={player} isMvp={player === mvp} />
+            <PlayerLine
+              key={`${player.platform}-${player.platform_player_id}-${index}`}
+              player={player}
+              isMvp={player === mvp}
+            />
           ))
         ) : (
           <span className="subtle">No players</span>
@@ -1172,9 +1288,9 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
         approximateAsOf={player.rank_fallback_replay_date}
       />
       {isMvp ? (
-        <Chip tone="mvp" title="MVP: highest score on the winning team">
+        <span className="mvp-chip" title="MVP: highest score on the winning team">
           MVP
-        </Chip>
+        </span>
       ) : null}
       {hasStats ? (
         <span className="player-statline" title="Goals / Assists / Saves / Shots · Score">
@@ -1200,7 +1316,9 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
     </>
   );
 
-  return <PlayerIdentity player={player} suffix={suffix} className="player-line" showTeam={false} />;
+  return (
+    <PlayerIdentity player={player} suffix={suffix} className="player-line" showTeam={false} />
+  );
 }
 
 function useCurrentUser(): CurrentUserResponse | null {
@@ -1288,7 +1406,10 @@ function GroupSelectionBar({
     try {
       await action();
     } catch (err) {
-      setFeedback({ kind: "error", message: err instanceof Error ? err.message : "Request failed" });
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Request failed",
+      });
     } finally {
       setBusy(false);
     }
@@ -1396,7 +1517,11 @@ function GroupSelectionBar({
               }}
               disabled={busy}
             />
-            <button type="button" onClick={handleCreateGroup} disabled={busy || newGroupName.trim() === ""}>
+            <button
+              type="button"
+              onClick={handleCreateGroup}
+              disabled={busy || newGroupName.trim() === ""}
+            >
               <Plus size={16} />
               Create
             </button>
@@ -1407,7 +1532,12 @@ function GroupSelectionBar({
               <ListPlus size={16} />
               Add to group
             </button>
-            <button type="button" className="secondary-button" onClick={handleRemove} disabled={busy || !targetGroup}>
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={handleRemove}
+              disabled={busy || !targetGroup}
+            >
               <FolderMinus size={16} />
               Remove from group
             </button>
@@ -1425,7 +1555,9 @@ function GroupSelectionBar({
         )}
       </div>
       {feedback ? (
-        <p className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}>
+        <p
+          className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}
+        >
           {feedback.message}
         </p>
       ) : null}
@@ -1446,11 +1578,7 @@ interface RequeueResult {
 
 function RequeueResultChip({ result }: { result: RequeueResult }) {
   const Icon =
-    result.phase === "error"
-      ? AlertTriangle
-      : result.phase === "pending"
-        ? RotateCcw
-        : Check;
+    result.phase === "error" ? AlertTriangle : result.phase === "pending" ? RotateCcw : Check;
   return (
     <span className={`requeue-result requeue-result-${result.phase}`} role="status">
       <Icon size={14} className={result.phase === "pending" ? "spin" : undefined} />
@@ -1485,7 +1613,7 @@ function ReplayStatsPage() {
 
     setReplayLoading(true);
     setReplayError(null);
-    const replayPromise = getReplay(replayId);
+    const replayPromise = getReplay(replayId, { forceRefresh: true });
     replayPromise
       .then((response) => {
         if (!cancelled) setReplay(response);
@@ -1541,15 +1669,21 @@ function ReplayStatsPage() {
     };
   }, [activeGroup.id, activeGroup.usesAggregateStats, replayId]);
 
-  const activeStats = useMemo(() => filterStatsForGroup(stats?.stats ?? [], activeGroup.terms), [activeGroup, stats]);
-  const activeEvents = useMemo(() => filterEventsForGroup(events, activeGroup.terms), [activeGroup, events]);
+  const activeStats = useMemo(
+    () => filterStatsForGroup(stats?.stats ?? [], activeGroup),
+    [activeGroup, stats],
+  );
+  const activeEvents = useMemo(
+    () => filterEventsForGroup(events, activeGroup.terms),
+    [activeGroup, events],
+  );
   const ActiveDetail = activeGroup.Detail;
   const detailEvents = ActiveDetail ? events : activeEvents;
 
   const canReprocess = Boolean(
     replay &&
-      currentUser &&
-      (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
+    currentUser &&
+    (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
   );
 
   async function handleReprocess(force = false) {
@@ -1583,7 +1717,10 @@ function ReplayStatsPage() {
   // results are live as soon as the request returns.
   async function handleReprocessLocal() {
     setReprocessingLocal(true);
-    setReprocessResult({ phase: "done", message: "Reprocessing locally — parsing replay in your browser…" });
+    setReprocessResult({
+      phase: "done",
+      message: "Reprocessing locally — parsing replay in your browser…",
+    });
     try {
       const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId);
       await reprocessReplayClient(replayId, {
@@ -1614,10 +1751,10 @@ function ReplayStatsPage() {
         <div className="button-row">
           {replay?.staleness.is_stale ? (
             <StalenessChip
+              canReprocess={canReprocess}
+              replayId={replayId}
               staleness={replay.staleness}
               processingVersion={replay.processing_version}
-              replayId={replayId}
-              canReprocess={canReprocess}
             />
           ) : null}
           {canReprocess ? (
@@ -1715,11 +1852,24 @@ function ReplayStatsPage() {
               </header>
             ) : null}
 
-            {eventsError ? <ApiNotice label={ActiveDetail ? `${activeGroup.label} data` : "Indexed events"} message={eventsError} /> : null}
+            {statsError ? (
+              <ApiNotice label={`${activeGroup.label} stats`} message={statsError} />
+            ) : null}
+            {eventsError ? (
+              <ApiNotice
+                label={ActiveDetail ? `${activeGroup.label} data` : "Indexed events"}
+                message={eventsError}
+              />
+            ) : null}
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
             {ActiveDetail ? (
-              <ActiveDetail events={detailEvents} players={replay.players} durationSeconds={replay.summary.duration_seconds} replayId={replayId} />
+              <ActiveDetail
+                events={detailEvents}
+                players={replay.players}
+                durationSeconds={replay.summary.duration_seconds}
+                replayId={replayId}
+              />
             ) : (
               <>
                 <div className="stat-section-grid">
@@ -1820,12 +1970,27 @@ function ReplayGroupStatsPage() {
   }, [activeGroup.id, groupId]);
 
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
-  const activeStats = useMemo(() => filterStatsForGroup(stats?.stats ?? [], activeGroup.terms), [activeGroup, stats]);
-  const activeEvents = useMemo(() => filterEventsForGroup(events, activeGroup.terms), [activeGroup, events]);
+  const activeStats = useMemo(
+    () => filterStatsForGroup(stats?.stats ?? [], activeGroup),
+    [activeGroup, stats],
+  );
+  const activeEvents = useMemo(
+    () => filterEventsForGroup(events, activeGroup.terms),
+    [activeGroup, events],
+  );
   const ActiveDetail = activeGroup.Detail;
   const detailEvents = ActiveDetail ? events : activeEvents;
   const canRenderGroupDetail =
-    participantAnalysis.consistent || activeGroup.id === "goals" || activeGroup.id === "mechanics" || activeGroup.id === "possession-territory";
+    participantAnalysis.consistent ||
+    activeGroup.id === "boost" ||
+    activeGroup.id === "goals" ||
+    activeGroup.id === "kickoffs" ||
+    activeGroup.id === "mechanics" ||
+    activeGroup.id === "movement" ||
+    activeGroup.id === "possession" ||
+    activeGroup.id === "positioning" ||
+    activeGroup.id === "rotation" ||
+    activeGroup.id === "touches";
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -1856,7 +2021,11 @@ function ReplayGroupStatsPage() {
             </div>
             <div>
               <span>Participants</span>
-              <strong>{participantAnalysis.players.length > 0 ? participantAnalysis.players.length.toLocaleString() : "Mixed"}</strong>
+              <strong>
+                {participantAnalysis.players.length > 0
+                  ? participantAnalysis.players.length.toLocaleString()
+                  : "Mixed"}
+              </strong>
             </div>
             <div>
               <span>Total duration</span>
@@ -1877,7 +2046,6 @@ function ReplayGroupStatsPage() {
                   className="group-participant-chip"
                   key={groupParticipantKey(player, index)}
                   player={player}
-                  showRank
                 />
               ))}
             </div>
@@ -1900,7 +2068,8 @@ function ReplayGroupStatsPage() {
           </nav>
 
           <section className="stat-detail">
-            {!ActiveDetail || !canRenderGroupDetail ? (
+            {!ActiveDetail ||
+            (!participantAnalysis.consistent && !(ActiveDetail && canRenderGroupDetail)) ? (
               <header className="stat-detail-header">
                 <div>
                   <p className="eyebrow">{activeGroup.label}</p>
@@ -1914,7 +2083,12 @@ function ReplayGroupStatsPage() {
               </header>
             ) : null}
 
-            {eventsError ? <ApiNotice label={ActiveDetail ? `${activeGroup.label} data` : "Indexed events"} message={eventsError} /> : null}
+            {eventsError ? (
+              <ApiNotice
+                label={ActiveDetail ? `${activeGroup.label} data` : "Indexed events"}
+                message={eventsError}
+              />
+            ) : null}
             {statsError ? <ApiNotice label="Group stats" message={statsError} /> : null}
             {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
 
@@ -1931,7 +2105,6 @@ function ReplayGroupStatsPage() {
                 events={detailEvents}
                 players={participantAnalysis.players}
                 durationSeconds={groupDurationSeconds}
-                groupId={groupId}
                 scope="group"
               />
             ) : (
@@ -2145,7 +2318,7 @@ function PlayerTimingSection({ groupId, players }: { groupId: string; players: R
             {players.map((player, index) => (
               <tr key={playerIdentityKey(player, index)}>
                 <td>
-                  <PlayerIdentity player={player} showRank />
+                  <PlayerIdentity player={player} />
                 </td>
                 <td>{replayLocalTeamLabel(player.team)}</td>
                 <td>{formatSeconds(player.active_time_seconds)}</td>
@@ -2227,19 +2400,23 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
       consistent: false,
       players,
       colorSwitching,
-      reason: "At least one replay has duplicate or unidentified participants, so player-level group views are hidden.",
+      reason:
+        "At least one replay has duplicate or unidentified participants, so player-level group views are hidden.",
     };
   }
 
   const reference = replayIdentities[0]!;
   const referenceKey = participantSetKey(reference);
-  const mismatched = replayIdentities.some((identities) => participantSetKey(identities!) !== referenceKey);
+  const mismatched = replayIdentities.some(
+    (identities) => participantSetKey(identities!) !== referenceKey,
+  );
   if (mismatched) {
     return {
       consistent: false,
       players,
       colorSwitching,
-      reason: "These replays do not all contain the same participant identities, so group views fall back to event and aggregate tables.",
+      reason:
+        "These replays do not all contain the same participant identities, so group views fall back to event and aggregate tables.",
     };
   }
 
@@ -2257,13 +2434,16 @@ function collectReplayGroupParticipants(replays: ReplayResponse[]): ReplayPlayer
     for (const player of replay.players) {
       const identity = replayPlayerIdentity(player);
       if (!identity) continue;
-      const participant = participants.get(identity) ?? newMutableReplayGroupParticipant(identity, player);
+      const participant =
+        participants.get(identity) ?? newMutableReplayGroupParticipant(identity, player);
       mergeReplayGroupParticipant(participant, player);
       participants.set(identity, participant);
     }
   }
 
-  return [...participants.values()].map(finalizeReplayGroupParticipant).sort(compareReplayGroupPlayers);
+  return [...participants.values()]
+    .map(finalizeReplayGroupParticipant)
+    .sort(compareReplayGroupPlayers);
 }
 
 function replayParticipantIdentities(replay: ReplayResponse): Set<string> | null {
@@ -2292,7 +2472,10 @@ function groupParticipantKey(player: ReplayPlayer, index: number): string {
   return replayPlayerIdentity(player) ?? `participant:${index}`;
 }
 
-function newMutableReplayGroupParticipant(identity: string, player: ReplayPlayer): MutableReplayGroupParticipant {
+function newMutableReplayGroupParticipant(
+  identity: string,
+  player: ReplayPlayer,
+): MutableReplayGroupParticipant {
   return {
     identity,
     name: player.name,
@@ -2319,7 +2502,10 @@ function newMutableReplayGroupParticipant(identity: string, player: ReplayPlayer
   };
 }
 
-function mergeReplayGroupParticipant(participant: MutableReplayGroupParticipant, player: ReplayPlayer) {
+function mergeReplayGroupParticipant(
+  participant: MutableReplayGroupParticipant,
+  player: ReplayPlayer,
+) {
   participant.name = player.name ?? participant.name;
   participant.platform = player.platform ?? participant.platform;
   participant.platform_player_id = player.platform_player_id ?? participant.platform_player_id;
@@ -2329,18 +2515,34 @@ function mergeReplayGroupParticipant(participant: MutableReplayGroupParticipant,
   participant.rank_division = player.rank_division ?? participant.rank_division;
   participant.rank_mmr = player.rank_mmr ?? participant.rank_mmr;
   participant.rank_is_fallback = participant.rank_is_fallback || Boolean(player.rank_is_fallback);
-  participant.rank_fallback_replay_date = player.rank_fallback_replay_date ?? participant.rank_fallback_replay_date;
+  participant.rank_fallback_replay_date =
+    player.rank_fallback_replay_date ?? participant.rank_fallback_replay_date;
   participant.is_pro = participant.is_pro || player.is_pro;
   participant.score = sumNullable(participant.score, player.score);
   participant.goals = sumNullable(participant.goals, player.goals);
   participant.assists = sumNullable(participant.assists, player.assists);
   participant.saves = sumNullable(participant.saves, player.saves);
   participant.shots = sumNullable(participant.shots, player.shots);
-  participant.active_time_seconds = sumNullable(participant.active_time_seconds, player.active_time_seconds);
-  participant.time_demolished_seconds = sumNullable(participant.time_demolished_seconds, player.time_demolished_seconds);
-  participant.non_demo_active_time_seconds = sumNullable(participant.non_demo_active_time_seconds, player.non_demo_active_time_seconds);
-  participant.time_most_back_seconds = sumNullable(participant.time_most_back_seconds, player.time_most_back_seconds);
-  participant.time_most_forward_seconds = sumNullable(participant.time_most_forward_seconds, player.time_most_forward_seconds);
+  participant.active_time_seconds = sumNullable(
+    participant.active_time_seconds,
+    player.active_time_seconds,
+  );
+  participant.time_demolished_seconds = sumNullable(
+    participant.time_demolished_seconds,
+    player.time_demolished_seconds,
+  );
+  participant.non_demo_active_time_seconds = sumNullable(
+    participant.non_demo_active_time_seconds,
+    player.non_demo_active_time_seconds,
+  );
+  participant.time_most_back_seconds = sumNullable(
+    participant.time_most_back_seconds,
+    player.time_most_back_seconds,
+  );
+  participant.time_most_forward_seconds = sumNullable(
+    participant.time_most_forward_seconds,
+    player.time_most_forward_seconds,
+  );
 }
 
 function finalizeReplayGroupParticipant(participant: MutableReplayGroupParticipant): ReplayPlayer {
@@ -2375,7 +2577,9 @@ function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): num
     return (right.appearance_count ?? 0) - (left.appearance_count ?? 0);
   }
   if ((left.team ?? 9) !== (right.team ?? 9)) return (left.team ?? 9) - (right.team ?? 9);
-  return (left.name || left.platform_player_id || "").localeCompare(right.name || right.platform_player_id || "");
+  return (left.name || left.platform_player_id || "").localeCompare(
+    right.name || right.platform_player_id || "",
+  );
 }
 
 function GroupParticipantLeaderboard({
@@ -2396,7 +2600,8 @@ function GroupParticipantLeaderboard({
     }))
     .sort((left, right) => {
       if (right.events !== left.events) return right.events - left.events;
-      if ((right.player.score ?? 0) !== (left.player.score ?? 0)) return (right.player.score ?? 0) - (left.player.score ?? 0);
+      if ((right.player.score ?? 0) !== (left.player.score ?? 0))
+        return (right.player.score ?? 0) - (left.player.score ?? 0);
       return (right.player.appearance_count ?? 0) - (left.player.appearance_count ?? 0);
     });
 
@@ -2426,7 +2631,6 @@ function GroupParticipantLeaderboard({
                     <PlayerIdentity
                       detail={`${(player.appearance_count ?? 0).toLocaleString()} games`}
                       player={player}
-                      showRank
                     />
                   </td>
                   <td>{(player.appearance_count ?? 0).toLocaleString()}</td>
@@ -2440,13 +2644,18 @@ function GroupParticipantLeaderboard({
           </table>
         </div>
       ) : (
-        <div className="stat-empty">No identifiable participants are available for this group yet.</div>
+        <div className="stat-empty">
+          No identifiable participants are available for this group yet.
+        </div>
       )}
     </section>
   );
 }
 
-function participantEventCounts(players: ReplayPlayer[], events: MechanicEventResponse[]): Map<string, number> {
+function participantEventCounts(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): Map<string, number> {
   const counts = new Map<string, number>();
   for (const event of events) {
     const index = players.findIndex((player) => eventMatchesPlayer(player, event));
@@ -2459,7 +2668,10 @@ function participantEventCounts(players: ReplayPlayer[], events: MechanicEventRe
 
 function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
   const eventPlayerId = (event.player_id ?? stringPayloadValue(event.payload, "player_id"))?.trim();
-  if (eventPlayerId && (player.platform_player_id === eventPlayerId || replayPlayerIdentity(player) === eventPlayerId)) {
+  if (
+    eventPlayerId &&
+    (player.platform_player_id === eventPlayerId || replayPlayerIdentity(player) === eventPlayerId)
+  ) {
     return true;
   }
   const eventName = event.player_name?.trim().toLowerCase();
@@ -2472,7 +2684,9 @@ function stringPayloadValue(payload: Record<string, unknown>, key: string): stri
 }
 
 function scoreboardLine(player: ReplayPlayer): string {
-  return [player.goals, player.assists, player.saves, player.shots].map(formatNullableInteger).join(" / ");
+  return [player.goals, player.assists, player.saves, player.shots]
+    .map(formatNullableInteger)
+    .join(" / ");
 }
 
 function formatNullableInteger(value: number | null | undefined): string {
@@ -2486,7 +2700,10 @@ function normalizeReplayPlatform(value: string): string {
   return lower;
 }
 
-function sumNullable(left: number | null | undefined, right: number | null | undefined): number | null {
+function sumNullable(
+  left: number | null | undefined,
+  right: number | null | undefined,
+): number | null {
   if (left == null && right == null) return null;
   return (left ?? 0) + (right ?? 0);
 }
@@ -2530,7 +2747,13 @@ type PlayerStatsByGroupState = {
   groups: Partial<Record<string, StatAggregateSetResponse>>;
 };
 
-const playerSupplementalKeys = ["overview", "kickoffTaker", "kickoffSupport", "kickoffFilter", "possession"] as const;
+const playerSupplementalKeys = [
+  "overview",
+  "kickoffTaker",
+  "kickoffSupport",
+  "kickoffFilter",
+  "possession",
+] as const;
 type PlayerSupplementalKey = (typeof playerSupplementalKeys)[number];
 
 type PlayerSupplementalLoadedState = {
@@ -2554,12 +2777,22 @@ function PlayerStatsPage() {
     [statGroup],
   );
   const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
-  const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({ scope: "", groups: {} });
+  const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({
+    scope: "",
+    groups: {},
+  });
   const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
-  const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(null);
-  const [kickoffSupportSummary, setKickoffSupportSummary] = useState<EventStatSummaryResponse | null>(null);
-  const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(null);
-  const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(null);
+  const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(
+    null,
+  );
+  const [kickoffSupportSummary, setKickoffSupportSummary] =
+    useState<EventStatSummaryResponse | null>(null);
+  const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(
+    null,
+  );
+  const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(
+    null,
+  );
   const [supplementalLoaded, setSupplementalLoaded] = useState<PlayerSupplementalLoadedState>({
     scope: "",
     loaded: {},
@@ -2570,14 +2803,17 @@ function PlayerStatsPage() {
   const [statsError, setStatsError] = useState<string | null>(null);
   const scopedStatsByGroup = statsByGroup.scope === statsScope ? statsByGroup.groups : {};
   const stats = scopedStatsByGroup[activeGroup.id] ?? null;
-  const scopedSupplementalLoaded = supplementalLoaded.scope === statsScope ? supplementalLoaded.loaded : {};
+  const scopedSupplementalLoaded =
+    supplementalLoaded.scope === statsScope ? supplementalLoaded.loaded : {};
   const loadedSupplementalKeys = Object.keys(scopedSupplementalLoaded).sort().join("|");
   const activeSupplementalKeys = useMemo(
     () => playerSupplementalKeysForGroup(activeGroup.id),
     [activeGroup.id],
   );
   const activeSupplementalKeyList = activeSupplementalKeys.join("|");
-  const activeSupplementalReady = activeSupplementalKeys.every((key) => scopedSupplementalLoaded[key]);
+  const activeSupplementalReady = activeSupplementalKeys.every(
+    (key) => scopedSupplementalLoaded[key],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -2755,7 +2991,12 @@ function PlayerStatsPage() {
         for (const key of remainingKeys) {
           if (cancelled) break;
           try {
-            const response = await fetchPlayerSupplemental(key, platform, platformPlayerId, location.search);
+            const response = await fetchPlayerSupplemental(
+              key,
+              platform,
+              platformPlayerId,
+              location.search,
+            );
             if (cancelled) break;
             applySupplementalResponse(key, response);
           } catch {
@@ -2771,13 +3012,7 @@ function PlayerStatsPage() {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [
-    activeSupplementalReady,
-    location.search,
-    platform,
-    platformPlayerId,
-    stats,
-  ]);
+  }, [activeSupplementalReady, location.search, platform, platformPlayerId, stats]);
 
   return (
     <section className="page player-stats-page">
@@ -2804,7 +3039,11 @@ function PlayerStatsPage() {
               <span>Replays</span>
               <strong className="metric-with-action">
                 {playerSummary.replay_count.toLocaleString()}
-                <Link className="metric-action-chip" to={`/replays?${playerReplayParams.toString()}`} title="View player replays">
+                <Link
+                  className="metric-action-chip"
+                  to={`/replays?${playerReplayParams.toString()}`}
+                  title="View player replays"
+                >
                   <FileVideo size={14} />
                 </Link>
               </strong>
@@ -2848,14 +3087,23 @@ function PlayerStatsPage() {
   );
 }
 
-function playerReplaySetParams(platform: string, platformPlayerId: string, search: string): URLSearchParams {
+function playerReplaySetParams(
+  platform: string,
+  platformPlayerId: string,
+  search: string,
+): URLSearchParams {
   const params = stripKickoffSpawnParams(new URLSearchParams(search));
   params.delete("offset");
   params.set("player-id", `${platform}:${platformPlayerId}`);
   return params;
 }
 
-function playerStatGroupPath(platform: string, platformPlayerId: string, groupId: string, search: string): string {
+function playerStatGroupPath(
+  platform: string,
+  platformPlayerId: string,
+  groupId: string,
+  search: string,
+): string {
   const params = new URLSearchParams(search);
   if (groupId !== "kickoffs") {
     stripKickoffSpawnParams(params);
@@ -2918,7 +3166,12 @@ function fetchPlayerSupplemental(
     return getPlayerKickoffSummary(platform, platformPlayerId, params, "support");
   }
   if (key === "kickoffFilter") {
-    return getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(params), "taker");
+    return getPlayerKickoffSummary(
+      platform,
+      platformPlayerId,
+      stripKickoffSpawnParams(params),
+      "taker",
+    );
   }
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
@@ -2986,7 +3239,8 @@ function PlayerStatsSegmentBar() {
       </nav>
       {teamSize === "" ? (
         <p className="muted-text segment-bar-note">
-          Showing all modes blended — rates mix 1v1/2v2/3v3 dynamics. Pick a mode for cleaner numbers.
+          Showing all modes blended — rates mix 1v1/2v2/3v3 dynamics. Pick a mode for cleaner
+          numbers.
         </p>
       ) : null}
     </div>
@@ -3018,7 +3272,9 @@ function PlayerAggregateStatsSections({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms).slice().sort(comparePlayerStatRates);
+  const sectionStats = filterStatsForGroup(stats.stats, activeGroup)
+    .slice()
+    .sort(comparePlayerStatRates);
   const topStats = sectionStats.slice(0, 20);
   const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
   const Icon = activeGroup.icon;
@@ -3068,8 +3324,14 @@ function PlayerAggregateStatsSections({
         </div>
         {activeGroup.id === "kickoffs" ? (
           <div className="stat-detail-counts">
-            <Metric label="Taker attempts" value={kickoffTakerSummary?.event_count.toLocaleString() ?? "Unknown"} />
-            <Metric label="Support appearances" value={kickoffSupportSummary?.event_count.toLocaleString() ?? "Unknown"} />
+            <Metric
+              label="Taker attempts"
+              value={kickoffTakerSummary?.event_count.toLocaleString() ?? "Unknown"}
+            />
+            <Metric
+              label="Support appearances"
+              value={kickoffSupportSummary?.event_count.toLocaleString() ?? "Unknown"}
+            />
           </div>
         ) : (
           <div className="stat-detail-counts">
@@ -3089,10 +3351,13 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
 
-      {activeGroup.id === "kickoffs" || activeGroup.id === "positioning" || activeGroup.id === "rotation" ? null : (
+      {activeGroup.id === "kickoffs" ||
+      activeGroup.id === "positioning" ||
+      activeGroup.id === "rotation" ? null : (
         <PlayerRateComparisonChart stats={topStats} />
       )}
 
+      {activeGroup.id === "goals" && overview ? <ScoringRatePanel overview={overview} /> : null}
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
@@ -3102,8 +3367,12 @@ function PlayerAggregateStatsSections({
           allGoalsHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals`}
         />
       ) : null}
-      {activeGroup.id === "kickoffs" && kickoffTakerSummary ? <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} /> : null}
-      {activeGroup.id === "kickoffs" && kickoffSupportSummary ? <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} /> : null}
+      {activeGroup.id === "kickoffs" && kickoffTakerSummary ? (
+        <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} />
+      ) : null}
+      {activeGroup.id === "kickoffs" && kickoffSupportSummary ? (
+        <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} />
+      ) : null}
       {activeGroup.id === "possession" && possessionSummary ? (
         <PossessionSummaryPanel summary={possessionSummary} />
       ) : null}
@@ -3117,7 +3386,11 @@ function PlayerAggregateStatsSections({
 function comparePlayerStatRates(left: StatAggregateResponse, right: StatAggregateResponse): number {
   const leftRate = left.per_active_minute ?? -1;
   const rightRate = right.per_active_minute ?? -1;
-  return rightRate - leftRate || right.event_count - left.event_count || left.display_name.localeCompare(right.display_name);
+  return (
+    rightRate - leftRate ||
+    right.event_count - left.event_count ||
+    left.display_name.localeCompare(right.display_name)
+  );
 }
 
 function EventsReviewPage() {
@@ -3155,7 +3428,10 @@ function EventsReviewPage() {
     };
   }, []);
 
-  function updateFilter<Key extends keyof EventReviewFilterForm>(key: Key, value: EventReviewFilterForm[Key]) {
+  function updateFilter<Key extends keyof EventReviewFilterForm>(
+    key: Key,
+    value: EventReviewFilterForm[Key],
+  ) {
     setFilters((current) => ({ ...current, [key]: value }));
   }
 
@@ -3249,7 +3525,10 @@ function EventsReviewPage() {
       label: "Map",
       value: filters.map,
       name: "map",
-      options: [{ value: "", label: "Any" }, ...eventMapOptions.map((option) => ({ value: option.value, label: optionLabel(option) }))],
+      options: [
+        { value: "", label: "Any" },
+        ...eventMapOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
+      ],
       onChange: (value) => updateFilter("map", value),
     },
     {
@@ -3386,12 +3665,19 @@ function EventsReviewPage() {
         </a>
       </header>
 
-      <form className="event-review-form" method="get" action="/events/review/open" autoComplete="off">
+      <form
+        className="event-review-form"
+        method="get"
+        action="/events/review/open"
+        autoComplete="off"
+      >
         <section className="event-filter-panel">
           <div className="panel-heading">
             <div>
               <h2>Event filters</h2>
-              <p className="muted-text">Choose the review playlist that will open in the stat evaluation player.</p>
+              <p className="muted-text">
+                Choose the review playlist that will open in the stat evaluation player.
+              </p>
             </div>
             <div className="results-readout">
               <SlidersHorizontal size={16} />
@@ -3404,13 +3690,20 @@ function EventsReviewPage() {
           <div className="event-type-groups" aria-label="Event types">
             {eventTypeGroups.map((group) => {
               const eventTypeKeys = group.eventTypes.map((eventType) => eventType.key);
-              const selectedInGroup = eventTypeKeys.filter((eventType) => selectedEventTypes.has(eventType)).length;
-              const allSelected = selectedInGroup === eventTypeKeys.length && eventTypeKeys.length > 0;
+              const selectedInGroup = eventTypeKeys.filter((eventType) =>
+                selectedEventTypes.has(eventType),
+              ).length;
+              const allSelected =
+                selectedInGroup === eventTypeKeys.length && eventTypeKeys.length > 0;
               return (
                 <section key={group.category} className="event-type-group">
                   <div className="event-type-group-heading">
                     <label className="event-type-group-toggle">
-                      <input type="checkbox" checked={allSelected} onChange={() => toggleEventTypeGroup(eventTypeKeys)} />
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={() => toggleEventTypeGroup(eventTypeKeys)}
+                      />
                       <span>
                         <strong>{group.label}</strong>
                         <small>
@@ -3422,7 +3715,10 @@ function EventsReviewPage() {
                   </div>
                   <div className="event-type-grid">
                     {group.eventTypes.map((eventType) => (
-                      <label key={eventType.key} className={`check-tile ${selectedEventTypes.has(eventType.key) ? "selected" : ""}`}>
+                      <label
+                        key={eventType.key}
+                        className={`check-tile ${selectedEventTypes.has(eventType.key) ? "selected" : ""}`}
+                      >
                         <input
                           type="checkbox"
                           name="event-type"
@@ -3449,7 +3745,9 @@ function EventsReviewPage() {
           <div>
             <span className="status-badge status-processed">canonical runs</span>
             <h2>Launch review</h2>
-            <p className="muted-text">The review player opens outside the SPA with this filtered playlist.</p>
+            <p className="muted-text">
+              The review player opens outside the SPA with this filtered playlist.
+            </p>
           </div>
           <dl className="review-summary">
             <div>
@@ -3582,7 +3880,17 @@ function derivedEventCategoryFromKey(key: string): string {
   ) {
     return "positioning";
   }
-  if (["possession", "pressure", "territorial_pressure", "controlled_play", "kickoff", "fifty_fifty", "rush"].includes(key)) {
+  if (
+    [
+      "possession",
+      "pressure",
+      "territorial_pressure",
+      "controlled_play",
+      "kickoff",
+      "fifty_fifty",
+      "rush",
+    ].includes(key)
+  ) {
     return "possession";
   }
   if (["movement", "flip_impulse", "powerslide", "movement.dodge_refresh"].includes(key)) {
@@ -3626,11 +3934,17 @@ const contextEventTypeKeys = new Set([
 ]);
 
 function compareEventTypeGroups(left: EventTypeGroup, right: EventTypeGroup): number {
-  return eventCategorySortRank(left.category) - eventCategorySortRank(right.category) || left.label.localeCompare(right.label);
+  return (
+    eventCategorySortRank(left.category) - eventCategorySortRank(right.category) ||
+    left.label.localeCompare(right.label)
+  );
 }
 
 function compareEventTypes(left: EventTypeResponse, right: EventTypeResponse): number {
-  return (left.display_name || left.key).localeCompare(right.display_name || right.key) || left.key.localeCompare(right.key);
+  return (
+    (left.display_name || left.key).localeCompare(right.display_name || right.key) ||
+    left.key.localeCompare(right.key)
+  );
 }
 
 function eventCategorySortRank(category: string): number {
@@ -3684,11 +3998,13 @@ function eventReviewSelectedEventText(selectedCount: number, selectedGroupCount:
   if (selectedCount === 0) {
     return "All event types";
   }
-  const typeText = selectedCount === 1 ? "1 event type" : `${selectedCount.toLocaleString()} event types`;
+  const typeText =
+    selectedCount === 1 ? "1 event type" : `${selectedCount.toLocaleString()} event types`;
   if (selectedGroupCount === 0) {
     return typeText;
   }
-  const groupText = selectedGroupCount === 1 ? "1 group" : `${selectedGroupCount.toLocaleString()} groups`;
+  const groupText =
+    selectedGroupCount === 1 ? "1 group" : `${selectedGroupCount.toLocaleString()} groups`;
   return `${typeText} across ${groupText}`;
 }
 
@@ -3970,7 +4286,13 @@ function AccountPage() {
             </div>
             <div>
               <dt>Token expiration</dt>
-              <dd>{claims?.exp ? formatDate(new Date(claims.exp * 1000).toISOString()) : claims ? "Never" : "-"}</dd>
+              <dd>
+                {claims?.exp
+                  ? formatDate(new Date(claims.exp * 1000).toISOString())
+                  : claims
+                    ? "Never"
+                    : "-"}
+              </dd>
             </div>
           </dl>
         </section>
@@ -3978,10 +4300,16 @@ function AccountPage() {
         <section className="account-panel">
           <div>
             <h2>Create token</h2>
-            <p className="muted-text">Use your login session, or create a local development token when the server allows it.</p>
+            <p className="muted-text">
+              Use your login session, or create a local development token when the server allows it.
+            </p>
           </div>
           <div className="button-row">
-            <button type="button" onClick={() => void requestSessionToken()} disabled={creatingSessionToken}>
+            <button
+              type="button"
+              onClick={() => void requestSessionToken()}
+              disabled={creatingSessionToken}
+            >
               <Zap size={16} />
               {creatingSessionToken ? "Creating" : "Session token"}
             </button>
@@ -4007,10 +4335,22 @@ function AccountPage() {
         <div className="token-form-header">
           <label htmlFor="account-token">Bearer token</label>
           <div className="button-row">
-            <button className="icon-button" type="button" onClick={() => void copyToken()} disabled={!token.trim()} title="Copy token">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={() => void copyToken()}
+              disabled={!token.trim()}
+              title="Copy token"
+            >
               {copied ? <Check size={16} /> : <Copy size={16} />}
             </button>
-            <button className="icon-button" type="button" onClick={clearStoredToken} disabled={!token.trim()} title="Clear token">
+            <button
+              className="icon-button"
+              type="button"
+              onClick={clearStoredToken}
+              disabled={!token.trim()}
+              title="Clear token"
+            >
               <Trash2 size={16} />
             </button>
           </div>
@@ -4156,7 +4496,11 @@ function LoginModal({
     setError(null);
     setStatus(`Waiting for ${provider.label} login.`);
 
-    const popup = window.open(provider.start_url, `rocket-sense-${provider.id}-login`, "popup,width=520,height=720");
+    const popup = window.open(
+      provider.start_url,
+      `rocket-sense-${provider.id}-login`,
+      "popup,width=520,height=720",
+    );
     if (!popup) {
       setError("The login popup was blocked. Use the full login page instead.");
       setStatus(null);
@@ -4252,7 +4596,9 @@ function LoginModal({
                   </button>
                 ))
               ) : (
-                <p className="muted-text">No OAuth login providers are configured for this server.</p>
+                <p className="muted-text">
+                  No OAuth login providers are configured for this server.
+                </p>
               )}
             </div>
             <a className="secondary-button modal-fallback-link" href={options.login_url}>
@@ -4263,7 +4609,10 @@ function LoginModal({
         ) : null}
 
         {options?.mode === "dev" ? (
-          <form className="login-section inline-token-form" onSubmit={(event) => void requestDevToken(event)}>
+          <form
+            className="login-section inline-token-form"
+            onSubmit={(event) => void requestDevToken(event)}
+          >
             <label>
               Development email
               <input
@@ -4307,7 +4656,9 @@ function AdminProcessingPage() {
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const [response, setResponse] = useState<ReplayProcessingDiagnosticsResponse | null>(null);
   const [status, setStatus] = useState(searchParams.get("status") ?? "");
-  const [includeHealthy, setIncludeHealthy] = useState(searchParams.get("include_healthy") === "true");
+  const [includeHealthy, setIncludeHealthy] = useState(
+    searchParams.get("include_healthy") === "true",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -4342,7 +4693,10 @@ function AdminProcessingPage() {
   }
 
   async function requeueReplay(replayId: string, force = false) {
-    setRequeueResult(replayId, { phase: "pending", message: force ? "Force-requeuing…" : "Requeuing…" });
+    setRequeueResult(replayId, {
+      phase: "pending",
+      message: force ? "Force-requeuing…" : "Requeuing…",
+    });
     try {
       const result = await reprocessReplay(replayId, { force });
       setRequeueResult(replayId, {
@@ -4400,7 +4754,9 @@ function AdminProcessingPage() {
   const canPageForward = response?.next_offset != null;
   const previousOffset = Math.max(0, offset - pageSize);
   const nextOffset = response?.next_offset ?? offset + pageSize;
-  const visiblePageSizeOptions = [50, 100, 200, 500].includes(pageSize) ? [50, 100, 200, 500] : [50, 100, 200, 500, pageSize].sort((a, b) => a - b);
+  const visiblePageSizeOptions = [50, 100, 200, 500].includes(pageSize)
+    ? [50, 100, 200, 500]
+    : [50, 100, 200, 500, pageSize].sort((a, b) => a - b);
 
   return (
     <section className="page admin-processing-page">
@@ -4417,7 +4773,10 @@ function AdminProcessingPage() {
 
       {response ? (
         <div className="summary-grid admin-summary-grid">
-          <Metric label="Problem replays" value={response.summary.problem_replays.toLocaleString()} />
+          <Metric
+            label="Problem replays"
+            value={response.summary.problem_replays.toLocaleString()}
+          />
           <Metric label="Total replays" value={response.summary.total_replays.toLocaleString()} />
           <Metric label="Processing status" value={formatCounts(response.summary.status_counts)} />
           <Metric label="Queue counts" value={formatCounts(response.summary.queue_counts)} />
@@ -4450,7 +4809,13 @@ function AdminProcessingPage() {
                     <code>{worker.id}</code>
                   </td>
                   <td>
-                    <span className={worker.alive ? "status-badge status-processed" : "status-badge status-failed"}>
+                    <span
+                      className={
+                        worker.alive
+                          ? "status-badge status-processed"
+                          : "status-badge status-failed"
+                      }
+                    >
                       {worker.alive ? "alive" : "dead"}
                     </span>
                   </td>
@@ -4464,7 +4829,8 @@ function AdminProcessingPage() {
       ) : null}
       {response && response.summary.workers.filter((worker) => worker.alive).length === 0 ? (
         <p className="inline-status error">
-          No live replay-processing workers — queued jobs will not be consumed until a worker reconnects.
+          No live replay-processing workers — queued jobs will not be consumed until a worker
+          reconnects.
         </p>
       ) : null}
 
@@ -4482,7 +4848,11 @@ function AdminProcessingPage() {
           className="admin-filter-grid"
         />
         <label className="toggle-row">
-          <input type="checkbox" checked={includeHealthy} onChange={(event) => setIncludeHealthy(event.currentTarget.checked)} />
+          <input
+            type="checkbox"
+            checked={includeHealthy}
+            onChange={(event) => setIncludeHealthy(event.currentTarget.checked)}
+          />
           <span>Show fully processed replays</span>
         </label>
         <button type="submit">
@@ -4505,7 +4875,10 @@ function AdminProcessingPage() {
         <div className="pagination-controls">
           <label>
             Page size
-            <select value={String(pageSize)} onChange={(event) => updatePageSize(event.currentTarget.value)}>
+            <select
+              value={String(pageSize)}
+              onChange={(event) => updatePageSize(event.currentTarget.value)}
+            >
               {visiblePageSizeOptions.map((value) => (
                 <option key={value} value={value}>
                   {value}
@@ -4513,10 +4886,22 @@ function AdminProcessingPage() {
               ))}
             </select>
           </label>
-          <button type="button" className="icon-button" title="Previous page" disabled={!canPageBackward || loading} onClick={() => goToOffset(previousOffset)}>
+          <button
+            type="button"
+            className="icon-button"
+            title="Previous page"
+            disabled={!canPageBackward || loading}
+            onClick={() => goToOffset(previousOffset)}
+          >
             <ChevronLeft size={17} />
           </button>
-          <button type="button" className="icon-button" title="Next page" disabled={!canPageForward || loading} onClick={() => goToOffset(nextOffset)}>
+          <button
+            type="button"
+            className="icon-button"
+            title="Next page"
+            disabled={!canPageForward || loading}
+            onClick={() => goToOffset(nextOffset)}
+          >
             <ChevronRight size={17} />
           </button>
         </div>
@@ -4541,68 +4926,78 @@ function AdminProcessingPage() {
               const requeueResult = requeueResults[diagnostic.replay_id];
               const requeuePending = requeueResult?.phase === "pending";
               return (
-              <tr
-                key={diagnostic.replay_id}
-                className={requeueResult ? `admin-requeue-row admin-requeue-${requeueResult.phase}` : undefined}
-              >
-                <td className="admin-replay-cell">
-                  <Link className="primary-link" to={`/replays/${diagnostic.replay_id}`}>
-                    {diagnostic.original_file_name || diagnostic.replay_id}
-                  </Link>
-                  <div className="subtle">{diagnostic.file_sha256.slice(0, 16)}</div>
-                  <StatusBadge status={diagnostic.processing_status} />
-                </td>
-                <td>
-                  <ul className="admin-reason-list">
-                    {diagnostic.reasons.map((reason) => (
-                      <li key={reason}>{reason}</li>
-                    ))}
-                  </ul>
-                </td>
-                <td className="admin-run-cell">
-                  <RunSummary label="Canonical" run={diagnostic.canonical_analysis_run} eventCount={diagnostic.canonical_event_count} />
-                  <RunSummary label="Latest" run={diagnostic.latest_analysis_run} />
-                  {diagnostic.needs_reanalysis || diagnostic.needs_reindex ? (
-                    <div className="admin-flag-row">
-                      {diagnostic.needs_reanalysis ? <span>needs reanalysis</span> : null}
-                      {diagnostic.needs_reindex ? <span>needs reindex</span> : null}
-                    </div>
-                  ) : null}
-                </td>
-                <td className="admin-queue-cell">
-                  <div>Queued {diagnostic.queued_jobs.toLocaleString()}</div>
-                  <div>Running {diagnostic.running_jobs.toLocaleString()}</div>
-                  <div>Failed {diagnostic.failed_jobs.toLocaleString()}</div>
-                  <div>Done {diagnostic.finished_jobs.toLocaleString()}</div>
-                  {diagnostic.next_queue_run_at ? <small>Next {formatDate(diagnostic.next_queue_run_at)}</small> : null}
-                </td>
-                <td className="admin-date-cell">
-                  <div>{formatDate(diagnostic.updated_at)}</div>
-                  <small>Created {formatDate(diagnostic.created_at)}</small>
-                </td>
-                <td className="admin-actions-cell">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    disabled={requeuePending}
-                    onClick={() => void requeueReplay(diagnostic.replay_id)}
-                  >
-                    <RotateCcw size={14} className={requeuePending ? "spin" : undefined} />
-                    {requeuePending ? "Requeuing" : requeueResult ? "Requeue again" : "Requeue"}
-                  </button>
-                  {requeueResult ? <RequeueResultChip result={requeueResult} /> : null}
-                  {requeueResult?.phase === "skipped" ? (
+                <tr
+                  key={diagnostic.replay_id}
+                  className={
+                    requeueResult
+                      ? `admin-requeue-row admin-requeue-${requeueResult.phase}`
+                      : undefined
+                  }
+                >
+                  <td className="admin-replay-cell">
+                    <Link className="primary-link" to={`/replays/${diagnostic.replay_id}`}>
+                      {diagnostic.original_file_name || diagnostic.replay_id}
+                    </Link>
+                    <div className="subtle">{diagnostic.file_sha256.slice(0, 16)}</div>
+                    <StatusBadge status={diagnostic.processing_status} />
+                  </td>
+                  <td>
+                    <ul className="admin-reason-list">
+                      {diagnostic.reasons.map((reason) => (
+                        <li key={reason}>{reason}</li>
+                      ))}
+                    </ul>
+                  </td>
+                  <td className="admin-run-cell">
+                    <RunSummary
+                      label="Canonical"
+                      run={diagnostic.canonical_analysis_run}
+                      eventCount={diagnostic.canonical_event_count}
+                    />
+                    <RunSummary label="Latest" run={diagnostic.latest_analysis_run} />
+                    {diagnostic.needs_reanalysis || diagnostic.needs_reindex ? (
+                      <div className="admin-flag-row">
+                        {diagnostic.needs_reanalysis ? <span>needs reanalysis</span> : null}
+                        {diagnostic.needs_reindex ? <span>needs reindex</span> : null}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="admin-queue-cell">
+                    <div>Queued {diagnostic.queued_jobs.toLocaleString()}</div>
+                    <div>Running {diagnostic.running_jobs.toLocaleString()}</div>
+                    <div>Failed {diagnostic.failed_jobs.toLocaleString()}</div>
+                    <div>Done {diagnostic.finished_jobs.toLocaleString()}</div>
+                    {diagnostic.next_queue_run_at ? (
+                      <small>Next {formatDate(diagnostic.next_queue_run_at)}</small>
+                    ) : null}
+                  </td>
+                  <td className="admin-date-cell">
+                    <div>{formatDate(diagnostic.updated_at)}</div>
+                    <small>Created {formatDate(diagnostic.created_at)}</small>
+                  </td>
+                  <td className="admin-actions-cell">
                     <button
                       type="button"
-                      className="requeue-force-button"
+                      className="secondary-button"
                       disabled={requeuePending}
-                      onClick={() => void requeueReplay(diagnostic.replay_id, true)}
+                      onClick={() => void requeueReplay(diagnostic.replay_id)}
                     >
-                      Force requeue
+                      <RotateCcw size={14} className={requeuePending ? "spin" : undefined} />
+                      {requeuePending ? "Requeuing" : requeueResult ? "Requeue again" : "Requeue"}
                     </button>
-                  ) : null}
-                </td>
-              </tr>
+                    {requeueResult ? <RequeueResultChip result={requeueResult} /> : null}
+                    {requeueResult?.phase === "skipped" ? (
+                      <button
+                        type="button"
+                        className="requeue-force-button"
+                        disabled={requeuePending}
+                        onClick={() => void requeueReplay(diagnostic.replay_id, true)}
+                      >
+                        Force requeue
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
               );
             })}
             {!loading && diagnostics.length === 0 ? (
@@ -4661,7 +5056,17 @@ function NotFoundPage() {
   );
 }
 
-function StatusLine({ loading, error, count, label }: { loading: boolean; error: string | null; count?: number | null; label?: string }) {
+function StatusLine({
+  loading,
+  error,
+  count,
+  label,
+}: {
+  loading: boolean;
+  error: string | null;
+  count?: number | null;
+  label?: string;
+}) {
   if (loading) {
     return (
       <div className="status-line">
@@ -4671,49 +5076,17 @@ function StatusLine({ loading, error, count, label }: { loading: boolean; error:
     );
   }
   if (error) return <div className="status-line error">{error}</div>;
-  if (count != null && label) return <div className="status-line">{count.toLocaleString()} {label}</div>;
+  if (count != null && label)
+    return (
+      <div className="status-line">
+        {count.toLocaleString()} {label}
+      </div>
+    );
   return null;
 }
 
 function StatusBadge({ status }: { status: string }) {
   return <span className={`status-badge status-${status}`}>{statusLabel(status)}</span>;
-}
-
-const STATUS_TONE: Record<string, ChipTone> = {
-  processed: "green",
-  processing: "blue",
-  pending: "blue",
-  failed: "red",
-};
-
-/**
- * Replay-list status chip. A stale-but-processed replay renders as a single
- * amber "Processed" chip with a folded-in warning that opens the staleness
- * detail modal; anything else is a plain tone-coded chip.
- */
-function ReplayStatusChip({
-  replay,
-  currentUser,
-}: {
-  replay: ReplayResponse;
-  currentUser: CurrentUserResponse | null;
-}) {
-  const isStale = replay.status === "processed" && replay.staleness.is_stale;
-  if (isStale) {
-    const canReprocess = Boolean(
-      currentUser && (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
-    );
-    return (
-      <StalenessChip
-        staleness={replay.staleness}
-        processingVersion={replay.processing_version}
-        replayId={replay.id}
-        label={statusLabel(replay.status)}
-        canReprocess={canReprocess}
-      />
-    );
-  }
-  return <Chip tone={STATUS_TONE[replay.status] ?? "neutral"}>{statusLabel(replay.status)}</Chip>;
 }
 
 function statusLabel(status: string): string {
@@ -4760,7 +5133,12 @@ function PlayerIdMetric({ value }: { value: string }) {
         <span className="player-id-text" title={value}>
           {value}
         </span>
-        <button className="player-id-copy" type="button" title={copied ? "Copied" : "Copy player id"} onClick={copyPlayerId}>
+        <button
+          className="player-id-copy"
+          type="button"
+          title={copied ? "Copied" : "Copy player id"}
+          onClick={copyPlayerId}
+        >
           {copied ? <Check size={14} /> : <Copy size={14} />}
         </button>
       </strong>
@@ -4768,12 +5146,17 @@ function PlayerIdMetric({ value }: { value: string }) {
   );
 }
 
-function filterStatsForGroup(stats: StatAggregateResponse[], terms: readonly string[]): StatAggregateResponse[] {
+function filterStatsForGroup(
+  stats: StatAggregateResponse[],
+  group: Pick<StatGroup, "terms" | "excludeKeys">,
+): StatAggregateResponse[] {
+  const excludeKeys = new Set(group.excludeKeys ?? []);
   return stats.filter(
     (stat) =>
       stat.category !== "context" &&
       !contextEventTypeKeys.has(stat.key) &&
-      terms.some((term) => statSearchText(stat).includes(term)),
+      !excludeKeys.has(stat.key) &&
+      group.terms.some((term) => statSearchText(stat).includes(term)),
   );
 }
 
@@ -4781,7 +5164,10 @@ function statSearchText(stat: StatAggregateResponse): string {
   return `${stat.key} ${stat.display_name} ${stat.category}`.toLowerCase();
 }
 
-function filterEventsForGroup(events: MechanicEventResponse[], terms: readonly string[]): MechanicEventResponse[] {
+function filterEventsForGroup(
+  events: MechanicEventResponse[],
+  terms: readonly string[],
+): MechanicEventResponse[] {
   return events.filter((event) => terms.some((term) => eventSearchText(event).includes(term)));
 }
 
@@ -4795,7 +5181,10 @@ function formatScore(replay: ReplayResponse): string {
   return blue == null || orange == null ? "Unknown" : `${blue} - ${orange}`;
 }
 
-function playlistLabel(metadata: ReplayPlaylistMetadata | null | undefined, fallback: string | null): string {
+function playlistLabel(
+  metadata: ReplayPlaylistMetadata | null | undefined,
+  fallback: string | null,
+): string {
   if (metadata?.label) return metadata.label;
   if (!fallback) return "Unknown";
   return fallback
@@ -4846,7 +5235,9 @@ function formatNumber(value: number | null): string {
 
 function formatCounts(counts: Array<{ status: string; count: number }>): string {
   if (counts.length === 0) return "None";
-  return counts.map((count) => `${statusLabel(count.status)} ${count.count.toLocaleString()}`).join(", ");
+  return counts
+    .map((count) => `${statusLabel(count.status)} ${count.count.toLocaleString()}`)
+    .join(", ");
 }
 
 function formatPercent(value: number | null): string {
@@ -4856,12 +5247,4 @@ function formatPercent(value: number | null): string {
 
 function isNumber(value: number | null | undefined): value is number {
   return typeof value === "number" && Number.isFinite(value);
-}
-
-function teamClass(team: number | null): string {
-  return replayLocalTeamClass(team);
-}
-
-function teamLabel(team: number | null): string {
-  return replayLocalTeamLabel(team);
 }

@@ -21,6 +21,14 @@ web-build:
 web-typecheck:
     cd web && npm run typecheck
 
+# Lint + Prettier check the web sources (matches CI)
+web-style:
+    cd web && npm run check:style
+
+# Auto-fix web lint + formatting
+web-fix:
+    cd web && npm run lint:fix && npm run format
+
 build-image:
     nix build .#rocket-sense-server-image
 
@@ -80,5 +88,5 @@ check-migrations:
 # server crate embeds web/dist via build.rs, so clippy depends on `web-build`.
 # ---------------------------------------------------------------------------
 
-# Fast quality gate: migrations + web typecheck + Rust fmt/clippy. Run clean before every commit.
-check: check-migrations web-typecheck fmt-check clippy
+# Fast quality gate: migrations + web style/typecheck + Rust fmt/clippy. Run clean before every commit.
+check: check-migrations web-style web-typecheck fmt-check clippy

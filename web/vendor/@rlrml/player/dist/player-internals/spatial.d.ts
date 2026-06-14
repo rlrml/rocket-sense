@@ -6,6 +6,7 @@ export interface AttachedCameraBlendState {
     targetBlend: number;
     lastIsBallCam: boolean | null;
 }
+export declare function isPositionDiscontinuity(current: Vec3 | null, next: Vec3 | null, dt: number): boolean;
 export declare function interpolatePosition(current: Vec3 | null, next: Vec3 | null, alpha: number): Vec3 | null;
 export declare function interpolatePositionHermite(current: Vec3 | null, next: Vec3 | null, currentVelocity: Vec3 | null, nextVelocity: Vec3 | null, dt: number, alpha: number): Vec3 | null;
 export declare function interpolateQuaternion(current: Quaternion | null, next: Quaternion | null, alpha: number): THREE.Quaternion | null;

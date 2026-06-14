@@ -1,15 +1,30 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
-  MetricMeter,
-  PlayerSegmentedBarRows,
-  SegmentedBar,
+  type ComparisonRow,
+  type OutcomeDistributionColors,
+  type OutcomeDistributionLevel,
+  outcomeDistributionColorStyle,
+  outcomeSegmentClassName,
+  PlayerComparisonChart,
+  type SegmentedBarSegment,
   StatPlayerLabel,
   statPlayerRank,
-  type SegmentedBarSegment,
   type StatPlayerRank,
+  TEAM_OUTCOME_COLORS,
+  teamOutcomeTone,
 } from "./shared";
 
-export const movementEventTypes = ["movement", "powerslide", "flip_impulse", "movement.dodge_refresh"];
+export const movementEventTypes = [
+  "movement",
+  "powerslide",
+  "flip_impulse",
+  "movement.dodge_refresh",
+];
+
+// Movement-flavored mechanics surfaced alongside the movement spans. They are
+// "mechanic" stream events (not movement spans), fetched in addition to the
+// movement event types and counted separately from the per-frame movement data.
+export const movementMechanicEventTypes = ["speed_flip", "half_flip", "wavedash"];
 
 interface PlayerMovementSummary {
   key: string;
@@ -28,183 +43,313 @@ interface PlayerMovementSummary {
   groundSeconds: number;
   lowAirSeconds: number;
   highAirSeconds: number;
-  powerslideSeconds: number;
-  powerslideCount: number;
+  // Powerslide spans arrive as sparse per-frame "active" samples, so the sample
+  // count is the available proxy for how much a player powerslides.
+  powerslideSamples: number;
+  speedFlips: number;
+  wavedashes: number;
+  halfFlips: number;
 }
 
-const maxSpeed = 2300;
+interface MovementBand {
+  id: string;
+  label: string;
+  // Shade tier used for the team-colored (single-game) rendering: light -> dark.
+  level: OutcomeDistributionLevel;
+  value: (summary: PlayerMovementSummary) => number;
+}
+
+// Fixed band palette for replay-group views, where there is no replay-local team
+// to color by: the three bands keep distinct hues (teal / purple / crimson) via
+// the positive / neutral / negative tones. Single games override this with
+// TEAM_OUTCOME_COLORS so each player's bands tier their own team color.
+const BAND_COLORS: OutcomeDistributionColors = {
+  positive: "#0f766e",
+  "positive-clear": "#0f766e",
+  neutral: "#7c3aed",
+  "neutral-clear": "#7c3aed",
+  negative: "#be123c",
+  "negative-clear": "#be123c",
+};
+
+// Group views give each band its own hue (one tone per band); single games give
+// every band the player's team tone and tell them apart by the shade level.
+const GROUP_BAND_TONES = ["positive", "neutral", "negative"] as const;
 
 export function MovementDetail({
   events,
   players,
   durationSeconds,
+  scope = "replay",
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  scope?: "replay" | "group";
 }) {
   const summaries = playerMovementSummaries(players, events, durationSeconds);
 
   if (!summaries.some(hasMovementData)) {
-    return <div className="stat-empty">No movement rows are available for this replay.</div>;
+    return (
+      <div className="stat-empty">
+        No movement rows are available for this {scope === "group" ? "group" : "replay"}.
+      </div>
+    );
   }
+
+  const teamColored = scope !== "group";
+  const playerIndexByKey = teamLocalPlayerIndexByKey(players);
+
+  const speedScale = Math.max(1, ...summaries.map((summary) => averageSpeed(summary) ?? 0));
+  const distanceScale = Math.max(1, ...summaries.map((summary) => summary.totalDistance));
+  const powerslideScale = Math.max(1, ...summaries.map((summary) => summary.powerslideSamples));
+  const speedFlipScale = Math.max(1, ...summaries.map((summary) => summary.speedFlips));
+  const wavedashScale = Math.max(1, ...summaries.map((summary) => summary.wavedashes));
+  const halfFlipScale = Math.max(1, ...summaries.map((summary) => summary.halfFlips));
+
+  const speedBands: MovementBand[] = [
+    { id: "slow", label: "Slow", level: "unknown", value: (summary) => summary.slowSeconds },
+    { id: "boost", label: "Boost", level: "clear", value: (summary) => summary.boostSeconds },
+    {
+      id: "supersonic",
+      label: "Supersonic",
+      level: "strong",
+      value: (summary) => summary.supersonicSeconds,
+    },
+  ];
+  const heightBands: MovementBand[] = [
+    { id: "ground", label: "Ground", level: "unknown", value: (summary) => summary.groundSeconds },
+    { id: "low_air", label: "Low air", level: "clear", value: (summary) => summary.lowAirSeconds },
+    {
+      id: "high_air",
+      label: "High air",
+      level: "strong",
+      value: (summary) => summary.highAirSeconds,
+    },
+  ];
+
+  const formatCount = (value: number) => value.toLocaleString();
 
   return (
     <div className="movement-detail">
-      <section className="chart-panel full-span">
-        <header className="chart-panel-header">
-          <h3>Speed & distance</h3>
-          <span>Average speed, total distance, and speed bands</span>
-        </header>
-        <MovementSpeedChart summaries={summaries} />
-      </section>
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Average speed"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-speed",
+          metric: (summary) => averageSpeed(summary) ?? 0,
+          maxValue: speedScale,
+          format: (value) => formatSpeed(value),
+        })}
+      />
 
-      <section className="chart-panel full-span">
-        <header className="chart-panel-header">
-          <h3>Ground & air</h3>
-          <span>Ground, low-air, and high-air time</span>
-        </header>
-        <MovementShareRows
-          summaries={summaries}
-          emptyLabel="No ground or air movement spans are available for this replay."
-          total={movementTimeTotal}
-          segments={(summary) => [
-            movementSegment("ground", "Ground", summary.groundSeconds, movementTimeTotal(summary)),
-            movementSegment("low-air", "Low air", summary.lowAirSeconds, movementTimeTotal(summary)),
-            movementSegment("high-air", "High air", summary.highAirSeconds, movementTimeTotal(summary)),
-          ]}
-        />
-      </section>
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Distance covered"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-distance",
+          metric: (summary) => summary.totalDistance,
+          maxValue: distanceScale,
+          format: (value) => formatDistanceShort(value),
+        })}
+      />
 
-      <section className="chart-panel full-span">
-        <header className="chart-panel-header">
-          <h3>Powerslide</h3>
-          <span>Total duration, average duration, and count</span>
-        </header>
-        <PowerslideChart summaries={summaries} />
-      </section>
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Speed bands"
+        rows={distributionRows(summaries, speedBands, {
+          teamColored,
+          sortKey: (summary) => summary.boostSeconds + summary.supersonicSeconds,
+          format: formatSeconds,
+        })}
+      />
+
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Ground & air"
+        rows={distributionRows(summaries, heightBands, {
+          teamColored,
+          sortKey: (summary) => summary.lowAirSeconds + summary.highAirSeconds,
+          format: formatSeconds,
+        })}
+      />
+
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Powerslide"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-powerslide",
+          metric: (summary) => summary.powerslideSamples,
+          maxValue: powerslideScale,
+          format: formatCount,
+        })}
+      />
+
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Speed flips"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-speed-flip",
+          metric: (summary) => summary.speedFlips,
+          maxValue: speedFlipScale,
+          format: formatCount,
+        })}
+      />
+
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Wavedashes"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-wavedash",
+          metric: (summary) => summary.wavedashes,
+          maxValue: wavedashScale,
+          format: formatCount,
+        })}
+      />
+
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Half flips"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-half-flip",
+          metric: (summary) => summary.halfFlips,
+          maxValue: halfFlipScale,
+          format: formatCount,
+        })}
+      />
     </div>
   );
 }
 
-function MovementSpeedChart({ summaries }: { summaries: PlayerMovementSummary[] }) {
-  const maxDistance = Math.max(1, ...summaries.map((summary) => summary.totalDistance));
-  const maxAvgSpeed = Math.max(1, ...summaries.map((summary) => averageSpeed(summary) ?? 0));
-
-  return (
-    <div className="movement-speed-chart">
-      {summaries.map((summary) => {
-        const speed = averageSpeed(summary);
-        const speedTotal = speedBandTotal(summary);
-
-        return (
-          <div className="movement-player-row" key={summary.key}>
-            {movementPlayerLabel(summary)}
-            <div className="movement-player-metrics">
-              <MetricMeter
-                className="movement-meter-speed"
-                label="Avg speed"
-                percent={barPercent(speed, maxAvgSpeed)}
-                rootClassName="movement-meter"
-                value={formatSpeed(speed)}
-              />
-              <MetricMeter
-                className="movement-meter-speed-share"
-                label="Speed %"
-                percent={speed == null ? 0 : percentage(speed, maxSpeed)}
-                rootClassName="movement-meter"
-                value={speed == null ? "Unknown" : `${Math.round((speed / maxSpeed) * 100)}%`}
-              />
-              <MetricMeter
-                className="movement-meter-distance"
-                label="Tot. dist."
-                percent={barPercent(summary.totalDistance, maxDistance)}
-                rootClassName="movement-meter"
-                value={formatDistance(summary.totalDistance)}
-              />
-            </div>
-            <SegmentedBar
-              ariaLabel={`${summary.name} speed band split`}
-              className="positioning-track movement-band-track"
-              segments={[
-                movementSegment("slow", "Slow speed", summary.slowSeconds, speedTotal),
-                movementSegment("boost", "Boost speed", summary.boostSeconds, speedTotal),
-                movementSegment("supersonic", "Supersonic", summary.supersonicSeconds, speedTotal),
-              ]}
-              total={speedTotal}
-            />
-          </div>
-        );
-      })}
-    </div>
-  );
+function magnitudeRows(
+  summaries: PlayerMovementSummary[],
+  options: {
+    teamColored: boolean;
+    playerIndexByKey: Map<string, number>;
+    groupClassName: string;
+    metric: (summary: PlayerMovementSummary) => number;
+    maxValue: number;
+    format: (value: number) => string;
+  },
+): ComparisonRow[] {
+  // Every player appears in every graph (sorted high -> low); a zero value reads
+  // as an empty track with a "0" placeholder rather than a dropped row.
+  return [...summaries]
+    .sort(
+      (left, right) =>
+        options.metric(right) - options.metric(left) || left.name.localeCompare(right.name),
+    )
+    .map((summary) => {
+      const value = options.metric(summary);
+      return {
+        key: summary.key,
+        label: movementPlayerLabel(summary),
+        ariaLabel: `${summary.name}: ${options.format(value)}`,
+        segments: [
+          {
+            key: "value",
+            className: magnitudeSegmentClass(
+              summary,
+              options.teamColored,
+              options.playerIndexByKey,
+              options.groupClassName,
+            ),
+            label: summary.name,
+            value,
+          },
+        ],
+        total: value,
+        maxValue: options.maxValue,
+        valueLabel: options.format(value),
+        placeholder: value > 0 ? undefined : "0",
+      };
+    });
 }
 
-function MovementShareRows({
-  summaries,
-  segments,
-  total,
-  emptyLabel,
-}: {
-  summaries: PlayerMovementSummary[];
-  segments: (summary: PlayerMovementSummary) => SegmentedBarSegment[];
-  total: (summary: PlayerMovementSummary) => number;
-  emptyLabel: string;
-}) {
-  return (
-    <PlayerSegmentedBarRows
-      ariaLabel={(summary) => `${summary.name} ground and air split`}
-      className="movement-share-rows"
-      emptyLabel={emptyLabel}
-      items={summaries}
-      label={movementPlayerLabel}
-      segments={segments}
-      total={total}
-      trackClassName="positioning-track movement-band-track"
-    />
-  );
+function distributionRows(
+  summaries: PlayerMovementSummary[],
+  bands: MovementBand[],
+  options: {
+    teamColored: boolean;
+    sortKey: (summary: PlayerMovementSummary) => number;
+    format: (value: number) => string;
+  },
+): ComparisonRow[] {
+  const colors = options.teamColored ? TEAM_OUTCOME_COLORS : BAND_COLORS;
+
+  // Every player appears (sorted high -> low); an all-zero split reads as an
+  // empty track with a placeholder rather than a dropped row.
+  return [...summaries]
+    .sort(
+      (left, right) =>
+        options.sortKey(right) - options.sortKey(left) || left.name.localeCompare(right.name),
+    )
+    .map((summary) => {
+      const total = bandTotal(summary, bands);
+      const segments: SegmentedBarSegment[] = bands.map((band, index) => {
+        const value = band.value(summary);
+        const share = total > 0 ? value / total : 0;
+        const tone = options.teamColored ? teamOutcomeTone(summary.team) : GROUP_BAND_TONES[index];
+        const level = options.teamColored ? band.level : "clear";
+        return {
+          key: band.id,
+          className: outcomeSegmentClassName(tone, level),
+          label: band.label,
+          value,
+          visibleLabel:
+            value > 0 && share >= 0.12 ? `${band.label} ${Math.round(share * 100)}%` : undefined,
+          title:
+            value > 0
+              ? `${band.label}: ${options.format(value)} (${Math.round(share * 100)}%)`
+              : undefined,
+        };
+      });
+      return {
+        key: summary.key,
+        label: movementPlayerLabel(summary),
+        ariaLabel: `${summary.name} ${bands.map((band) => band.label).join(" / ")}`,
+        segments,
+        total,
+        valueLabel: options.format(total),
+        style: outcomeDistributionColorStyle(colors),
+        placeholder: total > 0 ? undefined : "—",
+      };
+    });
 }
 
-function PowerslideChart({ summaries }: { summaries: PlayerMovementSummary[] }) {
-  if (!summaries.some((summary) => summary.powerslideSeconds > 0 || summary.powerslideCount > 0)) {
-    return <div className="stat-empty">No powerslide spans are available for this replay.</div>;
-  }
+// Single game: tint by the player's team with a per-player shade. Group: there
+// is no replay-local team, so fall back to the fixed per-metric hue.
+function magnitudeSegmentClass(
+  summary: PlayerMovementSummary,
+  teamColored: boolean,
+  playerIndexByKey: Map<string, number>,
+  groupClassName: string,
+): string {
+  if (!teamColored) return groupClassName;
+  return `team-segment-${teamClass(summary.team)} player-shade-${Math.min(playerIndexByKey.get(summary.key) ?? 0, 3)}`;
+}
 
-  const maxSeconds = Math.max(1, ...summaries.map((summary) => summary.powerslideSeconds));
-  const maxCount = Math.max(1, ...summaries.map((summary) => summary.powerslideCount));
-
-  return (
-    <div className="movement-speed-chart">
-      {summaries.map((summary) => (
-        <div className="movement-player-row movement-powerslide-row" key={summary.key}>
-          {movementPlayerLabel(summary)}
-          <div className="movement-player-metrics">
-            <MetricMeter
-              className="movement-meter-powerslide"
-              label="Total"
-              percent={barPercent(summary.powerslideSeconds, maxSeconds)}
-              rootClassName="movement-meter"
-              value={formatSeconds(summary.powerslideSeconds)}
-            />
-            <MetricMeter
-              className="movement-meter-powerslide-avg"
-              label="Average"
-              percent={barPercent(averagePowerslideDuration(summary), Math.max(0.01, ...summaries.map(averagePowerslideDuration)))}
-              rootClassName="movement-meter"
-              value={formatSeconds(averagePowerslideDuration(summary))}
-            />
-            <MetricMeter
-              className="movement-meter-powerslide-count"
-              label="Count"
-              percent={barPercent(summary.powerslideCount, maxCount)}
-              rootClassName="movement-meter"
-              value={summary.powerslideCount.toLocaleString()}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
+function teamLocalPlayerIndexByKey(players: ReplayPlayer[]): Map<string, number> {
+  const indexes = new Map<string, number>();
+  const counts = new Map<number | null, number>();
+  players.forEach((player, index) => {
+    const next = counts.get(player.team) ?? 0;
+    indexes.set(playerKey(player, index), next);
+    counts.set(player.team, next + 1);
+  });
+  return indexes;
 }
 
 function movementPlayerLabel(summary: PlayerMovementSummary) {
@@ -220,7 +365,11 @@ function movementPlayerLabel(summary: PlayerMovementSummary) {
   );
 }
 
-function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventResponse[], durationSeconds: number | null): PlayerMovementSummary[] {
+function playerMovementSummaries(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+  durationSeconds: number | null,
+): PlayerMovementSummary[] {
   const summaries = players.map((player, index) => emptySummary(player, index, durationSeconds));
   const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
 
@@ -231,6 +380,12 @@ function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventR
       addMovementEvent(summary, event);
     } else if (event.event_type === "powerslide") {
       addPowerslideEvent(summary, event);
+    } else if (event.event_type === "speed_flip") {
+      summary.speedFlips += 1;
+    } else if (event.event_type === "wavedash") {
+      summary.wavedashes += 1;
+    } else if (event.event_type === "half_flip") {
+      summary.halfFlips += 1;
     }
   }
 
@@ -240,21 +395,55 @@ function playerMovementSummaries(players: ReplayPlayer[], events: MechanicEventR
 function addMovementEvent(summary: PlayerMovementSummary, event: MechanicEventResponse) {
   const payload = event.payload;
   const duration = eventDuration(event);
-  const explicitTotal = firstNumber(payload, ["active_time_seconds", "movement_time_seconds", "total_time_seconds", "duration"]);
+  const explicitTotal = firstNumber(payload, [
+    "active_time_seconds",
+    "movement_time_seconds",
+    "total_time_seconds",
+    "duration",
+  ]);
 
   if (explicitTotal != null) {
     summary.activeSeconds = Math.max(summary.activeSeconds, explicitTotal);
   } else {
     summary.activeSeconds += duration;
   }
-  summary.totalDistance += firstNumber(payload, ["total_distance", "distance", "distance_traveled", "distance_uu"]) ?? 0;
+  summary.totalDistance +=
+    firstNumber(payload, ["total_distance", "distance", "distance_traveled", "distance_uu"]) ?? 0;
 
-  addMax(summary, "slowSeconds", payload, ["time_slow_speed", "slow_speed_seconds", "slow_speed_time_seconds", "time_slow_speed_seconds"]);
-  addMax(summary, "boostSeconds", payload, ["time_boost_speed", "boost_speed_seconds", "boost_speed_time_seconds", "time_boost_speed_seconds"]);
-  addMax(summary, "supersonicSeconds", payload, ["time_supersonic_speed", "supersonic_seconds", "supersonic_speed_time_seconds", "time_supersonic_speed_seconds"]);
-  addMax(summary, "groundSeconds", payload, ["time_ground", "ground_seconds", "ground_time_seconds", "time_on_ground"]);
-  addMax(summary, "lowAirSeconds", payload, ["time_low_air", "low_air_seconds", "low_air_time_seconds"]);
-  addMax(summary, "highAirSeconds", payload, ["time_high_air", "high_air_seconds", "high_air_time_seconds"]);
+  addMax(summary, "slowSeconds", payload, [
+    "time_slow_speed",
+    "slow_speed_seconds",
+    "slow_speed_time_seconds",
+    "time_slow_speed_seconds",
+  ]);
+  addMax(summary, "boostSeconds", payload, [
+    "time_boost_speed",
+    "boost_speed_seconds",
+    "boost_speed_time_seconds",
+    "time_boost_speed_seconds",
+  ]);
+  addMax(summary, "supersonicSeconds", payload, [
+    "time_supersonic_speed",
+    "supersonic_seconds",
+    "supersonic_speed_time_seconds",
+    "time_supersonic_speed_seconds",
+  ]);
+  addMax(summary, "groundSeconds", payload, [
+    "time_ground",
+    "ground_seconds",
+    "ground_time_seconds",
+    "time_on_ground",
+  ]);
+  addMax(summary, "lowAirSeconds", payload, [
+    "time_low_air",
+    "low_air_seconds",
+    "low_air_time_seconds",
+  ]);
+  addMax(summary, "highAirSeconds", payload, [
+    "time_high_air",
+    "high_air_seconds",
+    "high_air_time_seconds",
+  ]);
 
   const speed = firstNumber(payload, ["avg_speed", "average_speed", "speed"]);
   if (speed != null && duration > 0) {
@@ -281,20 +470,28 @@ function addMovementEvent(summary: PlayerMovementSummary, event: MechanicEventRe
 }
 
 function addPowerslideEvent(summary: PlayerMovementSummary, event: MechanicEventResponse) {
-  const duration = eventDuration(event);
-  const totalDuration = firstNumber(event.payload, ["total_duration", "total_duration_seconds", "duration_seconds", "duration"]) ?? duration;
-  const count = firstNumber(event.payload, ["count", "powerslide_count"]);
-  summary.powerslideSeconds += totalDuration;
-  summary.powerslideCount += count ?? (totalDuration > 0 ? 1 : 0);
+  // Powerslide arrives as per-frame "active" samples with no aggregate duration
+  // or count, so each active sample contributes to a usage tally that is
+  // proportional (same sampling rate for everyone) to time spent powersliding.
+  if (event.payload.active !== false) summary.powerslideSamples += 1;
 }
 
-function addMax(summary: PlayerMovementSummary, key: keyof PlayerMovementSummary, payload: Record<string, unknown>, names: string[]) {
+function addMax(
+  summary: PlayerMovementSummary,
+  key: keyof PlayerMovementSummary,
+  payload: Record<string, unknown>,
+  names: string[],
+) {
   const value = firstNumber(payload, names);
   if (value == null || typeof summary[key] !== "number") return;
   summary[key] = Math.max(summary[key] as number, value) as never;
 }
 
-function emptySummary(player: ReplayPlayer, index: number, durationSeconds: number | null): PlayerMovementSummary {
+function emptySummary(
+  player: ReplayPlayer,
+  index: number,
+  durationSeconds: number | null,
+): PlayerMovementSummary {
   return {
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
@@ -302,7 +499,8 @@ function emptySummary(player: ReplayPlayer, index: number, durationSeconds: numb
     platformPlayerId: player.platform_player_id,
     rank: statPlayerRank(player),
     team: player.team,
-    activeSeconds: player.non_demo_active_time_seconds ?? player.active_time_seconds ?? durationSeconds ?? 0,
+    activeSeconds:
+      player.non_demo_active_time_seconds ?? player.active_time_seconds ?? durationSeconds ?? 0,
     totalDistance: 0,
     speedWeighted: 0,
     speedWeight: 0,
@@ -312,8 +510,10 @@ function emptySummary(player: ReplayPlayer, index: number, durationSeconds: numb
     groundSeconds: 0,
     lowAirSeconds: 0,
     highAirSeconds: 0,
-    powerslideSeconds: 0,
-    powerslideCount: 0,
+    powerslideSamples: 0,
+    speedFlips: 0,
+    wavedashes: 0,
+    halfFlips: 0,
   };
 }
 
@@ -333,22 +533,12 @@ function summaryForEvent(
 }
 
 function eventPlayerKeys(event: MechanicEventResponse): string[] {
-  const keys = [event.player_id, stringPayload(event.payload, "player_id"), remoteIdKey(event.payload.player)].filter(
-    (key): key is string => Boolean(key),
-  );
+  const keys = [
+    event.player_id,
+    stringPayload(event.payload, "player_id"),
+    remoteIdKey(event.payload.player),
+  ].filter((key): key is string => Boolean(key));
   return keys.flatMap((key) => [key, normalizePlayerKey(key)]);
-}
-
-function movementSegment(id: string, label: string, seconds: number, total: number): SegmentedBarSegment {
-  const share = percentage(seconds, total);
-  return {
-    key: id,
-    className: `movement-segment-${id}`,
-    label,
-    value: seconds,
-    visibleLabel: share >= 12 ? `${label}: ${formatPercent(seconds, total)}` : undefined,
-    title: `${label}: ${formatSeconds(seconds)} (${formatPercent(seconds, total)})`,
-  };
 }
 
 function hasMovementData(summary: PlayerMovementSummary): boolean {
@@ -357,18 +547,16 @@ function hasMovementData(summary: PlayerMovementSummary): boolean {
     summary.speedWeight > 0 ||
     speedBandTotal(summary) > 0 ||
     movementTimeTotal(summary) > 0 ||
-    summary.powerslideSeconds > 0 ||
-    summary.powerslideCount > 0
+    summary.powerslideSamples > 0 ||
+    flipTotal(summary) > 0
   );
 }
 
 function averageSpeed(summary: PlayerMovementSummary): number | null {
   if (summary.speedWeight > 0) return summary.speedWeighted / summary.speedWeight;
-  return summary.activeSeconds > 0 && summary.totalDistance > 0 ? summary.totalDistance / summary.activeSeconds : null;
-}
-
-function averagePowerslideDuration(summary: PlayerMovementSummary): number {
-  return summary.powerslideCount > 0 ? summary.powerslideSeconds / summary.powerslideCount : 0;
+  return summary.activeSeconds > 0 && summary.totalDistance > 0
+    ? summary.totalDistance / summary.activeSeconds
+    : null;
 }
 
 function speedBandTotal(summary: PlayerMovementSummary): number {
@@ -379,10 +567,19 @@ function movementTimeTotal(summary: PlayerMovementSummary): number {
   return summary.groundSeconds + summary.lowAirSeconds + summary.highAirSeconds;
 }
 
+function flipTotal(summary: PlayerMovementSummary): number {
+  return summary.speedFlips + summary.wavedashes + summary.halfFlips;
+}
+
+function bandTotal(summary: PlayerMovementSummary, bands: MovementBand[]): number {
+  return bands.reduce((sum, band) => sum + band.value(summary), 0);
+}
+
 function eventDuration(event: MechanicEventResponse): number {
   const duration = firstNumber(event.payload, ["duration", "duration_seconds"]);
   if (duration != null) return duration;
-  if (event.start_time != null && event.end_time != null) return Math.max(0, event.end_time - event.start_time);
+  if (event.start_time != null && event.end_time != null)
+    return Math.max(0, event.end_time - event.start_time);
   return 0;
 }
 
@@ -422,11 +619,13 @@ function remoteIdKey(value: unknown): string | null {
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length !== 1) return null;
   const [platform, id] = entries[0];
-  if (typeof id === "string" || typeof id === "number") return `${normalizePlatform(platform)}:${String(id)}`;
+  if (typeof id === "string" || typeof id === "number")
+    return `${normalizePlatform(platform)}:${String(id)}`;
   if (id && typeof id === "object" && !Array.isArray(id)) {
     const nested = id as Record<string, unknown>;
     const onlineId = nested.online_id ?? nested.id;
-    if (typeof onlineId === "string" || typeof onlineId === "number") return `${normalizePlatform(platform)}:${String(onlineId)}`;
+    if (typeof onlineId === "string" || typeof onlineId === "number")
+      return `${normalizePlatform(platform)}:${String(onlineId)}`;
   }
   return null;
 }
@@ -440,7 +639,8 @@ function compareSummaries(left: PlayerMovementSummary, right: PlayerMovementSumm
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {
-  if (player.platform && player.platform_player_id) return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
+  if (player.platform && player.platform_player_id)
+    return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
   return `name:${player.name || index}`;
 }
 
@@ -462,16 +662,10 @@ function normalizePlatform(value: string): string {
 }
 
 function normalizeKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s-]+/g, "_");
-}
-
-function percentage(value: number, total: number): number {
-  return total > 0 ? (value / total) * 100 : 0;
-}
-
-function barPercent(value: number | null, max: number): number {
-  if (value == null || !Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
-  return (value / max) * 100;
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s-]+/g, "_");
 }
 
 function formatSpeed(value: number | null): string {
@@ -479,8 +673,9 @@ function formatSpeed(value: number | null): string {
   return `${Math.round(value).toLocaleString()} uu/s`;
 }
 
-function formatDistance(value: number): string {
+function formatDistanceShort(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "Unknown";
+  if (value >= 1000) return `${Math.round(value / 1000).toLocaleString()}k uu`;
   return `${Math.round(value).toLocaleString()} uu`;
 }
 
@@ -488,11 +683,6 @@ function formatSeconds(value: number): string {
   if (!Number.isFinite(value)) return "Unknown";
   if (value > 0 && value < 10) return `${value.toFixed(1)}s`;
   return `${Math.round(value)}s`;
-}
-
-function formatPercent(value: number, total: number): string {
-  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return "0%";
-  return `${Math.round((value / total) * 100)}%`;
 }
 
 function teamClass(team: number | null): string {

@@ -10,7 +10,14 @@ import {
   useReplayModel,
 } from "./fieldDiagram";
 import { fieldProjection, type FieldProjection } from "./kickoffField";
-import { clampFrame, matchPlayer, type PathPlayerRef, pointsToString, sampleBallPath, samplePath } from "./replayPaths";
+import {
+  clampFrame,
+  matchPlayer,
+  type PathPlayerRef,
+  pointsToString,
+  sampleBallPath,
+  samplePath,
+} from "./replayPaths";
 
 export interface GoalPathPlayer extends PathPlayerRef {
   team: number | null;
@@ -34,7 +41,12 @@ const FALLBACK_BUILDUP_FRAMES = 150;
 // Goal windows run longer than kickoffs, so allow a few more points per path.
 const MAX_PATH_POINTS = 120;
 
-export function GoalShapeDiagram({ replayId, startFrame, goalFrame, players }: GoalShapeDiagramProps) {
+export function GoalShapeDiagram({
+  replayId,
+  startFrame,
+  goalFrame,
+  players,
+}: GoalShapeDiagramProps) {
   const { replay, error } = useReplayModel(replayId);
   const projection = useMemo(() => fieldProjection(520, 60, "landscape"), []);
 
@@ -99,10 +111,15 @@ function buildGoalModel(
     });
   });
   // Scorer drawn last (on top), emphasized via CSS.
-  paths.sort((a, b) => Number(a.groupClassName?.includes("scorer")) - Number(b.groupClassName?.includes("scorer")));
+  paths.sort(
+    (a, b) =>
+      Number(a.groupClassName?.includes("scorer")) - Number(b.groupClassName?.includes("scorer")),
+  );
 
   // The decisive scoring touch is the scorer's car at the last-touch frame.
-  const touches: TouchMark[] = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
+  const touches: TouchMark[] = detectBallContacts(replay, from, end, projection, {
+    excludeFrame: end,
+  });
   if (scorerIndex >= 0) {
     const scoring = contactToMark(replay, end, scorerIndex, projection, "scoring");
     if (scoring) touches.push(scoring);

@@ -1,8 +1,4 @@
-import {
-  loadReplay,
-  type ReplayLoadResult,
-  type ReplayModel,
-} from "@rlrml/viewer";
+import { loadReplay, type ReplayLoadResult, type ReplayModel } from "@rlrml/viewer";
 import initSubtrActor, { get_stats_timeline_json } from "@rlrml/subtr-actor";
 
 // Parsing a replay is expensive, so cache the fully-decoded model per replay.

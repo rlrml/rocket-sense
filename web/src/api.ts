@@ -150,26 +150,49 @@ export async function deleteReplayGroup(groupId: string): Promise<void> {
   }
 }
 
-export function listReplayProcessingDiagnostics(searchParams: URLSearchParams): Promise<ReplayProcessingDiagnosticsResponse> {
+export function listReplayProcessingDiagnostics(
+  searchParams: URLSearchParams,
+): Promise<ReplayProcessingDiagnosticsResponse> {
   const params = new URLSearchParams(searchParams);
   if (!params.has("count")) {
     params.set("count", "100");
   }
-  return request<ReplayProcessingDiagnosticsResponse>(`/api/v1/admin/replays/processing-diagnostics?${params.toString()}`, {
-    includeAccessToken: false,
-  });
+  return request<ReplayProcessingDiagnosticsResponse>(
+    `/api/v1/admin/replays/processing-diagnostics?${params.toString()}`,
+    {
+      includeAccessToken: false,
+    },
+  );
 }
 
-export async function getReplay(replayId: string): Promise<ReplayResponse> {
-  const cached = getCachedReplay(replayId);
+type GetReplayOptions = {
+  forceRefresh?: boolean;
+};
+
+export async function getReplay(
+  replayId: string,
+  options: GetReplayOptions = {},
+): Promise<ReplayResponse> {
+  const cached = options.forceRefresh ? null : getCachedReplay(replayId);
   if (cached) return cached;
+
+  if (options.forceRefresh) {
+    const replay = await request<ReplayResponse>(
+      `/api/v1/replays/${encodeURIComponent(replayId)}`,
+      { cache: "no-store" },
+    );
+    cacheReplay(replay);
+    return replay;
+  }
 
   const recentParams = new URLSearchParams({ count: "200" });
   const recent = await listReplays(recentParams);
   const recentReplay = recent.replays.find((replay) => replay.id === replayId);
   if (recentReplay) return recentReplay;
 
-  return request<ReplayResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}`);
+  const replay = await request<ReplayResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}`);
+  cacheReplay(replay);
+  return replay;
 }
 
 export function getReplayGroup(groupId: string): Promise<ReplayGroupResponse> {
@@ -177,7 +200,9 @@ export function getReplayGroup(groupId: string): Promise<ReplayGroupResponse> {
 }
 
 export function listReplayGroupReplays(groupId: string): Promise<ListReplaysResponse> {
-  return request<ListReplaysResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`).then((response) => {
+  return request<ListReplaysResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+  ).then((response) => {
     cacheReplays(response.replays);
     return response;
   });
@@ -254,7 +279,9 @@ export function getPlayerKickoffSummary(
     params.set("role", role);
   }
   params.set("include-samples", "false");
-  return request<EventStatSummaryResponse>(`/api/v1/stats/events/kickoff/summary?${params.toString()}`);
+  return request<EventStatSummaryResponse>(
+    `/api/v1/stats/events/kickoff/summary?${params.toString()}`,
+  );
 }
 
 export function getPlayerPossessionSummary(
@@ -264,7 +291,9 @@ export function getPlayerPossessionSummary(
 ): Promise<PossessionSummaryResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
-  return request<PossessionSummaryResponse>(`/api/v1/stats/possession/summary?${params.toString()}`);
+  return request<PossessionSummaryResponse>(
+    `/api/v1/stats/possession/summary?${params.toString()}`,
+  );
 }
 
 export async function listReplayEvents(
@@ -305,7 +334,10 @@ export async function listReplayEvents(
   return response;
 }
 
-export async function listReplayGroupEvents(groupId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
+export async function listReplayGroupEvents(
+  groupId: string,
+  eventTypes: string[] = [],
+): Promise<MechanicEventsResponse> {
   const cacheKey = replayEventsKey(`group:${groupId}`, eventTypes, null);
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
@@ -341,7 +373,10 @@ export async function listReplayGroupEvents(groupId: string, eventTypes: string[
 
 // Cross-replay variant of listReplayEvents: every event whose primary subject is
 // the given player (platform:platform_player_id), e.g. all goals they scored.
-export async function listPlayerEvents(playerId: string, eventTypes: string[] = []): Promise<MechanicEventsResponse> {
+export async function listPlayerEvents(
+  playerId: string,
+  eventTypes: string[] = [],
+): Promise<MechanicEventsResponse> {
   const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes, null);
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
@@ -461,7 +496,9 @@ export function createDevToken(email: string): Promise<AccessTokenResponse> {
   });
 }
 
-export function createAccountToken(options: { includeAccessToken?: boolean } = {}): Promise<AccessTokenResponse> {
+export function createAccountToken(
+  options: { includeAccessToken?: boolean } = {},
+): Promise<AccessTokenResponse> {
   return request<AccessTokenResponse>("/api/v1/auth/profile-token", {
     method: "POST",
     credentials: "same-origin",
@@ -478,6 +515,10 @@ function cacheReplays(replays: ReplayResponse[]): void {
   sessionStorage.setItem(replayCacheKey, JSON.stringify(Object.fromEntries(entries)));
 }
 
+function cacheReplay(replay: ReplayResponse): void {
+  cacheReplays([replay]);
+}
+
 function getCachedReplay(replayId: string): ReplayResponse | null {
   return readReplayCache()[replayId] ?? null;
 }
@@ -491,7 +532,11 @@ function readReplayCache(): Record<string, ReplayResponse> {
   }
 }
 
-function replayEventsKey(replayId: string, eventTypes: string[], processedAt: string | null): string {
+function replayEventsKey(
+  replayId: string,
+  eventTypes: string[],
+  processedAt: string | null,
+): string {
   const scope = processedAt ? `${replayId}@${processedAt}` : replayId;
   return eventTypes.length > 0 ? `${scope}::${eventTypes.slice().sort().join(",")}` : scope;
 }

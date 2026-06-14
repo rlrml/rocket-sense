@@ -1,8 +1,20 @@
 import type { ReplayModel } from "@rlrml/viewer";
 import { useMemo } from "react";
-import { FieldDiagramSurface, type FieldDiagramModel, type SurfacePath, useReplayModel } from "./fieldDiagram";
+import {
+  FieldDiagramSurface,
+  type FieldDiagramModel,
+  type SurfacePath,
+  useReplayModel,
+} from "./fieldDiagram";
 import { fieldProjection, type FieldProjection } from "./kickoffField";
-import { clampFrame, matchPlayer, type PathPlayerRef, pointsToString, sampleBallPath, samplePath } from "./replayPaths";
+import {
+  clampFrame,
+  matchPlayer,
+  type PathPlayerRef,
+  pointsToString,
+  sampleBallPath,
+  samplePath,
+} from "./replayPaths";
 
 export interface KickoffPathPlayer extends PathPlayerRef {
   team: number | null;
@@ -26,12 +38,21 @@ const FALLBACK_PATH_FRAMES = 150;
 // this keeps the SVG light if a replay has an unusually high frame rate.
 const MAX_PATH_POINTS = 90;
 
-export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTeam, players }: KickoffShapeDiagramProps) {
+export function KickoffShapeDiagram({
+  replayId,
+  startFrame,
+  endFrame,
+  winningTeam,
+  players,
+}: KickoffShapeDiagramProps) {
   const { replay, error } = useReplayModel(replayId);
   const projection = useMemo(() => fieldProjection(520, 60, "landscape"), []);
 
   const model = useMemo(
-    () => (replay ? buildKickoffModel(replay, projection, startFrame, endFrame, winningTeam, players) : null),
+    () =>
+      replay
+        ? buildKickoffModel(replay, projection, startFrame, endFrame, winningTeam, players)
+        : null,
     [replay, projection, startFrame, endFrame, winningTeam, players],
   );
 
@@ -43,7 +64,11 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
   }
 
   return (
-    <FieldDiagramSurface projection={projection} ariaLabel="Kickoff player paths and ball trajectory" model={model} />
+    <FieldDiagramSurface
+      projection={projection}
+      ariaLabel="Kickoff player paths and ball trajectory"
+      model={model}
+    />
   );
 }
 
@@ -76,7 +101,12 @@ function buildKickoffModel(
       points: pointsToString(points),
       startMarker: (
         <g className="kickoff-path-start">
-          <circle cx={start.x} cy={start.y} r={projection.toUnits(role === "taker" ? 320 : 240)} vectorEffect="non-scaling-stroke" />
+          <circle
+            cx={start.x}
+            cy={start.y}
+            r={projection.toUnits(role === "taker" ? 320 : 240)}
+            vectorEffect="non-scaling-stroke"
+          />
           <text x={start.x} y={start.y + projection.toUnits(120)}>
             {role === "taker" ? "T" : "S"}
           </text>
@@ -85,7 +115,10 @@ function buildKickoffModel(
     });
   }
   // Takers drawn last (on top), winner emphasized via CSS.
-  paths.sort((a, b) => Number(a.groupClassName?.includes("taker")) - Number(b.groupClassName?.includes("taker")));
+  paths.sort(
+    (a, b) =>
+      Number(a.groupClassName?.includes("taker")) - Number(b.groupClassName?.includes("taker")),
+  );
 
   const ball = sampleBallPath(replay, from, to, projection, MAX_PATH_POINTS);
   return {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { SegmentedBar, StatPlayerLabel, statPlayerRank, type SegmentedBarSegment, type StatPlayerRank } from "./shared";
+import { SegmentedBar, StatPlayerLabel, type SegmentedBarSegment } from "./shared";
 
 export const possessionEventTypes = ["possession"];
 
@@ -8,7 +8,6 @@ type PossessionState = "team_zero" | "team_one" | "neutral";
 type FieldThird = "team_zero_third" | "neutral_third" | "team_one_third";
 type PossessionComparisonMode = "teams" | "players";
 type PossessionZone = "offensive" | "neutral" | "defensive";
-type GroupPossessionView = "leaderboard" | "share" | "ball-half" | "zones";
 
 interface PossessionSpan {
   key: string;
@@ -42,7 +41,6 @@ export function PossessionDetail({
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
   const ballHalfTrackedSeconds = sumObjectValues(ballHalfTotals);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
-  const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
   const playerSummaries = playerPossessionSummaries(players, spans);
   const zoneSubjects = possessionZoneSubjects(players, spans, comparisonMode);
   const hasPlayerSpans = playerSummaries.some((summary) => summary.seconds > 0);
@@ -50,47 +48,16 @@ export function PossessionDetail({
   if (scope === "group") {
     return (
       <div className="possession-detail">
-        <GroupPossessionViewToggle activeView={groupView} hasPlayerSpans={hasPlayerSpans} onViewChange={setGroupView} />
-        {groupView === "leaderboard" ? (
-          <section className="chart-panel full-span">
-            <header className="chart-panel-header">
-              <h3>Possession leaderboard</h3>
-              <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
-            </header>
-            <PlayerPossessionLeaderboard summaries={playerSummaries} totalSeconds={totalTrackedSeconds} />
-          </section>
-        ) : null}
-        {groupView === "share" ? (
-          <section className="chart-panel full-span">
-            <header className="chart-panel-header">
-              <h3>Replay-local Blue/Orange share</h3>
-              <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
-            </header>
-            <PossessionShareChart totals={possessionTotals} totalSeconds={totalTrackedSeconds} />
-          </section>
-        ) : null}
-        {groupView === "ball-half" ? (
-          <section className="chart-panel full-span">
-            <header className="chart-panel-header">
-              <h3>Replay-local ball half</h3>
-              <span>{formatSeconds(ballHalfTrackedSeconds)} tracked</span>
-            </header>
-            <PossessionShareChart ariaLabel="Ball time by field half" totals={ballHalfTotals} totalSeconds={ballHalfTrackedSeconds} />
-          </section>
-        ) : null}
-        {groupView === "zones" ? (
-          <div className="stat-section-grid">
-            {possessionZones.map((zone) => (
-              <section className="chart-panel" key={zone}>
-                <header className="chart-panel-header">
-                  <h3>{possessionZoneTitle(zone)}</h3>
-                  <span>{formatSeconds(zoneTotal(zoneSubjects, zone))} tracked</span>
-                </header>
-                <PossessionZoneChart comparisonMode="teams" subjects={zoneSubjects} zone={zone} />
-              </section>
-            ))}
-          </div>
-        ) : null}
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
+            <h3>Possession leaderboard</h3>
+            <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
+          </header>
+          <PlayerPossessionLeaderboard
+            summaries={playerSummaries}
+            totalSeconds={totalTrackedSeconds}
+          />
+        </section>
       </div>
     );
   }
@@ -108,7 +75,11 @@ export function PossessionDetail({
             <h3>Ball half</h3>
             <span>{formatSeconds(ballHalfTrackedSeconds)} tracked</span>
           </header>
-          <PossessionShareChart ariaLabel="Ball time by field half" totals={ballHalfTotals} totalSeconds={ballHalfTrackedSeconds} />
+          <PossessionShareChart
+            ariaLabel="Ball time by field half"
+            totals={ballHalfTotals}
+            totalSeconds={ballHalfTrackedSeconds}
+          />
         </section>
 
         <section className="chart-panel">
@@ -129,7 +100,11 @@ export function PossessionDetail({
               <h3>{possessionZoneTitle(zone)}</h3>
               <span>{formatSeconds(zoneTotal(zoneSubjects, zone))} tracked</span>
             </header>
-            <PossessionZoneChart comparisonMode={comparisonMode} subjects={zoneSubjects} zone={zone} />
+            <PossessionZoneChart
+              comparisonMode={comparisonMode}
+              subjects={zoneSubjects}
+              zone={zone}
+            />
           </section>
         ))}
 
@@ -142,49 +117,6 @@ export function PossessionDetail({
             <PossessionTimeline spans={spans} durationSeconds={chartDuration} />
           </section>
         ) : null}
-      </div>
-    </div>
-  );
-}
-
-function GroupPossessionViewToggle({
-  activeView,
-  hasPlayerSpans,
-  onViewChange,
-}: {
-  activeView: GroupPossessionView;
-  hasPlayerSpans: boolean;
-  onViewChange: (view: GroupPossessionView) => void;
-}) {
-  const views: Array<{ key: GroupPossessionView; label: string; disabled?: boolean; title?: string }> = [
-    {
-      key: "leaderboard",
-      label: "Leaderboard",
-      disabled: !hasPlayerSpans,
-      title: hasPlayerSpans ? "Possession leaderboard" : "Reprocess these replays to populate player possession spans",
-    },
-    { key: "share", label: "Blue/Orange" },
-    { key: "ball-half", label: "Ball half" },
-    { key: "zones", label: "Zones" },
-  ];
-
-  return (
-    <div className="boost-page-controls">
-      <div className="boost-comparison-tabs" role="tablist" aria-label="Group possession view">
-        {views.map((view) => (
-          <button
-            aria-selected={activeView === view.key}
-            className={activeView === view.key ? "active" : ""}
-            disabled={view.disabled}
-            key={view.key}
-            onClick={() => onViewChange(view.key)}
-            role="tab"
-            title={view.title ?? view.label}
-            type="button"
-          >
-            {view.label}
-          </button>
-        ))}
       </div>
     </div>
   );
@@ -216,7 +148,11 @@ function PossessionComparisonModeToggle({
           disabled={!hasPlayerSpans}
           onClick={() => onComparisonModeChange("players")}
           role="tab"
-          title={hasPlayerSpans ? "Player possession" : "Reprocess this replay to populate player possession spans"}
+          title={
+            hasPlayerSpans
+              ? "Player possession"
+              : "Reprocess this replay to populate player possession spans"
+          }
           type="button"
           aria-selected={comparisonMode === "players"}
         >
@@ -237,11 +173,18 @@ function PossessionShareChart({
   totalSeconds: number;
 }) {
   const total = Math.max(0, totalSeconds);
-  const segments = possessionStates.map((state) => possessionStateSegment(state, totals[state], total));
+  const segments = possessionStates.map((state) =>
+    possessionStateSegment(state, totals[state], total),
+  );
 
   return (
     <div className="possession-share-chart">
-      <SegmentedBar ariaLabel={ariaLabel} className="possession-share-track" segments={segments} total={total} />
+      <SegmentedBar
+        ariaLabel={ariaLabel}
+        className="possession-share-track"
+        segments={segments}
+        total={total}
+      />
       <div className="possession-metric-grid">
         {possessionStates.map((state) => (
           <div className={`possession-metric possession-state-accent-${state}`} key={state}>
@@ -260,7 +203,6 @@ interface PlayerPossessionSummary {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
-  rank: StatPlayerRank | null;
   team: number | null;
   seconds: number;
   spans: number;
@@ -272,7 +214,6 @@ interface PossessionZoneSubject {
   name: string;
   platform: string | null;
   platformPlayerId: string | null;
-  rank: StatPlayerRank | null;
   showPlatformBadge: boolean;
   team: number | null;
   zoneSeconds: Record<PossessionZone, number>;
@@ -288,7 +229,9 @@ function PlayerPossessionChart({
   const maxSeconds = Math.max(1, ...summaries.map((summary) => summary.seconds));
 
   if (!summaries.some((summary) => summary.seconds > 0)) {
-    return <div className="stat-empty">No player possession spans are available for this replay.</div>;
+    return (
+      <div className="stat-empty">No player possession spans are available for this replay.</div>
+    );
   }
 
   return (
@@ -302,7 +245,6 @@ function PlayerPossessionChart({
               name={summary.name}
               platform={summary.platform}
               profilePath={playerProfilePath(summary)}
-              rank={summary.rank}
               subtitle={teamLabel(summary.team)}
             />
             <SegmentedBar
@@ -339,11 +281,19 @@ function PossessionZoneChart({
 }) {
   const rows = subjects
     .filter((subject) => subject.zoneSeconds[zone] > 0)
-    .sort((left, right) => right.zoneSeconds[zone] - left.zoneSeconds[zone] || compareZoneSubjects(left, right));
+    .sort(
+      (left, right) =>
+        right.zoneSeconds[zone] - left.zoneSeconds[zone] || compareZoneSubjects(left, right),
+    );
   const maxSeconds = Math.max(1, ...rows.map((subject) => subject.zoneSeconds[zone]));
 
   if (rows.length === 0) {
-    return <div className="stat-empty">No {comparisonMode === "players" ? "player" : "team"} possession spans are available for this zone.</div>;
+    return (
+      <div className="stat-empty">
+        No {comparisonMode === "players" ? "player" : "team"} possession spans are available for
+        this zone.
+      </div>
+    );
   }
 
   return (
@@ -359,7 +309,6 @@ function PossessionZoneChart({
               name={subject.name}
               platform={subject.platform}
               profilePath={playerProfilePath(subject)}
-              rank={subject.rank}
               showPlatformBadge={subject.showPlatformBadge}
               subtitle={subject.showPlatformBadge ? teamLabel(subject.team) : "Team"}
             />
@@ -396,7 +345,9 @@ function PlayerPossessionLeaderboard({
   const rows = summaries.filter((summary) => summary.seconds > 0);
 
   if (rows.length === 0) {
-    return <div className="stat-empty">No player possession spans are available for this group.</div>;
+    return (
+      <div className="stat-empty">No player possession spans are available for this group.</div>
+    );
   }
 
   return (
@@ -417,12 +368,15 @@ function PlayerPossessionLeaderboard({
             <tr key={summary.key}>
               <td>
                 <StatPlayerLabel
-                  className={`team-accent-${teamClass(summary.team)}`}
+                  className="team-accent-unknown"
                   name={summary.name}
                   platform={summary.platform}
                   profilePath={playerProfilePath(summary)}
-                  rank={summary.rank}
-                  subtitle={summary.team == null ? "Mixed colors" : teamLabel(summary.team)}
+                  subtitle={
+                    summary.games == null
+                      ? "Games unknown"
+                      : `${summary.games.toLocaleString()} games`
+                  }
                 />
               </td>
               <td>{formatSeconds(summary.seconds)}</td>
@@ -451,14 +405,24 @@ function PossessionTimeline({
 
   return (
     <div className="possession-timeline-wrap">
-      <svg className="possession-timeline" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Possession over time">
+      <svg
+        className="possession-timeline"
+        viewBox={`0 0 ${width} ${height}`}
+        role="img"
+        aria-label="Possession over time"
+      >
         <rect className="possession-timeline-bg" x="0" y="30" width={width} height="34" rx="6" />
         {ticks.map((tick) => {
           const x = (tick / durationSeconds) * width;
           return (
             <g key={tick}>
               <line className="possession-timeline-grid" x1={x} x2={x} y1="22" y2="76" />
-              <text className="possession-timeline-label" textAnchor={timelineTickAnchor(tick, durationSeconds)} x={x} y="98">
+              <text
+                className="possession-timeline-label"
+                textAnchor={timelineTickAnchor(tick, durationSeconds)}
+                x={x}
+                y="98"
+              >
                 {formatClock(tick)}
               </text>
             </g>
@@ -503,10 +467,14 @@ function possessionSpan(event: MechanicEventResponse, index: number): Possession
 
   const start = event.start_time ?? numericPayload(event.payload, "time") ?? event.event_time ?? 0;
   const payloadDuration = numericPayload(event.payload, "duration");
-  const end = event.end_time ?? numericPayload(event.payload, "end_time") ?? (payloadDuration == null ? start : start + payloadDuration);
+  const end =
+    event.end_time ??
+    numericPayload(event.payload, "end_time") ??
+    (payloadDuration == null ? start : start + payloadDuration);
   const duration = payloadDuration ?? Math.max(0, end - start);
   const state = possessionState(event.payload.possession_state);
-  if (state == null || duration <= 0 || !Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (state == null || duration <= 0 || !Number.isFinite(start) || !Number.isFinite(end))
+    return null;
 
   return {
     key: event.id || `${index}:${start}:${end}`,
@@ -545,11 +513,16 @@ function emptyStateTotals(): Record<PossessionState, number> {
   };
 }
 
-function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpan[]): PlayerPossessionSummary[] {
+function playerPossessionSummaries(
+  players: ReplayPlayer[],
+  spans: PossessionSpan[],
+): PlayerPossessionSummary[] {
   const usedSpanKeys = new Set<string>();
   const summaries = players.map((player, index) => {
     const key = playerKey(player, index);
-    const playerSpans = spans.filter((span) => span.playerId != null && playerMatchesId(player, span.playerId));
+    const playerSpans = spans.filter(
+      (span) => span.playerId != null && playerMatchesId(player, span.playerId),
+    );
     for (const span of playerSpans) usedSpanKeys.add(span.key);
     const seconds = playerSpans.reduce((total, span) => total + span.duration, 0);
 
@@ -558,7 +531,6 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
       name: player.name || player.platform_player_id || "Unknown",
       platform: player.platform,
       platformPlayerId: player.platform_player_id,
-      rank: statPlayerRank(player),
       team: player.team,
       seconds,
       spans: playerSpans.length,
@@ -573,7 +545,6 @@ function playerPossessionSummaries(players: ReplayPlayer[], spans: PossessionSpa
       name: span.playerName || span.playerId,
       platform: null,
       platformPlayerId: null,
-      rank: null,
       team: null,
       seconds: span.duration,
       spans: 1,
@@ -593,20 +564,26 @@ function possessionZoneSubjects(
   spans: PossessionSpan[],
   comparisonMode: PossessionComparisonMode,
 ): PossessionZoneSubject[] {
-  return comparisonMode === "players" ? playerPossessionZoneSubjects(players, spans) : teamPossessionZoneSubjects(spans);
+  return comparisonMode === "players"
+    ? playerPossessionZoneSubjects(players, spans)
+    : teamPossessionZoneSubjects(spans);
 }
 
-function playerPossessionZoneSubjects(players: ReplayPlayer[], spans: PossessionSpan[]): PossessionZoneSubject[] {
-  const subjects = players.map((player, index): PossessionZoneSubject => ({
-    key: playerKey(player, index),
-    name: player.name || player.platform_player_id || "Unknown",
-    platform: player.platform,
-    platformPlayerId: player.platform_player_id,
-    rank: statPlayerRank(player),
-    showPlatformBadge: true,
-    team: player.team,
-    zoneSeconds: emptyZoneSeconds(),
-  }));
+function playerPossessionZoneSubjects(
+  players: ReplayPlayer[],
+  spans: PossessionSpan[],
+): PossessionZoneSubject[] {
+  const subjects = players.map(
+    (player, index): PossessionZoneSubject => ({
+      key: playerKey(player, index),
+      name: player.name || player.platform_player_id || "Unknown",
+      platform: player.platform,
+      platformPlayerId: player.platform_player_id,
+      showPlatformBadge: true,
+      team: player.team,
+      zoneSeconds: emptyZoneSeconds(),
+    }),
+  );
 
   for (const span of spans) {
     if (span.playerId == null || span.third == null) continue;
@@ -626,7 +603,6 @@ function teamPossessionZoneSubjects(spans: PossessionSpan[]): PossessionZoneSubj
     name: teamLabel(team),
     platform: null,
     platformPlayerId: null,
-    rank: null,
     showPlatformBadge: false,
     team,
     zoneSeconds: emptyZoneSeconds(),
@@ -687,14 +663,19 @@ function compareZoneSubjects(left: PossessionZoneSubject, right: PossessionZoneS
   return left.name.localeCompare(right.name);
 }
 
-function possessionStateSegment(state: PossessionState, seconds: number, totalSeconds: number): SegmentedBarSegment {
+function possessionStateSegment(
+  state: PossessionState,
+  seconds: number,
+  totalSeconds: number,
+): SegmentedBarSegment {
   const percent = percentage(seconds, totalSeconds);
   return {
     key: state,
     className: `possession-state-${state}`,
     label: possessionStateLabel(state),
     value: seconds,
-    visibleLabel: percent >= 8 ? `${formatSeconds(seconds)} (${formatPercent(percent)})` : undefined,
+    visibleLabel:
+      percent >= 8 ? `${formatSeconds(seconds)} (${formatPercent(percent)})` : undefined,
     title: `${possessionStateLabel(state)}: ${formatSeconds(seconds)} (${formatPercent(percent)})`,
   };
 }
@@ -745,7 +726,9 @@ function possessionState(value: unknown): PossessionState | null {
 }
 
 function fieldThird(value: unknown): FieldThird | null {
-  return value === "team_zero_third" || value === "team_one_third" || value === "neutral_third" ? value : null;
+  return value === "team_zero_third" || value === "team_one_third" || value === "neutral_third"
+    ? value
+    : null;
 }
 
 function possessionStateLabel(state: PossessionState): string {
@@ -758,13 +741,20 @@ function playerKey(player: ReplayPlayer, index: number): string {
   return `${player.platform ?? "unknown"}:${player.platform_player_id ?? player.name ?? index}`;
 }
 
-function playerProfilePath(player: { platform: string | null; platformPlayerId: string | null }): string | null {
+function playerProfilePath(player: {
+  platform: string | null;
+  platformPlayerId: string | null;
+}): string | null {
   if (!player.platform || !player.platformPlayerId) return null;
   return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/possession`;
 }
 
 function playerMatchesId(player: ReplayPlayer, playerId: string): boolean {
-  return player.platform_player_id === playerId || playerKey(player, -1) === playerId || player.name === playerId;
+  return (
+    player.platform_player_id === playerId ||
+    playerKey(player, -1) === playerId ||
+    player.name === playerId
+  );
 }
 
 function teamClass(team: number | null): string {
