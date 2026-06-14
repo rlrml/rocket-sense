@@ -32,14 +32,14 @@ interface KickoffSpawnCard {
   buckets: KickoffSpawnBucket[];
 }
 
-const shapeOptions: Array<{ key: KickoffShapeFilter; label: string }> = [
+export const shapeOptions: Array<{ key: KickoffShapeFilter; label: string }> = [
   { key: "all", label: "All" },
   { key: "diagonal", label: "Diagonal" },
   { key: "center_offset", label: "Center offset" },
   { key: "center", label: "Center" },
 ];
 
-const sideOptions: Array<{ key: KickoffSideFilter; label: string }> = [
+export const sideOptions: Array<{ key: KickoffSideFilter; label: string }> = [
   { key: "all", label: "All sides" },
   { key: "left", label: "Left" },
   { key: "right", label: "Right" },
@@ -130,7 +130,7 @@ export function KickoffSpawnBreakdown({
   );
 }
 
-function KickoffFilterGroup({
+export function KickoffFilterGroup({
   label,
   options,
   selected,

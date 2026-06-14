@@ -280,7 +280,7 @@ export function OutcomeDistributionBar({
         : undefined);
     return {
       key: segment.key,
-      className: `outcome-dist-segment outcome-dist-${segment.tone} outcome-dist-level-${level}`,
+      className: outcomeSegmentClassName(segment.tone, level),
       label: segment.label,
       value: segment.value,
       visibleLabel,
@@ -302,7 +302,16 @@ export function OutcomeDistributionBar({
   );
 }
 
-function outcomeDistributionColorStyle(colors: OutcomeDistributionColors | undefined): CSSProperties | undefined {
+/** Tone+level → the segment classes whose CSS resolves `--outcome-*` vars. */
+export function outcomeSegmentClassName(
+  tone: OutcomeDistributionTone,
+  level: OutcomeDistributionLevel = "clear",
+): string {
+  return `outcome-dist-segment outcome-dist-${tone} outcome-dist-level-${level}`;
+}
+
+/** Build the `--outcome-*` CSS-var style an outcome palette resolves against. */
+export function outcomeDistributionColorStyle(colors: OutcomeDistributionColors | undefined): CSSProperties | undefined {
   if (!colors) return undefined;
 
   const style: Record<string, string> = {};
@@ -311,4 +320,113 @@ function outcomeDistributionColorStyle(colors: OutcomeDistributionColors | undef
     style[`--outcome-${key}`] = value;
   }
   return style as CSSProperties;
+}
+
+export interface ComparisonRow {
+  key: string;
+  /** Left-column identity node (e.g. <PlayerIdentity />). */
+  label: ReactNode;
+  ariaLabel: string;
+  segments: SegmentedBarSegment[];
+  /** Sum of segment values; with `maxValue` it sets how full the track reads. */
+  total: number;
+  /** Cross-row scale for magnitude charts. Omit to fill the track (distributions). */
+  maxValue?: number;
+  /** Right-column value (e.g. "2.10s", "67%", "+1 / -0"). */
+  valueLabel: ReactNode;
+  /** Extra CSS vars for the track, e.g. outcomeDistributionColorStyle(colors). */
+  style?: CSSProperties;
+  /** Shown on the track when there are no filled segments (e.g. a zero value). */
+  placeholder?: ReactNode;
+}
+
+/**
+ * One comparison chart: a titled block with a row per player, every row using
+ * the same track so magnitude bars and distribution bars read identically.
+ * Distribution rows pass tone-classed segments + a `--outcome-*` `style`;
+ * magnitude rows pass a single hue-classed segment and a `maxValue` scale.
+ */
+export function PlayerComparisonChart({
+  title,
+  rows,
+  emptyLabel = "No data yet.",
+  className = "",
+}: {
+  title: ReactNode;
+  rows: ComparisonRow[];
+  emptyLabel?: string;
+  className?: string;
+}) {
+  return (
+    <section className={`player-comparison-chart ${className}`.trim()}>
+      <div className="player-comparison-title">{title}</div>
+      {rows.length ? (
+        <div className="player-comparison-rows">
+          {rows.map((row) => (
+            <div className="player-comparison-row" key={row.key}>
+              {row.label}
+              <ComparisonBar
+                ariaLabel={row.ariaLabel}
+                segments={row.segments}
+                total={row.total}
+                maxValue={row.maxValue}
+                style={row.style}
+                placeholder={row.placeholder}
+              />
+              <strong className="metric-value player-comparison-value">
+                <span>{row.valueLabel}</span>
+              </strong>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="stat-empty">{emptyLabel}</div>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The single shared bar track used by every comparison chart AND any standalone
+ * full-width distribution bar, so they all read identically (same height,
+ * rounding, segment styling). Pass `--outcome-*` vars via `style` for tone-keyed
+ * fills, or hue classes on the segments for magnitude bars.
+ */
+export function ComparisonBar({
+  ariaLabel,
+  segments,
+  total,
+  maxValue,
+  style,
+  placeholder,
+}: {
+  ariaLabel: string;
+  segments: SegmentedBarSegment[];
+  total: number;
+  maxValue?: number;
+  style?: CSSProperties;
+  placeholder?: ReactNode;
+}) {
+  const visible = segments.filter((segment) => segment.value > 0);
+  const scaleMax = maxValue ?? total;
+  const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
+  return (
+    <div className="metric-bar-track source-bar-track player-comparison-track" style={style} aria-label={ariaLabel}>
+      <span className="source-bar-fill" style={{ width: `${fillPercent}%` }}>
+        {visible.map((segment) => (
+          <span
+            className={`source-segment ${segment.className}`}
+            key={segment.key}
+            style={{ flexGrow: segment.value }}
+            title={segment.title ?? `${segment.label}: ${segment.value.toLocaleString()}`}
+          >
+            {segment.visibleLabel ? <span className="source-segment-label">{segment.visibleLabel}</span> : null}
+          </span>
+        ))}
+      </span>
+      {visible.length === 0 && placeholder != null ? (
+        <span className="player-comparison-placeholder">{placeholder}</span>
+      ) : null}
+    </div>
+  );
 }

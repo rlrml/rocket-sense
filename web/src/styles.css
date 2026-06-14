@@ -1561,11 +1561,6 @@ tbody tr:last-child td {
   background: #f8fafc;
 }
 
-.kickoff-player-tables {
-  display: grid;
-  gap: 16px;
-}
-
 .kickoff-player-table-group {
   display: grid;
   gap: 6px;
@@ -1610,22 +1605,6 @@ tbody tr:last-child td {
 .kickoff-player-cell span {
   color: var(--muted);
   font-size: 12px;
-}
-
-.kickoff-goal-balance {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
-/* The outcome bar rides full-width beneath each taker row, so drop the bottom
-   border between the stats row and its detail and keep the two visually joined. */
-.kickoff-player-table tr.has-row-detail td {
-  border-bottom: 0;
-}
-
-.kickoff-player-table tr.kickoff-row-detail td {
-  padding-top: 2px;
-  padding-bottom: 12px;
-  white-space: normal;
 }
 
 .outcome-distribution {
@@ -1709,54 +1688,6 @@ tbody tr:last-child td {
   font-weight: 750;
 }
 
-.kickoff-role-detail-bars {
-  display: grid;
-  gap: 8px;
-}
-
-.kickoff-role-count-bar {
-  display: grid;
-  grid-template-columns: minmax(96px, 140px) minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-}
-
-.kickoff-role-count-bar > span {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.kickoff-role-count-track.stat-segmented-track {
-  height: 18px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-}
-
-.kickoff-role-count-track .source-segment-label {
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-}
-
-.kickoff-role-count-track .kickoff-outcome-segment-neutral .source-segment-label,
-.kickoff-role-count-track .kickoff-role-segment-other .source-segment-label {
-  color: #1e293b;
-}
-
-.source-segment.kickoff-role-segment-first {
-  background: #7c3aed;
-}
-
-.source-segment.kickoff-role-segment-other {
-  background: #cbd5e1;
-}
-
 .source-segment.kickoff-role-segment-map-0 {
   background: #0f766e;
 }
@@ -1771,6 +1702,36 @@ tbody tr:last-child td {
 
 .source-segment.kickoff-role-segment-map-3 {
   background: #a16207;
+}
+
+.source-segment.kickoff-role-segment-map-4 {
+  background: #be185d;
+}
+
+.source-segment.kickoff-role-segment-map-5 {
+  background: #15803d;
+}
+
+/* Take-outcome breakdown: touched (executed), fake (deliberate), miss (whiff),
+   other (remaining takes). */
+.source-segment.kickoff-take-touched {
+  background: #0f766e;
+}
+
+.source-segment.kickoff-take-fake {
+  background: #d97706;
+}
+
+.source-segment.kickoff-take-miss {
+  background: #dc2626;
+}
+
+.source-segment.kickoff-take-other {
+  background: #cbd5e1;
+}
+
+.player-comparison-track .kickoff-take-other .source-segment-label {
+  color: #1e293b;
 }
 
 .outcome-distribution-caption-positive {
@@ -3331,6 +3292,195 @@ tbody tr:last-child td {
   overflow-wrap: normal;
   text-align: right;
   white-space: normal;
+}
+
+/* Tabs inside the kickoff view: Stats vs Kickoff-by-kickoff. */
+.kickoff-tabs {
+  display: inline-flex;
+  width: fit-content;
+  overflow: hidden;
+  margin-bottom: 14px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+}
+
+.kickoff-tabs button {
+  min-width: 120px;
+  border: 0;
+  padding: 8px 16px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.kickoff-tabs button.active {
+  background: var(--surface);
+  color: var(--text-strong);
+}
+
+/* Kickoff player-behavior comparison charts: one bar everywhere — magnitude
+   charts (a single hued segment) and distribution charts (tone segments) share
+   the same track height/rounding so the section reads consistently. */
+.kickoff-player-behavior {
+  display: grid;
+  gap: 18px;
+}
+
+/* One chart per row, full width, so every comparison bar has room to read. */
+.kickoff-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.player-comparison-chart {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.player-comparison-title {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.player-comparison-rows {
+  display: grid;
+  gap: 6px;
+}
+
+.player-comparison-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 70px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.player-comparison-track {
+  height: 18px;
+}
+
+/* Shown when a bar has no filled segments (e.g. a zero value) so it still reads. */
+.player-comparison-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+}
+
+/* Proportional segments (matches .outcome-distribution-track) so multi-segment
+   distribution bars split by value rather than by content width. */
+.player-comparison-track .source-segment {
+  flex-grow: 0;
+  flex-shrink: 1;
+  flex-basis: 0;
+  min-width: 0;
+}
+
+.player-comparison-value {
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 0;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.kickoff-comparison-label {
+  min-width: 0;
+}
+
+/* Win/loss value: "all" win rate (decided kickoffs) and "clear" win rate
+   (narrow excluded), on one line. The chart gets a wider value column to fit. */
+.player-comparison-chart.winloss-chart .player-comparison-row {
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 132px;
+}
+
+.winloss-value {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: baseline;
+  white-space: nowrap;
+}
+
+.winloss-value-secondary {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.winloss-term {
+  margin-right: 3px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Team bars: the leading-team win/advantage rate sits to the right, on the same
+   line as the bar (fixed value column so the win and advantage bars align). */
+.kickoff-team-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 130px;
+  align-items: center;
+  gap: 12px;
+}
+
+.kickoff-team-row-value {
+  display: grid;
+  gap: 1px;
+  justify-items: end;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.kickoff-team-win-rate {
+  display: inline-flex;
+  gap: 2px;
+  align-items: baseline;
+}
+
+.team-text-blue {
+  color: var(--blue);
+}
+
+.team-text-orange {
+  color: var(--orange);
+}
+
+.team-text-neutral {
+  color: var(--muted);
+}
+
+/* Grouped (non-team) magnitude bars: one neutral accent — length and the row
+   label carry the meaning, so no per-player hue is needed. */
+.source-segment.kickoff-magnitude-accent {
+  --seg-color: #0f766e;
+  background: var(--seg-color);
+}
+
+/* Light outcome shades need dark labels to stay legible on the shared track. */
+.player-comparison-track .outcome-dist-level-narrow .source-segment-label,
+.player-comparison-track .outcome-dist-level-unknown .source-segment-label,
+.player-comparison-track .outcome-dist-neutral .source-segment-label {
+  color: #1e293b;
 }
 
 .player-metric-row {
@@ -4966,10 +5116,6 @@ tbody tr:last-child td {
 
   .kickoff-taker-details {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .kickoff-role-count-bar {
-    grid-template-columns: 1fr;
   }
 
   .kickoff-behavior-row {
