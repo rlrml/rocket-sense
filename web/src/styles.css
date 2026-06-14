@@ -2205,77 +2205,53 @@ tbody tr:last-child td {
   stroke: #b45309;
 }
 
-/* ---- Touch indicators: a top-down car wherever a player contacts the ball ---- */
-.field-car-body {
+/* ---- Touch indicators: a numbered, team-coloured circle at each ball contact ---- */
+.field-touch-dot {
   stroke: #fff;
-  stroke-width: 1.25;
+  stroke-width: 1;
 }
 
-.field-car-nose {
-  fill: #fff;
-  opacity: 0.85;
-}
-
-.field-touch-car.team-blue .field-car-body {
+.field-touch.team-blue .field-touch-dot {
   fill: #2563eb;
 }
 
-.field-touch-car.team-orange .field-car-body {
+.field-touch.team-orange .field-touch-dot {
   fill: #ea580c;
 }
 
-/* Where players end up — quiet, in place of a path arrowhead. */
-.field-touch-car.endpoint {
-  opacity: 0.55;
-}
-
-.field-touch-car.endpoint .field-car-body {
-  stroke-width: 0.75;
-}
-
-/* Buildup touches read clearly — these are the events worth seeing. */
-.field-touch-car.buildup {
-  opacity: 0.95;
-}
-
-/* The decisive scoring touch is the biggest, ringed in the scoring team's colour
-   so it both pops and tells you who scored. The white car stroke + white ring halo
-   keep it legible even though the ring shares the car's colour. */
-.field-touch-car.scoring .field-car-body {
-  stroke: #fff;
-  stroke-width: 2;
-  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.95));
-}
-
-.field-touch-car.scoring .field-car-nose {
+.field-touch-num {
   fill: #fff;
-  opacity: 1;
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: central;
 }
 
-.field-scoring-disc {
-  opacity: 0.25;
+/* The decisive scoring touch is the biggest, with a white ring so it reads as the
+   finish (its number is the last in the sequence). */
+.field-touch.scoring .field-touch-dot {
+  stroke-width: 1.5;
 }
 
-.field-scoring-ring {
+.field-touch-ring {
   fill: none;
-  stroke-width: 3.5;
-  /* White halo separates the team-coloured ring from the same-coloured car. */
-  filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 1px #fff);
+  stroke: #fff;
+  stroke-width: 3;
+  filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.55));
 }
 
-.field-scoring.team-blue .field-scoring-disc {
-  fill: #2563eb;
+/* Arrow fledge at the end of each run — quiet, points the way the player travelled. */
+.field-fledge {
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
 }
 
-.field-scoring.team-blue .field-scoring-ring {
+.field-fledge.team-blue {
   stroke: #2563eb;
 }
 
-.field-scoring.team-orange .field-scoring-disc {
-  fill: #ea580c;
-}
-
-.field-scoring.team-orange .field-scoring-ring {
+.field-fledge.team-orange {
   stroke: #ea580c;
 }
 

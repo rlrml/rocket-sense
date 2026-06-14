@@ -5,8 +5,9 @@ import {
   detectBallContacts,
   FieldDiagramSurface,
   type FieldDiagramModel,
-  projectHeadingDeg,
+  Fledge,
   type SurfacePath,
+  teamColorClass,
   type TouchMark,
   useReplayModel,
 } from "./fieldDiagram";
@@ -108,7 +109,6 @@ function buildGoalModel(
   const paths: SurfacePath[] = [];
   let scorerIndex = -1;
   let scorerTeam = 0;
-  const shownIndices: number[] = [];
   replay.players.forEach((track, index) => {
     const meta = matchPlayer(track, players);
     const team = meta?.team ?? (track.isTeamZero ? 0 : 1);
@@ -119,14 +119,25 @@ function buildGoalModel(
     }
     const points = samplePath(track, from, end, projection, MAX_PATH_POINTS);
     if (points.length < 2) return;
-    shownIndices.push(index);
-    // No start dot: a circle at each run's start reads as a touch and is confusing.
-    // The only marked points are real touches (the cars) and the ball end.
+    // No start dot (reads as a touch). The run ends in an arrow fledge pointing the
+    // way the player was travelling; the only circles are real touches.
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2];
+    const endHeadingDeg = (Math.atan2(last.y - prev.y, last.x - prev.x) * 180) / Math.PI;
     paths.push({
       key: `${meta?.playerName ?? track.name}-${index}`,
       team,
       groupClassName: isScorer ? "winner scorer" : "",
       points: pointsToString(points),
+      endMarker: (
+        <Fledge
+          x={last.x}
+          y={last.y}
+          headingDeg={endHeadingDeg}
+          size={projection.toUnits(240)}
+          className={`field-fledge team-${teamColorClass(team)}`}
+        />
+      ),
     });
   });
   // Scorer drawn last (on top), emphasized via CSS.
@@ -135,42 +146,44 @@ function buildGoalModel(
       Number(a.groupClassName?.includes("scorer")) - Number(b.groupClassName?.includes("scorer")),
   );
 
-  // Buildup contacts (passes/dribbles), and a quiet endpoint car for where each
-  // non-scoring player ends up (in place of a path arrowhead).
-  const touches: TouchMark[] = detectBallContacts(replay, from, end, projection, {
-    excludeFrame: end,
-  });
-  for (const index of shownIndices) {
-    if (index === scorerIndex) continue;
-    const mark = contactToMark(replay, end, index, projection, "endpoint");
-    if (mark) touches.push(mark);
-  }
+  // Buildup contacts (passes/dribbles), in chronological order.
+  const buildup = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
 
   // The decisive scoring touch uses subtr-actor's exact recorded contact point
   // (scorer_last_touch.ball_position), not a frame lookup — the latter lands on the
   // scorer's position when the ball crosses the line, which is not the touch. Fall
   // back to the scorer's final-frame position only if the payload lacks it.
-  const scoringMark = scoringTouch
+  const scoringMark: TouchMark | null = scoringTouch
     ? {
         at: projection.project(scoringTouch.ball.x, scoringTouch.ball.y),
         team: scoringTouch.team ?? scorerTeam,
-        headingDeg: scoringTouch.player
-          ? projectHeadingDeg(
-              projection,
-              { ...scoringTouch.player, z: 0 },
-              {
-                x: scoringTouch.ball.x - scoringTouch.player.x,
-                y: scoringTouch.ball.y - scoringTouch.player.y,
-                z: 0,
-              },
-            )
-          : null,
-        kind: "scoring" as const,
+        headingDeg: null,
+        kind: "scoring",
       }
     : scorerIndex >= 0
       ? contactToMark(replay, end, scorerIndex, projection, "scoring")
       : null;
-  if (scoringMark) touches.push(scoringMark);
+
+  // Drop the scorer's own last contact if proximity detection already surfaced it
+  // near the scoring point, so it isn't both a numbered buildup dot and the finish.
+  const minSep = projection.toUnits(350);
+  const buildupTouches =
+    scoringMark != null
+      ? buildup.filter(
+          (b) => Math.hypot(b.at.x - scoringMark.at.x, b.at.y - scoringMark.at.y) > minSep,
+        )
+      : buildup;
+
+  // Number them in contact order; the scoring touch is the last number.
+  const touches: TouchMark[] = [];
+  buildupTouches.forEach((touch, i) => {
+    touch.num = i + 1;
+    touches.push(touch);
+  });
+  if (scoringMark) {
+    scoringMark.num = buildupTouches.length + 1;
+    touches.push(scoringMark);
+  }
 
   const ball = sampleBallPath(replay, from, end, projection, MAX_PATH_POINTS);
   return {
