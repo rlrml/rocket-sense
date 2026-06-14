@@ -1931,6 +1931,7 @@ function ReplayGroupStatsPage() {
                 events={detailEvents}
                 players={participantAnalysis.players}
                 durationSeconds={groupDurationSeconds}
+                groupId={groupId}
                 scope="group"
               />
             ) : (

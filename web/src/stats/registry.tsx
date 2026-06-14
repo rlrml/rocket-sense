@@ -14,6 +14,7 @@ export interface StatDetailProps {
   players: ReplayPlayer[];
   durationSeconds: number | null;
   replayId?: string;
+  groupId?: string;
   scope?: "replay" | "group";
 }
 

@@ -1,4 +1,6 @@
 use super::*;
+use super::{accumulate_group_boost_tracks, boost_band_index, GroupBoostAccumulator};
+use std::collections::HashMap as TestHashMap;
 
 #[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
@@ -566,4 +568,106 @@ fn normalize_sha256_hex_rejects_non_sha256_values() {
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdeg"
     )
     .is_err());
+}
+
+fn boost_amount_point(time: f64, value: f64) -> BoostTrackPoint {
+    BoostTrackPoint {
+        frame: 0,
+        time: Some(time),
+        value,
+    }
+}
+
+fn boost_track(player_id: &str, quantity: &str, points: Vec<BoostTrackPoint>) -> BoostTrack {
+    BoostTrack {
+        player_id: Some(player_id.to_string()),
+        is_team_0: true,
+        quantity: quantity.to_string(),
+        points,
+    }
+}
+
+#[test]
+fn boost_band_index_partitions_match_web_bands() {
+    assert_eq!(boost_band_index(0.0), 0);
+    assert_eq!(boost_band_index(0.5), 0);
+    assert_eq!(boost_band_index(1.0), 1);
+    assert_eq!(boost_band_index(24.9), 1);
+    assert_eq!(boost_band_index(25.0), 2);
+    assert_eq!(boost_band_index(49.9), 2);
+    assert_eq!(boost_band_index(50.0), 3);
+    assert_eq!(boost_band_index(74.9), 3);
+    assert_eq!(boost_band_index(75.0), 4);
+    assert_eq!(boost_band_index(99.9), 4);
+    assert_eq!(boost_band_index(100.0), 5);
+    assert_eq!(boost_band_index(150.0), 5);
+}
+
+#[test]
+fn accumulate_group_boost_tracks_time_weights_and_sums_across_replays() {
+    let mut accumulators: TestHashMap<String, GroupBoostAccumulator> = TestHashMap::new();
+
+    // Replay 1: held 0% for 10s, then a final 100% sample (zero-duration tail).
+    let replay_one = vec![
+        boost_track(
+            "p1",
+            "boost_amount",
+            vec![
+                boost_amount_point(0.0, 0.0),
+                boost_amount_point(10.0, 255.0),
+            ],
+        ),
+        // 51/255 -> 20% used, 25.5/255 -> 10% supersonic.
+        boost_track("p1", "boost_used", vec![boost_amount_point(0.0, 51.0)]),
+        boost_track(
+            "p1",
+            "boost_used_supersonic",
+            vec![boost_amount_point(0.0, 25.5)],
+        ),
+    ];
+    // Replay 2: held 50% for 5s, then a final 75% sample (zero-duration tail).
+    let replay_two = vec![
+        boost_track(
+            "p1",
+            "boost_amount",
+            vec![
+                boost_amount_point(0.0, 127.5),
+                boost_amount_point(5.0, 191.25),
+            ],
+        ),
+        boost_track("p1", "boost_used", vec![boost_amount_point(0.0, 25.5)]),
+    ];
+
+    let mut duration = 0.0;
+    duration += accumulate_group_boost_tracks(&replay_one, &mut accumulators);
+    duration += accumulate_group_boost_tracks(&replay_two, &mut accumulators);
+
+    assert_eq!(duration, 15.0);
+    let p1 = accumulators.get("p1").expect("p1 accumulated");
+    assert_eq!(p1.tracked_seconds, 15.0);
+    assert_eq!(p1.boost_used, 30.0); // 20% + 10%
+    assert_eq!(p1.boost_used_supersonic, 10.0);
+    // 10s at 0% + 5s at 50% -> weighted sum 250, mean 250/15.
+    assert_eq!(p1.boost_amount_weighted_sum, 250.0);
+    assert_eq!(p1.bands[0], 10.0); // empty band, replay 1
+    assert_eq!(p1.bands[3], 5.0); // high band (50-75), replay 2
+    assert_eq!(p1.bands[1] + p1.bands[2] + p1.bands[4] + p1.bands[5], 0.0);
+}
+
+#[test]
+fn accumulate_group_boost_tracks_ignores_tracks_without_a_player() {
+    let mut accumulators: TestHashMap<String, GroupBoostAccumulator> = TestHashMap::new();
+    let tracks = vec![BoostTrack {
+        player_id: None,
+        is_team_0: false,
+        quantity: "boost_amount".to_string(),
+        points: vec![boost_amount_point(0.0, 255.0), boost_amount_point(8.0, 0.0)],
+    }];
+
+    let duration = accumulate_group_boost_tracks(&tracks, &mut accumulators);
+
+    // Duration still reflects the (team-level) boost-amount samples...
+    assert_eq!(duration, 8.0);
+    // ...but no per-player totals are recorded for an absent player id.
+    assert!(accumulators.is_empty());
 }

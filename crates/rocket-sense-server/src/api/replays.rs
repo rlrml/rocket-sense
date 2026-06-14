@@ -27,6 +27,7 @@ use rocket_sense_storage::{
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use std::collections::HashMap;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
@@ -71,6 +72,10 @@ pub fn router() -> Router<AppState> {
             get(list_replay_group_replays)
                 .post(add_replay_group_replays)
                 .delete(remove_replay_group_replays),
+        )
+        .route(
+            "/replay-groups/{group_id}/stats/boost-totals",
+            get(get_replay_group_boost_totals),
         )
 }
 
@@ -1213,6 +1218,196 @@ pub async fn get_replay_boost_tracks(
     };
 
     Ok(Json(response))
+}
+
+/// Per-player boost totals aggregated across every replay in a group, derived
+/// from the boost accumulation tracks (the continuous quantities that are *not*
+/// indexed as discrete events). The instantaneous `boost_amount` track is
+/// time-weighted into a mean and partitioned into boost-level band seconds; the
+/// monotonic `boost_used` / `boost_used_supersonic` tracks contribute their
+/// final cumulative totals. Values are summed over the group's replays so the
+/// group stats page can build a boost stat table and level distribution without
+/// a single-replay timeline (which has no group-level meaning).
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GroupBoostTotal {
+    /// `platform:platform_player_id` identity key, matching event `player_id`.
+    pub player_id: String,
+    pub is_team_0: bool,
+    /// Total boost used across the group, in 0-100 percent units.
+    pub boost_used: f64,
+    /// Total boost used while supersonic, in 0-100 percent units.
+    pub boost_used_supersonic: f64,
+    /// Sum of `boost_amount_percent * seconds_held`, the numerator of the
+    /// time-weighted mean boost amount (denominator is `tracked_seconds`).
+    pub boost_amount_weighted_sum: f64,
+    /// Total seconds the boost-amount track covered across the group.
+    pub tracked_seconds: f64,
+    /// Seconds held in each boost-level band (a partition of `tracked_seconds`):
+    /// empty (<1%), low (1-25), medium (25-50), high (50-75), full (75-100),
+    /// over (>=100). The web layer recombines these into table/chart bands.
+    pub time_empty: f64,
+    pub time_low: f64,
+    pub time_medium: f64,
+    pub time_high: f64,
+    pub time_full: f64,
+    pub time_over: f64,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct GroupBoostTotalsResponse {
+    pub totals: Vec<GroupBoostTotal>,
+    /// Sum across the group's replays of each replay's tracked boost-amount
+    /// duration; the denominator for per-minute (BPM/BCPM) rates.
+    pub duration_seconds: f64,
+}
+
+/// Raw replay boost is stored on a `0..=255` scale; mirror
+/// subtr-actor's `boost_amount_to_percent` (in f64 to match the JS bindings).
+const BOOST_RAW_MAX: f64 = 255.0;
+
+#[derive(Default)]
+struct GroupBoostAccumulator {
+    is_team_0: bool,
+    boost_used: f64,
+    boost_used_supersonic: f64,
+    boost_amount_weighted_sum: f64,
+    tracked_seconds: f64,
+    bands: [f64; 6],
+}
+
+/// Index into `GroupBoostAccumulator::bands` for a boost amount percentage,
+/// matching the web's `boostBandForAmount` partition.
+fn boost_band_index(percent: f64) -> usize {
+    if percent < 1.0 {
+        0
+    } else if percent < 25.0 {
+        1
+    } else if percent < 50.0 {
+        2
+    } else if percent < 75.0 {
+        3
+    } else if percent < 100.0 {
+        4
+    } else {
+        5
+    }
+}
+
+/// Fold one replay's boost tracks into the per-player accumulators. The
+/// time-weighting mirrors the web's `timeWeightedBoostAverage` /
+/// `boostBandDurations`: each change-point sample is weighted by the time it
+/// holds until the next sample (or the replay's tracked duration).
+fn accumulate_group_boost_tracks(
+    tracks: &[BoostTrack],
+    accumulators: &mut HashMap<String, GroupBoostAccumulator>,
+) -> f64 {
+    // Replay duration = latest boost-amount sample time, used to weight the
+    // final held sample (matches the web's per-replay duration derivation).
+    let replay_duration = tracks
+        .iter()
+        .filter(|track| track.quantity == "boost_amount")
+        .flat_map(|track| track.points.iter())
+        .filter_map(|point| point.time)
+        .fold(0.0_f64, f64::max);
+
+    for track in tracks {
+        let Some(player_id) = track.player_id.as_ref() else {
+            continue;
+        };
+        let accumulator = accumulators.entry(player_id.clone()).or_default();
+        accumulator.is_team_0 = track.is_team_0;
+
+        match track.quantity.as_str() {
+            "boost_amount" => {
+                let mut samples: Vec<(f64, f64)> = track
+                    .points
+                    .iter()
+                    .filter_map(|point| point.time.map(|time| (time, point.value)))
+                    .collect();
+                samples.sort_by(|left, right| left.0.total_cmp(&right.0));
+                for index in 0..samples.len() {
+                    let (time, value) = samples[index];
+                    let next_time = samples.get(index + 1).map_or(replay_duration, |s| s.0);
+                    let seconds = (next_time.min(replay_duration) - time.max(0.0)).max(0.0);
+                    if seconds == 0.0 {
+                        continue;
+                    }
+                    let percent = value * 100.0 / BOOST_RAW_MAX;
+                    accumulator.boost_amount_weighted_sum += percent * seconds;
+                    accumulator.tracked_seconds += seconds;
+                    accumulator.bands[boost_band_index(percent)] += seconds;
+                }
+            }
+            "boost_used" => {
+                if let Some(last) = track.points.last() {
+                    accumulator.boost_used += last.value * 100.0 / BOOST_RAW_MAX;
+                }
+            }
+            "boost_used_supersonic" => {
+                if let Some(last) = track.points.last() {
+                    accumulator.boost_used_supersonic += last.value * 100.0 / BOOST_RAW_MAX;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    replay_duration
+}
+
+/// Per-player boost totals aggregated across every replay in a group. Empty
+/// when no replay in the group has been processed with boost accumulation
+/// tracks yet.
+pub async fn get_replay_group_boost_totals(
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<GroupBoostTotalsResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let rows = sqlx::query(
+        r#"
+        SELECT t.tracks AS tracks
+        FROM replay_boost_tracks t
+        JOIN replays r ON r.canonical_analysis_run_id = t.analysis_run_id
+        JOIN replay_group_replays gr ON gr.replay_id = r.id
+        WHERE gr.group_id = $1
+        "#,
+    )
+    .bind(group_id)
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let mut accumulators: HashMap<String, GroupBoostAccumulator> = HashMap::new();
+    let mut duration_seconds = 0.0_f64;
+    for row in rows {
+        let SqlxJson(tracks): SqlxJson<BoostTracksResponse> =
+            row.try_get("tracks").map_err(ApiError::internal)?;
+        duration_seconds += accumulate_group_boost_tracks(&tracks.tracks, &mut accumulators);
+    }
+
+    let mut totals: Vec<GroupBoostTotal> = accumulators
+        .into_iter()
+        .map(|(player_id, accumulator)| GroupBoostTotal {
+            player_id,
+            is_team_0: accumulator.is_team_0,
+            boost_used: accumulator.boost_used,
+            boost_used_supersonic: accumulator.boost_used_supersonic,
+            boost_amount_weighted_sum: accumulator.boost_amount_weighted_sum,
+            tracked_seconds: accumulator.tracked_seconds,
+            time_empty: accumulator.bands[0],
+            time_low: accumulator.bands[1],
+            time_medium: accumulator.bands[2],
+            time_high: accumulator.bands[3],
+            time_full: accumulator.bands[4],
+            time_over: accumulator.bands[5],
+        })
+        .collect();
+    totals.sort_by(|left, right| left.player_id.cmp(&right.player_id));
+
+    Ok(Json(GroupBoostTotalsResponse {
+        totals,
+        duration_seconds,
+    }))
 }
 
 async fn subtr_actor_viewer() -> Html<&'static str> {

@@ -5,6 +5,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypesResponse,
+  GroupBoostTotalsResponse,
   ListReplayGroupsResponse,
   ListReplaysResponse,
   MechanicEventsResponse,
@@ -381,6 +382,12 @@ export function listEventTypes(): Promise<EventTypesResponse> {
 export function listBoostTracks(replayId: string): Promise<BoostTracksResponse> {
   return request<BoostTracksResponse>(
     `/api/v1/replays/${encodeURIComponent(replayId)}/stats/boost-tracks`,
+  );
+}
+
+export function listReplayGroupBoostTotals(groupId: string): Promise<GroupBoostTotalsResponse> {
+  return request<GroupBoostTotalsResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/stats/boost-totals`,
   );
 }
 

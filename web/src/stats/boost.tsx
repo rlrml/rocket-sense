@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { listBoostTracks } from "../api";
-import type { BoostTrack, MechanicEventResponse, ReplayPlayer } from "../types";
+import { listBoostTracks, listReplayGroupBoostTotals } from "../api";
+import type { BoostTrack, GroupBoostTotal, GroupBoostTotalsResponse, MechanicEventResponse, ReplayPlayer } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
 import { StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
 
@@ -103,24 +103,50 @@ export function BoostDetail({
   players,
   durationSeconds,
   replayId,
+  scope,
+  groupId,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   replayId?: string;
+  scope?: "replay" | "group";
+  groupId?: string;
 }) {
-  const tracks = useBoostTracks(replayId);
+  // The instantaneous boost-amount timeline and cumulative totals are not
+  // indexed as events: per replay they come from accumulation tracks, and for a
+  // group they are pre-aggregated server-side (boost totals across replays). A
+  // single boost-amount timeline has no meaning across a group, so the team
+  // stacked line chart is replay-only.
+  const isGroup = scope === "group";
+  const tracks = useBoostTracks(isGroup ? undefined : replayId);
+  const groupTotals = useGroupBoostTotals(isGroup ? groupId : undefined);
+
   const boostEvents = events.filter((event) => event.event_type.includes("boost"));
   const pickupEvents = boostEvents.filter((event) => event.event_type.startsWith("boost_pickup"));
   const respawnEvents = boostEvents.filter((event) => event.event_type === "boost_respawn");
   const stateSamples = useMemo(() => boostAmountSamplesFromTracks(tracks), [tracks]);
   const trackTotals = useMemo(() => cumulativeTrackTotals(tracks), [tracks]);
+  const groupTotalsByKey = useMemo(
+    () => new Map((groupTotals?.totals ?? []).map((total) => [total.player_id, total] as const)),
+    [groupTotals],
+  );
+  const groupDurationSeconds = groupTotals?.duration_seconds ?? 0;
   const summaries = useMemo(
-    () => boostPlayerSummaries(players, stateSamples, pickupEvents, respawnEvents, trackTotals),
-    [players, stateSamples, pickupEvents, respawnEvents, trackTotals],
+    () =>
+      isGroup
+        ? groupBoostPlayerSummaries(players, pickupEvents, respawnEvents, groupTotalsByKey, groupDurationSeconds)
+        : boostPlayerSummaries(players, stateSamples, pickupEvents, respawnEvents, trackTotals),
+    [isGroup, players, stateSamples, pickupEvents, respawnEvents, trackTotals, groupTotalsByKey, groupDurationSeconds],
   );
   const pickupMapPoints = boostPickupMapPoints(players, pickupEvents);
-  const chartDuration = durationSeconds ?? Math.max(60, ...stateSamples.map((sample) => sample.time), ...boostEvents.map((event) => event.event_time ?? 0));
+  const chartDuration = isGroup
+    ? Math.max(1, groupDurationSeconds)
+    : durationSeconds ?? Math.max(60, ...stateSamples.map((sample) => sample.time), ...boostEvents.map((event) => event.event_time ?? 0));
+  const playerLevelRows = useMemo(
+    () => (isGroup ? groupBoostLevelDistribution(players, groupTotalsByKey) : boostLevelDistribution(stateSamples, players, chartDuration)),
+    [isGroup, players, groupTotalsByKey, stateSamples, chartDuration],
+  );
   const isOneVOne = isOneVOneMatch(players);
   const [selectedComparisonMode, setSelectedComparisonMode] = useState<BoostComparisonMode>("players");
   const comparisonMode = isOneVOne ? "players" : selectedComparisonMode;
@@ -133,8 +159,8 @@ export function BoostDetail({
           <PlayerBoostEconomyChart
             comparisonMode={comparisonMode}
             durationSeconds={chartDuration}
+            playerLevelRows={playerLevelRows}
             players={players}
-            samples={stateSamples}
             summaries={summaries}
           />
         </section>
@@ -147,9 +173,11 @@ export function BoostDetail({
           <PadPickupMaps comparisonMode={comparisonMode} players={players} points={pickupMapPoints} />
         </section>
 
-        <section className="chart-panel full-span">
-          <TeamBoostStackedLineChart comparisonMode={comparisonMode} samples={stateSamples} players={players} durationSeconds={chartDuration} />
-        </section>
+        {isGroup ? null : (
+          <section className="chart-panel full-span">
+            <TeamBoostStackedLineChart comparisonMode={comparisonMode} samples={stateSamples} players={players} durationSeconds={chartDuration} />
+          </section>
+        )}
       </div>
     </div>
   );
@@ -506,17 +534,16 @@ function TeamBoostRechartsLane({
 function PlayerBoostEconomyChart({
   comparisonMode,
   summaries,
-  samples,
+  playerLevelRows,
   players,
   durationSeconds,
 }: {
   comparisonMode: BoostComparisonMode;
   summaries: BoostPlayerSummary[];
-  samples: BoostStateSample[];
+  playerLevelRows: ReturnType<typeof boostLevelDistribution>;
   players: ReplayPlayer[];
   durationSeconds: number;
 }) {
-  const playerLevelRows = boostLevelDistribution(samples, players, durationSeconds);
   const levelRows = comparisonMode === "players" ? playerLevelRows : teamBoostLevelDistribution(playerLevelRows);
   const boostLevelsByPlayer = new Map(levelRows.map((row) => [row.key, row]));
   const playerIndexByKey = teamLocalPlayerIndexByKey(players);
@@ -1452,6 +1479,33 @@ function useBoostTracks(replayId: string | undefined): BoostTrack[] {
   return tracks;
 }
 
+// React hook: load a replay group's pre-aggregated boost totals (the
+// track-derived quantities summed across the group's replays). Returns null
+// until the fetch resolves.
+function useGroupBoostTotals(groupId: string | undefined): GroupBoostTotalsResponse | null {
+  const [totals, setTotals] = useState<GroupBoostTotalsResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setTotals(null);
+    if (!groupId) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    listReplayGroupBoostTotals(groupId)
+      .then((response) => {
+        if (!cancelled) setTotals(response);
+      })
+      .catch(() => {
+        if (!cancelled) setTotals(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+  return totals;
+}
+
 // Flatten the per-player `boost_amount` accumulation track into instantaneous
 // boost-amount samples (converted from raw 0-255 units to 0-100 percent).
 function boostAmountSamplesFromTracks(tracks: BoostTrack[]): BoostStateSample[] {
@@ -1574,6 +1628,77 @@ function smallPadHalf(event: MechanicEventResponse, player: ReplayPlayer): "offe
   return isOpponentSide ? "offensive" : "defensive";
 }
 
+// Event-derived boost fields (pickups + respawns). These come from indexed
+// events, so they aggregate identically for a single replay or a whole group;
+// only the track-derived fields (average/used/bands) differ by scope.
+type BoostEventFields = Pick<
+  BoostPlayerSummary,
+  | "collected"
+  | "collectedBig"
+  | "collectedSmall"
+  | "collectedGrant"
+  | "collectedUnknown"
+  | "stolen"
+  | "stolenBigBoost"
+  | "stolenBig"
+  | "stolenSmall"
+  | "stolenSmallBoost"
+  | "stolenCount"
+  | "bigPads"
+  | "bigPadsOffensive"
+  | "bigPadsNeutral"
+  | "bigPadsDefensive"
+  | "smallPads"
+  | "smallPadsOffensive"
+  | "smallPadsDefensive"
+  | "overfill"
+  | "stolenOverfill"
+>;
+
+function boostEventFields(
+  player: ReplayPlayer,
+  pickupEvents: MechanicEventResponse[],
+  respawnEvents: MechanicEventResponse[],
+): BoostEventFields {
+  const matchingPickups = pickupEvents.filter((event) => eventMatchesPlayer(event, player));
+  const matchingRespawns = respawnEvents.filter((event) => eventMatchesPlayer(event, player));
+
+  const collectedPads = sumPickupAmounts(matchingPickups, "collected_amount");
+  const collectedBig = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "big"), "collected_amount");
+  const collectedSmall = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "small"), "collected_amount");
+  const collectedGrant = sumPickupAmounts(matchingRespawns, "boost_granted");
+
+  const stealPickups = matchingPickups.filter(isStealPickup);
+  const stolenBigPickups = stealPickups.filter((event) => boostPadSize(event) === "big");
+  const stolenSmallPickups = stealPickups.filter((event) => boostPadSize(event) === "small");
+
+  const bigPadZones = bigPadZoneCounts(matchingPickups, player);
+  const smallPadHalves = smallPadHalfCounts(matchingPickups, player);
+
+  return {
+    collected: collectedPads + collectedGrant,
+    collectedBig,
+    collectedSmall,
+    collectedGrant,
+    collectedUnknown: Math.max(0, collectedPads - collectedBig - collectedSmall),
+    stolen: sumPickupAmounts(stealPickups, "collected_amount"),
+    stolenBigBoost: sumPickupAmounts(stolenBigPickups, "collected_amount"),
+    stolenBig: stolenBigPickups.length,
+    stolenSmall: stolenSmallPickups.length,
+    stolenSmallBoost: sumPickupAmounts(stolenSmallPickups, "collected_amount"),
+    stolenCount: stealPickups.length,
+    bigPads: matchingPickups.filter((event) => boostPadSize(event) === "big").length,
+    bigPadsOffensive: bigPadZones.offensive,
+    bigPadsNeutral: bigPadZones.neutral,
+    bigPadsDefensive: bigPadZones.defensive,
+    smallPads: matchingPickups.filter((event) => boostPadSize(event) === "small").length,
+    smallPadsOffensive: smallPadHalves.offensive,
+    smallPadsDefensive: smallPadHalves.defensive,
+    overfill: sumPickupAmounts(matchingPickups, "overfill_amount"),
+    stolenOverfill: sumPickupAmounts(stealPickups, "overfill_amount"),
+  };
+}
+
 function boostPlayerSummaries(
   players: ReplayPlayer[],
   stateSamples: BoostStateSample[],
@@ -1585,29 +1710,7 @@ function boostPlayerSummaries(
   return players.map((player) => {
     const key = playerKey(player);
     const matchingSamples = stateSamples.filter((sample) => sample.playerId === key);
-    const matchingPickups = pickupEvents.filter((event) => eventMatchesPlayer(event, player));
-    const matchingRespawns = respawnEvents.filter((event) => eventMatchesPlayer(event, player));
-
-    const collectedPads = sumPickupAmounts(matchingPickups, "collected_amount");
-    const collectedBig = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "big"), "collected_amount");
-    const collectedSmall = sumPickupAmounts(matchingPickups.filter((event) => boostPadSize(event) === "small"), "collected_amount");
-    const collectedGrant = sumPickupAmounts(matchingRespawns, "boost_granted");
-    const collected = collectedPads + collectedGrant;
-
-    const stealPickups = matchingPickups.filter(isStealPickup);
-    const stolenBigPickups = stealPickups.filter((event) => boostPadSize(event) === "big");
-    const stolenSmallPickups = stealPickups.filter((event) => boostPadSize(event) === "small");
-    const stolenBigBoost = sumPickupAmounts(stolenBigPickups, "collected_amount");
-    const stolenSmallBoost = sumPickupAmounts(stolenSmallPickups, "collected_amount");
-    const stolen = sumPickupAmounts(stealPickups, "collected_amount");
-
-    const overfill = sumPickupAmounts(matchingPickups, "overfill_amount");
-    const stolenOverfill = sumPickupAmounts(stealPickups, "overfill_amount");
-
-    const bigPads = matchingPickups.filter((event) => boostPadSize(event) === "big").length;
-    const smallPads = matchingPickups.filter((event) => boostPadSize(event) === "small").length;
-    const bigPadZones = bigPadZoneCounts(matchingPickups, player);
-    const smallPadHalves = smallPadHalfCounts(matchingPickups, player);
+    const eventFields = boostEventFields(player, pickupEvents, respawnEvents);
 
     const used = trackTotals.get(`${key}:boost_used`) ?? 0;
     const usedWhileSupersonic = trackTotals.get(`${key}:boost_used_supersonic`) ?? 0;
@@ -1622,30 +1725,102 @@ function boostPlayerSummaries(
       team: player.team,
       average: timeWeightedBoostAverage(matchingSamples, durationSeconds),
       bpm: perMinute(used, durationSeconds),
-      bcpm: perMinute(collected, durationSeconds),
-      collected,
-      collectedBig,
-      collectedSmall,
-      collectedGrant,
-      collectedUnknown: Math.max(0, collectedPads - collectedBig - collectedSmall),
+      bcpm: perMinute(eventFields.collected, durationSeconds),
+      ...eventFields,
       used,
-      stolen,
-      stolenBigBoost,
-      stolenBig: stolenBigPickups.length,
-      stolenSmall: stolenSmallPickups.length,
-      stolenSmallBoost,
-      stolenCount: stealPickups.length,
-      bigPads,
-      bigPadsOffensive: bigPadZones.offensive,
-      bigPadsNeutral: bigPadZones.neutral,
-      bigPadsDefensive: bigPadZones.defensive,
-      smallPads,
-      smallPadsOffensive: smallPadHalves.offensive,
-      smallPadsDefensive: smallPadHalves.defensive,
       usedWhileSupersonic,
-      overfill,
-      stolenOverfill,
       ...bandDurations,
+    };
+  });
+}
+
+// Group analogue of boostPlayerSummaries: event fields aggregate over the
+// group's events, while track-derived fields come pre-summed from the
+// boost-totals endpoint. `durationSeconds` is the group's total tracked
+// duration (the per-minute denominator).
+function groupBoostPlayerSummaries(
+  players: ReplayPlayer[],
+  pickupEvents: MechanicEventResponse[],
+  respawnEvents: MechanicEventResponse[],
+  totalsByKey: Map<string, GroupBoostTotal>,
+  durationSeconds: number,
+): BoostPlayerSummary[] {
+  return players.map((player) => {
+    const key = playerKey(player);
+    const eventFields = boostEventFields(player, pickupEvents, respawnEvents);
+    const totals = totalsByKey.get(key);
+
+    const used = totals?.boost_used ?? 0;
+    const usedWhileSupersonic = totals?.boost_used_supersonic ?? 0;
+    const trackedSeconds = totals?.tracked_seconds ?? 0;
+    const average = trackedSeconds > 0 ? (totals?.boost_amount_weighted_sum ?? 0) / trackedSeconds : null;
+
+    return {
+      key,
+      name: player.name || player.platform_player_id || "Unknown",
+      platform: player.platform,
+      platformPlayerId: player.platform_player_id,
+      rank: statPlayerRank(player),
+      team: player.team,
+      average,
+      bpm: perMinute(used, durationSeconds),
+      bcpm: perMinute(eventFields.collected, durationSeconds),
+      ...eventFields,
+      used,
+      usedWhileSupersonic,
+      ...bandDurationsFromGroupTotals(totals),
+    };
+  });
+}
+
+// Recombine the server's boost-level band partition (empty/low/medium/high/
+// full/over) into the summary's overlapping band fields, mirroring
+// boostBandDurations.
+function bandDurationsFromGroupTotals(totals: GroupBoostTotal | undefined) {
+  const empty = totals?.time_empty ?? 0;
+  const low = totals?.time_low ?? 0;
+  const medium = totals?.time_medium ?? 0;
+  const high = totals?.time_high ?? 0;
+  const full = totals?.time_full ?? 0;
+  const over = totals?.time_over ?? 0;
+  return {
+    timeZeroBoost: empty,
+    timeHundredBoost: over,
+    timeBoost0To25: empty + low,
+    timeBoost25To50: medium,
+    timeBoost50To75: high,
+    timeBoost75To100: full + over,
+    trackedSeconds: empty + low + medium + high + full + over,
+  };
+}
+
+// Group analogue of boostLevelDistribution, built from the server's band
+// seconds rather than a single replay's instantaneous samples.
+function groupBoostLevelDistribution(
+  players: ReplayPlayer[],
+  totalsByKey: Map<string, GroupBoostTotal>,
+): ReturnType<typeof boostLevelDistribution> {
+  return players.map((player) => {
+    const key = playerKey(player);
+    const totals = totalsByKey.get(key);
+    const secondsByBand = new Map<string, number>([
+      ["empty", totals?.time_empty ?? 0],
+      ["low", totals?.time_low ?? 0],
+      ["medium", totals?.time_medium ?? 0],
+      ["high", totals?.time_high ?? 0],
+      ["full", totals?.time_full ?? 0],
+      ["over", totals?.time_over ?? 0],
+    ]);
+    const knownSeconds = Array.from(secondsByBand.values()).reduce((total, seconds) => total + seconds, 0);
+    return {
+      key,
+      name: player.name || player.platform_player_id || "Unknown",
+      team: player.team,
+      bands: boostLevelBands.map((band) => ({
+        ...band,
+        seconds: secondsByBand.get(band.id) ?? 0,
+        percent: knownSeconds > 0 ? ((secondsByBand.get(band.id) ?? 0) / knownSeconds) * 100 : 0,
+      })),
     };
   });
 }
