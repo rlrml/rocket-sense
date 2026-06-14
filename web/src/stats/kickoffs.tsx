@@ -217,7 +217,6 @@ export function KickoffDetail({ events, players, replayId, scope = "replay" }: K
     () => kickoffPlayerSummaries(kickoffs, players),
     [kickoffs, players],
   );
-  const summary = useMemo(() => kickoffSummary(kickoffs), [kickoffs]);
   const kickoffKey = useCallback((kickoff: KickoffRow) => kickoff.event.id, []);
   // Hovering a player chip inside a kickoff card temporarily reseats the preview
   // camera on that player (loser and support players included); leaving the chip
@@ -283,43 +282,6 @@ export function KickoffDetail({ events, players, replayId, scope = "replay" }: K
 
   return (
     <div className="kickoff-detail">
-      <section className="kickoff-hero">
-        <div>
-          <p className="eyebrow">Kickoff report</p>
-          <h2>Kickoffs</h2>
-          <p>
-            {kickoffs.length
-              ? kickoffReportSentence(summary, kickoffs.length)
-              : "No kickoff events have been indexed for this selection yet."}
-          </p>
-        </div>
-        <div className="kickoff-hero-metrics">
-          <KickoffMetric
-            icon={CircleDotDashed}
-            label="Kickoffs"
-            value={kickoffs.length.toLocaleString()}
-          />
-          <KickoffMetric
-            icon={Trophy}
-            label="Blue wins"
-            value={summary.blueWins.toLocaleString()}
-          />
-          <KickoffMetric
-            icon={Trophy}
-            label="Orange wins"
-            value={summary.orangeWins.toLocaleString()}
-          />
-          {summary.blueAdvantages + summary.orangeAdvantages + summary.noAdvantage > 0 ? (
-            <KickoffMetric
-              icon={Anchor}
-              label="Advantage"
-              value={`${summary.blueAdvantages} – ${summary.orangeAdvantages}`}
-            />
-          ) : null}
-          <KickoffMetric icon={Goal} label="Kickoff goals" value={summary.goals.toLocaleString()} />
-        </div>
-      </section>
-
       {kickoffs.length ? (
         <div className="stat-section-grid">
           <section className="chart-panel full-span">
@@ -1872,54 +1834,6 @@ function kickoffPossessionLabel(kickoff: KickoffRow): string {
     default:
       return teamLabel(kickoff.possessionTeam);
   }
-}
-
-function kickoffSummary(kickoffs: KickoffRow[]) {
-  return kickoffs.reduce(
-    (summary, kickoff) => {
-      if (kickoff.winningTeam === 0) summary.blueWins += 1;
-      else if (kickoff.winningTeam === 1) summary.orangeWins += 1;
-      else summary.neutral += 1;
-      if (kickoff.kickoffGoal) summary.goals += 1;
-      if (kickoff.advantageTeam === 0) summary.blueAdvantages += 1;
-      else if (kickoff.advantageTeam === 1) summary.orangeAdvantages += 1;
-      else if (kickoff.advantage === "no_advantage") summary.noAdvantage += 1;
-      return summary;
-    },
-    {
-      blueWins: 0,
-      orangeWins: 0,
-      neutral: 0,
-      goals: 0,
-      blueAdvantages: 0,
-      orangeAdvantages: 0,
-      noAdvantage: 0,
-    },
-  );
-}
-
-function kickoffReportSentence(summary: ReturnType<typeof kickoffSummary>, total: number): string {
-  const winLeader =
-    summary.blueWins === summary.orangeWins
-      ? "Neither team controlled the kickoff count"
-      : summary.blueWins > summary.orangeWins
-        ? "Blue had the kickoff edge"
-        : "Orange had the kickoff edge";
-  const goalPart =
-    summary.goals === 0
-      ? "no kickoff goals"
-      : `${summary.goals} kickoff ${summary.goals === 1 ? "goal" : "goals"}`;
-  const advantageKnown = summary.blueAdvantages + summary.orangeAdvantages + summary.noAdvantage;
-  if (advantageKnown === 0) {
-    return `${winLeader} across ${total} kickoffs with ${goalPart}.`;
-  }
-  const advantagePart =
-    summary.blueAdvantages === summary.orangeAdvantages
-      ? "the advantage split evenly"
-      : summary.blueAdvantages > summary.orangeAdvantages
-        ? `Blue came away ahead on ${summary.blueAdvantages}`
-        : `Orange came away ahead on ${summary.orangeAdvantages}`;
-  return `${winLeader} across ${total} kickoffs with ${goalPart}; ${advantagePart}.`;
 }
 
 function kickoffPlayerSummaries(
