@@ -637,7 +637,14 @@ function goalBuildupTouches(
     // touch events serialise player_position as a [x, y, z] array (Vector3fTs).
     const at = arrayPoint(payload, "player_position");
     if (!at) continue;
-    out.push({ at, frame, teamHint: teamField(payload, "team_is_team_0") });
+    out.push({
+      at,
+      frame,
+      // The event's top-level team is reliable; team_is_team_0 in the payload is a
+      // best-effort fallback for very old data.
+      team: event.team ?? teamField(payload, "team_is_team_0"),
+      playerKey: event.player_id ?? event.player_name ?? String(touchId ?? frame),
+    });
   }
   return out;
 }
