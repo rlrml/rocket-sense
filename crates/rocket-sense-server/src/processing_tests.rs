@@ -1372,6 +1372,7 @@ fn touch_stats_event(
         sample_frame: frame,
         player,
         player_position: None,
+        ball_position: None,
         is_team_0,
         kind: "hit".to_owned(),
         height_band: "ground".to_owned(),
