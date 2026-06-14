@@ -5,7 +5,9 @@ import {
   detectBallContacts,
   FieldDiagramSurface,
   type FieldDiagramModel,
+  Fledge,
   type SurfacePath,
+  teamColorClass,
   type TouchMark,
   useReplayModel,
 } from "./fieldDiagram";
@@ -25,12 +27,43 @@ export interface GoalPathPlayer extends PathPlayerRef {
   isScorer: boolean;
 }
 
+/** Field-space (uu) coordinates of the decisive scoring touch, straight from
+ *  subtr-actor's `scorer_last_touch` — the exact contact point, not a frame lookup. */
+export interface GoalScoringTouch {
+  /** Ball position at the moment of the last touch (the touch point itself). */
+  ball: { x: number; y: number };
+  /** Scorer's car position at that moment, if known (used to orient the car). */
+  player: { x: number; y: number } | null;
+  team: number | null;
+  /** subtr-actor touch id, so the matching buildup touch event can be de-duped. */
+  touchId: number | null;
+}
+
+/** A real attributed buildup touch from a subtr-actor `touch` event — accurate
+ *  (both sides of a 50/50 each get one) where the proximity heuristic guessed. */
+export interface GoalBuildupTouch {
+  /** The toucher's car position (uu) at the touch. */
+  at: { x: number; y: number };
+  /** The toucher's team (from the event), or null on older data. */
+  team: number | null;
+  /** subtr-actor frame, for chronological ordering / numbering. */
+  frame: number;
+  /** Stable per-player key, so a player's repeated contacts collapse to one touch. */
+  playerKey: string;
+}
+
 export interface GoalShapeDiagramProps {
   replayId: string;
   /** Start of the buildup window (a few seconds before the goal); paths start here. */
   startFrame: number | null;
-  /** Frame the scorer last touches the ball; paths end here and the scoring touch lands. */
+  /** Frame the ball crosses the line; paths end here and the ball marker lands. */
   goalFrame: number | null;
+  /** Exact scoring-touch coordinate from the goal payload (preferred over deriving
+   *  it from a frame, which lands on the scorer's position at goal time, not the touch). */
+  scoringTouch: GoalScoringTouch | null;
+  /** Real attributed buildup touches (subtr-actor `touch` events) in the window.
+   *  When null we fall back to the proximity heuristic. */
+  buildupTouches: GoalBuildupTouch[] | null;
   players: GoalPathPlayer[];
 }
 
@@ -45,14 +78,27 @@ export function GoalShapeDiagram({
   replayId,
   startFrame,
   goalFrame,
+  scoringTouch,
+  buildupTouches,
   players,
 }: GoalShapeDiagramProps) {
   const { replay, error } = useReplayModel(replayId);
   const projection = useMemo(() => fieldProjection(520, 60, "landscape"), []);
 
   const model = useMemo(
-    () => (replay ? buildGoalModel(replay, projection, startFrame, goalFrame, players) : null),
-    [replay, projection, startFrame, goalFrame, players],
+    () =>
+      replay
+        ? buildGoalModel(
+            replay,
+            projection,
+            startFrame,
+            goalFrame,
+            scoringTouch,
+            buildupTouches,
+            players,
+          )
+        : null,
+    [replay, projection, startFrame, goalFrame, scoringTouch, buildupTouches, players],
   );
 
   if (error) {
@@ -68,9 +114,33 @@ export function GoalShapeDiagram({
       ariaLabel="Goal buildup player paths and ball trajectory"
       showCenter={false}
       showBoosts={false}
+      showPathArrows={false}
       model={model}
     />
   );
+}
+
+/** Team of the car nearest a field-space (uu) point at `frame` — used to colour a
+ *  touch when the event itself doesn't carry the team. */
+function nearestPlayerTeam(
+  replay: ReplayModel,
+  frame: number,
+  at: { x: number; y: number },
+): number {
+  let bestSq = Infinity;
+  let team = 0;
+  for (const track of replay.players) {
+    const pos = track.frames[frame]?.position;
+    if (!pos) continue;
+    const dx = pos.x - at.x;
+    const dy = pos.y - at.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestSq) {
+      bestSq = d;
+      team = track.isTeamZero ? 0 : 1;
+    }
+  }
+  return team;
 }
 
 function buildGoalModel(
@@ -78,6 +148,8 @@ function buildGoalModel(
   projection: FieldProjection,
   startFrame: number | null,
   goalFrame: number | null,
+  scoringTouch: GoalScoringTouch | null,
+  buildupTouches: GoalBuildupTouch[] | null,
   players: GoalPathPlayer[],
 ): FieldDiagramModel {
   const frameCount = replay.frames.length;
@@ -87,20 +159,36 @@ function buildGoalModel(
 
   const paths: SurfacePath[] = [];
   let scorerIndex = -1;
+  let scorerTeam = 0;
   replay.players.forEach((track, index) => {
     const meta = matchPlayer(track, players);
     const team = meta?.team ?? (track.isTeamZero ? 0 : 1);
     const isScorer = meta?.isScorer ?? false;
-    if (isScorer) scorerIndex = index;
+    if (isScorer) {
+      scorerIndex = index;
+      scorerTeam = team;
+    }
     const points = samplePath(track, from, end, projection, MAX_PATH_POINTS);
     if (points.length < 2) return;
-    // No start dot: a circle at each run's start reads as a touch and is confusing.
-    // The only marked points are real touches (the cars) and the ball end.
+    // No start dot (reads as a touch). The run ends in an arrow fledge pointing the
+    // way the player was travelling; the only circles are real touches.
+    const last = points[points.length - 1];
+    const prev = points[points.length - 2];
+    const endHeadingDeg = (Math.atan2(last.y - prev.y, last.x - prev.x) * 180) / Math.PI;
     paths.push({
       key: `${meta?.playerName ?? track.name}-${index}`,
       team,
       groupClassName: isScorer ? "winner scorer" : "",
       points: pointsToString(points),
+      endMarker: (
+        <Fledge
+          x={last.x}
+          y={last.y}
+          headingDeg={endHeadingDeg}
+          size={projection.toUnits(240)}
+          className={`field-fledge team-${teamColorClass(team)}`}
+        />
+      ),
     });
   });
   // Scorer drawn last (on top), emphasized via CSS.
@@ -109,13 +197,64 @@ function buildGoalModel(
       Number(a.groupClassName?.includes("scorer")) - Number(b.groupClassName?.includes("scorer")),
   );
 
-  // The decisive scoring touch is the scorer's car at the last-touch frame.
-  const touches: TouchMark[] = detectBallContacts(replay, from, end, projection, {
-    excludeFrame: end,
+  // The decisive scoring touch uses subtr-actor's exact recorded contact point
+  // (scorer_last_touch.ball_position), not a frame lookup — the latter lands on the
+  // scorer's position when the ball crosses the line, which is not the touch. Fall
+  // back to the scorer's final-frame position only if the payload lacks it.
+  const scoringMark: TouchMark | null = scoringTouch
+    ? {
+        at: projection.project(scoringTouch.ball.x, scoringTouch.ball.y),
+        team: scoringTouch.team ?? scorerTeam,
+        headingDeg: null,
+        kind: "scoring",
+      }
+    : scorerIndex >= 0
+      ? contactToMark(replay, end, scorerIndex, projection, "scoring")
+      : null;
+
+  // Prefer the real attributed touch events (the scoring touch is already excluded
+  // upstream by id, so we keep every other contact — both sides of a 50/50). Only
+  // when no touch data is available fall back to the proximity heuristic, which then
+  // needs a position de-dup to avoid drawing the scorer's own last contact twice.
+  let buildupMarks: TouchMark[];
+  if (buildupTouches) {
+    // Only the scoring team's touches lead to the goal (drop the opposing 50/50
+    // contact), and a player's repeated contacts collapse to one — leaving the
+    // assist(s) up to the finish. team_is_team_0 is missing on older replays, so
+    // fall back to whichever car sits on the touch point at that frame.
+    const sorted = [...buildupTouches]
+      .sort((a, b) => a.frame - b.frame)
+      .map((t) => ({ ...t, team: t.team ?? nearestPlayerTeam(replay, t.frame, t.at) }))
+      .filter((t) => t.team === scorerTeam);
+    const collapsed = sorted.filter(
+      (t, i) => i === sorted.length - 1 || t.playerKey !== sorted[i + 1].playerKey,
+    );
+    buildupMarks = collapsed.map((t) => ({
+      at: projection.project(t.at.x, t.at.y),
+      team: t.team,
+      headingDeg: null,
+      kind: "buildup" as const,
+    }));
+  } else {
+    const detected = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
+    const minSep = projection.toUnits(350);
+    buildupMarks =
+      scoringMark != null
+        ? detected.filter(
+            (b) => Math.hypot(b.at.x - scoringMark.at.x, b.at.y - scoringMark.at.y) > minSep,
+          )
+        : detected;
+  }
+
+  // Number them in contact order; the scoring touch is the last number.
+  const touches: TouchMark[] = [];
+  buildupMarks.forEach((touch, i) => {
+    touch.num = i + 1;
+    touches.push(touch);
   });
-  if (scorerIndex >= 0) {
-    const scoring = contactToMark(replay, end, scorerIndex, projection, "scoring");
-    if (scoring) touches.push(scoring);
+  if (scoringMark) {
+    scoringMark.num = buildupMarks.length + 1;
+    touches.push(scoringMark);
   }
 
   const ball = sampleBallPath(replay, from, end, projection, MAX_PATH_POINTS);

@@ -1,40 +1,56 @@
 #!/usr/bin/env bash
-# Ensure the generated @rlrml/* packages exist under web/vendor for local dev
-# and non-Nix CI. The packages are NOT committed (only their package.json
-# manifests + a .subtr-actor-rev marker are); they're built from the
-# vendor/subtr-actor submodule flake on demand.
+# Ensure the generated subtr-actor artifacts exist on disk for local dev and
+# non-Nix CI:
+#   - web/vendor/@rlrml/{subtr-actor,player,viewer}  (the web app's npm packages)
+#   - crates/rocket-sense-server/static/subtr-actor   (server-embedded player/stats assets)
 #
-# Idempotent: if the vendored packages already match the pinned submodule rev
-# this is a fast no-op. Only rebuilds when missing or stale. If the work is
-# needed but nix is unavailable, it fails loudly rather than leaving a
-# half-populated tree (run `just sync-subtr-actor` in that case).
+# Neither is committed (only their package.json manifests + .subtr-actor-rev
+# markers are); both are built from the vendor/subtr-actor submodule flake.
 #
-# The Nix web build does NOT use this script; rocketSenseWeb (flake.nix) pulls
-# the packages straight from the submodule flake outputs. Do not wire this into
-# an npm `prebuild` hook — that would fire inside the Nix sandbox.
+# Idempotent: if a target already matches the pinned submodule rev it is a fast
+# no-op. Only rebuilds what's missing or stale. If work is needed but nix is
+# unavailable, it fails loudly rather than leaving a half-populated tree (run
+# `just sync-subtr-actor` in that case).
+#
+# The Nix builds do NOT use this script: rocketSenseWeb pulls the @rlrml
+# packages from the submodule flake, and the server build points
+# ROCKET_SENSE_SUBTR_STATIC at js-stats-player-pages. Do not wire this into an
+# npm `prebuild` hook — that would fire inside the Nix sandbox.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 subtr_actor_dir="$repo_root/vendor/subtr-actor"
 web_vendor_dir="$repo_root/web/vendor/@rlrml"
-marker="$web_vendor_dir/.subtr-actor-rev"
-# Any one built file is enough to tell "populated" from "manifest-only".
-sentinel="$web_vendor_dir/subtr-actor/rl_replay_subtr_actor_bg.wasm"
+static_dir="$repo_root/crates/rocket-sense-server/static/subtr-actor"
 
 # Pinned rev = the committed submodule gitlink (source of truth). Fall back to
 # the submodule's checked-out HEAD if the gitlink can't be read.
 expected_rev="$(git -C "$repo_root" rev-parse :vendor/subtr-actor 2>/dev/null \
   || git -C "$subtr_actor_dir" rev-parse HEAD 2>/dev/null || true)"
 
-# Fast path: already built for this rev.
-if [[ -f "$sentinel" && -f "$marker" && -n "$expected_rev" \
-      && "$(cat "$marker")" == "$expected_rev" ]]; then
+# A target is current when a built sentinel exists and its marker matches.
+is_current() {
+  # is_current <marker> <sentinel>
+  local marker="$1" sentinel="$2"
+  [[ -f "$sentinel" && -f "$marker" && -n "$expected_rev" \
+     && "$(cat "$marker")" == "$expected_rev" ]]
+}
+
+web_marker="$web_vendor_dir/.subtr-actor-rev"
+web_sentinel="$web_vendor_dir/subtr-actor/rl_replay_subtr_actor_bg.wasm"
+static_marker="$static_dir/.subtr-actor-rev"
+static_sentinel="$static_dir/index.html"
+
+web_ok=1;    is_current "$web_marker" "$web_sentinel"       || web_ok=0
+static_ok=1; is_current "$static_marker" "$static_sentinel" || static_ok=0
+
+if [[ "$web_ok" == 1 && "$static_ok" == 1 ]]; then
   exit 0
 fi
 
 if ! command -v nix >/dev/null 2>&1; then
-  echo "ensure-subtr-vendor: web/vendor/@rlrml is missing or stale, and nix is not available." >&2
-  echo "  Install nix, or run 'just sync-subtr-actor' to populate the @rlrml packages." >&2
+  echo "ensure-subtr-vendor: generated subtr-actor artifacts are missing or stale, and nix is not available." >&2
+  echo "  Install nix, or run 'just sync-subtr-actor' to populate them." >&2
   exit 1
 fi
 
@@ -42,10 +58,10 @@ if [[ ! -e "$subtr_actor_dir/.git" ]]; then
   git -C "$repo_root" submodule update --init vendor/subtr-actor
 fi
 
-echo "ensure-subtr-vendor: building @rlrml packages from vendor/subtr-actor@${expected_rev:0:12} ..."
+echo "ensure-subtr-vendor: building subtr-actor artifacts from vendor/subtr-actor@${expected_rev:0:12} ..."
 
-build_pkg() {
-  # build_pkg <flake-attr> <dest-dir>
+build_into() {
+  # build_into <flake-attr> <dest-dir>
   local attr="$1" dest="$2" out
   out="$(nix build "path:$subtr_actor_dir#$attr" --no-link --print-out-paths)"
   rm -rf "$dest"
@@ -54,9 +70,16 @@ build_pkg() {
   chmod -R u+w "$dest"
 }
 
-build_pkg js-wasm-pkg   "$web_vendor_dir/subtr-actor"
-build_pkg js-player-pkg "$web_vendor_dir/player"
-build_pkg js-viewer-pkg "$web_vendor_dir/viewer"
+if [[ "$web_ok" == 0 ]]; then
+  build_into js-wasm-pkg   "$web_vendor_dir/subtr-actor"
+  build_into js-player-pkg "$web_vendor_dir/player"
+  build_into js-viewer-pkg "$web_vendor_dir/viewer"
+  printf '%s\n' "$expected_rev" > "$web_marker"
+  echo "ensure-subtr-vendor: web/vendor/@rlrml ready."
+fi
 
-printf '%s\n' "$expected_rev" > "$marker"
-echo "ensure-subtr-vendor: web/vendor/@rlrml ready."
+if [[ "$static_ok" == 0 ]]; then
+  build_into js-stats-player-pages "$static_dir"
+  printf '%s\n' "$expected_rev" > "$static_marker"
+  echo "ensure-subtr-vendor: static/subtr-actor ready."
+fi
