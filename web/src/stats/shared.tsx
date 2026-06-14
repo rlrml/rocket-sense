@@ -52,35 +52,6 @@ export function SegmentedBar({
   );
 }
 
-export function MetricMeter({
-  className,
-  label,
-  percent,
-  rootClassName = "",
-  value,
-}: {
-  className: string;
-  label: string;
-  percent: number;
-  rootClassName?: string;
-  value: string;
-}) {
-  const clampedPercent = Math.max(0, Math.min(100, percent));
-
-  return (
-    <div className={`positioning-meter ${rootClassName}`.trim()} title={`${label}: ${value}`}>
-      <span className="positioning-meter-label">{label}</span>
-      <span className="positioning-meter-track" aria-label={`${label}: ${value}`}>
-        <span
-          className={`positioning-meter-fill ${className}`}
-          style={{ width: `${clampedPercent}%` }}
-        />
-      </span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
 export function StatPlayerLabel({
   className = "",
   inline = false,

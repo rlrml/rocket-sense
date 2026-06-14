@@ -2712,98 +2712,59 @@ tbody tr:last-child td {
   text-shadow: none;
 }
 
-.positioning-proximity-chart {
+/* Single-metric distance/count charts (avg ball, avg team, caught ahead):
+   player label | team-tinted magnitude bar | value. */
+.positioning-distance-chart {
   display: grid;
-  gap: 10px;
+  gap: 9px;
 }
 
-.positioning-proximity-row {
+.positioning-distance-row {
   display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) minmax(56px, auto);
   align-items: center;
   gap: 10px;
   min-width: 0;
 }
 
-.positioning-proximity-meters {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-  gap: 8px;
-  min-width: 0;
-}
-
-.positioning-meter {
-  display: grid;
-  grid-template-columns: minmax(58px, 0.7fr) minmax(54px, 1fr) minmax(68px, auto);
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.positioning-meter-label {
-  overflow: hidden;
-  color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1.2;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.positioning-meter-track {
+.positioning-distance-track {
   position: relative;
-  height: 14px;
+  height: 16px;
   overflow: hidden;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: 6px;
   background: var(--surface-subtle);
 }
 
-.positioning-meter-fill {
+.positioning-distance-fill {
   position: absolute;
   inset: 0 auto 0 0;
   display: block;
   min-width: 2px;
-  border-radius: 4px;
+  border-radius: 5px;
 }
 
-.positioning-meter-fill[style*="width: 0%"] {
+.positioning-distance-fill[style*="width: 0%"] {
   min-width: 0;
 }
 
-.positioning-meter-distance-ball {
-  background: #0f766e;
+.team-fill-blue {
+  background: var(--blue);
 }
 
-.positioning-meter-distance-team {
-  background: #0891b2;
+.team-fill-orange {
+  background: var(--orange);
 }
 
-.positioning-meter-closest {
-  background: #7c3aed;
+.team-fill-unknown {
+  background: #64748b;
 }
 
-.positioning-meter-farthest {
-  background: #be123c;
-}
-
-.positioning-meter-caught {
-  background: #a16207;
-}
-
-.positioning-meter strong {
-  overflow: hidden;
+.positioning-distance-value {
   color: var(--text-strong);
   font-size: 12px;
-  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
   text-align: right;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.positioning-raw-table th,
-.positioning-raw-table td {
   white-space: nowrap;
 }
 
@@ -5249,18 +5210,10 @@ tbody tr:last-child td {
 
   .player-metric-row,
   .metric-bar-line,
-  .positioning-proximity-row,
+  .positioning-distance-row,
   .possession-player-row,
   .team-boost-lane {
     grid-template-columns: 1fr;
-  }
-
-  .positioning-proximity-meters {
-    grid-template-columns: 1fr;
-  }
-
-  .positioning-meter {
-    grid-template-columns: minmax(58px, 0.7fr) minmax(72px, 1fr) minmax(68px, auto);
   }
 
   .movement-player-row,

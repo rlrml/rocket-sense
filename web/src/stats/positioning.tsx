@@ -1,6 +1,5 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
-  MetricMeter,
   type OutcomeDistributionLevel,
   type OutcomeDistributionTone,
   outcomeDistributionColorStyle,
@@ -76,6 +75,17 @@ export function PositioningDetail({
   durationSeconds: number | null;
 }) {
   const summaries = playerPositioningSummaries(players, events);
+  // Distance-to-ball and distance-to-teammates share one scale so the two
+  // charts stay directly comparable.
+  const maxDistance = Math.max(
+    1,
+    ...summaries.flatMap((summary) => [
+      weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight) ?? 0,
+      weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight) ?? 0,
+    ]),
+  );
+  const maxCaughtAhead = Math.max(1, ...summaries.map((summary) => summary.caughtAheadGoals));
+  const showCaughtAhead = summaries.some((summary) => summary.caughtAheadGoals > 0);
 
   return (
     <div className="positioning-detail">
@@ -235,19 +245,54 @@ export function PositioningDetail({
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Spacing & proximity</h3>
-            <span>Average distances and conceded-goal context</span>
+            <h3>Distance to ball</h3>
+            <span>Average distance from the ball</span>
           </header>
-          <PositioningProximityChart summaries={summaries} />
+          <PositioningDistanceChart
+            summaries={summaries}
+            value={(summary) =>
+              weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight)
+            }
+            max={maxDistance}
+            format={formatDistance}
+            emptyLabel="No ball-distance rows are available for this replay."
+          />
         </section>
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Raw totals</h3>
-            <span>Seconds, counts, and average distances behind the charts</span>
+            <h3>Distance to teammates</h3>
+            <span>Average spacing from teammates</span>
           </header>
-          <PositioningRawTotalsTable summaries={summaries} />
+          <PositioningDistanceChart
+            summaries={summaries}
+            value={(summary) =>
+              weightedAverage(
+                summary.distanceToTeammatesWeighted,
+                summary.distanceToTeammatesWeight,
+              )
+            }
+            max={maxDistance}
+            format={formatDistance}
+            emptyLabel="No teammate-distance rows are available for this replay."
+          />
         </section>
+
+        {showCaughtAhead ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Caught ahead of play</h3>
+              <span>Conceded goals while caught ahead of the ball</span>
+            </header>
+            <PositioningDistanceChart
+              summaries={summaries}
+              value={(summary) => summary.caughtAheadGoals}
+              max={maxCaughtAhead}
+              format={(value) => (value ?? 0).toLocaleString()}
+              emptyLabel="No caught-ahead goals were recorded for this replay."
+            />
+          </section>
+        ) : null}
       </div>
     </div>
   );
@@ -282,66 +327,44 @@ function PositioningBarRows({
   );
 }
 
-function PositioningProximityChart({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  const rows = sortedSummaries(summaries, (summary) =>
-    share(summary.closestTeamSeconds, summary.trackedSeconds),
-  ).map((summary) => ({
-    summary,
-    ballDistance: weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
-    teammateDistance: weightedAverage(
-      summary.distanceToTeammatesWeighted,
-      summary.distanceToTeammatesWeight,
-    ),
-  }));
-  const maxDistance = Math.max(
-    1,
-    ...rows.flatMap((row) => [row.ballDistance ?? 0, row.teammateDistance ?? 0]),
-  );
-  const maxCaughtAhead = Math.max(1, ...summaries.map((summary) => summary.caughtAheadGoals));
-  const showCaughtAhead = summaries.some((summary) => summary.caughtAheadGoals > 0);
-
-  if (
-    !summaries.some(
-      (summary) =>
-        summary.trackedSeconds > 0 ||
-        summary.distanceToBallWeight > 0 ||
-        summary.distanceToTeammatesWeight > 0,
-    )
-  ) {
-    return (
-      <div className="stat-empty">No distance or proximity rows are available for this replay.</div>
-    );
+// One magnitude metric per player (avg distance, caught-ahead count, ...), the
+// fill tinted by the player's team. `max` is shared across related charts so
+// their bars stay comparable.
+function PositioningDistanceChart({
+  summaries,
+  value,
+  max,
+  format,
+  emptyLabel,
+}: {
+  summaries: PlayerPositioningSummary[];
+  value: (summary: PlayerPositioningSummary) => number | null;
+  max: number;
+  format: (value: number | null) => string;
+  emptyLabel: string;
+}) {
+  const rows = sortedSummaries(summaries, (summary) => value(summary) ?? 0);
+  if (!rows.some((summary) => (value(summary) ?? 0) > 0)) {
+    return <div className="stat-empty">{emptyLabel}</div>;
   }
 
   return (
-    <div className="positioning-proximity-chart">
-      {rows.map(({ summary, ballDistance, teammateDistance }) => (
-        <div className="positioning-proximity-row" key={summary.key}>
-          {positioningPlayerLabel(summary)}
-          <div className="positioning-proximity-meters">
-            <MetricMeter
-              className="positioning-meter-distance-ball"
-              label="Avg ball"
-              percent={barPercent(ballDistance, maxDistance)}
-              value={formatDistance(ballDistance)}
-            />
-            <MetricMeter
-              className="positioning-meter-distance-team"
-              label="Avg team"
-              percent={barPercent(teammateDistance, maxDistance)}
-              value={formatDistance(teammateDistance)}
-            />
-            {showCaughtAhead ? (
-              <MetricMeter
-                className="positioning-meter-caught"
-                label="Caught"
-                percent={barPercent(summary.caughtAheadGoals, maxCaughtAhead)}
-                value={summary.caughtAheadGoals.toLocaleString()}
+    <div className="positioning-distance-chart">
+      {rows.map((summary) => {
+        const metric = value(summary);
+        return (
+          <div className="positioning-distance-row" key={summary.key}>
+            {positioningPlayerLabel(summary)}
+            <span className="positioning-distance-track">
+              <span
+                className={`positioning-distance-fill team-fill-${teamClass(summary.team)}`}
+                style={{ width: `${barPercent(metric, max)}%` }}
               />
-            ) : null}
+            </span>
+            <strong className="positioning-distance-value">{format(metric)}</strong>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -356,76 +379,6 @@ function positioningPlayerLabel(summary: PlayerPositioningSummary) {
       rank={summary.rank}
       subtitle={teamLabel(summary.team)}
     />
-  );
-}
-
-function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  if (!summaries.some((summary) => summary.trackedSeconds > 0 || roleTotal(summary) > 0)) {
-    return (
-      <div className="stat-empty">No raw positioning totals are available for this replay.</div>
-    );
-  }
-
-  return (
-    <div className="table-frame compact-table positioning-table positioning-raw-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>Tracked</th>
-            <th>Def</th>
-            <th>Neutral</th>
-            <th>Off</th>
-            <th>Behind</th>
-            <th>Level</th>
-            <th>Ahead</th>
-            <th>Back</th>
-            <th>Mid</th>
-            <th>Forward</th>
-            <th>Closest</th>
-            <th>Other</th>
-            <th>Farthest</th>
-            <th>Avg ball</th>
-            <th>Avg team</th>
-            <th>Caught</th>
-          </tr>
-        </thead>
-        <tbody>
-          {summaries.map((summary) => (
-            <tr key={summary.key}>
-              <td>{positioningPlayerLabel(summary)}</td>
-              <td>{formatSeconds(summary.trackedSeconds)}</td>
-              <td>{formatSeconds(summary.defensiveThirdSeconds)}</td>
-              <td>{formatSeconds(summary.neutralThirdSeconds)}</td>
-              <td>{formatSeconds(summary.offensiveThirdSeconds)}</td>
-              <td>{formatSeconds(summary.behindBallSeconds)}</td>
-              <td>{formatSeconds(summary.levelWithBallSeconds)}</td>
-              <td>{formatSeconds(summary.inFrontOfBallSeconds)}</td>
-              <td>{formatSeconds(summary.roleSeconds.most_back)}</td>
-              <td>{formatSeconds(summary.roleSeconds.mid)}</td>
-              <td>{formatSeconds(summary.roleSeconds.most_forward)}</td>
-              <td>{formatSeconds(summary.closestTeamSeconds)}</td>
-              <td>{formatSeconds(otherBallPrioritySeconds(summary))}</td>
-              <td>{formatSeconds(summary.farthestSeconds)}</td>
-              <td>
-                {formatDistance(
-                  weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
-                )}
-              </td>
-              <td>
-                {formatDistance(
-                  weightedAverage(
-                    summary.distanceToTeammatesWeighted,
-                    summary.distanceToTeammatesWeight,
-                  ),
-                )}
-              </td>
-              <td>{summary.caughtAheadGoals.toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
