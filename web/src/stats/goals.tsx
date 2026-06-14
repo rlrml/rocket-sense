@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
+import type { GoalPathPlayer } from "./GoalShapeDiagram";
 import {
   eventAnchorFrame,
   eventDisplayTime,
@@ -17,10 +18,21 @@ export const goalEventTypes = ["goal_context"];
 const GOAL_CLIP_PREROLL_SECONDS = 6;
 const GOAL_CLIP_POSTROLL_SECONDS = 2.5;
 
+// Frames of buildup the goal diagram shows before the ball crosses the line.
+// Replay tracks sample at ~30Hz, so this is roughly the final five seconds of
+// the play — enough to read how the goal developed.
+const GOAL_DIAGRAM_BUILDUP_FRAMES = 150;
+
 // Lazily loaded so the three.js / wasm replay player is only fetched when the
 // Goals tab is actually opened, instead of bloating the main bundle.
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
+);
+
+// The 2D buildup diagram is its own lazy chunk: it only pulls the replay model,
+// not the heavy three.js player, so cards can render it without that cost.
+const GoalShapeDiagram = lazy(() =>
+  import("./GoalShapeDiagram").then((module) => ({ default: module.GoalShapeDiagram })),
 );
 interface GoalsDetailProps {
   events: MechanicEventResponse[];
@@ -113,6 +125,7 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
                   active={goal.event.id === activeId}
                   onActivate={(force) => activateGoal(goal, force)}
                   typeHref={goalTypeHref}
+                  replayId={replayId}
                 />
               ))}
             </div>
@@ -264,14 +277,18 @@ export function GoalCard({
   active,
   onActivate,
   typeHref,
+  replayId,
 }: {
   goal: GoalRow;
   active: boolean;
   onActivate: (force: boolean) => void;
   /** When provided, goal type chips link to the matching goal playlist. */
   typeHref?: (type: GoalType) => string | undefined;
+  /** When provided, the card shows a 2D buildup diagram for this goal. */
+  replayId?: string;
 }) {
   const navigate = useNavigate();
+  const diagramPlayers = useMemo(() => goalPathPlayers(goal), [goal]);
   return (
     <button
       type="button"
@@ -338,8 +355,41 @@ export function GoalCard({
           </span>
         ) : null}
       </div>
+      {replayId ? (
+        <section className="goal-diagram-panel kickoff-diagram-panel">
+          <div className="kickoff-section-title">
+            <span>Buildup</span>
+            <strong>{formatSeconds(goal.time)}</strong>
+          </div>
+          <Suspense fallback={<div className="kickoff-path-status">Loading goal paths…</div>}>
+            <GoalShapeDiagram
+              replayId={replayId}
+              startFrame={goalDiagramStartFrame(goal)}
+              goalFrame={goal.anchorFrame}
+              players={diagramPlayers}
+            />
+          </Suspense>
+        </section>
+      ) : null}
     </button>
   );
+}
+
+/** The scorer is flagged so the diagram emphasizes their path; every other replay
+ *  track renders as a supporting path colored by its own team. */
+function goalPathPlayers(goal: GoalRow): GoalPathPlayer[] {
+  return [
+    {
+      playerKey: null,
+      playerName: goal.scorerName,
+      team: goal.scoringTeam,
+      isScorer: true,
+    },
+  ];
+}
+
+function goalDiagramStartFrame(goal: GoalRow): number | null {
+  return goal.anchorFrame == null ? null : goal.anchorFrame - GOAL_DIAGRAM_BUILDUP_FRAMES;
 }
 
 interface ScorerRow {
