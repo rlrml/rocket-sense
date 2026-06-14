@@ -2192,6 +2192,50 @@ tbody tr:last-child td {
   stroke: #b45309;
 }
 
+/* ---- Touch indicators: a tiny top-down car wherever a player contacts the ball ---- */
+.field-car-body {
+  stroke: #fff;
+  stroke-width: 1.25;
+}
+
+.field-car-nose {
+  fill: #fff;
+  opacity: 0.85;
+}
+
+/* Incidental buildup touches stay quiet so the runs and ball still lead. */
+.field-touch-car.buildup {
+  opacity: 0.5;
+}
+
+.field-touch-car.buildup .field-car-body {
+  stroke-width: 1;
+}
+
+.field-touch-car.team-blue .field-car-body {
+  fill: #2563eb;
+}
+
+.field-touch-car.team-orange .field-car-body {
+  fill: #ea580c;
+}
+
+/* The decisive scoring touch reads boldest: full opacity + a warm halo. */
+.field-touch-car.scoring {
+  opacity: 1;
+}
+
+.field-touch-car.scoring .field-car-body {
+  stroke: #b45309;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 3px rgba(180, 83, 9, 0.65));
+}
+
+.field-touch-car.scoring .field-car-nose {
+  fill: #fff7ed;
+  opacity: 1;
+}
+
 .kickoff-taker-section {
   display: grid;
   gap: 10px;
@@ -5276,6 +5320,26 @@ tbody tr:last-child td {
     padding: 16px 10px;
   }
 
+  /* Too narrow to seat the text and the diagram side by side — stack them and
+     let the diagram return to its normal full-width, aspect-driven height. */
+  .goal-card:has(.goal-diagram-panel) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
+    width: 100%;
+    height: auto;
+  }
+
+  .goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
+    height: auto;
+    width: 100%;
+    max-width: 560px;
+  }
+
   .page {
     gap: 14px;
   }
@@ -5564,6 +5628,84 @@ tbody tr:last-child td {
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;
+}
+
+/* When a card carries a buildup diagram, lay the text content and the diagram
+   side by side: the text stacks in a left column and the diagram sits flush to
+   the right. The diagram inherits its height from the text column (the grid row
+   height) and derives its width from the field's aspect ratio, so it never
+   makes the card any taller than the info already sitting beside it. */
+.goal-card:has(.goal-diagram-panel) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 18px;
+}
+
+.goal-card-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* No chrome around the field: the diagram fills its slot edge to edge, sized as
+   large as is reasonable at rest (scaling with the viewport) with its width coming
+   from the field aspect ratio. The card grows to fit it. */
+.goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
+  display: grid;
+  flex: 0 0 auto;
+  height: clamp(200px, 26vw, 360px);
+  aspect-ratio: 640 / 536;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  min-height: 0;
+}
+
+.goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  max-height: none;
+}
+
+/* The buildup tracks the text height, so it is small at rest. On hover, blow it up
+   to the full width of the card (≈ the page content width) as an overlay so the
+   touch cars and runs read large; the cards below stay put underneath it. */
+@media (hover: hover) {
+  .goal-card:has(.goal-diagram-panel):hover {
+    position: relative;
+    z-index: 30;
+  }
+
+  .goal-card:has(.goal-diagram-panel):hover > .goal-diagram-panel {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: auto;
+    z-index: 30;
+    padding: 8px;
+    border-radius: 10px;
+    background: #f8fafc;
+    box-shadow: 0 18px 44px rgba(15, 23, 42, 0.32);
+  }
+
+  .goal-card:has(.goal-diagram-panel):hover .kickoff-path-svg {
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: none;
+  }
+}
+
+.goal-card:has(.goal-diagram-panel) .kickoff-path-diagram {
+  min-height: 0;
+  height: 100%;
 }
 
 /* Leave room so the docked picture-in-picture preview never permanently hides
