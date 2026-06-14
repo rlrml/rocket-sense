@@ -5806,6 +5806,16 @@ tbody tr:last-child td {
    EventClipPlayer's plugin options) and scale it down to a subtle badge tucked
    into the bottom-right corner. Scoped to .event-clip-canvas so the standalone
    player keeps its full-size HUD. */
+
+/* The floating boost layer stays enabled only so the overlay can tag the
+   followed car (the followed-player meter reads that tag in beforeRender — see
+   EventClipPlayer's plugin options). We never want the per-car bars floating
+   over this compact clip, so hide the whole layer; the followed meter is a
+   separate element and is unaffected. */
+.event-clip-canvas .sap-bc-floating-layer {
+  display: none;
+}
+
 .event-clip-canvas .sap-bc-followed-hud {
   right: 0.5rem;
   bottom: 0.5rem;
