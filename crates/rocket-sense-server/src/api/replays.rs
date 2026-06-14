@@ -83,21 +83,24 @@ pub fn public_router() -> Router<AppState> {
     Router::new()
         .route("/subtr-actor", get(subtr_actor_viewer))
         .route("/subtr-actor/", get(subtr_actor_viewer))
-        .route("/subtr-actor/assets/{asset_path}", get(subtr_actor_asset))
         .route("/subtr-actor/stats", get(subtr_actor_stats))
         .route("/subtr-actor/stats/", get(subtr_actor_stats))
-        .route(
-            "/subtr-actor/stats/assets/{asset_path}",
-            get(subtr_actor_stats_asset),
-        )
         .route("/subtr-actor/review", get(subtr_actor_review_redirect))
         .route("/subtr-actor/review/", get(subtr_actor_review))
-        .route(
-            "/subtr-actor/review/assets/{asset_path}",
-            get(subtr_actor_review_asset),
-        )
-        .route("/models/{*asset_path}", get(subtr_actor_model_asset))
-        .route("/draco/{*asset_path}", get(subtr_actor_draco_asset))
+        // One catch-all serves every bundled asset for all three viewer apps
+        // (root viewer, `stats/`, `review/`) directly from the embedded
+        // `static/subtr-actor` tree, keyed by its tree-relative path
+        // (`assets/...`, `models/...`, `draco/...`, `skyboxes/...`, and the
+        // per-app `stats/...` / `review/...` copies). The static index routes
+        // above take priority over this wildcard, so the SPA entry points keep
+        // serving their HTML. New asset directories the viewer ships need no
+        // route changes.
+        .route("/subtr-actor/{*asset_path}", get(subtr_actor_app_asset))
+        // The embedded `EventClipPlayer` overrides the viewer's asset base to the
+        // origin root (`assetBase: "/"`), so it fetches the shared 3D assets at
+        // `/models/...` and `/draco/...` rather than under `/subtr-actor/`.
+        .route("/models/{*asset_path}", get(subtr_actor_root_model_asset))
+        .route("/draco/{*asset_path}", get(subtr_actor_root_draco_asset))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1433,42 +1436,32 @@ fn subtr_actor_review_trailing_slash_url(raw_query: Option<&str>) -> String {
     }
 }
 
-async fn subtr_actor_asset(
+/// Serves any bundled viewer asset by its tree-relative path under
+/// `static/subtr-actor` (e.g. `assets/index-X.js`, `models/ball/scene.gltf`,
+/// `stats/skyboxes/PlanetaryEarth4k.hdr`).
+async fn subtr_actor_app_asset(
     Path(asset_path): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let asset = subtr_actor_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
-
-    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+    serve_subtr_actor_asset(&asset_path)
 }
 
-async fn subtr_actor_stats_asset(
+/// `/models/...` alias for the embedded `EventClipPlayer` (`assetBase: "/"`),
+/// mapping onto the shared `models/` assets in the embedded tree.
+async fn subtr_actor_root_model_asset(
     Path(asset_path): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let asset = subtr_actor_stats_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
-
-    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+    serve_subtr_actor_asset(&format!("models/{asset_path}"))
 }
 
-async fn subtr_actor_review_asset(
+/// `/draco/...` alias for the embedded `EventClipPlayer` (`assetBase: "/"`).
+async fn subtr_actor_root_draco_asset(
     Path(asset_path): Path<String>,
 ) -> Result<impl IntoResponse, StatusCode> {
-    let asset = subtr_actor_review_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
-
-    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+    serve_subtr_actor_asset(&format!("draco/{asset_path}"))
 }
 
-async fn subtr_actor_model_asset(
-    Path(asset_path): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let asset = subtr_actor_model_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
-
-    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
-}
-
-async fn subtr_actor_draco_asset(
-    Path(asset_path): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
-    let asset = subtr_actor_draco_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+fn serve_subtr_actor_asset(path: &str) -> Result<impl IntoResponse, StatusCode> {
+    let asset = subtr_actor_asset(path).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
 }

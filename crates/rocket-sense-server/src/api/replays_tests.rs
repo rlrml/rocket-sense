@@ -4,33 +4,65 @@ use std::collections::HashMap as TestHashMap;
 
 #[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
-    assert_index_assets_are_embedded(SUBTR_ACTOR_VIEWER_INDEX, subtr_actor_static_asset);
-    assert!(subtr_actor_static_asset("missing.js").is_none());
+    assert_index_assets_are_embedded(SUBTR_ACTOR_VIEWER_INDEX, "assets/");
+    assert!(subtr_actor_asset("assets/missing.js").is_none());
 }
 
 #[test]
 fn subtr_actor_stats_assets_are_embedded_with_browser_content_types() {
-    assert_index_assets_are_embedded(SUBTR_ACTOR_STATS_INDEX, subtr_actor_stats_static_asset);
-    assert!(subtr_actor_stats_static_asset("missing.js").is_none());
+    assert_index_assets_are_embedded(SUBTR_ACTOR_STATS_INDEX, "stats/assets/");
+    assert!(subtr_actor_asset("stats/assets/missing.js").is_none());
 }
 
 #[test]
 fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
-    assert_index_assets_are_embedded(SUBTR_ACTOR_REVIEW_INDEX, subtr_actor_review_static_asset);
-    assert!(subtr_actor_review_static_asset("missing.js").is_none());
+    assert_index_assets_are_embedded(SUBTR_ACTOR_REVIEW_INDEX, "review/assets/");
+    assert!(subtr_actor_asset("review/assets/missing.js").is_none());
 }
 
 #[test]
 fn subtr_actor_viewer_runtime_assets_are_embedded_with_browser_content_types() {
-    let stadium = subtr_actor_model_static_asset("stadium/stadium.glb")
+    let stadium = subtr_actor_asset("models/stadium/stadium.glb")
         .expect("viewer stadium model should be embedded");
     assert_eq!(stadium.content_type, "application/octet-stream");
     assert!(!stadium.bytes.is_empty());
 
-    let draco = subtr_actor_draco_static_asset("draco_decoder.js")
+    let draco = subtr_actor_asset("draco/draco_decoder.js")
         .expect("viewer draco decoder should be embedded");
     assert_eq!(draco.content_type, "application/javascript; charset=utf-8");
     assert!(!draco.bytes.is_empty());
+
+    // The viewer renders the arena environment, so its skybox HDR must be
+    // embedded and reachable at `/subtr-actor/skyboxes/...`.
+    let skybox = subtr_actor_asset("skyboxes/PlanetaryEarth4k.hdr")
+        .expect("viewer skybox should be embedded");
+    assert!(!skybox.bytes.is_empty());
+}
+
+#[test]
+fn subtr_actor_shared_3d_assets_resolve_under_every_app_prefix() {
+    // The root viewer, stats, and review apps each load with their own base URL
+    // and fetch the (byte-identical) 3D asset set under their own prefix. Every
+    // prefix must resolve, and to the *same* embedded bytes — the build-time
+    // dedup means there is one copy aliased by all three, not three copies.
+    let base = subtr_actor_asset("models/ball/scene.gltf").expect("root models should be embedded");
+    for prefix in ["stats/", "review/"] {
+        let aliased = subtr_actor_asset(&format!("{prefix}models/ball/scene.gltf"))
+            .unwrap_or_else(|| panic!("{prefix}models/ball/scene.gltf should be embedded"));
+        assert!(
+            std::ptr::eq(aliased.bytes.as_ptr(), base.bytes.as_ptr()),
+            "{prefix}models should alias the shared embedded copy, not duplicate it"
+        );
+        assert!(subtr_actor_asset(&format!("{prefix}skyboxes/PlanetaryEarth4k.hdr")).is_some());
+    }
+}
+
+#[test]
+fn public_router_builds_without_route_conflicts() {
+    // The single `/subtr-actor/{*asset_path}` wildcard coexists with the static
+    // SPA index routes and the root `/models` + `/draco` aliases. Building the
+    // router asserts none of these conflict (axum panics on conflict).
+    let _ = public_router();
 }
 
 #[test]
@@ -52,11 +84,12 @@ fn subtr_actor_review_index_serves_event_review_player() {
         .any(|path| path.ends_with(".js")));
 }
 
-fn assert_index_assets_are_embedded(index: &str, load: fn(&str) -> Option<StaticAsset>) {
+fn assert_index_assets_are_embedded(index: &str, prefix: &str) {
     let paths = asset_paths(index);
     assert!(!paths.is_empty());
     for path in paths {
-        let asset = load(&path).unwrap_or_else(|| panic!("missing asset {path}"));
+        let key = format!("{prefix}{path}");
+        let asset = subtr_actor_asset(&key).unwrap_or_else(|| panic!("missing asset {key}"));
         if path.ends_with(".css") {
             assert_eq!(asset.content_type, "text/css; charset=utf-8");
         } else if path.ends_with(".js") {
