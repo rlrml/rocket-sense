@@ -44,5 +44,13 @@ export declare function updateAttachedCamera(options: {
     desiredCameraPosition: THREE.Vector3;
     desiredLookTarget: THREE.Vector3;
     blendState?: AttachedCameraBlendState;
+    /**
+     * When true, rotate the chase camera by the followed player's replicated
+     * camera yaw/pitch (free-look swivel) instead of locking it to car
+     * orientation. Opt-in: the angles need per-replay sign tuning and only
+     * matter while the player is free-looking, so the default keeps the existing
+     * synthetic framing.
+     */
+    replayCameraLook?: boolean;
 }): void;
 //# sourceMappingURL=spatial.d.ts.map

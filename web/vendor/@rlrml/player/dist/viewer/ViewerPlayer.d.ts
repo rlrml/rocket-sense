@@ -161,6 +161,13 @@ export declare class ViewerPlayer extends EventTarget {
     /** The installed camera plugin, when one is present (duck-typed by id). */
     private getCameraPlugin;
     private playerNameForId;
+    /**
+     * When ball cam has not been manually overridden (`ballCamEnabledValue ===
+     * null`), drive the follow camera from the attached player's replay ball-cam
+     * state (resolved per-frame onto `entity.isBallCam` by the adapter), matching
+     * the core @rlrml/player behavior. A manual `setBallCamEnabled` takes over.
+     */
+    private applyReplayBallCam;
     /** Push the parity view-mode/attachment onto the camera plugin. */
     private syncCameraAttachment;
     private applyCustomCameraSettings;

@@ -1,0 +1,1 @@
+{"version":3,"file":"PlayerCameraStateChange.d.ts","sourceRoot":"","sources":["../../src/generated/PlayerCameraStateChange.ts"],"names":[],"mappings":"AAEA;;;;;;;;;;;;;;GAcG;AACH,MAAM,MAAM,uBAAuB,GAAG;IAAE,KAAK,EAAE,MAAM,CAAC;IACtD;;OAEG;IACH,eAAe,EAAE,OAAO,GAAG,IAAI,CAAC;IAChC;;OAEG;IACH,kBAAkB,EAAE,OAAO,GAAG,IAAI,CAAC;IACnC;;OAEG;IACH,OAAO,EAAE,OAAO,GAAG,IAAI,CAAC;CAAE,CAAC"}
