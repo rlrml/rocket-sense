@@ -897,7 +897,10 @@ interface BoostComparisonSegment {
 
 function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
   const useTeamColoredBars = true;
-  const usePlayerShade = group.key !== "boost-ranges" && group.key !== "collected-amounts";
+  // Every comparison group is per-player: each segment takes the player's
+  // identity hue (--seg-color), and multi-level bars step that hue's lightness
+  // per level (pad zones, sources, boost ranges, stolen) — see styles.css.
+  const usePlayerShade = true;
 
   return (
     <section className="boost-comparison-group">
@@ -2151,8 +2154,11 @@ const chartPalette = {
   muted: "#617181",
   selection: "#0f172a",
   total: "#475569",
-  teamBlue: ["#2563eb", "#3b82f6", "#1d4ed8", "#60a5fa"],
-  teamOrange: ["#ea580c", "#f97316", "#c2410c", "#fb923c"],
+  // Per-player identity hues (variant A): cool family for blue, warm for orange.
+  // Index 0 doubles as the team base color. Kept in sync with the player-shade
+  // hues in styles.css.
+  teamBlue: ["#2563eb", "#8b5cf6", "#14b8a6", "#0ea5e9"],
+  teamOrange: ["#ea580c", "#dc2626", "#ec4899", "#eab308"],
 };
 
 function playerChartColor(team: 0 | 1, index: number): string {

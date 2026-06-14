@@ -3531,135 +3531,99 @@ button.status-stale:hover {
   background: var(--boost-other);
 }
 
+/* Each segment exposes its player/team identity hue as --seg-color. Single-
+   segment bars fill with it directly; multi-level bars derive per-level
+   lightness steps from it via color-mix (see "Level shading" below), so all of
+   a player's bars read as variations of one hue. */
 .source-segment.team-segment-blue {
-  background: #2563eb;
+  --seg-color: #2563eb;
+  background: var(--seg-color);
 }
 
 .source-segment.team-segment-orange {
-  background: #ea580c;
+  --seg-color: #ea580c;
+  background: var(--seg-color);
 }
 
 .source-segment.team-segment-unknown {
-  background: var(--team-unknown);
+  --seg-color: var(--team-unknown);
+  background: var(--seg-color);
 }
 
-.source-segment.team-segment-blue.player-shade-0,
-.pickup-dot.team-pickup-blue.player-shade-0 {
-  background: #2563eb;
-  fill: #2563eb;
+/* Per-player identity hues: cool family for the blue team, warm for orange,
+   each slot a distinct hue. Only the custom property is set here — the actual
+   fill is resolved from --seg-color above (single segment) or by the level
+   shading below (multi-level bars). */
+.source-segment.team-segment-blue.player-shade-0 {
+  --seg-color: #2563eb;
 }
 
-.source-segment.team-segment-blue.player-shade-1,
-.pickup-dot.team-pickup-blue.player-shade-1 {
-  background: #3b82f6;
-  fill: #3b82f6;
+.source-segment.team-segment-blue.player-shade-1 {
+  --seg-color: #8b5cf6;
 }
 
-.source-segment.team-segment-blue.player-shade-2,
-.pickup-dot.team-pickup-blue.player-shade-2 {
-  background: #1d4ed8;
-  fill: #1d4ed8;
+.source-segment.team-segment-blue.player-shade-2 {
+  --seg-color: #14b8a6;
 }
 
-.source-segment.team-segment-blue.player-shade-3,
-.pickup-dot.team-pickup-blue.player-shade-3 {
-  background: #60a5fa;
-  fill: #60a5fa;
+.source-segment.team-segment-blue.player-shade-3 {
+  --seg-color: #0ea5e9;
 }
 
-.source-segment.team-segment-orange.player-shade-0,
-.pickup-dot.team-pickup-orange.player-shade-0 {
-  background: #ea580c;
-  fill: #ea580c;
+.source-segment.team-segment-orange.player-shade-0 {
+  --seg-color: #ea580c;
 }
 
-.source-segment.team-segment-orange.player-shade-1,
-.pickup-dot.team-pickup-orange.player-shade-1 {
-  background: #f97316;
-  fill: #f97316;
+.source-segment.team-segment-orange.player-shade-1 {
+  --seg-color: #dc2626;
 }
 
-.source-segment.team-segment-orange.player-shade-2,
-.pickup-dot.team-pickup-orange.player-shade-2 {
-  background: #c2410c;
-  fill: #c2410c;
+.source-segment.team-segment-orange.player-shade-2 {
+  --seg-color: #ec4899;
 }
 
-.source-segment.team-segment-orange.player-shade-3,
-.pickup-dot.team-pickup-orange.player-shade-3 {
-  background: #fb923c;
-  fill: #fb923c;
+.source-segment.team-segment-orange.player-shade-3 {
+  --seg-color: #eab308;
 }
 
-.source-segment.team-segment-blue.small-pad-source,
-.source-segment.team-segment-blue.small-stolen-source,
-.source-segment.team-segment-blue.supersonic-source {
-  background: #7baaf8;
+/* Collected amounts: each source is a lightness step of the player's hue —
+   big pad = the base hue, small / grant / other progressively lighter. */
+.source-segment.big-pad-source {
+  background: var(--seg-color, var(--boost-big));
 }
 
-.source-segment.team-segment-orange.small-pad-source,
-.source-segment.team-segment-orange.small-stolen-source,
-.source-segment.team-segment-orange.supersonic-source {
-  background: #fdba74;
+.source-segment.small-pad-source {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-small)), white 30%);
 }
 
-.source-segment.team-segment-blue.grant-source,
-.source-segment.team-segment-blue.unknown-pad-source,
-.source-segment.team-segment-blue.overfill-source {
-  background: #1d4ed8;
+.source-segment.grant-source {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-grant)), white 52%);
 }
 
-.source-segment.team-segment-orange.grant-source,
-.source-segment.team-segment-orange.unknown-pad-source,
-.source-segment.team-segment-orange.overfill-source {
-  background: #c2410c;
+.source-segment.unknown-pad-source {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-other)), white 70%);
 }
 
-.source-segment.team-segment-blue.neutral-fill,
-.source-segment.team-segment-blue.big-stolen-source,
-.source-segment.team-segment-blue.big-pad-source {
-  background: #2563eb;
+/* Level shading — within a multi-level bar, each segment is a lightness step of
+   the player's hue (--seg-color): offensive / big stolen = darker, defensive /
+   small stolen = lighter, neutral = the base hue. This keeps every one of a
+   player's bars in their identity hue while still separating the levels. The
+   fallbacks apply only when no --seg-color is present (e.g. the legend swatch
+   ::before elements, which carry the neutral category colors). */
+.source-segment.big-pad-offensive-source,
+.source-segment.small-pad-offensive-source,
+.source-segment.big-stolen-source {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-big-offensive)), black 22%);
 }
 
-.source-segment.team-segment-orange.neutral-fill,
-.source-segment.team-segment-orange.big-stolen-source,
-.source-segment.team-segment-orange.big-pad-source {
-  background: #ea580c;
-}
-
-.source-segment.team-segment-blue.big-pad-offensive-source,
-.source-segment.team-segment-orange.big-pad-offensive-source,
-.source-segment.team-segment-unknown.big-pad-offensive-source,
-.source-segment.big-pad-offensive-source {
-  background: var(--boost-big-offensive);
-}
-
-.source-segment.team-segment-blue.big-pad-neutral-source,
-.source-segment.team-segment-orange.big-pad-neutral-source,
-.source-segment.team-segment-unknown.big-pad-neutral-source,
 .source-segment.big-pad-neutral-source {
-  background: var(--boost-big-neutral);
+  background: var(--seg-color, var(--boost-big-neutral));
 }
 
-.source-segment.team-segment-blue.big-pad-defensive-source,
-.source-segment.team-segment-orange.big-pad-defensive-source,
-.source-segment.team-segment-unknown.big-pad-defensive-source,
-.source-segment.big-pad-defensive-source {
-  background: var(--boost-big-defensive);
-}
-
-.source-segment.team-segment-blue.small-pad-offensive-source,
-.source-segment.team-segment-orange.small-pad-offensive-source,
-.source-segment.team-segment-unknown.small-pad-offensive-source,
-.source-segment.small-pad-offensive-source {
-  background: var(--boost-small-offensive);
-}
-
-.source-segment.team-segment-blue.small-pad-defensive-source,
-.source-segment.team-segment-orange.small-pad-defensive-source,
-.source-segment.team-segment-unknown.small-pad-defensive-source,
-.source-segment.small-pad-defensive-source {
-  background: var(--boost-small-defensive);
+.source-segment.big-pad-defensive-source,
+.source-segment.small-pad-defensive-source,
+.source-segment.small-stolen-source {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-big-defensive)), white 45%);
 }
 
 .source-segment + .source-segment {
@@ -3875,52 +3839,37 @@ button.status-stale:hover {
   fill: var(--team-unknown);
 }
 
-.source-segment.team-segment-blue.player-shade-0,
+/* Pickup-map dots share the per-player identity hues (variant A). */
 .pickup-dot.team-pickup-blue.player-shade-0 {
-  background: #2563eb;
   fill: #2563eb;
 }
 
-.source-segment.team-segment-blue.player-shade-1,
 .pickup-dot.team-pickup-blue.player-shade-1 {
-  background: #3b82f6;
-  fill: #3b82f6;
+  fill: #8b5cf6;
 }
 
-.source-segment.team-segment-blue.player-shade-2,
 .pickup-dot.team-pickup-blue.player-shade-2 {
-  background: #1d4ed8;
-  fill: #1d4ed8;
+  fill: #14b8a6;
 }
 
-.source-segment.team-segment-blue.player-shade-3,
 .pickup-dot.team-pickup-blue.player-shade-3 {
-  background: #60a5fa;
-  fill: #60a5fa;
+  fill: #0ea5e9;
 }
 
-.source-segment.team-segment-orange.player-shade-0,
 .pickup-dot.team-pickup-orange.player-shade-0 {
-  background: #ea580c;
   fill: #ea580c;
 }
 
-.source-segment.team-segment-orange.player-shade-1,
 .pickup-dot.team-pickup-orange.player-shade-1 {
-  background: #f97316;
-  fill: #f97316;
+  fill: #dc2626;
 }
 
-.source-segment.team-segment-orange.player-shade-2,
 .pickup-dot.team-pickup-orange.player-shade-2 {
-  background: #c2410c;
-  fill: #c2410c;
+  fill: #ec4899;
 }
 
-.source-segment.team-segment-orange.player-shade-3,
 .pickup-dot.team-pickup-orange.player-shade-3 {
-  background: #fb923c;
-  fill: #fb923c;
+  fill: #eab308;
 }
 
 .pickup-dot.leader {
@@ -4084,52 +4033,30 @@ button.status-stale:hover {
   background: var(--boost-level-over);
 }
 
-.source-segment.team-segment-blue.boost-band-empty {
-  background: #dbeafe;
+/* Boost ranges: a light (empty) -> saturated (over) ramp of the player's hue,
+   so each player's distribution stays in their identity color. */
+.source-segment.boost-band-over {
+  background: var(--seg-color, var(--boost-level-over));
 }
 
-.source-segment.team-segment-blue.boost-band-low {
-  background: #bfdbfe;
+.source-segment.boost-band-full {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-level-full)), white 18%);
 }
 
-.source-segment.team-segment-blue.boost-band-medium {
-  background: #93c5fd;
+.source-segment.boost-band-high {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-level-high)), white 36%);
 }
 
-.source-segment.team-segment-blue.boost-band-high {
-  background: #60a5fa;
+.source-segment.boost-band-medium {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-level-medium)), white 54%);
 }
 
-.source-segment.team-segment-blue.boost-band-full {
-  background: #3b82f6;
+.source-segment.boost-band-low {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-level-low)), white 70%);
 }
 
-.source-segment.team-segment-blue.boost-band-over {
-  background: #2563eb;
-}
-
-.source-segment.team-segment-orange.boost-band-empty {
-  background: #ffedd5;
-}
-
-.source-segment.team-segment-orange.boost-band-low {
-  background: #fed7aa;
-}
-
-.source-segment.team-segment-orange.boost-band-medium {
-  background: #fdba74;
-}
-
-.source-segment.team-segment-orange.boost-band-high {
-  background: #fb923c;
-}
-
-.source-segment.team-segment-orange.boost-band-full {
-  background: #f97316;
-}
-
-.source-segment.team-segment-orange.boost-band-over {
-  background: #ea580c;
+.source-segment.boost-band-empty {
+  background: color-mix(in srgb, var(--seg-color, var(--boost-level-empty)), white 84%);
 }
 
 .source-segment.boost-band-empty .source-segment-label,

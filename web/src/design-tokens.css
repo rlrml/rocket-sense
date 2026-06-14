@@ -33,12 +33,12 @@
 
   --boost-neutral: #64748b;
   --boost-big: #0f766e;
-  --boost-big-offensive: #dc2626;
-  --boost-big-neutral: #64748b;
-  --boost-big-defensive: #2563eb;
+  --boost-big-offensive: #475569;
+  --boost-big-neutral: #94a3b8;
+  --boost-big-defensive: #cbd5e1;
   --boost-small: #94a3b8;
-  --boost-small-offensive: #f87171;
-  --boost-small-defensive: #93c5fd;
+  --boost-small-offensive: #475569;
+  --boost-small-defensive: #cbd5e1;
   --boost-grant: #a855f7;
   --boost-other: #64748b;
   --boost-stolen-big: #dc2626;
