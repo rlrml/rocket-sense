@@ -1,6 +1,18 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { ReplayModel } from "./types";
+/** A steerable/spinnable wheel on the example car mesh. */
+export interface CarWheel {
+    /** Steering pivot — rotated about local Z (car up) for front-wheel steer. */
+    pivot: THREE.Group;
+    /** Cylinder mesh — spun about its axle for roll. */
+    wheel: THREE.Mesh;
+    isFront: boolean;
+}
+/** Effective wheel radius in model (uu) space: geometry radius × inner scale. */
+export declare const EXAMPLE_CAR_WHEEL_RADIUS_UU: number;
+/** Returns the steerable wheels attached to an example car mesh, if any. */
+export declare function getCarWheels(mesh: THREE.Object3D): CarWheel[] | undefined;
 export interface ReplayScene {
     scene: THREE.Scene;
     replayRoot: THREE.Group;

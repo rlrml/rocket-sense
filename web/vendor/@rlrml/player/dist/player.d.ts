@@ -32,6 +32,9 @@ export declare class ReplayPlayer extends EventTarget {
     private freeCameraTransition;
     private attachedPlayerId;
     private ballCamEnabled;
+    private useReplayBallCam;
+    private useReplayCameraLook;
+    private lastEffectiveBallCamEnabled;
     private boostMeterEnabled;
     private boostPickupAnimationEnabled;
     private hitboxWireframesEnabled;
@@ -49,6 +52,15 @@ export declare class ReplayPlayer extends EventTarget {
     setCameraViewMode(mode: ReplayCameraViewMode): void;
     setFreeCameraPreset(preset: ReplayFreeCameraPreset): void;
     setBallCamEnabled(enabled: boolean): void;
+    setUseReplayBallCam(enabled: boolean): void;
+    setUseReplayCameraLook(enabled: boolean): void;
+    /**
+     * The ball-cam state to actually apply this frame. When replay-driven ball
+     * cam is enabled and we are following a player, we resolve their ball-cam
+     * toggle from the coalesced camera-event stream (the last change at or before
+     * this frame). Otherwise we fall back to the manual `ballCamEnabled` flag.
+     */
+    private resolveEffectiveBallCam;
     setBoostMeterEnabled(enabled: boolean): void;
     setBoostPickupAnimationEnabled(enabled: boolean): void;
     setHitboxWireframesEnabled(enabled: boolean): void;
