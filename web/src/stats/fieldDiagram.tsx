@@ -250,7 +250,7 @@ export function FieldDiagramSurface({
   // Touch circles are drawn well above real scale so the numbers inside stay legible
   // on a thumbnail-sized diagram; the scoring touch is larger still.
   const touchRadius = projection.toUnits(200);
-  const scoringRadius = projection.toUnits(300);
+  const scoringRadius = projection.toUnits(360);
 
   return (
     <div className="kickoff-path-diagram">
@@ -337,15 +337,6 @@ export function FieldDiagramSurface({
               key={`touch-${index}`}
               className={`field-touch ${scoring ? "scoring" : "buildup"} team-${teamColorClass(touch.team)}`}
             >
-              {scoring ? (
-                <circle
-                  className="field-touch-ring"
-                  cx={touch.at.x}
-                  cy={touch.at.y}
-                  r={round(r * 1.4)}
-                  vectorEffect="non-scaling-stroke"
-                />
-              ) : null}
               <circle className="field-touch-dot" cx={touch.at.x} cy={touch.at.y} r={round(r)} />
               {touch.num != null ? (
                 <text
