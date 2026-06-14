@@ -556,3 +556,27 @@ export interface BoostTrack {
 export interface BoostTracksResponse {
   tracks: BoostTrack[];
 }
+
+// Per-player boost totals aggregated across every replay in a group, derived
+// from the boost accumulation tracks (not discrete events). Band seconds
+// (time_*) partition tracked_seconds; the web layer recombines them into the
+// stat-table and level-distribution bands. See get_replay_group_boost_totals.
+export interface GroupBoostTotal {
+  player_id: string;
+  is_team_0: boolean;
+  boost_used: number;
+  boost_used_supersonic: number;
+  boost_amount_weighted_sum: number;
+  tracked_seconds: number;
+  time_empty: number;
+  time_low: number;
+  time_medium: number;
+  time_high: number;
+  time_full: number;
+  time_over: number;
+}
+
+export interface GroupBoostTotalsResponse {
+  totals: GroupBoostTotal[];
+  duration_seconds: number;
+}
