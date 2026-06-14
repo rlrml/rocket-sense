@@ -21,6 +21,56 @@ statistics built with `subtr-actor`.
 - Use `cargo fmt`, `cargo test`, and `just` recipes for local validation.
 - Prefer `rg` for text search.
 
+## Web typography
+
+Font sizes and weights come from the type scale in
+[`web/src/design-tokens.css`](web/src/design-tokens.css): `--text-3xs … --text-3xl`
+and `--fw-medium/semibold/bold/heavy`. Always write `font-size: var(--text-sm)` /
+`font-weight: var(--fw-bold)` — never a raw `12px` / `700`. Pick the nearest
+existing step; only add a new token if a genuinely new size is unavoidable. The
+small-screen shrink overrides `--bar-text-font-size` once rather than re-declaring
+per element. The only deliberate exceptions are SVG-user-unit diagram labels
+(e.g. `.pickup-count`) and the tiny clip-canvas overlay, which are commented as
+such. This keeps text from drifting between views.
+
+## Web stats bars
+
+Every horizontal bar on the per-replay stats pages (positioning, kickoffs,
+movement, boost, ...) should render through the **one** shared track in
+[`web/src/stats/shared.tsx`](web/src/stats/shared.tsx). Do not hand-roll a
+bespoke `<div>` + inline-`width` bar for a new chart — reuse the component so
+height, rounding, segment borders, label color, and value placement stay
+identical across pages. The two are intentionally interchangeable:
+
+- **`ComparisonBar`** is the track itself: one fill made of `segments`, scaled by
+  `total` (and an optional cross-row `maxValue` for magnitude charts).
+- **`ComparisonRows` / `PlayerComparisonChart`** lay out one `ComparisonRow` per
+  player. `PlayerComparisonChart` adds its own titled panel; use `ComparisonRows`
+  when the page supplies its own `.chart-panel` header (positioning does this).
+
+Conventions baked into the component — follow them rather than adding CSS:
+
+- **Magnitude bar** (one value per player, e.g. distance, speed, count): a single
+  segment, set `maxValue` so rows share a scale, and put the value in
+  `valueInBar`. It floats at the fill's end (white inside a nearly-full bar, dark
+  in the empty track otherwise). Tint with `team-segment-${color} player-shade-N`
+  so teammates get distinct shades of their team hue.
+- **Distribution bar** (parts of a whole, e.g. field thirds, speed bands): tone-
+  classed segments via `outcomeSegmentClassName(tone, level)` plus an
+  `outcomeDistributionColorStyle(colors)` `style`; segment labels show on-bar via
+  `visibleLabel` past a share threshold.
+- **Value column vs on-bar value:** set `valueLabel` for a right-hand column;
+  omit it on every row and the column is dropped automatically (no per-page CSS).
+  Don't reintroduce a chart-specific class to toggle the column.
+- **Label text color is centralized**: the `outcome-dist-level-*` classes drive
+  light-fill levels (narrow/unknown/neutral) to dark text in a single
+  track-agnostic rule in `styles.css`. Edit that one rule to restyle labels
+  app-wide; don't re-scope it per track.
+
+If a new chart needs something the component can't express, extend the shared
+component (a new optional prop / row field) rather than forking it — keeping a
+single flexible bar is the point.
+
 ## Before committing (avoid CI failures)
 
 CI fails on format/lint/compile issues far more often than on test logic. To
