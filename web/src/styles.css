@@ -5243,13 +5243,53 @@ tbody tr:last-child td {
     flex-direction: column;
   }
 
+  /* The replay roster is a chain of content-sized (auto) grids: card →
+     teams-cell → team-block → player-stack → player-identity. On a phone the
+     per-player statline (flex: none) plus a long name set a large min-content
+     floor, so the whole card refused to shrink and spilled past the viewport
+     (clipped, since body hides x-overflow). Force every track to minmax(0,1fr)
+     and let the name ellipsis so the card always fits the column. */
+  .replay-card-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .replay-card,
+  .replay-card-header {
+    min-width: 0;
+  }
+
+  .replay-card-title {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .replay-card-title .primary-link {
+    max-width: 100%;
+  }
+
   .teams-cell {
     grid-template-columns: 1fr;
-    min-width: 300px;
+    min-width: 0;
   }
 
   .team-block {
     grid-template-columns: 1fr;
+    min-width: 0;
+  }
+
+  .player-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .player-identity.player-line {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .player-identity.player-line .player-identity-main {
+    min-width: 0;
+    overflow: hidden;
   }
 
   .pickup-map-grid {
