@@ -64,6 +64,7 @@ interface KickoffDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   replayId?: string;
+  scope?: "replay" | "group";
 }
 
 interface KickoffRow {
@@ -204,7 +205,12 @@ interface KickoffStrengthOutcome {
   neutral: number;
 }
 
-export function KickoffDetail({ events, players, replayId }: KickoffDetailProps) {
+export function KickoffDetail({ events, players, replayId, scope }: KickoffDetailProps) {
+  // Per-replay every player has one team, so win/loss + advantage bars tint with
+  // that team's blue/orange. Grouped views may fold together games where the
+  // player was on either team, so team tints are meaningless there — use the
+  // neutral player-relative palette instead.
+  const teamColored = scope !== "group";
   const possessionSpans = useMemo(
     () =>
       events
@@ -307,7 +313,7 @@ export function KickoffDetail({ events, players, replayId }: KickoffDetailProps)
                 <span>Takers and support split out, with kickoff goal context.</span>
               </div>
             </div>
-            <KickoffPlayerTable summaries={playerSummaries} />
+            <KickoffPlayerTable summaries={playerSummaries} teamColored={teamColored} />
           </section>
 
           <section className="chart-panel full-span">
@@ -523,11 +529,13 @@ const SUPPORT_COLUMNS: KickoffPlayerColumn[] = [
   GOALS_COLUMN,
 ];
 
-function roleOutcomeDetail(role: "taker" | "support") {
-  return (summary: PlayerKickoffSummary): ReactNode => <KickoffRoleOutcomeDetail role={role} summary={summary} />;
+function roleOutcomeDetail(role: "taker" | "support", teamColored: boolean) {
+  return (summary: PlayerKickoffSummary): ReactNode => (
+    <KickoffRoleOutcomeDetail role={role} summary={summary} teamColored={teamColored} />
+  );
 }
 
-function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }) {
+function KickoffPlayerTable({ summaries, teamColored }: { summaries: PlayerKickoffSummary[]; teamColored: boolean }) {
   const takers = summaries.filter((summary) => summary.takerCount > 0);
   const supports = summaries.filter((summary) => summary.supportCount > 0);
   return (
@@ -537,14 +545,14 @@ function KickoffPlayerTable({ summaries }: { summaries: PlayerKickoffSummary[] }
         columns={TAKER_COLUMNS}
         summaries={takers}
         emptyLabel="No taker data yet."
-        renderRowDetail={roleOutcomeDetail("taker")}
+        renderRowDetail={roleOutcomeDetail("taker", teamColored)}
       />
       <KickoffRoleTable
         label="Support"
         columns={SUPPORT_COLUMNS}
         summaries={supports}
         emptyLabel="No support data yet."
-        renderRowDetail={roleOutcomeDetail("support")}
+        renderRowDetail={roleOutcomeDetail("support", teamColored)}
       />
     </div>
   );
@@ -605,14 +613,26 @@ function KickoffRoleTable({
   );
 }
 
-function KickoffRoleOutcomeDetail({ role, summary }: { role: "taker" | "support"; summary: PlayerKickoffSummary }) {
+function KickoffRoleOutcomeDetail({
+  role,
+  summary,
+  teamColored,
+}: {
+  role: "taker" | "support";
+  summary: PlayerKickoffSummary;
+  teamColored: boolean;
+}) {
   const count = role === "taker" ? summary.takerCount : summary.supportCount;
   const advantagesFor = role === "taker" ? summary.takerAdvantagesFor : summary.supportAdvantagesFor;
   const advantagesAgainst = role === "taker" ? summary.takerAdvantagesAgainst : summary.supportAdvantagesAgainst;
   const strengthOutcomes = role === "taker" ? summary.takerStrengthOutcomes : summary.supportStrengthOutcomes;
+  // Per-replay: tint by the player's team. Grouped: neutral player-relative
+  // palette, since the player's team can vary across the folded-in games.
+  const colors = teamColored ? kickoffPlayerOutcomeColors(summary.team) : PLAYER_RELATIVE_OUTCOME_COLORS;
 
   return (
     <div className="kickoff-role-detail-bars">
+      <KickoffStrengthSummary label="Win / loss" outcomes={strengthOutcomes} colors={colors} />
       {role === "taker" ? (
         <KickoffCountBar
           ariaLabel={`${summary.name} first-touch share as ${role}`}
@@ -624,38 +644,58 @@ function KickoffRoleOutcomeDetail({ role, summary }: { role: "taker" | "support"
           total={count}
         />
       ) : null}
-      <KickoffCountBar
+      <KickoffOutcomeBar
         ariaLabel={`${summary.name} control outcome as ${role}`}
         label="Control"
+        colors={colors}
         segments={[
-          countSegment("for", "Advantage for", "kickoff-outcome-segment-win", advantagesFor, count),
-          countSegment("neutral", "Neutral", "kickoff-outcome-segment-neutral", Math.max(0, count - advantagesFor - advantagesAgainst), count),
-          countSegment("against", "Advantage against", "kickoff-outcome-segment-loss", advantagesAgainst, count),
+          { key: "for", label: "Advantage for", tone: "positive", value: advantagesFor },
+          { key: "neutral", label: "Neutral", tone: "neutral", value: Math.max(0, count - advantagesFor - advantagesAgainst) },
+          { key: "against", label: "Advantage against", tone: "negative", value: advantagesAgainst },
         ]}
         total={count}
       />
-      {role === "taker" ? (
-        <>
-          <KickoffCountBar
-            ariaLabel={`${summary.name} taker touch outcome`}
-            label="Taker result"
-            segments={[
-              countSegment("touched", "Touched", "kickoff-outcome-segment-win", summary.touched, count),
-              countSegment("fake", "Fake", "kickoff-role-segment-other", summary.faked, count),
-              countSegment("missed", "Missed", "kickoff-outcome-segment-loss", summary.missed, count),
-              countSegment("unknown", "Unknown", "kickoff-outcome-segment-neutral", Math.max(0, count - summary.touched - summary.faked - summary.missed), count),
-            ]}
-            total={count}
-          />
-        </>
-      ) : (
+      {role === "support" ? (
         <KickoffMapBar
           ariaLabel={`${summary.name} support behavior distribution`}
           label="Support behavior"
           values={summary.supportBehaviors}
         />
-      )}
-      <KickoffStrengthSummary outcomes={strengthOutcomes} team={summary.team} />
+      ) : null}
+    </div>
+  );
+}
+
+// An outcome-distribution bar laid out like the labeled count bars: a left-hand
+// label with the colored distribution (and optional caption) in the track column.
+function KickoffOutcomeBar({
+  ariaLabel,
+  label,
+  colors,
+  segments,
+  total,
+  caption,
+}: {
+  ariaLabel: string;
+  label: string;
+  colors: OutcomeDistributionColors;
+  segments: OutcomeDistributionSegment[];
+  total: number;
+  caption?: ReactNode;
+}) {
+  if (total <= 0) return null;
+  return (
+    <div className="kickoff-role-count-bar">
+      <span>{label}</span>
+      <OutcomeDistributionBar
+        ariaLabel={ariaLabel}
+        caption={caption}
+        colors={colors}
+        maxValue={total}
+        segments={segments}
+        total={total}
+        visibleCountThreshold={0.12}
+      />
     </div>
   );
 }
@@ -1138,11 +1178,13 @@ const LOSS_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionL
 ];
 
 function KickoffStrengthSummary({
+  label,
   outcomes,
-  team,
+  colors,
 }: {
+  label: string;
   outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome>;
-  team: number | null;
+  colors: OutcomeDistributionColors;
 }) {
   const rawSegments: OutcomeDistributionSegment[] = [
     ...WIN_BANDS.map(({ band, level, label }) => ({
@@ -1169,25 +1211,24 @@ function KickoffStrengthSummary({
   ];
   const total = rawSegments.reduce((sum, segment) => sum + segment.value, 0);
 
-  if (total === 0) return <span>-</span>;
+  if (total === 0) return null;
 
   const wins = rawSegments.filter((segment) => segment.key.startsWith("win-")).reduce((sum, segment) => sum + segment.value, 0);
   const losses = rawSegments.filter((segment) => segment.key.startsWith("loss-")).reduce((sum, segment) => sum + segment.value, 0);
 
   return (
-    <OutcomeDistributionBar
+    <KickoffOutcomeBar
       ariaLabel="Kickoff outcomes from the player's team wins to opponent wins"
+      label={label}
+      colors={colors}
+      segments={rawSegments}
+      total={total}
       caption={
         <>
           <span className="outcome-distribution-caption-positive">{wins}W</span>
           <span className="outcome-distribution-caption-negative">{losses}L</span>
         </>
       }
-      colors={kickoffPlayerOutcomeColors(team)}
-      maxValue={total}
-      segments={rawSegments}
-      total={total}
-      visibleCountThreshold={0.12}
     />
   );
 }
