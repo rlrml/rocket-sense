@@ -214,7 +214,7 @@ a {
 }
 
 .pagination-controls label {
-  grid-template-columns: auto minmax(82px, 96px);
+  grid-template-columns: auto max-content;
   align-items: center;
   text-transform: none;
 }
