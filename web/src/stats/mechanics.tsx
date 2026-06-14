@@ -1,6 +1,6 @@
 import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { StatPlayerLabel, statPlayerRank } from "./shared";
+import { SegmentedBar, StatPlayerLabel, statPlayerRank } from "./shared";
 
 export const mechanicEventTypes = [
   "ceiling_shot",
@@ -58,14 +58,34 @@ interface MechanicTypeRow extends MechanicCount {
   leader: { name: string; count: number } | null;
 }
 
+interface MechanicPlayerCount {
+  key: string;
+  name: string;
+  player: ReplayPlayer;
+  games: number | null;
+  count: number;
+}
+
+interface MechanicLeaderboard {
+  key: string;
+  label: string;
+  total: number;
+  players: MechanicPlayerCount[];
+}
+
 export function MechanicsDetail({ events, players, scope = "replay" }: MechanicsDetailProps) {
   const mechanicEvents = events.filter((event) => mechanicEventTypes.includes(event.event_type));
-  const playerRows = playerMechanicRows(players, mechanicEvents);
-  const mechanicRows = mechanicTypeRows(mechanicEvents, players);
 
   if (!mechanicEvents.length) {
     return <div className="stat-empty">No mechanic events are available for this {scope === "group" ? "group" : "replay"} yet.</div>;
   }
+
+  if (scope === "group") {
+    return <MechanicLeaderboards mechanics={mechanicLeaderboards(mechanicEvents, players)} totalEvents={mechanicEvents.length} />;
+  }
+
+  const playerRows = playerMechanicRows(players, mechanicEvents);
+  const mechanicRows = mechanicTypeRows(mechanicEvents, players);
 
   return (
     <div className="mechanics-detail">
@@ -85,6 +105,60 @@ export function MechanicsDetail({ events, players, scope = "replay" }: Mechanics
           </header>
           <MechanicTypeLeaderboard rows={mechanicRows} totalEvents={mechanicEvents.length} />
         </section>
+      </div>
+    </div>
+  );
+}
+
+function MechanicLeaderboards({ mechanics, totalEvents }: { mechanics: MechanicLeaderboard[]; totalEvents: number }) {
+  if (!mechanics.length) {
+    return <div className="stat-empty">No mechanic leaderboards are available for this group yet.</div>;
+  }
+
+  return (
+    <div className="mechanics-detail">
+      <div className="stat-section-grid">
+        {mechanics.map((mechanic) => {
+          const maxCount = mechanic.players[0]?.count ?? 0;
+          return (
+            <section className="chart-panel full-span" key={mechanic.key}>
+              <header className="chart-panel-header">
+                <h3>{mechanic.label}</h3>
+                <span>
+                  {mechanic.total.toLocaleString()} events · {formatShare(mechanic.total, totalEvents)} of mechanics
+                </span>
+              </header>
+              <div className="mechanic-leaderboard-rows">
+                {mechanic.players.map((entry) => (
+                  <div className="mechanic-leaderboard-row" key={entry.key}>
+                    <StatPlayerLabel
+                      name={entry.name}
+                      platform={entry.player.platform ?? null}
+                      profilePath={playerProfilePath(entry.player.platform, entry.player.platform_player_id)}
+                      rank={statPlayerRank(entry.player)}
+                      subtitle={entry.games == null ? "Games unknown" : `${entry.games.toLocaleString()} games`}
+                    />
+                    <SegmentedBar
+                      ariaLabel={`${entry.name}: ${entry.count.toLocaleString()} ${mechanic.label}`}
+                      className="mechanic-leaderboard-track"
+                      maxValue={maxCount}
+                      segments={[
+                        {
+                          key: entry.key,
+                          className: "mechanic-leaderboard-segment",
+                          label: mechanic.label,
+                          value: entry.count,
+                        },
+                      ]}
+                      total={entry.count}
+                    />
+                    <strong className="mechanic-leaderboard-count">{entry.count.toLocaleString()}</strong>
+                  </div>
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
     </div>
   );
@@ -237,6 +311,77 @@ function mechanicTypeRows(events: MechanicEventResponse[], players: ReplayPlayer
   }
 
   return [...rows.values()].sort(compareCounts);
+}
+
+function mechanicLeaderboards(events: MechanicEventResponse[], players: ReplayPlayer[]): MechanicLeaderboard[] {
+  const boards = new Map<string, { key: string; label: string; total: number; counts: Map<string, MechanicPlayerCount> }>();
+
+  for (const event of events) {
+    const mechanic = mechanicCount(event);
+    const board = boards.get(mechanic.key) ?? { key: mechanic.key, label: mechanic.label, total: 0, counts: new Map<string, MechanicPlayerCount>() };
+    board.total += 1;
+
+    for (const playerIndex of creditedPlayerIndexes(event, players)) {
+      const player = players[playerIndex];
+      const key = playerKey(player, playerIndex);
+      const existing = board.counts.get(key);
+      board.counts.set(key, {
+        key,
+        name: player.name || player.platform_player_id || "Unknown",
+        player,
+        games: player.appearance_count ?? null,
+        count: (existing?.count ?? 0) + 1,
+      });
+    }
+    boards.set(mechanic.key, board);
+  }
+
+  return [...boards.values()]
+    .map((board) => ({
+      key: board.key,
+      label: board.label,
+      total: board.total,
+      players: [...board.counts.values()].sort((left, right) => right.count - left.count || left.name.localeCompare(right.name)),
+    }))
+    .filter((board) => board.players.length > 0)
+    .sort((left, right) => right.total - left.total || left.label.localeCompare(right.label));
+}
+
+// Mechanics that are inherently a contest between two players. Their top-level
+// player_id only names one side (e.g. fifty_fifty always attributes to team
+// zero), so counting by player_id is meaningless — both participants took part.
+// Credit each participant named in the payload instead.
+const CONTESTED_MECHANIC_PAYLOAD_PLAYERS: Record<string, readonly string[]> = {
+  fifty_fifty: ["team_zero_player", "team_one_player"],
+};
+
+// A payload participant is encoded as a single-key platform map, e.g.
+// {"Epic":"b70a..."} or {"Xbox":"2535..."}. Normalize it to the same
+// "platform:id" identity used by playerIdentity so it can be matched to a player.
+function payloadPlayerIdentity(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const entry = Object.entries(value as Record<string, unknown>)[0];
+  if (!entry) return null;
+  const [platform, id] = entry;
+  if (!platform || typeof id !== "string" || !id) return null;
+  return `${normalizePlatform(platform)}:${id}`;
+}
+
+function creditedPlayerIndexes(event: MechanicEventResponse, players: ReplayPlayer[]): number[] {
+  const payloadFields = CONTESTED_MECHANIC_PAYLOAD_PLAYERS[event.event_type];
+  if (payloadFields) {
+    const indexes = new Set<number>();
+    for (const field of payloadFields) {
+      const identity = payloadPlayerIdentity(event.payload[field]);
+      if (!identity) continue;
+      const index = players.findIndex((player) => playerIdentity(player) === identity);
+      if (index >= 0) indexes.add(index);
+    }
+    if (indexes.size) return [...indexes];
+  }
+
+  const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+  return index >= 0 ? [index] : [];
 }
 
 function mechanicCount(event: MechanicEventResponse): MechanicCount {
