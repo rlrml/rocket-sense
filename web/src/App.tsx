@@ -5090,9 +5090,9 @@ function AboutPage() {
       </header>
 
       <p className="page-header-note">
-        Rocket Sense is a Rocket League replay analytics service. Upload your
-        replays and it parses them with subtr-actor to derive per-player and
-        per-group stats, mechanics, kickoffs, and event breakdowns.
+        Rocket Sense is a Rocket League replay analytics service. Upload your replays and it parses
+        them with subtr-actor to derive per-player and per-group stats, mechanics, kickoffs, and
+        event breakdowns.
       </p>
 
       <div className="about-section">
@@ -5188,8 +5188,7 @@ function AboutPage() {
       <div className="about-section">
         <h2>Open source</h2>
         <p className="muted-text">
-          Rocket Sense is built in the open. Issues and contributions are
-          welcome.
+          Rocket Sense is built in the open. Issues and contributions are welcome.
         </p>
         <div className="about-link-grid">
           {ABOUT_REPOS.map((repo) => (
