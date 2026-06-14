@@ -1,5 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
-import type { ReplayPlayer } from "../types";
+import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
   type ComparisonRow,
   PlayerComparisonChart,
@@ -8,10 +8,12 @@ import {
   type StatPlayerRank,
 } from "./shared";
 
-// Core stats (score, goals, assists, saves, shots) are parsed onto each
-// ReplayPlayer directly — for a group they are summed across the group's
-// replays — so this page reads them off `players` and needs no indexed events.
-export const coreEventTypes: string[] = [];
+// Scoreboard core stats (score, goals, assists, saves, shots) are parsed onto
+// each ReplayPlayer directly — for a group they are summed across the group's
+// replays — so this page reads them off `players`. Demolitions are not on the
+// scoreboard, so they are counted from indexed "kill" events (each attributed
+// to the demolisher).
+export const coreEventTypes: string[] = ["kill"];
 
 interface CorePlayerSummary {
   key: string;
@@ -25,16 +27,19 @@ interface CorePlayerSummary {
   assists: number;
   saves: number;
   shots: number;
+  demos: number;
 }
 
 export function CoreDetail({
+  events,
   players,
   scope = "replay",
 }: {
+  events: MechanicEventResponse[];
   players: ReplayPlayer[];
   scope?: "replay" | "group";
 }) {
-  const summaries = useMemo(() => corePlayerSummaries(players), [players]);
+  const summaries = useMemo(() => corePlayerSummaries(players, events), [players, events]);
   const teamColored = scope !== "group";
   const playerIndexByKey = useMemo(() => teamLocalPlayerIndexByKey(players), [players]);
 
@@ -51,6 +56,7 @@ export function CoreDetail({
   const assistScale = Math.max(1, ...summaries.map((summary) => summary.assists));
   const saveScale = Math.max(1, ...summaries.map((summary) => summary.saves));
   const shotScale = Math.max(1, ...summaries.map((summary) => summary.shots));
+  const demoScale = Math.max(1, ...summaries.map((summary) => summary.demos));
 
   return (
     <div className="core-detail">
@@ -117,6 +123,18 @@ export function CoreDetail({
               groupClassName: "core-bar-shots",
               metric: (summary) => summary.shots,
               maxValue: shotScale,
+              format: formatCount,
+            })}
+          />
+          <PlayerComparisonChart
+            className="core-chart"
+            title="Demos"
+            rows={magnitudeRows(summaries, {
+              teamColored,
+              playerIndexByKey,
+              groupClassName: "core-bar-demos",
+              metric: (summary) => summary.demos,
+              maxValue: demoScale,
               format: formatCount,
             })}
           />
@@ -229,7 +247,15 @@ function CoreStatTable({ summaries }: { summaries: CorePlayerSummary[] }) {
   );
 }
 
-type CoreStatSortKey = "name" | "score" | "goals" | "assists" | "saves" | "shots" | "shooting";
+type CoreStatSortKey =
+  | "name"
+  | "score"
+  | "goals"
+  | "assists"
+  | "saves"
+  | "shots"
+  | "demos"
+  | "shooting";
 
 type CoreStatSort = {
   key: CoreStatSortKey;
@@ -251,6 +277,7 @@ const coreStatColumns: Array<{
   { key: "assists", label: "Assists", render: (summary) => formatCount(summary.assists) },
   { key: "saves", label: "Saves", render: (summary) => formatCount(summary.saves) },
   { key: "shots", label: "Shots", render: (summary) => formatCount(summary.shots) },
+  { key: "demos", label: "Demos", render: (summary) => formatCount(summary.demos) },
   {
     key: "shooting",
     label: "Shooting %",
@@ -298,20 +325,63 @@ function coreStatSortValue(summary: CorePlayerSummary, key: CoreStatSortKey): nu
   }
 }
 
-function corePlayerSummaries(players: ReplayPlayer[]): CorePlayerSummary[] {
-  return players.map((player, index) => ({
-    key: playerKey(player, index),
-    name: player.name || player.platform_player_id || "Unknown",
-    platform: player.platform,
-    platformPlayerId: player.platform_player_id,
-    rank: statPlayerRank(player),
-    team: player.team,
-    score: numberOr(player.score),
-    goals: numberOr(player.goals),
-    assists: numberOr(player.assists),
-    saves: numberOr(player.saves),
-    shots: numberOr(player.shots),
-  }));
+function corePlayerSummaries(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): CorePlayerSummary[] {
+  const demosByKey = demosByPlayerKey(players, events);
+  return players.map((player, index) => {
+    const key = playerKey(player, index);
+    return {
+      key,
+      name: player.name || player.platform_player_id || "Unknown",
+      platform: player.platform,
+      platformPlayerId: player.platform_player_id,
+      rank: statPlayerRank(player),
+      team: player.team,
+      score: numberOr(player.score),
+      goals: numberOr(player.goals),
+      assists: numberOr(player.assists),
+      saves: numberOr(player.saves),
+      shots: numberOr(player.shots),
+      demos: demosByKey.get(key) ?? 0,
+    };
+  });
+}
+
+// A demolition is a "kill" event attributed to the demolisher; tally them per
+// player so they read off the same key as the scoreboard summaries.
+function demosByPlayerKey(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const event of events) {
+    if (event.event_type !== "kill") continue;
+    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+    if (index < 0) continue;
+    const key = playerKey(players[index], index);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
+  const identity = playerIdentity(player);
+  const eventKey = event.player_id ? normalizePlayerKey(event.player_id) : null;
+  if (identity && eventKey && identity === eventKey) return true;
+  const eventName = event.player_name?.trim().toLowerCase();
+  return Boolean(eventName && player.name?.trim().toLowerCase() === eventName);
+}
+
+function playerIdentity(player: ReplayPlayer): string | null {
+  if (!player.platform || !player.platform_player_id) return null;
+  return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
+}
+
+function normalizePlayerKey(value: string): string {
+  const [platform, ...rest] = value.split(":");
+  return rest.length > 0 ? `${normalizePlatform(platform)}:${rest.join(":")}` : value;
 }
 
 function hasCoreData(summary: CorePlayerSummary): boolean {
@@ -320,7 +390,8 @@ function hasCoreData(summary: CorePlayerSummary): boolean {
     summary.goals > 0 ||
     summary.assists > 0 ||
     summary.saves > 0 ||
-    summary.shots > 0
+    summary.shots > 0 ||
+    summary.demos > 0
   );
 }
 
