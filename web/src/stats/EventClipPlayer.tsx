@@ -1,5 +1,6 @@
 import {
   createBallchasingOverlayPlugin,
+  createNameTagPlugin,
   createViewerFromParsed,
   fromReplayPlayerPlugin,
   type ReplayModel,
@@ -337,6 +338,11 @@ export function EventClipPlayer({
           // disable them here. The meter is scaled down + pinned bottom-right in
           // styles.css (.event-clip-canvas .sap-bc-followed-*).
           plugins: [
+            // Floating 3D name pills above each car so non-perspective players
+            // are identifiable in the clip. The plugin hides the followed
+            // player's own tag (it would just obscure the foreground car the
+            // camera is already attached to).
+            createNameTagPlugin(),
             fromReplayPlayerPlugin(
               createBallchasingOverlayPlugin({
                 showFloatingNames: false,
