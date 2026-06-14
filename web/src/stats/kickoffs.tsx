@@ -69,14 +69,12 @@ const TEAM_OUTCOME_COLORS: OutcomeDistributionColors = {
   positive: "#2563eb",
   "positive-strong": "#1e3a8a",
   "positive-clear": "#2563eb",
-  "positive-narrow": "#2563eb",
   "positive-unknown": "#bfdbfe",
   neutral: "#64748b",
   "neutral-clear": "#cbd5e1",
   negative: "#ea580c",
   "negative-strong": "#9a3412",
   "negative-clear": "#ea580c",
-  "negative-narrow": "#ea580c",
   "negative-unknown": "#fed7aa",
 };
 
@@ -1093,22 +1091,22 @@ function winLossChart(
       ),
       total: totals.total,
       valueLabel: (
-        <div className="winloss-value">
+        <span className="winloss-value">
           <span
-            className="kickoff-team-win-rate"
-            title="Win rate over all decided kickoffs (neutral excluded, narrow results included)"
+            className="winloss-rate"
+            title="Win rate over all decided kickoffs (narrow included)"
           >
             <span className="winloss-term">all</span>
             {formatWinPct(inclPct)}
           </span>
           <span
-            className="kickoff-team-win-rate winloss-value-secondary"
-            title="Win rate over clear kickoffs only (neutral and narrow results excluded)"
+            className="winloss-rate winloss-rate-secondary"
+            title="Win rate over clear kickoffs only (narrow excluded)"
           >
             <span className="winloss-term">clear</span>
             {formatWinPct(exclPct)}
           </span>
-        </div>
+        </span>
       ),
       style: outcomeDistributionColorStyle(distributionColors(summary, teamColored)),
     };
@@ -1119,7 +1117,6 @@ function winLossChart(
       title="Win / loss"
       rows={rows}
       emptyLabel="No kickoff outcomes yet."
-      className="winloss-chart"
     />
   );
 }
@@ -2039,14 +2036,12 @@ function kickoffPlayerOutcomeColors(team: number | null): OutcomeDistributionCol
       positive: "#2563eb",
       "positive-strong": "#1e3a8a",
       "positive-clear": "#2563eb",
-      "positive-narrow": "#2563eb",
       "positive-unknown": "#bfdbfe",
       neutral: "#94a3b8",
       "neutral-clear": "#cbd5e1",
       negative: "#ea580c",
       "negative-strong": "#9a3412",
       "negative-clear": "#ea580c",
-      "negative-narrow": "#ea580c",
       "negative-unknown": "#fed7aa",
     };
   }
@@ -2055,14 +2050,12 @@ function kickoffPlayerOutcomeColors(team: number | null): OutcomeDistributionCol
       positive: "#ea580c",
       "positive-strong": "#9a3412",
       "positive-clear": "#ea580c",
-      "positive-narrow": "#ea580c",
       "positive-unknown": "#fed7aa",
       neutral: "#94a3b8",
       "neutral-clear": "#cbd5e1",
       negative: "#2563eb",
       "negative-strong": "#1e3a8a",
       "negative-clear": "#2563eb",
-      "negative-narrow": "#2563eb",
       "negative-unknown": "#bfdbfe",
     };
   }

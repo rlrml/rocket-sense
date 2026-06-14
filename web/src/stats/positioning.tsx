@@ -1,5 +1,7 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
+  type ComparisonRow,
+  ComparisonRows,
   type OutcomeDistributionLevel,
   type OutcomeDistributionTone,
   outcomeDistributionColorStyle,
@@ -327,9 +329,11 @@ function PositioningBarRows({
   );
 }
 
-// One magnitude metric per player (avg distance, caught-ahead count, ...), the
-// fill tinted by the player's team. `max` is shared across related charts so
-// their bars stay comparable.
+// One magnitude metric per player (avg distance, caught-ahead count, ...),
+// rendered with the shared comparison bar so it reads identically to the
+// movement magnitude charts: a single team-tinted segment with the value
+// floated on the bar. `max` is shared across related charts so their bars stay
+// comparable.
 function PositioningDistanceChart({
   summaries,
   value,
@@ -343,30 +347,49 @@ function PositioningDistanceChart({
   format: (value: number | null) => string;
   emptyLabel: string;
 }) {
-  const rows = sortedSummaries(summaries, (summary) => value(summary) ?? 0);
-  if (!rows.some((summary) => (value(summary) ?? 0) > 0)) {
+  const indexByKey = teamLocalIndexByKey(summaries);
+  const rows: ComparisonRow[] = sortedSummaries(summaries, (summary) => value(summary) ?? 0).map(
+    (summary) => {
+      const metric = value(summary) ?? 0;
+      const shade = Math.min(indexByKey.get(summary.key) ?? 0, 3);
+      return {
+        key: summary.key,
+        label: positioningPlayerLabel(summary),
+        ariaLabel: `${summary.name}: ${format(metric)}`,
+        segments: [
+          {
+            key: "value",
+            className: `team-segment-${teamClass(summary.team)} player-shade-${shade}`,
+            label: summary.name,
+            value: metric,
+          },
+        ],
+        total: metric,
+        maxValue: max,
+        valueInBar: metric > 0 ? format(metric) : undefined,
+        placeholder: metric > 0 ? undefined : format(metric),
+      };
+    },
+  );
+
+  if (!rows.some((row) => row.total > 0)) {
     return <div className="stat-empty">{emptyLabel}</div>;
   }
 
-  return (
-    <div className="positioning-distance-chart">
-      {rows.map((summary) => {
-        const metric = value(summary);
-        return (
-          <div className="positioning-distance-row" key={summary.key}>
-            {positioningPlayerLabel(summary)}
-            <span className="positioning-distance-track">
-              <span
-                className={`positioning-distance-fill team-fill-${teamClass(summary.team)}`}
-                style={{ width: `${barPercent(metric, max)}%` }}
-              />
-            </span>
-            <strong className="positioning-distance-value">{format(metric)}</strong>
-          </div>
-        );
-      })}
-    </div>
-  );
+  return <ComparisonRows rows={rows} />;
+}
+
+// Per-team appearance order of the players, so teammates get distinct shades of
+// their team color (mirrors the movement magnitude charts).
+function teamLocalIndexByKey(summaries: PlayerPositioningSummary[]): Map<string, number> {
+  const index = new Map<string, number>();
+  const counts = new Map<number | null, number>();
+  for (const summary of summaries) {
+    const next = counts.get(summary.team) ?? 0;
+    index.set(summary.key, next);
+    counts.set(summary.team, next + 1);
+  }
+  return index;
 }
 
 function positioningPlayerLabel(summary: PlayerPositioningSummary) {
@@ -747,11 +770,6 @@ function percentage(value: number, total: number): number {
 
 function share(value: number, total: number): number {
   return total > 0 ? value / total : 0;
-}
-
-function barPercent(value: number | null, max: number): number {
-  if (value == null || !Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
-  return (value / max) * 100;
 }
 
 function formatSeconds(value: number): string {

@@ -686,7 +686,7 @@ function PlayerBoostEconomyChart({
       key: "big-boost-pads",
       title: "Big boost pads",
       legend: [
-        { className: "legend-big-pad-offensive", label: "Stolen/offensive" },
+        { className: "legend-big-pad-offensive", label: "Offensive" },
         { className: "legend-big-pad-neutral", label: "Neutral" },
         { className: "legend-big-pad-defensive", label: "Defensive" },
       ],
@@ -708,10 +708,10 @@ function PlayerBoostEconomyChart({
             segments: [
               {
                 className: "big-pad-offensive-source",
-                label: "Stolen/offensive",
+                label: "Offensive",
                 value: summary.bigPadsOffensive,
-                visibleLabel: `Stolen/off. ${summary.bigPadsOffensive.toLocaleString()}`,
-                title: `Stolen/offensive corner: ${formatCountWithPerMinute(summary.bigPadsOffensive, durationSeconds)}`,
+                visibleLabel: `Offensive ${summary.bigPadsOffensive.toLocaleString()}`,
+                title: `Offensive corner: ${formatCountWithPerMinute(summary.bigPadsOffensive, durationSeconds)}`,
               },
               {
                 className: "big-pad-neutral-source",

@@ -38,7 +38,7 @@ a {
   height: 42px;
   padding: 0 10px;
   color: #fff;
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
   text-decoration: none;
 }
 
@@ -97,7 +97,7 @@ a {
 
 .page-header h1 {
   margin: 2px 0 0;
-  font-size: 28px;
+  font-size: var(--text-3xl);
   line-height: 1.2;
   overflow-wrap: anywhere;
 }
@@ -111,8 +111,8 @@ a {
 .eyebrow {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
 }
 
@@ -166,8 +166,8 @@ a {
   gap: 5px;
   min-width: 0;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
 }
 
@@ -182,7 +182,7 @@ a {
   border-radius: 6px;
   background: #fff;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-md);
   text-transform: none;
 }
 
@@ -205,8 +205,8 @@ a {
 
 .results-readout {
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 .pagination-controls {
@@ -222,8 +222,8 @@ a {
 .page-count {
   min-width: 72px;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   text-align: center;
 }
 
@@ -236,8 +236,8 @@ a {
   border-radius: 999px;
   background: #fff;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 button,
@@ -301,7 +301,7 @@ td {
 
 th {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-transform: uppercase;
 }
 
@@ -354,7 +354,7 @@ tbody tr:last-child td {
   align-items: center;
   gap: 6px 14px;
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .replay-card-heading {
@@ -393,7 +393,7 @@ tbody tr:last-child td {
   display: flex;
   align-items: center;
   gap: 12px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .replay-selection-actions {
@@ -423,8 +423,8 @@ tbody tr:last-child td {
 .replay-selection-feedback {
   flex-basis: 100%;
   margin: 0;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--fw-medium);
 }
 
 .replay-selection-feedback.is-ok {
@@ -446,8 +446,8 @@ tbody tr:last-child td {
   border: 0;
   background: transparent;
   color: var(--team-blue);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--fw-medium);
   cursor: pointer;
 }
 
@@ -489,14 +489,14 @@ tbody tr:last-child td {
   justify-content: flex-start;
   gap: 8px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
 .team-heading strong {
   color: #17202a;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .player-stack {
@@ -521,7 +521,7 @@ tbody tr:last-child td {
 
 .player-name {
   overflow: hidden;
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -547,8 +547,8 @@ tbody tr:last-child td {
   background: #eef2f7;
   color: #445466;
   font-family: inherit;
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
   line-height: 1;
   white-space: nowrap;
 }
@@ -595,8 +595,8 @@ tbody tr:last-child td {
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -615,7 +615,7 @@ tbody tr:last-child td {
 }
 
 .player-identity-detail .rank-mmr {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .player-identity:hover .player-name {
@@ -668,7 +668,7 @@ tbody tr:last-child td {
 .chip-mvp {
   background: #10b981;
   color: #ffffff;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
 }
 
@@ -716,8 +716,8 @@ tbody tr:last-child td {
 
 .rank-mmr {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -727,7 +727,7 @@ tbody tr:last-child td {
   gap: 8px;
   margin-left: auto;
   color: var(--text);
-  font-size: 12px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -737,31 +737,31 @@ tbody tr:last-child td {
   justify-content: flex-end;
   gap: 2px;
   min-width: 26px;
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
 }
 
 .stat-cell small {
   color: var(--muted);
-  font-size: 9px;
-  font-weight: 750;
+  font-size: var(--text-3xs);
+  font-weight: var(--fw-semibold);
 }
 
 .stat-score {
   min-width: 34px;
   color: var(--text-strong);
-  font-weight: 800;
+  font-weight: var(--fw-bold);
 }
 
 .score-cell {
   min-width: 76px;
-  font-size: 20px;
-  font-weight: 800;
+  font-size: var(--text-xl);
+  font-weight: var(--fw-bold);
   white-space: nowrap;
 }
 
 .primary-link {
   color: var(--blue);
-  font-weight: 650;
+  font-weight: var(--fw-semibold);
   text-decoration: none;
 }
 
@@ -772,7 +772,7 @@ tbody tr:last-child td {
 .subtle,
 .status-line {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .status-line {
@@ -797,8 +797,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #e5e7eb;
   color: #374151;
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .status-processed {
@@ -823,7 +823,7 @@ tbody tr:last-child td {
 }
 
 .reprocess-message {
-  font-size: 12px;
+  font-size: var(--text-sm);
   color: #4b5563;
 }
 
@@ -867,7 +867,7 @@ tbody tr:last-child td {
 .version-breakdown-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .version-breakdown-table th,
@@ -878,7 +878,7 @@ tbody tr:last-child td {
 }
 
 .version-breakdown-table th {
-  font-size: 11px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #6b7280;
@@ -894,11 +894,11 @@ tbody tr:last-child td {
 }
 
 .staleness-detail-table th[scope="row"] {
-  font-weight: 600;
+  font-weight: var(--fw-medium);
   color: var(--text);
   text-transform: none;
   letter-spacing: normal;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .staleness-detail-table .row-changed td,
@@ -908,7 +908,7 @@ tbody tr:last-child td {
 
 .git-sha {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .summary-grid {
@@ -954,8 +954,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #fff;
   color: #344255;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 .player-stats-section-grid {
@@ -985,12 +985,12 @@ tbody tr:last-child td {
 
 .metric span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-transform: uppercase;
 }
 
 .metric strong {
-  font-size: 18px;
+  font-size: var(--text-xl);
 }
 
 .player-id-metric {
@@ -1008,7 +1008,7 @@ tbody tr:last-child td {
   min-width: 0;
   overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 14px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1052,13 +1052,13 @@ tbody tr:last-child td {
 
 .match-context span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
 }
 
 .match-context strong {
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .group-participant-strip {
@@ -1082,15 +1082,15 @@ tbody tr:last-child td {
 .group-participant-chip .player-name {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .group-participant-chip .player-identity-detail {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
 }
 
@@ -1111,8 +1111,8 @@ tbody tr:last-child td {
   border-radius: 6px;
   background: #fff;
   color: #344255;
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
   text-decoration: none;
   white-space: nowrap;
 }
@@ -1135,8 +1135,8 @@ tbody tr:last-child td {
   min-height: 36px;
   min-width: 64px;
   color: #5d6b80;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1163,8 +1163,8 @@ tbody tr:last-child td {
 
 .stat-panel-heading span {
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 .group-leaderboard-panel {
@@ -1188,7 +1188,7 @@ tbody tr:last-child td {
 
 .stat-detail-header h2 {
   margin: 2px 0 6px;
-  font-size: 22px;
+  font-size: var(--text-2xl);
 }
 
 .stat-detail-header p:last-child {
@@ -1222,7 +1222,7 @@ tbody tr:last-child td {
 
 .stat-panel h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .boost-detail {
@@ -1254,7 +1254,7 @@ tbody tr:last-child td {
 
 .goals-hero h2 {
   margin: 2px 0 6px;
-  font-size: 24px;
+  font-size: var(--text-2xl);
 }
 
 .goals-hero p:last-child {
@@ -1288,8 +1288,8 @@ tbody tr:last-child td {
 .goal-metric span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1298,7 +1298,7 @@ tbody tr:last-child td {
 .goal-metric strong {
   grid-column: 1 / -1;
   overflow-wrap: anywhere;
-  font-size: 22px;
+  font-size: var(--text-2xl);
 }
 
 .goal-mouth-wrap {
@@ -1337,8 +1337,8 @@ tbody tr:last-child td {
 
 .goal-axis-label {
   fill: var(--muted);
-  font-size: 30px;
-  font-weight: 800;
+  font-size: var(--text-3xl);
+  font-weight: var(--fw-bold);
   text-anchor: middle;
 }
 
@@ -1394,8 +1394,8 @@ tbody tr:last-child td {
 .goal-speed-band-row > span,
 .goal-speed-band-row strong {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .goal-speed-band-row strong {
@@ -1434,7 +1434,7 @@ tbody tr:last-child td {
 
 .goal-player-cell span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .goal-table th,
@@ -1461,8 +1461,8 @@ tbody tr:last-child td {
 .kickoff-fact span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -1473,7 +1473,7 @@ tbody tr:last-child td {
   min-width: 0;
   overflow: hidden;
   color: #17202a;
-  font-size: 17px;
+  font-size: var(--text-lg);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1536,8 +1536,8 @@ tbody tr:last-child td {
 
 .kickoff-player-table-label {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -1547,7 +1547,7 @@ tbody tr:last-child td {
   border-radius: 8px;
   background: var(--panel);
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 /* Let multi-word headers wrap onto two lines instead of forcing the column wide;
@@ -1571,7 +1571,7 @@ tbody tr:last-child td {
 
 .kickoff-player-cell span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .outcome-distribution {
@@ -1594,18 +1594,16 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
-.outcome-distribution-track .source-segment-label {
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 1;
-  color: #fff;
-}
-
-/* Light shades need dark text for the label to stay legible. */
-.outcome-distribution-track .outcome-dist-level-narrow .source-segment-label,
-.outcome-distribution-track .outcome-dist-level-unknown .source-segment-label,
-.outcome-distribution-track .outcome-dist-neutral .source-segment-label {
+/* Single source of truth for outcome-bar label color across every page
+   (positioning / kickoffs / movement). The shared SegmentedBar emits these
+   `outcome-dist-*` level classes, so the rule is track-agnostic: the light-fill
+   levels (narrow/unknown/neutral) get dark text, everything else inherits the
+   white default from `.source-segment-label`. Edit here to restyle all bars. */
+.outcome-dist-level-narrow .source-segment-label,
+.outcome-dist-level-unknown .source-segment-label,
+.outcome-dist-neutral .source-segment-label {
   color: #1e293b;
+  text-shadow: none;
 }
 
 .source-segment.outcome-dist-positive.outcome-dist-level-strong {
@@ -1616,11 +1614,12 @@ tbody tr:last-child td {
   background: var(--outcome-positive-clear, var(--outcome-positive));
 }
 
-/* Narrow results are outlined rather than filled so they read as a weaker
-   version of the clear/strong fills instead of a slightly different shade. */
+/* Narrow results read as the weakest version of the clear/strong fills: the
+   very lightest tint of the same tone, derived the way the boost "collected"
+   ramp lightens its hues (color-mix toward white) so every palette stays
+   consistent without per-palette narrow values. */
 .source-segment.outcome-dist-positive.outcome-dist-level-narrow {
-  background: #fff;
-  box-shadow: inset 0 0 0 2px var(--outcome-positive-narrow, var(--outcome-positive));
+  background: color-mix(in srgb, var(--outcome-positive-clear, var(--outcome-positive)), white 72%);
 }
 
 .source-segment.outcome-dist-positive.outcome-dist-level-unknown {
@@ -1643,8 +1642,7 @@ tbody tr:last-child td {
 }
 
 .source-segment.outcome-dist-negative.outcome-dist-level-narrow {
-  background: #fff;
-  box-shadow: inset 0 0 0 2px var(--outcome-negative-narrow, var(--outcome-negative));
+  background: color-mix(in srgb, var(--outcome-negative-clear, var(--outcome-negative)), white 72%);
 }
 
 .source-segment.outcome-dist-negative.outcome-dist-level-unknown {
@@ -1657,8 +1655,8 @@ tbody tr:last-child td {
 .outcome-distribution-caption {
   display: flex;
   justify-content: space-between;
-  font-size: 11px;
-  font-weight: 750;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
 }
 
 .source-segment.kickoff-role-segment-map-0 {
@@ -1860,8 +1858,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #f5f3ff;
   color: #6d28d9;
-  font-size: 12px;
-  font-weight: 850;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-type-pill + .kickoff-type-pill {
@@ -1882,8 +1880,8 @@ tbody tr:last-child td {
   min-height: 24px;
   padding: 0 8px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 850;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .team-chip-blue {
@@ -1912,8 +1910,8 @@ tbody tr:last-child td {
   background: #fff;
   color: var(--text-strong);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 850;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-view-button {
@@ -2033,7 +2031,7 @@ tbody tr:last-child td {
   padding: 16px;
   text-align: center;
   color: var(--text-muted, #64748b);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 /* Sits inside .kickoff-diagram-panel, which provides the border/background. */
@@ -2109,8 +2107,8 @@ tbody tr:last-child td {
 
 .kickoff-path-start text {
   fill: #fff;
-  font-size: 11px;
-  font-weight: 900;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-heavy);
   text-anchor: middle;
 }
 
@@ -2189,7 +2187,7 @@ tbody tr:last-child td {
 
 .field-touch-num {
   fill: #fff;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   text-anchor: middle;
   dominant-baseline: central;
 }
@@ -2228,13 +2226,13 @@ tbody tr:last-child td {
   justify-content: space-between;
   gap: 10px;
   color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 850;
+  font-size: var(--text-base);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-section-title strong {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-transform: uppercase;
 }
 
@@ -2325,15 +2323,15 @@ tbody tr:last-child td {
 
 .kickoff-taker-heading span {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 850;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
 .kickoff-taker-heading strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 18px;
+  font-size: var(--text-xl);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2368,8 +2366,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #fef3c7;
   color: #92400e;
-  font-size: 11px;
-  font-weight: 900;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
 }
 
@@ -2386,8 +2384,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #e2e8f0;
   color: #334155;
-  font-size: 11px;
-  font-weight: 900;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-heavy);
   text-transform: uppercase;
 }
 
@@ -2416,15 +2414,15 @@ tbody tr:last-child td {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.64);
   color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--text-base);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-taker-details strong {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-heavy);
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2466,13 +2464,13 @@ tbody tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 13px;
-  font-weight: 850;
+  font-size: var(--text-base);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-team-title strong {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .kickoff-behavior-list {
@@ -2506,8 +2504,8 @@ tbody tr:last-child td {
 
 .kickoff-behavior-row span {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .kickoff-behavior-tags {
@@ -2523,8 +2521,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #e2e8f0;
   color: #334155;
-  font-size: 11px;
-  font-weight: 850;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-behavior-tags .boost-positive {
@@ -2552,15 +2550,15 @@ tbody tr:last-child td {
   border-radius: 6px;
   background: rgba(226, 232, 240, 0.62);
   color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-support-details strong {
   overflow: hidden;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 900;
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-heavy);
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -2595,12 +2593,12 @@ tbody tr:last-child td {
 
 .chart-panel-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .chart-panel-header span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .chart-wrap {
@@ -2617,8 +2615,8 @@ tbody tr:last-child td {
 .compact-button {
   min-height: 30px;
   padding: 0 10px;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .chart-wrap svg {
@@ -2638,7 +2636,7 @@ tbody tr:last-child td {
 
 .chart-label {
   fill: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .possession-detail {
@@ -2697,85 +2695,16 @@ tbody tr:last-child td {
 
 .mechanic-leaderboard-count {
   min-width: 30px;
-  font-size: 13px;
+  font-size: var(--text-base);
   font-variant-numeric: tabular-nums;
   text-align: right;
-}
-
-/* Positioning splits are team-tinted via the shared outcome-distribution
-   classes (set on each segment) plus the TEAM_OUTCOME_COLORS palette vars on
-   .positioning-bar-rows. Light shades need dark labels to stay legible. */
-.positioning-track .outcome-dist-level-unknown .source-segment-label,
-.positioning-track .outcome-dist-neutral .source-segment-label {
-  color: #1e293b;
-  text-shadow: none;
 }
 
 /* Single-metric distance/count charts (avg ball, avg team, caught ahead):
    player label | team-tinted magnitude bar | value. */
-.positioning-distance-chart {
-  display: grid;
-  gap: 9px;
-}
-
-.positioning-distance-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) minmax(56px, auto);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-
-.positioning-distance-track {
-  position: relative;
-  height: 16px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-subtle);
-}
-
-.positioning-distance-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  display: block;
-  min-width: 2px;
-  border-radius: 5px;
-}
-
-.positioning-distance-fill[style*="width: 0%"] {
-  min-width: 0;
-}
-
-.team-fill-blue {
-  background: var(--blue);
-}
-
-.team-fill-orange {
-  background: var(--orange);
-}
-
-.team-fill-unknown {
-  background: #64748b;
-}
-
-.positioning-distance-value {
-  color: var(--text-strong);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  white-space: nowrap;
-}
-
 .movement-detail {
   display: grid;
   gap: 14px;
-}
-
-/* Movement bars carry their value inside the track (see .player-comparison-inbar-value),
-   so the row drops the right-hand value column. */
-.player-comparison-chart.movement-chart .player-comparison-row {
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
 }
 
 /* Fixed per-metric magnitude hues for replay-group views (no replay-local team
@@ -2890,11 +2819,6 @@ tbody tr:last-child td {
   width: 100%;
 }
 
-.stat-segmented-track .source-segment-label {
-  font-size: 11px;
-  font-weight: 900;
-}
-
 .possession-share-track {
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -2918,15 +2842,15 @@ tbody tr:last-child td {
 .possession-metric span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .possession-metric strong {
   color: var(--text-strong);
-  font-size: 22px;
+  font-size: var(--text-2xl);
   line-height: 1.05;
 }
 
@@ -2997,8 +2921,8 @@ tbody tr:last-child td {
 
 .possession-timeline-label {
   fill: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .possession-timeline-segment {
@@ -3034,13 +2958,13 @@ tbody tr:last-child td {
   background: rgba(15, 23, 42, 0.94);
   box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
   color: #ffffff;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .boost-timeline-tooltip-title {
   margin-bottom: 8px;
   color: #ffffff;
-  font-weight: 900;
+  font-weight: var(--fw-heavy);
 }
 
 .boost-timeline-tooltip-list,
@@ -3069,12 +2993,12 @@ tbody tr:last-child td {
   gap: 7px;
   min-width: 0;
   color: #ffffff;
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
 }
 
 .boost-timeline-tooltip-row strong {
   color: #ffffff;
-  font-weight: 900;
+  font-weight: var(--fw-heavy);
 }
 
 .boost-timeline-tooltip-swatch {
@@ -3106,8 +3030,8 @@ tbody tr:last-child td {
 }
 
 .team-boost-lane-label {
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -3116,8 +3040,8 @@ tbody tr:last-child td {
   flex-wrap: wrap;
   gap: 8px 12px;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 .chart-legend span {
@@ -3136,15 +3060,13 @@ tbody tr:last-child td {
 }
 
 .team-blue,
-.chart-legend .legend-team-blue::before,
-.team-fill-blue {
+.chart-legend .legend-team-blue::before {
   background: var(--blue);
   fill: var(--blue);
 }
 
 .team-orange,
-.chart-legend .legend-team-orange::before,
-.team-fill-orange {
+.chart-legend .legend-team-orange::before {
   background: var(--orange);
   fill: var(--orange);
 }
@@ -3165,10 +3087,6 @@ tbody tr:last-child td {
 .chart-legend .legend-player-2::before,
 .chart-legend .legend-player-5::before {
   opacity: 0.48;
-}
-
-.team-fill-unknown {
-  background: var(--team-unknown);
 }
 
 .neutral-fill {
@@ -3239,8 +3157,8 @@ tbody tr:last-child td {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--text-base);
+  font-weight: var(--fw-bold);
 }
 
 .boost-comparison-tabs button.active {
@@ -3265,8 +3183,8 @@ tbody tr:last-child td {
 
 .boost-comparison-title {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -3294,7 +3212,7 @@ tbody tr:last-child td {
 
 .comparison-value {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.2;
   min-width: 0;
   overflow-wrap: normal;
@@ -3320,8 +3238,8 @@ tbody tr:last-child td {
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--text-base);
+  font-weight: var(--fw-bold);
 }
 
 .kickoff-tabs button.active {
@@ -3357,8 +3275,8 @@ tbody tr:last-child td {
 
 .player-comparison-title {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -3373,6 +3291,12 @@ tbody tr:last-child td {
   align-items: center;
   gap: 10px;
   min-width: 0;
+}
+
+/* Magnitude charts float their value on the bar (valueInBar) and set no
+   valueLabel, so ComparisonRows drops the right-hand value column. */
+.player-comparison-rows.no-value-column .player-comparison-row {
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
 }
 
 .player-comparison-track {
@@ -3390,8 +3314,8 @@ tbody tr:last-child td {
   align-items: center;
   padding: 0 6px;
   color: var(--text-strong);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--bar-text-font-size);
+  font-weight: var(--bar-text-font-weight);
   white-space: nowrap;
   pointer-events: none;
   overflow: hidden;
@@ -3412,8 +3336,8 @@ tbody tr:last-child td {
   align-items: center;
   padding: 0 8px;
   color: var(--muted);
-  font-size: 10px;
-  font-weight: 800;
+  font-size: var(--bar-text-font-size);
+  font-weight: var(--bar-text-font-weight);
 }
 
 /* Proportional segments (matches .outcome-distribution-track) so multi-segment
@@ -3427,8 +3351,8 @@ tbody tr:last-child td {
 
 .player-comparison-value {
   color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   min-width: 0;
   text-align: right;
   white-space: nowrap;
@@ -3438,35 +3362,34 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
-/* Win/loss value: "all" win rate (decided kickoffs) and "clear" win rate
-   (narrow excluded), on one line. The chart gets a wider value column to fit. */
-.player-comparison-chart.winloss-chart .player-comparison-row {
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 132px;
+.winloss-term {
+  margin-right: 3px;
+  color: var(--muted);
+  font-size: var(--text-3xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
 }
 
-/* Player win/loss shares the stacked "all" over "clear" layout used by the
-   team-outcome rows so the two read consistently. */
+/* Per-player win/loss keeps both the "all" and "clear" win rates, stacked
+   compactly so the value still fits the standard 70px value column and the bar
+   stays the same width as every other comparison chart. */
 .winloss-value {
   display: grid;
   gap: 1px;
   justify-items: end;
-  font-size: 12px;
-  font-weight: 800;
+  line-height: 1.15;
+}
+
+.winloss-rate {
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
   white-space: nowrap;
 }
 
-.winloss-value-secondary {
+.winloss-rate-secondary {
   color: var(--muted);
-  font-weight: 600;
-}
-
-.winloss-term {
-  margin-right: 3px;
-  color: var(--muted);
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: var(--fw-medium);
 }
 
 /* Team bars: the leading-team win/advantage rate sits to the right, on the same
@@ -3482,8 +3405,8 @@ tbody tr:last-child td {
   display: grid;
   gap: 1px;
   justify-items: end;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   white-space: nowrap;
 }
 
@@ -3510,13 +3433,6 @@ tbody tr:last-child td {
 .source-segment.kickoff-magnitude-accent {
   --seg-color: #0f766e;
   background: var(--seg-color);
-}
-
-/* Light outcome shades need dark labels to stay legible on the shared track. */
-.player-comparison-track .outcome-dist-level-narrow .source-segment-label,
-.player-comparison-track .outcome-dist-level-unknown .source-segment-label,
-.player-comparison-track .outcome-dist-neutral .source-segment-label {
-  color: #1e293b;
 }
 
 .player-metric-row {
@@ -3593,7 +3509,7 @@ tbody tr:last-child td {
 .player-bar-label .stat-player-subtitle,
 .metric-bar-line span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .player-bar-label .stat-player-subtitle {
@@ -3616,7 +3532,7 @@ tbody tr:last-child td {
 }
 
 .player-bar-label .rank-mmr {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 
 .paired-bars {
@@ -3644,7 +3560,7 @@ tbody tr:last-child td {
 
 .metric-bar-line strong {
   color: var(--text-strong);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: right;
   white-space: nowrap;
 }
@@ -3704,8 +3620,8 @@ tbody tr:last-child td {
   overflow: hidden;
   padding: 0 5px;
   color: #fff;
-  font-size: 10px;
-  font-weight: 800;
+  font-size: var(--bar-text-font-size);
+  font-weight: var(--bar-text-font-weight);
   line-height: 1;
   text-overflow: ellipsis;
   text-shadow: 0 1px 1px rgba(15, 23, 42, 0.35);
@@ -3884,7 +3800,7 @@ tbody tr:last-child td {
 
 .pad-control-summary-title {
   color: var(--text-strong);
-  font-weight: 800;
+  font-weight: var(--fw-bold);
 }
 
 .pad-control-bars {
@@ -3922,16 +3838,16 @@ tbody tr:last-child td {
 .pickup-map-header .stat-player-subtitle,
 .pickup-map-header .player-identity-detail {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .pickup-leader-count {
   justify-self: end;
   white-space: nowrap;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .pickup-map {
@@ -3954,13 +3870,13 @@ tbody tr:last-child td {
 
 .pickup-map-margin-name {
   color: var(--text-strong);
-  font-weight: 800;
+  font-weight: var(--fw-bold);
 }
 
 .pickup-map-margin-subtitle {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .pad-control-summary-row {
@@ -3972,8 +3888,8 @@ tbody tr:last-child td {
 
 .pad-control-summary-label {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .source-segment.pad-control-blue {
@@ -4080,8 +3996,10 @@ tbody tr:last-child td {
 
 .pickup-count {
   fill: #0f172a;
+  /* SVG user-unit size (scaled by the diagram viewBox), not a screen px — sits
+     outside the --text-* scale on purpose. */
   font-size: 3.6px;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   pointer-events: none;
   text-anchor: middle;
 }
@@ -4101,8 +4019,9 @@ tbody tr:last-child td {
 
 .team-margin-count {
   fill: #0f172a;
+  /* SVG user-unit size (see .pickup-count) — intentionally off the type scale. */
   font-size: 3.8px;
-  font-weight: 900;
+  font-weight: var(--fw-heavy);
   pointer-events: none;
   text-anchor: middle;
 }
@@ -4122,7 +4041,7 @@ tbody tr:last-child td {
 
 .metric-value span + span {
   color: var(--muted);
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
 }
 
 .distribution-row {
@@ -4197,8 +4116,8 @@ tbody tr:last-child td {
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
 }
 
 .legend-boost-band {
@@ -4351,8 +4270,8 @@ tbody tr:last-child td {
 
 .boost-stat-table-label {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -4378,8 +4297,8 @@ tbody tr:last-child td {
   height: 17px;
   padding: 0 6px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
   line-height: 1;
 }
 
@@ -4424,7 +4343,7 @@ tbody tr:last-child td {
   background: transparent;
   color: inherit;
   font: inherit;
-  font-weight: 800;
+  font-weight: var(--fw-bold);
   text-align: left;
   text-transform: inherit;
   cursor: pointer;
@@ -4443,7 +4362,7 @@ tbody tr:last-child td {
   border-radius: 6px;
   background: #fff8e6;
   color: #6f4b00;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .api-notice.warning {
@@ -4518,7 +4437,7 @@ tbody tr:last-child td {
 .panel-heading h2,
 .review-launch-panel h2 {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: var(--text-xl);
 }
 
 .event-type-groups {
@@ -4564,13 +4483,13 @@ tbody tr:last-child td {
 }
 
 .event-type-group-toggle strong {
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 .event-type-group-toggle small {
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -4619,7 +4538,7 @@ tbody tr:last-child td {
 
 .check-tile strong {
   overflow: hidden;
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -4628,8 +4547,8 @@ tbody tr:last-child td {
 .check-tile small {
   overflow: hidden;
   color: var(--muted);
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
   text-overflow: ellipsis;
   text-transform: uppercase;
   white-space: nowrap;
@@ -4659,8 +4578,8 @@ tbody tr:last-child td {
 
 .review-summary dt {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
@@ -4668,8 +4587,8 @@ tbody tr:last-child td {
   min-width: 0;
   margin: 0;
   color: var(--text-strong);
-  font-size: 13px;
-  font-weight: 750;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   overflow-wrap: anywhere;
   text-align: right;
 }
@@ -4789,8 +4708,8 @@ tbody tr:last-child td {
   gap: 9px;
   min-height: 40px;
   color: var(--text);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
 }
 
 .toggle-row input {
@@ -4826,7 +4745,7 @@ tbody tr:last-child td {
 
 .admin-reason-list li {
   color: var(--text-strong);
-  font-size: 13px;
+  font-size: var(--text-base);
   line-height: 1.35;
 }
 
@@ -4841,7 +4760,7 @@ tbody tr:last-child td {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--surface-subtle);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .admin-run-summary strong {
@@ -4852,7 +4771,7 @@ tbody tr:last-child td {
 .admin-queue-cell small,
 .admin-date-cell small {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .admin-flag-row {
@@ -4869,15 +4788,15 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #fff7ed;
   color: #9a3412;
-  font-size: 11px;
-  font-weight: 800;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
 .admin-queue-cell,
 .admin-date-cell {
   min-width: 150px;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .account-grid {
@@ -4894,7 +4813,7 @@ tbody tr:last-child td {
 
 .account-panel h2 {
   margin: 0 0 4px;
-  font-size: 18px;
+  font-size: var(--text-xl);
 }
 
 .modal-backdrop {
@@ -4930,7 +4849,7 @@ tbody tr:last-child td {
 
 .modal-header h2 {
   margin: 2px 0 0;
-  font-size: 22px;
+  font-size: var(--text-2xl);
 }
 
 .login-section {
@@ -4947,7 +4866,7 @@ tbody tr:last-child td {
   justify-content: flex-start;
   width: 100%;
   border-color: var(--border-strong);
-  font-weight: 700;
+  font-weight: var(--fw-semibold);
 }
 
 .provider-google {
@@ -4984,8 +4903,8 @@ tbody tr:last-child td {
 
 .account-details dt {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-transform: uppercase;
 }
 
@@ -4994,7 +4913,7 @@ tbody tr:last-child td {
   overflow-wrap: anywhere;
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .inline-token-form {
@@ -5008,8 +4927,8 @@ tbody tr:last-child td {
   display: grid;
   gap: 8px;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 .inline-token-form input {
@@ -5036,8 +4955,8 @@ tbody tr:last-child td {
 
 .token-form-header label {
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 .token-form textarea {
@@ -5048,13 +4967,13 @@ tbody tr:last-child td {
   padding: 10px;
   color: #17202a;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .inline-status {
   align-self: center;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .inline-status.error {
@@ -5067,9 +4986,9 @@ tbody tr:last-child td {
   align-items: center;
   gap: 5px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.35;
-  font-weight: 600;
+  font-weight: var(--fw-medium);
 }
 
 .requeue-result svg {
@@ -5097,8 +5016,8 @@ tbody tr:last-child td {
   border: none;
   background: none;
   color: var(--blue);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-decoration: underline;
   cursor: pointer;
 }
@@ -5215,8 +5134,8 @@ tbody tr:last-child td {
     justify-content: center;
     min-height: 38px;
     padding: 0 8px;
-    font-size: 12px;
-    font-weight: 750;
+    font-size: var(--text-sm);
+    font-weight: var(--fw-semibold);
     line-height: 1;
   }
 
@@ -5388,7 +5307,6 @@ tbody tr:last-child td {
 
   .player-metric-row,
   .metric-bar-line,
-  .positioning-distance-row,
   .possession-player-row,
   .team-boost-lane {
     grid-template-columns: 1fr;
@@ -5470,7 +5388,7 @@ tbody tr:last-child td {
   }
 
   .page-header h1 {
-    font-size: 23px;
+    font-size: var(--text-2xl);
   }
 
   .toolbar button,
@@ -5519,7 +5437,7 @@ tbody tr:last-child td {
 
   .chart-legend {
     gap: 6px 9px;
-    font-size: 12px;
+    font-size: var(--text-sm);
   }
 
   .boost-comparison-tabs {
@@ -5565,7 +5483,7 @@ tbody tr:last-child td {
   }
 
   .kickoff-card h4 {
-    font-size: 16px;
+    font-size: var(--text-lg);
   }
 
   .kickoff-taker-details {
@@ -5597,10 +5515,15 @@ tbody tr:last-child td {
     --boost-value-width: 96px;
   }
 
+  /* Shrink all on-bar text together (segment labels, floated values,
+     placeholders) by overriding the shared token. */
+  :root {
+    --bar-text-font-size: var(--text-3xs);
+  }
+
   .source-segment-label,
   .bar-segment-label {
     padding: 0 3px;
-    font-size: 9px;
   }
 
   .distribution-legend {
@@ -5613,7 +5536,7 @@ tbody tr:last-child td {
   }
 
   .possession-metric strong {
-    font-size: 19px;
+    font-size: var(--text-xl);
   }
 
   .pickup-map-header {
@@ -5649,8 +5572,8 @@ tbody tr:last-child td {
 .goal-preview-hint {
   margin: 0;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 650;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .goal-flow-marker {
@@ -5703,7 +5626,7 @@ tbody tr:last-child td {
 
 .goal-card-heading h4 {
   margin: 0;
-  font-size: 17px;
+  font-size: var(--text-lg);
 }
 
 .goal-card-index {
@@ -5713,8 +5636,8 @@ tbody tr:last-child td {
   height: 24px;
   padding: 0 6px;
   border-radius: 999px;
-  font-size: 12px;
-  font-weight: 850;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .goal-card-types {
@@ -5732,8 +5655,8 @@ tbody tr:last-child td {
   border-radius: 999px;
   background: #e2e8f0;
   color: #334155;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
 }
 
 .goal-card-stats {
@@ -5743,8 +5666,8 @@ tbody tr:last-child td {
   justify-content: flex-start;
   width: 100%;
   color: var(--muted);
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
 }
 
 /* When a card carries a buildup diagram, lay the text content and the diagram
@@ -5861,8 +5784,8 @@ tbody tr:last-child td {
   border-radius: 9px 9px 0 0;
   background: #111827;
   color: #e5e7eb;
-  font-size: 12px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
 }
 
 .event-preview-pip-label {
@@ -5945,15 +5868,16 @@ tbody tr:last-child td {
 }
 
 .event-clip-canvas .sap-bc-followed-boost-value {
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
 }
 
 .event-clip-canvas .sap-bc-followed-meta {
+  /* Tiny in-canvas overlay caption, below the --text-* scale's smallest step. */
   font-size: 0.46rem;
 }
 
 .event-clip-canvas .sap-bc-followed-name {
-  font-size: 0.6rem;
+  font-size: var(--text-3xs);
   max-width: 5.5rem;
   margin-top: 0.08rem;
 }
@@ -5964,8 +5888,8 @@ tbody tr:last-child td {
   display: grid;
   place-items: center;
   color: #94a3b8;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   pointer-events: none;
 }
 
@@ -5978,8 +5902,8 @@ tbody tr:last-child td {
   background: rgba(2, 6, 23, 0.78);
   color: #6ee7b7;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
   text-align: right;
   pointer-events: none;
   z-index: 2;
@@ -6006,8 +5930,8 @@ tbody tr:last-child td {
 
 .rate-chart-label {
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -6048,7 +5972,7 @@ tbody tr:last-child td {
 }
 
 .rate-chart-value {
-  font-size: 13px;
+  font-size: var(--text-base);
   white-space: nowrap;
 }
 
@@ -6057,7 +5981,7 @@ tbody tr:last-child td {
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .rate-chart-legend-fill {
@@ -6166,7 +6090,7 @@ tbody tr:last-child td {
 
 .field-position-teammate-label {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
   text-align: center;
 }
 
@@ -6175,7 +6099,7 @@ tbody tr:last-child td {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .rotation-depth-tug-label {
@@ -6195,7 +6119,7 @@ tbody tr:last-child td {
 .rotation-share-block h4,
 .kickoff-dimension h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -6207,7 +6131,7 @@ tbody tr:last-child td {
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .rotation-share-legend li {
@@ -6293,7 +6217,7 @@ tbody tr:last-child td {
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .rotation-histogram-legend-fill {
@@ -6318,7 +6242,7 @@ tbody tr:last-child td {
   overflow: hidden;
   margin-top: 2px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   text-align: center;
   white-space: nowrap;
 }
@@ -6339,11 +6263,11 @@ tbody tr:last-child td {
 }
 
 .kickoff-headline-metric span {
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .kickoff-headline-metric strong {
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 
 .kickoff-spawn-breakdown {
@@ -6365,7 +6289,7 @@ tbody tr:last-child td {
 
 .kickoff-spawn-breakdown-header h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -6373,7 +6297,7 @@ tbody tr:last-child td {
 
 .kickoff-spawn-breakdown-header strong {
   color: #0f172a;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .kickoff-filter-stack {
@@ -6391,8 +6315,8 @@ tbody tr:last-child td {
 
 .kickoff-filter-label {
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -6414,8 +6338,8 @@ tbody tr:last-child td {
   border-radius: 7px;
   background: #fff;
   color: #334155;
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   box-shadow: none;
 }
 
@@ -6438,7 +6362,7 @@ tbody tr:last-child td {
 
 .kickoff-filter-button strong {
   color: currentColor;
-  font-size: 11px;
+  font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
 }
 
@@ -6475,14 +6399,14 @@ tbody tr:last-child td {
 .kickoff-spawn-card-copy strong {
   overflow: hidden;
   color: #0f172a;
-  font-size: 14px;
+  font-size: var(--text-md);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .kickoff-spawn-card-copy span {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .kickoff-spawn-paired-icons {
@@ -6504,7 +6428,7 @@ tbody tr:last-child td {
   border-radius: 8px;
   background: #f1f5f9;
   color: #64748b;
-  font-weight: 900;
+  font-weight: var(--fw-heavy);
 }
 
 .kickoff-spawn-share-track,
@@ -6538,7 +6462,7 @@ tbody tr:last-child td {
   align-items: center;
   gap: 6px;
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .kickoff-spawn-side-row strong {
@@ -6553,7 +6477,7 @@ tbody tr:last-child td {
 
 .kickoff-spawn-empty {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-base);
 }
 
 .kickoff-dimension-grid {
@@ -6632,8 +6556,8 @@ tbody tr:last-child td {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
   color: var(--muted);
   cursor: pointer;
   white-space: nowrap;
@@ -6651,8 +6575,8 @@ tbody tr:last-child td {
   display: block;
   margin-top: 8px;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
   letter-spacing: 0.04em;
   text-transform: uppercase;
   text-decoration: none;
@@ -6677,8 +6601,8 @@ tbody tr:last-child td {
   margin-left: auto;
   flex-shrink: 0;
   color: #2563eb;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: var(--text-base);
+  font-weight: var(--fw-bold);
   text-decoration: none;
 }
 
@@ -6693,7 +6617,7 @@ tbody tr:last-child td {
 
 .possession-summary-panel .possession-surface-share h4 {
   margin: 0 0 0.5rem;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--muted);
 }
 
@@ -6712,7 +6636,7 @@ tbody tr:last-child td {
 
 .possession-location-breakdown h4 {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--text-base);
   color: var(--muted);
 }
 
@@ -6740,15 +6664,15 @@ tbody tr:last-child td {
 .possession-location-row span {
   overflow: hidden;
   color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .possession-location-row strong {
   color: var(--text-strong);
-  font-size: 18px;
+  font-size: var(--text-xl);
   line-height: 1.05;
 }
 

@@ -220,14 +220,12 @@ export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
   positive: "#0f766e",
   "positive-strong": "#115e59",
   "positive-clear": "#0f766e",
-  "positive-narrow": "#0f766e",
   "positive-unknown": "#ccfbf1",
   neutral: "#94a3b8",
   "neutral-clear": "#cbd5e1",
   negative: "#7c3aed",
   "negative-strong": "#5b21b6",
   "negative-clear": "#7c3aed",
-  "negative-narrow": "#7c3aed",
   "negative-unknown": "#ddd6fe",
 };
 
@@ -235,8 +233,8 @@ export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
 // blue maps to the positive tone, orange to negative, and the level tiers a
 // single team color from light (unknown) -> base (clear) -> dark (strong).
 // Shared so any per-player breakdown (kickoff outcomes, movement bands, ...)
-// tiers team colors identically instead of re-deriving shades. Avoid the
-// "narrow" level here — the track renders it as an outline rather than a fill.
+// tiers team colors identically instead of re-deriving shades. The "narrow"
+// level isn't defined here, so it falls back to the base team fill.
 export const TEAM_OUTCOME_COLORS: OutcomeDistributionColors = {
   positive: "#2563eb",
   "positive-strong": "#1e3a8a",
@@ -372,6 +370,49 @@ export interface ComparisonRow {
  * Distribution rows pass tone-classed segments + a `--outcome-*` `style`;
  * magnitude rows pass a single hue-classed segment and a `maxValue` scale.
  */
+/**
+ * The rows of a comparison chart without the surrounding titled panel, so a page
+ * can drop them into its own section (e.g. a `.chart-panel` with a custom header)
+ * while still using the one shared bar. The right-hand value column is dropped
+ * automatically when no row carries a `valueLabel` — magnitude bars float their
+ * value on the track via `valueInBar` instead, so they need no column.
+ */
+export function ComparisonRows({
+  rows,
+  emptyLabel = "No data yet.",
+}: {
+  rows: ComparisonRow[];
+  emptyLabel?: ReactNode;
+}) {
+  if (!rows.length) {
+    return <div className="stat-empty">{emptyLabel}</div>;
+  }
+  const hasValueColumn = rows.some((row) => row.valueLabel != null);
+  return (
+    <div className={`player-comparison-rows${hasValueColumn ? "" : " no-value-column"}`}>
+      {rows.map((row) => (
+        <div className="player-comparison-row" key={row.key}>
+          {row.label}
+          <ComparisonBar
+            ariaLabel={row.ariaLabel}
+            segments={row.segments}
+            total={row.total}
+            maxValue={row.maxValue}
+            style={row.style}
+            placeholder={row.placeholder}
+            valueInBar={row.valueInBar}
+          />
+          {row.valueLabel != null ? (
+            <strong className="metric-value player-comparison-value">
+              <span>{row.valueLabel}</span>
+            </strong>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function PlayerComparisonChart({
   title,
   rows,
@@ -380,37 +421,13 @@ export function PlayerComparisonChart({
 }: {
   title: ReactNode;
   rows: ComparisonRow[];
-  emptyLabel?: string;
+  emptyLabel?: ReactNode;
   className?: string;
 }) {
   return (
     <section className={`player-comparison-chart ${className}`.trim()}>
       <div className="player-comparison-title">{title}</div>
-      {rows.length ? (
-        <div className="player-comparison-rows">
-          {rows.map((row) => (
-            <div className="player-comparison-row" key={row.key}>
-              {row.label}
-              <ComparisonBar
-                ariaLabel={row.ariaLabel}
-                segments={row.segments}
-                total={row.total}
-                maxValue={row.maxValue}
-                style={row.style}
-                placeholder={row.placeholder}
-                valueInBar={row.valueInBar}
-              />
-              {row.valueLabel != null ? (
-                <strong className="metric-value player-comparison-value">
-                  <span>{row.valueLabel}</span>
-                </strong>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="stat-empty">{emptyLabel}</div>
-      )}
+      <ComparisonRows rows={rows} emptyLabel={emptyLabel} />
     </section>
   );
 }
@@ -443,9 +460,11 @@ export function ComparisonBar({
   const visible = segments.filter((segment) => segment.value > 0);
   const scaleMax = maxValue ?? total;
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
-  // Past this fill the bar is wide enough to hold the value inside its end;
-  // shorter bars float it into the empty track to the right of the fill.
-  const valueInside = fillPercent > 72;
+  // The value hugs the right tip of its own bar (white, right-aligned inside the
+  // fill's end) so every row reads the same way regardless of bar length. Only a
+  // bar too short to hold the text at all falls back to dark text just past the
+  // fill, since there is no room to place it inside.
+  const valueInside = fillPercent > 10;
   return (
     <div
       className="metric-bar-track source-bar-track player-comparison-track"
