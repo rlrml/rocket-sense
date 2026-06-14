@@ -5692,10 +5692,9 @@ tbody tr:last-child td {
   max-height: none;
 }
 
-/* Small at rest; on hover it lifts into a viewport-centred overlay sized to fit the
-   screen — so it grows to use a big display but is clamped (min of 82vh and 72vw,
-   the field aspect being ~1.19) so it can never run off-screen. A quick zoom-in
-   covers the jump from the in-card thumbnail to the centred view. */
+/* Small at rest; hovering the diagram (only) lifts it into a large overlay anchored
+   to its own right edge — so it stays under the cursor (no hover churn) — and clamped
+   to the viewport. JS computes the geometry (--exp-*) and FLIP-animates the grow. */
 @media (hover: hover) {
   /* The generic .goal-card:hover lift uses a transform, which would make the fixed
      overlay below positioned/stacked relative to the card — trapping it behind the
@@ -5706,19 +5705,18 @@ tbody tr:last-child td {
 }
 
 /* On hover, JS adds .is-expanded and FLIP-animates the panel from its in-card
-   thumbnail rect into this centred, viewport-clamped overlay — so it grows out of
-   its original position but can never run off-screen. Centred via inset+auto margins
-   (not a transform) so the FLIP is free to drive `transform`. More specific than the
-   resting rule so it wins. */
+   thumbnail rect into this overlay. Anchored to the thumbnail's own right edge
+   (--exp-right) and vertically clamped (--exp-top) so it grows out of and stays over
+   its original position — keeping the cursor on it. More specific than the resting
+   rule so it wins. */
 .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel.is-expanded {
   position: fixed;
-  inset: 0;
-  margin: auto;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  height: min(68vh, 58vw);
+  right: var(--exp-right, 16px);
+  top: var(--exp-top, 8vh);
+  left: auto;
+  bottom: auto;
+  margin: 0;
+  height: var(--exp-h, 68vh);
   width: auto;
   z-index: 200;
   padding: 10px;
