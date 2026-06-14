@@ -219,10 +219,10 @@ export function CarGlyph({
         rx={round(halfW * 0.5)}
         vectorEffect="non-scaling-stroke"
       />
-      {/* Nose wedge so orientation reads even at tiny sizes. */}
+      {/* Small nose wedge at the front so orientation reads without dominating. */}
       <path
         className="field-car-nose"
-        d={`M ${round(halfL)} 0 L ${round(halfL * 0.1)} ${round(-halfW)} L ${round(halfL * 0.1)} ${round(halfW)} Z`}
+        d={`M ${round(halfL)} 0 L ${round(halfL * 0.5)} ${round(-halfW * 0.8)} L ${round(halfL * 0.5)} ${round(halfW * 0.8)} Z`}
       />
     </g>
   );
@@ -234,6 +234,8 @@ export interface FieldDiagramSurfaceProps {
   model: FieldDiagramModel;
   /** Kickoff shows the centre dot; the goal buildup hides it. */
   showCenter?: boolean;
+  /** Kickoff shows the corner boost pads; the goal buildup hides them. */
+  showBoosts?: boolean;
 }
 
 /**
@@ -245,13 +247,14 @@ export function FieldDiagramSurface({
   ariaLabel,
   model,
   showCenter = true,
+  showBoosts = true,
 }: FieldDiagramSurfaceProps) {
   const rawId = useId();
   const markerId = rawId.replace(/:/g, "");
   const arrow = (team: number) => `url(#${markerId}-arrow-${teamColorClass(team)})`;
   const { paths, ballPoints, ballEnd, ballEndClassName, touches } = model;
   // Cars scale with the field; a real car is ~150uu long.
-  const carLength = projection.toUnits(190);
+  const carLength = projection.toUnits(170);
 
   return (
     <div className="kickoff-path-diagram">
@@ -265,30 +268,31 @@ export function FieldDiagramSurface({
           <marker
             id={`${markerId}-arrow-blue`}
             className="kickoff-arrow blue"
-            markerWidth="6"
-            markerHeight="6"
-            refX="3"
-            refY="3"
+            markerWidth="4"
+            markerHeight="4"
+            refX="2"
+            refY="2"
             orient="auto"
           >
-            <path d="M0,0 L6,3 L0,6 Z" />
+            <path d="M0,0 L4,2 L0,4 Z" />
           </marker>
           <marker
             id={`${markerId}-arrow-orange`}
             className="kickoff-arrow orange"
-            markerWidth="6"
-            markerHeight="6"
-            refX="3"
-            refY="3"
+            markerWidth="4"
+            markerHeight="4"
+            refX="2"
+            refY="2"
             orient="auto"
           >
-            <path d="M0,0 L6,3 L0,6 Z" />
+            <path d="M0,0 L4,2 L0,4 Z" />
           </marker>
         </defs>
 
         <KickoffFieldBackground
           projection={projection}
           showCenter={showCenter}
+          showBoosts={showBoosts}
           ballRadius={projection.toUnits(120)}
         />
 
@@ -347,7 +351,7 @@ export function FieldDiagramSurface({
               x={touch.at.x}
               y={touch.at.y}
               headingDeg={touch.headingDeg}
-              length={carLength * 1.15}
+              length={carLength * 2.6}
               className={`field-touch-car scoring team-${teamColorClass(touch.team)}`}
             />
           ) : null,
