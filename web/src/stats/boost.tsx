@@ -3,7 +3,7 @@ import { Area, AreaChart, CartesianGrid, Line, ReferenceArea, ResponsiveContaine
 import { listBoostTracks, listReplayGroupBoostTotals } from "../api";
 import type { BoostTrack, GroupBoostTotal, GroupBoostTotalsResponse, MechanicEventResponse, ReplayPlayer } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
-import { StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
+import { SegmentedBar, type SegmentedBarSegment, StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
 // collection (with a `detection` provenance attribute) plus respawn events.
@@ -1094,6 +1094,13 @@ function PadPickupMaps({
         );
       })}
       <div className="chart-legend compact-legend pickup-map-legend">
+        {shouldShowPadControl ? (
+          <>
+            <span className="legend-team-blue">Blue margin</span>
+            <span className="legend-team-orange">Orange margin</span>
+            <span className="legend-neutral">Tied/no pickups</span>
+          </>
+        ) : null}
         <span className="legend-big-pad">Big pad</span>
         <span className="legend-small-pad">Small pad</span>
         <span className="legend-leader-pad">Pad leader outline</span>
@@ -1120,13 +1127,19 @@ function TeamPadMarginMap({ points }: { points: TeamPadMarginPoint[] }) {
   const smallSummary = summary("small");
 
   return (
-    <div className="team-margin-map-grid">
+    <>
+      <div className="pad-control-summary">
+        <strong className="pad-control-summary-title">Pad control</strong>
+        <div className="pad-control-bars">
+          <PadControlSummaryBar label="Big" summary={bigSummary} />
+          <PadControlSummaryBar label="Small" summary={smallSummary} />
+        </div>
+      </div>
       <div className="pickup-map-card team-margin-map-card">
         <div className="pickup-map-header">
-          <div>
-            <strong>Pad control</strong>
-            <PadControlSummaryBar label="Big" summary={bigSummary} />
-            <PadControlSummaryBar label="Small" summary={smallSummary} />
+          <div className="pickup-map-margin-identity">
+            <span className="pickup-map-margin-name">Margin</span>
+            <span className="pickup-map-margin-subtitle">Net pickups per pad</span>
           </div>
         </div>
         <svg className="pickup-map team-margin-map" viewBox="0 0 100 125" role="img" aria-label="Team boost pad pickup margin map">
@@ -1166,12 +1179,7 @@ function TeamPadMarginMap({ points }: { points: TeamPadMarginPoint[] }) {
           })}
         </svg>
       </div>
-      <div className="chart-legend compact-legend pickup-map-legend">
-        <span className="legend-team-blue">Blue margin</span>
-        <span className="legend-team-orange">Orange margin</span>
-        <span className="legend-neutral">Tied/no pickups</span>
-      </div>
-    </div>
+    </>
   );
 }
 
@@ -1184,48 +1192,44 @@ function PadControlSummaryBar({
 }) {
   const total = summary.blue + summary.orange + summary.tied;
   const denominator = Math.max(1, total);
-  const blueWidth = (summary.blue / denominator) * 100;
-  const tieWidth = (summary.tied / denominator) * 100;
-  const orangeWidth = (summary.orange / denominator) * 100;
-  const tieLeft = blueWidth;
-  const orangeLeft = blueWidth + tieWidth;
   const segmentLabel = (value: number) => `${value} (${Math.round((value / denominator) * 100)}%)`;
+  const segments: SegmentedBarSegment[] = [
+    {
+      key: "blue",
+      className: "pad-control-blue",
+      label: "Blue",
+      value: summary.blue,
+      visibleLabel: segmentLabel(summary.blue),
+      title: `Blue: ${summary.blue}`,
+    },
+    {
+      key: "tied",
+      className: "pad-control-tied",
+      label: "Tied",
+      value: summary.tied,
+      visibleLabel: segmentLabel(summary.tied),
+      title: `Tied: ${summary.tied}`,
+    },
+    {
+      key: "orange",
+      className: "pad-control-orange",
+      label: "Orange",
+      value: summary.orange,
+      visibleLabel: segmentLabel(summary.orange),
+      title: `Orange: ${summary.orange}`,
+    },
+  ];
 
   return (
     <div className="pad-control-summary-row">
       <span className="pad-control-summary-label">{label}</span>
-      <div className="pad-control-tug-track">
-        <span
-          className="pad-control-tug-segment blue"
-          style={{ left: 0, width: `${blueWidth}%` }}
-          title={`Blue: ${summary.blue}`}
-        />
-        <span
-          className="pad-control-tug-center"
-          style={{ left: `${tieLeft}%`, width: `${tieWidth}%` }}
-          title={`Tied: ${summary.tied}`}
-        />
-        <span
-          className="pad-control-tug-segment orange"
-          style={{ left: `${orangeLeft}%`, width: `${orangeWidth}%` }}
-          title={`Orange: ${summary.orange}`}
-        />
-        {summary.blue > 0 ? (
-          <span className="pad-control-tug-count blue" style={{ left: `${blueWidth}%` }}>
-            {segmentLabel(summary.blue)}
-          </span>
-        ) : null}
-        {summary.tied > 0 ? (
-          <span className="pad-control-tug-count tied" style={{ left: `${blueWidth + tieWidth}%` }}>
-            {segmentLabel(summary.tied)}
-          </span>
-        ) : null}
-        {summary.orange > 0 ? (
-          <span className="pad-control-tug-count orange" style={{ left: "100%" }}>
-            {segmentLabel(summary.orange)}
-          </span>
-        ) : null}
-      </div>
+      <SegmentedBar
+        ariaLabel={`${label} pad control: blue ${summary.blue}, tied ${summary.tied}, orange ${summary.orange}`}
+        className="pad-control-tug"
+        maxValue={total}
+        segments={segments}
+        total={total}
+      />
     </div>
   );
 }

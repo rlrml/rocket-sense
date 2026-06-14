@@ -3637,25 +3637,30 @@ button.status-stale:hover {
 }
 
 .team-pickup-map-grid {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
-.team-margin-map-grid {
+.pad-control-summary {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pad-control-summary-title {
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.pad-control-bars {
   display: grid;
-  align-content: start;
-  min-width: 0;
-  width: 100%;
+  gap: 6px;
 }
 
 .pickup-map-card {
   display: grid;
   gap: 8px;
   min-width: 0;
-}
-
-.pickup-map-team-card {
-  padding-left: 10px;
-  border-left: 4px solid transparent;
 }
 
 .pickup-map-header {
@@ -3700,25 +3705,31 @@ button.status-stale:hover {
 
 .team-margin-map-card {
   max-width: none;
-  justify-self: center;
   width: 100%;
 }
 
-.team-margin-map-card .pickup-map-header {
-  justify-content: center;
+.pickup-map-margin-identity {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
 }
 
-.team-margin-map-card .pickup-map-header > div {
-  gap: 4px;
-  width: min(420px, 100%);
+.pickup-map-margin-name {
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.pickup-map-margin-subtitle {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .pad-control-summary-row {
   display: grid;
-  grid-template-columns: 42px minmax(220px, 1fr);
+  grid-template-columns: 48px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
-  max-width: 420px;
+  gap: 10px;
 }
 
 .pad-control-summary-label {
@@ -3727,65 +3738,16 @@ button.status-stale:hover {
   font-weight: 800;
 }
 
-.pad-control-tug-track {
-  position: relative;
-  overflow: hidden;
-  height: 18px;
-  border-radius: 999px;
-  background: var(--surface-subtle);
-}
-
-.pad-control-tug-segment {
-  position: absolute;
-  top: 0;
-  display: block;
-  height: 100%;
-}
-
-.pad-control-tug-segment.blue {
-  border-radius: 999px 0 0 999px;
+.source-segment.pad-control-blue {
   background: var(--team-blue);
 }
 
-.pad-control-tug-segment.orange {
-  border-radius: 0 999px 999px 0;
-  background: var(--team-orange);
-}
-
-.pad-control-tug-center {
-  position: absolute;
-  top: 0;
-  display: block;
-  height: 100%;
+.source-segment.pad-control-tied {
   background: #94a3b8;
 }
 
-.pad-control-tug-count {
-  position: absolute;
-  top: 50%;
-  z-index: 1;
-  transform: translate(-100%, -50%);
-  color: #ffffff;
-  -webkit-text-fill-color: #ffffff;
-  font-size: 11px;
-  font-weight: 900;
-  line-height: 1;
-  padding-right: 6px;
-  pointer-events: none;
-  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.55);
-  white-space: nowrap;
-}
-
-.pad-control-tug-count.tied {
-  color: #ffffff;
-  -webkit-text-fill-color: #ffffff;
-  text-shadow: 0 1px 2px rgba(15, 23, 42, 0.38);
-}
-
-.pad-control-tug-count.blue,
-.pad-control-tug-count.orange {
-  color: #ffffff;
-  -webkit-text-fill-color: #ffffff;
+.source-segment.pad-control-orange {
+  background: var(--team-orange);
 }
 
 .field-bg {
@@ -5243,10 +5205,6 @@ button.status-stale:hover {
   .pad-control-summary-row {
     grid-template-columns: 36px minmax(0, 1fr);
     max-width: none;
-  }
-
-  .pad-control-tug-count {
-    display: none;
   }
 
   .team-boost-chart .recharts-responsive-container {
