@@ -2238,30 +2238,45 @@ tbody tr:last-child td {
   opacity: 0.95;
 }
 
-/* The decisive scoring touch is the biggest, with a bright ring so it pops. */
+/* The decisive scoring touch is the biggest, ringed in the scoring team's colour
+   so it both pops and tells you who scored. The white car stroke + white ring halo
+   keep it legible even though the ring shares the car's colour. */
 .field-touch-car.scoring .field-car-body {
   stroke: #fff;
   stroke-width: 2;
-  filter: drop-shadow(0 0 4px rgba(180, 83, 9, 0.95));
+  filter: drop-shadow(0 0 3px rgba(255, 255, 255, 0.95));
 }
 
 .field-touch-car.scoring .field-car-nose {
-  fill: #fff7ed;
+  fill: #fff;
   opacity: 1;
 }
 
-/* A bright gold target marks the finish — contrasting with both team colours so
-   it always reads as "this is the goal touch", regardless of who scored. */
 .field-scoring-disc {
-  fill: #f59e0b;
-  opacity: 0.22;
+  opacity: 0.25;
 }
 
 .field-scoring-ring {
   fill: none;
-  stroke: #f59e0b;
   stroke-width: 3.5;
-  filter: drop-shadow(0 0 3px rgba(245, 158, 11, 0.9));
+  /* White halo separates the team-coloured ring from the same-coloured car. */
+  filter: drop-shadow(0 0 2px #fff) drop-shadow(0 0 1px #fff);
+}
+
+.field-scoring.team-blue .field-scoring-disc {
+  fill: #2563eb;
+}
+
+.field-scoring.team-blue .field-scoring-ring {
+  stroke: #2563eb;
+}
+
+.field-scoring.team-orange .field-scoring-disc {
+  fill: #ea580c;
+}
+
+.field-scoring.team-orange .field-scoring-ring {
+  stroke: #ea580c;
 }
 
 .kickoff-taker-section {
