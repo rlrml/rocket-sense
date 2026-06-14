@@ -2226,6 +2226,50 @@ tbody tr:last-child td {
   stroke: #b45309;
 }
 
+/* ---- Touch indicators: a tiny top-down car wherever a player contacts the ball ---- */
+.field-car-body {
+  stroke: #fff;
+  stroke-width: 1.25;
+}
+
+.field-car-nose {
+  fill: #fff;
+  opacity: 0.85;
+}
+
+/* Incidental buildup touches stay quiet so the runs and ball still lead. */
+.field-touch-car.buildup {
+  opacity: 0.5;
+}
+
+.field-touch-car.buildup .field-car-body {
+  stroke-width: 1;
+}
+
+.field-touch-car.team-blue .field-car-body {
+  fill: #2563eb;
+}
+
+.field-touch-car.team-orange .field-car-body {
+  fill: #ea580c;
+}
+
+/* The decisive scoring touch reads boldest: full opacity + a warm halo. */
+.field-touch-car.scoring {
+  opacity: 1;
+}
+
+.field-touch-car.scoring .field-car-body {
+  stroke: #b45309;
+  stroke-width: 2;
+  filter: drop-shadow(0 0 3px rgba(180, 83, 9, 0.65));
+}
+
+.field-touch-car.scoring .field-car-nose {
+  fill: #fff7ed;
+  opacity: 1;
+}
+
 .kickoff-taker-section {
   display: grid;
   gap: 10px;
