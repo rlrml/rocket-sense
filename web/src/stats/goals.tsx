@@ -297,63 +297,65 @@ export function GoalCard({
       onMouseEnter={() => onActivate(false)}
       onFocus={() => onActivate(false)}
     >
-      <div className="kickoff-card-header">
-        <div className="goal-card-heading">
-          <span className={`goal-card-index team-chip-${teamClass(goal.scoringTeam)}`}>{goal.index + 1}</span>
-          <h4>{goal.scorerName}</h4>
-          <span className={`kickoff-goal-chip team-chip-${teamClass(goal.scoringTeam)}`}>{teamLabel(goal.scoringTeam)}</span>
+      <div className="goal-card-info">
+        <div className="kickoff-card-header">
+          <div className="goal-card-heading">
+            <span className={`goal-card-index team-chip-${teamClass(goal.scoringTeam)}`}>{goal.index + 1}</span>
+            <h4>{goal.scorerName}</h4>
+            <span className={`kickoff-goal-chip team-chip-${teamClass(goal.scoringTeam)}`}>{teamLabel(goal.scoringTeam)}</span>
+          </div>
+          <strong>{formatSeconds(goal.time)}</strong>
         </div>
-        <strong>{formatSeconds(goal.time)}</strong>
-      </div>
-      {goal.types.length ? (
-        <div className="goal-card-types">
-          {goal.types.map((type) => {
-            const displayLabel = type.subLabel ? `${type.subLabel} ${type.label}` : type.label;
-            const detailSuffix = type.details.length
-              ? ` (${type.details.map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`).join(", ")})`
-              : "";
-            const confidenceTitle =
-              (type.confidence == null
-                ? displayLabel
-                : `${displayLabel} — ${(type.confidence * 100).toFixed(0)}% confidence`) + detailSuffix;
-            const href = typeHref?.(type);
-            // The card itself is a <button>, so the chip can't be a real link;
-            // route imperatively instead and keep the card's hover/click intact.
-            return href ? (
-              <span
-                className="goal-type-chip goal-type-chip-link"
-                key={type.key}
-                role="link"
-                tabIndex={0}
-                title={`${confidenceTitle} — watch all ${type.label.toLowerCase()} goals`}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  navigate(href);
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
+        {goal.types.length ? (
+          <div className="goal-card-types">
+            {goal.types.map((type) => {
+              const displayLabel = type.subLabel ? `${type.subLabel} ${type.label}` : type.label;
+              const detailSuffix = type.details.length
+                ? ` (${type.details.map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`).join(", ")})`
+                : "";
+              const confidenceTitle =
+                (type.confidence == null
+                  ? displayLabel
+                  : `${displayLabel} — ${(type.confidence * 100).toFixed(0)}% confidence`) + detailSuffix;
+              const href = typeHref?.(type);
+              // The card itself is a <button>, so the chip can't be a real link;
+              // route imperatively instead and keep the card's hover/click intact.
+              return href ? (
+                <span
+                  className="goal-type-chip goal-type-chip-link"
+                  key={type.key}
+                  role="link"
+                  tabIndex={0}
+                  title={`${confidenceTitle} — watch all ${type.label.toLowerCase()} goals`}
+                  onClick={(event) => {
                     event.stopPropagation();
                     navigate(href);
-                  }
-                }}
-              >
-                {displayLabel}
-              </span>
-            ) : (
-              <span className="goal-type-chip" key={type.key} title={confidenceTitle}>
-                {displayLabel}
-              </span>
-            );
-          })}
-        </div>
-      ) : null}
-      <div className="goal-card-stats">
-        <span>{formatSpeed(goal.ballSpeed)}</span>
-        {goal.pressureBeforeGoal != null ? (
-          <span title="How long the scoring team had sustained territorial pressure when they scored">
-            {formatPressureTime(goal.pressureBeforeGoal)} pressure
-          </span>
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.stopPropagation();
+                      navigate(href);
+                    }
+                  }}
+                >
+                  {displayLabel}
+                </span>
+              ) : (
+                <span className="goal-type-chip" key={type.key} title={confidenceTitle}>
+                  {displayLabel}
+                </span>
+              );
+            })}
+          </div>
         ) : null}
+        <div className="goal-card-stats">
+          <span>{formatSpeed(goal.ballSpeed)}</span>
+          {goal.pressureBeforeGoal != null ? (
+            <span title="How long the scoring team had sustained territorial pressure when they scored">
+              {formatPressureTime(goal.pressureBeforeGoal)} pressure
+            </span>
+          ) : null}
+        </div>
       </div>
       {replayId ? (
         <section className="goal-diagram-panel kickoff-diagram-panel">

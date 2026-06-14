@@ -5094,6 +5094,26 @@ tbody tr:last-child td {
     padding: 16px 10px;
   }
 
+  /* Too narrow to seat the text and the diagram side by side — stack them and
+     let the diagram return to its normal full-width, aspect-driven height. */
+  .goal-card:has(.goal-diagram-panel) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
+    width: 100%;
+    height: auto;
+  }
+
+  .goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
+    height: auto;
+    width: 100%;
+    max-width: 560px;
+  }
+
   .page {
     gap: 14px;
   }
@@ -5380,6 +5400,47 @@ tbody tr:last-child td {
   color: var(--muted);
   font-size: 13px;
   font-weight: 700;
+}
+
+/* When a card carries a buildup diagram, lay the text content and the diagram
+   side by side: the text stacks in a left column and the diagram sits flush to
+   the right. The diagram inherits its height from the text column (the grid row
+   height) and derives its width from the field's aspect ratio, so it never
+   makes the card any taller than the info already sitting beside it. */
+.goal-card:has(.goal-diagram-panel) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 18px;
+}
+
+.goal-card-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  width: 100%;
+}
+
+.goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
+  margin: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/* Drive the SVG off the available height so it shrinks to the text column's
+   height, taking its width from the field aspect ratio. */
+.goal-card:has(.goal-diagram-panel) .kickoff-path-diagram {
+  min-height: 0;
+  height: 100%;
+}
+
+.goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
+  height: 100%;
+  width: auto;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 /* Leave room so the docked picture-in-picture preview never permanently hides
