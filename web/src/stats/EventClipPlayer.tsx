@@ -1,5 +1,6 @@
 import {
   createBallchasingOverlayPlugin,
+  createBoostPadsPlugin,
   createNameTagPlugin,
   createViewerFromParsed,
   fromReplayPlayerPlugin,
@@ -332,12 +333,27 @@ export function EventClipPlayer({
           // and /skyboxes isn't served at the root (only inside the standalone
           // player tree), so the default "space" HDR would just 404.
           environment: false,
-          // Show only the followed-player boost meter — the perspective we're
-          // locked to. The floating per-car bars and top team HUD are sized for
-          // a full-screen player and overwhelm this compact (~208px) clip, so we
-          // disable them here. The meter is scaled down + pinned bottom-right in
-          // styles.css (.event-clip-canvas .sap-bc-followed-*).
+          // From the ballchasing overlay we want only the followed-player boost
+          // meter (the perspective we're locked to). Its top team HUD and own
+          // floating names/bars overwhelm this compact (~208px) clip, so they
+          // stay off — player names instead come from the lighter name-tag
+          // plugin below.
+          //
+          // showFloatingBoostBars must stay ENABLED even though we never want to
+          // see the floating bars: the overlay's beforeRender decides which car
+          // is "followed" (and thus whether to render the boost ring) by reading
+          // the sap-bc-player-following class off that car's floating nameplate.
+          // With no floating layer there is no nameplate to tag, so the followed
+          // meter is hidden every frame and *no* boost shows at all. We keep the
+          // layer alive purely for that tagging and hide it in CSS
+          // (.event-clip-canvas .sap-bc-floating-layer). The meter itself is
+          // scaled down + pinned bottom-right (.event-clip-canvas .sap-bc-followed-*).
+          // createViewerFromParsed only auto-adds the camera plugin; the field
+          // boost pads are a separate opt-in plugin (createBoostPadsPlugin builds
+          // a mesh per pad from the replay's boostPads). Without it the arena has
+          // no pads at all — add it so the goal/kickoff clips show pickups.
           plugins: [
+            createBoostPadsPlugin(),
             // Floating 3D name pills above each car so non-perspective players
             // are identifiable in the clip. The plugin hides the followed
             // player's own tag (it would just obscure the foreground car the
@@ -346,7 +362,7 @@ export function EventClipPlayer({
             fromReplayPlayerPlugin(
               createBallchasingOverlayPlugin({
                 showFloatingNames: false,
-                showFloatingBoostBars: false,
+                showFloatingBoostBars: true,
                 showTeamBoostHud: false,
               }),
             ),
