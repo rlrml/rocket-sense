@@ -1093,19 +1093,22 @@ function winLossChart(
       ),
       total: totals.total,
       valueLabel: (
-        <span className="winloss-value">
-          <span title="Win rate over all decided kickoffs (neutral excluded, narrow results included)">
+        <div className="winloss-value">
+          <span
+            className="kickoff-team-win-rate"
+            title="Win rate over all decided kickoffs (neutral excluded, narrow results included)"
+          >
             <span className="winloss-term">all</span>
             {formatWinPct(inclPct)}
           </span>
           <span
-            className="winloss-value-secondary"
+            className="kickoff-team-win-rate winloss-value-secondary"
             title="Win rate over clear kickoffs only (neutral and narrow results excluded)"
           >
             <span className="winloss-term">clear</span>
             {formatWinPct(exclPct)}
           </span>
-        </span>
+        </div>
       ),
       style: outcomeDistributionColorStyle(distributionColors(summary, teamColored)),
     };

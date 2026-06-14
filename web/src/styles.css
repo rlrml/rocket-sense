@@ -3473,11 +3473,14 @@ tbody tr:last-child td {
   grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 132px;
 }
 
+/* Player win/loss shares the stacked "all" over "clear" layout used by the
+   team-outcome rows so the two read consistently. */
 .winloss-value {
-  display: flex;
-  gap: 8px;
-  justify-content: flex-end;
-  align-items: baseline;
+  display: grid;
+  gap: 1px;
+  justify-items: end;
+  font-size: 12px;
+  font-weight: 800;
   white-space: nowrap;
 }
 
