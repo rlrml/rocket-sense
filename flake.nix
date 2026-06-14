@@ -135,6 +135,9 @@
           ROCKET_SENSE_GIT_SHA = self.rev or self.dirtyRev or "unknown";
           SUBTR_ACTOR_GIT_SHA = subtr-actor-src.rev or "unknown";
           ROCKET_SENSE_WEB_DIST = rocketSenseWeb;
+          # subtr-actor static player/stats/review assets, built from the
+          # submodule flake instead of committed under static/subtr-actor.
+          ROCKET_SENSE_SUBTR_STATIC = subtr-actor-src.packages.${system}.js-stats-player-pages;
           cargoBuildFlags = [
             "-p"
             "rocket-sense-server"

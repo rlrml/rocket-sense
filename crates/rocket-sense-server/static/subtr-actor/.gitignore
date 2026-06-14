@@ -1,0 +1,7 @@
+# The subtr-actor static player/stats/review assets here are generated from the
+# vendor/subtr-actor submodule (scripts/ensure-subtr-vendor populates them
+# locally; the Nix server build points ROCKET_SENSE_SUBTR_STATIC at the
+# js-stats-player-pages flake output). They are NOT committed — only the
+# .subtr-actor-rev marker is, which pins the rev for the sync guard test.
+*
+!.subtr-actor-rev

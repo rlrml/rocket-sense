@@ -14,7 +14,14 @@ fn main() -> io::Result<()> {
         .expect("server crate lives under <repo>/crates/rocket-sense-server");
     emit_build_metadata(repo_root)?;
 
-    let static_root = manifest_dir.join("static/subtr-actor");
+    // The subtr-actor static assets are generated from the vendored submodule
+    // flake (js-stats-player-pages), not committed. The Nix server build points
+    // ROCKET_SENSE_SUBTR_STATIC at that flake output; local builds fall back to
+    // the on-disk tree populated by scripts/ensure-subtr-vendor.
+    let static_root = env::var_os("ROCKET_SENSE_SUBTR_STATIC")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| manifest_dir.join("static/subtr-actor"));
+    println!("cargo:rerun-if-env-changed=ROCKET_SENSE_SUBTR_STATIC");
     println!("cargo:rerun-if-changed={}", static_root.display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
@@ -46,6 +53,11 @@ fn main() -> io::Result<()> {
         &static_root.join("draco"),
     )?;
 
+    // The SPA entry HTML files are include_str!'d directly (not served via the
+    // asset-function lookup), so emit consts that include_str! them from
+    // static_root — keeping them out of the source tree like the rest.
+    write_index_html_consts(&out_dir.join("subtr_actor_index_html.rs"), &static_root)?;
+
     let web_dist_root = env::var_os("ROCKET_SENSE_WEB_DIST")
         .map(PathBuf::from)
         .unwrap_or_else(|| repo_root.join("web/dist"));
@@ -54,6 +66,23 @@ fn main() -> io::Result<()> {
     let mut web_output = File::create(out_dir.join("web_static_assets.rs"))?;
     write_asset_function(&mut web_output, "web_static_asset", &web_dist_root)?;
 
+    Ok(())
+}
+
+fn write_index_html_consts(out_path: &Path, static_root: &Path) -> io::Result<()> {
+    let mut output = File::create(out_path)?;
+    for (name, rel) in [
+        ("SUBTR_ACTOR_VIEWER_INDEX", "index.html"),
+        ("SUBTR_ACTOR_STATS_INDEX", "stats/index.html"),
+        ("SUBTR_ACTOR_REVIEW_INDEX", "review/index.html"),
+    ] {
+        let path = static_root.join(rel);
+        writeln!(
+            output,
+            "const {name}: &str = include_str!({:?});",
+            path.display().to_string()
+        )?;
+    }
     Ok(())
 }
 
