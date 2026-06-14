@@ -1027,72 +1027,79 @@ function PadPickupMaps({
         })
       : teamPickupMapSubjects(points);
 
+  const marginPoints = shouldShowPadControl ? teamPadMarginPoints(points) : [];
+  const mapCards = subjects.map((subject) => {
+    const maxCount = Math.max(1, ...subject.points.map((point) => point.count));
+    const bigLeaderCount = subject.points.filter((point) => point.leader && point.padSize === "big").length;
+    const smallLeaderCount = subject.points.filter((point) => point.leader && point.padSize === "small").length;
+
+    return (
+      <div className={`pickup-map-card pickup-map-team-card team-accent-${teamClass(subject.team)}`} key={subject.key}>
+        <div className="pickup-map-header">
+          <StatPlayerLabel
+            name={subject.name}
+            platform={subject.platform}
+            profilePath={subject.profilePath}
+            rank={subject.rank}
+            showPlatformBadge={subject.playerIndex != null}
+            subtitle={subject.playerIndex == null ? "Team" : teamLabel(subject.team)}
+          />
+          <span className="pickup-leader-count">
+            Leader: {bigLeaderCount} big / {smallLeaderCount} small
+          </span>
+        </div>
+        <svg className="pickup-map" viewBox="0 0 100 125" role="img" aria-label={`${subject.name} boost pickup map`}>
+          <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
+          <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
+          <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
+          <circle className="field-line-fillless" cx="50" cy="62.5" r="10" />
+          <rect className="field-line-fillless" x="24" y="4" width="52" height="20" />
+          <rect className="field-line-fillless" x="24" y="101" width="52" height="20" />
+          {boostPadLocations.map((pad) => {
+            const projected = projectFieldPosition(pad.x, pad.y);
+            return (
+              <circle
+                className={`pad-location-dot ${pad.size}`}
+                cx={projected.x}
+                cy={projected.y}
+                key={pad.id}
+                r={pad.size === "big" ? 2.1 : 1.15}
+              />
+            );
+          })}
+          {subject.points.map((point) => {
+            const projected = projectFieldPosition(point.x, point.y);
+            const radius = point.padSize === "big" ? 2.8 + (point.count / maxCount) * 2.4 : 1.7 + (point.count / maxCount) * 1.8;
+            const showCount = point.padSize === "big" || point.count >= 3 || point.leader;
+            return (
+              <g className="pickup-marker" key={point.key}>
+                <circle
+                  className={`pickup-dot ${point.padSize} team-pickup-${teamClass(point.team)} ${subject.playerIndex == null ? "" : `player-shade-${subject.playerIndex}`} ${point.leader ? "leader" : ""}`}
+                  cx={projected.x}
+                  cy={projected.y}
+                  r={radius}
+                />
+                {showCount ? (
+                  <text className="pickup-count" x={projected.x} y={projected.y + 1.4}>
+                    {point.count}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+    );
+  });
+
+  if (shouldShowPadControl && mapCards.length > 1) {
+    mapCards.splice(Math.floor(mapCards.length / 2), 0, <TeamPadMarginMapCard key="__pad-margin" points={marginPoints} />);
+  }
+
   return (
     <div className={`pickup-map-grid ${comparisonMode === "teams" ? "team-pickup-map-grid" : ""}`}>
-      {shouldShowPadControl ? <TeamPadMarginMap points={teamPadMarginPoints(points)} /> : null}
-      {subjects.map((subject) => {
-        const maxCount = Math.max(1, ...subject.points.map((point) => point.count));
-        const bigLeaderCount = subject.points.filter((point) => point.leader && point.padSize === "big").length;
-        const smallLeaderCount = subject.points.filter((point) => point.leader && point.padSize === "small").length;
-
-        return (
-          <div className={`pickup-map-card pickup-map-team-card team-accent-${teamClass(subject.team)}`} key={subject.key}>
-            <div className="pickup-map-header">
-              <StatPlayerLabel
-                name={subject.name}
-                platform={subject.platform}
-                profilePath={subject.profilePath}
-                rank={subject.rank}
-                showPlatformBadge={subject.playerIndex != null}
-                subtitle={subject.playerIndex == null ? "Team" : teamLabel(subject.team)}
-              />
-              <span className="pickup-leader-count">
-                Leader: {bigLeaderCount} big / {smallLeaderCount} small
-              </span>
-            </div>
-            <svg className="pickup-map" viewBox="0 0 100 125" role="img" aria-label={`${subject.name} boost pickup map`}>
-              <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
-              <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
-              <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
-              <circle className="field-line-fillless" cx="50" cy="62.5" r="10" />
-              <rect className="field-line-fillless" x="24" y="4" width="52" height="20" />
-              <rect className="field-line-fillless" x="24" y="101" width="52" height="20" />
-              {boostPadLocations.map((pad) => {
-                const projected = projectFieldPosition(pad.x, pad.y);
-                return (
-                  <circle
-                    className={`pad-location-dot ${pad.size}`}
-                    cx={projected.x}
-                    cy={projected.y}
-                    key={pad.id}
-                    r={pad.size === "big" ? 2.1 : 1.15}
-                  />
-                );
-              })}
-              {subject.points.map((point) => {
-                const projected = projectFieldPosition(point.x, point.y);
-                const radius = point.padSize === "big" ? 2.8 + (point.count / maxCount) * 2.4 : 1.7 + (point.count / maxCount) * 1.8;
-                const showCount = point.padSize === "big" || point.count >= 3 || point.leader;
-                return (
-                  <g className="pickup-marker" key={point.key}>
-                    <circle
-                      className={`pickup-dot ${point.padSize} team-pickup-${teamClass(point.team)} ${subject.playerIndex == null ? "" : `player-shade-${subject.playerIndex}`} ${point.leader ? "leader" : ""}`}
-                      cx={projected.x}
-                      cy={projected.y}
-                      r={radius}
-                    />
-                    {showCount ? (
-                      <text className="pickup-count" x={projected.x} y={projected.y + 1.4}>
-                        {point.count}
-                      </text>
-                    ) : null}
-                  </g>
-                );
-              })}
-            </svg>
-          </div>
-        );
-      })}
+      {shouldShowPadControl ? <TeamPadMarginBars points={marginPoints} /> : null}
+      {mapCards}
       <div className="chart-legend compact-legend pickup-map-legend">
         {shouldShowPadControl ? (
           <>
@@ -1117,7 +1124,7 @@ function isOneVOneMatch(players: ReplayPlayer[]): boolean {
   return bluePlayers.length === 1 && orangePlayers.length === 1 && unknownTeamPlayers.length === 0;
 }
 
-function TeamPadMarginMap({ points }: { points: TeamPadMarginPoint[] }) {
+function TeamPadMarginBars({ points }: { points: TeamPadMarginPoint[] }) {
   const summary = (size: "big" | "small") => ({
     blue: points.filter((point) => point.padSize === size && point.winner === 0).length,
     orange: points.filter((point) => point.padSize === size && point.winner === 1).length,
@@ -1127,15 +1134,19 @@ function TeamPadMarginMap({ points }: { points: TeamPadMarginPoint[] }) {
   const smallSummary = summary("small");
 
   return (
-    <>
-      <div className="pad-control-summary">
-        <strong className="pad-control-summary-title">Pad control</strong>
-        <div className="pad-control-bars">
-          <PadControlSummaryBar label="Big" summary={bigSummary} />
-          <PadControlSummaryBar label="Small" summary={smallSummary} />
-        </div>
+    <div className="pad-control-summary">
+      <strong className="pad-control-summary-title">Pad control</strong>
+      <div className="pad-control-bars">
+        <PadControlSummaryBar label="Big" summary={bigSummary} />
+        <PadControlSummaryBar label="Small" summary={smallSummary} />
       </div>
-      <div className="pickup-map-card team-margin-map-card">
+    </div>
+  );
+}
+
+function TeamPadMarginMapCard({ points }: { points: TeamPadMarginPoint[] }) {
+  return (
+    <div className="pickup-map-card team-margin-map-card">
         <div className="pickup-map-header">
           <div className="pickup-map-margin-identity">
             <span className="pickup-map-margin-name">Margin</span>
@@ -1179,7 +1190,6 @@ function TeamPadMarginMap({ points }: { points: TeamPadMarginPoint[] }) {
           })}
         </svg>
       </div>
-    </>
   );
 }
 

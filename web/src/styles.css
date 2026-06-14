@@ -3694,6 +3694,9 @@ button.status-stale:hover {
 .pickup-leader-count {
   justify-self: end;
   white-space: nowrap;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .pickup-map {
