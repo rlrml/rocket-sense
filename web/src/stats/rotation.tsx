@@ -1,114 +1,109 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 
-export const movementEventTypes = ["movement"];
+export const rotationEventTypes = [
+  "rotation_role",
+  "rotation_role_first_man",
+  "rotation_role_second_man",
+  "rotation_role_third_man",
+  "rotation_role_ambiguous",
+  "rotation_role_unknown",
+];
 
-interface MovementDetailProps {
+type RotationRole = "first_man" | "second_man" | "third_man" | "ambiguous" | "unknown";
+
+interface RotationDetailProps {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   scope?: "replay" | "group";
 }
 
-interface PlayerMovementRow {
+interface PlayerRotationRow {
   key: string;
   name: string;
   games: number | null;
-  samples: number;
   seconds: number;
-  distance: number;
-  speedWeighted: number;
-  boostSeconds: number;
-  supersonicSeconds: number;
-  airSeconds: number;
-  highAirSeconds: number;
-  speedBands: Map<string, number>;
+  spans: number;
+  roleSeconds: Record<RotationRole, number>;
 }
 
-interface BandRow {
-  key: string;
+interface RotationRoleRow {
+  key: RotationRole;
   label: string;
   seconds: number;
-  samples: number;
+  spans: number;
   playerCount: number;
   leader: { name: string; seconds: number } | null;
 }
 
-export function MovementDetail({ events, players, scope = "replay" }: MovementDetailProps) {
-  const movementEvents = events.filter((event) => event.event_type === "movement");
-  const playerRows = playerMovementRows(players, movementEvents);
-  const speedRows = bandRows(players, movementEvents, "speed_band");
-  const heightRows = bandRows(players, movementEvents, "height_band");
-  const totalSeconds = sumBy(playerRows, (row) => row.seconds);
-  const totalDistance = sumBy(playerRows, (row) => row.distance);
+const rotationRoles: RotationRole[] = [
+  "first_man",
+  "second_man",
+  "third_man",
+  "ambiguous",
+  "unknown",
+];
 
-  if (!movementEvents.length) {
+export function RotationDetail({ events, players, scope = "replay" }: RotationDetailProps) {
+  const rotationEvents = events.filter((event) => rotationEventTypes.includes(event.event_type));
+  const playerRows = playerRotationRows(players, rotationEvents);
+  const roleRows = rotationRoleRows(players, rotationEvents);
+  const totalSeconds = sumBy(playerRows, (row) => row.seconds);
+
+  if (!rotationEvents.length) {
     return (
       <div className="stat-empty">
-        No movement events are available for this {scope === "group" ? "group" : "replay"} yet.
+        No rotation role events are available for this {scope === "group" ? "group" : "replay"} yet.
       </div>
     );
   }
 
   return (
-    <div className="movement-detail">
+    <div className="rotation-detail">
       <div className="positioning-summary-grid">
-        <MovementMetric
+        <RotationMetric
           label="Measured time"
           value={formatSeconds(totalSeconds)}
           detail="player-seconds"
         />
-        <MovementMetric
-          label="Distance"
-          value={formatDistance(totalDistance)}
-          detail="loaded movement"
+        <RotationMetric
+          label="First man"
+          value={formatShare(sumRole(playerRows, "first_man"), totalSeconds)}
+          detail="rotation time"
         />
-        <MovementMetric
-          label="Boost-speed"
-          value={formatShare(
-            sumBy(playerRows, (row) => row.boostSeconds),
-            totalSeconds,
-          )}
-          detail="movement time"
+        <RotationMetric
+          label="Second man"
+          value={formatShare(sumRole(playerRows, "second_man"), totalSeconds)}
+          detail="rotation time"
         />
-        <MovementMetric
-          label="Air time"
-          value={formatShare(
-            sumBy(playerRows, (row) => row.airSeconds),
-            totalSeconds,
-          )}
-          detail="movement time"
+        <RotationMetric
+          label="Third man"
+          value={formatShare(sumRole(playerRows, "third_man"), totalSeconds)}
+          detail="rotation time"
         />
       </div>
 
       <div className="stat-section-grid">
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Player movement leaderboard</h3>
-            <span>{movementEvents.length.toLocaleString()} loaded movement samples</span>
+            <h3>Player rotation leaderboard</h3>
+            <span>{rotationEvents.length.toLocaleString()} loaded rotation spans</span>
           </header>
-          <PlayerMovementLeaderboard rows={playerRows} />
+          <PlayerRotationLeaderboard rows={playerRows} />
         </section>
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Speed-band leaderboard</h3>
-            <span>Time by backend speed band</span>
+            <h3>Rotation role leaderboard</h3>
+            <span>Time by role state</span>
           </header>
-          <BandLeaderboard rows={speedRows} totalSeconds={totalSeconds} />
-        </section>
-
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Height-band leaderboard</h3>
-            <span>Ground, low-air, and high-air movement</span>
-          </header>
-          <BandLeaderboard rows={heightRows} totalSeconds={totalSeconds} />
+          <RotationRoleLeaderboard rows={roleRows} totalSeconds={totalSeconds} />
         </section>
       </div>
     </div>
   );
 }
 
-function MovementMetric({
+function RotationMetric({
   label,
   value,
   detail,
@@ -126,9 +121,9 @@ function MovementMetric({
   );
 }
 
-function PlayerMovementLeaderboard({ rows }: { rows: PlayerMovementRow[] }) {
+function PlayerRotationLeaderboard({ rows }: { rows: PlayerRotationRow[] }) {
   if (!rows.length) {
-    return <div className="stat-empty">No player movement rows are available yet.</div>;
+    return <div className="stat-empty">No player rotation rows are available yet.</div>;
   }
 
   return (
@@ -138,13 +133,12 @@ function PlayerMovementLeaderboard({ rows }: { rows: PlayerMovementRow[] }) {
           <tr>
             <th>Player</th>
             <th>Measured</th>
-            <th>Distance</th>
-            <th>Avg speed</th>
-            <th>Boost-speed</th>
-            <th>Supersonic</th>
-            <th>Air</th>
-            <th>High air</th>
-            <th>Top band</th>
+            <th>Spans</th>
+            <th>First</th>
+            <th>Second</th>
+            <th>Third</th>
+            <th>Ambiguous</th>
+            <th>Top role</th>
           </tr>
         </thead>
         <tbody>
@@ -157,13 +151,12 @@ function PlayerMovementLeaderboard({ rows }: { rows: PlayerMovementRow[] }) {
                 </div>
               </td>
               <td>{formatSeconds(row.seconds)}</td>
-              <td>{formatDistance(row.distance)}</td>
-              <td>{formatDecimal(weightedAverage(row.speedWeighted, row.seconds), 1)}</td>
-              <td>{formatShare(row.boostSeconds, row.seconds)}</td>
-              <td>{formatShare(row.supersonicSeconds, row.seconds)}</td>
-              <td>{formatShare(row.airSeconds, row.seconds)}</td>
-              <td>{formatShare(row.highAirSeconds, row.seconds)}</td>
-              <td>{topBand(row.speedBands)}</td>
+              <td>{row.spans.toLocaleString()}</td>
+              <td>{formatShare(row.roleSeconds.first_man, row.seconds)}</td>
+              <td>{formatShare(row.roleSeconds.second_man, row.seconds)}</td>
+              <td>{formatShare(row.roleSeconds.third_man, row.seconds)}</td>
+              <td>{formatShare(row.roleSeconds.ambiguous, row.seconds)}</td>
+              <td>{topRole(row)}</td>
             </tr>
           ))}
         </tbody>
@@ -172,9 +165,15 @@ function PlayerMovementLeaderboard({ rows }: { rows: PlayerMovementRow[] }) {
   );
 }
 
-function BandLeaderboard({ rows, totalSeconds }: { rows: BandRow[]; totalSeconds: number }) {
+function RotationRoleLeaderboard({
+  rows,
+  totalSeconds,
+}: {
+  rows: RotationRoleRow[];
+  totalSeconds: number;
+}) {
   if (!rows.length) {
-    return <div className="stat-empty">No movement band rows are available yet.</div>;
+    return <div className="stat-empty">No rotation role rows are available yet.</div>;
   }
 
   return (
@@ -182,10 +181,10 @@ function BandLeaderboard({ rows, totalSeconds }: { rows: BandRow[]; totalSeconds
       <table>
         <thead>
           <tr>
-            <th>Band</th>
+            <th>Role</th>
             <th>Time</th>
             <th>Share</th>
-            <th>Samples</th>
+            <th>Spans</th>
             <th>Players</th>
             <th>Leader</th>
           </tr>
@@ -198,7 +197,7 @@ function BandLeaderboard({ rows, totalSeconds }: { rows: BandRow[]; totalSeconds
               </td>
               <td>{formatSeconds(row.seconds)}</td>
               <td>{formatShare(row.seconds, totalSeconds)}</td>
-              <td>{row.samples.toLocaleString()}</td>
+              <td>{row.spans.toLocaleString()}</td>
               <td>{row.playerCount.toLocaleString()}</td>
               <td>
                 {row.leader ? `${row.leader.name} (${formatSeconds(row.leader.seconds)})` : "-"}
@@ -211,23 +210,17 @@ function BandLeaderboard({ rows, totalSeconds }: { rows: BandRow[]; totalSeconds
   );
 }
 
-function playerMovementRows(
+function playerRotationRows(
   players: ReplayPlayer[],
   events: MechanicEventResponse[],
-): PlayerMovementRow[] {
+): PlayerRotationRow[] {
   const rows = players.map((player, index) => ({
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
     games: player.appearance_count ?? null,
-    samples: 0,
     seconds: 0,
-    distance: 0,
-    speedWeighted: 0,
-    boostSeconds: 0,
-    supersonicSeconds: 0,
-    airSeconds: 0,
-    highAirSeconds: 0,
-    speedBands: new Map<string, number>(),
+    spans: 0,
+    roleSeconds: emptyRoleSeconds(),
   }));
   const byKey = new Map(rows.map((row) => [row.key, row]));
 
@@ -236,45 +229,34 @@ function playerMovementRows(
     if (playerIndex < 0) continue;
     const row = byKey.get(playerKey(players[playerIndex], playerIndex));
     if (!row) continue;
+    const role = rotationRole(event);
     const seconds = eventDuration(event);
-    const distance = numberPayload(event.payload, "distance") ?? 0;
-    const speed = numberPayload(event.payload, "speed");
-    const speedBand = stringPayload(event.payload, "speed_band") ?? "unknown";
-    const heightBand = stringPayload(event.payload, "height_band") ?? "unknown";
-
-    row.samples += 1;
     row.seconds += seconds;
-    row.distance += distance;
-    if (speed != null) row.speedWeighted += speed * seconds;
-    if (speedBand === "boost") row.boostSeconds += seconds;
-    if (speedBand === "supersonic") row.supersonicSeconds += seconds;
-    if (heightBand.includes("air")) row.airSeconds += seconds;
-    if (heightBand === "high_air") row.highAirSeconds += seconds;
-    row.speedBands.set(speedBand, (row.speedBands.get(speedBand) ?? 0) + seconds);
+    row.spans += 1;
+    row.roleSeconds[role] += seconds;
   }
 
   return rows
-    .filter((row) => row.samples > 0)
+    .filter((row) => row.spans > 0)
     .sort((left, right) => right.seconds - left.seconds || left.name.localeCompare(right.name));
 }
 
-function bandRows(
+function rotationRoleRows(
   players: ReplayPlayer[],
   events: MechanicEventResponse[],
-  payloadKey: "speed_band" | "height_band",
-): BandRow[] {
-  const rows = new Map<string, BandRow>();
-  const playerSecondsByBand = new Map<string, Map<string, number>>();
+): RotationRoleRow[] {
+  const rows = new Map<RotationRole, RotationRoleRow>();
+  const playerSecondsByRole = new Map<RotationRole, Map<string, number>>();
 
   for (const event of events) {
-    const key = stringPayload(event.payload, payloadKey) ?? "unknown";
+    const role = rotationRole(event);
     const seconds = eventDuration(event);
-    const existing = rows.get(key);
-    rows.set(key, {
-      key,
-      label: formatLabel(key),
+    const existing = rows.get(role);
+    rows.set(role, {
+      key: role,
+      label: roleLabel(role),
       seconds: (existing?.seconds ?? 0) + seconds,
-      samples: (existing?.samples ?? 0) + 1,
+      spans: (existing?.spans ?? 0) + 1,
       playerCount: existing?.playerCount ?? 0,
       leader: existing?.leader ?? null,
     });
@@ -282,13 +264,13 @@ function bandRows(
     const playerIndex = players.findIndex((player) => eventMatchesPlayer(player, event));
     if (playerIndex < 0) continue;
     const eventPlayerKey = playerKey(players[playerIndex], playerIndex);
-    const counts = playerSecondsByBand.get(key) ?? new Map<string, number>();
+    const counts = playerSecondsByRole.get(role) ?? new Map<string, number>();
     counts.set(eventPlayerKey, (counts.get(eventPlayerKey) ?? 0) + seconds);
-    playerSecondsByBand.set(key, counts);
+    playerSecondsByRole.set(role, counts);
   }
 
   for (const row of rows.values()) {
-    const counts = playerSecondsByBand.get(row.key) ?? new Map<string, number>();
+    const counts = playerSecondsByRole.get(row.key) ?? new Map<string, number>();
     row.playerCount = counts.size;
     row.leader =
       [...counts.entries()]
@@ -300,6 +282,36 @@ function bandRows(
 
   return [...rows.values()].sort(
     (left, right) => right.seconds - left.seconds || left.label.localeCompare(right.label),
+  );
+}
+
+function emptyRoleSeconds(): Record<RotationRole, number> {
+  return {
+    first_man: 0,
+    second_man: 0,
+    third_man: 0,
+    ambiguous: 0,
+    unknown: 0,
+  };
+}
+
+function rotationRole(event: MechanicEventResponse): RotationRole {
+  const payloadRole = stringPayload(event.payload, "state");
+  if (isRotationRole(payloadRole)) return payloadRole;
+  if (event.event_type === "rotation_role_first_man") return "first_man";
+  if (event.event_type === "rotation_role_second_man") return "second_man";
+  if (event.event_type === "rotation_role_third_man") return "third_man";
+  if (event.event_type === "rotation_role_ambiguous") return "ambiguous";
+  return "unknown";
+}
+
+function isRotationRole(value: string | null): value is RotationRole {
+  return (
+    value === "first_man" ||
+    value === "second_man" ||
+    value === "third_man" ||
+    value === "ambiguous" ||
+    value === "unknown"
   );
 }
 
@@ -358,7 +370,7 @@ function normalizePlatform(value: string): string {
 }
 
 function eventDuration(event: MechanicEventResponse): number {
-  const duration = numberPayload(event.payload, "dt") ?? numberPayload(event.payload, "duration");
+  const duration = numberPayload(event.payload, "duration");
   if (duration != null) return duration;
   if (event.start_time != null && event.end_time != null)
     return Math.max(0, event.end_time - event.start_time);
@@ -379,15 +391,32 @@ function sumBy<T>(items: T[], value: (item: T) => number): number {
   return items.reduce((total, item) => total + value(item), 0);
 }
 
-function weightedAverage(weightedValue: number, weight: number): number | null {
-  return weight > 0 ? weightedValue / weight : null;
+function sumRole(rows: PlayerRotationRow[], role: RotationRole): number {
+  return sumBy(rows, (row) => row.roleSeconds[role]);
 }
 
-function topBand(bands: Map<string, number>): string {
-  const top = [...bands.entries()].sort(
-    (left, right) => right[1] - left[1] || left[0].localeCompare(right[0]),
-  )[0];
-  return top ? `${formatLabel(top[0])} (${formatSeconds(top[1])})` : "-";
+function topRole(row: PlayerRotationRow): string {
+  const [role, seconds] = rotationRoles
+    .map((candidate): [RotationRole, number] => [candidate, row.roleSeconds[candidate]])
+    .sort(
+      (left, right) => right[1] - left[1] || roleLabel(left[0]).localeCompare(roleLabel(right[0])),
+    )[0];
+  return seconds > 0 ? `${roleLabel(role)} (${formatShare(seconds, row.seconds)})` : "-";
+}
+
+function roleLabel(role: RotationRole): string {
+  switch (role) {
+    case "first_man":
+      return "First man";
+    case "second_man":
+      return "Second man";
+    case "third_man":
+      return "Third man";
+    case "ambiguous":
+      return "Ambiguous";
+    case "unknown":
+      return "Unknown";
+  }
 }
 
 function formatSeconds(value: number): string {
@@ -396,28 +425,7 @@ function formatSeconds(value: number): string {
   return `${Math.round(value).toLocaleString()}s`;
 }
 
-function formatDistance(value: number): string {
-  if (!Number.isFinite(value)) return "Unknown";
-  return Math.round(value).toLocaleString();
-}
-
 function formatShare(value: number, total: number): string {
   if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return "0%";
   return `${Math.round((value / total) * 100)}%`;
-}
-
-function formatDecimal(value: number | null, digits: number): string {
-  if (value == null || !Number.isFinite(value)) return "Unknown";
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-}
-
-function formatLabel(value: string): string {
-  return value
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
