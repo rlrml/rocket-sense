@@ -5471,6 +5471,26 @@ tbody tr:last-child td {
   margin: 0;
   min-height: 0;
   height: 100%;
+  /* Anchored to its own top-right corner so the hover magnify (below) grows down
+     and left over the empty card space rather than off the right edge. */
+  transform-origin: top right;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+}
+
+/* The buildup tracks the text height, so it is small at rest. On hover, magnify it
+   in place — transform doesn't reflow, so neighbouring cards stay put while the
+   enlarged diagram (with the touch cars) reads clearly above them. */
+@media (hover: hover) {
+  .goal-card:has(.goal-diagram-panel):hover {
+    position: relative;
+    z-index: 30;
+  }
+
+  .goal-card:has(.goal-diagram-panel):hover > .goal-diagram-panel {
+    transform: scale(2.4);
+    border-color: #c7d2e4;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.28);
+  }
 }
 
 /* Drive the SVG off the available height so it shrinks to the text column's
