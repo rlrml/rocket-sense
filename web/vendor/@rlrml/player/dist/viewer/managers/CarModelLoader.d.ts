@@ -13,6 +13,8 @@
  * - Merc hitbox -> merc
  */
 export class CarModelLoader {
+    constructor(options?: {});
+    assetBase: any;
     fbxLoader: FBXLoader;
     gltfLoader: GLTFLoader;
     textureLoader: THREE.TextureLoader;

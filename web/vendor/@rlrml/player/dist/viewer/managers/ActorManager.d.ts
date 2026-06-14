@@ -1,7 +1,8 @@
 export class ActorManager {
-    constructor(scene: any, effectsManager: any);
+    constructor(scene: any, effectsManager: any, options?: {});
     scene: any;
     effectsManager: any;
+    assetBase: any;
     actors: {};
     ballActorId: any;
     ballIndicator: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial, THREE.Object3DEventMap> | null;
@@ -16,6 +17,8 @@ export class ActorManager {
     carBodyIds: {};
     carModelLoader: CarModelLoader;
     pendingCarReplacements: Map<any, any>;
+    _lastGoalScanTime: any;
+    _firedGoalTimes: Set<any>;
     _p0: THREE.Vector3;
     _p1: THREE.Vector3;
     _v0: THREE.Vector3;
@@ -497,6 +500,14 @@ export class ActorManager {
      * @param {number} currentTime - Current playback time (for interpolation)
      */
     updateFromFramework(player: Player, currentTime: number): void;
+    /**
+     * Trigger the team-colored goal explosion the first time forward playback
+     * crosses each goal, and hide the ball for the celebration window so it
+     * vanishes inside the blast (matching the original Ballcam viewer). Robust to
+     * scrubbing and post-goal skips: keyed on goal time, self-correcting on
+     * backward seeks, and the ball-hidden state is recomputed every frame.
+     */
+    _updateGoalExplosions(currentTime: any): void;
     /**
      * Process a network frame for mesh lifecycle management
      * @deprecated Use initFromFramework() and updateFromFramework() instead
