@@ -358,11 +358,7 @@ export function GoalCard({
         </div>
       </div>
       {replayId ? (
-        <section className="goal-diagram-panel kickoff-diagram-panel">
-          <div className="kickoff-section-title">
-            <span>Buildup</span>
-            <strong>{formatSeconds(goal.time)}</strong>
-          </div>
+        <section className="goal-diagram-panel">
           <Suspense fallback={<div className="kickoff-path-status">Loading goal paths…</div>}>
             <GoalShapeDiagram
               replayId={replayId}
