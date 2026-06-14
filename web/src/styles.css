@@ -2085,12 +2085,12 @@ tbody tr:last-child td {
 
 .kickoff-path.team-blue .kickoff-path-line,
 .kickoff-path.team-blue .kickoff-path-start circle {
-  stroke: #2563eb;
+  stroke: var(--player-color, #2563eb);
 }
 
 .kickoff-path.team-orange .kickoff-path-line,
 .kickoff-path.team-orange .kickoff-path-start circle {
-  stroke: #ea580c;
+  stroke: var(--player-color, #ea580c);
 }
 
 .kickoff-path-start circle {
@@ -2165,6 +2165,26 @@ tbody tr:last-child td {
   opacity: 0.5;
 }
 
+/* The lines use a non-scaling stroke (constant on-screen px), so the resting
+   thumbnail's hairlines look proportionally far too thin once the panel blows up
+   into the hover overlay. Scale the widths up with the diagram by bumping them in
+   the expanded state, keeping the line weight roughly proportional to the size. */
+.goal-diagram-panel.is-expanded .kickoff-path-line {
+  stroke-width: 2.6;
+}
+
+.goal-diagram-panel.is-expanded .kickoff-path.winner .kickoff-path-line {
+  stroke-width: 3.6;
+}
+
+.goal-diagram-panel.is-expanded .kickoff-path:not(.scorer) .kickoff-path-line {
+  stroke-width: 2.1;
+}
+
+.goal-diagram-panel.is-expanded .kickoff-ball-path {
+  stroke-width: 2.6;
+}
+
 /* The ball ends in the net — mark it warmer than the neutral kickoff ball. */
 .goal-ball-end {
   fill: #fde68a;
@@ -2178,11 +2198,11 @@ tbody tr:last-child td {
 }
 
 .field-touch.team-blue .field-touch-dot {
-  fill: #2563eb;
+  fill: var(--player-color, #2563eb);
 }
 
 .field-touch.team-orange .field-touch-dot {
-  fill: #ea580c;
+  fill: var(--player-color, #ea580c);
 }
 
 .field-touch-num {
@@ -2198,20 +2218,79 @@ tbody tr:last-child td {
   stroke-width: 1.5;
 }
 
-/* Arrow fledge at the end of each run — quiet, points the way the player travelled. */
+/* Small solid arrowhead at the end of each run — points the way the player travelled. */
 .field-fledge {
-  stroke-width: 2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.75;
+  opacity: 0.8;
 }
 
 .field-fledge.team-blue {
-  stroke: #2563eb;
+  fill: var(--player-color, #2563eb);
 }
 
 .field-fledge.team-orange {
-  stroke: #ea580c;
+  fill: var(--player-color, #ea580c);
+}
+
+/* Player colour key. Hidden on the cramped resting thumbnail; shown only once the
+   panel expands into the hover overlay, as a flat row across the bottom of the
+   field. Each player's swatch is filled inline with that player's run colour. */
+.goal-diagram-panel .kickoff-path-diagram {
+  position: relative;
+}
+
+.goal-diagram-legend {
+  display: none;
+}
+
+.goal-diagram-panel.is-expanded .goal-diagram-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 16px;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  margin: 0;
+  padding: 6px 10px;
+  list-style: none;
+  border-radius: 8px;
+  background: rgba(248, 250, 252, 0.86);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.2);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1.2;
+  color: var(--text-strong);
+  pointer-events: none;
+}
+
+.goal-diagram-legend li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.goal-diagram-legend-swatch {
+  flex: none;
+  width: 16px;
+  height: 4px;
+  border-radius: 2px;
+}
+
+.goal-diagram-legend .is-scorer {
+  font-weight: var(--fw-heavy);
+}
+
+.goal-diagram-legend .is-scorer .goal-diagram-legend-swatch {
+  height: 6px;
+}
+
+.goal-diagram-legend-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kickoff-taker-section {

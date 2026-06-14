@@ -3,10 +3,13 @@ import { useMemo } from "react";
 import {
   contactToMark,
   detectBallContacts,
+  type DiagramLegendItem,
   FieldDiagramSurface,
   type FieldDiagramModel,
   Fledge,
+  playerColor,
   type SurfacePath,
+  teamColor,
   teamColorClass,
   type TouchMark,
   useReplayModel,
@@ -14,6 +17,7 @@ import {
 import { fieldProjection, type FieldProjection } from "./kickoffField";
 import {
   clampFrame,
+  idKeys,
   matchPlayer,
   type PathPlayerRef,
   pointsToString,
@@ -122,6 +126,16 @@ export function GoalShapeDiagram({
   );
 }
 
+/** Resolve a player's colour from a touch event's `playerKey`, tolerating the
+ *  platform-prefix spelling differences between event payloads and replay tracks. */
+function colorForKey(colorByIdKey: Map<string, string>, playerKey: string): string | undefined {
+  for (const key of idKeys(playerKey)) {
+    const color = colorByIdKey.get(key);
+    if (color) return color;
+  }
+  return undefined;
+}
+
 /** Team of the car nearest a field-space (uu) point at `frame` — used to colour a
  *  touch when the event itself doesn't carry the team. */
 function nearestPlayerTeam(
@@ -159,7 +173,25 @@ function buildGoalModel(
   const rawStart = startFrame ?? end - FALLBACK_BUILDUP_FRAMES;
   const from = clampFrame(Math.min(rawStart, end - 2), frameCount);
 
+  // Assign each player a colour up front: index 0 on a team is the team base hue,
+  // teammates fan out into distinct shades (encounter order within the team). We key
+  // the colour off the replay track so touches — which arrive with their own player
+  // identity — can resolve to the very same hue as that player's run.
+  const teamSeen: Record<number, number> = { 0: 0, 1: 0 };
+  const colorByIdKey = new Map<string, string>();
+  const colorByName = new Map<string, string>();
+  const trackColors = replay.players.map((track) => {
+    const meta = matchPlayer(track, players);
+    const team = meta?.team ?? (track.isTeamZero ? 0 : 1);
+    const color = playerColor(team, teamSeen[team]);
+    teamSeen[team] += 1;
+    for (const key of idKeys(track.id)) colorByIdKey.set(key, color);
+    colorByName.set(track.name.trim().toLowerCase(), color);
+    return color;
+  });
+
   const paths: SurfacePath[] = [];
+  const legend: DiagramLegendItem[] = [];
   let scorerIndex = -1;
   let scorerTeam = 0;
   replay.players.forEach((track, index) => {
@@ -172,14 +204,18 @@ function buildGoalModel(
     }
     const points = samplePath(track, from, end, projection, MAX_PATH_POINTS);
     if (points.length < 2) return;
+    const color = trackColors[index];
+    const name = meta?.playerName ?? track.name;
+    legend.push({ color, label: name || "Unknown", team, isScorer });
     // No start dot (reads as a touch). The run ends in an arrow fledge pointing the
     // way the player was travelling; the only circles are real touches.
     const last = points[points.length - 1];
     const prev = points[points.length - 2];
     const endHeadingDeg = (Math.atan2(last.y - prev.y, last.x - prev.x) * 180) / Math.PI;
     paths.push({
-      key: `${meta?.playerName ?? track.name}-${index}`,
+      key: `${name}-${index}`,
       team,
+      color,
       groupClassName: isScorer ? "winner scorer" : "",
       points: pointsToString(points),
       endMarker: (
@@ -187,12 +223,15 @@ function buildGoalModel(
           x={last.x}
           y={last.y}
           headingDeg={endHeadingDeg}
-          size={projection.toUnits(240)}
+          size={projection.toUnits(110)}
           className={`field-fledge team-${teamColorClass(team)}`}
         />
       ),
     });
   });
+  // Scorer first in the legend (their run is the emphasized one), then the rest in
+  // the order they were drawn.
+  legend.sort((a, b) => Number(b.isScorer) - Number(a.isScorer));
   // Scorer drawn last (on top), emphasized via CSS.
   paths.sort(
     (a, b) =>
@@ -203,16 +242,20 @@ function buildGoalModel(
   // (scorer_last_touch.ball_position), not a frame lookup — the latter lands on the
   // scorer's position when the ball crosses the line, which is not the touch. Fall
   // back to the scorer's final-frame position only if the payload lacks it.
+  const scorerColor =
+    scorerIndex >= 0 ? trackColors[scorerIndex] : teamColor(scoringTouch?.team ?? scorerTeam);
   const scoringMark: TouchMark | null = scoringTouch
     ? {
         at: projection.project(scoringTouch.ball.x, scoringTouch.ball.y),
         team: scoringTouch.team ?? scorerTeam,
         headingDeg: null,
         kind: "scoring",
+        color: scorerColor,
       }
     : scorerIndex >= 0
       ? contactToMark(replay, end, scorerIndex, projection, "scoring")
       : null;
+  if (scoringMark && scoringMark.color == null) scoringMark.color = scorerColor;
 
   // Prefer the real attributed touch events (the scoring touch is already excluded
   // upstream by id, so we keep every other contact — both sides of a 50/50). Only
@@ -220,14 +263,13 @@ function buildGoalModel(
   // needs a position de-dup to avoid drawing the scorer's own last contact twice.
   let buildupMarks: TouchMark[];
   if (buildupTouches) {
-    // Only the scoring team's touches lead to the goal (drop the opposing 50/50
-    // contact), and a player's repeated contacts collapse to one — leaving the
-    // assist(s) up to the finish. team_is_team_0 is missing on older replays, so
-    // fall back to whichever car sits on the touch point at that frame.
+    // Show every contact in the window — defensive challenges and opponent deflections
+    // are part of the story too, and their team colour makes them read as the other
+    // side. A player's repeated contacts still collapse to one marker. team_is_team_0
+    // is missing on older replays, so fall back to the car sitting on the touch point.
     const sorted = [...buildupTouches]
       .sort((a, b) => a.frame - b.frame)
-      .map((t) => ({ ...t, team: t.team ?? nearestPlayerTeam(replay, t.frame, t.at) }))
-      .filter((t) => t.team === scorerTeam);
+      .map((t) => ({ ...t, team: t.team ?? nearestPlayerTeam(replay, t.frame, t.at) }));
     const collapsed = sorted.filter(
       (t, i) => i === sorted.length - 1 || t.playerKey !== sorted[i + 1].playerKey,
     );
@@ -236,16 +278,23 @@ function buildGoalModel(
       team: t.team,
       headingDeg: null,
       kind: "buildup" as const,
+      color: colorForKey(colorByIdKey, t.playerKey) ?? teamColor(t.team),
     }));
   } else {
     const detected = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
     const minSep = projection.toUnits(350);
-    buildupMarks =
+    const filtered =
       scoringMark != null
         ? detected.filter(
             (b) => Math.hypot(b.at.x - scoringMark.at.x, b.at.y - scoringMark.at.y) > minSep,
           )
         : detected;
+    buildupMarks = filtered.map((b) => ({
+      ...b,
+      color:
+        (b.playerName ? colorByName.get(b.playerName.trim().toLowerCase()) : undefined) ??
+        teamColor(b.team),
+    }));
   }
 
   // Number them in contact order; the scoring touch is the last number.
@@ -266,5 +315,6 @@ function buildGoalModel(
     ballEnd: ball.length ? ball[ball.length - 1] : null,
     ballEndClassName: "goal-ball-end",
     touches,
+    legend,
   };
 }

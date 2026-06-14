@@ -6,7 +6,7 @@
 // shared <FieldDiagramSurface>.
 
 import type { ReplayModel } from "@rlrml/viewer";
-import { type ReactNode, useEffect, useId, useState } from "react";
+import { type CSSProperties, type ReactNode, useEffect, useId, useState } from "react";
 import { type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
 import { type PathPoint, round } from "./replayPaths";
@@ -45,6 +45,35 @@ export function teamColorClass(team: number): string {
   return team === 0 ? "blue" : "orange";
 }
 
+// Per-player identity hues, one family per team (cool for blue, warm for orange).
+// Index 0 is the team's base colour, so a lone player keeps the familiar team look;
+// extra teammates fan out into distinct shades. Kept in sync with the boost chart
+// palette (boost.tsx `chartPalette`) so a player reads the same colour across the page.
+const PLAYER_PALETTE: Record<number, string[]> = {
+  0: ["#2563eb", "#8b5cf6", "#14b8a6", "#0ea5e9"],
+  1: ["#ea580c", "#dc2626", "#ec4899", "#eab308"],
+};
+
+/** The base team colour (palette index 0) — used as a fallback when a touch can't
+ *  be tied back to a specific player track. */
+export function teamColor(team: number): string {
+  return PLAYER_PALETTE[team === 0 ? 0 : 1][0];
+}
+
+/** A distinct hue for the `indexOnTeam`-th player on `team`, within the team family. */
+export function playerColor(team: number, indexOnTeam: number): string {
+  const palette = PLAYER_PALETTE[team === 0 ? 0 : 1];
+  return palette[indexOnTeam % palette.length];
+}
+
+/** A swatch + name shown beneath the diagram so each coloured run is identifiable. */
+export interface DiagramLegendItem {
+  color: string;
+  label: string;
+  team: number;
+  isScorer?: boolean;
+}
+
 /** A car contacting the ball, placed at the player's position and oriented by yaw. */
 export interface TouchMark {
   /** Projected SVG position of the car at the touch frame. */
@@ -57,6 +86,8 @@ export interface TouchMark {
   /** Sequence number shown inside the touch circle (1 = first contact). */
   num?: number;
   playerName?: string;
+  /** Per-player hue; falls back to the team colour in CSS when unset. */
+  color?: string;
 }
 
 /** A single player's run, already projected and ready to draw. */
@@ -71,6 +102,8 @@ export interface SurfacePath {
   startMarker?: ReactNode;
   /** Per-diagram end marker (e.g. an arrow fledge at the run's end). */
   endMarker?: ReactNode;
+  /** Per-player hue; falls back to the team colour in CSS when unset. */
+  color?: string;
 }
 
 export interface FieldDiagramModel {
@@ -80,6 +113,8 @@ export interface FieldDiagramModel {
   /** Extra class on the ball-end circle (e.g. "goal-ball-end"). */
   ballEndClassName?: string;
   touches?: TouchMark[];
+  /** Player colour key; rendered as a compact legend beside the diagram. */
+  legend?: DiagramLegendItem[];
 }
 
 /**
@@ -193,8 +228,9 @@ export function contactToMark(
   };
 }
 
-/** An open chevron ("arrow fledge") marking where a run ends and which way it points.
- *  The tip sits at (x, y); `headingDeg` rotates it to the direction of travel. */
+/** A small solid triangle marking where a run ends and which way it points. The tip
+ *  sits at (x, y); `headingDeg` rotates it to the direction of travel. Filled (not
+ *  stroked) so it scales cleanly with the diagram and stays a simple arrowhead. */
 export function Fledge({
   x,
   y,
@@ -211,10 +247,8 @@ export function Fledge({
   return (
     <path
       className={className}
-      d={`M ${round(-size)} ${round(-size * 0.72)} L 0 0 L ${round(-size)} ${round(size * 0.72)}`}
-      fill="none"
+      d={`M 0 0 L ${round(-size)} ${round(-size * 0.62)} L ${round(-size)} ${round(size * 0.62)} Z`}
       transform={`translate(${round(x)} ${round(y)}) rotate(${round(headingDeg ?? 0)})`}
-      vectorEffect="non-scaling-stroke"
     />
   );
 }
@@ -246,7 +280,11 @@ export function FieldDiagramSurface({
   const rawId = useId();
   const markerId = rawId.replace(/:/g, "");
   const arrow = (team: number) => `url(#${markerId}-arrow-${teamColorClass(team)})`;
-  const { paths, ballPoints, ballEnd, ballEndClassName, touches } = model;
+  const { paths, ballPoints, ballEnd, ballEndClassName, touches, legend } = model;
+  // Per-player colours arrive as a value (not a class), so expose them to CSS via a
+  // custom property the team-coloured rules read with `var(--player-color, …)`.
+  const colorStyle = (color?: string) =>
+    color ? ({ "--player-color": color } as CSSProperties) : undefined;
   // Touch circles are drawn well above real scale so the numbers inside stay legible
   // on a thumbnail-sized diagram; the scoring touch is larger still.
   const touchRadius = projection.toUnits(200);
@@ -304,6 +342,7 @@ export function FieldDiagramSurface({
           <g
             key={path.key}
             className={`kickoff-path team-${teamColorClass(path.team)} ${path.groupClassName ?? ""}`}
+            style={colorStyle(path.color)}
           >
             <polyline
               className="kickoff-path-line"
@@ -336,6 +375,7 @@ export function FieldDiagramSurface({
             <g
               key={`touch-${index}`}
               className={`field-touch ${scoring ? "scoring" : "buildup"} team-${teamColorClass(touch.team)}`}
+              style={colorStyle(touch.color)}
             >
               <circle className="field-touch-dot" cx={touch.at.x} cy={touch.at.y} r={round(r)} />
               {touch.num != null ? (
@@ -352,6 +392,23 @@ export function FieldDiagramSurface({
           );
         })}
       </svg>
+      {legend?.length ? (
+        <ul className="goal-diagram-legend">
+          {legend.map((item) => (
+            <li
+              key={item.label}
+              className={`team-${teamColorClass(item.team)} ${item.isScorer ? "is-scorer" : ""}`}
+            >
+              <span
+                className="goal-diagram-legend-swatch"
+                style={{ background: item.color }}
+                aria-hidden="true"
+              />
+              <span className="goal-diagram-legend-name">{item.label}</span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </div>
   );
 }
