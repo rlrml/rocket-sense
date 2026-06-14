@@ -5067,7 +5067,6 @@ fn event_category_key(category: EventCategory) -> &'static str {
         EventCategory::Core => "core",
         EventCategory::Mechanic => "mechanic",
         EventCategory::Positioning => "positioning",
-        EventCategory::Movement => "movement",
         EventCategory::Other => "other",
         EventCategory::Annotation => "annotation",
         EventCategory::Context => "context",

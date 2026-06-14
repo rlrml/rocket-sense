@@ -2825,7 +2825,6 @@ fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
         subtr_actor::EventCategory::Core => "core",
         subtr_actor::EventCategory::Mechanic => "mechanic",
         subtr_actor::EventCategory::Positioning => "positioning",
-        subtr_actor::EventCategory::Movement => "movement",
         subtr_actor::EventCategory::Other => "other",
         subtr_actor::EventCategory::Annotation => "annotation",
         subtr_actor::EventCategory::Context => "context",
