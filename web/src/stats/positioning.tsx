@@ -1,12 +1,5 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import {
-  MetricMeter,
-  PlayerSegmentedBarRows,
-  StatPlayerLabel,
-  statPlayerRank,
-  type SegmentedBarSegment,
-  type StatPlayerRank,
-} from "./shared";
+import { SegmentedBar, type SegmentedBarSegment } from "./shared";
 
 export const positioningEventTypes = [
   // PlayerStateSpan facet streams (current analysis runs).
@@ -34,10 +27,8 @@ type PositioningRole = "no_teammates" | "most_back" | "mid" | "most_forward" | "
 interface PlayerPositioningSummary {
   key: string;
   name: string;
-  platform: string | null;
-  platformPlayerId: string | null;
-  rank: StatPlayerRank | null;
   team: number | null;
+  appearanceCount: number;
   activeSeconds: number;
   trackedSeconds: number;
   defensiveThirdSeconds: number;
@@ -64,24 +55,59 @@ const roleOrder: PositioningRole[] = ["most_back", "mid", "most_forward", "other
 export function PositioningDetail({
   events,
   players,
+  durationSeconds,
+  scope = "replay",
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  scope?: "replay" | "group";
 }) {
-  const summaries = playerPositioningSummaries(players, events);
+  const summaries = playerPositioningSummaries(players, events, scope);
+  const isGroup = scope === "group";
+  const trackedSeconds = sumBy(summaries, (summary) => summary.trackedSeconds);
+  const measuredSeconds = isGroup ? sumBy(summaries, summaryMeasuredSeconds) : trackedSeconds;
+  const activeSeconds = sumBy(summaries, (summary) => summary.activeSeconds);
+  const offensiveHalfSeconds = sumBy(summaries, (summary) => summary.offensiveHalfSeconds);
+  const closestAbsoluteSeconds = sumBy(summaries, (summary) => summary.closestAbsoluteSeconds);
+  const caughtAheadGoals = sumBy(summaries, (summary) => summary.caughtAheadGoals);
+  const chartSeconds = Math.max(1, measuredSeconds, activeSeconds, durationSeconds ?? 0);
 
   return (
     <div className="positioning-detail">
+      <div className="positioning-summary-grid">
+        <PositioningMetric
+          label={isGroup ? "Measured time" : "Tracked time"}
+          value={formatSeconds(measuredSeconds)}
+          detail={isGroup ? "player-seconds" : `${formatSeconds(chartSeconds)} chart span`}
+        />
+        <PositioningMetric
+          label="Offensive half"
+          value={formatPercent(offensiveHalfSeconds, trackedSeconds)}
+          detail={formatSeconds(offensiveHalfSeconds)}
+        />
+        <PositioningMetric
+          label="Closest overall"
+          value={formatPercent(closestAbsoluteSeconds, trackedSeconds)}
+          detail={formatSeconds(closestAbsoluteSeconds)}
+        />
+        <PositioningMetric
+          label="Caught ahead"
+          value={caughtAheadGoals.toLocaleString()}
+          detail="conceded goals"
+        />
+      </div>
+
       <div className="stat-section-grid">
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Field position</h3>
+            <h3>{isGroup ? "Field position leaderboard" : "Field position"}</h3>
             <span>Defensive, neutral, offensive thirds</span>
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No field-zone positioning spans are available for this replay."
+            scope={scope}
+            emptyLabel={`No field-zone positioning spans are available for this ${isGroup ? "group" : "replay"}.`}
             segments={(summary) => [
               positioningSegment(
                 "defensive",
@@ -102,19 +128,19 @@ export function PositioningDetail({
                 summary.trackedSeconds,
               ),
             ]}
-            sortValue={(summary) => share(summary.offensiveThirdSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
           />
         </section>
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Ball depth</h3>
+            <h3>{isGroup ? "Ball depth leaderboard" : "Ball depth"}</h3>
             <span>Behind, level, and ahead of the ball</span>
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No ball-depth positioning spans are available for this replay."
+            scope={scope}
+            emptyLabel={`No ball-depth positioning spans are available for this ${isGroup ? "group" : "replay"}.`}
             segments={(summary) => [
               positioningSegment(
                 "behind",
@@ -135,19 +161,19 @@ export function PositioningDetail({
                 summary.trackedSeconds,
               ),
             ]}
-            sortValue={(summary) => share(summary.inFrontOfBallSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
           />
         </section>
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Teammate role</h3>
+            <h3>{isGroup ? "Rotation role leaderboard" : "Teammate role"}</h3>
             <span>Most back, mid, most forward</span>
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No teammate-role spans are available for this replay."
+            scope={scope}
+            emptyLabel={`No teammate-role spans are available for this ${isGroup ? "group" : "replay"}.`}
             segments={(summary) =>
               roleOrder.map((role) =>
                 positioningSegment(
@@ -158,60 +184,36 @@ export function PositioningDetail({
                 ),
               )
             }
-            sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
             total={roleTotal}
           />
         </section>
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Ball priority</h3>
-            <span>Closest, other, and farthest from the ball</span>
+            <h3>{isGroup ? "Spacing & proximity leaderboard" : "Spacing & proximity"}</h3>
+            <span>Average distances and ball priority</span>
           </header>
-          <PositioningBarRows
-            summaries={summaries}
-            emptyLabel="No ball-priority spans are available for this replay."
-            segments={(summary) => [
-              positioningSegment(
-                "closest",
-                "Closest",
-                summary.closestTeamSeconds,
-                ballPriorityTotal(summary),
-              ),
-              positioningSegment(
-                "other",
-                "Other",
-                otherBallPrioritySeconds(summary),
-                ballPriorityTotal(summary),
-              ),
-              positioningSegment(
-                "farthest",
-                "Farthest",
-                summary.farthestSeconds,
-                ballPriorityTotal(summary),
-              ),
-            ]}
-            sortValue={(summary) => share(summary.closestTeamSeconds, ballPriorityTotal(summary))}
-            total={ballPriorityTotal}
-          />
-        </section>
-
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Spacing & proximity</h3>
-            <span>Average distances and conceded-goal context</span>
-          </header>
-          <PositioningProximityChart summaries={summaries} />
-        </section>
-
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Raw totals</h3>
-            <span>Seconds, counts, and average distances behind the charts</span>
-          </header>
-          <PositioningRawTotalsTable summaries={summaries} />
+          <PositioningTable summaries={summaries} scope={scope} />
         </section>
       </div>
+    </div>
+  );
+}
+
+function PositioningMetric({
+  label,
+  value,
+  detail,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+}) {
+  return (
+    <div className="positioning-metric">
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <span>{detail}</span>
     </div>
   );
 }
@@ -219,156 +221,78 @@ export function PositioningDetail({
 function PositioningBarRows({
   summaries,
   segments,
-  sortValue,
   total,
   emptyLabel,
+  scope,
 }: {
   summaries: PlayerPositioningSummary[];
   segments: (summary: PlayerPositioningSummary) => SegmentedBarSegment[];
-  sortValue?: (summary: PlayerPositioningSummary) => number;
   total: (summary: PlayerPositioningSummary) => number;
   emptyLabel: string;
+  scope: "replay" | "group";
 }) {
-  return (
-    <PlayerSegmentedBarRows
-      ariaLabel={(summary) => `${summary.name} positioning split`}
-      className="positioning-bar-rows"
-      emptyLabel={emptyLabel}
-      items={summaries}
-      label={positioningPlayerLabel}
-      segments={segments}
-      sortItems={(items) => sortedSummaries(items, sortValue)}
-      total={total}
-      trackClassName="positioning-track"
-    />
-  );
-}
-
-function PositioningProximityChart({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  const rows = sortedSummaries(summaries, (summary) =>
-    share(summary.closestTeamSeconds, summary.trackedSeconds),
-  ).map((summary) => ({
-    summary,
-    ballDistance: weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
-    teammateDistance: weightedAverage(
-      summary.distanceToTeammatesWeighted,
-      summary.distanceToTeammatesWeight,
-    ),
-  }));
-  const maxDistance = Math.max(
-    1,
-    ...rows.flatMap((row) => [row.ballDistance ?? 0, row.teammateDistance ?? 0]),
-  );
-  const maxCaughtAhead = Math.max(1, ...summaries.map((summary) => summary.caughtAheadGoals));
-  const showCaughtAhead = summaries.some((summary) => summary.caughtAheadGoals > 0);
-
-  if (
-    !summaries.some(
-      (summary) =>
-        summary.trackedSeconds > 0 ||
-        summary.distanceToBallWeight > 0 ||
-        summary.distanceToTeammatesWeight > 0,
-    )
-  ) {
-    return (
-      <div className="stat-empty">No distance or proximity rows are available for this replay.</div>
-    );
+  if (!summaries.some((summary) => total(summary) > 0)) {
+    return <div className="stat-empty">{emptyLabel}</div>;
   }
 
   return (
-    <div className="positioning-proximity-chart">
-      {rows.map(({ summary, ballDistance, teammateDistance }) => (
-        <div className="positioning-proximity-row" key={summary.key}>
-          {positioningPlayerLabel(summary)}
-          <div className="positioning-proximity-meters">
-            <MetricMeter
-              className="positioning-meter-distance-ball"
-              label="Avg ball"
-              percent={barPercent(ballDistance, maxDistance)}
-              value={formatDistance(ballDistance)}
-            />
-            <MetricMeter
-              className="positioning-meter-distance-team"
-              label="Avg team"
-              percent={barPercent(teammateDistance, maxDistance)}
-              value={formatDistance(teammateDistance)}
-            />
-            {showCaughtAhead ? (
-              <MetricMeter
-                className="positioning-meter-caught"
-                label="Caught"
-                percent={barPercent(summary.caughtAheadGoals, maxCaughtAhead)}
-                value={summary.caughtAheadGoals.toLocaleString()}
-              />
-            ) : null}
+    <div className="positioning-bar-rows">
+      {summaries.map((summary) => (
+        <div className="positioning-bar-row" key={summary.key}>
+          <div
+            className={`player-bar-label team-accent-${scope === "group" ? "unknown" : teamClass(summary.team)}`}
+          >
+            <strong>{summary.name}</strong>
+            <span>{positioningPlayerContext(summary, scope)}</span>
           </div>
+          <SegmentedBar
+            ariaLabel={`${summary.name} positioning split`}
+            className="positioning-track"
+            segments={segments(summary)}
+            total={total(summary)}
+          />
         </div>
       ))}
     </div>
   );
 }
 
-function positioningPlayerLabel(summary: PlayerPositioningSummary) {
-  return (
-    <StatPlayerLabel
-      className={`team-accent-${teamClass(summary.team)}`}
-      name={summary.name}
-      platform={summary.platform}
-      profilePath={playerProfilePath(summary)}
-      rank={summary.rank}
-      subtitle={teamLabel(summary.team)}
-    />
-  );
-}
-
-function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioningSummary[] }) {
-  if (!summaries.some((summary) => summary.trackedSeconds > 0 || roleTotal(summary) > 0)) {
+function PositioningTable({
+  summaries,
+  scope,
+}: {
+  summaries: PlayerPositioningSummary[];
+  scope: "replay" | "group";
+}) {
+  if (!summaries.some((summary) => summary.trackedSeconds > 0)) {
     return (
-      <div className="stat-empty">No raw positioning totals are available for this replay.</div>
+      <div className="stat-empty">
+        No distance or proximity rows are available for this{" "}
+        {scope === "group" ? "group" : "replay"}.
+      </div>
     );
   }
 
   return (
-    <div className="table-frame compact-table positioning-table positioning-raw-table">
+    <div className="table-frame compact-table positioning-table">
       <table>
         <thead>
           <tr>
             <th>Player</th>
-            <th>Tracked</th>
-            <th>Def</th>
-            <th>Neutral</th>
-            <th>Off</th>
-            <th>Behind</th>
-            <th>Level</th>
-            <th>Ahead</th>
-            <th>Back</th>
-            <th>Mid</th>
-            <th>Forward</th>
-            <th>Closest</th>
-            <th>Other</th>
-            <th>Farthest</th>
             <th>Avg ball</th>
             <th>Avg team</th>
-            <th>Caught</th>
+            <th>Closest</th>
+            <th>Farthest</th>
+            <th>Caught ahead</th>
           </tr>
         </thead>
         <tbody>
           {summaries.map((summary) => (
             <tr key={summary.key}>
-              <td>{positioningPlayerLabel(summary)}</td>
-              <td>{formatSeconds(summary.trackedSeconds)}</td>
-              <td>{formatSeconds(summary.defensiveThirdSeconds)}</td>
-              <td>{formatSeconds(summary.neutralThirdSeconds)}</td>
-              <td>{formatSeconds(summary.offensiveThirdSeconds)}</td>
-              <td>{formatSeconds(summary.behindBallSeconds)}</td>
-              <td>{formatSeconds(summary.levelWithBallSeconds)}</td>
-              <td>{formatSeconds(summary.inFrontOfBallSeconds)}</td>
-              <td>{formatSeconds(summary.roleSeconds.most_back)}</td>
-              <td>{formatSeconds(summary.roleSeconds.mid)}</td>
-              <td>{formatSeconds(summary.roleSeconds.most_forward)}</td>
-              <td>{formatSeconds(summary.closestTeamSeconds)}</td>
-              <td>{formatSeconds(otherBallPrioritySeconds(summary))}</td>
-              <td>{formatSeconds(summary.farthestSeconds)}</td>
+              <td>
+                <strong>{summary.name}</strong>
+                <div className="subtle">{positioningPlayerContext(summary, scope)}</div>
+              </td>
               <td>
                 {formatDistance(
                   weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight),
@@ -382,6 +306,8 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
                   ),
                 )}
               </td>
+              <td>{formatPercent(summary.closestTeamSeconds, summary.trackedSeconds)}</td>
+              <td>{formatPercent(summary.farthestSeconds, summary.trackedSeconds)}</td>
               <td>{summary.caughtAheadGoals.toLocaleString()}</td>
             </tr>
           ))}
@@ -394,6 +320,7 @@ function PositioningRawTotalsTable({ summaries }: { summaries: PlayerPositioning
 function playerPositioningSummaries(
   players: ReplayPlayer[],
   events: MechanicEventResponse[],
+  scope: "replay" | "group",
 ): PlayerPositioningSummary[] {
   const summaries = players.map(emptySummary);
   const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
@@ -514,17 +441,15 @@ function playerPositioningSummaries(
     }
   }
 
-  return summaries.sort(compareSummaries);
+  return summaries.sort((left, right) => compareSummaries(left, right, scope));
 }
 
 function emptySummary(player: ReplayPlayer, index: number): PlayerPositioningSummary {
   return {
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
-    platform: player.platform,
-    platformPlayerId: player.platform_player_id,
-    rank: statPlayerRank(player),
     team: player.team,
+    appearanceCount: player.appearance_count ?? 1,
     activeSeconds: player.active_time_seconds ?? 0,
     trackedSeconds: 0,
     defensiveThirdSeconds: 0,
@@ -607,14 +532,6 @@ function roleTotal(summary: PlayerPositioningSummary): number {
   return roleOrder.reduce((total, role) => total + summary.roleSeconds[role], 0);
 }
 
-function otherBallPrioritySeconds(summary: PlayerPositioningSummary): number {
-  return Math.max(0, summary.trackedSeconds - summary.closestTeamSeconds - summary.farthestSeconds);
-}
-
-function ballPriorityTotal(summary: PlayerPositioningSummary): number {
-  return summary.closestTeamSeconds + otherBallPrioritySeconds(summary) + summary.farthestSeconds;
-}
-
 function addWeightedPayload(
   payload: Record<string, unknown>,
   key: string,
@@ -630,31 +547,50 @@ function weightedAverage(weightedValue: number, weight: number): number | null {
   return weight > 0 ? weightedValue / weight : null;
 }
 
-function sortedSummaries(
-  summaries: PlayerPositioningSummary[],
-  sortValue: ((summary: PlayerPositioningSummary) => number) | undefined,
-): PlayerPositioningSummary[] {
-  if (!sortValue) return summaries;
-  return summaries.slice().sort((left, right) => {
-    const valueDiff = sortValue(right) - sortValue(left);
-    return valueDiff || compareSummaries(left, right);
-  });
+function sumBy<T>(items: T[], value: (item: T) => number): number {
+  return items.reduce((total, item) => total + value(item), 0);
 }
 
-function compareSummaries(left: PlayerPositioningSummary, right: PlayerPositioningSummary): number {
-  if (left.team !== right.team) return (left.team ?? 9) - (right.team ?? 9);
-  return right.trackedSeconds - left.trackedSeconds || left.name.localeCompare(right.name);
+function compareSummaries(
+  left: PlayerPositioningSummary,
+  right: PlayerPositioningSummary,
+  scope: "replay" | "group",
+): number {
+  if (scope === "replay" && left.team !== right.team) return (left.team ?? 9) - (right.team ?? 9);
+  return (
+    summaryMeasuredSeconds(right) - summaryMeasuredSeconds(left) ||
+    left.name.localeCompare(right.name)
+  );
+}
+
+function positioningPlayerContext(
+  summary: PlayerPositioningSummary,
+  scope: "replay" | "group",
+): string {
+  if (scope === "group") {
+    return `${formatGames(summary.appearanceCount)} · ${formatSeconds(summaryMeasuredSeconds(summary))} measured`;
+  }
+  return teamLabel(summary.team);
+}
+
+function summaryMeasuredSeconds(summary: PlayerPositioningSummary): number {
+  return Math.max(
+    summary.trackedSeconds,
+    roleTotal(summary),
+    summary.activeSeconds,
+    summary.distanceToBallWeight,
+    summary.distanceToTeammatesWeight,
+  );
+}
+
+function formatGames(value: number): string {
+  return value === 1 ? "1 game" : `${value.toLocaleString()} games`;
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {
   if (player.platform && player.platform_player_id)
     return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
   return `name:${player.name || index}`;
-}
-
-function playerProfilePath(summary: PlayerPositioningSummary): string | null {
-  if (!summary.platform || !summary.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/positioning`;
 }
 
 function remoteIdKey(value: unknown): string | null {
@@ -734,15 +670,6 @@ function roleLabel(role: PositioningRole): string {
 
 function percentage(value: number, total: number): number {
   return total > 0 ? (value / total) * 100 : 0;
-}
-
-function share(value: number, total: number): number {
-  return total > 0 ? value / total : 0;
-}
-
-function barPercent(value: number | null, max: number): number {
-  if (value == null || !Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return 0;
-  return (value / max) * 100;
 }
 
 function formatSeconds(value: number): string {
