@@ -190,6 +190,7 @@ export function PlayerSegmentedBarRows<T>({
   rowClassName = "positioning-bar-row",
   segments,
   sortItems,
+  style,
   total,
   trackClassName,
 }: {
@@ -201,6 +202,8 @@ export function PlayerSegmentedBarRows<T>({
   rowClassName?: string;
   segments: (item: T) => SegmentedBarSegment[];
   sortItems?: (items: T[]) => T[];
+  /** Extra CSS vars for the rows, e.g. outcomeDistributionColorStyle(colors). */
+  style?: CSSProperties;
   total: (item: T) => number;
   trackClassName: string;
 }) {
@@ -211,7 +214,7 @@ export function PlayerSegmentedBarRows<T>({
   const rows = sortItems ? sortItems(items) : items;
 
   return (
-    <div className={className}>
+    <div className={className} style={style}>
       {rows.map((item, index) => (
         <div className={rowClassName} key={rowKey(item, index)}>
           {label(item)}

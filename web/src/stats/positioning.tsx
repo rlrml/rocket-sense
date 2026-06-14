@@ -1,11 +1,17 @@
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
   MetricMeter,
+  type OutcomeDistributionLevel,
+  type OutcomeDistributionTone,
+  outcomeDistributionColorStyle,
+  outcomeSegmentClassName,
   PlayerSegmentedBarRows,
+  type SegmentedBarSegment,
   StatPlayerLabel,
   statPlayerRank,
-  type SegmentedBarSegment,
   type StatPlayerRank,
+  TEAM_OUTCOME_COLORS,
+  teamOutcomeTone,
 } from "./shared";
 
 export const positioningEventTypes = [
@@ -82,26 +88,35 @@ export function PositioningDetail({
           <PositioningBarRows
             summaries={summaries}
             emptyLabel="No field-zone positioning spans are available for this replay."
-            segments={(summary) => [
-              positioningSegment(
-                "defensive",
-                "Defensive",
-                summary.defensiveThirdSeconds,
-                summary.trackedSeconds,
-              ),
-              positioningSegment(
-                "neutral",
-                "Neutral",
-                summary.neutralThirdSeconds,
-                summary.trackedSeconds,
-              ),
-              positioningSegment(
-                "offensive",
-                "Offensive",
-                summary.offensiveThirdSeconds,
-                summary.trackedSeconds,
-              ),
-            ]}
+            segments={(summary) => {
+              const tone = teamOutcomeTone(summary.team);
+              return [
+                positioningSegment(
+                  "defensive",
+                  "Defensive",
+                  summary.defensiveThirdSeconds,
+                  summary.trackedSeconds,
+                  tone,
+                  SEGMENT_LEVELS[0],
+                ),
+                positioningSegment(
+                  "neutral",
+                  "Neutral",
+                  summary.neutralThirdSeconds,
+                  summary.trackedSeconds,
+                  tone,
+                  SEGMENT_LEVELS[1],
+                ),
+                positioningSegment(
+                  "offensive",
+                  "Offensive",
+                  summary.offensiveThirdSeconds,
+                  summary.trackedSeconds,
+                  tone,
+                  SEGMENT_LEVELS[2],
+                ),
+              ];
+            }}
             sortValue={(summary) => share(summary.offensiveThirdSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
           />
@@ -115,26 +130,35 @@ export function PositioningDetail({
           <PositioningBarRows
             summaries={summaries}
             emptyLabel="No ball-depth positioning spans are available for this replay."
-            segments={(summary) => [
-              positioningSegment(
-                "behind",
-                "Behind ball",
-                summary.behindBallSeconds,
-                summary.trackedSeconds,
-              ),
-              positioningSegment(
-                "level",
-                "Level",
-                summary.levelWithBallSeconds,
-                summary.trackedSeconds,
-              ),
-              positioningSegment(
-                "ahead",
-                "Ahead",
-                summary.inFrontOfBallSeconds,
-                summary.trackedSeconds,
-              ),
-            ]}
+            segments={(summary) => {
+              const tone = teamOutcomeTone(summary.team);
+              return [
+                positioningSegment(
+                  "behind",
+                  "Behind ball",
+                  summary.behindBallSeconds,
+                  summary.trackedSeconds,
+                  tone,
+                  SEGMENT_LEVELS[0],
+                ),
+                positioningSegment(
+                  "level",
+                  "Level",
+                  summary.levelWithBallSeconds,
+                  summary.trackedSeconds,
+                  tone,
+                  SEGMENT_LEVELS[1],
+                ),
+                positioningSegment(
+                  "ahead",
+                  "Ahead",
+                  summary.inFrontOfBallSeconds,
+                  summary.trackedSeconds,
+                  tone,
+                  SEGMENT_LEVELS[2],
+                ),
+              ];
+            }}
             sortValue={(summary) => share(summary.inFrontOfBallSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
           />
@@ -148,16 +172,20 @@ export function PositioningDetail({
           <PositioningBarRows
             summaries={summaries}
             emptyLabel="No teammate-role spans are available for this replay."
-            segments={(summary) =>
-              roleOrder.map((role) =>
-                positioningSegment(
+            segments={(summary) => {
+              const tone = teamOutcomeTone(summary.team);
+              return roleOrder.map((role) => {
+                const shade = roleShade[role];
+                return positioningSegment(
                   `role-${role}`,
                   roleLabel(role),
                   summary.roleSeconds[role],
                   roleTotal(summary),
-                ),
-              )
-            }
+                  shade.neutral ? "neutral" : tone,
+                  shade.level,
+                );
+              });
+            }}
             sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
             total={roleTotal}
           />
@@ -171,26 +199,35 @@ export function PositioningDetail({
           <PositioningBarRows
             summaries={summaries}
             emptyLabel="No ball-priority spans are available for this replay."
-            segments={(summary) => [
-              positioningSegment(
-                "closest",
-                "Closest",
-                summary.closestTeamSeconds,
-                ballPriorityTotal(summary),
-              ),
-              positioningSegment(
-                "other",
-                "Other",
-                otherBallPrioritySeconds(summary),
-                ballPriorityTotal(summary),
-              ),
-              positioningSegment(
-                "farthest",
-                "Farthest",
-                summary.farthestSeconds,
-                ballPriorityTotal(summary),
-              ),
-            ]}
+            segments={(summary) => {
+              const tone = teamOutcomeTone(summary.team);
+              return [
+                positioningSegment(
+                  "closest",
+                  "Closest",
+                  summary.closestTeamSeconds,
+                  ballPriorityTotal(summary),
+                  tone,
+                  SEGMENT_LEVELS[0],
+                ),
+                positioningSegment(
+                  "other",
+                  "Other",
+                  otherBallPrioritySeconds(summary),
+                  ballPriorityTotal(summary),
+                  tone,
+                  SEGMENT_LEVELS[1],
+                ),
+                positioningSegment(
+                  "farthest",
+                  "Farthest",
+                  summary.farthestSeconds,
+                  ballPriorityTotal(summary),
+                  tone,
+                  SEGMENT_LEVELS[2],
+                ),
+              ];
+            }}
             sortValue={(summary) => share(summary.closestTeamSeconds, ballPriorityTotal(summary))}
             total={ballPriorityTotal}
           />
@@ -238,6 +275,7 @@ function PositioningBarRows({
       label={positioningPlayerLabel}
       segments={segments}
       sortItems={(items) => sortedSummaries(items, sortValue)}
+      style={outcomeDistributionColorStyle(TEAM_OUTCOME_COLORS)}
       total={total}
       trackClassName="positioning-track"
     />
@@ -583,17 +621,35 @@ function positioningSegment(
   label: string,
   seconds: number,
   total: number,
+  tone: OutcomeDistributionTone,
+  level: OutcomeDistributionLevel,
 ): SegmentedBarSegment {
   const percent = percentage(seconds, total);
   return {
     key: id,
-    className: `positioning-segment-${id}`,
+    // Tint each player's split in their team color, telling the categories apart
+    // by shade (light -> dark) the same way the movement bands do.
+    className: outcomeSegmentClassName(tone, level),
     label,
     value: seconds,
     visibleLabel: percent >= 10 ? `${label}: ${formatPercent(seconds, total)}` : undefined,
     title: `${label}: ${formatSeconds(seconds)} (${formatPercent(seconds, total)})`,
   };
 }
+
+// Ordered shade ramp for a player's split: categories go light -> dark in the
+// order they render (e.g. defensive -> neutral -> offensive). "Other"/no-role
+// buckets fall back to the neutral (grey) tone regardless of team.
+const SEGMENT_LEVELS: OutcomeDistributionLevel[] = ["unknown", "clear", "strong"];
+
+const roleShade: Record<PositioningRole, { neutral?: boolean; level: OutcomeDistributionLevel }> = {
+  most_back: { level: "unknown" },
+  mid: { level: "clear" },
+  most_forward: { level: "strong" },
+  other: { neutral: true, level: "clear" },
+  no_teammates: { neutral: true, level: "clear" },
+  unknown: { neutral: true, level: "clear" },
+};
 
 function eventDuration(event: MechanicEventResponse): number {
   const duration = numberPayload(event.payload, "duration");

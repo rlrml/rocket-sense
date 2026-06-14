@@ -2703,27 +2703,13 @@ tbody tr:last-child td {
   text-align: right;
 }
 
-.source-segment.positioning-segment-defensive,
-.source-segment.positioning-segment-behind,
-.source-segment.positioning-segment-role-most_back,
-.source-segment.positioning-segment-closest {
-  background: #0f766e;
-}
-
-.source-segment.positioning-segment-neutral,
-.source-segment.positioning-segment-level,
-.source-segment.positioning-segment-role-mid,
-.source-segment.positioning-segment-role-other,
-.source-segment.positioning-segment-role-no_teammates,
-.source-segment.positioning-segment-other {
-  background: #64748b;
-}
-
-.source-segment.positioning-segment-offensive,
-.source-segment.positioning-segment-ahead,
-.source-segment.positioning-segment-role-most_forward,
-.source-segment.positioning-segment-farthest {
-  background: #be123c;
+/* Positioning splits are team-tinted via the shared outcome-distribution
+   classes (set on each segment) plus the TEAM_OUTCOME_COLORS palette vars on
+   .positioning-bar-rows. Light shades need dark labels to stay legible. */
+.positioning-track .outcome-dist-level-unknown .source-segment-label,
+.positioning-track .outcome-dist-neutral .source-segment-label {
+  color: #1e293b;
+  text-shadow: none;
 }
 
 .positioning-proximity-chart {
