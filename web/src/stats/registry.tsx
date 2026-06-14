@@ -19,6 +19,8 @@ import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
 import { MovementDetail, movementEventTypes } from "./movement";
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
+import { RotationDetail, rotationEventTypes } from "./rotation";
+import { TouchesDetail, touchEventTypes } from "./touches";
 
 export interface StatDetailProps {
   events: MechanicEventResponse[];
@@ -137,11 +139,13 @@ export const statGroups: StatGroup[] = [
     id: "touches",
     label: "Touches",
     icon: Hand,
-    description: "Touches, shots, saves, clears, passes, assists, and ball interaction volume.",
-    terms: ["touch", "shot", "save", "clear", "pass", "assist", "goal", "ball"],
-    completed: false,
-    usesAggregateStats: true,
-    eventTypes: [],
+    description:
+      "Touches, shots, saves, passes, assists, whiffs, bumps, 50/50s, and ball interaction volume.",
+    terms: ["touch", "shot", "save", "pass", "assist", "goal", "ball", "whiff", "bump"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: touchEventTypes,
+    Detail: TouchesDetail,
   },
   {
     id: "possession",
@@ -161,9 +165,10 @@ export const statGroups: StatGroup[] = [
     icon: RotateCw,
     description: "First/second/third-man patterns, role timing, rotation depth, and spacing.",
     terms: ["rotation", "first", "second", "third", "role", "stint", "most back", "most forward"],
-    completed: false,
-    usesAggregateStats: true,
-    eventTypes: [],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: rotationEventTypes,
+    Detail: RotationDetail,
   },
 ];
 
