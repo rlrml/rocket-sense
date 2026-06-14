@@ -5703,34 +5703,28 @@ tbody tr:last-child td {
   .goal-card:has(.goal-diagram-panel):hover {
     transform: none;
   }
-
-  .goal-card:has(.goal-diagram-panel):hover > .goal-diagram-panel {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    right: auto;
-    bottom: auto;
-    height: min(68vh, 58vw);
-    width: auto;
-    transform: translate(-50%, -50%);
-    z-index: 200;
-    padding: 10px;
-    border-radius: 10px;
-    background: #f8fafc;
-    box-shadow: 0 24px 64px rgba(15, 23, 42, 0.45);
-    animation: goal-diagram-zoom 0.32s cubic-bezier(0.16, 1, 0.3, 1);
-  }
 }
 
-@keyframes goal-diagram-zoom {
-  from {
-    transform: translate(-50%, -50%) scale(0.5);
-    opacity: 0;
-  }
-  to {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
-  }
+/* On hover, JS adds .is-expanded and FLIP-animates the panel from its in-card
+   thumbnail rect into this centred, viewport-clamped overlay — so it grows out of
+   its original position but can never run off-screen. Centred via inset+auto margins
+   (not a transform) so the FLIP is free to drive `transform`. More specific than the
+   resting rule so it wins. */
+.goal-card:has(.goal-diagram-panel) > .goal-diagram-panel.is-expanded {
+  position: fixed;
+  inset: 0;
+  margin: auto;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: min(68vh, 58vw);
+  width: auto;
+  z-index: 200;
+  padding: 10px;
+  border-radius: 10px;
+  background: #f8fafc;
+  box-shadow: 0 24px 64px rgba(15, 23, 42, 0.45);
 }
 
 .goal-card:has(.goal-diagram-panel) .kickoff-path-diagram {

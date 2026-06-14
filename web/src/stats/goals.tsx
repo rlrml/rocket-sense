@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo } from "react";
+import { lazy, Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
@@ -299,12 +299,45 @@ export function GoalCard({
 }) {
   const navigate = useNavigate();
   const diagramPlayers = useMemo(() => goalPathPlayers(goal), [goal]);
+
+  // Hover lifts the buildup diagram into a centred, viewport-clamped overlay, but
+  // FLIP-animated so it grows out of its in-card thumbnail position rather than just
+  // popping in at the centre. We snapshot the thumbnail rect before the class flips,
+  // then in a layout effect invert the change and let it transition to identity.
+  const panelRef = useRef<HTMLElement | null>(null);
+  const firstRectRef = useRef<DOMRect | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const snapshotPanel = () => {
+    firstRectRef.current = panelRef.current?.getBoundingClientRect() ?? null;
+  };
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    const first = firstRectRef.current;
+    if (!el || !first || !first.width) return;
+    const last = el.getBoundingClientRect();
+    if (!last.width) return;
+    el.style.transformOrigin = "top left";
+    el.style.transition = "none";
+    el.style.transform = `translate(${first.left - last.left}px, ${first.top - last.top}px) scale(${first.width / last.width}, ${first.height / last.height})`;
+    void el.getBoundingClientRect();
+    el.style.transition = "transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)";
+    el.style.transform = "";
+  }, [expanded]);
+
   return (
     <button
       type="button"
       className={`goal-card kickoff-card winner-${teamClass(goal.scoringTeam)} ${active ? "selected" : ""}`}
       onClick={() => onActivate(true)}
-      onMouseEnter={() => onActivate(false)}
+      onMouseEnter={() => {
+        onActivate(false);
+        snapshotPanel();
+        setExpanded(true);
+      }}
+      onMouseLeave={() => {
+        snapshotPanel();
+        setExpanded(false);
+      }}
       onFocus={() => onActivate(false)}
     >
       <div className="goal-card-info">
@@ -373,7 +406,7 @@ export function GoalCard({
         </div>
       </div>
       {replayId ? (
-        <section className="goal-diagram-panel">
+        <section ref={panelRef} className={`goal-diagram-panel ${expanded ? "is-expanded" : ""}`}>
           <Suspense fallback={<div className="kickoff-path-status">Loading goal paths…</div>}>
             <GoalShapeDiagram
               replayId={replayId}
