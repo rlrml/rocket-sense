@@ -2226,17 +2226,10 @@ tbody tr:last-child td {
   dominant-baseline: central;
 }
 
-/* The decisive scoring touch is the biggest, with a white ring so it reads as the
-   finish (its number is the last in the sequence). */
+/* The decisive scoring touch is just the biggest circle (its number is the last in
+   the sequence). */
 .field-touch.scoring .field-touch-dot {
   stroke-width: 1.5;
-}
-
-.field-touch-ring {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 3;
-  filter: drop-shadow(0 0 2px rgba(15, 23, 42, 0.55));
 }
 
 /* Arrow fledge at the end of each run — quiet, points the way the player travelled. */
