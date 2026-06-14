@@ -4,39 +4,38 @@ import { fieldProjection, type FieldProjection, KickoffFieldBackground } from ".
 import { preloadReplayModel } from "./replayModel";
 import { clampFrame, matchPlayer, type PathPlayerRef, pointsToString, sampleBallPath, samplePath } from "./replayPaths";
 
-export interface KickoffPathPlayer extends PathPlayerRef {
+export interface GoalPathPlayer extends PathPlayerRef {
   team: number | null;
-  role: "taker" | "support";
+  /** The scorer's path is emphasized the way the kickoff winner's is. */
+  isScorer: boolean;
 }
 
-export interface KickoffShapeDiagramProps {
+export interface GoalShapeDiagramProps {
   replayId: string;
-  /** Frame the live action begins (countdown -> 0); paths start here. */
+  /** Start of the buildup window (a few seconds before the goal); paths start here. */
   startFrame: number | null;
-  /** Frame the kickoff resolves (first follow-up touch, else the kickoff end); paths end here. */
-  endFrame: number | null;
-  winningTeam: number | null;
-  players: KickoffPathPlayer[];
+  /** Frame the ball crosses the line; paths end here and the ball marker lands. */
+  goalFrame: number | null;
+  players: GoalPathPlayer[];
 }
 
 interface ResolvedPath {
   playerName: string;
   team: number;
-  role: "taker" | "support";
-  isWinner: boolean;
+  isScorer: boolean;
   points: string;
   start: { x: number; y: number } | null;
   end: { x: number; y: number } | null;
 }
 
-// How many frames to show past the kickoff start when no follow-up touch frame is
-// available, so the diagram still shows a meaningful slice of movement.
-const FALLBACK_PATH_FRAMES = 150;
-// Resample paths down to at most this many points; kickoff windows are short, but
-// this keeps the SVG light if a replay has an unusually high frame rate.
-const MAX_PATH_POINTS = 90;
+// Frames of buildup to show before the goal when no explicit start frame is given.
+// Replay tracks sample at ~30Hz, so this is roughly a five-second lead-in — long
+// enough to read the developing play without crowding the diagram.
+const FALLBACK_BUILDUP_FRAMES = 150;
+// Goal windows run longer than kickoffs, so allow a few more points per path.
+const MAX_PATH_POINTS = 120;
 
-export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTeam, players }: KickoffShapeDiagramProps) {
+export function GoalShapeDiagram({ replayId, startFrame, goalFrame, players }: GoalShapeDiagramProps) {
   const [replay, setReplay] = useState<ReplayModel | null>(null);
   const [error, setError] = useState<string | null>(null);
   const markerId = useId().replace(/:/g, "");
@@ -60,15 +59,15 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
   const projection = useMemo(() => fieldProjection(520, 60, "landscape"), []);
 
   const extracted = useMemo(
-    () => (replay ? extractPaths(replay, projection, startFrame, endFrame, winningTeam, players) : null),
-    [replay, projection, startFrame, endFrame, winningTeam, players],
+    () => (replay ? extractPaths(replay, projection, startFrame, goalFrame, players) : null),
+    [replay, projection, startFrame, goalFrame, players],
   );
 
   if (error) {
     return <div className="kickoff-path-status">Couldn&apos;t load replay paths: {error}</div>;
   }
   if (!replay || !extracted) {
-    return <div className="kickoff-path-status">Loading kickoff paths…</div>;
+    return <div className="kickoff-path-status">Loading goal paths…</div>;
   }
 
   const { paths, ballPoints, ballEnd } = extracted;
@@ -79,7 +78,7 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
         className="kickoff-path-svg"
         viewBox={`0 0 ${projection.width} ${projection.height}`}
         role="img"
-        aria-label="Kickoff player paths and ball trajectory"
+        aria-label="Goal buildup player paths and ball trajectory"
       >
         <defs>
           <marker id={`${markerId}-arrow-blue`} className="kickoff-arrow blue" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto">
@@ -90,18 +89,18 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
           </marker>
         </defs>
 
-        <KickoffFieldBackground projection={projection} ballRadius={projection.toUnits(120)} />
+        <KickoffFieldBackground projection={projection} showCenter={false} ballRadius={projection.toUnits(120)} />
 
-        {/* Ball trajectory through the kickoff, up to its resolution (follow-up touch or kickoff end). */}
+        {/* Ball trajectory through the buildup, ending where it crosses the line. */}
         {ballPoints ? <polyline className="kickoff-ball-path" points={ballPoints} vectorEffect="non-scaling-stroke" /> : null}
         {ballEnd ? (
-          <circle className="kickoff-ball-end" cx={ballEnd.x} cy={ballEnd.y} r={projection.toUnits(150)} vectorEffect="non-scaling-stroke" />
+          <circle className="kickoff-ball-end goal-ball-end" cx={ballEnd.x} cy={ballEnd.y} r={projection.toUnits(150)} vectorEffect="non-scaling-stroke" />
         ) : null}
 
         {paths.map((path, index) => (
           <g
             key={`${path.playerName}-${index}`}
-            className={`kickoff-path team-${path.team === 0 ? "blue" : "orange"} ${path.role} ${path.isWinner ? "winner" : ""}`}
+            className={`kickoff-path team-${path.team === 0 ? "blue" : "orange"} ${path.isScorer ? "winner scorer" : ""}`}
           >
             <polyline
               className="kickoff-path-line"
@@ -110,12 +109,13 @@ export function KickoffShapeDiagram({ replayId, startFrame, endFrame, winningTea
               vectorEffect="non-scaling-stroke"
             />
             {path.start ? (
-              <g className="kickoff-path-start">
-                <circle cx={path.start.x} cy={path.start.y} r={projection.toUnits(path.role === "taker" ? 320 : 240)} vectorEffect="non-scaling-stroke" />
-                <text x={path.start.x} y={path.start.y + projection.toUnits(120)}>
-                  {path.role === "taker" ? "T" : "S"}
-                </text>
-              </g>
+              <circle
+                className="kickoff-path-start-dot"
+                cx={path.start.x}
+                cy={path.start.y}
+                r={projection.toUnits(path.isScorer ? 220 : 150)}
+                vectorEffect="non-scaling-stroke"
+              />
             ) : null}
           </g>
         ))}
@@ -128,35 +128,33 @@ function extractPaths(
   replay: ReplayModel,
   projection: FieldProjection,
   startFrame: number | null,
-  endFrame: number | null,
-  winningTeam: number | null,
-  players: KickoffPathPlayer[],
+  goalFrame: number | null,
+  players: GoalPathPlayer[],
 ): { paths: ResolvedPath[]; ballPoints: string | null; ballEnd: { x: number; y: number } | null } {
   const frameCount = replay.frames.length;
-  const from = clampFrame(startFrame ?? 0, frameCount);
-  const rawEnd = endFrame ?? from + FALLBACK_PATH_FRAMES;
-  const to = clampFrame(Math.max(rawEnd, from + 2), frameCount);
+  const end = clampFrame(goalFrame ?? frameCount - 1, frameCount);
+  const rawStart = startFrame ?? end - FALLBACK_BUILDUP_FRAMES;
+  const from = clampFrame(Math.min(rawStart, end - 2), frameCount);
 
   const paths: ResolvedPath[] = [];
   for (const track of replay.players) {
     const meta = matchPlayer(track, players);
     const team = meta?.team ?? (track.isTeamZero ? 0 : 1);
-    const points = samplePath(track, from, to, projection, MAX_PATH_POINTS);
+    const points = samplePath(track, from, end, projection, MAX_PATH_POINTS);
     if (points.length < 2) continue;
     paths.push({
       playerName: meta?.playerName ?? track.name,
       team,
-      role: meta?.role ?? "support",
-      isWinner: winningTeam != null && team === winningTeam,
+      isScorer: meta?.isScorer ?? false,
       points: pointsToString(points),
       start: points[0],
       end: points[points.length - 1],
     });
   }
-  // Takers drawn last (on top), winner emphasized via CSS.
-  paths.sort((a, b) => Number(a.role === "taker") - Number(b.role === "taker"));
+  // Scorer drawn last (on top), emphasized via CSS.
+  paths.sort((a, b) => Number(a.isScorer) - Number(b.isScorer));
 
-  const ball = sampleBallPath(replay, from, to, projection, MAX_PATH_POINTS);
+  const ball = sampleBallPath(replay, from, end, projection, MAX_PATH_POINTS);
   return {
     paths,
     ballPoints: ball.length >= 2 ? pointsToString(ball) : null,

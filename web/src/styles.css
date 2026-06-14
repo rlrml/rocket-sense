@@ -2170,6 +2170,44 @@ button.status-stale:hover {
   fill: #ea580c;
 }
 
+/* ---- Goal buildup diagram (shares the kickoff path furniture) ---- */
+.goal-diagram-panel {
+  margin-top: 6px;
+  /* The card is a <button>, which centers text; the panel reads as a left block. */
+  text-align: left;
+}
+
+/* Player start positions during the buildup — a small team-colored dot, larger
+   and bolder for the scorer so their run reads first. */
+.kickoff-path-start-dot {
+  stroke: #fff;
+  stroke-width: 1.5;
+}
+
+.kickoff-path.team-blue .kickoff-path-start-dot {
+  fill: #2563eb;
+}
+
+.kickoff-path.team-orange .kickoff-path-start-dot {
+  fill: #ea580c;
+}
+
+.kickoff-path.scorer .kickoff-path-start-dot {
+  stroke-width: 2.5;
+}
+
+/* Non-scoring players' runs sit back so the scorer's emphasized path stands out. */
+.goal-diagram-panel .kickoff-path:not(.scorer) .kickoff-path-line {
+  stroke-width: 2;
+  opacity: 0.5;
+}
+
+/* The ball ends in the net — mark it warmer than the neutral kickoff ball. */
+.goal-ball-end {
+  fill: #fde68a;
+  stroke: #b45309;
+}
+
 .kickoff-taker-section {
   display: grid;
   gap: 10px;
