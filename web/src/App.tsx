@@ -75,12 +75,7 @@ import {
   uploadReplay,
 } from "./api";
 import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
-import {
-  completedStatGroups,
-  eventTypesForGroup,
-  statGroupById,
-  statGroups,
-} from "./stats/registry";
+import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
 import { PlatformIcon } from "./platform";
@@ -140,7 +135,9 @@ const navItems = [
   { to: "/about", label: "About", icon: Info },
 ];
 
-const playerStatsSectionGroups: StatGroup[] = statGroups;
+// Mirror the per-replay game stats: only show completed groups (Mechanics /
+// Touches / Rotation are hidden pending a rewrite — see stats/registry.tsx).
+const playerStatsSectionGroups: StatGroup[] = completedStatGroups;
 
 export function App() {
   const location = useLocation();

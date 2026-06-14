@@ -150,7 +150,8 @@ export const statGroups: StatGroup[] = [
       "wavedash",
       "ceiling",
     ],
-    completed: true,
+    // Hidden for now — slated for a fresh rewrite. Flip back to true to restore.
+    completed: false,
     usesAggregateStats: false,
     eventTypes: mechanicEventTypes,
     Detail: MechanicsDetail,
@@ -164,7 +165,8 @@ export const statGroups: StatGroup[] = [
     terms: ["touch", "shot", "save", "pass", "assist", "goal", "ball", "whiff", "bump"],
     // "ball" also matches the positioning ball-proximity stat; keep it out of Touches.
     excludeKeys: ["positioning_ball_proximity"],
-    completed: true,
+    // Hidden for now — slated for a fresh rewrite. Flip back to true to restore.
+    completed: false,
     usesAggregateStats: false,
     eventTypes: touchEventTypes,
     Detail: TouchesDetail,
@@ -187,7 +189,8 @@ export const statGroups: StatGroup[] = [
     icon: RotateCw,
     description: "First/second/third-man patterns, role timing, rotation depth, and spacing.",
     terms: ["rotation", "first", "second", "third", "role", "stint", "most back", "most forward"],
-    completed: true,
+    // Hidden for now — slated for a fresh rewrite. Flip back to true to restore.
+    completed: false,
     usesAggregateStats: false,
     eventTypes: rotationEventTypes,
     Detail: RotationDetail,
