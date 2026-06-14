@@ -38,6 +38,8 @@ export interface StatGroup {
   icon: LucideIcon;
   description: string;
   terms: readonly string[];
+  /** Aggregate-stat keys to drop from this section even if they match `terms`. */
+  excludeKeys?: readonly string[];
   completed: boolean;
   usesAggregateStats: boolean;
   eventTypes: readonly string[];
@@ -47,11 +49,11 @@ export interface StatGroup {
 export const statGroups: StatGroup[] = [
   {
     id: "goals",
-    label: "Goals",
+    label: "Scoring",
     icon: Goal,
     description:
-      "Every goal with scorer, scoring team, ball speed, air time, and detected goal types, with clip preview.",
-    terms: ["goal", "score", "finish", "aerial", "flick", "double tap"],
+      "Goals and assists with scorer, scoring team, ball speed, air time, and detected goal types, with clip preview.",
+    terms: ["goal", "score", "finish", "assist", "aerial", "flick", "double tap"],
     completed: true,
     usesAggregateStats: false,
     eventTypes: goalEventTypes,
@@ -142,6 +144,8 @@ export const statGroups: StatGroup[] = [
     description:
       "Touches, shots, saves, passes, assists, whiffs, bumps, 50/50s, and ball interaction volume.",
     terms: ["touch", "shot", "save", "pass", "assist", "goal", "ball", "whiff", "bump"],
+    // "ball" also matches the positioning ball-proximity stat; keep it out of Touches.
+    excludeKeys: ["positioning_ball_proximity"],
     completed: true,
     usesAggregateStats: false,
     eventTypes: touchEventTypes,
