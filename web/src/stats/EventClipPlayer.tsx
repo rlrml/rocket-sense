@@ -1,5 +1,7 @@
 import {
+  createBallchasingOverlayPlugin,
   createViewerFromParsed,
+  fromReplayPlayerPlugin,
   type ReplayModel,
   type ViewerFreeCameraPreset,
   type ViewerPlayer,
@@ -319,6 +321,30 @@ export function EventClipPlayer({
           // landing outside the requested event context.
           initialSkipKickoffsEnabled: false,
           initialSkipPostGoalTransitionsEnabled: false,
+          // The vendored player dist defaults its asset base to a *relative*
+          // path (right for its GitHub Pages deploy). Embedded at a nested SPA
+          // route that breaks: car/ball/draco URLs resolve against the route and
+          // 404. Pin to the origin root, where the backend serves /models and
+          // /draco (vite proxies both in dev).
+          assetBase: "/",
+          // No skybox: the neutral background matches the prior inline player,
+          // and /skyboxes isn't served at the root (only inside the standalone
+          // player tree), so the default "space" HDR would just 404.
+          environment: false,
+          // Show only the followed-player boost meter — the perspective we're
+          // locked to. The floating per-car bars and top team HUD are sized for
+          // a full-screen player and overwhelm this compact (~208px) clip, so we
+          // disable them here. The meter is scaled down + pinned bottom-right in
+          // styles.css (.event-clip-canvas .sap-bc-followed-*).
+          plugins: [
+            fromReplayPlayerPlugin(
+              createBallchasingOverlayPlugin({
+                showFloatingNames: false,
+                showFloatingBoostBars: false,
+                showTeamBoostHud: false,
+              }),
+            ),
+          ],
         });
         player.setFreeCameraPreset("side");
         unsubscribeBeforeRender = player.onBeforeRender((info) => {

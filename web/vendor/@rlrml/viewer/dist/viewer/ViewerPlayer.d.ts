@@ -13,6 +13,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { SubtrActorPlayer } from "./adapter/SubtrActorPlayer.js";
+import { type ViewerEnvironmentSpec } from "./environments.js";
 import type { ReplayModel, ReplayPlayerTimelineProjection, ReplayPlayerTimelineSegment } from "../types";
 import type { ReplayScene } from "../scene";
 import type { BeforeRenderCallback, CameraSettings, ViewerCameraViewMode, ViewerFreeCameraPreset, ViewerOptions, ViewerPlugin, ViewerPluginDefinition, ViewerSnapshot, ViewerState, ViewerStatePatch } from "./types.js";
@@ -93,6 +94,13 @@ export declare class ViewerPlayer extends EventTarget {
     get camera(): THREE.PerspectiveCamera;
     get renderer(): THREE.WebGLRenderer;
     get duration(): number;
+    /**
+     * Switch the skybox environment at runtime. Accepts a built-in id (e.g.
+     * `"space"`), a full `ViewerEnvironment` descriptor, or `false` for the
+     * neutral default (no skybox). Non-blocking: the HDR swaps in when decoded.
+     */
+    setEnvironment(spec: ViewerEnvironmentSpec): void;
+    private applyEnvironmentSpec;
     play(): void;
     pause(): void;
     togglePlayback(): void;
