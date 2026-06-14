@@ -43,9 +43,10 @@ interface PlayerMovementSummary {
   groundSeconds: number;
   lowAirSeconds: number;
   highAirSeconds: number;
-  // Powerslide spans arrive as sparse per-frame "active" samples, so the sample
-  // count is the available proxy for how much a player powerslides.
-  powerslideSamples: number;
+  // Powerslide arrives as active:true (start) / active:false (end) toggle pairs,
+  // paired up per player into a slide count and total duration.
+  powerslideCount: number;
+  powerslideSeconds: number;
   speedFlips: number;
   wavedashes: number;
   halfFlips: number;
@@ -102,7 +103,8 @@ export function MovementDetail({
 
   const speedScale = Math.max(1, ...summaries.map((summary) => averageSpeed(summary) ?? 0));
   const distanceScale = Math.max(1, ...summaries.map((summary) => summary.totalDistance));
-  const powerslideScale = Math.max(1, ...summaries.map((summary) => summary.powerslideSamples));
+  const powerslideTimeScale = Math.max(1, ...summaries.map((summary) => summary.powerslideSeconds));
+  const powerslideCountScale = Math.max(1, ...summaries.map((summary) => summary.powerslideCount));
   const speedFlipScale = Math.max(1, ...summaries.map((summary) => summary.speedFlips));
   const wavedashScale = Math.max(1, ...summaries.map((summary) => summary.wavedashes));
   const halfFlipScale = Math.max(1, ...summaries.map((summary) => summary.halfFlips));
@@ -180,13 +182,26 @@ export function MovementDetail({
 
       <PlayerComparisonChart
         className="movement-chart"
-        title="Powerslide"
+        title="Powerslide time"
         rows={magnitudeRows(summaries, {
           teamColored,
           playerIndexByKey,
           groupClassName: "movement-bar-powerslide",
-          metric: (summary) => summary.powerslideSamples,
-          maxValue: powerslideScale,
+          metric: (summary) => summary.powerslideSeconds,
+          maxValue: powerslideTimeScale,
+          format: formatSeconds,
+        })}
+      />
+
+      <PlayerComparisonChart
+        className="movement-chart"
+        title="Powerslide count"
+        rows={magnitudeRows(summaries, {
+          teamColored,
+          playerIndexByKey,
+          groupClassName: "movement-bar-powerslide",
+          metric: (summary) => summary.powerslideCount,
+          maxValue: powerslideCountScale,
           format: formatCount,
         })}
       />
@@ -372,6 +387,9 @@ function playerMovementSummaries(
 ): PlayerMovementSummary[] {
   const summaries = players.map((player, index) => emptySummary(player, index, durationSeconds));
   const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
+  // Powerslide arrives as separate start/end toggles; collect per player and
+  // pair them once all events are seen (order-independent).
+  const powerslideToggles = new Map<string, Array<{ time: number; active: boolean }>>();
 
   for (const event of events) {
     const summary = summaryForEvent(event, summaries, byKey);
@@ -379,7 +397,12 @@ function playerMovementSummaries(
     if (event.event_type === "movement") {
       addMovementEvent(summary, event);
     } else if (event.event_type === "powerslide") {
-      addPowerslideEvent(summary, event);
+      const time = firstNumber(event.payload, ["time"]) ?? event.start_time;
+      if (time != null) {
+        const toggles = powerslideToggles.get(summary.key) ?? [];
+        toggles.push({ time, active: event.payload.active !== false });
+        powerslideToggles.set(summary.key, toggles);
+      }
     } else if (event.event_type === "speed_flip") {
       summary.speedFlips += 1;
     } else if (event.event_type === "wavedash") {
@@ -389,7 +412,35 @@ function playerMovementSummaries(
     }
   }
 
+  for (const summary of summaries) {
+    addPowerslideToggles(summary, powerslideToggles.get(summary.key) ?? []);
+  }
+
   return summaries.sort(compareSummaries);
+}
+
+// Pair active:true (start) -> active:false (end) toggles in time order into a
+// slide count and total duration. A trailing unclosed start still counts as a
+// slide (with no measurable duration).
+function addPowerslideToggles(
+  summary: PlayerMovementSummary,
+  toggles: Array<{ time: number; active: boolean }>,
+) {
+  const ordered = [...toggles].sort((left, right) => left.time - right.time);
+  let inSlide = false;
+  let start = 0;
+  for (const { time, active } of ordered) {
+    if (active) {
+      if (!inSlide) {
+        summary.powerslideCount += 1;
+        start = time;
+        inSlide = true;
+      }
+    } else if (inSlide) {
+      summary.powerslideSeconds += Math.max(0, time - start);
+      inSlide = false;
+    }
+  }
 }
 
 function addMovementEvent(summary: PlayerMovementSummary, event: MechanicEventResponse) {
@@ -469,13 +520,6 @@ function addMovementEvent(summary: PlayerMovementSummary, event: MechanicEventRe
   }
 }
 
-function addPowerslideEvent(summary: PlayerMovementSummary, event: MechanicEventResponse) {
-  // Powerslide arrives as per-frame "active" samples with no aggregate duration
-  // or count, so each active sample contributes to a usage tally that is
-  // proportional (same sampling rate for everyone) to time spent powersliding.
-  if (event.payload.active !== false) summary.powerslideSamples += 1;
-}
-
 function addMax(
   summary: PlayerMovementSummary,
   key: keyof PlayerMovementSummary,
@@ -510,7 +554,8 @@ function emptySummary(
     groundSeconds: 0,
     lowAirSeconds: 0,
     highAirSeconds: 0,
-    powerslideSamples: 0,
+    powerslideCount: 0,
+    powerslideSeconds: 0,
     speedFlips: 0,
     wavedashes: 0,
     halfFlips: 0,
@@ -547,7 +592,7 @@ function hasMovementData(summary: PlayerMovementSummary): boolean {
     summary.speedWeight > 0 ||
     speedBandTotal(summary) > 0 ||
     movementTimeTotal(summary) > 0 ||
-    summary.powerslideSamples > 0 ||
+    summary.powerslideCount > 0 ||
     flipTotal(summary) > 0
   );
 }
