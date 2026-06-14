@@ -5363,24 +5363,32 @@ tbody tr:last-child td {
     padding: 16px 10px;
   }
 
-  /* Too narrow to seat the text and the diagram side by side — stack them and
-     let the diagram return to its normal full-width, aspect-driven height. */
-  .goal-card:has(.goal-diagram-panel) {
+  /* Too narrow to seat the text and the diagram side by side — stack them and let
+     the diagram take the full card width at its natural aspect ratio. The .goal-card
+     class is repeated so these outrank the unscoped desktop rules further down the
+     sheet (same specificity, but later in source order), which would otherwise win
+     and keep the diagram pinned in its cramped, absolutely-positioned thumbnail slot. */
+  .goal-card.goal-card:has(.goal-diagram-panel) {
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
+    align-items: stretch;
     gap: 12px;
   }
 
-  .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
+  /* Drop the desktop overlay positioning (absolute inset + aspect-ratio box) so the
+     diagram flows back under the text and sizes from its own SVG aspect ratio. */
+  .goal-card.goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
+    position: static;
+    inset: auto;
+    aspect-ratio: auto;
     width: 100%;
     height: auto;
   }
 
-  .goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
+  .goal-card.goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
     height: auto;
     width: 100%;
-    max-width: 560px;
+    max-width: none;
   }
 
   .page {
