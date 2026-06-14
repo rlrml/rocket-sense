@@ -649,8 +649,12 @@ function goalBuildupTouches(
     if (frame == null || frame < from || frame > anchorFrame) continue;
     const touchId = numberField(payload, "touch_id");
     if (scoringTouchId != null && touchId != null && touchId === scoringTouchId) continue;
-    // touch events serialise player_position as a [x, y, z] array (Vector3fTs).
-    const at = arrayPoint(payload, "player_position");
+    // Prefer the ball's contact position (`ball_position`): it lies on the ball's
+    // trajectory, where the touch actually happened. `player_position` is the car
+    // centre — up to a hitbox+ball-radius away from the ball — and is only the
+    // fallback for older events serialized before `ball_position` existed. Both
+    // are [x, y, z] arrays (Vector3fTs).
+    const at = arrayPoint(payload, "ball_position") ?? arrayPoint(payload, "player_position");
     if (!at) continue;
     out.push({
       at,

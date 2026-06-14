@@ -42,7 +42,9 @@ export interface GoalScoringTouch {
 /** A real attributed buildup touch from a subtr-actor `touch` event — accurate
  *  (both sides of a 50/50 each get one) where the proximity heuristic guessed. */
 export interface GoalBuildupTouch {
-  /** The toucher's car position (uu) at the touch. */
+  /** The ball's contact position (uu) at the touch — on the ball's trajectory.
+   *  Falls back to the toucher's car position on events serialized before
+   *  `ball_position` existed. */
   at: { x: number; y: number };
   /** The toucher's team (from the event), or null on older data. */
   team: number | null;
