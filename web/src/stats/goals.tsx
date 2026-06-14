@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
-import type { GoalPathPlayer, GoalScoringTouch } from "./GoalShapeDiagram";
+import type { GoalBuildupTouch, GoalPathPlayer, GoalScoringTouch } from "./GoalShapeDiagram";
 import {
   eventAnchorFrame,
   eventDisplayTime,
@@ -66,6 +66,7 @@ export interface GoalRow {
   pressureBeforeGoal: number | null;
   anchorFrame: number | null;
   scoringTouch: GoalScoringTouch | null;
+  buildupTouches: GoalBuildupTouch[];
   types: GoalType[];
 }
 
@@ -379,6 +380,7 @@ export function GoalCard({
               startFrame={goalDiagramStartFrame(goal)}
               goalFrame={goal.anchorFrame}
               scoringTouch={goal.scoringTouch}
+              buildupTouches={goal.buildupTouches}
               players={diagramPlayers}
             />
           </Suspense>
@@ -556,6 +558,7 @@ function normalizePlatform(value: string): string {
 }
 
 export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
+  const touchEvents = events.filter((event) => event.event_type === "touch");
   return events
     .filter((event) => event.event_type === "goal_context")
     .map((event) => ({ event, sortKey: goalTime(event) ?? 0 }))
@@ -564,6 +567,8 @@ export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
     )
     .map(({ event }, index) => {
       const payload = (event.payload ?? {}) as Record<string, unknown>;
+      const anchorFrame = eventAnchorFrame(event, ["scorer_last_touch.frame"]);
+      const scoringTouch = goalScoringTouch(payload);
       return {
         event,
         index,
@@ -572,11 +577,49 @@ export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
         scoringTeam: event.team ?? teamField(payload, "scoring_team_is_team_0"),
         ballSpeed: numberField(payload, "ball_speed_at_goal"),
         pressureBeforeGoal: numberField(payload, "pressure_duration_before_goal"),
-        anchorFrame: eventAnchorFrame(event, ["scorer_last_touch.frame"]),
-        scoringTouch: goalScoringTouch(payload),
+        anchorFrame,
+        scoringTouch,
+        buildupTouches: goalBuildupTouches(anchorFrame, scoringTouch?.touchId ?? null, touchEvents),
         types: goalTypes(payload),
       };
     });
+}
+
+/** Real attributed buildup touches for a goal: the `touch` events in the diagram's
+ *  buildup window, minus the scoring touch itself (matched by touch id). */
+function goalBuildupTouches(
+  anchorFrame: number | null,
+  scoringTouchId: number | null,
+  touchEvents: MechanicEventResponse[],
+): GoalBuildupTouch[] {
+  if (anchorFrame == null) return [];
+  const from = anchorFrame - GOAL_DIAGRAM_BUILDUP_FRAMES;
+  const out: GoalBuildupTouch[] = [];
+  for (const event of touchEvents) {
+    const payload = (event.payload ?? {}) as Record<string, unknown>;
+    const frame = numberField(payload, "frame");
+    if (frame == null || frame < from || frame > anchorFrame) continue;
+    const touchId = numberField(payload, "touch_id");
+    if (scoringTouchId != null && touchId != null && touchId === scoringTouchId) continue;
+    // touch events serialise player_position as a [x, y, z] array (Vector3fTs).
+    const at = arrayPoint(payload, "player_position");
+    if (!at) continue;
+    out.push({ at, frame, teamHint: teamField(payload, "team_is_team_0") });
+  }
+  return out;
+}
+
+/** Read a `[x, y, z]` tuple field (uu) as `{ x, y }`. */
+function arrayPoint(
+  payload: Record<string, unknown>,
+  key: string,
+): { x: number; y: number } | null {
+  const value = payload[key];
+  if (!Array.isArray(value) || value.length < 2) return null;
+  const [x, y] = value;
+  return typeof x === "number" && typeof y === "number" && Number.isFinite(x) && Number.isFinite(y)
+    ? { x, y }
+    : null;
 }
 
 function goalTime(event: MechanicEventResponse): number | null {
@@ -628,6 +671,7 @@ function goalScoringTouch(payload: Record<string, unknown>): GoalScoringTouch | 
     ball,
     player: fieldPoint(touch, "player_position"),
     team: teamField(touch, "is_team_0"),
+    touchId: numberField(touch, "touch_id"),
   };
 }
 

@@ -56,7 +56,8 @@ export const statGroups: StatGroup[] = [
     terms: ["goal", "score", "finish", "assist", "aerial", "flick", "double tap"],
     completed: true,
     usesAggregateStats: false,
-    eventTypes: goalEventTypes,
+    // Goal buildup diagrams place the real attributed touches, so load them too.
+    eventTypes: [...goalEventTypes, "touch"],
     Detail: GoalsDetail,
   },
   {
