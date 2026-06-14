@@ -160,16 +160,34 @@ export function listReplayProcessingDiagnostics(searchParams: URLSearchParams): 
   });
 }
 
-export async function getReplay(replayId: string): Promise<ReplayResponse> {
-  const cached = getCachedReplay(replayId);
+type GetReplayOptions = {
+  forceRefresh?: boolean;
+};
+
+export async function getReplay(
+  replayId: string,
+  options: GetReplayOptions = {},
+): Promise<ReplayResponse> {
+  const cached = options.forceRefresh ? null : getCachedReplay(replayId);
   if (cached) return cached;
+
+  if (options.forceRefresh) {
+    const replay = await request<ReplayResponse>(
+      `/api/v1/replays/${encodeURIComponent(replayId)}`,
+      { cache: "no-store" },
+    );
+    cacheReplay(replay);
+    return replay;
+  }
 
   const recentParams = new URLSearchParams({ count: "200" });
   const recent = await listReplays(recentParams);
   const recentReplay = recent.replays.find((replay) => replay.id === replayId);
   if (recentReplay) return recentReplay;
 
-  return request<ReplayResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}`);
+  const replay = await request<ReplayResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}`);
+  cacheReplay(replay);
+  return replay;
 }
 
 export function getReplayGroup(groupId: string): Promise<ReplayGroupResponse> {
@@ -476,6 +494,10 @@ function cacheReplays(replays: ReplayResponse[]): void {
   }
   const entries = Object.entries(cache).slice(-300);
   sessionStorage.setItem(replayCacheKey, JSON.stringify(Object.fromEntries(entries)));
+}
+
+function cacheReplay(replay: ReplayResponse): void {
+  cacheReplays([replay]);
 }
 
 function getCachedReplay(replayId: string): ReplayResponse | null {
