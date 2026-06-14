@@ -390,20 +390,13 @@ function KickoffMetric({
 }
 
 function KickoffTeamOutcomeSummary({ summary }: { summary: ReturnType<typeof kickoffSummary> }) {
-  const winTotal = summary.blueWins + summary.neutral + summary.orangeWins;
   const advantageTotal = summary.blueAdvantages + summary.noAdvantage + summary.orangeAdvantages;
   return (
     <div className="kickoff-team-outcomes">
-      <KickoffTeamOutcomeBar
-        ariaLabel="Kickoff wins by replay-local team"
-        blueLabel="Blue wins"
-        blueValue={summary.blueWins}
-        neutralLabel="Neutral"
-        neutralValue={summary.neutral}
-        orangeLabel="Orange wins"
-        orangeValue={summary.orangeWins}
-        total={winTotal}
-      />
+      {/* Blue-relative (team 0): Blue wins fill from the left shaded by strength,
+          Orange wins fill from the right, neutral holds the center — the same
+          gradated ramp the taker rows use, framed as Blue vs Orange. */}
+      <KickoffTeamWinBar ariaLabel="Kickoff wins by replay-local team and strength" outcomes={summary.teamStrengthOutcomes} />
       {advantageTotal > 0 ? (
         <KickoffTeamOutcomeBar
           ariaLabel="Kickoff advantage by replay-local team"
@@ -442,13 +435,6 @@ function KickoffTeamOutcomeBar({
   return (
     <OutcomeDistributionBar
       ariaLabel={ariaLabel}
-      caption={
-        <>
-          <span className="outcome-distribution-caption-positive">{blueValue.toLocaleString()} Blue</span>
-          <span>{neutralValue.toLocaleString()} neutral</span>
-          <span className="outcome-distribution-caption-negative">{orangeValue.toLocaleString()} Orange</span>
-        </>
-      }
       colors={TEAM_OUTCOME_COLORS}
       segments={[
         teamOutcomeSegment("blue", blueLabel, blueValue, total),
@@ -467,9 +453,62 @@ function teamOutcomeSegment(team: "blue" | "neutral" | "orange", label: string, 
     tone: team === "blue" ? "positive" : team === "orange" ? "negative" : "neutral",
     label,
     value,
-    visibleLabel: share >= 0.1 ? `${label}: ${formatSharePercent(share)}` : undefined,
+    // Fold the per-team count into the bar so the section needs no caption beneath it.
+    visibleLabel: share >= 0.1 ? `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})` : undefined,
     title: `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})`,
   };
+}
+
+// Blue-vs-Orange win bar, gradated by win strength. Built like the taker rows'
+// KickoffStrengthSummary but rendered full-width (no left label) to match the
+// advantage bar above it, and with team-relative labels: a "loss" band is Blue
+// losing decisively, i.e. an Orange win, so it reads as "Orange <strength> win".
+const TEAM_WIN_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLevel; label: string }> = [
+  { band: "strong", level: "strong", label: "Blue strong win" },
+  { band: "clear", level: "clear", label: "Blue clear win" },
+  { band: "narrow", level: "narrow", label: "Blue narrow win" },
+  { band: "unknown", level: "unknown", label: "Blue win" },
+];
+
+const TEAM_LOSS_BANDS: Array<{ band: KickoffStrengthBand; level: OutcomeDistributionLevel; label: string }> = [
+  { band: "unknown", level: "unknown", label: "Orange win" },
+  { band: "narrow", level: "narrow", label: "Orange narrow win" },
+  { band: "clear", level: "clear", label: "Orange clear win" },
+  { band: "strong", level: "strong", label: "Orange strong win" },
+];
+
+function KickoffTeamWinBar({ ariaLabel, outcomes }: { ariaLabel: string; outcomes: Record<KickoffStrengthBand, KickoffStrengthOutcome> }) {
+  const rawSegments: OutcomeDistributionSegment[] = [
+    ...TEAM_WIN_BANDS.map(({ band, level, label }) => ({ key: `blue-${band}`, tone: "positive" as const, level, label, value: outcomes[band].wins })),
+    {
+      key: "neutral",
+      tone: "neutral" as const,
+      level: "clear" as const,
+      label: "Neutral",
+      value: outcomes.narrow.neutral + outcomes.clear.neutral + outcomes.strong.neutral + outcomes.unknown.neutral,
+    },
+    ...TEAM_LOSS_BANDS.map(({ band, level, label }) => ({ key: `orange-${band}`, tone: "negative" as const, level, label, value: outcomes[band].losses })),
+  ];
+  const total = rawSegments.reduce((sum, segment) => sum + segment.value, 0);
+  if (total === 0) return null;
+
+  // The strength band shows as a shade, so the count printed inline can be
+  // ambiguous about which result it is; the hover title spells it out.
+  const segments = rawSegments.map((segment) => ({
+    ...segment,
+    title: segment.value > 0 ? `${segment.label}: ${segment.value} (${formatSharePercent(segment.value / total)})` : undefined,
+  }));
+
+  return (
+    <OutcomeDistributionBar
+      ariaLabel={ariaLabel}
+      colors={TEAM_OUTCOME_COLORS}
+      maxValue={total}
+      segments={segments}
+      total={total}
+      visibleCountThreshold={0.12}
+    />
+  );
 }
 
 interface KickoffPlayerColumn {
@@ -1662,13 +1701,16 @@ function kickoffSummary(kickoffs: KickoffRow[]) {
       if (kickoff.winningTeam === 0) summary.blueWins += 1;
       else if (kickoff.winningTeam === 1) summary.orangeWins += 1;
       else summary.neutral += 1;
+      // Blue-relative (team 0): wins = Blue wins, losses = Orange wins. Drives the
+      // gradated team win bar so it shades wins by strength like the taker rows.
+      incrementStrengthOutcome(summary.teamStrengthOutcomes, kickoff.winStrengthBand, kickoff.winningTeam, 0);
       if (kickoff.kickoffGoal) summary.goals += 1;
       if (kickoff.advantageTeam === 0) summary.blueAdvantages += 1;
       else if (kickoff.advantageTeam === 1) summary.orangeAdvantages += 1;
       else if (kickoff.advantage === "no_advantage") summary.noAdvantage += 1;
       return summary;
     },
-    { blueWins: 0, orangeWins: 0, neutral: 0, goals: 0, blueAdvantages: 0, orangeAdvantages: 0, noAdvantage: 0 },
+    { blueWins: 0, orangeWins: 0, neutral: 0, goals: 0, blueAdvantages: 0, orangeAdvantages: 0, noAdvantage: 0, teamStrengthOutcomes: emptyStrengthOutcomes() },
   );
 }
 
