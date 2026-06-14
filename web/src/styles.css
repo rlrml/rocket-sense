@@ -1442,35 +1442,6 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-.kickoff-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 520px);
-  gap: 16px;
-  align-items: center;
-  padding: 16px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-}
-
-.kickoff-hero h2 {
-  margin: 2px 0 6px;
-  font-size: 24px;
-}
-
-.kickoff-hero p:last-child {
-  max-width: 680px;
-  margin: 0;
-  color: var(--muted);
-}
-
-.kickoff-hero-metrics {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.kickoff-metric,
 .kickoff-fact {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1483,12 +1454,10 @@ tbody tr:last-child td {
   background: #f8fafc;
 }
 
-.kickoff-metric svg,
 .kickoff-fact svg {
   color: #475569;
 }
 
-.kickoff-metric span,
 .kickoff-fact span {
   overflow: hidden;
   color: var(--muted);
@@ -1499,7 +1468,6 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
-.kickoff-metric strong,
 .kickoff-fact strong {
   grid-column: 1 / -1;
   min-width: 0;
@@ -5189,7 +5157,6 @@ tbody tr:last-child td {
     flex-direction: column;
   }
 
-  .kickoff-hero,
   .goals-hero,
   .kickoff-preview,
   .selected-kickoff-summary,
@@ -5431,16 +5398,8 @@ tbody tr:last-child td {
     grid-column: 1 / -1;
   }
 
-  .kickoff-hero {
-    padding: 12px;
-  }
-
   .goals-hero {
     padding: 12px;
-  }
-
-  .kickoff-hero-metrics {
-    grid-template-columns: 1fr;
   }
 
   .goal-metric-grid,

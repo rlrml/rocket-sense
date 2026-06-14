@@ -3,7 +3,6 @@ import {
   Anchor,
   CircleDotDashed,
   Gauge,
-  Goal,
   type LucideIcon,
   ShieldCheck,
   Trophy,
@@ -351,42 +350,6 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
 
   return (
     <div className="kickoff-detail">
-      <section className="kickoff-hero">
-        <div>
-          <h2>Kickoffs</h2>
-        </div>
-        <div className="kickoff-hero-metrics">
-          <KickoffMetric
-            icon={CircleDotDashed}
-            label="Kickoffs"
-            value={kickoffs.length.toLocaleString()}
-          />
-          {/* Blue/Orange wins and advantage are replay-local; only show them per game. */}
-          {grouped ? null : (
-            <>
-              <KickoffMetric
-                icon={Trophy}
-                label="Blue wins"
-                value={summary.blueWins.toLocaleString()}
-              />
-              <KickoffMetric
-                icon={Trophy}
-                label="Orange wins"
-                value={summary.orangeWins.toLocaleString()}
-              />
-              {summary.blueAdvantages + summary.orangeAdvantages + summary.noAdvantage > 0 ? (
-                <KickoffMetric
-                  icon={Anchor}
-                  label="Advantage"
-                  value={`${summary.blueAdvantages} – ${summary.orangeAdvantages}`}
-                />
-              ) : null}
-            </>
-          )}
-          <KickoffMetric icon={Goal} label="Kickoff goals" value={summary.goals.toLocaleString()} />
-        </div>
-      </section>
-
       {kickoffs.length ? (
         <>
           <div className="kickoff-tabs" role="tablist" aria-label="Kickoff view">
@@ -498,24 +461,6 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
       ) : (
         <div className="stat-empty">No kickoff events are available for this selection yet.</div>
       )}
-    </div>
-  );
-}
-
-function KickoffMetric({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="kickoff-metric">
-      <Icon size={17} />
-      <span>{label}</span>
-      <strong>{value}</strong>
     </div>
   );
 }
