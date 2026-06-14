@@ -44,10 +44,12 @@ export interface GoalScoringTouch {
 export interface GoalBuildupTouch {
   /** The toucher's car position (uu) at the touch. */
   at: { x: number; y: number };
-  /** team_is_team_0 from the event (null on older data without it). */
-  teamHint: number | null;
-  /** subtr-actor frame, for chronological ordering / numbering / team resolution. */
+  /** The toucher's team (from the event), or null on older data. */
+  team: number | null;
+  /** subtr-actor frame, for chronological ordering / numbering. */
   frame: number;
+  /** Stable per-player key, so a player's repeated contacts collapse to one touch. */
+  playerKey: string;
 }
 
 export interface GoalShapeDiagramProps {
@@ -216,16 +218,23 @@ function buildGoalModel(
   // needs a position de-dup to avoid drawing the scorer's own last contact twice.
   let buildupMarks: TouchMark[];
   if (buildupTouches) {
-    buildupMarks = [...buildupTouches]
+    // Only the scoring team's touches lead to the goal (drop the opposing 50/50
+    // contact), and a player's repeated contacts collapse to one — leaving the
+    // assist(s) up to the finish. team_is_team_0 is missing on older replays, so
+    // fall back to whichever car sits on the touch point at that frame.
+    const sorted = [...buildupTouches]
       .sort((a, b) => a.frame - b.frame)
-      .map((t) => ({
-        // team_is_team_0 is missing on older replays, so fall back to whichever car
-        // sits on the touch point at that frame (player_position is that car).
-        at: projection.project(t.at.x, t.at.y),
-        team: t.teamHint ?? nearestPlayerTeam(replay, t.frame, t.at),
-        headingDeg: null,
-        kind: "buildup" as const,
-      }));
+      .map((t) => ({ ...t, team: t.team ?? nearestPlayerTeam(replay, t.frame, t.at) }))
+      .filter((t) => t.team === scorerTeam);
+    const collapsed = sorted.filter(
+      (t, i) => i === sorted.length - 1 || t.playerKey !== sorted[i + 1].playerKey,
+    );
+    buildupMarks = collapsed.map((t) => ({
+      at: projection.project(t.at.x, t.at.y),
+      team: t.team,
+      headingDeg: null,
+      kind: "buildup" as const,
+    }));
   } else {
     const detected = detectBallContacts(replay, from, end, projection, { excludeFrame: end });
     const minSep = projection.toUnits(350);
