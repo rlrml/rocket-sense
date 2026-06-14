@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     env,
     fs::{self, File},
     io::{self, Write},
@@ -27,31 +28,15 @@ fn main() -> io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let mut output = File::create(out_dir.join("subtr_actor_static_assets.rs"))?;
 
-    write_asset_function(
-        &mut output,
-        "subtr_actor_static_asset",
-        &static_root.join("assets"),
-    )?;
-    write_asset_function(
-        &mut output,
-        "subtr_actor_stats_static_asset",
-        &static_root.join("stats/assets"),
-    )?;
-    write_asset_function(
-        &mut output,
-        "subtr_actor_review_static_asset",
-        &static_root.join("review/assets"),
-    )?;
-    write_asset_function(
-        &mut output,
-        "subtr_actor_model_static_asset",
-        &static_root.join("models"),
-    )?;
-    write_asset_function(
-        &mut output,
-        "subtr_actor_draco_static_asset",
-        &static_root.join("draco"),
-    )?;
+    // The bundled subtr-actor viewer ships three sibling apps (the root viewer,
+    // `stats/`, and `review/`). Each has its own `assets/` bundle but they share
+    // byte-identical `models/`, `draco/`, and `skyboxes/` 3D asset sets. Embed
+    // the whole tree under tree-relative keys so a single route can serve every
+    // app's assets, and deduplicate identical files so the binary carries one
+    // copy of the ~52 MB model set instead of three. New asset directories the
+    // viewer adds upstream are picked up automatically — there is no per-directory
+    // embed or route to keep in sync.
+    write_deduped_asset_function(&mut output, "subtr_actor_asset", &static_root)?;
 
     // The SPA entry HTML files are include_str!'d directly (not served via the
     // asset-function lookup), so emit consts that include_str! them from
@@ -218,6 +203,86 @@ fn write_asset_function(output: &mut File, name: &str, asset_dir: &Path) -> io::
     writeln!(output, "        _ => None,\n    }}\n}}\n")?;
 
     Ok(())
+}
+
+/// Like [`write_asset_function`], but embeds an entire directory tree (recursing
+/// into subdirectories) keyed by each file's path *relative to `asset_dir`*, and
+/// deduplicates identical file contents so a file that appears under several
+/// paths is `include_bytes!`'d once and aliased by every path that maps to it.
+fn write_deduped_asset_function(output: &mut File, name: &str, asset_dir: &Path) -> io::Result<()> {
+    let mut assets = Vec::new();
+    if asset_dir.exists() {
+        collect_assets(asset_dir, asset_dir, &mut assets)?;
+    }
+    assets.sort();
+
+    if assets.is_empty() {
+        writeln!(
+            output,
+            "fn {name}(_path: &str) -> Option<StaticAsset> {{\n    None\n}}\n"
+        )?;
+        return Ok(());
+    }
+
+    // Bucket candidate duplicates by (len, hash), then confirm with a byte
+    // compare so a hash collision can never alias two distinct files together.
+    let upper = name.to_uppercase();
+    let mut blobs: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut buckets: HashMap<(u64, u64), Vec<usize>> = HashMap::new();
+    let mut routes: Vec<(String, usize, &'static str)> = Vec::new();
+
+    for (asset_path, route_path) in &assets {
+        let bytes = fs::read(asset_path)?;
+        let key = (bytes.len() as u64, content_hash(&bytes));
+        let existing = buckets
+            .entry(key)
+            .or_default()
+            .iter()
+            .copied()
+            .find(|&i| blobs[i].1 == bytes);
+        let blob_index = match existing {
+            Some(i) => i,
+            None => {
+                let i = blobs.len();
+                buckets
+                    .get_mut(&key)
+                    .expect("bucket inserted above")
+                    .push(i);
+                blobs.push((asset_path.clone(), bytes));
+                i
+            }
+        };
+        routes.push((route_path.clone(), blob_index, content_type(asset_path)));
+    }
+
+    for (i, (path, _)) in blobs.iter().enumerate() {
+        writeln!(
+            output,
+            "static {upper}_BLOB_{i}: &[u8] = include_bytes!({:?});",
+            path.display().to_string(),
+        )?;
+    }
+
+    writeln!(
+        output,
+        "fn {name}(path: &str) -> Option<StaticAsset> {{\n    match path {{"
+    )?;
+    for (route_path, blob_index, content_type) in &routes {
+        writeln!(
+            output,
+            "        {route_path:?} => Some(StaticAsset {{ content_type: {content_type:?}, bytes: {upper}_BLOB_{blob_index} }}),",
+        )?;
+    }
+    writeln!(output, "        _ => None,\n    }}\n}}\n")?;
+
+    Ok(())
+}
+
+fn content_hash(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn collect_assets(
