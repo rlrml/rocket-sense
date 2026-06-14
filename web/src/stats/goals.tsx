@@ -300,15 +300,33 @@ export function GoalCard({
   const navigate = useNavigate();
   const diagramPlayers = useMemo(() => goalPathPlayers(goal), [goal]);
 
-  // Hover lifts the buildup diagram into a centred, viewport-clamped overlay, but
-  // FLIP-animated so it grows out of its in-card thumbnail position rather than just
-  // popping in at the centre. We snapshot the thumbnail rect before the class flips,
-  // then in a layout effect invert the change and let it transition to identity.
+  // Hovering the diagram (only) lifts it into a large overlay anchored to its own
+  // right edge — so it stays under the cursor (no hover churn) — and clamped to the
+  // viewport. We set the target geometry as CSS vars, snapshot the thumbnail rect,
+  // then FLIP in a layout effect so it grows out of its original position.
   const panelRef = useRef<HTMLElement | null>(null);
   const firstRectRef = useRef<DOMRect | null>(null);
   const [expanded, setExpanded] = useState(false);
-  const snapshotPanel = () => {
+  const expand = () => {
+    const el = panelRef.current;
+    if (!el) return;
+    const first = el.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const vw = window.innerWidth;
+    const margin = 14;
+    const h = Math.min(vh * 0.7, vw * 0.6);
+    el.style.setProperty("--exp-h", `${h}px`);
+    el.style.setProperty("--exp-right", `${Math.max(margin, vw - first.right)}px`);
+    el.style.setProperty(
+      "--exp-top",
+      `${Math.max(margin, Math.min(first.top + first.height / 2 - h / 2, vh - h - margin))}px`,
+    );
+    firstRectRef.current = first;
+    setExpanded(true);
+  };
+  const collapse = () => {
     firstRectRef.current = panelRef.current?.getBoundingClientRect() ?? null;
+    setExpanded(false);
   };
   useLayoutEffect(() => {
     const el = panelRef.current;
@@ -320,7 +338,7 @@ export function GoalCard({
     el.style.transition = "none";
     el.style.transform = `translate(${first.left - last.left}px, ${first.top - last.top}px) scale(${first.width / last.width}, ${first.height / last.height})`;
     void el.getBoundingClientRect();
-    el.style.transition = "transform 0.32s cubic-bezier(0.16, 1, 0.3, 1)";
+    el.style.transition = "transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)";
     el.style.transform = "";
   }, [expanded]);
 
@@ -329,15 +347,7 @@ export function GoalCard({
       type="button"
       className={`goal-card kickoff-card winner-${teamClass(goal.scoringTeam)} ${active ? "selected" : ""}`}
       onClick={() => onActivate(true)}
-      onMouseEnter={() => {
-        onActivate(false);
-        snapshotPanel();
-        setExpanded(true);
-      }}
-      onMouseLeave={() => {
-        snapshotPanel();
-        setExpanded(false);
-      }}
+      onMouseEnter={() => onActivate(false)}
       onFocus={() => onActivate(false)}
     >
       <div className="goal-card-info">
@@ -406,7 +416,12 @@ export function GoalCard({
         </div>
       </div>
       {replayId ? (
-        <section ref={panelRef} className={`goal-diagram-panel ${expanded ? "is-expanded" : ""}`}>
+        <section
+          ref={panelRef}
+          className={`goal-diagram-panel ${expanded ? "is-expanded" : ""}`}
+          onMouseEnter={expand}
+          onMouseLeave={collapse}
+        >
           <Suspense fallback={<div className="kickoff-path-status">Loading goal paths…</div>}>
             <GoalShapeDiagram
               replayId={replayId}
