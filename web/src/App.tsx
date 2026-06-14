@@ -93,6 +93,7 @@ import {
   PossessionSummaryPanel,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
+  ScoringRatePanel,
 } from "./stats/playerPanels";
 import type {
   AuthOptionsResponse,
@@ -1669,7 +1670,7 @@ function ReplayStatsPage() {
   }, [activeGroup.id, activeGroup.usesAggregateStats, replayId]);
 
   const activeStats = useMemo(
-    () => filterStatsForGroup(stats?.stats ?? [], activeGroup.terms),
+    () => filterStatsForGroup(stats?.stats ?? [], activeGroup),
     [activeGroup, stats],
   );
   const activeEvents = useMemo(
@@ -1970,7 +1971,7 @@ function ReplayGroupStatsPage() {
 
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
   const activeStats = useMemo(
-    () => filterStatsForGroup(stats?.stats ?? [], activeGroup.terms),
+    () => filterStatsForGroup(stats?.stats ?? [], activeGroup),
     [activeGroup, stats],
   );
   const activeEvents = useMemo(
@@ -3271,7 +3272,7 @@ function PlayerAggregateStatsSections({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
-  const sectionStats = filterStatsForGroup(stats.stats, activeGroup.terms)
+  const sectionStats = filterStatsForGroup(stats.stats, activeGroup)
     .slice()
     .sort(comparePlayerStatRates);
   const topStats = sectionStats.slice(0, 20);
@@ -3356,6 +3357,7 @@ function PlayerAggregateStatsSections({
         <PlayerRateComparisonChart stats={topStats} />
       )}
 
+      {activeGroup.id === "goals" && overview ? <ScoringRatePanel overview={overview} /> : null}
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
@@ -5146,13 +5148,15 @@ function PlayerIdMetric({ value }: { value: string }) {
 
 function filterStatsForGroup(
   stats: StatAggregateResponse[],
-  terms: readonly string[],
+  group: Pick<StatGroup, "terms" | "excludeKeys">,
 ): StatAggregateResponse[] {
+  const excludeKeys = new Set(group.excludeKeys ?? []);
   return stats.filter(
     (stat) =>
       stat.category !== "context" &&
       !contextEventTypeKeys.has(stat.key) &&
-      terms.some((term) => statSearchText(stat).includes(term)),
+      !excludeKeys.has(stat.key) &&
+      group.terms.some((term) => statSearchText(stat).includes(term)),
   );
 }
 

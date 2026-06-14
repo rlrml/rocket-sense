@@ -97,6 +97,70 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
   );
 }
 
+/** Headline goal and assist rates, player vs pooled teammate average. */
+export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewResponse }) {
+  const rows = [
+    { label: "Goals", rate: overview.goals },
+    { label: "Assists", rate: overview.assists },
+  ].map(({ label, rate }) => ({
+    label,
+    count: rate.count,
+    playerRate: (rate.per_active_minute ?? 0) * rateWindowMinutes,
+    teammateRate:
+      rate.teammate_per_active_minute != null
+        ? rate.teammate_per_active_minute * rateWindowMinutes
+        : null,
+  }));
+  const maxRate = rows.reduce(
+    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
+    0,
+  );
+
+  return (
+    <section className="chart-panel scoring-rate-panel">
+      <header className="chart-panel-header">
+        <h3>Goals &amp; assists</h3>
+        <span>Per {rateWindowMinutes} minutes vs teammate average</span>
+      </header>
+      <div className="rate-chart-rows">
+        {rows.map(({ label, count, playerRate, teammateRate }) => (
+          <div className="rate-chart-row" key={label}>
+            <div className="rate-chart-label">{label}</div>
+            <div
+              className="rate-chart-track"
+              aria-label={`${label} per ${rateWindowMinutes} minutes`}
+            >
+              <span
+                className="rate-chart-fill"
+                style={{ width: `${barPercent(playerRate, maxRate)}%` }}
+                title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
+              />
+              {teammateRate != null ? (
+                <span
+                  className="rate-chart-teammate-marker"
+                  style={{ left: `${barPercent(teammateRate, maxRate)}%` }}
+                  title={`Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min`}
+                />
+              ) : null}
+            </div>
+            <div className="rate-chart-value">
+              <strong>{formatRate(playerRate)}</strong>
+              {teammateRate != null ? (
+                <span className="subtle"> vs {formatRate(teammateRate)}</span>
+              ) : null}
+              <span className="subtle"> · {count.toLocaleString()}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+      <p className="rate-chart-legend subtle">
+        <span className="rate-chart-legend-fill" /> player
+        <span className="rate-chart-legend-marker" /> teammate average
+      </p>
+    </section>
+  );
+}
+
 /** Goal tag proportions over the player's goals. */
 export function GoalTagSharePanel({
   overview,
@@ -109,15 +173,27 @@ export function GoalTagSharePanel({
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
 }) {
-  const tags = overview.goal_tags;
+  const rows = overview.goal_tags.map((tag) => ({
+    tag,
+    playerRate: (tag.per_active_minute ?? 0) * rateWindowMinutes,
+    teammateRate:
+      tag.teammate_per_active_minute != null
+        ? tag.teammate_per_active_minute * rateWindowMinutes
+        : null,
+  }));
+  const maxRate = rows.reduce(
+    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
+    0,
+  );
 
   return (
     <section className="chart-panel goal-tag-share-panel">
       <header className="chart-panel-header">
         <h3>Goal types</h3>
         <span>
-          {overview.goals_scored.toLocaleString()} goals tagged by the analyzer
-          {goalTypeHref ? " — pick a type to watch those goals" : ""}
+          {overview.goals_scored.toLocaleString()} goals tagged by the analyzer — per{" "}
+          {rateWindowMinutes} minutes vs teammate average
+          {goalTypeHref ? ", pick a type to watch those goals" : ""}
         </span>
         {allGoalsHref ? (
           <Link className="goal-tag-watch-all" to={allGoalsHref}>
@@ -125,26 +201,39 @@ export function GoalTagSharePanel({
           </Link>
         ) : null}
       </header>
-      {tags.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="subtle">No tagged goals yet for this replay set.</p>
       ) : (
         <div className="rate-chart-rows">
-          {tags.map((tag) => {
+          {rows.map(({ tag, playerRate, teammateRate }) => {
             const row = (
               <>
                 <div className="rate-chart-label" title={tag.display_name}>
                   {tag.display_name}
                 </div>
-                <div className="rate-chart-track" aria-label={`${tag.display_name} share of goals`}>
+                <div
+                  className="rate-chart-track"
+                  aria-label={`${tag.display_name} per ${rateWindowMinutes} minutes`}
+                >
                   <span
                     className="rate-chart-fill goal-tag-fill"
-                    style={{ width: `${barPercent(tag.share_of_goals ?? 0, 1)}%` }}
-                    title={shareTitle(tag.display_name, tag.share_of_goals, tag.count)}
+                    style={{ width: `${barPercent(playerRate, maxRate)}%` }}
+                    title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min · ${shareTitle(tag.display_name, tag.share_of_goals, tag.count)}`}
                   />
+                  {teammateRate != null ? (
+                    <span
+                      className="rate-chart-teammate-marker"
+                      style={{ left: `${barPercent(teammateRate, maxRate)}%` }}
+                      title={`Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min (${tag.teammate_count.toLocaleString()}×)`}
+                    />
+                  ) : null}
                 </div>
                 <div className="rate-chart-value">
-                  <strong>{formatShare(tag.share_of_goals)}</strong>
-                  <span className="subtle"> {tag.count.toLocaleString()}×</span>
+                  <strong>{formatRate(playerRate)}</strong>
+                  {teammateRate != null ? (
+                    <span className="subtle"> vs {formatRate(teammateRate)}</span>
+                  ) : null}
+                  <span className="subtle"> · {tag.count.toLocaleString()}×</span>
                 </div>
               </>
             );
@@ -165,6 +254,10 @@ export function GoalTagSharePanel({
           })}
         </div>
       )}
+      <p className="rate-chart-legend subtle">
+        <span className="rate-chart-legend-fill" /> player
+        <span className="rate-chart-legend-marker" /> teammate average
+      </p>
     </section>
   );
 }
