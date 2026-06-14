@@ -1,7 +1,12 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Info, RefreshCw, X } from "lucide-react";
+import { AlertTriangle, Cpu, Info, RefreshCw, X } from "lucide-react";
 
-import { getPlayerProcessingVersions, reprocessReplay } from "./api";
+import {
+  getPlayerProcessingVersions,
+  reprocessReplay,
+  reprocessReplayClient,
+} from "./api";
+import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
 import type {
   ProcessingVersionBreakdownResponse,
   ReplayProcessingVersion,
@@ -48,18 +53,26 @@ function GitSha({
 }
 
 /**
- * Compact "stale processing" pill. Renders nothing when the replay is current,
- * so callers can drop it inline unconditionally. The tooltip explains *why* a
- * replay is stale (schema bump vs subtr-actor drift) and what is current;
- * clicking opens a detail modal with the full processed-with → current diff,
- * including commit hashes for both subtr-actor and rocket-sense.
+ * The processing-status chip for a stale replay: it still reads "Processed" but
+ * in an amber tone with a warning triangle folded in, and the whole chip is a
+ * button that opens the staleness detail modal. Renders nothing when the replay
+ * is current, so callers can fall back to a plain status chip. The tooltip
+ * explains *why* a replay is stale (schema bump vs subtr-actor drift) and what
+ * is current; the modal shows the full processed-with → current diff (with
+ * commit hashes) plus reprocess controls when the viewer is allowed to use them.
  */
-export function StalenessBadge({
+export function StalenessChip({
   staleness,
   processingVersion,
+  replayId,
+  label = "Processed",
+  canReprocess,
 }: {
   staleness: ReplayStaleness;
   processingVersion?: ReplayProcessingVersion | null;
+  replayId: string;
+  label?: string;
+  canReprocess: boolean;
 }) {
   const [open, setOpen] = useState(false);
   if (!staleness.is_stale) return null;
@@ -81,18 +94,20 @@ export function StalenessBadge({
     <>
       <button
         type="button"
-        className="status-badge status-stale"
+        className="chip chip-amber chip-button"
         title={title}
-        aria-label="Show staleness details"
+        aria-label={`${label}, but stale — show staleness details`}
         onClick={() => setOpen(true)}
       >
         <AlertTriangle size={12} />
-        Stale
+        {label}
       </button>
       {open ? (
         <StalenessDetailModal
           staleness={staleness}
           processingVersion={processingVersion}
+          replayId={replayId}
+          canReprocess={canReprocess}
           onClose={() => setOpen(false)}
         />
       ) : null}
@@ -108,10 +123,14 @@ export function StalenessBadge({
 function StalenessDetailModal({
   staleness,
   processingVersion,
+  replayId,
+  canReprocess,
   onClose,
 }: {
   staleness: ReplayStaleness;
   processingVersion?: ReplayProcessingVersion | null;
+  replayId: string;
+  canReprocess: boolean;
   onClose: () => void;
 }) {
   useEffect(() => {
@@ -187,56 +206,103 @@ function StalenessDetailModal({
             </tr>
           </tbody>
         </table>
+
+        <ReprocessControls replayId={replayId} canReprocess={canReprocess} />
       </section>
     </div>
   );
 }
 
 /**
- * On-demand reprocess for a single replay. The backend authorizes by uploader,
- * so a 403 here is expected for replays the viewer does not own — surfaced as a
- * message rather than hidden, since the viewer cannot know ownership up front.
+ * Reprocess controls for the staleness modal. Offers a server-queued reprocess
+ * and, for users who want to spend their own compute, an in-browser reprocess
+ * that regenerates the analysis with the current WASM and uploads it. Both are
+ * gated on `canReprocess` (uploader or admin); other viewers just see why they
+ * cannot reprocess.
  */
-export function ReprocessButton({ replayId }: { replayId: string }) {
-  const [state, setState] = useState<"idle" | "working" | "done" | "error">("idle");
-  const [message, setMessage] = useState<string | null>(null);
+function ReprocessControls({
+  replayId,
+  canReprocess,
+}: {
+  replayId: string;
+  canReprocess: boolean;
+}) {
+  const [running, setRunning] = useState<"server" | "local" | null>(null);
+  const [result, setResult] = useState<{ error: boolean; message: string } | null>(null);
 
-  async function run() {
-    setState("working");
-    setMessage(null);
+  async function runServer() {
+    setRunning("server");
+    setResult(null);
     try {
-      const result = await reprocessReplay(replayId);
-      setState("done");
-      setMessage(
-        result.enqueued
-          ? "Reprocess queued — refresh in a moment."
-          : "Nothing to reprocess.",
-      );
+      const response = await reprocessReplay(replayId);
+      setResult({
+        error: false,
+        message: response.enqueued
+          ? "Queued for reprocessing — refresh in a moment to see updated stats."
+          : "Already up to date — nothing needed reprocessing.",
+      });
     } catch (error) {
-      setState("error");
-      setMessage(error instanceof Error ? error.message : "Reprocess failed.");
+      setResult({ error: true, message: error instanceof Error ? error.message : "Reprocess failed." });
+    } finally {
+      setRunning(null);
     }
   }
 
+  async function runLocal() {
+    setRunning("local");
+    setResult({ error: false, message: "Reprocessing in your browser — parsing the replay…" });
+    try {
+      const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId);
+      await reprocessReplayClient(replayId, {
+        subtrActorGitSha: __SUBTR_ACTOR_REV__,
+        scaffoldJson,
+      });
+      setResult({ error: false, message: "Reprocessed locally — refresh to see the regenerated analysis." });
+    } catch (error) {
+      setResult({ error: true, message: error instanceof Error ? error.message : "Local reprocess failed." });
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  if (!canReprocess) {
+    return (
+      <p className="muted-text staleness-actions-note">
+        Only the replay's uploader or an admin can reprocess it.
+      </p>
+    );
+  }
+
   return (
-    <div className="reprocess-control">
-      <button
-        className="secondary-button"
-        type="button"
-        onClick={() => void run()}
-        disabled={state === "working"}
-      >
-        <RefreshCw size={16} className={state === "working" ? "spin" : undefined} />
-        Reprocess
-      </button>
-      {message ? (
-        <span className={`reprocess-message${state === "error" ? " reprocess-error" : ""}`}>
-          {message}
-        </span>
+    <div className="staleness-actions">
+      <div className="staleness-actions-row">
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={running !== null}
+          onClick={() => void runServer()}
+        >
+          <RefreshCw size={16} className={running === "server" ? "spin" : undefined} />
+          {running === "server" ? "Requesting" : "Reprocess on server"}
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
+          disabled={running !== null}
+          onClick={() => void runLocal()}
+          title="Reprocess in your browser using your own compute, then upload the result"
+        >
+          <Cpu size={16} className={running === "local" ? "spin" : undefined} />
+          {running === "local" ? "Reprocessing" : "Reprocess locally"}
+        </button>
+      </div>
+      {result ? (
+        <p className={`reprocess-message${result.error ? " reprocess-error" : ""}`}>{result.message}</p>
       ) : null}
     </div>
   );
 }
+
 
 /**
  * Small info-icon trigger + modal showing how the replays contributing to an

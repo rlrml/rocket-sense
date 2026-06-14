@@ -533,20 +533,33 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
-.platform-chip,
-.game-badge {
+/* The single chip/pill primitive. One place owns the box (height, padding,
+   radius, font); tone classes below only swap colors. See <Chip> in chip.tsx. */
+.chip {
   display: inline-flex;
   flex: none;
   align-items: center;
+  gap: 4px;
   min-height: 20px;
   padding: 0 7px;
+  border: none;
   border-radius: 999px;
   background: #eef2f7;
   color: #445466;
+  font-family: inherit;
   font-size: 11px;
   font-weight: 750;
   line-height: 1;
   white-space: nowrap;
+}
+
+/* A chip that is itself a clickable <button> (e.g. the stale status chip). */
+.chip-button {
+  cursor: pointer;
+}
+
+.chip-button:hover {
+  filter: brightness(0.96);
 }
 
 .player-identity {
@@ -616,24 +629,65 @@ tbody tr:last-child td {
   gap: 4px;
 }
 
-.game-badge-ranked {
+.chip-muted {
+  color: var(--muted);
+}
+
+.chip-green {
   background: #dcfce7;
   color: #166534;
 }
 
-.game-badge-casual {
+.chip-blue {
   background: #dbeafe;
   color: #1e40af;
 }
 
-.game-badge-context {
+.chip-purple {
   background: #ede9fe;
   color: #5b21b6;
 }
 
-.game-badge-size {
+.chip-slate {
   background: #f1f5f9;
   color: #334155;
+}
+
+/* Processed, but with an out-of-date pipeline: amber instead of green, with a
+   folded-in warning triangle (see the stale status chip). */
+.chip-amber {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.chip-red {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.chip-mvp {
+  background: #10b981;
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+/* Reprocess controls inside the staleness modal. */
+.staleness-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.staleness-actions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.staleness-actions-note {
+  margin-top: 16px;
 }
 
 .rank-badge {
@@ -667,20 +721,6 @@ tbody tr:last-child td {
   font-variant-numeric: tabular-nums;
 }
 
-.mvp-chip {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  min-height: 20px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: #fef3c7;
-  color: #92400e;
-  font-size: 11px;
-  font-weight: 800;
-  line-height: 1;
-  letter-spacing: 0.04em;
-}
 
 .player-statline {
   display: inline-flex;
@@ -779,18 +819,8 @@ tbody tr:last-child td {
 }
 
 .status-stale {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
   background: #fef3c7;
   color: #92400e;
-}
-
-.reprocess-control {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
 }
 
 .reprocess-message {
@@ -858,18 +888,6 @@ tbody tr:last-child td {
 .version-breakdown-table .numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-/* The stale pill doubles as a button that opens the detail modal. */
-button.status-badge {
-  border: none;
-  cursor: pointer;
-  font-family: inherit;
-  line-height: 1.2;
-}
-
-button.status-stale:hover {
-  background: #fde68a;
 }
 
 .staleness-modal {
