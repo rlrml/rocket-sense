@@ -9,10 +9,12 @@ import {
   MapPinned,
   RotateCw,
   Sparkles,
+  Trophy,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { BoostDetail, boostEventTypes } from "./boost";
+import { CoreDetail, coreEventTypes } from "./core";
 import { GoalsDetail, goalEventTypes } from "./goals";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
 import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
@@ -47,6 +49,17 @@ export interface StatGroup {
 }
 
 export const statGroups: StatGroup[] = [
+  {
+    id: "core",
+    label: "Core",
+    icon: Trophy,
+    description: "Scoreboard core stats: score, goals, assists, saves, shots, and shooting %.",
+    terms: ["score", "goal", "assist", "save", "shot", "shooting"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: coreEventTypes,
+    Detail: CoreDetail,
+  },
   {
     id: "goals",
     label: "Scoring",

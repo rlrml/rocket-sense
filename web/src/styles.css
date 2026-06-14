@@ -4277,6 +4277,72 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.core-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.core-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+
+/* Core bars carry their value inside the track (see .player-comparison-inbar-value),
+   so the row drops the right-hand value column. */
+.player-comparison-chart.core-chart .player-comparison-row {
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+}
+
+/* Fixed per-metric magnitude hues for replay-group views (no replay-local team
+   to color by). Single games override these with team/player shading. */
+.source-segment.core-bar-score {
+  background: #0f766e;
+}
+
+.source-segment.core-bar-goals {
+  background: #2563eb;
+}
+
+.source-segment.core-bar-assists {
+  background: #7c3aed;
+}
+
+.source-segment.core-bar-saves {
+  background: #0891b2;
+}
+
+.source-segment.core-bar-shots {
+  background: #be123c;
+}
+
+.core-stat-table table {
+  min-width: 720px;
+}
+
+.core-table-player {
+  display: grid;
+  gap: 1px;
+  min-width: 120px;
+  padding-left: 9px;
+  border-left: 4px solid transparent;
+}
+
+.core-table-player .stat-player-name-line,
+.core-table-player .player-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.core-table-row.team-row-blue td:first-child {
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.08), rgba(37, 99, 235, 0));
+}
+
+.core-table-row.team-row-orange td:first-child {
+  background: linear-gradient(90deg, rgba(234, 88, 12, 0.09), rgba(234, 88, 12, 0));
+}
+
 .boost-stat-table-group {
   display: grid;
   gap: 6px;
