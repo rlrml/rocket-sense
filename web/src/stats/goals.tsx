@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
-import type { GoalPathPlayer } from "./GoalShapeDiagram";
+import type { GoalPathPlayer, GoalScoringTouch } from "./GoalShapeDiagram";
 import {
   eventAnchorFrame,
   eventDisplayTime,
@@ -65,6 +65,7 @@ export interface GoalRow {
   ballSpeed: number | null;
   pressureBeforeGoal: number | null;
   anchorFrame: number | null;
+  scoringTouch: GoalScoringTouch | null;
   types: GoalType[];
 }
 
@@ -377,6 +378,7 @@ export function GoalCard({
               replayId={replayId}
               startFrame={goalDiagramStartFrame(goal)}
               goalFrame={goal.anchorFrame}
+              scoringTouch={goal.scoringTouch}
               players={diagramPlayers}
             />
           </Suspense>
@@ -571,6 +573,7 @@ export function buildGoalRows(events: MechanicEventResponse[]): GoalRow[] {
         ballSpeed: numberField(payload, "ball_speed_at_goal"),
         pressureBeforeGoal: numberField(payload, "pressure_duration_before_goal"),
         anchorFrame: eventAnchorFrame(event, ["scorer_last_touch.frame"]),
+        scoringTouch: goalScoringTouch(payload),
         types: goalTypes(payload),
       };
     });
@@ -612,6 +615,32 @@ function goalTypeDetails(metadata: Record<string, unknown>): GoalTypeDetail[] {
 function goalTypeSubLabel(details: GoalTypeDetail[]): string | null {
   const kind = details.find((detail) => detail.key === "kind")?.value;
   return kind && kind !== "other" && kind !== "unknown" ? formatLabel(kind) : null;
+}
+
+/** Pull the exact scoring-touch coordinate out of the goal payload's
+ *  `scorer_last_touch` (subtr-actor's GoalTouchContext). */
+function goalScoringTouch(payload: Record<string, unknown>): GoalScoringTouch | null {
+  const touch = objectField(payload, "scorer_last_touch");
+  if (!touch) return null;
+  const ball = fieldPoint(touch, "ball_position");
+  if (!ball) return null;
+  return {
+    ball,
+    player: fieldPoint(touch, "player_position"),
+    team: teamField(touch, "is_team_0"),
+  };
+}
+
+/** Read a `{ x, y }` field point (uu) from a nested payload object. */
+function fieldPoint(
+  payload: Record<string, unknown>,
+  key: string,
+): { x: number; y: number } | null {
+  const point = objectField(payload, key);
+  if (!point) return null;
+  const x = numberField(point, "x");
+  const y = numberField(point, "y");
+  return x != null && y != null ? { x, y } : null;
 }
 
 function objectField(
