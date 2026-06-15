@@ -36,9 +36,9 @@ fn positioning_summary_query_splits_cohorts_over_filtered_replays() {
     assert!(sql.contains("WHEN actor.team = ta.target_team THEN 'teammate'"));
     assert!(sql.contains("ELSE 'opponent'"));
     // Actor team resolved via the replay_player whose subject id matches.
-    assert!(
-        sql.contains("concat(actor.platform, ':', actor.platform_player_id) = event.primary_subject_id")
-    );
+    assert!(sql.contains(
+        "concat(actor.platform, ':', actor.platform_player_id) = event.primary_subject_id"
+    ));
     // Match filters apply through the shared replay-set helper (game-type joins
     // the replays table).
     assert!(sql.contains("target_appearances"));
