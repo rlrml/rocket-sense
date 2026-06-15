@@ -161,12 +161,11 @@ export const statGroups: StatGroup[] = [
     label: "Touches",
     icon: Hand,
     description:
-      "Touches, shots, saves, passes, assists, whiffs, bumps, 50/50s, and ball interaction volume.",
-    terms: ["touch", "shot", "save", "pass", "assist", "goal", "ball", "whiff", "bump"],
+      "Touch volume and ball advanced, split by hit kind (control / medium / hard) and intention category (shot, save, clear, pass, ...).",
+    terms: ["touch", "ball", "control", "hard", "hit", "advance", "shot", "save", "pass", "clear"],
     // "ball" also matches the positioning ball-proximity stat; keep it out of Touches.
     excludeKeys: ["positioning_ball_proximity"],
-    // Hidden for now — slated for a fresh rewrite. Flip back to true to restore.
-    completed: false,
+    completed: true,
     usesAggregateStats: false,
     eventTypes: touchEventTypes,
     Detail: TouchesDetail,

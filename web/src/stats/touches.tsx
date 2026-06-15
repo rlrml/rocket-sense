@@ -1,408 +1,448 @@
+import { useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import {
+  type ComparisonRow,
+  ComparisonRows,
+  type SegmentedBarSegment,
+  StatPlayerLabel,
+  statPlayerRank,
+  type StatPlayerRank,
+} from "./shared";
 
-export const touchEventTypes = [
-  "touch",
-  "shot",
-  "save",
-  "assist",
-  "goal",
-  "pass",
-  "center",
-  "whiff",
-  "bump",
-  "fifty_fifty",
-];
+// Only the classified touch stream feeds this section. Each event carries two
+// independent classification axes plus how far the touch moved the ball toward
+// the attacking goal (`ball_movement.advance_distance`):
+//   - kind:      hit strength (control / medium / hard hit)
+//   - category:  intention (shot / save / clear / pass / challenge / dribble / neutral)
+export const touchEventTypes = ["touch"];
 
-interface TouchesDetailProps {
-  events: MechanicEventResponse[];
-  players: ReplayPlayer[];
-  scope?: "replay" | "group";
+type TouchComparisonMode = "players" | "teams";
+type TouchMetric = "count" | "advance";
+
+interface TouchDimensionValue {
+  id: string;
+  label: string;
+  // Used both for the bar segment (`.source-segment.<class>`) and the matching
+  // legend swatch (`.chart-legend .<class>::before`) — see styles.css.
+  segmentClass: string;
 }
 
-interface PlayerTouchRow {
+interface TouchDimension {
+  id: string;
+  // Filled into chart titles, e.g. "Touches by kind".
+  noun: string;
+  payloadField: string;
+  values: TouchDimensionValue[];
+  other: TouchDimensionValue;
+}
+
+// Shared catch-all for any classifier value outside the known sets.
+const OTHER_VALUE: TouchDimensionValue = {
+  id: "other",
+  label: "Other",
+  segmentClass: "touch-seg-other",
+};
+
+// Hit strength, ordered as a calm-to-aggressive ramp.
+const KIND_DIMENSION: TouchDimension = {
+  id: "kind",
+  noun: "kind",
+  payloadField: "kind",
+  values: [
+    { id: "control", label: "Control", segmentClass: "touch-seg-kind-control" },
+    { id: "medium_hit", label: "Medium", segmentClass: "touch-seg-kind-medium" },
+    { id: "hard_hit", label: "Hard", segmentClass: "touch-seg-kind-hard" },
+  ],
+  other: OTHER_VALUE,
+};
+
+// Intention, ordered offensive -> contest -> defensive -> neutral. subtr-actor's
+// `control` intention is a possession/dribble touch, labeled "Dribble" so it is
+// never confused with the "Control" hit kind above.
+const CATEGORY_DIMENSION: TouchDimension = {
+  id: "category",
+  noun: "category",
+  payloadField: "intention",
+  values: [
+    { id: "shot", label: "Shot", segmentClass: "touch-seg-cat-shot" },
+    { id: "pass", label: "Pass", segmentClass: "touch-seg-cat-pass" },
+    { id: "control", label: "Dribble", segmentClass: "touch-seg-cat-dribble" },
+    { id: "challenge", label: "Challenge", segmentClass: "touch-seg-cat-challenge" },
+    { id: "save", label: "Save", segmentClass: "touch-seg-cat-save" },
+    { id: "clear", label: "Clear", segmentClass: "touch-seg-cat-clear" },
+    { id: "neutral", label: "Neutral", segmentClass: "touch-seg-cat-neutral" },
+  ],
+  other: OTHER_VALUE,
+};
+
+const DIMENSIONS: TouchDimension[] = [KIND_DIMENSION, CATEGORY_DIMENSION];
+
+interface TouchSubject {
   key: string;
   name: string;
-  games: number | null;
-  touches: number;
-  shots: number;
-  goals: number;
-  assists: number;
-  saves: number;
-  passes: number;
-  centers: number;
-  whiffs: number;
-  bumps: number;
-  fifties: number;
-  firstTouches: number;
-  contestedTouches: number;
-  aerialTouches: number;
-  wallTouches: number;
+  platform: string | null;
+  platformPlayerId: string | null;
+  rank: StatPlayerRank | null;
+  team: number | null;
+  showPlatformBadge: boolean;
+  totalTouches: number;
+  totalAdvance: number;
+  // dimension id -> (value id -> touch count / summed advance distance)
+  countsByDimension: Record<string, Record<string, number>>;
+  advanceByDimension: Record<string, Record<string, number>>;
 }
 
-interface TouchTypeRow {
-  key: string;
-  label: string;
-  count: number;
-  playerCount: number;
-  leader: { name: string; count: number } | null;
-}
+export function TouchesDetail({
+  events,
+  players,
+  scope = "replay",
+}: {
+  events: MechanicEventResponse[];
+  players: ReplayPlayer[];
+  durationSeconds?: number | null;
+  scope?: "replay" | "group";
+}) {
+  const touchEvents = useMemo(
+    () => events.filter((event) => event.event_type === "touch"),
+    [events],
+  );
+  const playerSubjects = useMemo(
+    () => playerTouchSubjects(players, touchEvents),
+    [players, touchEvents],
+  );
+  const teamSubjects = useMemo(() => teamTouchSubjects(touchEvents), [touchEvents]);
 
-interface TouchTraitRow {
-  key: string;
-  label: string;
-  count: number;
-  share: number | null;
-}
+  const oneVOne = isOneVOneMatch(players);
+  const [selectedMode, setSelectedMode] = useState<TouchComparisonMode>("players");
+  const hasPlayerSubjects = playerSubjects.length > 0;
+  const effectiveMode: TouchComparisonMode = !hasPlayerSubjects
+    ? "teams"
+    : oneVOne
+      ? "players"
+      : selectedMode;
+  const subjects = effectiveMode === "players" ? playerSubjects : teamSubjects;
 
-export function TouchesDetail({ events, players, scope = "replay" }: TouchesDetailProps) {
-  const touchEvents = events.filter((event) => touchEventTypes.includes(event.event_type));
-  const playerRows = playerTouchRows(players, touchEvents);
-  const typeRows = touchTypeRows(players, touchEvents);
-  const traitRows = touchTraitRows(touchEvents);
+  const totalTouches = touchEvents.length;
+  const totalAdvance = subjects.reduce((sum, subject) => sum + subject.totalAdvance, 0);
+  const maxTouches = Math.max(1, ...subjects.map((subject) => subject.totalTouches));
+  const maxAdvance = Math.max(1, ...subjects.map((subject) => subject.totalAdvance));
 
   if (!touchEvents.length) {
     return (
       <div className="stat-empty">
-        No touch or ball-interaction events are available for this{" "}
-        {scope === "group" ? "group" : "replay"} yet.
+        No touch events are available for this {scope === "group" ? "group" : "replay"} yet.
       </div>
     );
   }
 
   return (
     <div className="touches-detail">
+      {oneVOne ? null : (
+        <TouchComparisonModeToggle
+          comparisonMode={effectiveMode}
+          hasPlayerSubjects={hasPlayerSubjects}
+          onComparisonModeChange={setSelectedMode}
+        />
+      )}
       <div className="stat-section-grid">
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Player touch leaderboard</h3>
-            <span>{touchEvents.length.toLocaleString()} loaded ball-interaction events</span>
-          </header>
-          <PlayerTouchLeaderboard rows={playerRows} />
-        </section>
-
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Interaction type leaderboard</h3>
-            <span>Touches, shots, saves, passes, whiffs, bumps, and 50/50s</span>
-          </header>
-          <TouchTypeLeaderboard rows={typeRows} totalEvents={touchEvents.length} />
-        </section>
-
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Touch trait leaderboard</h3>
-            <span>Only classified touch events are included</span>
-          </header>
-          <TouchTraitLeaderboard rows={traitRows} />
-        </section>
+        {DIMENSIONS.map((dimension) => (
+          <TouchChartPanel
+            key={`touches-${dimension.id}`}
+            title={`Touches by ${dimension.noun}`}
+            contextLabel={`${totalTouches.toLocaleString()} total touches`}
+            subjects={subjects}
+            dimension={dimension}
+            metric="count"
+            maxValue={maxTouches}
+            format={formatCount}
+          />
+        ))}
+        {DIMENSIONS.map((dimension) => (
+          <TouchChartPanel
+            key={`advance-${dimension.id}`}
+            title={`Ball advanced by ${dimension.noun}`}
+            contextLabel={`${formatDistance(totalAdvance)} advanced`}
+            subjects={subjects}
+            dimension={dimension}
+            metric="advance"
+            maxValue={maxAdvance}
+            format={formatDistance}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function PlayerTouchLeaderboard({ rows }: { rows: PlayerTouchRow[] }) {
-  if (!rows.length) {
-    return <div className="stat-empty">No player touch rows are available yet.</div>;
-  }
-
-  return (
-    <div className="table-frame compact-table stat-leaderboard-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Player</th>
-            <th>Touches</th>
-            <th>Per game</th>
-            <th>Shots</th>
-            <th>G / A / S</th>
-            <th>Passes</th>
-            <th>Centers</th>
-            <th>Whiffs</th>
-            <th>Bumps</th>
-            <th>50/50s</th>
-            <th>Touch profile</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key}>
-              <td>
-                <strong>{row.name}</strong>
-                <div className="subtle">
-                  {row.games == null ? "Games unknown" : `${row.games.toLocaleString()} games`}
-                </div>
-              </td>
-              <td>{row.touches.toLocaleString()}</td>
-              <td>{formatDecimal(rate(row.touches, row.games), 1)}</td>
-              <td>{row.shots.toLocaleString()}</td>
-              <td>{`${row.goals.toLocaleString()} / ${row.assists.toLocaleString()} / ${row.saves.toLocaleString()}`}</td>
-              <td>{row.passes.toLocaleString()}</td>
-              <td>{row.centers.toLocaleString()}</td>
-              <td>{row.whiffs.toLocaleString()}</td>
-              <td>{row.bumps.toLocaleString()}</td>
-              <td>{row.fifties.toLocaleString()}</td>
-              <td>{touchProfile(row)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function TouchTypeLeaderboard({
-  rows,
-  totalEvents,
+function TouchChartPanel({
+  title,
+  contextLabel,
+  subjects,
+  dimension,
+  metric,
+  maxValue,
+  format,
 }: {
-  rows: TouchTypeRow[];
-  totalEvents: number;
+  title: string;
+  contextLabel: string;
+  subjects: TouchSubject[];
+  dimension: TouchDimension;
+  metric: TouchMetric;
+  maxValue: number;
+  format: (value: number) => string;
 }) {
-  if (!rows.length) {
-    return <div className="stat-empty">No interaction type rows are available yet.</div>;
-  }
+  const activeValues = activeDimensionValues(subjects, dimension, metric);
+  const rows = touchDimensionRows(subjects, dimension, activeValues, metric, maxValue, format);
 
   return (
-    <div className="table-frame compact-table stat-leaderboard-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Interaction</th>
-            <th>Events</th>
-            <th>Share</th>
-            <th>Players</th>
-            <th>Leader</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key}>
-              <td>
-                <strong>{row.label}</strong>
-              </td>
-              <td>{row.count.toLocaleString()}</td>
-              <td>{formatShare(row.count, totalEvents)}</td>
-              <td>{row.playerCount.toLocaleString()}</td>
-              <td>
-                {row.leader ? `${row.leader.name} (${row.leader.count.toLocaleString()})` : "-"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <section className="chart-panel full-span">
+      <header className="chart-panel-header">
+        <h3>{title}</h3>
+        <span>{contextLabel}</span>
+      </header>
+      <ComparisonRows rows={rows} emptyLabel="No classified touches are available yet." />
+      <TouchLegend values={activeValues} />
+    </section>
+  );
+}
+
+function TouchComparisonModeToggle({
+  comparisonMode,
+  hasPlayerSubjects,
+  onComparisonModeChange,
+}: {
+  comparisonMode: TouchComparisonMode;
+  hasPlayerSubjects: boolean;
+  onComparisonModeChange: (mode: TouchComparisonMode) => void;
+}) {
+  return (
+    <div className="boost-page-controls">
+      <div className="boost-comparison-tabs" role="tablist" aria-label="Touch comparison mode">
+        <button
+          className={comparisonMode === "players" ? "active" : ""}
+          disabled={!hasPlayerSubjects}
+          onClick={() => onComparisonModeChange("players")}
+          role="tab"
+          title={
+            hasPlayerSubjects
+              ? "Per-player touches"
+              : "No touches could be attributed to individual players"
+          }
+          type="button"
+          aria-selected={comparisonMode === "players"}
+        >
+          Players
+        </button>
+        <button
+          className={comparisonMode === "teams" ? "active" : ""}
+          onClick={() => onComparisonModeChange("teams")}
+          role="tab"
+          type="button"
+          aria-selected={comparisonMode === "teams"}
+        >
+          Teams
+        </button>
+      </div>
     </div>
   );
 }
 
-function TouchTraitLeaderboard({ rows }: { rows: TouchTraitRow[] }) {
-  if (!rows.length) {
-    return <div className="stat-empty">No classified touch traits are available yet.</div>;
-  }
-
+function TouchLegend({ values }: { values: TouchDimensionValue[] }) {
+  if (!values.length) return null;
   return (
-    <div className="table-frame compact-table stat-leaderboard-table">
-      <table>
-        <thead>
-          <tr>
-            <th>Trait</th>
-            <th>Touches</th>
-            <th>Share</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.key}>
-              <td>
-                <strong>{row.label}</strong>
-              </td>
-              <td>{row.count.toLocaleString()}</td>
-              <td>{formatNullableShare(row.share)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="chart-legend">
+      {values.map((value) => (
+        <span className={value.segmentClass} key={value.id}>
+          {value.label}
+        </span>
+      ))}
     </div>
   );
 }
 
-function playerTouchRows(
-  players: ReplayPlayer[],
-  events: MechanicEventResponse[],
-): PlayerTouchRow[] {
-  const rows = players.map((player, index) => ({
-    key: playerKey(player, index),
-    name: player.name || player.platform_player_id || "Unknown",
-    games: player.appearance_count ?? null,
-    touches: 0,
-    shots: 0,
-    goals: 0,
-    assists: 0,
-    saves: 0,
-    passes: 0,
-    centers: 0,
-    whiffs: 0,
-    bumps: 0,
-    fifties: 0,
-    firstTouches: 0,
-    contestedTouches: 0,
-    aerialTouches: 0,
-    wallTouches: 0,
-  }));
-  const byKey = new Map(rows.map((row) => [row.key, row]));
+function activeDimensionValues(
+  subjects: TouchSubject[],
+  dimension: TouchDimension,
+  metric: TouchMetric,
+): TouchDimensionValue[] {
+  return [...dimension.values, dimension.other].filter((value) =>
+    subjects.some((subject) => (metricMap(subject, dimension, metric)[value.id] ?? 0) > 0),
+  );
+}
 
-  for (const event of events) {
-    const playerIndex = players.findIndex((player) => eventMatchesPlayer(player, event));
-    if (playerIndex < 0) continue;
-    const row = byKey.get(playerKey(players[playerIndex], playerIndex));
-    if (!row) continue;
-
-    switch (event.event_type) {
-      case "touch":
-        row.touches += 1;
-        if (booleanPayload(event.payload, "first_touch")) row.firstTouches += 1;
-        if (booleanPayload(event.payload, "contested")) row.contestedTouches += 1;
-        if (
-          stringPayload(event.payload, "surface") === "air" ||
-          stringPayload(event.payload, "height_band")?.includes("air")
-        )
-          row.aerialTouches += 1;
-        if (stringPayload(event.payload, "surface") === "wall") row.wallTouches += 1;
-        break;
-      case "shot":
-        row.shots += 1;
-        break;
-      case "goal":
-        row.goals += 1;
-        break;
-      case "assist":
-        row.assists += 1;
-        break;
-      case "save":
-        row.saves += 1;
-        break;
-      case "pass":
-        row.passes += 1;
-        break;
-      case "center":
-        row.centers += 1;
-        break;
-      case "whiff":
-        row.whiffs += 1;
-        break;
-      case "bump":
-        row.bumps += 1;
-        break;
-      case "fifty_fifty":
-        row.fifties += 1;
-        break;
-    }
-  }
-
-  return rows
-    .filter((row) => totalPlayerInteractions(row) > 0)
+function touchDimensionRows(
+  subjects: TouchSubject[],
+  dimension: TouchDimension,
+  activeValues: TouchDimensionValue[],
+  metric: TouchMetric,
+  maxValue: number,
+  format: (value: number) => string,
+): ComparisonRow[] {
+  return [...subjects]
     .sort(
       (left, right) =>
-        totalPlayerInteractions(right) - totalPlayerInteractions(left) ||
+        metricTotal(right, metric) - metricTotal(left, metric) ||
         left.name.localeCompare(right.name),
-    );
+    )
+    .map((subject) => {
+      const values = metricMap(subject, dimension, metric);
+      const total = metricTotal(subject, metric);
+      const segments: SegmentedBarSegment[] = activeValues.map((value) => {
+        const amount = values[value.id] ?? 0;
+        const share = total > 0 ? amount / total : 0;
+        return {
+          key: value.id,
+          className: value.segmentClass,
+          label: value.label,
+          value: amount,
+          visibleLabel: amount > 0 && share >= 0.14 ? format(amount) : undefined,
+          title:
+            amount > 0
+              ? `${value.label}: ${format(amount)} (${Math.round(share * 100)}%)`
+              : undefined,
+        };
+      });
+      return {
+        key: subject.key,
+        label: (
+          <StatPlayerLabel
+            className={`team-accent-${teamClass(subject.team)}`}
+            name={subject.name}
+            platform={subject.platform}
+            profilePath={playerProfilePath(subject)}
+            rank={subject.rank}
+            showPlatformBadge={subject.showPlatformBadge}
+            subtitle={subject.showPlatformBadge ? teamLabel(subject.team) : "Team"}
+          />
+        ),
+        ariaLabel: `${subject.name}: ${format(total)}`,
+        segments,
+        total,
+        maxValue,
+        valueLabel: format(total),
+        placeholder: total > 0 ? undefined : "0",
+      };
+    });
 }
 
-function touchTypeRows(players: ReplayPlayer[], events: MechanicEventResponse[]): TouchTypeRow[] {
-  const rows = new Map<string, TouchTypeRow>();
-  const playerCountsByType = new Map<string, Map<string, number>>();
+function metricMap(
+  subject: TouchSubject,
+  dimension: TouchDimension,
+  metric: TouchMetric,
+): Record<string, number> {
+  return metric === "count"
+    ? subject.countsByDimension[dimension.id]
+    : subject.advanceByDimension[dimension.id];
+}
+
+function metricTotal(subject: TouchSubject, metric: TouchMetric): number {
+  return metric === "count" ? subject.totalTouches : subject.totalAdvance;
+}
+
+function playerTouchSubjects(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): TouchSubject[] {
+  const subjects = players.map((player, index) =>
+    emptySubject(playerKey(player, index), {
+      name: player.name || player.platform_player_id || "Unknown",
+      platform: player.platform,
+      platformPlayerId: player.platform_player_id,
+      rank: statPlayerRank(player),
+      team: player.team,
+      showPlatformBadge: true,
+    }),
+  );
+  const byKey = new Map(subjects.map((subject) => [subject.key, subject]));
 
   for (const event of events) {
-    const key = event.event_type;
-    const existing = rows.get(key);
-    rows.set(key, {
-      key,
-      label: event.event_type_label || formatLabel(key),
-      count: (existing?.count ?? 0) + 1,
-      playerCount: existing?.playerCount ?? 0,
-      leader: existing?.leader ?? null,
-    });
-
     const playerIndex = players.findIndex((player) => eventMatchesPlayer(player, event));
     if (playerIndex < 0) continue;
-    const eventPlayerKey = playerKey(players[playerIndex], playerIndex);
-    const counts = playerCountsByType.get(key) ?? new Map<string, number>();
-    counts.set(eventPlayerKey, (counts.get(eventPlayerKey) ?? 0) + 1);
-    playerCountsByType.set(key, counts);
+    const subject = byKey.get(playerKey(players[playerIndex], playerIndex));
+    if (subject) accumulateTouch(subject, event);
   }
 
-  for (const row of rows.values()) {
-    const counts = playerCountsByType.get(row.key) ?? new Map<string, number>();
-    row.playerCount = counts.size;
-    row.leader =
-      [...counts.entries()]
-        .map(([key, count]) => ({ name: playerNameForKey(players, key), count }))
-        .sort(
-          (left, right) => right.count - left.count || left.name.localeCompare(right.name),
-        )[0] ?? null;
-  }
+  return subjects.filter((subject) => subject.totalTouches > 0);
+}
 
-  return [...rows.values()].sort(
-    (left, right) => right.count - left.count || left.label.localeCompare(right.label),
+function teamTouchSubjects(events: MechanicEventResponse[]): TouchSubject[] {
+  const subjects = ([0, 1] as const).map((team) =>
+    emptySubject(`team:${team}`, {
+      name: `${teamLabel(team)} team`,
+      platform: null,
+      platformPlayerId: null,
+      rank: null,
+      team,
+      showPlatformBadge: false,
+    }),
   );
-}
 
-function touchTraitRows(events: MechanicEventResponse[]): TouchTraitRow[] {
-  const touchEvents = events.filter((event) => event.event_type === "touch");
-  const total = touchEvents.length;
-  const traits = new Map<string, TouchTraitRow>();
-
-  for (const event of touchEvents) {
-    addTrait(traits, "first_touch", "First touch", booleanPayload(event.payload, "first_touch"));
-    addTrait(traits, "contested", "Contested", booleanPayload(event.payload, "contested"));
-    addTrait(
-      traits,
-      "aerial",
-      "Aerial",
-      stringPayload(event.payload, "surface") === "air" ||
-        stringPayload(event.payload, "height_band")?.includes("air") === true,
-    );
-    addTrait(traits, "wall", "Wall", stringPayload(event.payload, "surface") === "wall");
-    const intention = stringPayload(event.payload, "intention");
-    if (intention)
-      addTrait(traits, `intention:${intention}`, `Intent: ${formatLabel(intention)}`, true);
-    const kind = stringPayload(event.payload, "kind");
-    if (kind) addTrait(traits, `kind:${kind}`, `Kind: ${formatLabel(kind)}`, true);
+  for (const event of events) {
+    const team = event.team;
+    if (team !== 0 && team !== 1) continue;
+    accumulateTouch(subjects[team], event);
   }
 
-  return [...traits.values()]
-    .map((row) => ({ ...row, share: total > 0 ? row.count / total : null }))
-    .sort((left, right) => right.count - left.count || left.label.localeCompare(right.label));
+  return subjects.filter((subject) => subject.totalTouches > 0);
 }
 
-function addTrait(rows: Map<string, TouchTraitRow>, key: string, label: string, present: boolean) {
-  if (!present) return;
-  const existing = rows.get(key);
-  rows.set(key, { key, label, count: (existing?.count ?? 0) + 1, share: null });
+function emptySubject(
+  key: string,
+  identity: Omit<
+    TouchSubject,
+    "key" | "totalTouches" | "totalAdvance" | "countsByDimension" | "advanceByDimension"
+  >,
+): TouchSubject {
+  const countsByDimension: Record<string, Record<string, number>> = {};
+  const advanceByDimension: Record<string, Record<string, number>> = {};
+  for (const dimension of DIMENSIONS) {
+    countsByDimension[dimension.id] = {};
+    advanceByDimension[dimension.id] = {};
+  }
+  return {
+    key,
+    ...identity,
+    totalTouches: 0,
+    totalAdvance: 0,
+    countsByDimension,
+    advanceByDimension,
+  };
 }
 
-function totalPlayerInteractions(row: PlayerTouchRow): number {
-  return (
-    row.touches +
-    row.shots +
-    row.goals +
-    row.assists +
-    row.saves +
-    row.passes +
-    row.centers +
-    row.whiffs +
-    row.bumps +
-    row.fifties
-  );
+function accumulateTouch(subject: TouchSubject, event: MechanicEventResponse) {
+  const advance = touchAdvance(event.payload);
+  subject.totalTouches += 1;
+  if (advance > 0) subject.totalAdvance += advance;
+
+  for (const dimension of DIMENSIONS) {
+    const valueId = dimensionValueId(dimension, event.payload);
+    const counts = subject.countsByDimension[dimension.id];
+    counts[valueId] = (counts[valueId] ?? 0) + 1;
+    if (advance > 0) {
+      const adv = subject.advanceByDimension[dimension.id];
+      adv[valueId] = (adv[valueId] ?? 0) + advance;
+    }
+  }
 }
 
-function touchProfile(row: PlayerTouchRow): string {
-  if (row.touches <= 0) return "-";
-  const parts = [
-    `${formatShare(row.firstTouches, row.touches)} first`,
-    `${formatShare(row.contestedTouches, row.touches)} contested`,
-    `${formatShare(row.aerialTouches, row.touches)} aerial`,
-  ];
-  if (row.wallTouches > 0) parts.push(`${formatShare(row.wallTouches, row.touches)} wall`);
-  return parts.join(" / ");
+function dimensionValueId(dimension: TouchDimension, payload: Record<string, unknown>): string {
+  const raw = stringPayload(payload, dimension.payloadField);
+  if (raw && dimension.values.some((value) => value.id === raw)) return raw;
+  return dimension.other.id;
+}
+
+function touchAdvance(payload: Record<string, unknown>): number {
+  const movement = payload.ball_movement;
+  if (!movement || typeof movement !== "object" || Array.isArray(movement)) return 0;
+  const value = (movement as Record<string, unknown>).advance_distance;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function isOneVOneMatch(players: ReplayPlayer[]): boolean {
+  const blue = players.filter((player) => player.team === 0);
+  const orange = players.filter((player) => player.team === 1);
+  const unknown = players.filter((player) => player.team !== 0 && player.team !== 1);
+  return blue.length === 1 && orange.length === 1 && unknown.length === 0;
 }
 
 function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
@@ -423,8 +463,6 @@ function eventPlayerKeys(event: MechanicEventResponse): string[] {
     stringPayload(event.payload, "player_id"),
     remoteIdKey(event.payload.player_id),
     remoteIdKey(event.payload.player),
-    remoteIdKey(event.payload.passer),
-    remoteIdKey(event.payload.initiator),
   ]
     .filter((key): key is string => Boolean(key))
     .flatMap((key) => [key, normalizePlayerKey(key)]);
@@ -455,11 +493,6 @@ function playerKey(player: ReplayPlayer, index: number): string {
   return playerIdentity(player) ?? `name:${player.name?.trim().toLowerCase() || index}`;
 }
 
-function playerNameForKey(players: ReplayPlayer[], key: string): string {
-  const player = players.find((candidate, index) => playerKey(candidate, index) === key);
-  return player?.name || player?.platform_player_id || "Unknown";
-}
-
 function normalizePlayerKey(value: string): string {
   const [platform, ...rest] = value.split(":");
   return rest.length > 0 ? `${normalizePlatform(platform)}:${rest.join(":")}` : value;
@@ -472,41 +505,37 @@ function normalizePlatform(value: string): string {
   return lower;
 }
 
+function playerProfilePath(subject: {
+  platform: string | null;
+  platformPlayerId: string | null;
+}): string | null {
+  if (!subject.platform || !subject.platformPlayerId) return null;
+  return `/players/${encodeURIComponent(subject.platform)}/${encodeURIComponent(subject.platformPlayerId)}/stats/touches`;
+}
+
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
-function booleanPayload(payload: Record<string, unknown>, key: string): boolean {
-  return payload[key] === true;
+function teamClass(team: number | null): string {
+  if (team === 0) return "blue";
+  if (team === 1) return "orange";
+  return "unknown";
 }
 
-function rate(value: number, games: number | null): number | null {
-  return games && games > 0 ? value / games : null;
+function teamLabel(team: number | null): string {
+  if (team === 0) return "Blue";
+  if (team === 1) return "Orange";
+  return "Unknown";
 }
 
-function formatShare(value: number, total: number): string {
-  if (!Number.isFinite(value) || !Number.isFinite(total) || total <= 0) return "0%";
-  return `${Math.round((value / total) * 100)}%`;
+function formatCount(value: number): string {
+  return Math.round(value).toLocaleString();
 }
 
-function formatNullableShare(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "Unknown";
-  return `${Math.round(value * 100)}%`;
-}
-
-function formatDecimal(value: number | null, digits: number): string {
-  if (value == null || !Number.isFinite(value)) return "Unknown";
-  return value.toLocaleString(undefined, {
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  });
-}
-
-function formatLabel(value: string): string {
-  return value
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+function formatDistance(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`;
+  return Math.round(value).toLocaleString();
 }

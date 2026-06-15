@@ -2856,6 +2856,70 @@ tbody tr:last-child td {
   background: #be123c;
 }
 
+/* Touches: each value's hue paints both its bar segment and its legend swatch
+   (the segment class doubles as the legend class), so a value reads the same in
+   every bar across the players/teams toggle. Kinds use a calm-to-aggressive
+   ramp; categories use distinct per-intention hues. */
+.touches-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.source-segment.touch-seg-kind-control,
+.chart-legend .touch-seg-kind-control::before {
+  background: #0f766e;
+}
+
+.source-segment.touch-seg-kind-medium,
+.chart-legend .touch-seg-kind-medium::before {
+  background: #d97706;
+}
+
+.source-segment.touch-seg-kind-hard,
+.chart-legend .touch-seg-kind-hard::before {
+  background: #be123c;
+}
+
+.source-segment.touch-seg-cat-shot,
+.chart-legend .touch-seg-cat-shot::before {
+  background: #dc2626;
+}
+
+.source-segment.touch-seg-cat-pass,
+.chart-legend .touch-seg-cat-pass::before {
+  background: #0891b2;
+}
+
+.source-segment.touch-seg-cat-dribble,
+.chart-legend .touch-seg-cat-dribble::before {
+  background: #0d9488;
+}
+
+.source-segment.touch-seg-cat-challenge,
+.chart-legend .touch-seg-cat-challenge::before {
+  background: #ca8a04;
+}
+
+.source-segment.touch-seg-cat-save,
+.chart-legend .touch-seg-cat-save::before {
+  background: #2563eb;
+}
+
+.source-segment.touch-seg-cat-clear,
+.chart-legend .touch-seg-cat-clear::before {
+  background: #7c3aed;
+}
+
+.source-segment.touch-seg-cat-neutral,
+.chart-legend .touch-seg-cat-neutral::before {
+  background: #64748b;
+}
+
+.source-segment.touch-seg-other,
+.chart-legend .touch-seg-other::before {
+  background: #94a3b8;
+}
+
 .movement-meter-speed {
   background: #0f766e;
 }
