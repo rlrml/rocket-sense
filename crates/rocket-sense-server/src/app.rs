@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 use tower_http::cors::CorsLayer;
 
-const MAX_REPLAY_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+pub(crate) const MAX_REPLAY_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct AppState {

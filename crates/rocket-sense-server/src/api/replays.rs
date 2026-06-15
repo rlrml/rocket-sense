@@ -21,8 +21,8 @@ use axum::{
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use rocket_sense_storage::{
-    decode_bytes, encode_bytes, raw_replay_key, replay_mime_type, sha256_hex, StorageEncoding,
-    StorageError, DEFAULT_STORAGE_ENCODING,
+    decode_bytes_with_limit, encode_bytes, raw_replay_key, replay_mime_type, sha256_hex,
+    StorageEncoding, StorageError, DEFAULT_STORAGE_ENCODING,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
@@ -932,11 +932,12 @@ pub async fn get_replay_group(
     )
 )]
 pub async fn delete_replay_group(
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<StatusCode, ApiError> {
     let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
     // Member rows are removed by the replay_group_replays ON DELETE CASCADE.
     let result = sqlx::query("DELETE FROM replay_groups WHERE id = $1")
         .bind(group_id)
@@ -1015,7 +1016,7 @@ pub async fn add_replay_group_replays(
     Json(request): Json<ReplayGroupReplayUpdateRequest>,
 ) -> Result<Json<ReplayGroupReplayUpdateResponse>, ApiError> {
     let db = require_db(&state)?;
-    require_replay_group(db, group_id).await?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
     let replay_ids = resolve_replay_group_update_replays(db, &request).await?;
     upsert_user(db, &auth_user)
         .await
@@ -1075,13 +1076,13 @@ pub async fn add_replay_group_replays(
     )
 )]
 pub async fn remove_replay_group_replays(
-    _auth_user: AuthUser,
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
     Json(request): Json<ReplayGroupReplayUpdateRequest>,
 ) -> Result<Json<ReplayGroupReplayUpdateResponse>, ApiError> {
     let db = require_db(&state)?;
-    require_replay_group(db, group_id).await?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
     let replay_ids = resolve_replay_group_update_replays(db, &request).await?;
     let result = sqlx::query(
         r#"
@@ -1822,7 +1823,15 @@ fn parse_encoding(name: &str, value: &str) -> Result<StorageEncoding, ApiError> 
 }
 
 fn decode_transfer_bytes(bytes: Bytes, encoding: StorageEncoding) -> Result<Bytes, ApiError> {
-    decode_bytes(&bytes, encoding).map_err(|error| {
+    decode_transfer_bytes_with_limit(bytes, encoding, crate::app::MAX_REPLAY_UPLOAD_BYTES)
+}
+
+fn decode_transfer_bytes_with_limit(
+    bytes: Bytes,
+    encoding: StorageEncoding,
+    decoded_limit: usize,
+) -> Result<Bytes, ApiError> {
+    decode_bytes_with_limit(&bytes, encoding, decoded_limit).map_err(|error| {
         ApiError::bad_request(format!("failed to decode {encoding} upload: {error}"))
     })
 }
@@ -2249,6 +2258,37 @@ async fn require_replay_group(pool: &PgPool, group_id: Uuid) -> Result<(), ApiEr
         Err(ApiError::new(
             StatusCode::NOT_FOUND,
             "replay group not found",
+        ))
+    }
+}
+
+async fn require_replay_group_manager(
+    state: &AppState,
+    pool: &PgPool,
+    group_id: Uuid,
+    auth_user: &AuthUser,
+) -> Result<(), ApiError> {
+    let created_by_user_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT created_by_user_id FROM replay_groups WHERE id = $1")
+            .bind(group_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(ApiError::internal)?
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    if created_by_user_id == Some(auth_user.id) {
+        return Ok(());
+    }
+
+    let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)
+        .await
+        .map_err(ApiError::internal)?;
+    if is_admin {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "you do not have permission to modify this replay group",
         ))
     }
 }
