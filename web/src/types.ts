@@ -449,6 +449,44 @@ export interface PossessionMixValue {
   count: number;
 }
 
+// Career positioning summary over a replay set, split into the player's own
+// spans plus the pooled teammate and opponent cohorts that shared those games.
+// Mirrors the positioning facets the single-game positioning tab renders so the
+// same graph code can compare player vs teammates vs opponents.
+export interface PositioningSummaryResponse {
+  replay_count: number;
+  player: PositioningCohortSummary;
+  teammates: PositioningCohortSummary | null;
+  opponents: PositioningCohortSummary | null;
+}
+
+export interface PositioningCohortSummary {
+  /** Player-game appearances pooled into this cohort. */
+  appearance_count: number;
+  active_seconds: number;
+  tracked_seconds: number;
+  defensive_third_seconds: number;
+  neutral_third_seconds: number;
+  offensive_third_seconds: number;
+  defensive_half_seconds: number;
+  offensive_half_seconds: number;
+  behind_ball_seconds: number;
+  level_with_ball_seconds: number;
+  ahead_of_ball_seconds: number;
+  role_most_back_seconds: number;
+  role_mid_seconds: number;
+  role_most_forward_seconds: number;
+  role_other_seconds: number;
+  role_no_teammates_seconds: number;
+  closest_team_seconds: number;
+  closest_absolute_seconds: number;
+  farthest_seconds: number;
+  distance_to_ball_weighted: number;
+  distance_to_ball_weight: number;
+  distance_to_teammates_weighted: number;
+  distance_to_teammates_weight: number;
+}
+
 export interface MechanicEventResponse {
   id: string;
   replay_id: string;
