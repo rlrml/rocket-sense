@@ -2680,6 +2680,81 @@ tbody tr:last-child td {
   font-size: var(--text-base);
 }
 
+/* Explanatory copy under a chart header describing what each segment means. */
+.chart-panel-note {
+  margin: 6px 0 4px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.chart-panel-note strong {
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+
+/* Color/label key for the directional positioning charts. */
+.positioning-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 0 0 10px;
+}
+
+.positioning-legend-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.positioning-legend-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.positioning-legend-swatch {
+  align-self: center;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--outcome-neutral-clear, var(--outcome-neutral));
+}
+
+.positioning-legend-swatch.outcome-dist-positive {
+  background: var(--outcome-positive-clear, var(--outcome-positive));
+}
+
+.positioning-legend-swatch.outcome-dist-neutral {
+  background: var(--outcome-neutral-clear, var(--outcome-neutral));
+}
+
+.positioning-legend-swatch.outcome-dist-negative {
+  background: var(--outcome-negative-clear, var(--outcome-negative));
+}
+
+.positioning-legend-label {
+  font-weight: var(--fw-semibold);
+  color: var(--text);
+}
+
+.positioning-legend-note {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.positioning-legend-caption {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-style: italic;
+}
+
 .chart-wrap {
   display: grid;
   gap: 8px;

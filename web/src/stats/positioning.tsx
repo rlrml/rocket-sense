@@ -8,13 +8,16 @@ import type {
 import {
   type ComparisonRow,
   ComparisonRows,
+  type OutcomeDistributionColors,
   type OutcomeDistributionLevel,
   type OutcomeDistributionTone,
   outcomeDistributionColorStyle,
   outcomeSegmentClassName,
+  PLAYER_RELATIVE_OUTCOME_COLORS,
   PlayerSegmentedBarRows,
   type SegmentedBarSegment,
   StatPlayerLabel,
+  statPercentWithValue,
   statPlayerRank,
   type StatPlayerRank,
   TEAM_OUTCOME_COLORS,
@@ -107,12 +110,28 @@ export function PositioningSummariesView({
   emptyContext = "this replay",
   label = positioningPlayerLabel,
   preserveOrder = false,
+  cohort = false,
 }: {
   summaries: PlayerPositioningSummary[];
   emptyContext?: string;
   label?: (summary: PlayerPositioningSummary) => ReactNode;
   preserveOrder?: boolean;
+  // Career/player view: cohort rows already separate self/teammates (one team)
+  // from opponents (the other) by row, so we paint the bars with a non-team
+  // palette (teal -> grey -> purple) and key the directional zones to a fixed
+  // defensive/neutral/offensive ramp instead of each player's team colour.
+  cohort?: boolean;
 }) {
+  const colors: OutcomeDistributionColors = cohort
+    ? PLAYER_RELATIVE_OUTCOME_COLORS
+    : TEAM_OUTCOME_COLORS;
+  // Per game the directional charts run own-team colour -> grey -> opponent
+  // colour; on the career page they use the fixed positive/neutral/negative
+  // ramp so the zone legend's swatches stay meaningful across every cohort row.
+  const zoneMode: ZoneToneMode = cohort ? "fixed" : "team";
+  // Magnitude (distance) charts only adopt the outcome palette in the cohort
+  // view; per game they keep the team-segment classes that shade teammates.
+  const distanceColors = cohort ? colors : undefined;
   // Distance-to-ball and distance-to-teammates share one scale so the two
   // charts stay directly comparable.
   const maxDistance = Math.max(
@@ -133,37 +152,49 @@ export function PositioningSummariesView({
             <h3>Field position</h3>
             <span>Defensive, neutral, offensive thirds</span>
           </header>
+          <p className="chart-panel-note">
+            Share of tracked time spent in each third of the pitch. <strong>Defensive</strong> is
+            your own third (nearest your goal), <strong>neutral</strong> is midfield, and{" "}
+            <strong>offensive</strong> is the attacking third nearest the opponent goal.
+          </p>
+          <ZoneLegend
+            cohort={cohort}
+            colors={colors}
+            items={[
+              { key: "defensive", label: "Defensive", tone: "positive", note: "own third" },
+              { key: "neutral", label: "Neutral", tone: "neutral", note: "midfield" },
+              { key: "offensive", label: "Offensive", tone: "negative", note: "attacking third" },
+            ]}
+          />
           <PositioningBarRows
+            colors={colors}
             summaries={summaries}
             label={label}
             preserveOrder={preserveOrder}
             emptyLabel={`No field-zone positioning spans are available for ${emptyContext}.`}
             segments={(summary) => {
-              const tone = teamOutcomeTone(summary.team);
+              const [defensive, neutral, offensive] = directionalTones(summary.team, zoneMode);
               return [
                 positioningSegment(
                   "defensive",
                   "Defensive",
                   summary.defensiveThirdSeconds,
                   summary.trackedSeconds,
-                  tone,
-                  SEGMENT_LEVELS[0],
+                  defensive,
                 ),
                 positioningSegment(
                   "neutral",
                   "Neutral",
                   summary.neutralThirdSeconds,
                   summary.trackedSeconds,
-                  tone,
-                  SEGMENT_LEVELS[1],
+                  neutral,
                 ),
                 positioningSegment(
                   "offensive",
                   "Offensive",
                   summary.offensiveThirdSeconds,
                   summary.trackedSeconds,
-                  tone,
-                  SEGMENT_LEVELS[2],
+                  offensive,
                 ),
               ];
             }}
@@ -177,37 +208,49 @@ export function PositioningSummariesView({
             <h3>Ball depth</h3>
             <span>Behind, level, and ahead of the ball</span>
           </header>
+          <p className="chart-panel-note">
+            Share of tracked time relative to the ball. <strong>Behind</strong> is goal-side of the
+            ball (defensively safe), <strong>level</strong> is even with it, and{" "}
+            <strong>ahead</strong> is between the ball and the opponent goal.
+          </p>
+          <ZoneLegend
+            cohort={cohort}
+            colors={colors}
+            items={[
+              { key: "behind", label: "Behind ball", tone: "positive", note: "goal-side" },
+              { key: "level", label: "Level", tone: "neutral", note: "even with ball" },
+              { key: "ahead", label: "Ahead", tone: "negative", note: "past the ball" },
+            ]}
+          />
           <PositioningBarRows
+            colors={colors}
             summaries={summaries}
             label={label}
             preserveOrder={preserveOrder}
             emptyLabel={`No ball-depth positioning spans are available for ${emptyContext}.`}
             segments={(summary) => {
-              const tone = teamOutcomeTone(summary.team);
+              const [behind, level, ahead] = directionalTones(summary.team, zoneMode);
               return [
                 positioningSegment(
                   "behind",
                   "Behind ball",
                   summary.behindBallSeconds,
                   summary.trackedSeconds,
-                  tone,
-                  SEGMENT_LEVELS[0],
+                  behind,
                 ),
                 positioningSegment(
                   "level",
                   "Level",
                   summary.levelWithBallSeconds,
                   summary.trackedSeconds,
-                  tone,
-                  SEGMENT_LEVELS[1],
+                  level,
                 ),
                 positioningSegment(
                   "ahead",
                   "Ahead",
                   summary.inFrontOfBallSeconds,
                   summary.trackedSeconds,
-                  tone,
-                  SEGMENT_LEVELS[2],
+                  ahead,
                 ),
               ];
             }}
@@ -221,7 +264,14 @@ export function PositioningSummariesView({
             <h3>Teammate role</h3>
             <span>Most back, mid, most forward</span>
           </header>
+          <p className="chart-panel-note">
+            Share of time at each depth relative to teammates, from <strong>most back</strong>{" "}
+            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.{" "}
+            <strong>Other</strong> covers alone-on-the-team or unranked moments and is shown in
+            grey.
+          </p>
           <PositioningBarRows
+            colors={colors}
             summaries={summaries}
             label={label}
             preserveOrder={preserveOrder}
@@ -250,7 +300,13 @@ export function PositioningSummariesView({
             <h3>Ball priority</h3>
             <span>Closest, other, and farthest from the ball</span>
           </header>
+          <p className="chart-panel-note">
+            Share of time by distance to the ball among teammates. <strong>Closest</strong> is the
+            player nearest the ball on their team, <strong>farthest</strong> is the one furthest
+            back, and <strong>other</strong> is everyone in between.
+          </p>
           <PositioningBarRows
+            colors={colors}
             summaries={summaries}
             label={label}
             preserveOrder={preserveOrder}
@@ -294,7 +350,12 @@ export function PositioningSummariesView({
             <h3>Distance to ball</h3>
             <span>Average distance from the ball</span>
           </header>
+          <p className="chart-panel-note">
+            Average distance from the ball in Unreal units (uu); shorter bars mean a player stays
+            closer to the action.
+          </p>
           <PositioningDistanceChart
+            colors={distanceColors}
             summaries={summaries}
             value={(summary) =>
               weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight)
@@ -312,7 +373,12 @@ export function PositioningSummariesView({
             <h3>Distance to teammates</h3>
             <span>Average spacing from teammates</span>
           </header>
+          <p className="chart-panel-note">
+            Average spacing from teammates in Unreal units (uu); longer bars mean more spread-out
+            positioning, shorter bars mean tighter rotations.
+          </p>
           <PositioningDistanceChart
+            colors={distanceColors}
             summaries={summaries}
             value={(summary) =>
               weightedAverage(
@@ -334,7 +400,12 @@ export function PositioningSummariesView({
               <h3>Caught ahead of play</h3>
               <span>Conceded goals while caught ahead of the ball</span>
             </header>
+            <p className="chart-panel-note">
+              Count of goals conceded while the player was ahead of the ball and out of the
+              defensive play; lower is better.
+            </p>
             <PositioningDistanceChart
+              colors={distanceColors}
               summaries={summaries}
               value={(summary) => summary.caughtAheadGoals}
               max={maxCaughtAhead}
@@ -358,6 +429,7 @@ function PositioningBarRows({
   emptyLabel,
   label,
   preserveOrder = false,
+  colors = TEAM_OUTCOME_COLORS,
 }: {
   summaries: PlayerPositioningSummary[];
   segments: (summary: PlayerPositioningSummary) => SegmentedBarSegment[];
@@ -366,6 +438,7 @@ function PositioningBarRows({
   emptyLabel: string;
   label: (summary: PlayerPositioningSummary) => ReactNode;
   preserveOrder?: boolean;
+  colors?: OutcomeDistributionColors;
 }) {
   return (
     <PlayerSegmentedBarRows
@@ -376,7 +449,7 @@ function PositioningBarRows({
       label={label}
       segments={segments}
       sortItems={preserveOrder ? undefined : (items) => sortedSummaries(items, sortValue)}
-      style={outcomeDistributionColorStyle(TEAM_OUTCOME_COLORS)}
+      style={outcomeDistributionColorStyle(colors)}
       total={total}
       trackClassName="positioning-track"
     />
@@ -396,6 +469,7 @@ function PositioningDistanceChart({
   emptyLabel,
   label,
   preserveOrder = false,
+  colors,
 }: {
   summaries: PlayerPositioningSummary[];
   value: (summary: PlayerPositioningSummary) => number | null;
@@ -404,22 +478,30 @@ function PositioningDistanceChart({
   emptyLabel: string;
   label: (summary: PlayerPositioningSummary) => ReactNode;
   preserveOrder?: boolean;
+  // When set (career cohort view) the bars use this outcome palette instead of
+  // the blue/orange team-segment classes, keeping the page free of team colours.
+  colors?: OutcomeDistributionColors;
 }) {
   const indexByKey = teamLocalIndexByKey(summaries);
+  const rowStyle = colors ? outcomeDistributionColorStyle(colors) : undefined;
   const ordered = preserveOrder
     ? summaries
     : sortedSummaries(summaries, (summary) => value(summary) ?? 0);
   const rows: ComparisonRow[] = ordered.map((summary) => {
     const metric = value(summary) ?? 0;
     const shade = Math.min(indexByKey.get(summary.key) ?? 0, 3);
+    const className = colors
+      ? outcomeSegmentClassName(teamOutcomeTone(summary.team), DISTANCE_LEVELS[shade] ?? "clear")
+      : `team-segment-${teamClass(summary.team)} player-shade-${shade}`;
     return {
       key: summary.key,
       label: label(summary),
       ariaLabel: `${summary.name}: ${format(metric)}`,
+      style: rowStyle,
       segments: [
         {
           key: "value",
-          className: `team-segment-${teamClass(summary.team)} player-shade-${shade}`,
+          className,
           label: summary.name,
           value: metric,
         },
@@ -478,6 +560,7 @@ export function PlayerPositioningCohorts({
       summaries={summaries}
       emptyContext="the selected games"
       preserveOrder
+      cohort
       label={(summary) => cohortLabel(summary, cohortAppearances(summary.key, response))}
     />
   );
@@ -753,28 +836,103 @@ function positioningSegment(
   seconds: number,
   total: number,
   tone: OutcomeDistributionTone,
-  level: OutcomeDistributionLevel,
+  level: OutcomeDistributionLevel = "clear",
 ): SegmentedBarSegment {
   const percent = percentage(seconds, total);
   const duration = formatDurationCompact(seconds);
+  const percentText = formatPercent(seconds, total);
   return {
     key: id,
-    // Tint each player's split in their team color, telling the categories apart
-    // by shade (light -> dark) the same way the movement bands do.
+    // Directional charts tell the categories apart by hue (own colour -> grey ->
+    // opponent colour); the shaded charts (role, ball priority) ramp one tone by
+    // level instead.
     className: outcomeSegmentClassName(tone, level),
     label,
     value: seconds,
-    // Show both the share and the raw time on the bar; the category name stays
-    // in the tooltip so the in-bar label keeps fitting at narrow widths.
-    visibleLabel: percent >= 10 ? `${formatPercent(seconds, total)} · ${duration}` : undefined,
-    title: `${label}: ${duration} (${formatPercent(seconds, total)})`,
+    // Show the share and the raw time on the bar in the shared "percent (value)"
+    // order; the category name stays in the tooltip so the in-bar label keeps
+    // fitting at narrow widths.
+    visibleLabel: percent >= 10 ? statPercentWithValue(percentText, duration) : undefined,
+    title: statPercentWithValue(percentText, duration, label),
   };
 }
 
 // Ordered shade ramp for a player's split: categories go light -> dark in the
-// order they render (e.g. defensive -> neutral -> offensive). "Other"/no-role
-// buckets fall back to the neutral (grey) tone regardless of team.
+// order they render. Used by the shaded charts (ball priority) and the role
+// chart; "Other"/no-role buckets fall back to the neutral (grey) tone.
 const SEGMENT_LEVELS: OutcomeDistributionLevel[] = ["unknown", "clear", "strong"];
+
+// Per-player shade ramp for the magnitude (distance) bars when they use the
+// outcome palette, so teammates on one cohort stay distinguishable.
+const DISTANCE_LEVELS: OutcomeDistributionLevel[] = ["clear", "strong", "narrow", "unknown"];
+
+type ZoneToneMode = "team" | "fixed";
+
+function oppositeTone(tone: OutcomeDistributionTone): OutcomeDistributionTone {
+  if (tone === "positive") return "negative";
+  if (tone === "negative") return "positive";
+  return "neutral";
+}
+
+// Tones for a directional split (defensive/neutral/offensive,
+// behind/level/ahead): defensive end in one colour, neutral in grey, offensive
+// end in the opposite colour. Per game the "own" end is the player's team
+// colour and the far end the opponent's; on the career page we use a fixed
+// positive/neutral/negative ramp so the legend swatches read the same on every
+// cohort row.
+function directionalTones(
+  team: number | null,
+  mode: ZoneToneMode,
+): [OutcomeDistributionTone, OutcomeDistributionTone, OutcomeDistributionTone] {
+  if (mode === "fixed") return ["positive", "neutral", "negative"];
+  const own = teamOutcomeTone(team);
+  return [own, "neutral", oppositeTone(own)];
+}
+
+interface ZoneLegendItem {
+  key: string;
+  label: string;
+  tone: OutcomeDistributionTone;
+  note: string;
+}
+
+// Legend for the directional charts. In the cohort view colour encodes the zone
+// (fixed teal -> grey -> purple), so we show swatches. Per game colour encodes
+// the team instead, so we drop the swatches and add a caption explaining that
+// each bar runs from the player's own colour through grey to the opponent's.
+function ZoneLegend({
+  cohort,
+  colors,
+  items,
+}: {
+  cohort: boolean;
+  colors: OutcomeDistributionColors;
+  items: ZoneLegendItem[];
+}) {
+  return (
+    <div
+      className="positioning-legend"
+      style={cohort ? outcomeDistributionColorStyle(colors) : undefined}
+    >
+      <ul className="positioning-legend-items">
+        {items.map((item) => (
+          <li className="positioning-legend-item" key={item.key}>
+            {cohort ? (
+              <span className={`positioning-legend-swatch outcome-dist-${item.tone}`} />
+            ) : null}
+            <span className="positioning-legend-label">{item.label}</span>
+            <span className="positioning-legend-note">{item.note}</span>
+          </li>
+        ))}
+      </ul>
+      {cohort ? null : (
+        <span className="positioning-legend-caption">
+          Each bar runs from the player&rsquo;s own team colour through grey to the opponent colour.
+        </span>
+      )}
+    </div>
+  );
+}
 
 const roleShade: Record<PositioningRole, { neutral?: boolean; level: OutcomeDistributionLevel }> = {
   most_back: { level: "unknown" },

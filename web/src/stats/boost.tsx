@@ -22,6 +22,7 @@ import { boostAmountToPercent } from "./boostUnits";
 import {
   SegmentedBar,
   type SegmentedBarSegment,
+  statPercentWithValue,
   StatPlayerLabel,
   statPlayerRank,
   type StatPlayerRank,
@@ -899,7 +900,11 @@ function PlayerBoostEconomyChart({
                 label: band.label,
                 value: band.percent,
                 visibleLabel: `(${Math.round(band.percent)}%) ${band.label}`,
-                title: `${band.label}: ${band.percent.toFixed(1)}%, ${formatSeconds(band.seconds)}`,
+                title: statPercentWithValue(
+                  `${band.percent.toFixed(1)}%`,
+                  formatSeconds(band.seconds),
+                  band.label,
+                ),
               })) ?? [],
           };
         })

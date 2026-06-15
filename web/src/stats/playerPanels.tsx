@@ -17,6 +17,7 @@ import {
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
   SegmentedBar,
+  statPercentWithValue,
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
   type SegmentedBarSegment,
@@ -342,7 +343,11 @@ function RotationDepthTugOfWar({ depths }: { depths: RotationTimeShareResponse[]
               className={`source-segment ${segment.className}`}
               key={segment.key}
               style={{ flexGrow: segment.seconds }}
-              title={`${segment.label}: ${formatDurationSeconds(segment.seconds)} (${formatShare(segment.seconds / total)})`}
+              title={statPercentWithValue(
+                formatShare(segment.seconds / total),
+                formatDurationSeconds(segment.seconds),
+                segment.label,
+              )}
             />
           ))}
           <span className="rotation-depth-tug-center" aria-hidden="true" />
@@ -724,7 +729,7 @@ function kickoffOutcomeSegment(
     label,
     value,
     visibleLabel: share >= 0.08 ? `${label}: ${formatShare(share)}` : undefined,
-    title: `${label}: ${value.toLocaleString()} (${formatShare(share)})`,
+    title: statPercentWithValue(formatShare(share), value.toLocaleString(), label),
   };
 }
 
@@ -766,7 +771,7 @@ function kickoffStrengthSegment(
     label,
     value,
     visibleLabel: share >= 0.08 ? `${label}: ${formatShare(share)}` : undefined,
-    title: `${label}: ${value.toLocaleString()} (${formatShare(share)})`,
+    title: statPercentWithValue(formatShare(share), value.toLocaleString(), label),
   };
 }
 
@@ -1335,7 +1340,11 @@ function possessionLocationSegment(
     label: bucket.label,
     value: bucket.duration_seconds,
     visibleLabel: share >= 0.08 ? `${bucket.label}: ${formatShare(share)}` : undefined,
-    title: `${bucket.label}: ${formatDurationSeconds(bucket.duration_seconds)} (${formatShare(share)})`,
+    title: statPercentWithValue(
+      formatShare(share),
+      formatDurationSeconds(bucket.duration_seconds),
+      bucket.label,
+    ),
   };
 }
 

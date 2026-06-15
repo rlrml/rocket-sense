@@ -3,6 +3,7 @@ import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
   SegmentedBar,
   StatPlayerLabel,
+  statPercentWithValue,
   statPlayerRank,
   type SegmentedBarSegment,
   type StatPlayerRank,
@@ -360,8 +361,15 @@ function PlayerPossessionChart({
                   className: `team-segment-${teamClass(summary.team)}`,
                   label: summary.name,
                   value: summary.seconds,
-                  visibleLabel: `${formatSeconds(summary.seconds)} (${formatPercent(percent)})`,
-                  title: `${summary.name}: ${formatSeconds(summary.seconds)} (${formatPercent(percent)})`,
+                  visibleLabel: statPercentWithValue(
+                    formatPercent(percent),
+                    formatSeconds(summary.seconds),
+                  ),
+                  title: statPercentWithValue(
+                    formatPercent(percent),
+                    formatSeconds(summary.seconds),
+                    summary.name,
+                  ),
                 },
               ]}
               total={summary.seconds}
@@ -426,8 +434,15 @@ function PossessionZoneChart({
                   className: `team-segment-${teamClass(subject.team)}`,
                   label: subject.name,
                   value: seconds,
-                  visibleLabel: `${formatSeconds(seconds)} (${formatPercent(percent)})`,
-                  title: `${subject.name}: ${formatSeconds(seconds)} (${formatPercent(percent)})`,
+                  visibleLabel: statPercentWithValue(
+                    formatPercent(percent),
+                    formatSeconds(seconds),
+                  ),
+                  title: statPercentWithValue(
+                    formatPercent(percent),
+                    formatSeconds(seconds),
+                    subject.name,
+                  ),
                 },
               ]}
               total={seconds}
@@ -780,8 +795,14 @@ function possessionStateSegment(
     label: possessionStateLabel(state),
     value: seconds,
     visibleLabel:
-      percent >= 8 ? `${formatSeconds(seconds)} (${formatPercent(percent)})` : undefined,
-    title: `${possessionStateLabel(state)}: ${formatSeconds(seconds)} (${formatPercent(percent)})`,
+      percent >= 8
+        ? statPercentWithValue(formatPercent(percent), formatSeconds(seconds))
+        : undefined,
+    title: statPercentWithValue(
+      formatPercent(percent),
+      formatSeconds(seconds),
+      possessionStateLabel(state),
+    ),
   };
 }
 

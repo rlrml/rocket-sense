@@ -7,6 +7,7 @@ import {
   outcomeSegmentClassName,
   PlayerComparisonChart,
   type SegmentedBarSegment,
+  statPercentWithValue,
   StatPlayerLabel,
   statPlayerRank,
   type StatPlayerRank,
@@ -327,7 +328,11 @@ function distributionRows(
             value > 0 && share >= 0.12 ? `${band.label} ${Math.round(share * 100)}%` : undefined,
           title:
             value > 0
-              ? `${band.label}: ${options.format(value)} (${Math.round(share * 100)}%)`
+              ? statPercentWithValue(
+                  `${Math.round(share * 100)}%`,
+                  options.format(value),
+                  band.label,
+                )
               : undefined,
         };
       });

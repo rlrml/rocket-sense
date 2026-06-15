@@ -4,6 +4,7 @@ import {
   type ComparisonRow,
   ComparisonRows,
   type SegmentedBarSegment,
+  statPercentWithValue,
   StatPlayerLabel,
   statPlayerRank,
   type StatPlayerRank,
@@ -298,7 +299,7 @@ function touchDimensionRows(
           visibleLabel: amount > 0 && share >= 0.14 ? format(amount) : undefined,
           title:
             amount > 0
-              ? `${value.label}: ${format(amount)} (${Math.round(share * 100)}%)`
+              ? statPercentWithValue(`${Math.round(share * 100)}%`, format(amount), value.label)
               : undefined,
         };
       });

@@ -38,6 +38,7 @@ import {
   outcomeSegmentClassName,
   PLAYER_RELATIVE_OUTCOME_COLORS,
   PlayerComparisonChart,
+  statPercentWithValue,
   type ComparisonRow,
   type OutcomeDistributionColors,
   type OutcomeDistributionLevel,
@@ -551,9 +552,9 @@ function teamOutcomeSegment(
     // Fold the per-team count into the bar so the section needs no caption beneath it.
     visibleLabel:
       share >= 0.1
-        ? `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})`
+        ? statPercentWithValue(formatSharePercent(share), value.toLocaleString(), label)
         : undefined,
-    title: `${label}: ${value.toLocaleString()} (${formatSharePercent(share)})`,
+    title: statPercentWithValue(formatSharePercent(share), value.toLocaleString(), label),
   };
 }
 
@@ -630,11 +631,15 @@ function KickoffTeamWinBar({
     // Always show count with the percentage in parentheses.
     visibleLabel:
       segment.value > 0
-        ? `${segment.value} (${formatSharePercent(segment.value / total)})`
+        ? statPercentWithValue(formatSharePercent(segment.value / total), String(segment.value))
         : undefined,
     title:
       segment.value > 0
-        ? `${segment.label}: ${segment.value} (${formatSharePercent(segment.value / total)})`
+        ? statPercentWithValue(
+            formatSharePercent(segment.value / total),
+            String(segment.value),
+            segment.label,
+          )
         : undefined,
   }));
 
@@ -1019,7 +1024,10 @@ function outcomeBarSegment(
     label,
     value,
     visibleLabel: barSegmentLabel(value, total),
-    title: value > 0 ? `${label}: ${value} (${Math.round(share * 100)}%)` : undefined,
+    title:
+      value > 0
+        ? statPercentWithValue(`${Math.round(share * 100)}%`, String(value), label)
+        : undefined,
   };
 }
 
@@ -1265,7 +1273,7 @@ function categoryChart(
             label: niceLabel,
             value,
             visibleLabel: barSegmentLabel(value, total, niceLabel),
-            title: `${niceLabel}: ${value} (${Math.round(share * 100)}%)`,
+            title: statPercentWithValue(`${Math.round(share * 100)}%`, String(value), niceLabel),
           };
         }),
         (segment) => segment.label,
@@ -1329,7 +1337,11 @@ function takeOutcomeChart(summaries: PlayerKickoffSummary[]): ReactNode {
             label: part.label,
             value: part.count,
             visibleLabel: barSegmentLabel(part.count, takes, part.label),
-            title: `${part.label}: ${part.count} (${Math.round(share * 100)}%)`,
+            title: statPercentWithValue(
+              `${Math.round(share * 100)}%`,
+              String(part.count),
+              part.label,
+            ),
           };
         }),
         (segment) => segment.label,

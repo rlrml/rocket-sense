@@ -248,6 +248,14 @@ export const TEAM_OUTCOME_COLORS: OutcomeDistributionColors = {
   "negative-unknown": "#fed7aa",
 };
 
+// Standard "percent (absolute)" pairing used across every stats page, e.g.
+// "45% (2m 30s)". Route all value+percent displays (bar labels, tooltips, table
+// cells) through here so the order and punctuation stay consistent everywhere.
+export function statPercentWithValue(percent: string, value: string, prefix?: string): string {
+  const pair = `${percent} (${value})`;
+  return prefix ? `${prefix}: ${pair}` : pair;
+}
+
 // Which tone a replay-local team paints as. Pair with TEAM_OUTCOME_COLORS so a
 // blue player's segments render blue and an orange player's render orange.
 export function teamOutcomeTone(team: number | null): OutcomeDistributionTone {
