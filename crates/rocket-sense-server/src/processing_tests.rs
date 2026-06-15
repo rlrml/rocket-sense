@@ -1333,6 +1333,7 @@ fn envelope_event(
             id: format!("{stream}:0"),
             stream: stream.to_owned(),
             label: stream.to_owned(),
+            scope: subtr_actor::event_stream_scope(stream),
             timing,
             primary_player: None,
             secondary_player: None,
