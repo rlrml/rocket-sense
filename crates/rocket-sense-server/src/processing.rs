@@ -1,6 +1,8 @@
 use anyhow::{anyhow, Context, Result};
 use apalis::prelude::*;
-use apalis_postgres::{Config as ApalisPostgresConfig, PostgresStorage};
+use apalis_postgres::{
+    CompactType, Config as ApalisPostgresConfig, JsonCodec, PgNotify, PostgresStorage,
+};
 use boxcars::{HeaderProp, RemoteId};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
@@ -309,7 +311,7 @@ pub fn start_replay_processing_workers(
                 let instance = Uuid::new_v4().simple().to_string();
                 let worker_name = format!("replay-processing-{worker_index}-{instance}");
                 let worker = WorkerBuilder::new(worker_name.clone())
-                    .backend(replay_processing_storage(&state.pool))
+                    .backend(replay_processing_consumer(&state.pool))
                     .data(state.clone())
                     .build(process_replay_job);
 
@@ -364,9 +366,28 @@ pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Re
     Ok(())
 }
 
+// Producer-side handle, used only to `push` new jobs onto the queue. The
+// default polling backend is fine here because we never consume from it.
 fn replay_processing_storage(pool: &PgPool) -> PostgresStorage<ReplayProcessingJob> {
     let config = ApalisPostgresConfig::new(REPLAY_PROCESSING_QUEUE_NAME);
     PostgresStorage::new_with_config(pool, &config)
+}
+
+// Consumer-side handle for the worker. `new_with_notify` makes the worker LISTEN
+// on `apalis::job::insert` (emitted by the `notify_workers` trigger added in
+// migration 0027), so it wakes the instant a job is enqueued. The default
+// `new_with_config` backend never opens a listener: every pickup then waited on
+// `PgPollFetcher`'s exponential backoff, which doubles up to a 5-minute cap once
+// the worker has been idle. That left freshly uploaded replays sitting minutes
+// (and, when the lone worker also dropped its connection, far longer) before
+// processing even though the parse itself takes a few seconds. `poll_with_notify`
+// keeps the poll fetcher as a fallback, so a dropped listener degrades to the old
+// behavior instead of stalling.
+fn replay_processing_consumer(
+    pool: &PgPool,
+) -> PostgresStorage<ReplayProcessingJob, CompactType, JsonCodec<CompactType>, PgNotify> {
+    let config = ApalisPostgresConfig::new(REPLAY_PROCESSING_QUEUE_NAME);
+    PostgresStorage::new_with_notify(pool, &config)
 }
 
 async fn process_replay_job(
