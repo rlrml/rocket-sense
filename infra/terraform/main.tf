@@ -366,9 +366,8 @@ resource "kubernetes_deployment_v1" "server" {
             name = "ROCKET_SENSE_AUTH_MODE"
             value_from {
               secret_key_ref {
-                name     = "rocket-sense-secrets"
-                key      = "ROCKET_SENSE_AUTH_MODE"
-                optional = true
+                name = "rocket-sense-secrets"
+                key  = "ROCKET_SENSE_AUTH_MODE"
               }
             }
           }
@@ -377,9 +376,8 @@ resource "kubernetes_deployment_v1" "server" {
             name = "ROCKET_SENSE_APP_JWT_SECRET"
             value_from {
               secret_key_ref {
-                name     = "rocket-sense-secrets"
-                key      = "ROCKET_SENSE_APP_JWT_SECRET"
-                optional = true
+                name = "rocket-sense-secrets"
+                key  = "ROCKET_SENSE_APP_JWT_SECRET"
               }
             }
           }
@@ -555,9 +553,8 @@ resource "kubernetes_deployment_v1" "worker" {
             name = "ROCKET_SENSE_AUTH_MODE"
             value_from {
               secret_key_ref {
-                name     = "rocket-sense-secrets"
-                key      = "ROCKET_SENSE_AUTH_MODE"
-                optional = true
+                name = "rocket-sense-secrets"
+                key  = "ROCKET_SENSE_AUTH_MODE"
               }
             }
           }
@@ -566,9 +563,8 @@ resource "kubernetes_deployment_v1" "worker" {
             name = "ROCKET_SENSE_APP_JWT_SECRET"
             value_from {
               secret_key_ref {
-                name     = "rocket-sense-secrets"
-                key      = "ROCKET_SENSE_APP_JWT_SECRET"
-                optional = true
+                name = "rocket-sense-secrets"
+                key  = "ROCKET_SENSE_APP_JWT_SECRET"
               }
             }
           }

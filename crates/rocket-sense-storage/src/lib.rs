@@ -94,20 +94,75 @@ pub fn encode_bytes(bytes: &[u8], encoding: StorageEncoding) -> Result<Bytes, St
 }
 
 pub fn decode_bytes(bytes: &[u8], encoding: StorageEncoding) -> Result<Bytes, StorageError> {
+    decode_bytes_inner(bytes, encoding, None)
+}
+
+pub fn decode_bytes_with_limit(
+    bytes: &[u8],
+    encoding: StorageEncoding,
+    decoded_limit: usize,
+) -> Result<Bytes, StorageError> {
+    decode_bytes_inner(bytes, encoding, Some(decoded_limit))
+}
+
+fn decode_bytes_inner(
+    bytes: &[u8],
+    encoding: StorageEncoding,
+    decoded_limit: Option<usize>,
+) -> Result<Bytes, StorageError> {
     match encoding {
-        StorageEncoding::Identity => Ok(Bytes::copy_from_slice(bytes)),
+        StorageEncoding::Identity => {
+            enforce_decoded_limit(bytes.len(), encoding, decoded_limit)?;
+            Ok(Bytes::copy_from_slice(bytes))
+        }
         StorageEncoding::Gzip => {
             let mut decoder = GzDecoder::new(bytes);
-            let mut decoded = Vec::new();
-            decoder
+            read_decoded_to_bytes(&mut decoder, encoding, decoded_limit)
+        }
+        StorageEncoding::Zstd => {
+            let mut decoder = zstd::stream::read::Decoder::new(bytes)
+                .map_err(|source| StorageError::Decode { encoding, source })?;
+            read_decoded_to_bytes(&mut decoder, encoding, decoded_limit)
+        }
+    }
+}
+
+fn read_decoded_to_bytes(
+    reader: &mut impl Read,
+    encoding: StorageEncoding,
+    decoded_limit: Option<usize>,
+) -> Result<Bytes, StorageError> {
+    let mut decoded = Vec::new();
+    match decoded_limit {
+        Some(limit) => {
+            let read_limit = limit.saturating_add(1) as u64;
+            reader
+                .take(read_limit)
                 .read_to_end(&mut decoded)
                 .map_err(|source| StorageError::Decode { encoding, source })?;
-            Ok(Bytes::from(decoded))
+            enforce_decoded_limit(decoded.len(), encoding, decoded_limit)?;
         }
-        StorageEncoding::Zstd => zstd::stream::decode_all(bytes)
-            .map(Bytes::from)
-            .map_err(|source| StorageError::Decode { encoding, source }),
+        None => {
+            reader
+                .read_to_end(&mut decoded)
+                .map_err(|source| StorageError::Decode { encoding, source })?;
+        }
     }
+    Ok(Bytes::from(decoded))
+}
+
+fn enforce_decoded_limit(
+    decoded_len: usize,
+    encoding: StorageEncoding,
+    decoded_limit: Option<usize>,
+) -> Result<(), StorageError> {
+    if let Some(limit) = decoded_limit {
+        if decoded_len > limit {
+            return Err(StorageError::DecodeLimitExceeded { encoding, limit });
+        }
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -143,6 +198,11 @@ pub enum StorageError {
         encoding: StorageEncoding,
         #[source]
         source: std::io::Error,
+    },
+    #[error("decoded {encoding} object exceeds maximum size of {limit} bytes")]
+    DecodeLimitExceeded {
+        encoding: StorageEncoding,
+        limit: usize,
     },
 }
 

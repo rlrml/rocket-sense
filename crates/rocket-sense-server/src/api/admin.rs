@@ -190,14 +190,21 @@ pub struct GcEventStreamsResponse {
     ),
     responses(
         (status = 200, description = "Replay processing diagnostics", body = ReplayProcessingDiagnosticsResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
         (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
     )
 )]
 pub async fn list_replay_processing_diagnostics(
+    auth_user: AuthUser,
     State(state): State<AppState>,
     Query(query): Query<ReplayProcessingDiagnosticsQuery>,
 ) -> Result<Json<ReplayProcessingDiagnosticsResponse>, ApiError> {
     let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
     let status = normalized_status_filter(query.status)?;
     let include_healthy = query.include_healthy;
     let count = query

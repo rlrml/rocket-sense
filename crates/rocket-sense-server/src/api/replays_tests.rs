@@ -252,6 +252,30 @@ fn replay_transfer_encoding_query_rejects_unknown_values() {
 }
 
 #[test]
+fn replay_upload_decode_rejects_compressed_bodies_over_decoded_limit() {
+    let compressed =
+        encode_bytes(&[b'a'; 128], StorageEncoding::Gzip).expect("test payload should compress");
+    let error = decode_transfer_bytes_with_limit(compressed, StorageEncoding::Gzip, 64)
+        .expect_err("expanded upload should be rejected");
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("exceeds maximum size"));
+}
+
+#[test]
+fn replay_upload_decode_rejects_identity_bodies_over_decoded_limit() {
+    let error = decode_transfer_bytes_with_limit(
+        Bytes::from(vec![b'a'; 65]),
+        StorageEncoding::Identity,
+        64,
+    )
+    .expect_err("raw upload should be rejected");
+
+    assert_eq!(error.status, StatusCode::BAD_REQUEST);
+    assert!(error.message.contains("exceeds maximum size"));
+}
+
+#[test]
 fn compressed_upload_file_names_are_normalized_to_raw_replay_names() {
     assert_eq!(
         normalize_uploaded_file_name("match.replay.gz", StorageEncoding::Gzip),
