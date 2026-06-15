@@ -100,10 +100,7 @@ impl PositioningStatsQuery {
             .ok_or_else(|| {
                 ApiError::bad_request("positioning summary requires a player-id filter")
             })?;
-        Ok(Self {
-            replay_set,
-            player,
-        })
+        Ok(Self { replay_set, player })
     }
 }
 
@@ -163,9 +160,7 @@ async fn load_positioning_summary(
     })
 }
 
-fn build_positioning_summary_query(
-    filters: &PositioningStatsQuery,
-) -> QueryBuilder<'_, Postgres> {
+fn build_positioning_summary_query(filters: &PositioningStatsQuery) -> QueryBuilder<'_, Postgres> {
     let mut query = QueryBuilder::<Postgres>::new(
         r#"
         WITH target_appearances AS MATERIALIZED (
