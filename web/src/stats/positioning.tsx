@@ -1,4 +1,10 @@
-import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import type { ReactNode } from "react";
+import type {
+  MechanicEventResponse,
+  PositioningCohortSummary,
+  PositioningSummaryResponse,
+  ReplayPlayer,
+} from "../types";
 import {
   type ComparisonRow,
   ComparisonRows,
@@ -71,12 +77,42 @@ const roleOrder: PositioningRole[] = ["most_back", "mid", "most_forward", "other
 export function PositioningDetail({
   events,
   players,
+  scope,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  scope?: "replay" | "group";
 }) {
+  // Single game and replay group both fold raw span events into one row per
+  // player; the group variant just spans every replay (summaries dedupe by
+  // player key). Both render through the shared view below.
   const summaries = playerPositioningSummaries(players, events);
+  return (
+    <PositioningSummariesView
+      summaries={summaries}
+      emptyContext={scope === "group" ? "this group" : "this replay"}
+    />
+  );
+}
+
+// Renders the positioning chart sections off an array of per-row summaries.
+// Every surface (single game, replay group, player-profile cohorts) builds the
+// summaries differently but renders them here so the graphs stay identical.
+// `emptyContext` fills the "...available for {context}." copy, `label` renders
+// each row's identity, and `preserveOrder` keeps the caller's row order instead
+// of letting each chart re-sort by its own metric.
+export function PositioningSummariesView({
+  summaries,
+  emptyContext = "this replay",
+  label = positioningPlayerLabel,
+  preserveOrder = false,
+}: {
+  summaries: PlayerPositioningSummary[];
+  emptyContext?: string;
+  label?: (summary: PlayerPositioningSummary) => ReactNode;
+  preserveOrder?: boolean;
+}) {
   // Distance-to-ball and distance-to-teammates share one scale so the two
   // charts stay directly comparable.
   const maxDistance = Math.max(
@@ -99,7 +135,9 @@ export function PositioningDetail({
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No field-zone positioning spans are available for this replay."
+            label={label}
+            preserveOrder={preserveOrder}
+            emptyLabel={`No field-zone positioning spans are available for ${emptyContext}.`}
             segments={(summary) => {
               const tone = teamOutcomeTone(summary.team);
               return [
@@ -141,7 +179,9 @@ export function PositioningDetail({
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No ball-depth positioning spans are available for this replay."
+            label={label}
+            preserveOrder={preserveOrder}
+            emptyLabel={`No ball-depth positioning spans are available for ${emptyContext}.`}
             segments={(summary) => {
               const tone = teamOutcomeTone(summary.team);
               return [
@@ -183,7 +223,9 @@ export function PositioningDetail({
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No teammate-role spans are available for this replay."
+            label={label}
+            preserveOrder={preserveOrder}
+            emptyLabel={`No teammate-role spans are available for ${emptyContext}.`}
             segments={(summary) => {
               const tone = teamOutcomeTone(summary.team);
               return roleOrder.map((role) => {
@@ -210,7 +252,9 @@ export function PositioningDetail({
           </header>
           <PositioningBarRows
             summaries={summaries}
-            emptyLabel="No ball-priority spans are available for this replay."
+            label={label}
+            preserveOrder={preserveOrder}
+            emptyLabel={`No ball-priority spans are available for ${emptyContext}.`}
             segments={(summary) => {
               const tone = teamOutcomeTone(summary.team);
               return [
@@ -257,7 +301,9 @@ export function PositioningDetail({
             }
             max={maxDistance}
             format={formatDistance}
-            emptyLabel="No ball-distance rows are available for this replay."
+            emptyLabel={`No ball-distance rows are available for ${emptyContext}.`}
+            label={label}
+            preserveOrder={preserveOrder}
           />
         </section>
 
@@ -276,7 +322,9 @@ export function PositioningDetail({
             }
             max={maxDistance}
             format={formatDistance}
-            emptyLabel="No teammate-distance rows are available for this replay."
+            emptyLabel={`No teammate-distance rows are available for ${emptyContext}.`}
+            label={label}
+            preserveOrder={preserveOrder}
           />
         </section>
 
@@ -291,7 +339,9 @@ export function PositioningDetail({
               value={(summary) => summary.caughtAheadGoals}
               max={maxCaughtAhead}
               format={(value) => (value ?? 0).toLocaleString()}
-              emptyLabel="No caught-ahead goals were recorded for this replay."
+              emptyLabel={`No caught-ahead goals were recorded for ${emptyContext}.`}
+              label={label}
+              preserveOrder={preserveOrder}
             />
           </section>
         ) : null}
@@ -306,12 +356,16 @@ function PositioningBarRows({
   sortValue,
   total,
   emptyLabel,
+  label,
+  preserveOrder = false,
 }: {
   summaries: PlayerPositioningSummary[];
   segments: (summary: PlayerPositioningSummary) => SegmentedBarSegment[];
   sortValue?: (summary: PlayerPositioningSummary) => number;
   total: (summary: PlayerPositioningSummary) => number;
   emptyLabel: string;
+  label: (summary: PlayerPositioningSummary) => ReactNode;
+  preserveOrder?: boolean;
 }) {
   return (
     <PlayerSegmentedBarRows
@@ -319,9 +373,9 @@ function PositioningBarRows({
       className="positioning-bar-rows"
       emptyLabel={emptyLabel}
       items={summaries}
-      label={positioningPlayerLabel}
+      label={label}
       segments={segments}
-      sortItems={(items) => sortedSummaries(items, sortValue)}
+      sortItems={preserveOrder ? undefined : (items) => sortedSummaries(items, sortValue)}
       style={outcomeDistributionColorStyle(TEAM_OUTCOME_COLORS)}
       total={total}
       trackClassName="positioning-track"
@@ -340,37 +394,42 @@ function PositioningDistanceChart({
   max,
   format,
   emptyLabel,
+  label,
+  preserveOrder = false,
 }: {
   summaries: PlayerPositioningSummary[];
   value: (summary: PlayerPositioningSummary) => number | null;
   max: number;
   format: (value: number | null) => string;
   emptyLabel: string;
+  label: (summary: PlayerPositioningSummary) => ReactNode;
+  preserveOrder?: boolean;
 }) {
   const indexByKey = teamLocalIndexByKey(summaries);
-  const rows: ComparisonRow[] = sortedSummaries(summaries, (summary) => value(summary) ?? 0).map(
-    (summary) => {
-      const metric = value(summary) ?? 0;
-      const shade = Math.min(indexByKey.get(summary.key) ?? 0, 3);
-      return {
-        key: summary.key,
-        label: positioningPlayerLabel(summary),
-        ariaLabel: `${summary.name}: ${format(metric)}`,
-        segments: [
-          {
-            key: "value",
-            className: `team-segment-${teamClass(summary.team)} player-shade-${shade}`,
-            label: summary.name,
-            value: metric,
-          },
-        ],
-        total: metric,
-        maxValue: max,
-        valueInBar: metric > 0 ? format(metric) : undefined,
-        placeholder: metric > 0 ? undefined : format(metric),
-      };
-    },
-  );
+  const ordered = preserveOrder
+    ? summaries
+    : sortedSummaries(summaries, (summary) => value(summary) ?? 0);
+  const rows: ComparisonRow[] = ordered.map((summary) => {
+    const metric = value(summary) ?? 0;
+    const shade = Math.min(indexByKey.get(summary.key) ?? 0, 3);
+    return {
+      key: summary.key,
+      label: label(summary),
+      ariaLabel: `${summary.name}: ${format(metric)}`,
+      segments: [
+        {
+          key: "value",
+          className: `team-segment-${teamClass(summary.team)} player-shade-${shade}`,
+          label: summary.name,
+          value: metric,
+        },
+      ],
+      total: metric,
+      maxValue: max,
+      valueInBar: metric > 0 ? format(metric) : undefined,
+      placeholder: metric > 0 ? undefined : format(metric),
+    };
+  });
 
   if (!rows.some((row) => row.total > 0)) {
     return <div className="stat-empty">{emptyLabel}</div>;
@@ -390,6 +449,102 @@ function teamLocalIndexByKey(summaries: PlayerPositioningSummary[]): Map<string,
     counts.set(summary.team, next + 1);
   }
   return index;
+}
+
+// Player profile: compare the player's own positioning against the pooled
+// teammate and opponent cohorts that shared their games. The cohorts come from
+// a server-side aggregate (career-scale span data can't be re-summed in the
+// browser) and map onto the same summary rows the per-game view renders. Self +
+// teammates paint as one team color, opponents the other; row order is fixed.
+export function PlayerPositioningCohorts({
+  response,
+  playerName,
+}: {
+  response: PositioningSummaryResponse;
+  playerName: string;
+}) {
+  const summaries: PlayerPositioningSummary[] = [
+    cohortSummary("cohort-self", playerName || "You", 0, response.player),
+  ];
+  if (response.teammates) {
+    summaries.push(cohortSummary("cohort-teammates", "Teammates", 0, response.teammates));
+  }
+  if (response.opponents) {
+    summaries.push(cohortSummary("cohort-opponents", "Opponents", 1, response.opponents));
+  }
+
+  return (
+    <PositioningSummariesView
+      summaries={summaries}
+      emptyContext="the selected games"
+      preserveOrder
+      label={(summary) => cohortLabel(summary, cohortAppearances(summary.key, response))}
+    />
+  );
+}
+
+function cohortSummary(
+  key: string,
+  name: string,
+  team: number,
+  cohort: PositioningCohortSummary,
+): PlayerPositioningSummary {
+  return {
+    key,
+    name,
+    platform: null,
+    platformPlayerId: null,
+    rank: null,
+    team,
+    activeSeconds: cohort.active_seconds,
+    trackedSeconds: cohort.tracked_seconds,
+    defensiveThirdSeconds: cohort.defensive_third_seconds,
+    neutralThirdSeconds: cohort.neutral_third_seconds,
+    offensiveThirdSeconds: cohort.offensive_third_seconds,
+    defensiveHalfSeconds: cohort.defensive_half_seconds,
+    offensiveHalfSeconds: cohort.offensive_half_seconds,
+    behindBallSeconds: cohort.behind_ball_seconds,
+    levelWithBallSeconds: cohort.level_with_ball_seconds,
+    inFrontOfBallSeconds: cohort.ahead_of_ball_seconds,
+    roleSeconds: {
+      no_teammates: cohort.role_no_teammates_seconds,
+      most_back: cohort.role_most_back_seconds,
+      mid: cohort.role_mid_seconds,
+      most_forward: cohort.role_most_forward_seconds,
+      other: cohort.role_other_seconds,
+      unknown: 0,
+    },
+    closestTeamSeconds: cohort.closest_team_seconds,
+    closestAbsoluteSeconds: cohort.closest_absolute_seconds,
+    farthestSeconds: cohort.farthest_seconds,
+    distanceToBallWeighted: cohort.distance_to_ball_weighted,
+    distanceToBallWeight: cohort.distance_to_ball_weight,
+    distanceToTeammatesWeighted: cohort.distance_to_teammates_weighted,
+    distanceToTeammatesWeight: cohort.distance_to_teammates_weight,
+    caughtAheadGoals: 0,
+  };
+}
+
+function cohortAppearances(key: string, response: PositioningSummaryResponse): number | null {
+  if (key === "cohort-self") return response.player.appearance_count;
+  if (key === "cohort-teammates") return response.teammates?.appearance_count ?? null;
+  if (key === "cohort-opponents") return response.opponents?.appearance_count ?? null;
+  return null;
+}
+
+function cohortLabel(summary: PlayerPositioningSummary, appearances: number | null): ReactNode {
+  const suffix = summary.key === "cohort-self" ? "games" : "appearances";
+  return (
+    <StatPlayerLabel
+      className={`team-accent-${teamClass(summary.team)}`}
+      name={summary.name}
+      platform={null}
+      profilePath={null}
+      rank={null}
+      showPlatformBadge={false}
+      subtitle={appearances != null ? `${appearances.toLocaleString()} ${suffix}` : ""}
+    />
+  );
 }
 
 function positioningPlayerLabel(summary: PlayerPositioningSummary) {

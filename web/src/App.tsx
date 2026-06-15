@@ -51,6 +51,7 @@ import {
   getAuthOptions,
   getCurrentUser,
   getPlayerKickoffSummary,
+  getPlayerPositioningSummary,
   getPlayerPossessionSummary,
   getPlayerProfile,
   getPlayerStatAggregates,
@@ -96,6 +97,7 @@ import {
   RotationTimeSharePanel,
   ScoringRatePanel,
 } from "./stats/playerPanels";
+import { PlayerPositioningCohorts } from "./stats/positioning";
 import type {
   AuthOptionsResponse,
   CurrentUserResponse,
@@ -104,6 +106,7 @@ import type {
   MechanicEventResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
+  PositioningSummaryResponse,
   PossessionSummaryResponse,
   ProcessingVersionResponse,
   ReplayProcessingDiagnostic,
@@ -1979,6 +1982,7 @@ function ReplayGroupStatsPage() {
     participantAnalysis.consistent ||
     activeGroup.id === "goals" ||
     activeGroup.id === "mechanics" ||
+    activeGroup.id === "positioning" ||
     activeGroup.id === "possession-territory";
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
@@ -2744,6 +2748,7 @@ const playerSupplementalKeys = [
   "kickoffSupport",
   "kickoffFilter",
   "possession",
+  "positioningSummary",
 ] as const;
 type PlayerSupplementalKey = (typeof playerSupplementalKeys)[number];
 
@@ -2782,6 +2787,9 @@ function PlayerStatsPage() {
     null,
   );
   const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(
+    null,
+  );
+  const [positioningSummary, setPositioningSummary] = useState<PositioningSummaryResponse | null>(
     null,
   );
   const [supplementalLoaded, setSupplementalLoaded] = useState<PlayerSupplementalLoadedState>({
@@ -2835,6 +2843,7 @@ function PlayerStatsPage() {
     setKickoffSupportSummary(null);
     setKickoffFilterSummary(null);
     setPossessionSummary(null);
+    setPositioningSummary(null);
   }, [statsScope]);
 
   useEffect(() => {
@@ -2921,7 +2930,11 @@ function PlayerStatsPage() {
 
   function applySupplementalResponse(
     key: PlayerSupplementalKey,
-    response: PlayerStatOverviewResponse | EventStatSummaryResponse | PossessionSummaryResponse,
+    response:
+      | PlayerStatOverviewResponse
+      | EventStatSummaryResponse
+      | PossessionSummaryResponse
+      | PositioningSummaryResponse,
   ) {
     if (key === "overview") {
       setOverview(response as PlayerStatOverviewResponse);
@@ -2931,8 +2944,10 @@ function PlayerStatsPage() {
       setKickoffSupportSummary(response as EventStatSummaryResponse);
     } else if (key === "kickoffFilter") {
       setKickoffFilterSummary(response as EventStatSummaryResponse);
-    } else {
+    } else if (key === "possession") {
       setPossessionSummary(response as PossessionSummaryResponse);
+    } else {
+      setPositioningSummary(response as PositioningSummaryResponse);
     }
   }
 
@@ -3065,9 +3080,11 @@ function PlayerStatsPage() {
               kickoffSupportSummary={kickoffSupportSummary}
               kickoffTakerSummary={kickoffTakerSummary}
               possessionSummary={possessionSummary}
+              positioningSummary={positioningSummary}
               overview={overview}
               platform={platform}
               platformPlayerId={platformPlayerId}
+              playerName={playerSummary?.display_name ?? ""}
               search={location.search}
               stats={stats}
             />
@@ -3128,7 +3145,12 @@ function kickoffSideFilterFromSearch(search: string): KickoffSideFilter {
 }
 
 function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
-  if (groupId === "goals" || groupId === "positioning" || groupId === "rotation") {
+  if (groupId === "positioning") {
+    // overview backs the rotation time-share panel; positioningSummary backs the
+    // You/Teammates/Opponents comparison graphs.
+    return ["overview", "positioningSummary"];
+  }
+  if (groupId === "goals" || groupId === "rotation") {
     return ["overview"];
   }
   if (groupId === "kickoffs") {
@@ -3145,7 +3167,12 @@ function fetchPlayerSupplemental(
   platform: string,
   platformPlayerId: string,
   search: string,
-): Promise<PlayerStatOverviewResponse | EventStatSummaryResponse | PossessionSummaryResponse> {
+): Promise<
+  | PlayerStatOverviewResponse
+  | EventStatSummaryResponse
+  | PossessionSummaryResponse
+  | PositioningSummaryResponse
+> {
   const params = new URLSearchParams(search);
   if (key === "overview") {
     return getPlayerStatOverview(platform, platformPlayerId, params);
@@ -3163,6 +3190,9 @@ function fetchPlayerSupplemental(
       stripKickoffSpawnParams(params),
       "taker",
     );
+  }
+  if (key === "positioningSummary") {
+    return getPlayerPositioningSummary(platform, platformPlayerId, params);
   }
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
@@ -3245,8 +3275,10 @@ function PlayerAggregateStatsSections({
   kickoffTakerSummary,
   overview,
   possessionSummary,
+  positioningSummary,
   platform,
   platformPlayerId,
+  playerName,
   search,
   stats,
 }: {
@@ -3256,8 +3288,10 @@ function PlayerAggregateStatsSections({
   kickoffTakerSummary: EventStatSummaryResponse | null;
   overview: PlayerStatOverviewResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
+  positioningSummary: PositioningSummaryResponse | null;
   platform: string;
   platformPlayerId: string;
+  playerName: string;
   search: string;
   stats: StatAggregateSetResponse;
 }) {
@@ -3366,6 +3400,9 @@ function PlayerAggregateStatsSections({
       ) : null}
       {activeGroup.id === "possession" && possessionSummary ? (
         <PossessionSummaryPanel summary={possessionSummary} />
+      ) : null}
+      {activeGroup.id === "positioning" && positioningSummary ? (
+        <PlayerPositioningCohorts response={positioningSummary} playerName={playerName} />
       ) : null}
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
         <RotationTimeSharePanel overview={overview} stats={stats} />

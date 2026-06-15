@@ -21,6 +21,7 @@ import type {
   ReprocessReplayResponse,
   StatAggregateSetResponse,
   PossessionSummaryResponse,
+  PositioningSummaryResponse,
 } from "./types";
 
 const tokenKey = "rocket_sense_access_token";
@@ -293,6 +294,18 @@ export function getPlayerPossessionSummary(
   params.set("player-id", `${platform}:${platformPlayerId}`);
   return request<PossessionSummaryResponse>(
     `/api/v1/stats/possession/summary?${params.toString()}`,
+  );
+}
+
+export function getPlayerPositioningSummary(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<PositioningSummaryResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<PositioningSummaryResponse>(
+    `/api/v1/stats/positioning/summary?${params.toString()}`,
   );
 }
 
