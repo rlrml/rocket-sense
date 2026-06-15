@@ -1,6 +1,6 @@
 use super::{
-    admin, auth, ballchasing, health, meta, player_overview, players, possession_stats, replays,
-    stats,
+    admin, auth, ballchasing, health, meta, player_overview, players, positioning_stats,
+    possession_stats, replays, stats,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -26,6 +26,7 @@ use utoipa::{
         meta::get_processing_version,
         players::get_player_profile,
         player_overview::get_player_stat_overview,
+        positioning_stats::get_positioning_summary,
         possession_stats::get_possession_summary,
         stats::get_stat_aggregates,
         stats::get_processing_version_breakdown,
@@ -81,6 +82,8 @@ use utoipa::{
             player_overview::GoalTagAggregateResponse,
             player_overview::ScoringRateResponse,
             player_overview::RotationTimeShareResponse,
+            positioning_stats::PositioningSummaryResponse,
+            positioning_stats::PositioningCohortSummary,
             possession_stats::PossessionSummaryResponse,
             possession_stats::PossessionTeammateComparison,
             possession_stats::PossessionSpanSummary,
