@@ -756,6 +756,7 @@ function positioningSegment(
   level: OutcomeDistributionLevel,
 ): SegmentedBarSegment {
   const percent = percentage(seconds, total);
+  const duration = formatDurationCompact(seconds);
   return {
     key: id,
     // Tint each player's split in their team color, telling the categories apart
@@ -763,8 +764,10 @@ function positioningSegment(
     className: outcomeSegmentClassName(tone, level),
     label,
     value: seconds,
-    visibleLabel: percent >= 10 ? `${label}: ${formatPercent(seconds, total)}` : undefined,
-    title: `${label}: ${formatSeconds(seconds)} (${formatPercent(seconds, total)})`,
+    // Show both the share and the raw time on the bar; the category name stays
+    // in the tooltip so the in-bar label keeps fitting at narrow widths.
+    visibleLabel: percent >= 10 ? `${formatPercent(seconds, total)} · ${duration}` : undefined,
+    title: `${label}: ${duration} (${formatPercent(seconds, total)})`,
   };
 }
 
@@ -927,10 +930,21 @@ function share(value: number, total: number): number {
   return total > 0 ? value / total : 0;
 }
 
-function formatSeconds(value: number): string {
-  if (!Number.isFinite(value)) return "Unknown";
-  if (value > 0 && value < 10) return `${value.toFixed(1)}s`;
-  return `${Math.round(value)}s`;
+// Compact, scale-aware duration for positioning labels: spans range from a few
+// seconds in one game to many hours once pooled across a career, so step from
+// "45s" through "12m 30s" up to "3h 12m" instead of showing raw seconds.
+function formatDurationCompact(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0s";
+  const total = Math.round(value);
+  if (total < 60) return value < 10 ? `${value.toFixed(1)}s` : `${total}s`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) {
+    const seconds = total % 60;
+    return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  }
+  const hours = Math.floor(minutes / 60);
+  const remMinutes = minutes % 60;
+  return remMinutes ? `${hours}h ${remMinutes}m` : `${hours}h`;
 }
 
 function formatPercent(value: number, total: number): string {
