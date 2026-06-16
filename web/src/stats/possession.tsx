@@ -48,7 +48,7 @@ export function PossessionDetail({
   const ballHalfTotals = ballHalfStateTotals(spans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
   const ballHalfTrackedSeconds = sumObjectValues(ballHalfTotals);
-  const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("teams");
+  const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("players");
   const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
   const playerSummaries = playerPossessionSummaries(players, spans);
   const zoneSubjects = possessionZoneSubjects(players, spans, comparisonMode);
@@ -93,6 +93,7 @@ export function PossessionDetail({
               ariaLabel="Ball time by field half"
               totals={ballHalfTotals}
               totalSeconds={ballHalfTrackedSeconds}
+              showMetrics={false}
             />
           </section>
         ) : null}
@@ -130,6 +131,7 @@ export function PossessionDetail({
             ariaLabel="Ball time by field half"
             totals={ballHalfTotals}
             totalSeconds={ballHalfTrackedSeconds}
+            showMetrics={false}
           />
         </section>
 
@@ -268,10 +270,12 @@ function PossessionShareChart({
   ariaLabel = "Possession share",
   totals,
   totalSeconds,
+  showMetrics = true,
 }: {
   ariaLabel?: string;
   totals: Record<PossessionState, number>;
   totalSeconds: number;
+  showMetrics?: boolean;
 }) {
   const total = Math.max(0, totalSeconds);
   const segments = possessionStates.map((state) =>
@@ -286,15 +290,17 @@ function PossessionShareChart({
         segments={segments}
         total={total}
       />
-      <div className="possession-metric-grid">
-        {possessionStates.map((state) => (
-          <div className={`possession-metric possession-state-accent-${state}`} key={state}>
-            <span>{possessionStateLabel(state)}</span>
-            <strong>{formatPercent(percentage(totals[state], total))}</strong>
-            <span>{formatSeconds(totals[state])}</span>
-          </div>
-        ))}
-      </div>
+      {showMetrics ? (
+        <div className="possession-metric-grid">
+          {possessionStates.map((state) => (
+            <div className={`possession-metric possession-state-accent-${state}`} key={state}>
+              <span>{possessionStateLabel(state)}</span>
+              <strong>{formatPercent(percentage(totals[state], total))}</strong>
+              <span>{formatSeconds(totals[state])}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
