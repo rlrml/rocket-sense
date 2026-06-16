@@ -11,9 +11,13 @@ import {
 // Scoreboard core stats (score, goals, assists, saves, shots) are parsed onto
 // each ReplayPlayer directly — for a group they are summed across the group's
 // replays — so this page reads them off `players`. Demolitions are not on the
-// scoreboard, so they are counted from indexed "kill" events (each attributed
-// to the demolisher).
-export const coreEventTypes: string[] = ["kill"];
+// scoreboard, so they are counted from indexed events. The current subtr-actor
+// emits one "demolition" event carrying both sides — the attacker (top-level
+// `player_id`) takes a demo inflicted and `payload.victim` takes a death. Older
+// replays (indexed before that merge) instead have separate "kill" (demolisher)
+// and "death" (victim) events; both shapes are tallied so the page works without
+// reprocessing.
+export const coreEventTypes: string[] = ["demolition", "kill", "death"];
 
 interface CorePlayerSummary {
   key: string;
@@ -28,6 +32,7 @@ interface CorePlayerSummary {
   saves: number;
   shots: number;
   demos: number;
+  deaths: number;
 }
 
 export function CoreDetail({
@@ -57,6 +62,7 @@ export function CoreDetail({
   const saveScale = Math.max(1, ...summaries.map((summary) => summary.saves));
   const shotScale = Math.max(1, ...summaries.map((summary) => summary.shots));
   const demoScale = Math.max(1, ...summaries.map((summary) => summary.demos));
+  const deathScale = Math.max(1, ...summaries.map((summary) => summary.deaths));
 
   return (
     <div className="core-detail">
@@ -135,6 +141,18 @@ export function CoreDetail({
               groupClassName: "core-bar-demos",
               metric: (summary) => summary.demos,
               maxValue: demoScale,
+              format: formatCount,
+            })}
+          />
+          <PlayerComparisonChart
+            className="core-chart"
+            title="Deaths"
+            rows={magnitudeRows(summaries, {
+              teamColored,
+              playerIndexByKey,
+              groupClassName: "core-bar-deaths",
+              metric: (summary) => summary.deaths,
+              maxValue: deathScale,
               format: formatCount,
             })}
           />
@@ -255,6 +273,7 @@ type CoreStatSortKey =
   | "saves"
   | "shots"
   | "demos"
+  | "deaths"
   | "shooting";
 
 type CoreStatSort = {
@@ -278,6 +297,7 @@ const coreStatColumns: Array<{
   { key: "saves", label: "Saves", render: (summary) => formatCount(summary.saves) },
   { key: "shots", label: "Shots", render: (summary) => formatCount(summary.shots) },
   { key: "demos", label: "Demos", render: (summary) => formatCount(summary.demos) },
+  { key: "deaths", label: "Deaths", render: (summary) => formatCount(summary.deaths) },
   {
     key: "shooting",
     label: "Shooting %",
@@ -329,7 +349,7 @@ function corePlayerSummaries(
   players: ReplayPlayer[],
   events: MechanicEventResponse[],
 ): CorePlayerSummary[] {
-  const demosByKey = demosByPlayerKey(players, events);
+  const { inflicted, taken } = demoCountsByPlayerKey(players, events);
   return players.map((player, index) => {
     const key = playerKey(player, index);
     return {
@@ -344,26 +364,76 @@ function corePlayerSummaries(
       assists: numberOr(player.assists),
       saves: numberOr(player.saves),
       shots: numberOr(player.shots),
-      demos: demosByKey.get(key) ?? 0,
+      demos: inflicted.get(key) ?? 0,
+      deaths: taken.get(key) ?? 0,
     };
   });
 }
 
-// A demolition is a "kill" event attributed to the demolisher; tally them per
-// player so they read off the same key as the scoreboard summaries.
-function demosByPlayerKey(
+// Demolitions come in two indexed shapes. The current "demolition" event carries
+// both sides in its payload: `payload.attacker` is credited a demo inflicted and
+// `payload.victim` a death (demo taken). We read both from the payload rather
+// than the top-level `player_id` because which side `player_id` represents has
+// not been stable across server versions. Legacy replays instead have one-sided
+// "kill" (demolisher) and "death" (victim) events keyed by their top-level
+// `player_id`. Tally both into the same keys as the scoreboard summaries.
+function demoCountsByPlayerKey(
   players: ReplayPlayer[],
   events: MechanicEventResponse[],
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const event of events) {
-    if (event.event_type !== "kill") continue;
-    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
-    if (index < 0) continue;
-    const key = playerKey(players[index], index);
+): { inflicted: Map<string, number>; taken: Map<string, number> } {
+  const inflicted = new Map<string, number>();
+  const taken = new Map<string, number>();
+  const increment = (counts: Map<string, number>, key: string) =>
     counts.set(key, (counts.get(key) ?? 0) + 1);
+  const creditPrimaryPlayer = (counts: Map<string, number>, event: MechanicEventResponse) => {
+    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+    if (index >= 0) increment(counts, playerKey(players[index], index));
+  };
+  const creditPayloadPlayer = (counts: Map<string, number>, participant: unknown) => {
+    const identity = remoteIdKey(participant);
+    const index = identity
+      ? players.findIndex((player) => playerIdentity(player) === identity)
+      : -1;
+    if (index >= 0) increment(counts, playerKey(players[index], index));
+  };
+
+  for (const event of events) {
+    switch (event.event_type) {
+      case "demolition": {
+        const payload = event.payload as Record<string, unknown>;
+        creditPayloadPlayer(inflicted, payload?.attacker);
+        creditPayloadPlayer(taken, payload?.victim);
+        break;
+      }
+      case "kill":
+        creditPrimaryPlayer(inflicted, event);
+        break;
+      case "death":
+        creditPrimaryPlayer(taken, event);
+        break;
+    }
   }
-  return counts;
+  return { inflicted, taken };
+}
+
+// A payload participant (e.g. demolition `victim`) is encoded as a single-key
+// platform map — `{"Epic": "…"}`, `{"Xbox": 123}`, or a nested PlayStation
+// object — matching subtr-actor's serialized boxcars RemoteId. Normalize to the
+// same `platform:id` form as `playerIdentity` so it matches a roster player.
+function remoteIdKey(value: unknown): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length !== 1) return null;
+  const [platform, id] = entries[0];
+  if (typeof id === "string" || typeof id === "number")
+    return `${normalizePlatform(platform)}:${String(id)}`;
+  if (id && typeof id === "object" && !Array.isArray(id)) {
+    const nested = id as Record<string, unknown>;
+    const onlineId = nested.online_id ?? nested.id;
+    if (typeof onlineId === "string" || typeof onlineId === "number")
+      return `${normalizePlatform(platform)}:${String(onlineId)}`;
+  }
+  return null;
 }
 
 function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
@@ -391,7 +461,8 @@ function hasCoreData(summary: CorePlayerSummary): boolean {
     summary.assists > 0 ||
     summary.saves > 0 ||
     summary.shots > 0 ||
-    summary.demos > 0
+    summary.demos > 0 ||
+    summary.deaths > 0
   );
 }
 

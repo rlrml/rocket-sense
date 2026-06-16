@@ -2768,7 +2768,10 @@ fn canonical_event_type_category(event_type: &str, stored_category: &str) -> &'s
     if mechanic_event_type_keys(event_type) || event_type.starts_with("mechanic.") {
         return "mechanic";
     }
-    if matches!(event_type, "bump" | "kill" | "death" | "core.demo") {
+    if matches!(
+        event_type,
+        "bump" | "demolition" | "kill" | "death" | "core.demo"
+    ) {
         return "contact";
     }
     if event_type.starts_with("boost") || event_type == "boost.pad_event" {
