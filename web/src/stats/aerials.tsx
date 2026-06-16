@@ -12,12 +12,15 @@ import {
 
 // Every aerial panel ranks all participants on its own, so this group loads the
 // streams those rankings draw from:
-//   - flip_reset / double_tap / wall_aerial: detected mechanic events
+//   - dodge_reset / double_tap / wall_aerial: detected mechanic events. The
+//     events API emits no "flip_reset" stream — a flip reset is a dodge_reset
+//     with payload.on_ball === true (subtr-actor: "an on-ball dodge reset"),
+//     while on_ball === false is an ordinary dodge refresh (e.g. a landing).
 //   - ball_carry: air dribbles live here (kind === "air_dribble") with an origin
 //   - goal_context: goal tags flag which finishes were aerial
 //   - touch: classified touches carry a height_band, isolating aerial contacts
 export const aerialEventTypes = [
-  "flip_reset",
+  "dodge_reset",
   "double_tap",
   "ball_carry",
   "wall_aerial",
@@ -255,8 +258,10 @@ function emptySubject(player: ReplayPlayer, index: number): AerialSubject {
 
 function accumulate(subject: AerialSubject, event: MechanicEventResponse) {
   switch (event.event_type) {
-    case "flip_reset":
-      bump(subject, "mix", "flip_reset");
+    case "dodge_reset":
+      // Only on-ball dodge resets are flip resets; on_ball === false is an
+      // ordinary dodge refresh (landing/wall) and is not an aerial mechanic.
+      if (booleanPayload(event.payload, "on_ball")) bump(subject, "mix", "flip_reset");
       break;
     case "double_tap":
       bump(subject, "mix", "double_tap");
@@ -383,6 +388,10 @@ function playerProfilePath(subject: {
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function booleanPayload(payload: Record<string, unknown>, key: string): boolean {
+  return payload[key] === true;
 }
 
 function teamClass(team: number | null): string {
