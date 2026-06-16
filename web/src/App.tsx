@@ -3894,7 +3894,13 @@ function derivedEventCategoryFromKey(key: string): string {
   if (key === "touch" || key === "touch_ball_movement" || key === "whiff") {
     return "other";
   }
-  if (key === "bump" || key === "kill" || key === "death" || key === "core.demo") {
+  if (
+    key === "bump" ||
+    key === "demolition" ||
+    key === "kill" ||
+    key === "death" ||
+    key === "core.demo"
+  ) {
     return "contact";
   }
   if (key.startsWith("boost") || key === "boost.pad_event") {

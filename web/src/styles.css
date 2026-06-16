@@ -4549,6 +4549,10 @@ tbody tr:last-child td {
   background: #ea580c;
 }
 
+.source-segment.core-bar-deaths {
+  background: #b45309;
+}
+
 .core-stat-table table {
   min-width: 800px;
 }
