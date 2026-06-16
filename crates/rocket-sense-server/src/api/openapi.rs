@@ -1,6 +1,6 @@
 use super::{
-    admin, auth, ballchasing, health, meta, player_overview, players, positioning_stats,
-    possession_stats, replays, stats,
+    admin, auth, ballchasing, health, leaderboards, meta, player_overview, players,
+    positioning_stats, possession_stats, replays, stats,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -23,6 +23,8 @@ use utoipa::{
         ballchasing::load_ballchasing_replay,
         ballchasing::proxy_ballchasing_replay_file,
         health::health,
+        leaderboards::get_uploads_leaderboard,
+        leaderboards::get_appearances_leaderboard,
         meta::get_processing_version,
         players::get_player_profile,
         player_overview::get_player_stat_overview,
@@ -72,6 +74,10 @@ use utoipa::{
             auth::CurrentUserResponse,
             crate::auth::AccessToken,
             health::HealthResponse,
+            leaderboards::UploadsLeaderboardResponse,
+            leaderboards::UploadsLeaderboardRowResponse,
+            leaderboards::AppearancesLeaderboardResponse,
+            leaderboards::AppearancesLeaderboardRowResponse,
             meta::ProcessingVersionResponse,
             meta::SchemaChangelogEntry,
             players::PlayerProfileNameResponse,
@@ -124,6 +130,7 @@ use utoipa::{
         (name = "admin", description = "Administrative maintenance endpoints"),
         (name = "ballchasing", description = "Ballchasing replay loading and proxy endpoints"),
         (name = "health", description = "Service health endpoints"),
+        (name = "leaderboards", description = "Cross-replay leaderboard endpoints"),
         (name = "meta", description = "Service metadata endpoints"),
         (name = "players", description = "Player profile endpoints"),
         (name = "stats", description = "Aggregate replay statistics endpoints"),
