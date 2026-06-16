@@ -91,9 +91,15 @@ export function PositioningDetail({
   // player; the group variant just spans every replay (summaries dedupe by
   // player key). Both render through the shared view below.
   const summaries = playerPositioningSummaries(players, events);
+  // A player can appear on either team across a group's replays, so their
+  // aggregated `team` is null and team-relative colouring would collapse every
+  // bar to grey. Render the group in cohort mode (the team-independent fixed
+  // teal -> grey -> purple palette) so the directional gradients stay readable.
+  const cohort = scope === "group";
   return (
     <PositioningSummariesView
       summaries={summaries}
+      cohort={cohort}
       emptyContext={scope === "group" ? "this group" : "this replay"}
     />
   );
@@ -294,10 +300,9 @@ export function PositioningSummariesView({
           </header>
           <p className="chart-panel-note">
             Share of time at each depth relative to teammates, from <strong>most back</strong>{" "}
-            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.
-            Most back is your team colour and most forward the opponent colour; <strong>mid</strong>
-            , <strong>other</strong> (unranked), and <strong>solo</strong> (alone on the team) are
-            grey.
+            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.{" "}
+            <strong>Mid</strong>, <strong>other</strong> (unranked), and <strong>solo</strong>{" "}
+            (alone on the team) are grey.
           </p>
           <ZoneLegend
             cohort={cohort}
