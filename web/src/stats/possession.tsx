@@ -9,13 +9,14 @@ import {
   type StatPlayerRank,
 } from "./shared";
 
-export const possessionEventTypes = ["possession"];
+export const possessionEventTypes = ["possession", "ball_half"];
 
 type PossessionState = "team_zero" | "team_one" | "neutral";
 type FieldThird = "team_zero_third" | "neutral_third" | "team_one_third";
+type FieldHalf = "team_zero_side" | "neutral" | "team_one_side";
 type PossessionComparisonMode = "teams" | "players";
 type PossessionZone = "offensive" | "neutral" | "defensive";
-type GroupPossessionView = "leaderboard" | "share" | "ball-half" | "zones";
+type GroupPossessionView = "leaderboard" | "share" | "ball-half" | "ball-thirds" | "zones";
 
 interface PossessionSpan {
   key: string;
@@ -43,10 +44,12 @@ export function PossessionDetail({
   scope?: "replay" | "group";
 }) {
   const spans = useMemo(() => possessionSpans(events), [events]);
+  const ballHalfTotals = useMemo(() => ballHalfTotalsFromEvents(events), [events]);
   const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
   const possessionTotals = possessionStateTotals(spans);
-  const ballHalfTotals = ballHalfStateTotals(spans);
+  const ballThirdsTotals = ballThirdsStateTotals(spans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
+  const ballThirdsTrackedSeconds = sumObjectValues(ballThirdsTotals);
   const ballHalfTrackedSeconds = sumObjectValues(ballHalfTotals);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("players");
   const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
@@ -89,10 +92,23 @@ export function PossessionDetail({
               <h3>Replay-local ball half</h3>
               <span>{formatSeconds(ballHalfTrackedSeconds)} tracked</span>
             </header>
-            <PossessionShareChart
-              ariaLabel="Ball time by field half"
+            <BallHalfChart
+              scope="group"
               totals={ballHalfTotals}
               totalSeconds={ballHalfTrackedSeconds}
+            />
+          </section>
+        ) : null}
+        {groupView === "ball-thirds" ? (
+          <section className="chart-panel full-span">
+            <header className="chart-panel-header">
+              <h3>Replay-local ball thirds</h3>
+              <span>{formatSeconds(ballThirdsTrackedSeconds)} tracked</span>
+            </header>
+            <PossessionShareChart
+              ariaLabel="Ball time by field third"
+              totals={ballThirdsTotals}
+              totalSeconds={ballThirdsTrackedSeconds}
               showMetrics={false}
             />
           </section>
@@ -127,10 +143,22 @@ export function PossessionDetail({
             <h3>Ball half</h3>
             <span>{formatSeconds(ballHalfTrackedSeconds)} tracked</span>
           </header>
-          <PossessionShareChart
-            ariaLabel="Ball time by field half"
+          <BallHalfChart
+            scope="replay"
             totals={ballHalfTotals}
             totalSeconds={ballHalfTrackedSeconds}
+          />
+        </section>
+
+        <section className="chart-panel">
+          <header className="chart-panel-header">
+            <h3>Ball thirds</h3>
+            <span>{formatSeconds(ballThirdsTrackedSeconds)} tracked</span>
+          </header>
+          <PossessionShareChart
+            ariaLabel="Ball time by field third"
+            totals={ballThirdsTotals}
+            totalSeconds={ballThirdsTrackedSeconds}
             showMetrics={false}
           />
         </section>
@@ -200,6 +228,7 @@ function GroupPossessionViewToggle({
     },
     { key: "share", label: "Blue/Orange" },
     { key: "ball-half", label: "Ball half" },
+    { key: "ball-thirds", label: "Ball thirds" },
     { key: "zones", label: "Zones" },
   ];
 
@@ -302,6 +331,34 @@ function PossessionShareChart({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function BallHalfChart({
+  scope,
+  totals,
+  totalSeconds,
+}: {
+  scope: "replay" | "group";
+  totals: Record<PossessionState, number>;
+  totalSeconds: number;
+}) {
+  if (totalSeconds <= 0) {
+    return (
+      <div className="stat-empty">
+        No ball-half data is available for {scope === "group" ? "these replays" : "this replay"}.
+        Reprocess to populate it.
+      </div>
+    );
+  }
+
+  return (
+    <PossessionShareChart
+      ariaLabel="Ball time by field half"
+      totals={totals}
+      totalSeconds={totalSeconds}
+      showMetrics={false}
+    />
   );
 }
 
@@ -618,11 +675,34 @@ function possessionStateTotals(spans: PossessionSpan[]): Record<PossessionState,
   return totals;
 }
 
-function ballHalfStateTotals(spans: PossessionSpan[]): Record<PossessionState, number> {
+function ballThirdsStateTotals(spans: PossessionSpan[]): Record<PossessionState, number> {
   const totals = emptyStateTotals();
   for (const span of spans) {
-    const state = ballHalfState(span.third);
+    const state = ballThirdsState(span.third);
     if (state) totals[state] += span.duration;
+  }
+  return totals;
+}
+
+function ballHalfTotalsFromEvents(
+  events: MechanicEventResponse[],
+): Record<PossessionState, number> {
+  const totals = emptyStateTotals();
+  for (const event of events) {
+    if (event.event_type !== "ball_half") continue;
+    if (booleanPayload(event.payload, "active") === false) continue;
+    const state = fieldHalfState(fieldHalf(event.payload.field_half));
+    if (state == null) continue;
+    const start =
+      event.start_time ?? numericPayload(event.payload, "time") ?? event.event_time ?? 0;
+    const payloadDuration = numericPayload(event.payload, "duration");
+    const end =
+      event.end_time ??
+      numericPayload(event.payload, "end_time") ??
+      (payloadDuration == null ? start : start + payloadDuration);
+    const duration = payloadDuration ?? Math.max(0, end - start);
+    if (!(duration > 0) || !Number.isFinite(duration)) continue;
+    totals[state] += duration;
   }
   return totals;
 }
@@ -767,10 +847,23 @@ function possessionStateTeam(state: PossessionState): 0 | 1 | null {
   return null;
 }
 
-function ballHalfState(third: FieldThird | null): PossessionState | null {
+function ballThirdsState(third: FieldThird | null): PossessionState | null {
   if (third === "team_zero_third") return "team_zero";
   if (third === "team_one_third") return "team_one";
   if (third === "neutral_third") return "neutral";
+  return null;
+}
+
+function fieldHalf(value: unknown): FieldHalf | null {
+  return value === "team_zero_side" || value === "team_one_side" || value === "neutral"
+    ? value
+    : null;
+}
+
+function fieldHalfState(half: FieldHalf | null): PossessionState | null {
+  if (half === "team_zero_side") return "team_zero";
+  if (half === "team_one_side") return "team_one";
+  if (half === "neutral") return "neutral";
   return null;
 }
 
