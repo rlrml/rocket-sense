@@ -315,6 +315,21 @@ function EventLeaderboard({ filterKey }: { filterKey: string }) {
   );
 }
 
+// The leaderboard counts discrete per-player events, so the picker hides the
+// continuous "state" streams the backend's visibility filter excludes
+// (AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL in stats.rs) — every "positioning"
+// event plus a couple of sampled movement streams. Picking one would only ever
+// return an empty board.
+const NON_COUNTABLE_EVENT_CATEGORIES = new Set(["positioning"]);
+const NON_COUNTABLE_EVENT_KEYS = new Set(["movement", "powerslide"]);
+
+function isCountableEventType(eventType: EventTypeResponse): boolean {
+  return (
+    !NON_COUNTABLE_EVENT_CATEGORIES.has(eventType.category) &&
+    !NON_COUNTABLE_EVENT_KEYS.has(eventType.key)
+  );
+}
+
 // Event-type options come from the live registry so the board stays in sync
 // with whatever the pipeline currently emits.
 function useEventTypes(): EventTypeResponse[] {
@@ -324,9 +339,11 @@ function useEventTypes(): EventTypeResponse[] {
     listEventTypes()
       .then((response) => {
         if (!cancelled) {
-          const sorted = [...response.event_types].sort((a, b) =>
-            (a.category + a.display_name).localeCompare(b.category + b.display_name),
-          );
+          const sorted = response.event_types
+            .filter(isCountableEventType)
+            .sort((a, b) =>
+              (a.category + a.display_name).localeCompare(b.category + b.display_name),
+            );
           setEventTypes(sorted);
         }
       })
