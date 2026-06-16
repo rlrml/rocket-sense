@@ -176,6 +176,32 @@ impl ReplaySetFilters {
     }
 }
 
+impl ReplaySetFilters {
+    /// True when no filter narrows the replay set, i.e. the filters reference
+    /// nothing on the replays table. Callers that join `replays` purely to apply
+    /// these filters can skip the join entirely in this case.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.search_pattern.is_none()
+            && self.player_name_patterns.is_empty()
+            && self.playlists.is_empty()
+            && self.game_types.is_empty()
+            && self.team_sizes.is_empty()
+            && self.replay_ids.is_empty()
+            && self.file_sha256s.is_empty()
+            && self.group_id.is_none()
+            && self.project_id.is_none()
+            && self.maps.is_empty()
+            && self.pro.is_none()
+            && self.uploader_user_id.is_none()
+            && self.status.is_none()
+            && self.created_after.is_none()
+            && self.created_before.is_none()
+            && self.replay_date_after.is_none()
+            && self.replay_date_before.is_none()
+            && self.playlist_group_key.is_none()
+    }
+}
+
 impl PlayerStatFilter {
     pub(crate) fn new(
         platform: impl Into<String>,

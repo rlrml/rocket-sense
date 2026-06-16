@@ -24,6 +24,7 @@ import {
   RotateCcw,
   ServerCog,
   SlidersHorizontal,
+  Trophy,
   X,
   Trash2,
   Search,
@@ -128,10 +129,14 @@ const ReplayGoalPlaylistPage = lazy(() =>
 const PlayerGoalPlaylistPage = lazy(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.PlayerGoalPlaylistPage })),
 );
+const LeaderboardsPage = lazy(() =>
+  import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
+);
 
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
   { to: "/replay-groups", label: "Groups", icon: FolderOpen, end: true },
+  { to: "/leaderboards", label: "Leaderboards", icon: Trophy, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/admin/processing", label: "Admin", icon: ServerCog },
   { to: "/account", label: "Account", icon: CircleUser },
@@ -173,6 +178,14 @@ export function App() {
             <Route path="/" element={<ReplayListPage />} />
             <Route path="/replays" element={<ReplayListPage />} />
             <Route path="/replay-groups" element={<ReplayGroupListPage />} />
+            <Route
+              path="/leaderboards"
+              element={
+                <Suspense fallback={<StatusLine loading error={null} />}>
+                  <LeaderboardsPage />
+                </Suspense>
+              }
+            />
             <Route path="/replays/:replayId" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats" element={<ReplayStatsPage />} />
             <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />

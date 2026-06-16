@@ -79,6 +79,38 @@ export interface ReplayGroupReplayUpdateResponse {
   changed_replays: number;
 }
 
+export interface UploadsLeaderboardRow {
+  rank: number;
+  user_id: string;
+  display_name: string | null;
+  upload_count: number;
+}
+
+export interface UploadsLeaderboardResponse {
+  rows: UploadsLeaderboardRow[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+}
+
+export interface AppearancesLeaderboardRow {
+  rank: number;
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  is_pro: boolean;
+  appearance_count: number;
+}
+
+export interface AppearancesLeaderboardResponse {
+  rows: AppearancesLeaderboardRow[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+}
+
 export interface ReplayProcessingVersion {
   processed_at: string | null;
   extractor_name: string | null;
