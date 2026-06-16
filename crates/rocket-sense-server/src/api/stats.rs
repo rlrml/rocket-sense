@@ -1243,7 +1243,7 @@ fn rotation_duration_bucket_row_from_db(
     })
 }
 
-fn append_user_facing_stat_event_join_filter<'args>(
+pub(crate) fn append_user_facing_stat_event_join_filter<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     event_alias: &str,
 ) {
@@ -1267,7 +1267,7 @@ fn append_event_kickoff_spawn_filter<'args>(
     );
 }
 
-fn append_stat_term_event_filter<'args>(
+pub(crate) fn append_stat_term_event_filter<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     event_alias: &str,
     terms: &[String],
@@ -1347,7 +1347,7 @@ fn parse_stat_group_by(value: &str) -> Result<StatAggregateGroupBy, ApiError> {
     }
 }
 
-fn normalize_stat_terms(values: Vec<String>) -> Vec<String> {
+pub(crate) fn normalize_stat_terms(values: Vec<String>) -> Vec<String> {
     let mut terms = Vec::new();
     for value in values {
         let term = value.trim().to_ascii_lowercase();
@@ -1362,6 +1362,41 @@ fn escape_like_term(term: &str) -> String {
     term.replace('\\', "\\\\")
         .replace('%', "\\%")
         .replace('_', "\\_")
+}
+
+/// A single user-facing event type, used to report which stat keys a fuzzy
+/// `stat-term` resolved to (e.g. for the mechanic leaderboard).
+pub(crate) struct MatchedEventType {
+    pub(crate) key: String,
+    pub(crate) display_name: String,
+    pub(crate) category: String,
+}
+
+/// Resolves the user-facing event types matched by the given `stat-term`
+/// patterns (the same ILIKE matching used to filter aggregates). Returns every
+/// user-facing event type when `terms` is empty.
+pub(crate) async fn resolve_matched_event_types(
+    pool: &sqlx::PgPool,
+    terms: &[String],
+) -> Result<Vec<MatchedEventType>, sqlx::Error> {
+    let mut builder =
+        QueryBuilder::<Postgres>::new("SELECT key, display_name, category FROM event_types");
+    if !terms.is_empty() {
+        builder.push(" WHERE ");
+        append_stat_term_predicate(&mut builder, "event_types", terms);
+    }
+    builder.push(" ORDER BY category, display_name, key");
+
+    let rows = builder.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(MatchedEventType {
+                key: row.try_get("key")?,
+                display_name: row.try_get("display_name")?,
+                category: row.try_get("category")?,
+            })
+        })
+        .collect()
 }
 
 fn playlist_label(value: &str) -> String {

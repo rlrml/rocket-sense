@@ -111,6 +111,34 @@ export interface AppearancesLeaderboardResponse {
   next_offset: number | null;
 }
 
+export interface EventLeaderboardEventType {
+  key: string;
+  display_name: string;
+  category: string;
+}
+
+export interface EventLeaderboardRow {
+  rank: number;
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  is_pro: boolean;
+  event_count: number;
+  replay_count: number;
+  active_time_seconds: number | null;
+  count_per_game: number | null;
+  per_active_minute: number | null;
+}
+
+export interface EventLeaderboardResponse {
+  rows: EventLeaderboardRow[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+  matched_event_types: EventLeaderboardEventType[];
+}
+
 export interface ReplayProcessingVersion {
   processed_at: string | null;
   extractor_name: string | null;

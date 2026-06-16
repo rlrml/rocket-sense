@@ -123,3 +123,85 @@ fn appearances_rank_query_rejects_invalid_game_type() {
     let input = ReplaySetFilterInput::from_query_params(&params).unwrap();
     assert!(ReplaySetFilters::from_input(input, None).is_err());
 }
+
+#[test]
+fn event_sort_parses_aliases_and_rejects_unknown() {
+    assert_eq!(EventSort::from_query(None).unwrap(), EventSort::Total);
+    assert_eq!(
+        EventSort::from_query(Some("total")).unwrap(),
+        EventSort::Total
+    );
+    assert_eq!(
+        EventSort::from_query(Some("per-game")).unwrap(),
+        EventSort::PerGame
+    );
+    assert_eq!(
+        EventSort::from_query(Some("per_minute")).unwrap(),
+        EventSort::PerMinute
+    );
+    assert!(EventSort::from_query(Some("sideways")).is_err());
+}
+
+#[test]
+fn event_filters_parse_terms_sort_and_min_games() {
+    let (filters, paging) = EventLeaderboardFilters::from_query(
+        Some("event-type=air_dribble&sort=per-minute&min-games=10&game-type=ranked&count=25"),
+        None,
+    )
+    .expect("filters should parse");
+
+    assert_eq!(filters.stat_terms, ["air_dribble"]);
+    assert_eq!(filters.sort, EventSort::PerMinute);
+    assert_eq!(filters.min_games, 10);
+    assert_eq!(filters.replay.game_types, ["ranked"]);
+    assert_eq!(paging.count, 25);
+}
+
+#[test]
+fn event_min_games_floors_at_one() {
+    let (filters, _) =
+        EventLeaderboardFilters::from_query(Some("min-games=0"), None).expect("parse");
+    assert_eq!(filters.min_games, 1);
+    let (filters, _) = EventLeaderboardFilters::from_query(Some(""), None).expect("parse");
+    assert_eq!(filters.min_games, 1);
+}
+
+fn event_filters(raw_query: &str) -> (EventLeaderboardFilters, LeaderboardPaging) {
+    EventLeaderboardFilters::from_query(Some(raw_query), None).expect("filters should parse")
+}
+
+#[test]
+fn event_rank_query_builds_ctes_and_metric_order() {
+    let (filters, paging) = event_filters("event-type=flip_reset&sort=per-minute&game-type=ranked");
+    let sql = event_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("WITH event_counts AS"));
+    assert!(sql.contains("denominators AS"));
+    assert!(sql.contains("JOIN play_event_subjects subject ON subject.replay_player_id = rp.id"));
+    assert!(sql.contains("event.analysis_run_id = r.canonical_analysis_run_id"));
+    // stat-term filter resolves to an event_types subselect
+    assert!(sql.contains("event.event_type_id IN (SELECT stat_filter.id FROM event_types"));
+    // replay filter applied
+    assert!(sql.contains("r.replay_game_type = ANY("));
+    // per-minute ranking
+    assert!(sql.contains("ORDER BY per_active_minute DESC NULLS LAST, event_count DESC"));
+    assert!(sql.contains("d.replay_count >= "));
+    assert!(sql.contains("LIMIT"));
+    assert!(sql.contains("OFFSET"));
+}
+
+#[test]
+fn event_rank_query_orders_by_total_by_default() {
+    let (filters, paging) = event_filters("event-type=air_dribble");
+    let sql = event_rank_query(&filters, &paging).into_sql();
+    assert!(sql.contains("ORDER BY event_count DESC, e.platform, e.platform_player_id"));
+}
+
+#[test]
+fn event_total_query_counts_qualifying_players() {
+    let (filters, _) = event_filters("event-type=air_dribble&min-games=5");
+    let sql = event_total_query(&filters).into_sql();
+    assert!(sql.contains("WITH event_counts AS"));
+    assert!(sql.contains("SELECT COUNT(*) AS total FROM event_counts e"));
+    assert!(sql.contains("d.replay_count >= "));
+}
