@@ -123,6 +123,29 @@
   --touch-cat-neutral: var(--possession-neutral);
   --touch-other: var(--outcome-neutral);
 
+  /* Aerial mechanics swatches. Each panel on the Aerials section is an
+     independent ranked bar set, so colors only need to stay distinct *within* a
+     panel — the same hue may recur across panels for different mechanics. Every
+     panel below is checked to have no two segments share a color. */
+  --aerial-flip-reset: #7c3aed;
+  --aerial-double-tap: #db2777;
+  --aerial-air-dribble: #0ea5e9;
+  --aerial-wall-aerial: #f59e0b;
+  --aerial-origin-ground: #16a34a;
+  --aerial-origin-wall: #f59e0b;
+  --aerial-wall-side: #0891b2;
+  --aerial-wall-back: #9333ea;
+  /* Goals panel needs five internally-distinct hues: blue / violet / sky / rose
+     / amber. It can't reuse the mechanic hues wholesale because it carries both
+     a high-aerial and a flip-reset segment, which would otherwise collide. */
+  --aerial-goal-aerial: #2563eb;
+  --aerial-goal-high-aerial: #7c3aed;
+  --aerial-goal-air-dribble: #0ea5e9;
+  --aerial-goal-flip-reset: #db2777;
+  --aerial-goal-double-tap: #f59e0b;
+  --aerial-height-low: #38bdf8;
+  --aerial-height-high: #1d4ed8;
+
   --status-processed-bg: #dcfce7;
   --status-processed-fg: #166534;
   --status-failed-bg: #fee2e2;

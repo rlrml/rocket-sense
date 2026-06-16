@@ -3011,6 +3011,82 @@ tbody tr:last-child td {
   background: var(--touch-other);
 }
 
+/* Aerials section — per-panel ranked bar segments + matching legend swatches. */
+.source-segment.aerial-seg-mix-flip-reset,
+.chart-legend .aerial-seg-mix-flip-reset::before {
+  background: var(--aerial-flip-reset);
+}
+
+.source-segment.aerial-seg-mix-double-tap,
+.chart-legend .aerial-seg-mix-double-tap::before {
+  background: var(--aerial-double-tap);
+}
+
+.source-segment.aerial-seg-mix-air-dribble,
+.chart-legend .aerial-seg-mix-air-dribble::before {
+  background: var(--aerial-air-dribble);
+}
+
+.source-segment.aerial-seg-mix-wall-aerial,
+.chart-legend .aerial-seg-mix-wall-aerial::before {
+  background: var(--aerial-wall-aerial);
+}
+
+.source-segment.aerial-seg-origin-ground,
+.chart-legend .aerial-seg-origin-ground::before {
+  background: var(--aerial-origin-ground);
+}
+
+.source-segment.aerial-seg-origin-wall,
+.chart-legend .aerial-seg-origin-wall::before {
+  background: var(--aerial-origin-wall);
+}
+
+.source-segment.aerial-seg-wall-side,
+.chart-legend .aerial-seg-wall-side::before {
+  background: var(--aerial-wall-side);
+}
+
+.source-segment.aerial-seg-wall-back,
+.chart-legend .aerial-seg-wall-back::before {
+  background: var(--aerial-wall-back);
+}
+
+.source-segment.aerial-seg-goal-aerial,
+.chart-legend .aerial-seg-goal-aerial::before {
+  background: var(--aerial-goal-aerial);
+}
+
+.source-segment.aerial-seg-goal-high-aerial,
+.chart-legend .aerial-seg-goal-high-aerial::before {
+  background: var(--aerial-goal-high-aerial);
+}
+
+.source-segment.aerial-seg-goal-air-dribble,
+.chart-legend .aerial-seg-goal-air-dribble::before {
+  background: var(--aerial-goal-air-dribble);
+}
+
+.source-segment.aerial-seg-goal-flip-reset,
+.chart-legend .aerial-seg-goal-flip-reset::before {
+  background: var(--aerial-goal-flip-reset);
+}
+
+.source-segment.aerial-seg-goal-double-tap,
+.chart-legend .aerial-seg-goal-double-tap::before {
+  background: var(--aerial-goal-double-tap);
+}
+
+.source-segment.aerial-seg-height-low,
+.chart-legend .aerial-seg-height-low::before {
+  background: var(--aerial-height-low);
+}
+
+.source-segment.aerial-seg-height-high,
+.chart-legend .aerial-seg-height-high::before {
+  background: var(--aerial-height-high);
+}
+
 .movement-meter-speed {
   background: #0f766e;
 }

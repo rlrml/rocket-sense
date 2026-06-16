@@ -7,12 +7,14 @@ import {
   type LucideIcon,
   Map as MapIcon,
   MapPinned,
+  Plane,
   RotateCw,
   Sparkles,
   Trophy,
 } from "lucide-react";
 import type { ComponentType } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import { AerialsDetail, aerialEventTypes } from "./aerials";
 import { BoostDetail, boostEventTypes } from "./boost";
 import { CoreDetail, coreEventTypes } from "./core";
 import { GoalsDetail, goalEventTypes } from "./goals";
@@ -169,6 +171,18 @@ export const statGroups: StatGroup[] = [
     usesAggregateStats: false,
     eventTypes: touchEventTypes,
     Detail: TouchesDetail,
+  },
+  {
+    id: "aerials",
+    label: "Aerials",
+    icon: Plane,
+    description:
+      "Aerial mechanics ranked per player: flip resets, double taps, air dribbles (by origin), wall aerials (by wall), aerial goals, and aerial touches by height.",
+    terms: ["aerial", "air", "flip reset", "double tap", "air dribble", "wall aerial", "flight"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: aerialEventTypes,
+    Detail: AerialsDetail,
   },
   {
     id: "possession",
