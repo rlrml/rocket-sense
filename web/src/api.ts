@@ -8,6 +8,8 @@ import type {
   GroupBoostTotalsResponse,
   ListReplayGroupsResponse,
   ListReplaysResponse,
+  UploadsLeaderboardResponse,
+  AppearancesLeaderboardResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
@@ -92,6 +94,22 @@ export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> 
 
 export function listReplayGroups(): Promise<ListReplayGroupsResponse> {
   return request<ListReplayGroupsResponse>("/api/v1/replay-groups");
+}
+
+export function getUploadsLeaderboard(
+  searchParams: URLSearchParams,
+): Promise<UploadsLeaderboardResponse> {
+  const params = new URLSearchParams(searchParams);
+  return request<UploadsLeaderboardResponse>(`/api/v1/leaderboards/uploads?${params.toString()}`);
+}
+
+export function getAppearancesLeaderboard(
+  searchParams: URLSearchParams,
+): Promise<AppearancesLeaderboardResponse> {
+  const params = new URLSearchParams(searchParams);
+  return request<AppearancesLeaderboardResponse>(
+    `/api/v1/leaderboards/appearances?${params.toString()}`,
+  );
 }
 
 export function createReplayGroup(body: {
