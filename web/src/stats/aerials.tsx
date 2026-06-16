@@ -16,13 +16,14 @@ import {
 //     events API emits no "flip_reset" stream — a flip reset is a dodge_reset
 //     with payload.on_ball === true (subtr-actor: "an on-ball dodge reset"),
 //     while on_ball === false is an ordinary dodge refresh (e.g. a landing).
-//   - ball_carry: air dribbles live here (kind === "air_dribble") with an origin
+//   - air_dribble: a dedicated stream (NOT ball_carry, which is ground carries);
+//     its payload carries air_dribble_origin (ground_to_air / wall_to_air)
 //   - goal_context: goal tags flag which finishes were aerial
 //   - touch: classified touches carry a height_band, isolating aerial contacts
 export const aerialEventTypes = [
   "dodge_reset",
   "double_tap",
-  "ball_carry",
+  "air_dribble",
   "wall_aerial",
   "goal_context",
   "touch",
@@ -272,8 +273,7 @@ function accumulate(subject: AerialSubject, event: MechanicEventResponse) {
       if (wall && WALL_VALUES.some((value) => value.id === wall)) bump(subject, "wall", wall);
       break;
     }
-    case "ball_carry": {
-      if (stringPayload(event.payload, "kind") !== "air_dribble") break;
+    case "air_dribble": {
       bump(subject, "mix", "air_dribble");
       const origin = stringPayload(event.payload, "air_dribble_origin");
       if (origin && ORIGIN_VALUES.some((value) => value.id === origin)) {
