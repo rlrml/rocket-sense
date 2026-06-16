@@ -1,18 +1,39 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { getAppearancesLeaderboard, getUploadsLeaderboard } from "../api";
+import {
+  getAppearancesLeaderboard,
+  getEventLeaderboard,
+  getUploadsLeaderboard,
+  listEventTypes,
+} from "../api";
 import { playerProfilePath } from "../playerIdentity";
-import type { AppearancesLeaderboardRow, UploadsLeaderboardRow } from "../types";
+import type {
+  AppearancesLeaderboardRow,
+  EventLeaderboardRow,
+  EventTypeResponse,
+  UploadsLeaderboardRow,
+} from "../types";
 import { StatPlayerLabel } from "./shared";
 
-type Metric = "appearances" | "uploads";
+type Metric = "appearances" | "uploads" | "event";
 
 const PAGE_SIZE = 50;
 
 const metricOptions: Array<{ value: Metric; label: string }> = [
   { value: "appearances", label: "Player appearances" },
   { value: "uploads", label: "Uploads" },
+  { value: "event", label: "Event" },
 ];
+
+const sortOptions = [
+  { value: "total", label: "Total" },
+  { value: "per-game", label: "Per game" },
+  { value: "per-minute", label: "Per minute" },
+];
+
+function formatRate(value: number | null): string {
+  return value == null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
 
 // Mirrors the segmentation used everywhere else (see App.tsx); team size and
 // competitive context are the orthogonal "game type" filters.
@@ -44,7 +65,9 @@ const playlistOptions = [
 ];
 
 function metricFromSearch(search: string): Metric {
-  return new URLSearchParams(search).get("metric") === "uploads" ? "uploads" : "appearances";
+  const value = new URLSearchParams(search).get("metric");
+  if (value === "uploads" || value === "event") return value;
+  return "appearances";
 }
 
 interface LeaderboardPage<T> {
@@ -234,6 +257,89 @@ function UploadsLeaderboard({ filterKey }: { filterKey: string }) {
   );
 }
 
+function EventLeaderboard({ filterKey }: { filterKey: string }) {
+  const { rows, total, nextOffset, loading, loadingMore, error, loadMore } =
+    useLeaderboard<EventLeaderboardRow>(getEventLeaderboard, filterKey);
+
+  if (loading) return <div className="stat-empty">Loading leaderboard…</div>;
+  if (error) return <div className="stat-empty">Failed to load leaderboard: {error}</div>;
+  if (!rows.length)
+    return <div className="stat-empty">No players recorded this event under these filters.</div>;
+
+  return (
+    <>
+      <div className="table-frame compact-table stat-leaderboard-table">
+        <table>
+          <thead>
+            <tr>
+              <th className="leaderboard-rank-col">#</th>
+              <th>Player</th>
+              <th>Total</th>
+              <th>Games</th>
+              <th>Per game</th>
+              <th>Per min</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const name = row.display_name || row.platform_player_id;
+              return (
+                <tr key={`${row.platform}:${row.platform_player_id}`}>
+                  <td className="leaderboard-rank-col">{row.rank.toLocaleString()}</td>
+                  <td>
+                    <StatPlayerLabel
+                      name={name}
+                      platform={row.platform}
+                      profilePath={playerProfilePath(row.platform, row.platform_player_id)}
+                      subtitle={row.is_pro ? "Pro" : row.platform}
+                    />
+                  </td>
+                  <td>{row.event_count.toLocaleString()}</td>
+                  <td>{row.replay_count.toLocaleString()}</td>
+                  <td>{formatRate(row.count_per_game)}</td>
+                  <td>{formatRate(row.per_active_minute)}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <LoadMore
+        shown={rows.length}
+        total={total}
+        hasMore={nextOffset != null}
+        loadingMore={loadingMore}
+        onLoadMore={loadMore}
+      />
+    </>
+  );
+}
+
+// Event-type options come from the live registry so the board stays in sync
+// with whatever the pipeline currently emits.
+function useEventTypes(): EventTypeResponse[] {
+  const [eventTypes, setEventTypes] = useState<EventTypeResponse[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    listEventTypes()
+      .then((response) => {
+        if (!cancelled) {
+          const sorted = [...response.event_types].sort((a, b) =>
+            (a.category + a.display_name).localeCompare(b.category + b.display_name),
+          );
+          setEventTypes(sorted);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setEventTypes([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return eventTypes;
+}
+
 function SegmentNav({
   ariaLabel,
   label,
@@ -273,6 +379,10 @@ export function LeaderboardsPage() {
   const teamSize = params.get("team-size") ?? "";
   const gameType = params.get("game-type") ?? "";
   const playlist = params.get("playlist") ?? "";
+  const eventType = params.get("event-type") ?? "";
+  const sort = params.get("sort") ?? "total";
+  const minGames = params.get("min-games") ?? "";
+  const eventTypes = useEventTypes();
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -291,13 +401,23 @@ export function LeaderboardsPage() {
   // The API filter key intentionally excludes `metric` (which only picks the
   // endpoint) so that switching metric while keeping filters reuses cached
   // params, and so that pagination keys stay stable per filter set.
-  const filterKey = useMemo(() => {
+  const replayFilterKey = useMemo(() => {
     const filters = new URLSearchParams();
     if (teamSize) filters.set("team-size", teamSize);
     if (gameType) filters.set("game-type", gameType);
     if (playlist) filters.set("playlist", playlist);
     return filters.toString();
   }, [gameType, playlist, teamSize]);
+
+  // The event board layers its own params (event-type / sort / min-games) on
+  // top of the shared replay filters.
+  const eventFilterKey = useMemo(() => {
+    const filters = new URLSearchParams(replayFilterKey);
+    if (eventType) filters.set("event-type", eventType);
+    if (sort && sort !== "total") filters.set("sort", sort);
+    if (minGames) filters.set("min-games", minGames);
+    return filters.toString();
+  }, [eventType, minGames, replayFilterKey, sort]);
 
   return (
     <section className="page leaderboards-page">
@@ -345,19 +465,65 @@ export function LeaderboardsPage() {
         </label>
       </div>
 
+      {metric === "event" ? (
+        <div className="player-segment-bar">
+          <label className="leaderboard-playlist-filter">
+            <span className="segment-bar-label">Event</span>
+            <select
+              value={eventType}
+              onChange={(changeEvent) => setParam("event-type", changeEvent.currentTarget.value)}
+            >
+              <option value="">All events</option>
+              {eventTypes.map((option) => (
+                <option key={option.key} value={option.key}>
+                  {option.display_name} ({option.category})
+                </option>
+              ))}
+            </select>
+          </label>
+          <SegmentNav
+            ariaLabel="Ranking metric"
+            label="Rank by"
+            current={sort}
+            options={sortOptions}
+            onSelect={(value) => setParam("sort", value === "total" ? "" : value)}
+          />
+          <label className="leaderboard-playlist-filter">
+            <span className="segment-bar-label">Min games</span>
+            <input
+              type="number"
+              min="1"
+              placeholder="1"
+              value={minGames}
+              onChange={(event) => setParam("min-games", event.currentTarget.value)}
+            />
+          </label>
+        </div>
+      ) : null}
+
       <div className="chart-panel">
         <div className="chart-panel-header">
-          <h2>{metric === "uploads" ? "Top uploaders" : "Most-seen players"}</h2>
+          <h2>
+            {metric === "uploads"
+              ? "Top uploaders"
+              : metric === "event"
+                ? "Event leaderboard"
+                : "Most-seen players"}
+          </h2>
           <p className="subtle">
             {metric === "uploads"
               ? "Ranked by number of replays uploaded."
-              : "Ranked by number of replays a player appears in."}
+              : metric === "event"
+                ? "Ranked by a chosen event type — total, per game, or per active minute."
+                : "Ranked by number of replays a player appears in."}
           </p>
         </div>
         {metric === "uploads" ? (
-          <UploadsLeaderboard filterKey={filterKey} />
+          <UploadsLeaderboard filterKey={replayFilterKey} />
+        ) : metric === "event" ? (
+          <EventLeaderboard filterKey={eventFilterKey} />
         ) : (
-          <AppearancesLeaderboard filterKey={filterKey} />
+          <AppearancesLeaderboard filterKey={replayFilterKey} />
         )}
       </div>
 

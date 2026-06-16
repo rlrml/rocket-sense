@@ -9,6 +9,10 @@ use super::{
     query::{parse_u32_filter, QueryParams},
     replay_set::{append_replay_set_filters, ReplaySetFilterInput, ReplaySetFilters},
     replays::{require_db, ApiError},
+    stats::{
+        append_stat_term_event_filter, append_user_facing_stat_event_join_filter,
+        normalize_stat_terms, resolve_matched_event_types,
+    },
 };
 
 #[cfg(test)]
@@ -25,6 +29,7 @@ pub fn router() -> Router<AppState> {
             "/leaderboards/appearances",
             get(get_appearances_leaderboard),
         )
+        .route("/leaderboards/event", get(get_event_leaderboard))
 }
 
 /// Pagination shared by every leaderboard. Mirrors the `count`/`offset` cursor
@@ -295,7 +300,11 @@ async fn load_appearances_rows(
     // The expensive per-player resolution (latest known name ordered by replay
     // date, plus the pro flag) only runs for the bounded page of ranked players
     // rather than the full filtered set.
-    let profiles = load_appearance_profiles(pool, &entries).await?;
+    let pairs: Vec<PlayerKey> = entries
+        .iter()
+        .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
+        .collect();
+    let profiles = load_player_profiles(pool, &pairs).await?;
     for entry in &mut entries {
         if let Some(profile) =
             profiles.get(&(entry.platform.clone(), entry.platform_player_id.clone()))
@@ -310,23 +319,21 @@ async fn load_appearances_rows(
 
 type PlayerKey = (String, String);
 
-struct AppearanceProfile {
+struct PlayerProfile {
     display_name: Option<String>,
     is_pro: bool,
 }
 
-async fn load_appearance_profiles(
+/// Resolves the latest-known name and pro flag for a bounded set of players.
+/// Shared by every player-keyed leaderboard so the heavy ranking queries can
+/// stay lean and enrich only the returned page.
+async fn load_player_profiles(
     pool: &sqlx::PgPool,
-    entries: &[AppearancesLeaderboardRowResponse],
-) -> Result<std::collections::HashMap<PlayerKey, AppearanceProfile>, sqlx::Error> {
-    if entries.is_empty() {
+    pairs: &[PlayerKey],
+) -> Result<std::collections::HashMap<PlayerKey, PlayerProfile>, sqlx::Error> {
+    if pairs.is_empty() {
         return Ok(std::collections::HashMap::new());
     }
-
-    let pairs: Vec<PlayerKey> = entries
-        .iter()
-        .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
-        .collect();
 
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
@@ -348,7 +355,7 @@ async fn load_appearance_profiles(
         let platform_player_id: String = row.try_get("platform_player_id")?;
         profiles.insert(
             (platform, platform_player_id),
-            AppearanceProfile {
+            PlayerProfile {
                 display_name: row.try_get("display_name")?,
                 is_pro: row.try_get::<Option<bool>, _>("is_pro")?.unwrap_or(false),
             },
@@ -395,7 +402,7 @@ fn appearances_rank_query<'args>(
     // `replay_players_platform_player_replay_idx` covers, so this full-set
     // aggregation can stay index-only. The display name and pro flag are
     // resolved separately for just the returned page (see
-    // `load_appearance_profiles`).
+    // `load_player_profiles`).
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
          COUNT(DISTINCT rp.replay_id) AS appearance_count",
@@ -416,5 +423,335 @@ fn appearances_total_query(filters: &ReplaySetFilters) -> QueryBuilder<'_, Postg
     let mut builder = QueryBuilder::<Postgres>::new("SELECT COUNT(*) AS total FROM (SELECT 1");
     append_appearances_from_where(&mut builder, filters);
     builder.push(" GROUP BY rp.platform, rp.platform_player_id) ranked_players");
+    builder
+}
+
+// ---------------------------------------------------------------------------
+// Event leaderboard: rank players by an arbitrary event type, per unit time,
+// under arbitrary replay filters.
+// ---------------------------------------------------------------------------
+
+/// How the event leaderboard is ranked. Total counts reward volume; the rate
+/// metrics normalize by games played or active time so a player with fewer games
+/// can still top the board.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventSort {
+    Total,
+    PerGame,
+    PerMinute,
+}
+
+impl EventSort {
+    fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
+        match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+            None | Some("") | Some("count") | Some("total") => Ok(Self::Total),
+            Some("per-game") | Some("per_game") | Some("game") => Ok(Self::PerGame),
+            Some("per-minute") | Some("per_minute") | Some("minute") | Some("rate") => {
+                Ok(Self::PerMinute)
+            }
+            Some(_) => Err(ApiError::bad_request(
+                "sort must be one of: total, per-game, per-minute",
+            )),
+        }
+    }
+
+    /// The SQL ordering expression for this metric. A secondary sort by raw
+    /// event count keeps the ranking stable when rates tie (e.g. two players at
+    /// exactly 1.0/game).
+    fn order_sql(self) -> &'static str {
+        match self {
+            Self::Total => "event_count DESC",
+            Self::PerGame => "count_per_game DESC NULLS LAST, event_count DESC",
+            Self::PerMinute => "per_active_minute DESC NULLS LAST, event_count DESC",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EventLeaderboardResponse {
+    pub rows: Vec<EventLeaderboardRowResponse>,
+    pub count: u32,
+    pub offset: u32,
+    pub total: u64,
+    pub next_offset: Option<u32>,
+    /// The event types the `event-type`/`stat-term` filter resolved to. An empty
+    /// filter resolves to every user-facing event type.
+    pub matched_event_types: Vec<LeaderboardEventTypeResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LeaderboardEventTypeResponse {
+    pub key: String,
+    pub display_name: String,
+    pub category: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EventLeaderboardRowResponse {
+    pub rank: u32,
+    pub platform: String,
+    pub platform_player_id: String,
+    pub display_name: Option<String>,
+    pub is_pro: bool,
+    /// Number of matching events the player recorded across the filtered set.
+    pub event_count: u64,
+    /// Replays the player appeared in within the filtered set (the per-game
+    /// denominator).
+    pub replay_count: u64,
+    /// Total active time across those appearances (the per-minute denominator).
+    pub active_time_seconds: Option<f64>,
+    pub count_per_game: Option<f64>,
+    pub per_active_minute: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct EventLeaderboardFilters {
+    replay: ReplaySetFilters,
+    stat_terms: Vec<String>,
+    sort: EventSort,
+    min_games: i64,
+}
+
+impl EventLeaderboardFilters {
+    fn from_query(
+        raw_query: Option<&str>,
+        auth_user_id: Option<Uuid>,
+    ) -> Result<(Self, LeaderboardPaging), ApiError> {
+        let params = QueryParams::from_raw(raw_query);
+        let paging = LeaderboardPaging::from_params(&params)?;
+        let replay = ReplaySetFilters::from_input(
+            ReplaySetFilterInput::from_query_params(&params)?,
+            auth_user_id,
+        )?;
+        let stat_terms = normalize_stat_terms(params.values(&[
+            "event-type",
+            "event_type",
+            "stat-term",
+            "stat_terms",
+        ]));
+        let sort = EventSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
+        let min_games = params
+            .first(&["min-games", "min_games"])
+            .map(|value| parse_u32_filter("min-games", &value))
+            .transpose()?
+            .unwrap_or(1)
+            .max(1) as i64;
+        Ok((
+            Self {
+                replay,
+                stat_terms,
+                sort,
+                min_games,
+            },
+            paging,
+        ))
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/leaderboards/event",
+    tag = "leaderboards",
+    params(
+        ("event-type" = Option<Vec<String>>, Query, description = "Event-type filter (alias stat-term); fuzzy-matches event_types key/display/category. Empty = all user-facing events"),
+        ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, or per-minute"),
+        ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
+        ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
+        ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
+        ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
+        ("offset" = Option<u32>, Query, description = "Row offset for pagination")
+    ),
+    responses(
+        (status = 200, description = "Players ranked by an event type per unit time", body = EventLeaderboardResponse),
+        (status = 400, description = "Leaderboard filters were invalid"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn get_event_leaderboard(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<EventLeaderboardResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let (filters, paging) = EventLeaderboardFilters::from_query(
+        raw_query.as_deref(),
+        auth_user.as_ref().map(|u| u.id),
+    )?;
+
+    let (total, rows, matched) = tokio::try_join!(
+        load_event_total(db, &filters),
+        load_event_rows(db, &filters, &paging),
+        async {
+            resolve_matched_event_types(db, &filters.stat_terms)
+                .await
+                .map_err(ApiError::internal)
+        },
+    )?;
+
+    let next_offset = paging.next_offset(rows.len(), total);
+    Ok(Json(EventLeaderboardResponse {
+        rows,
+        count: paging.count,
+        offset: paging.offset,
+        total,
+        next_offset,
+        matched_event_types: matched
+            .into_iter()
+            .map(|et| LeaderboardEventTypeResponse {
+                key: et.key,
+                display_name: et.display_name,
+                category: et.category,
+            })
+            .collect(),
+    }))
+}
+
+async fn load_event_total(
+    pool: &sqlx::PgPool,
+    filters: &EventLeaderboardFilters,
+) -> Result<u64, ApiError> {
+    let total: i64 = event_total_query(filters)
+        .build()
+        .fetch_one(pool)
+        .await
+        .map_err(ApiError::internal)?
+        .try_get("total")
+        .map_err(ApiError::internal)?;
+    Ok(total.max(0) as u64)
+}
+
+async fn load_event_rows(
+    pool: &sqlx::PgPool,
+    filters: &EventLeaderboardFilters,
+    paging: &LeaderboardPaging,
+) -> Result<Vec<EventLeaderboardRowResponse>, ApiError> {
+    let rows = event_rank_query(filters, paging)
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let mut entries = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let event_count: i64 = row.try_get("event_count")?;
+            let replay_count: i64 = row.try_get("replay_count")?;
+            Ok(EventLeaderboardRowResponse {
+                rank: paging.offset.saturating_add(index as u32 + 1),
+                platform: row.try_get("platform")?,
+                platform_player_id: row.try_get("platform_player_id")?,
+                display_name: None,
+                is_pro: false,
+                event_count: event_count.max(0) as u64,
+                replay_count: replay_count.max(0) as u64,
+                active_time_seconds: row.try_get("active_time_seconds")?,
+                count_per_game: row.try_get("count_per_game")?,
+                per_active_minute: row.try_get("per_active_minute")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(ApiError::internal)?;
+
+    let pairs: Vec<PlayerKey> = entries
+        .iter()
+        .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
+        .collect();
+    let profiles = load_player_profiles(pool, &pairs)
+        .await
+        .map_err(ApiError::internal)?;
+    for entry in &mut entries {
+        if let Some(profile) =
+            profiles.get(&(entry.platform.clone(), entry.platform_player_id.clone()))
+        {
+            entry.display_name = profile.display_name.clone();
+            entry.is_pro = profile.is_pro;
+        }
+    }
+
+    Ok(entries)
+}
+
+/// Emits the two CTEs shared by the ranked-page and total-count queries:
+/// `event_counts` (matching events per candidate player) and `denominators`
+/// (games + active time per candidate, over the filtered set). Restricting
+/// `denominators` to candidates from `event_counts` keeps it bounded to players
+/// who actually recorded the event.
+fn push_event_ctes<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args EventLeaderboardFilters,
+) {
+    builder.push(
+        "WITH event_counts AS (\
+         SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
+         COUNT(DISTINCT event.id) AS event_count \
+         FROM replay_players rp \
+         JOIN replays r ON r.id = rp.replay_id \
+         JOIN play_event_subjects subject ON subject.replay_player_id = rp.id \
+         JOIN play_events event ON event.id = subject.event_id \
+         AND event.analysis_run_id = r.canonical_analysis_run_id",
+    );
+    append_user_facing_stat_event_join_filter(builder, "event");
+    append_stat_term_event_filter(builder, "event", &filters.stat_terms);
+    builder.push(
+        " WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
+         AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
+         AND r.canonical_analysis_run_id IS NOT NULL",
+    );
+    append_replay_set_filters(builder, &filters.replay, "r");
+    builder.push(
+        " GROUP BY rp.platform, rp.platform_player_id), \
+         denominators AS (\
+         SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
+         COUNT(DISTINCT rp.replay_id) AS replay_count, \
+         SUM(rp.active_time_seconds) AS active_time_seconds \
+         FROM replay_players rp \
+         JOIN replays r ON r.id = rp.replay_id \
+         WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
+         AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
+         AND r.canonical_analysis_run_id IS NOT NULL \
+         AND (rp.platform, rp.platform_player_id) IN (SELECT platform, platform_player_id FROM event_counts)",
+    );
+    append_replay_set_filters(builder, &filters.replay, "r");
+    builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
+}
+
+fn event_rank_query<'args>(
+    filters: &'args EventLeaderboardFilters,
+    paging: &LeaderboardPaging,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_event_ctes(&mut builder, filters);
+    builder.push(
+        " SELECT e.platform AS platform, e.platform_player_id AS platform_player_id, \
+         e.event_count AS event_count, d.replay_count AS replay_count, \
+         d.active_time_seconds AS active_time_seconds, \
+         (e.event_count::float8 / NULLIF(d.replay_count, 0)) AS count_per_game, \
+         CASE WHEN COALESCE(d.active_time_seconds, 0) > 0 \
+         THEN e.event_count::float8 * 60.0 / d.active_time_seconds ELSE NULL END AS per_active_minute \
+         FROM event_counts e \
+         JOIN denominators d ON d.platform = e.platform AND d.platform_player_id = e.platform_player_id \
+         WHERE d.replay_count >= ",
+    );
+    builder.push_bind(filters.min_games);
+    builder.push(" ORDER BY ");
+    builder.push(filters.sort.order_sql());
+    builder.push(", e.platform, e.platform_player_id LIMIT ");
+    builder.push_bind(i64::from(paging.count));
+    builder.push(" OFFSET ");
+    builder.push_bind(i64::from(paging.offset));
+    builder
+}
+
+fn event_total_query(filters: &EventLeaderboardFilters) -> QueryBuilder<'_, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_event_ctes(&mut builder, filters);
+    builder.push(
+        " SELECT COUNT(*) AS total FROM event_counts e \
+         JOIN denominators d ON d.platform = e.platform AND d.platform_player_id = e.platform_player_id \
+         WHERE d.replay_count >= ",
+    );
+    builder.push_bind(filters.min_games);
     builder
 }

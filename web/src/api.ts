@@ -10,6 +10,7 @@ import type {
   ListReplaysResponse,
   UploadsLeaderboardResponse,
   AppearancesLeaderboardResponse,
+  EventLeaderboardResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
@@ -110,6 +111,13 @@ export function getAppearancesLeaderboard(
   return request<AppearancesLeaderboardResponse>(
     `/api/v1/leaderboards/appearances?${params.toString()}`,
   );
+}
+
+export function getEventLeaderboard(
+  searchParams: URLSearchParams,
+): Promise<EventLeaderboardResponse> {
+  const params = new URLSearchParams(searchParams);
+  return request<EventLeaderboardResponse>(`/api/v1/leaderboards/event?${params.toString()}`);
 }
 
 export function createReplayGroup(body: {
