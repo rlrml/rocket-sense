@@ -208,8 +208,7 @@ async fn load_uploads_rows(
         .fetch_all(pool)
         .await?;
 
-    Ok(rows
-        .into_iter()
+    rows.into_iter()
         .enumerate()
         .map(|(index, row)| {
             let upload_count: i64 = row.try_get("upload_count")?;
@@ -220,7 +219,7 @@ async fn load_uploads_rows(
                 upload_count: upload_count.max(0) as u64,
             })
         })
-        .collect::<Result<Vec<_>, sqlx::Error>>()?)
+        .collect::<Result<Vec<_>, sqlx::Error>>()
 }
 
 fn uploads_total_query(filters: &ReplaySetFilters) -> QueryBuilder<'_, Postgres> {
