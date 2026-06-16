@@ -160,10 +160,24 @@ export function PositioningSummariesView({
           <ZoneLegend
             cohort={cohort}
             colors={colors}
+            colorKey
+            caption={cohort ? undefined : DIRECTIONAL_COLOUR_CAPTION}
             items={[
-              { key: "defensive", label: "Defensive", tone: "positive", note: "own third" },
-              { key: "neutral", label: "Neutral", tone: "neutral", note: "midfield" },
-              { key: "offensive", label: "Offensive", tone: "negative", note: "attacking third" },
+              {
+                key: "defensive",
+                abbr: "D",
+                label: "Defensive",
+                tone: "positive",
+                note: "own third",
+              },
+              { key: "neutral", abbr: "N", label: "Neutral", tone: "neutral", note: "midfield" },
+              {
+                key: "offensive",
+                abbr: "O",
+                label: "Offensive",
+                tone: "negative",
+                note: "attacking third",
+              },
             ]}
           />
           <PositioningBarRows
@@ -178,6 +192,7 @@ export function PositioningSummariesView({
                 positioningSegment(
                   "defensive",
                   "Defensive",
+                  "D",
                   summary.defensiveThirdSeconds,
                   summary.trackedSeconds,
                   defensive,
@@ -185,6 +200,7 @@ export function PositioningSummariesView({
                 positioningSegment(
                   "neutral",
                   "Neutral",
+                  "N",
                   summary.neutralThirdSeconds,
                   summary.trackedSeconds,
                   neutral,
@@ -192,6 +208,7 @@ export function PositioningSummariesView({
                 positioningSegment(
                   "offensive",
                   "Offensive",
+                  "O",
                   summary.offensiveThirdSeconds,
                   summary.trackedSeconds,
                   offensive,
@@ -205,7 +222,7 @@ export function PositioningSummariesView({
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Ball depth</h3>
+            <h3>Ball relative position</h3>
             <span>Behind, level, and ahead of the ball</span>
           </header>
           <p className="chart-panel-note">
@@ -216,10 +233,18 @@ export function PositioningSummariesView({
           <ZoneLegend
             cohort={cohort}
             colors={colors}
+            colorKey
+            caption={cohort ? undefined : DIRECTIONAL_COLOUR_CAPTION}
             items={[
-              { key: "behind", label: "Behind ball", tone: "positive", note: "goal-side" },
-              { key: "level", label: "Level", tone: "neutral", note: "even with ball" },
-              { key: "ahead", label: "Ahead", tone: "negative", note: "past the ball" },
+              {
+                key: "behind",
+                abbr: "B",
+                label: "Behind ball",
+                tone: "positive",
+                note: "goal-side",
+              },
+              { key: "level", abbr: "L", label: "Level", tone: "neutral", note: "even with ball" },
+              { key: "ahead", abbr: "A", label: "Ahead", tone: "negative", note: "past the ball" },
             ]}
           />
           <PositioningBarRows
@@ -227,13 +252,14 @@ export function PositioningSummariesView({
             summaries={summaries}
             label={label}
             preserveOrder={preserveOrder}
-            emptyLabel={`No ball-depth positioning spans are available for ${emptyContext}.`}
+            emptyLabel={`No ball-relative positioning spans are available for ${emptyContext}.`}
             segments={(summary) => {
               const [behind, level, ahead] = directionalTones(summary.team, zoneMode);
               return [
                 positioningSegment(
                   "behind",
                   "Behind ball",
+                  "B",
                   summary.behindBallSeconds,
                   summary.trackedSeconds,
                   behind,
@@ -241,6 +267,7 @@ export function PositioningSummariesView({
                 positioningSegment(
                   "level",
                   "Level",
+                  "L",
                   summary.levelWithBallSeconds,
                   summary.trackedSeconds,
                   level,
@@ -248,6 +275,7 @@ export function PositioningSummariesView({
                 positioningSegment(
                   "ahead",
                   "Ahead",
+                  "A",
                   summary.inFrontOfBallSeconds,
                   summary.trackedSeconds,
                   ahead,
@@ -266,10 +294,42 @@ export function PositioningSummariesView({
           </header>
           <p className="chart-panel-note">
             Share of time at each depth relative to teammates, from <strong>most back</strong>{" "}
-            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.{" "}
-            <strong>Other</strong> covers alone-on-the-team or unranked moments and is shown in
+            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.
+            Most back is your team colour and most forward the opponent colour; <strong>mid</strong>
+            , <strong>other</strong> (unranked), and <strong>solo</strong> (alone on the team) are
             grey.
           </p>
+          <ZoneLegend
+            cohort={cohort}
+            colors={colors}
+            colorKey
+            caption={cohort ? undefined : DIRECTIONAL_COLOUR_CAPTION}
+            items={[
+              {
+                key: "most_back",
+                abbr: "B",
+                label: "Most back",
+                tone: "positive",
+                note: "furthest back",
+              },
+              {
+                key: "mid",
+                abbr: "M",
+                label: "Mid",
+                tone: "neutral",
+                note: "middle of the rotation",
+              },
+              {
+                key: "most_forward",
+                abbr: "F",
+                label: "Most forward",
+                tone: "negative",
+                note: "furthest up",
+              },
+              { key: "other", abbr: "O", label: "Other", tone: "neutral", note: "unranked moment" },
+              { key: "solo", abbr: "S", label: "Solo", tone: "neutral", note: "alone on the team" },
+            ]}
+          />
           <PositioningBarRows
             colors={colors}
             summaries={summaries}
@@ -277,18 +337,27 @@ export function PositioningSummariesView({
             preserveOrder={preserveOrder}
             emptyLabel={`No teammate-role spans are available for ${emptyContext}.`}
             segments={(summary) => {
-              const tone = teamOutcomeTone(summary.team);
-              return roleOrder.map((role) => {
-                const shade = roleShade[role];
-                return positioningSegment(
+              const [own, neutral, opposite] = directionalTones(summary.team, zoneMode);
+              // Diverging scheme: the two rotation ends carry colour, everything
+              // without a clear front/back rank (mid, other, solo, unknown) is grey.
+              const roleTone: Record<PositioningRole, OutcomeDistributionTone> = {
+                most_back: own,
+                mid: neutral,
+                most_forward: opposite,
+                other: neutral,
+                no_teammates: neutral,
+                unknown: neutral,
+              };
+              return roleOrder.map((role) =>
+                positioningSegment(
                   `role-${role}`,
                   roleLabel(role),
+                  roleAbbr(role),
                   summary.roleSeconds[role],
                   roleTotal(summary),
-                  shade.neutral ? "neutral" : tone,
-                  shade.level,
-                );
-              });
+                  roleTone[role],
+                ),
+              );
             }}
             sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
             total={roleTotal}
@@ -297,46 +366,72 @@ export function PositioningSummariesView({
 
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
-            <h3>Ball priority</h3>
-            <span>Closest, other, and farthest from the ball</span>
+            <h3>Ball proximity</h3>
+            <span>Farthest, other, and closest to the ball</span>
           </header>
           <p className="chart-panel-note">
-            Share of time by distance to the ball among teammates. <strong>Closest</strong> is the
-            player nearest the ball on their team, <strong>farthest</strong> is the one furthest
-            back, and <strong>other</strong> is everyone in between.
+            Share of time by distance to the ball among teammates. <strong>Farthest</strong> is the
+            player furthest back, <strong>closest</strong> is the one nearest the ball on their
+            team, and <strong>other</strong> is everyone in between.
           </p>
+          <ZoneLegend
+            cohort={cohort}
+            colors={colors}
+            colorKey
+            caption={cohort ? undefined : DIRECTIONAL_COLOUR_CAPTION}
+            items={[
+              {
+                key: "farthest",
+                abbr: "F",
+                label: "Farthest",
+                tone: "positive",
+                note: "furthest back",
+              },
+              { key: "other", abbr: "O", label: "Other", tone: "neutral", note: "in between" },
+              {
+                key: "closest",
+                abbr: "C",
+                label: "Closest",
+                tone: "negative",
+                note: "nearest the ball",
+              },
+            ]}
+          />
           <PositioningBarRows
             colors={colors}
             summaries={summaries}
             label={label}
             preserveOrder={preserveOrder}
-            emptyLabel={`No ball-priority spans are available for ${emptyContext}.`}
+            emptyLabel={`No ball-proximity spans are available for ${emptyContext}.`}
             segments={(summary) => {
-              const tone = teamOutcomeTone(summary.team);
+              // Furthest-back end carries the own-team colour and the on-ball end
+              // the opponent colour, matching the Teammate role chart's back ->
+              // forward direction.
+              const [farthest, other, closest] = directionalTones(summary.team, zoneMode);
               return [
                 positioningSegment(
-                  "closest",
-                  "Closest",
-                  summary.closestTeamSeconds,
+                  "farthest",
+                  "Farthest",
+                  "F",
+                  summary.farthestSeconds,
                   ballPriorityTotal(summary),
-                  tone,
-                  SEGMENT_LEVELS[0],
+                  farthest,
                 ),
                 positioningSegment(
                   "other",
                   "Other",
+                  "O",
                   otherBallPrioritySeconds(summary),
                   ballPriorityTotal(summary),
-                  tone,
-                  SEGMENT_LEVELS[1],
+                  other,
                 ),
                 positioningSegment(
-                  "farthest",
-                  "Farthest",
-                  summary.farthestSeconds,
+                  "closest",
+                  "Closest",
+                  "C",
+                  summary.closestTeamSeconds,
                   ballPriorityTotal(summary),
-                  tone,
-                  SEGMENT_LEVELS[2],
+                  closest,
                 ),
               ];
             }}
@@ -833,6 +928,7 @@ function eventPlayerKeys(event: MechanicEventResponse): string[] {
 function positioningSegment(
   id: string,
   label: string,
+  abbr: string,
   seconds: number,
   total: number,
   tone: OutcomeDistributionTone,
@@ -843,24 +939,21 @@ function positioningSegment(
   const percentText = formatPercent(seconds, total);
   return {
     key: id,
-    // Directional charts tell the categories apart by hue (own colour -> grey ->
-    // opponent colour); the shaded charts (role, ball priority) ramp one tone by
-    // level instead.
+    // The positioning charts tell categories apart by hue (own colour -> grey ->
+    // opponent colour). The colour alone doesn't say which category a segment is,
+    // so we name it in the bar.
     className: outcomeSegmentClassName(tone, level),
     label,
     value: seconds,
-    // Show the share and the raw time on the bar in the shared "percent (value)"
-    // order; the category name stays in the tooltip so the in-bar label keeps
-    // fitting at narrow widths.
-    visibleLabel: percent >= 10 ? statPercentWithValue(percentText, duration) : undefined,
+    // Label the segment in place with a single-letter abbreviation (D/N/O,
+    // B/L/A, ...) so it fits even in narrow segments: wider ones add the share,
+    // tighter ones keep just the letter, and slivers stay clear. The label
+    // truncates with an ellipsis (see .source-segment-label), and the tooltip
+    // always carries the full "category: percent (duration)".
+    visibleLabel: percent >= 9 ? `${abbr} ${percentText}` : percent >= 3 ? abbr : undefined,
     title: statPercentWithValue(percentText, duration, label),
   };
 }
-
-// Ordered shade ramp for a player's split: categories go light -> dark in the
-// order they render. Used by the shaded charts (ball priority) and the role
-// chart; "Other"/no-role buckets fall back to the neutral (grey) tone.
-const SEGMENT_LEVELS: OutcomeDistributionLevel[] = ["unknown", "clear", "strong"];
 
 // Per-player shade ramp for the magnitude (distance) bars when they use the
 // outcome palette, so teammates on one cohort stay distinguishable.
@@ -891,57 +984,57 @@ function directionalTones(
 
 interface ZoneLegendItem {
   key: string;
+  abbr: string;
   label: string;
   tone: OutcomeDistributionTone;
   note: string;
 }
 
-// Legend for the directional charts. In the cohort view colour encodes the zone
-// (fixed teal -> grey -> purple), so we show swatches. Per game colour encodes
-// the team instead, so we drop the swatches and add a caption explaining that
-// each bar runs from the player's own colour through grey to the opponent's.
+const DIRECTIONAL_COLOUR_CAPTION =
+  "Each bar runs from the player's own team colour through grey to the opponent colour.";
+
+// Key for a positioning chart's in-bar letters: one badge per category (D, N,
+// O, ...) followed by its full name and a note. When colour encodes the
+// category (`colorKey` in the cohort view, which uses a fixed teal -> grey ->
+// purple ramp) the badges are tinted so the legend doubles as a colour key. Per
+// game colour is team-relative (own -> grey -> opponent), so the badges stay
+// neutral and the `caption` explains the colours.
 function ZoneLegend({
   cohort,
   colors,
   items,
+  colorKey = false,
+  caption,
 }: {
   cohort: boolean;
   colors: OutcomeDistributionColors;
   items: ZoneLegendItem[];
+  colorKey?: boolean;
+  caption?: ReactNode;
 }) {
+  const tintBadges = cohort && colorKey;
   return (
     <div
       className="positioning-legend"
-      style={cohort ? outcomeDistributionColorStyle(colors) : undefined}
+      style={tintBadges ? outcomeDistributionColorStyle(colors) : undefined}
     >
       <ul className="positioning-legend-items">
         {items.map((item) => (
           <li className="positioning-legend-item" key={item.key}>
-            {cohort ? (
-              <span className={`positioning-legend-swatch outcome-dist-${item.tone}`} />
-            ) : null}
+            <span
+              className={`positioning-legend-badge${tintBadges ? ` outcome-dist-${item.tone}` : ""}`}
+            >
+              {item.abbr}
+            </span>
             <span className="positioning-legend-label">{item.label}</span>
             <span className="positioning-legend-note">{item.note}</span>
           </li>
         ))}
       </ul>
-      {cohort ? null : (
-        <span className="positioning-legend-caption">
-          Each bar runs from the player&rsquo;s own team colour through grey to the opponent colour.
-        </span>
-      )}
+      {caption ? <span className="positioning-legend-caption">{caption}</span> : null}
     </div>
   );
 }
-
-const roleShade: Record<PositioningRole, { neutral?: boolean; level: OutcomeDistributionLevel }> = {
-  most_back: { level: "unknown" },
-  mid: { level: "clear" },
-  most_forward: { level: "strong" },
-  other: { neutral: true, level: "clear" },
-  no_teammates: { neutral: true, level: "clear" },
-  unknown: { neutral: true, level: "clear" },
-};
 
 function eventDuration(event: MechanicEventResponse): number {
   const duration = numberPayload(event.payload, "duration");
@@ -1061,6 +1154,25 @@ function rolePayload(payload: Record<string, unknown>, key: string): Positioning
     value === "unknown"
     ? value
     : "unknown";
+}
+
+// Single-letter in-bar tags for the teammate-role ramp (full names stay in the
+// tooltip): Back / Mid / Forward / Other / Solo (alone on the team).
+function roleAbbr(role: PositioningRole): string {
+  switch (role) {
+    case "no_teammates":
+      return "S";
+    case "most_back":
+      return "B";
+    case "mid":
+      return "M";
+    case "most_forward":
+      return "F";
+    case "other":
+      return "O";
+    case "unknown":
+      return "?";
+  }
 }
 
 function roleLabel(role: PositioningRole): string {

@@ -2718,25 +2718,41 @@ tbody tr:last-child td {
   font-size: var(--text-sm);
 }
 
-.positioning-legend-swatch {
+/* The in-bar letter (D/N/O, ...) repeated as a legend badge so the key reads the
+   same as the bar. Tinted by tone only when colour encodes the category. */
+.positioning-legend-badge {
   align-self: center;
-  width: 12px;
-  height: 12px;
-  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 4px;
   border: 1px solid var(--border);
-  background: var(--outcome-neutral-clear, var(--outcome-neutral));
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
+  line-height: 1;
 }
 
-.positioning-legend-swatch.outcome-dist-positive {
+.positioning-legend-badge.outcome-dist-positive {
   background: var(--outcome-positive-clear, var(--outcome-positive));
+  border-color: transparent;
+  color: #fff;
 }
 
-.positioning-legend-swatch.outcome-dist-neutral {
+.positioning-legend-badge.outcome-dist-neutral {
   background: var(--outcome-neutral-clear, var(--outcome-neutral));
+  border-color: transparent;
+  color: var(--text);
 }
 
-.positioning-legend-swatch.outcome-dist-negative {
+.positioning-legend-badge.outcome-dist-negative {
   background: var(--outcome-negative-clear, var(--outcome-negative));
+  border-color: transparent;
+  color: #fff;
 }
 
 .positioning-legend-label {
@@ -2942,57 +2958,57 @@ tbody tr:last-child td {
 
 .source-segment.touch-seg-kind-control,
 .chart-legend .touch-seg-kind-control::before {
-  background: #0f766e;
+  background: var(--touch-kind-control);
 }
 
 .source-segment.touch-seg-kind-medium,
 .chart-legend .touch-seg-kind-medium::before {
-  background: #d97706;
+  background: var(--touch-kind-medium);
 }
 
 .source-segment.touch-seg-kind-hard,
 .chart-legend .touch-seg-kind-hard::before {
-  background: #be123c;
+  background: var(--touch-kind-hard);
 }
 
 .source-segment.touch-seg-cat-shot,
 .chart-legend .touch-seg-cat-shot::before {
-  background: #dc2626;
+  background: var(--touch-cat-shot);
 }
 
 .source-segment.touch-seg-cat-pass,
 .chart-legend .touch-seg-cat-pass::before {
-  background: #0891b2;
+  background: var(--touch-cat-pass);
 }
 
 .source-segment.touch-seg-cat-dribble,
 .chart-legend .touch-seg-cat-dribble::before {
-  background: #0d9488;
+  background: var(--touch-cat-dribble);
 }
 
 .source-segment.touch-seg-cat-challenge,
 .chart-legend .touch-seg-cat-challenge::before {
-  background: #ca8a04;
+  background: var(--touch-cat-challenge);
 }
 
 .source-segment.touch-seg-cat-save,
 .chart-legend .touch-seg-cat-save::before {
-  background: #2563eb;
+  background: var(--touch-cat-save);
 }
 
 .source-segment.touch-seg-cat-clear,
 .chart-legend .touch-seg-cat-clear::before {
-  background: #7c3aed;
+  background: var(--touch-cat-clear);
 }
 
 .source-segment.touch-seg-cat-neutral,
 .chart-legend .touch-seg-cat-neutral::before {
-  background: #64748b;
+  background: var(--touch-cat-neutral);
 }
 
 .source-segment.touch-seg-other,
 .chart-legend .touch-seg-other::before {
-  background: #94a3b8;
+  background: var(--touch-other);
 }
 
 .movement-meter-speed {

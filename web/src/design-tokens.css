@@ -105,6 +105,24 @@
   --outcome-negative-unknown: #ddd6fe;
   --kickoff-detail-fill: #475569;
 
+  /* Touch classification swatches. Two independent axes (hit strength and
+     intention) are charted as stacked bars in the Touches section, so every
+     value needs a hue distinct from the others on its axis, from the other
+     axis, and from the semantic tokens above — otherwise one color reads as
+     two different things. The neutral/other buckets intentionally alias the
+     shared neutral tokens because they mean the same "no signal" idea. */
+  --touch-kind-control: #0f766e;
+  --touch-kind-medium: #d97706;
+  --touch-kind-hard: #be123c;
+  --touch-cat-shot: #c026d3;
+  --touch-cat-pass: #0891b2;
+  --touch-cat-dribble: #16a34a;
+  --touch-cat-challenge: #a16207;
+  --touch-cat-save: #4338ca;
+  --touch-cat-clear: #65a30d;
+  --touch-cat-neutral: var(--possession-neutral);
+  --touch-other: var(--outcome-neutral);
+
   --status-processed-bg: #dcfce7;
   --status-processed-fg: #166534;
   --status-failed-bg: #fee2e2;
