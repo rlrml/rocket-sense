@@ -50,6 +50,7 @@
             pkgs.curl
             pkgs.just
             pkgs.kubectl
+            pkgs.librsvg
             pkgs.nodejs
             pkgs.opentofu
             pkgs.skopeo
