@@ -44,6 +44,8 @@ at least these keys:
 - `GITHUB_OAUTH_CLIENT_SECRET`
 - `DISCORD_OAUTH_CLIENT_ID`
 - `DISCORD_OAUTH_CLIENT_SECRET`
+- `XBOX_OAUTH_CLIENT_ID`
+- `XBOX_OAUTH_CLIENT_SECRET`
 
 Terraform references that Secret by name but never reads or stores the values.
 
@@ -97,6 +99,13 @@ For now:
   - Google: `https://rocket-sense.duckdns.org/auth/google/callback`
   - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
   - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
+  - Xbox: `https://rocket-sense.duckdns.org/auth/xbox/callback`
+- Xbox OAuth credentials come from a Microsoft Entra app registration named
+  `Rocket Sense`, configured for personal Microsoft accounts only, with a web
+  platform redirect URI of
+  `https://rocket-sense.duckdns.org/auth/xbox/callback`. Store the application
+  client ID as `XBOX_OAUTH_CLIENT_ID` and a client secret value as
+  `XBOX_OAUTH_CLIENT_SECRET`.
 
 This leaves room to move edge routing into Kubernetes later by adding an ingress
 controller and Terraform-managed Ingress resources.

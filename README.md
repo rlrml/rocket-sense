@@ -125,11 +125,40 @@ GITHUB_OAUTH_CLIENT_ID=...
 GITHUB_OAUTH_CLIENT_SECRET=...
 DISCORD_OAUTH_CLIENT_ID=...
 DISCORD_OAUTH_CLIENT_SECRET=...
+XBOX_OAUTH_CLIENT_ID=...
+XBOX_OAUTH_CLIENT_SECRET=...
+STEAM_WEB_API_KEY=...
 ```
 
-Each provider only appears when both its client id and client secret are set.
-Provider redirect URIs are:
+Google, GitHub, Discord, and Xbox only appear when both their client id and
+client secret are set. Steam appears when `STEAM_WEB_API_KEY` is set. Provider
+redirect URIs are:
 
 - Google: `https://rocket-sense.duckdns.org/auth/google/callback`
 - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
 - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
+- Xbox: `https://rocket-sense.duckdns.org/auth/xbox/callback`
+- Steam: `https://rocket-sense.duckdns.org/auth/steam/callback`
+
+Xbox login uses the Microsoft identity platform plus Xbox Live token exchange.
+Register it as a Microsoft Entra app:
+
+1. Sign in to the Microsoft Entra admin center with an account that can create
+   app registrations.
+2. Create a new app registration named `Rocket Sense`.
+3. For supported account types, choose personal Microsoft accounts only.
+4. Add the web redirect URI
+   `https://rocket-sense.duckdns.org/auth/xbox/callback`.
+5. Copy the application client ID into `XBOX_OAUTH_CLIENT_ID`.
+6. Create a client secret under Certificates & secrets and copy the secret
+   value into `XBOX_OAUTH_CLIENT_SECRET`.
+
+The server requests the `xboxlive.signin` scope, exchanges the Microsoft access
+token for an Xbox user token, then exchanges that for an XSTS token and uses the
+returned XUID as the stable Rocket Sense provider subject.
+
+Steam login uses Steam OpenID 2.0. Create a Steam Web API key at
+`https://steamcommunity.com/dev/apikey`, set it as `STEAM_WEB_API_KEY`, and make
+sure `ROCKET_SENSE_PUBLIC_BASE_URL` matches the public origin users log in
+through. Steam returns the user's 64-bit SteamID; Rocket Sense verifies the
+OpenID response with Steam before issuing its own session cookie.
