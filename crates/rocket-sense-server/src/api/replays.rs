@@ -493,7 +493,11 @@ pub async fn create_replay(
     RawQuery(raw_query): RawQuery,
     mut multipart: Multipart,
 ) -> Result<(StatusCode, Json<CreateReplayResponse>), ApiError> {
-    tracing::debug!(user_id = %auth_user.id, email = %auth_user.email, "authenticated replay upload");
+    tracing::debug!(
+        user_id = %auth_user.id,
+        email = ?auth_user.email,
+        "authenticated replay upload"
+    );
     let db = require_db(&state)?;
     let upload_encoding = parse_encoding_query(
         raw_query.as_deref(),
@@ -2173,7 +2177,7 @@ async fn upsert_user(pool: &PgPool, user: &AuthUser) -> Result<(), sqlx::Error> 
     sqlx::query(
         r#"
         INSERT INTO users (id, primary_email, display_name)
-        VALUES ($1, $2, $2)
+        VALUES ($1, $2, $3)
         ON CONFLICT (id) DO UPDATE
         SET primary_email = EXCLUDED.primary_email,
             display_name = COALESCE(users.display_name, EXCLUDED.display_name),
@@ -2182,6 +2186,7 @@ async fn upsert_user(pool: &PgPool, user: &AuthUser) -> Result<(), sqlx::Error> 
     )
     .bind(user.id)
     .bind(&user.email)
+    .bind(&user.display_name)
     .execute(pool)
     .await?;
 

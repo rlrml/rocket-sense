@@ -12,10 +12,15 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 const SESSION_COOKIE_MAX_AGE_SECONDS: i64 = 400 * 24 * 60 * 60;
+const STEAM_OPENID_ENDPOINT: &str = "https://steamcommunity.com/openid/login";
+const STEAM_OPENID_NS: &str = "http://specs.openid.net/auth/2.0";
+const STEAM_OPENID_IDENTIFIER_SELECT: &str = "http://specs.openid.net/auth/2.0/identifier_select";
+const STEAM_OPENID_ID_PREFIX: &str = "https://steamcommunity.com/openid/id/";
 
 #[cfg(test)]
 #[path = "auth_tests.rs"]
@@ -117,7 +122,8 @@ pub async fn create_profile_token(
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CurrentUserResponse {
     pub id: Uuid,
-    pub email: String,
+    pub email: Option<String>,
+    pub display_name: String,
     pub provider_name: String,
     pub is_admin: bool,
 }
@@ -148,6 +154,7 @@ pub async fn get_current_user(
     Ok(Json(CurrentUserResponse {
         id: auth_user.id,
         email: auth_user.email,
+        display_name: auth_user.display_name,
         provider_name: auth_user.provider_name,
         is_admin,
     }))
@@ -191,6 +198,10 @@ async fn start_oauth_login(
     let provider = oauth_provider(&state, &provider)?;
     let csrf_state = Uuid::new_v4().to_string();
     let nonce = Uuid::new_v4().to_string();
+    if provider.kind == OAuthProviderKind::Steam {
+        return start_steam_login(&provider, &csrf_state, &nonce);
+    }
+
     let redirect_uri = provider.redirect_uri();
     let mut authorize_url = url::Url::parse(authorize_url(provider.kind))
         .map_err(|_| AuthError::internal("failed to build OAuth authorize URL"))?;
@@ -206,6 +217,10 @@ async fn start_oauth_login(
             .query_pairs_mut()
             .append_pair("nonce", &nonce)
             .append_pair("prompt", "select_account");
+    } else if provider.kind == OAuthProviderKind::Xbox {
+        authorize_url
+            .query_pairs_mut()
+            .append_pair("prompt", "select_account");
     }
     let cookie = oauth_state_cookie(&provider, &csrf_state, &nonce);
 
@@ -216,47 +231,57 @@ async fn start_oauth_login(
         .into_response())
 }
 
-#[derive(Debug, Deserialize)]
-struct OAuthCallbackQuery {
-    code: Option<String>,
-    state: Option<String>,
-    error: Option<String>,
-}
-
 async fn finish_oauth_login(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
-    Query(query): Query<OAuthCallbackQuery>,
+    Query(query): Query<HashMap<String, String>>,
 ) -> Result<Response, AuthError> {
     let provider = oauth_provider(&state, &provider)?;
-    if let Some(error) = query.error {
+    if provider.kind == OAuthProviderKind::Steam {
+        let profile = finish_steam_login(&provider, &headers, &query).await?;
+        return finish_provider_login(&state, &provider, profile);
+    }
+
+    if let Some(error) = query.get("error") {
         return Ok((
             StatusCode::BAD_REQUEST,
             Html(format!(
                 "<h1>{} login failed</h1><p>{}</p>",
                 provider.kind.label(),
-                escape_html(&error)
+                escape_html(error)
             )),
         )
             .into_response());
     }
 
     let code = query
-        .code
+        .get("code")
         .ok_or_else(|| AuthError::unauthorized("OAuth callback is missing code"))?;
     let state_param = query
-        .state
+        .get("state")
         .ok_or_else(|| AuthError::unauthorized("OAuth callback is missing state"))?;
     let (expected_state, expected_nonce) = read_oauth_state_cookie(&headers)
         .ok_or_else(|| AuthError::unauthorized("OAuth login state cookie is missing"))?;
-    if state_param != expected_state {
+    if state_param != &expected_state {
         return Err(AuthError::unauthorized("OAuth login state mismatch"));
     }
 
-    let profile = exchange_oauth_code_for_profile(&provider, &code, &expected_nonce).await?;
-    let user =
-        AuthUser::from_provider_identity(provider.kind.id(), &profile.subject, profile.email)?;
+    let profile = exchange_oauth_code_for_profile(&provider, code, &expected_nonce).await?;
+    finish_provider_login(&state, &provider, profile)
+}
+
+fn finish_provider_login(
+    state: &AppState,
+    provider: &OAuthProviderSettings,
+    profile: OAuthProfile,
+) -> Result<Response, AuthError> {
+    let user = AuthUser::from_provider_identity(
+        provider.kind.id(),
+        &profile.subject,
+        profile.email,
+        profile.display_name,
+    )?;
     let token = issue_access_token(&user, &state.app_jwt_secret)?;
     let secure = provider.public_base_url.starts_with("https://");
     let session_cookie = session_cookie(&token.access_token, secure);
@@ -268,6 +293,37 @@ async fn finish_oauth_login(
             (SET_COOKIE, session_cookie),
         ],
         Redirect::temporary("/replays"),
+    )
+        .into_response())
+}
+
+fn start_steam_login(
+    provider: &OAuthProviderSettings,
+    csrf_state: &str,
+    nonce: &str,
+) -> Result<Response, AuthError> {
+    let mut return_to = url::Url::parse(&provider.redirect_uri())
+        .map_err(|_| AuthError::internal("failed to build Steam return URL"))?;
+    return_to.query_pairs_mut().append_pair("state", csrf_state);
+
+    let mut authorize_url = url::Url::parse(STEAM_OPENID_ENDPOINT)
+        .map_err(|_| AuthError::internal("failed to build Steam OpenID URL"))?;
+    authorize_url
+        .query_pairs_mut()
+        .append_pair("openid.ns", STEAM_OPENID_NS)
+        .append_pair("openid.mode", "checkid_setup")
+        .append_pair("openid.return_to", return_to.as_str())
+        .append_pair(
+            "openid.realm",
+            provider.public_base_url.trim_end_matches('/'),
+        )
+        .append_pair("openid.identity", STEAM_OPENID_IDENTIFIER_SELECT)
+        .append_pair("openid.claimed_id", STEAM_OPENID_IDENTIFIER_SELECT);
+    let cookie = oauth_state_cookie(provider, csrf_state, nonce);
+
+    Ok((
+        [(SET_COOKIE, cookie)],
+        Redirect::temporary(authorize_url.as_str()),
     )
         .into_response())
 }
@@ -294,7 +350,8 @@ struct OAuthTokenResponse {
 #[derive(Debug)]
 struct OAuthProfile {
     subject: String,
-    email: String,
+    email: Option<String>,
+    display_name: Option<String>,
 }
 
 fn authorize_url(kind: OAuthProviderKind) -> &'static str {
@@ -302,6 +359,10 @@ fn authorize_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::Google => "https://accounts.google.com/o/oauth2/v2/auth",
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/authorize",
         OAuthProviderKind::Discord => "https://discord.com/oauth2/authorize",
+        OAuthProviderKind::Xbox => {
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
+        }
+        OAuthProviderKind::Steam => STEAM_OPENID_ENDPOINT,
     }
 }
 
@@ -310,6 +371,8 @@ fn token_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::Google => "https://oauth2.googleapis.com/token",
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/access_token",
         OAuthProviderKind::Discord => "https://discord.com/api/oauth2/token",
+        OAuthProviderKind::Xbox => "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+        OAuthProviderKind::Steam => STEAM_OPENID_ENDPOINT,
     }
 }
 
@@ -318,6 +381,8 @@ fn oauth_scope(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::Google => "openid email profile",
         OAuthProviderKind::GitHub => "read:user user:email",
         OAuthProviderKind::Discord => "identify email",
+        OAuthProviderKind::Xbox => "xboxlive.signin",
+        OAuthProviderKind::Steam => "",
     }
 }
 
@@ -332,7 +397,8 @@ async fn exchange_oauth_code_for_profile(
             let google_user = verify_google_id_token(provider, &id_token, expected_nonce).await?;
             Ok(OAuthProfile {
                 subject: google_user.sub,
-                email: google_user.email,
+                email: Some(google_user.email.clone()),
+                display_name: Some(google_user.email),
             })
         }
         OAuthProviderKind::GitHub => {
@@ -343,6 +409,13 @@ async fn exchange_oauth_code_for_profile(
             let access_token = exchange_oauth_code(provider, code).await?;
             fetch_discord_profile(&access_token).await
         }
+        OAuthProviderKind::Xbox => {
+            let access_token = exchange_oauth_code(provider, code).await?;
+            fetch_xbox_profile(&access_token).await
+        }
+        OAuthProviderKind::Steam => Err(AuthError::internal(
+            "Steam uses OpenID, not OAuth code flow",
+        )),
     }
 }
 
@@ -351,12 +424,16 @@ async fn exchange_google_code(
     code: &str,
 ) -> Result<String, AuthError> {
     let client = reqwest::Client::new();
+    let client_secret = google
+        .client_secret
+        .as_deref()
+        .ok_or_else(|| AuthError::internal("Google OAuth client secret is not configured"))?;
     let response = client
         .post(token_url(OAuthProviderKind::Google))
         .form(&[
             ("code", code),
             ("client_id", google.client_id.as_str()),
-            ("client_secret", google.client_secret.as_str()),
+            ("client_secret", client_secret),
             ("redirect_uri", google.redirect_uri().as_str()),
             ("grant_type", "authorization_code"),
         ])
@@ -382,13 +459,17 @@ async fn exchange_oauth_code(
     code: &str,
 ) -> Result<String, AuthError> {
     let client = reqwest::Client::new();
+    let client_secret = provider
+        .client_secret
+        .as_deref()
+        .ok_or_else(|| AuthError::internal("OAuth client secret is not configured"))?;
     let response = client
         .post(token_url(provider.kind))
         .header(reqwest::header::ACCEPT, "application/json")
         .form(&[
             ("code", code),
             ("client_id", provider.client_id.as_str()),
-            ("client_secret", provider.client_secret.as_str()),
+            ("client_secret", client_secret),
             ("redirect_uri", provider.redirect_uri().as_str()),
             ("grant_type", "authorization_code"),
         ])
@@ -515,7 +596,8 @@ async fn fetch_github_profile(access_token: &str) -> Result<OAuthProfile, AuthEr
 
     Ok(OAuthProfile {
         subject: user.id.to_string(),
-        email,
+        email: Some(email.clone()),
+        display_name: Some(email),
     })
 }
 
@@ -577,8 +659,295 @@ async fn fetch_discord_profile(access_token: &str) -> Result<OAuthProfile, AuthE
 
     Ok(OAuthProfile {
         subject: user.id,
-        email,
+        email: Some(email.clone()),
+        display_name: Some(email),
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxUserTokenResponse {
+    #[serde(rename = "Token")]
+    token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxXstsTokenResponse {
+    #[serde(rename = "DisplayClaims")]
+    display_claims: XboxDisplayClaims,
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxDisplayClaims {
+    xui: Vec<XboxUserClaim>,
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxUserClaim {
+    #[serde(default)]
+    xid: Option<String>,
+    #[serde(default)]
+    uhs: Option<String>,
+    #[serde(default)]
+    gtg: Option<String>,
+}
+
+async fn fetch_xbox_profile(access_token: &str) -> Result<OAuthProfile, AuthError> {
+    let client = reqwest::Client::new();
+    let user_token = fetch_xbox_user_token(&client, access_token).await?;
+    let xsts = fetch_xbox_xsts_token(&client, &user_token.token).await?;
+    let user_claim = xsts
+        .display_claims
+        .xui
+        .into_iter()
+        .next()
+        .ok_or_else(|| AuthError::unauthorized("Xbox XSTS response had no user identity"))?;
+    let xuid = user_claim
+        .xid
+        .ok_or_else(|| AuthError::unauthorized("Xbox XSTS response had no XUID"))?;
+    let display_name = user_claim
+        .gtg
+        .or(user_claim.uhs)
+        .map(|identifier| format!("Xbox {identifier}"))
+        .unwrap_or_else(|| format!("Xbox {xuid}"));
+
+    Ok(OAuthProfile {
+        subject: xuid,
+        email: None,
+        display_name: Some(display_name),
+    })
+}
+
+async fn fetch_xbox_user_token(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<XboxUserTokenResponse, AuthError> {
+    let response = client
+        .post("https://user.auth.xboxlive.com/user/authenticate")
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT",
+            "Properties": {
+                "AuthMethod": "RPS",
+                "SiteName": "user.auth.xboxlive.com",
+                "RpsTicket": format!("d={access_token}"),
+            },
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            AuthError::unauthorized("failed to exchange Microsoft token for Xbox user token")
+        })?;
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Xbox user token request was rejected",
+        ));
+    }
+
+    response
+        .json::<XboxUserTokenResponse>()
+        .await
+        .map_err(|_| AuthError::unauthorized("Xbox user token response was invalid"))
+}
+
+async fn fetch_xbox_xsts_token(
+    client: &reqwest::Client,
+    user_token: &str,
+) -> Result<XboxXstsTokenResponse, AuthError> {
+    let response = client
+        .post("https://xsts.auth.xboxlive.com/xsts/authorize")
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [user_token],
+            },
+            "RelyingParty": "http://xboxlive.com",
+            "TokenType": "JWT",
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            AuthError::unauthorized("failed to exchange Xbox user token for XSTS token")
+        })?;
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Xbox XSTS token request was rejected",
+        ));
+    }
+
+    response
+        .json::<XboxXstsTokenResponse>()
+        .await
+        .map_err(|_| AuthError::unauthorized("Xbox XSTS token response was invalid"))
+}
+
+async fn finish_steam_login(
+    provider: &OAuthProviderSettings,
+    headers: &HeaderMap,
+    query: &HashMap<String, String>,
+) -> Result<OAuthProfile, AuthError> {
+    let state_param = query
+        .get("state")
+        .ok_or_else(|| AuthError::unauthorized("Steam callback is missing state"))?;
+    let (expected_state, _) = read_oauth_state_cookie(headers)
+        .ok_or_else(|| AuthError::unauthorized("Steam login state cookie is missing"))?;
+    if state_param != &expected_state {
+        return Err(AuthError::unauthorized("Steam login state mismatch"));
+    }
+
+    validate_steam_openid_return_to(provider, state_param, query)?;
+    let steam_id = verify_steam_openid(query).await?;
+    let display_name = fetch_steam_display_name(provider, &steam_id).await;
+
+    Ok(OAuthProfile {
+        subject: steam_id.clone(),
+        email: None,
+        display_name: Some(display_name.unwrap_or_else(|| format!("Steam {steam_id}"))),
+    })
+}
+
+fn validate_steam_openid_return_to(
+    provider: &OAuthProviderSettings,
+    state_param: &str,
+    query: &HashMap<String, String>,
+) -> Result<(), AuthError> {
+    let return_to = query
+        .get("openid.return_to")
+        .ok_or_else(|| AuthError::unauthorized("Steam callback is missing return_to"))?;
+    let mut expected_return_to = url::Url::parse(&provider.redirect_uri())
+        .map_err(|_| AuthError::internal("failed to build Steam return URL"))?;
+    expected_return_to
+        .query_pairs_mut()
+        .append_pair("state", state_param);
+
+    if return_to != expected_return_to.as_str() {
+        return Err(AuthError::unauthorized("Steam callback return_to mismatch"));
+    }
+
+    Ok(())
+}
+
+async fn verify_steam_openid(query: &HashMap<String, String>) -> Result<String, AuthError> {
+    if query.get("openid.ns").map(String::as_str) != Some(STEAM_OPENID_NS) {
+        return Err(AuthError::unauthorized("Steam OpenID namespace is invalid"));
+    }
+    if query.get("openid.mode").map(String::as_str) != Some("id_res") {
+        return Err(AuthError::unauthorized("Steam OpenID mode is invalid"));
+    }
+    if query.get("openid.op_endpoint").map(String::as_str) != Some(STEAM_OPENID_ENDPOINT) {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID provider endpoint is invalid",
+        ));
+    }
+
+    let claimed_id = query
+        .get("openid.claimed_id")
+        .ok_or_else(|| AuthError::unauthorized("Steam OpenID claimed_id is missing"))?;
+    let identity = query
+        .get("openid.identity")
+        .ok_or_else(|| AuthError::unauthorized("Steam OpenID identity is missing"))?;
+    if identity != claimed_id {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID identity does not match claimed_id",
+        ));
+    }
+    let steam_id = steam_id_from_claimed_id(claimed_id)?;
+
+    let mut verification_form: Vec<(String, String)> = query
+        .iter()
+        .filter(|(key, _)| key.starts_with("openid."))
+        .map(|(key, value)| {
+            let value = if key == "openid.mode" {
+                "check_authentication"
+            } else {
+                value
+            };
+            (key.clone(), value.to_owned())
+        })
+        .collect();
+    verification_form.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let response = reqwest::Client::new()
+        .post(STEAM_OPENID_ENDPOINT)
+        .form(&verification_form)
+        .send()
+        .await
+        .map_err(|_| AuthError::unauthorized("failed to verify Steam OpenID response"))?;
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID verification request was rejected",
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|_| AuthError::unauthorized("Steam OpenID verification response was invalid"))?;
+    if !body.lines().any(|line| line.trim() == "is_valid:true") {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID verification response was not valid",
+        ));
+    }
+
+    Ok(steam_id)
+}
+
+fn steam_id_from_claimed_id(claimed_id: &str) -> Result<String, AuthError> {
+    let steam_id = claimed_id
+        .strip_prefix(STEAM_OPENID_ID_PREFIX)
+        .ok_or_else(|| AuthError::unauthorized("Steam OpenID claimed_id is invalid"))?;
+    if steam_id.is_empty() || !steam_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(AuthError::unauthorized("Steam OpenID SteamID is invalid"));
+    }
+
+    Ok(steam_id.to_owned())
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamPlayerSummariesResponse {
+    response: SteamPlayerSummaries,
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamPlayerSummaries {
+    players: Vec<SteamPlayerSummary>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SteamPlayerSummary {
+    steamid: String,
+    personaname: Option<String>,
+}
+
+async fn fetch_steam_display_name(
+    provider: &OAuthProviderSettings,
+    steam_id: &str,
+) -> Option<String> {
+    let response = reqwest::Client::new()
+        .get("https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v2/")
+        .query(&[
+            ("key", provider.client_id.as_str()),
+            ("steamids", steam_id),
+            ("format", "json"),
+        ])
+        .send()
+        .await
+        .ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+
+    response
+        .json::<SteamPlayerSummariesResponse>()
+        .await
+        .ok()?
+        .response
+        .players
+        .into_iter()
+        .find(|player| player.steamid == steam_id)
+        .and_then(|player| player.personaname)
+        .map(|name| name.trim().to_owned())
+        .filter(|name| !name.is_empty())
 }
 
 fn oauth_state_cookie(provider: &OAuthProviderSettings, state: &str, nonce: &str) -> String {

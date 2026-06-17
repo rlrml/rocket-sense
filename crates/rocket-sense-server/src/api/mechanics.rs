@@ -3028,7 +3028,7 @@ async fn upsert_user(pool: &PgPool, auth_user: &AuthUser) -> Result<(), sqlx::Er
     sqlx::query(
         r#"
         INSERT INTO users (id, primary_email, display_name)
-        VALUES ($1, $2, $2)
+        VALUES ($1, $2, $3)
         ON CONFLICT (id)
         DO UPDATE SET
             primary_email = EXCLUDED.primary_email,
@@ -3038,6 +3038,7 @@ async fn upsert_user(pool: &PgPool, auth_user: &AuthUser) -> Result<(), sqlx::Er
     )
     .bind(auth_user.id)
     .bind(&auth_user.email)
+    .bind(&auth_user.display_name)
     .execute(pool)
     .await?;
 

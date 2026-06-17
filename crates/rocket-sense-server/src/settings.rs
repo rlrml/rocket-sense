@@ -25,11 +25,19 @@ pub enum OAuthProviderKind {
     Google,
     GitHub,
     Discord,
+    Xbox,
+    Steam,
 }
 
 impl OAuthProviderKind {
     pub fn all() -> &'static [Self] {
-        &[Self::Google, Self::GitHub, Self::Discord]
+        &[
+            Self::Google,
+            Self::GitHub,
+            Self::Discord,
+            Self::Xbox,
+            Self::Steam,
+        ]
     }
 
     pub fn id(self) -> &'static str {
@@ -37,6 +45,8 @@ impl OAuthProviderKind {
             Self::Google => "google",
             Self::GitHub => "github",
             Self::Discord => "discord",
+            Self::Xbox => "xbox",
+            Self::Steam => "steam",
         }
     }
 
@@ -45,6 +55,8 @@ impl OAuthProviderKind {
             Self::Google => "Google",
             Self::GitHub => "GitHub",
             Self::Discord => "Discord",
+            Self::Xbox => "Xbox",
+            Self::Steam => "Steam",
         }
     }
 }
@@ -69,7 +81,7 @@ impl ServiceMode {
 pub struct OAuthProviderSettings {
     pub kind: OAuthProviderKind,
     pub client_id: String,
-    pub client_secret: String,
+    pub client_secret: Option<String>,
     pub public_base_url: String,
 }
 
@@ -246,6 +258,11 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
             "DISCORD_OAUTH_CLIENT_ID",
             "DISCORD_OAUTH_CLIENT_SECRET",
         ),
+        (
+            OAuthProviderKind::Xbox,
+            "XBOX_OAUTH_CLIENT_ID",
+            "XBOX_OAUTH_CLIENT_SECRET",
+        ),
     ]
     .into_iter()
     .filter_map(|(kind, client_id_env, client_secret_env)| {
@@ -254,10 +271,19 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
         (!client_id.is_empty() && !client_secret.is_empty()).then(|| OAuthProviderSettings {
             kind,
             client_id,
-            client_secret,
+            client_secret: Some(client_secret),
             public_base_url: public_base_url.to_owned(),
         })
     })
+    .chain(env::var("STEAM_WEB_API_KEY").ok().and_then(|api_key| {
+        let api_key = api_key.trim().to_owned();
+        (!api_key.is_empty()).then(|| OAuthProviderSettings {
+            kind: OAuthProviderKind::Steam,
+            client_id: api_key,
+            client_secret: None,
+            public_base_url: public_base_url.to_owned(),
+        })
+    }))
     .collect()
 }
 
