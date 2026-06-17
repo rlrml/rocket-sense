@@ -22,6 +22,7 @@ pub fn router() -> Router<AppState> {
         .route("/mechanics/review", get(spa_index))
         .route("/admin/processing", get(spa_index))
         .route("/assets/{*asset_path}", get(spa_asset))
+        .route("/brand/{*brand_path}", get(brand_asset))
         .route("/favicon.ico", get(favicon))
         .fallback(spa_fallback)
 }
@@ -76,7 +77,7 @@ fn is_reserved_non_spa_path(path: &str) -> bool {
 
     matches!(
         first_segment,
-        "api" | "api-docs" | "assets" | "auth" | "favicon.ico" | "subtr-actor"
+        "api" | "api-docs" | "assets" | "auth" | "brand" | "favicon.ico" | "subtr-actor"
     )
 }
 
@@ -86,6 +87,22 @@ async fn spa_asset(Path(asset_path): Path<String>) -> Result<Response, StatusCod
         [
             (CONTENT_TYPE, asset.content_type),
             (CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        asset.bytes,
+    )
+        .into_response())
+}
+
+/// Serve the brand assets vite copies from `web/public/brand` to the dist root
+/// (logo SVG + rasterized favicons referenced by `<link>`s in index.html).
+/// Unlike `/assets/*`, these filenames are unhashed, so they get a short cache
+/// rather than the immutable one-year policy.
+async fn brand_asset(Path(brand_path): Path<String>) -> Result<Response, StatusCode> {
+    let asset = web_static_asset(&format!("brand/{brand_path}")).ok_or(StatusCode::NOT_FOUND)?;
+    Ok((
+        [
+            (CONTENT_TYPE, asset.content_type),
+            (CACHE_CONTROL, "public, max-age=86400"),
         ],
         asset.bytes,
     )
@@ -148,6 +165,7 @@ mod tests {
             "/api-docs/openapi.json",
             "/assets/missing.js",
             "/auth/google/start",
+            "/brand/logo.svg",
             "/favicon.ico",
             "/subtr-actor/review/missing",
         ] {
