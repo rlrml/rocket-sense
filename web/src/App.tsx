@@ -15,7 +15,6 @@ import {
   FolderPlus,
   Github,
   Info,
-  LayoutDashboard,
   ListPlus,
   LogIn,
   Mail,
@@ -76,6 +75,7 @@ import {
   setAccessToken,
   uploadReplay,
 } from "./api";
+import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
@@ -158,7 +158,7 @@ export function App() {
     <div className="app-shell">
       <aside className="sidebar">
         <Link className="brand" to="/replays">
-          <LayoutDashboard size={22} />
+          <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
           <span>Rocket Sense</span>
         </Link>
         <nav id="primary-navigation" className="nav-list" aria-label="Primary navigation">

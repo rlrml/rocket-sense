@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+source_svg="$repo_root/web/src/assets/brand/logo.svg"
+public_brand_dir="$repo_root/web/public/brand"
+
+if ! command -v rsvg-convert >/dev/null 2>&1; then
+  echo "error: rsvg-convert is required; run through 'nix develop' or 'just brand-assets'" >&2
+  exit 1
+fi
+
+if [[ ! -f "$source_svg" ]]; then
+  echo "error: missing source logo SVG: $source_svg" >&2
+  exit 1
+fi
+
+mkdir -p "$public_brand_dir"
+
+for size in 32 48 180 192 512; do
+  rsvg-convert "$source_svg" \
+    --width "$size" \
+    --height "$size" \
+    --keep-aspect-ratio \
+    --format png \
+    --output "$public_brand_dir/logo-${size}.png"
+done
+
+cp "$source_svg" "$public_brand_dir/logo.svg"
