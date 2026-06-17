@@ -11,6 +11,7 @@ use utoipa::{
 #[openapi(
     paths(
         admin::backfill_profile_timing,
+        admin::compute_population_stats_run,
         admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,
         admin::reprocess_replays,
@@ -57,6 +58,10 @@ use utoipa::{
             auth::AuthProviderResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
+            crate::population_stats::BucketCount,
+            crate::population_stats::BucketStrategy,
+            crate::population_stats::PopulationStatRunOptions,
+            crate::population_stats::PopulationStatRunSummary,
             admin::GcEventStreamsRequest,
             admin::GcEventStreamsResponse,
             admin::AnalysisRunDiagnosticResponse,

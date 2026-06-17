@@ -1,6 +1,10 @@
 use crate::{
     app::AppState,
     auth::AuthUser,
+    population_stats::{
+        compute_population_stats, registered_stat_keys, PopulationStatRunOptions,
+        PopulationStatRunSummary,
+    },
     processing::{
         enqueue_profile_timing_backfill, enqueue_replay_reprocessing, gc_superseded_event_streams,
         ReplayProfileTimingBackfillOptions, ReplayReprocessOptions,
@@ -33,6 +37,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/admin/replays/backfill-profile-timing",
             post(backfill_profile_timing),
+        )
+        .route(
+            "/admin/population-stats/compute",
+            post(compute_population_stats_run),
         )
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
@@ -176,6 +184,37 @@ pub struct GcEventStreamsResponse {
     pub deleted_objects: u64,
     pub reclaimed_storage_bytes: u64,
     pub dry_run: bool,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/population-stats/compute",
+    tag = "admin",
+    request_body = PopulationStatRunOptions,
+    responses(
+        (status = 200, description = "Population statistics run completed", body = PopulationStatRunSummary),
+        (status = 400, description = "Invalid population stats run options"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn compute_population_stats_run(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<PopulationStatRunOptions>,
+) -> Result<Json<PopulationStatRunSummary>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    validate_population_stats_request(&request)?;
+
+    compute_population_stats(pool, request)
+        .await
+        .map(Json)
+        .map_err(ApiError::internal)
 }
 
 #[utoipa::path(
@@ -508,6 +547,31 @@ fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
             "postgres connection is required for admin replay operations",
         )
     })
+}
+
+fn validate_population_stats_request(request: &PopulationStatRunOptions) -> Result<(), ApiError> {
+    if request.min_games <= 0 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "min_games must be greater than zero",
+        ));
+    }
+
+    let registered = registered_stat_keys();
+    for key in &request.stat_keys {
+        let key = key.trim();
+        if key.is_empty() {
+            continue;
+        }
+        if !registered.contains(&key) {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                format!("unknown population stat key: {key}"),
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn normalized_status_filter(status: Option<String>) -> Result<Option<String>, ApiError> {

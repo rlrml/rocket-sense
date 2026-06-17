@@ -5,6 +5,7 @@
 mod api;
 mod app;
 mod auth;
+mod population_stats;
 mod processing;
 mod ranks;
 mod settings;
