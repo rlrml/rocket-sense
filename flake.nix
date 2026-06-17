@@ -48,6 +48,12 @@
             fenix.packages.${system}.stable.rust-analyzer
             pkgs.cargo-watch
             pkgs.curl
+            # gcloud + the GKE auth plugin so kubectl can authenticate to the
+            # railbird-gke cluster (its kubeconfig user execs
+            # gke-gcloud-auth-plugin).
+            (pkgs.google-cloud-sdk.withExtraComponents [
+              pkgs.google-cloud-sdk.components.gke-gcloud-auth-plugin
+            ])
             pkgs.just
             pkgs.kubectl
             pkgs.librsvg
