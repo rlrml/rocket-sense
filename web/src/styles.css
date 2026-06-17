@@ -5199,6 +5199,14 @@ tbody tr:last-child td {
   border-left: 4px solid #5865f2;
 }
 
+.provider-xbox {
+  border-left: 4px solid #107c10;
+}
+
+.provider-steam {
+  border-left: 4px solid #1b2838;
+}
+
 .modal-fallback-link {
   justify-self: start;
 }

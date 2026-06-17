@@ -4316,8 +4316,8 @@ function AccountPage() {
           </div>
           <dl className="account-details">
             <div>
-              <dt>Email</dt>
-              <dd>{claims?.email || "-"}</dd>
+              <dt>Account</dt>
+              <dd>{claims?.display_name || claims?.email || "-"}</dd>
             </div>
             <div>
               <dt>User id</dt>
@@ -4422,7 +4422,8 @@ function AccountPage() {
 interface AccessTokenClaims {
   iss?: string;
   sub?: string;
-  email?: string;
+  email?: string | null;
+  display_name?: string | null;
   provider_name?: string;
   provider_subject?: string;
   iat?: number;
@@ -4464,6 +4465,10 @@ function providerLabel(provider: string): string {
       return "GitHub";
     case "discord":
       return "Discord";
+    case "xbox":
+      return "Xbox";
+    case "steam":
+      return "Steam";
     default:
       return provider;
   }
@@ -4688,7 +4693,7 @@ function legacyAuthOptions(): AuthOptionsResponse {
   return {
     mode: "oauth",
     login_url: `${deployedOrigin}/login`,
-    providers: ["google", "github", "discord"].map((id) => ({
+    providers: ["google", "github", "discord", "xbox", "steam"].map((id) => ({
       id,
       label: providerLabel(id),
       configured: true,

@@ -596,7 +596,8 @@ export interface AccessTokenResponse {
 
 export interface CurrentUserResponse {
   id: string;
-  email: string;
+  email: string | null;
+  display_name: string;
   provider_name: string;
   is_admin: boolean;
 }
