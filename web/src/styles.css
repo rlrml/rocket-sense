@@ -831,6 +831,45 @@ tbody tr:last-child td {
   color: #991b1b;
 }
 
+.local-reprocess-progress {
+  display: grid;
+  flex: 1 1 260px;
+  align-self: center;
+  min-width: min(320px, 100%);
+  gap: 5px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.local-reprocess-progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.local-reprocess-progress-track {
+  position: relative;
+  overflow: hidden;
+  height: 6px;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+
+.local-reprocess-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--team-blue);
+  transition: width 160ms ease;
+}
+
+.local-reprocess-progress.is-indeterminate .local-reprocess-progress-fill {
+  width: 42%;
+  animation: local-progress-indeterminate 1.15s ease-in-out infinite;
+}
+
 .metric-with-action {
   display: inline-flex;
   align-items: center;
@@ -4989,6 +5028,16 @@ tbody tr:last-child td {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes local-progress-indeterminate {
+  0% {
+    transform: translateX(-115%);
+  }
+
+  100% {
+    transform: translateX(240%);
   }
 }
 

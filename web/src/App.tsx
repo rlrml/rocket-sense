@@ -70,7 +70,8 @@ import {
   setAccessToken,
   uploadReplay,
 } from "./api";
-import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
+import { LocalReprocessProgressBar } from "./reprocessProgress";
+import { computeStatsTimelineScaffoldJson, type LocalReprocessProgress } from "./stats/replayModel";
 import {
   completedStatGroups,
   eventTypesForGroup,
@@ -1592,6 +1593,8 @@ function ReplayStatsPage() {
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<RequeueResult | null>(null);
   const [reprocessingLocal, setReprocessingLocal] = useState(false);
+  const [localReprocessProgress, setLocalReprocessProgress] =
+    useState<LocalReprocessProgress | null>(null);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
@@ -1716,21 +1719,32 @@ function ReplayStatsPage() {
   // results are live as soon as the request returns.
   async function handleReprocessLocal() {
     setReprocessingLocal(true);
+    setLocalReprocessProgress(null);
     setReprocessResult({
       phase: "done",
       message: "Reprocessing locally — parsing replay in your browser…",
     });
     try {
-      const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId);
+      const scaffoldJson = await computeStatsTimelineScaffoldJson(
+        replayId,
+        setLocalReprocessProgress,
+      );
+      setLocalReprocessProgress({
+        stage: "uploading",
+        message: "Uploading regenerated analysis",
+        progress: null,
+      });
       await reprocessReplayClient(replayId, {
         subtrActorGitSha: __SUBTR_ACTOR_REV__,
         scaffoldJson,
       });
+      setLocalReprocessProgress(null);
       setReprocessResult({
         phase: "done",
         message: "Reprocessed locally — refresh to see the regenerated analysis.",
       });
     } catch (err) {
+      setLocalReprocessProgress(null);
       setReprocessResult({
         phase: "error",
         message: err instanceof Error ? err.message : "Local reprocess failed.",
@@ -1784,6 +1798,7 @@ function ReplayStatsPage() {
             Player
           </Link>
           {reprocessResult ? <RequeueResultChip result={reprocessResult} /> : null}
+          <LocalReprocessProgressBar progress={localReprocessProgress} />
           {reprocessResult?.phase === "skipped" ? (
             <button
               type="button"
