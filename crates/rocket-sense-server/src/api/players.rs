@@ -1,6 +1,6 @@
-use crate::app::AppState;
+use crate::{app::AppState, auth::AuthUser};
 use axum::{
-    extract::{Path, RawQuery, State},
+    extract::{Path, Query, RawQuery, State},
     http::StatusCode,
     routing::get,
     Json, Router,
@@ -24,10 +24,12 @@ use super::{
 mod tests;
 
 pub fn router() -> Router<AppState> {
-    Router::new().route(
-        "/players/{platform}/{platform_player_id}",
-        get(get_player_profile),
-    )
+    Router::new()
+        .route("/players/name-history", get(search_player_name_history))
+        .route(
+            "/players/{platform}/{platform_player_id}",
+            get(get_player_profile).put(set_player_public_display_name),
+        )
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -35,6 +37,8 @@ pub struct PlayerProfileResponse {
     pub platform: String,
     pub platform_player_id: String,
     pub display_name: Option<String>,
+    pub public_display_name: Option<String>,
+    pub current_display_name: Option<String>,
     pub names: Vec<PlayerProfileNameResponse>,
     pub replay_count: u64,
     pub first_seen_at: Option<DateTime<Utc>>,
@@ -47,7 +51,55 @@ pub struct PlayerProfileResponse {
 pub struct PlayerProfileNameResponse {
     pub name: String,
     pub replay_count: u64,
+    pub first_seen_at: Option<DateTime<Utc>>,
     pub latest_seen_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerNameHistoryResponse {
+    pub names: Vec<PlayerNameHistoryEntryResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerNameHistoryEntryResponse {
+    pub platform: String,
+    pub platform_player_id: String,
+    pub display_name: String,
+    pub first_seen_at: DateTime<Utc>,
+    pub latest_seen_at: DateTime<Utc>,
+    pub current_display_name: Option<String>,
+    pub public_display_name: Option<String>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct PlayerNameHistoryQuery {
+    /// Case-insensitive substring search over observed display names.
+    pub q: Option<String>,
+    /// Optional platform filter.
+    #[serde(
+        default,
+        alias = "platform[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub platform: Vec<String>,
+    /// Maximum entries to return.
+    pub count: Option<u32>,
+    /// Entries to skip.
+    pub offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetPlayerPublicDisplayNameRequest {
+    pub display_name: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct SetPlayerPublicDisplayNameResponse {
+    pub platform: String,
+    pub platform_player_id: String,
+    pub display_name: String,
+    pub claim_status: String,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -155,6 +207,111 @@ pub async fn get_player_profile(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))?;
 
     Ok(Json(profile))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/players/name-history",
+    tag = "players",
+    params(PlayerNameHistoryQuery),
+    responses(
+        (status = 200, description = "Observed display-name history across platform identities", body = PlayerNameHistoryResponse),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn search_player_name_history(
+    State(state): State<AppState>,
+    Query(query): Query<PlayerNameHistoryQuery>,
+) -> Result<Json<PlayerNameHistoryResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let names = load_name_history(db, query)
+        .await
+        .map_err(ApiError::internal)?;
+    Ok(Json(PlayerNameHistoryResponse { names }))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/players/{platform}/{platform_player_id}",
+    tag = "players",
+    request_body = SetPlayerPublicDisplayNameRequest,
+    params(
+        ("platform" = String, Path, description = "Rocket League platform, such as `steam` or `epic`"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id")
+    ),
+    responses(
+        (status = 200, description = "Public display name selected", body = SetPlayerPublicDisplayNameResponse),
+        (status = 400, description = "Requested display name was invalid or unobserved"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Authenticated user cannot claim this player identity"),
+        (status = 404, description = "Player was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn set_player_public_display_name(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id)): Path<(String, String)>,
+    Json(request): Json<SetPlayerPublicDisplayNameRequest>,
+) -> Result<Json<SetPlayerPublicDisplayNameResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    let display_name = normalize_public_display_name(&request.display_name)?;
+
+    let observed: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM player_display_names
+            WHERE platform = $1
+              AND platform_player_id = $2
+              AND display_name = $3
+        )
+        "#,
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(&display_name)
+    .fetch_one(db)
+    .await
+    .map_err(ApiError::internal)?;
+    if !observed {
+        return Err(ApiError::bad_request(
+            "display_name must be one of this player identity's observed names",
+        ));
+    }
+    let claim_status = ensure_identity_claim(db, &state, &auth_user, &identity).await?;
+
+    let updated = sqlx::query_scalar::<_, String>(
+        r#"
+        UPDATE player_identities
+        SET public_display_name = $3,
+            public_display_name_set_by_user_id = $4,
+            public_display_name_updated_at = now(),
+            updated_at = now()
+        WHERE platform = $1
+          AND platform_player_id = $2
+        RETURNING public_display_name
+        "#,
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(&display_name)
+    .bind(auth_user.id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))?;
+
+    Ok(Json(SetPlayerPublicDisplayNameResponse {
+        platform: identity.platform,
+        platform_player_id: identity.platform_player_id,
+        display_name: updated,
+        claim_status,
+    }))
 }
 
 struct PlayerIdentity {
@@ -268,14 +425,19 @@ async fn load_player_profile(
             MIN(COALESCE(r.replay_date, r.created_at)) AS first_seen_at,
             MAX(COALESCE(r.replay_date, r.created_at)) AS last_seen_at,
             BOOL_OR(rp.is_pro) AS is_pro,
-            (
+            MAX(pi.public_display_name) AS public_display_name,
+            MAX(pi.current_display_name) AS current_display_name,
+            COALESCE(MAX(pi.public_display_name), MAX(pi.current_display_name), (
                 ARRAY_REMOVE(
                     ARRAY_AGG(rp.name ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC),
                     NULL
                 )
-            )[1] AS display_name
+            )[1]) AS display_name
         FROM replay_players rp
         JOIN replays r ON r.id = rp.replay_id
+        LEFT JOIN player_identities pi
+          ON pi.platform = rp.platform
+         AND pi.platform_player_id = rp.platform_player_id
         "#,
     );
     append_target_player_filters(&mut summary_query, identity, filters);
@@ -293,6 +455,8 @@ async fn load_player_profile(
         platform: identity.platform.clone(),
         platform_player_id: identity.platform_player_id.clone(),
         display_name: summary.try_get("display_name")?,
+        public_display_name: summary.try_get("public_display_name")?,
+        current_display_name: summary.try_get("current_display_name")?,
         names,
         replay_count: replay_count as u64,
         first_seen_at: summary.try_get("first_seen_at")?,
@@ -314,6 +478,7 @@ async fn load_player_names(
         SELECT
             rp.name,
             COUNT(*) AS replay_count,
+            MIN(COALESCE(r.replay_date, r.created_at)) AS first_seen_at,
             MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
         FROM replay_players rp
         JOIN replays r ON r.id = rp.replay_id
@@ -337,10 +502,197 @@ async fn load_player_names(
             Ok(PlayerProfileNameResponse {
                 name: row.try_get("name")?,
                 replay_count: replay_count.max(0) as u64,
+                first_seen_at: row.try_get("first_seen_at")?,
                 latest_seen_at: row.try_get("latest_seen_at")?,
             })
         })
         .collect()
+}
+
+async fn load_name_history(
+    pool: &sqlx::PgPool,
+    query: PlayerNameHistoryQuery,
+) -> Result<Vec<PlayerNameHistoryEntryResponse>, sqlx::Error> {
+    let rows = player_name_history_query(query)
+        .build()
+        .fetch_all(pool)
+        .await?;
+    rows.into_iter()
+        .map(|row| {
+            Ok(PlayerNameHistoryEntryResponse {
+                platform: row.try_get("platform")?,
+                platform_player_id: row.try_get("platform_player_id")?,
+                display_name: row.try_get("display_name")?,
+                first_seen_at: row.try_get("first_seen_at")?,
+                latest_seen_at: row.try_get("last_seen_at")?,
+                current_display_name: row.try_get("current_display_name")?,
+                public_display_name: row.try_get("public_display_name")?,
+            })
+        })
+        .collect()
+}
+
+fn player_name_history_query(query: PlayerNameHistoryQuery) -> QueryBuilder<'static, Postgres> {
+    let q = query
+        .q
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
+    let platforms = normalize_terms(query.platform)
+        .into_iter()
+        .map(|platform| platform.to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let count = i64::from(query.count.unwrap_or(50).clamp(1, 100));
+    let offset = i64::from(query.offset.unwrap_or(0));
+
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            names.platform,
+            names.platform_player_id,
+            names.display_name,
+            names.first_seen_at,
+            names.last_seen_at,
+            identities.current_display_name,
+            identities.public_display_name
+        FROM player_display_names names
+        JOIN player_identities identities
+          ON identities.platform = names.platform
+         AND identities.platform_player_id = names.platform_player_id
+        WHERE TRUE
+        "#,
+    );
+    if let Some(q) = &q {
+        builder.push(" AND names.display_name ILIKE ");
+        builder.push_bind(format!("%{q}%"));
+    }
+    if !platforms.is_empty() {
+        builder.push(" AND names.platform = ANY(");
+        builder.push_bind(platforms);
+        builder.push(")");
+    }
+    builder.push(
+        r#"
+        ORDER BY names.last_seen_at DESC, names.display_name, names.platform, names.platform_player_id
+        LIMIT
+        "#,
+    );
+    builder.push_bind(count);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+    builder
+}
+
+async fn ensure_identity_claim(
+    pool: &sqlx::PgPool,
+    state: &AppState,
+    auth_user: &AuthUser,
+    identity: &PlayerIdentity,
+) -> Result<String, ApiError> {
+    let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)
+        .await
+        .map_err(ApiError::internal)?;
+    if is_admin {
+        upsert_identity_claim(pool, auth_user, identity, "admin", None).await?;
+        return Ok("verified".to_owned());
+    }
+
+    let existing_status = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT status
+        FROM player_identity_claims
+        WHERE user_id = $1
+          AND platform = $2
+          AND platform_player_id = $3
+          AND status = 'verified'
+        "#,
+    )
+    .bind(auth_user.id)
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    if let Some(status) = existing_status {
+        return Ok(status);
+    }
+
+    let replay_id = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT r.id
+        FROM replays r
+        JOIN replay_players rp ON rp.replay_id = r.id
+        WHERE r.uploaded_by_user_id = $1
+          AND rp.platform = $2
+          AND rp.platform_player_id = $3
+        ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(auth_user.id)
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let Some(replay_id) = replay_id else {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "user must be an admin or have uploaded a replay containing this player identity",
+        ));
+    };
+
+    upsert_identity_claim(
+        pool,
+        auth_user,
+        identity,
+        "uploader_replay_presence",
+        Some(replay_id),
+    )
+    .await?;
+    Ok("verified".to_owned())
+}
+
+async fn upsert_identity_claim(
+    pool: &sqlx::PgPool,
+    auth_user: &AuthUser,
+    identity: &PlayerIdentity,
+    verification_method: &str,
+    replay_id: Option<Uuid>,
+) -> Result<(), ApiError> {
+    let evidence = replay_id
+        .map(|replay_id| serde_json::json!({ "replay_id": replay_id }))
+        .unwrap_or_else(|| serde_json::json!({}));
+    sqlx::query(
+        r#"
+        INSERT INTO player_identity_claims (
+            user_id,
+            platform,
+            platform_player_id,
+            status,
+            verification_method,
+            evidence,
+            verified_at
+        )
+        VALUES ($1, $2, $3, 'verified', $4, $5, now())
+        ON CONFLICT (user_id, platform, platform_player_id)
+        DO UPDATE SET
+            status = 'verified',
+            verification_method = EXCLUDED.verification_method,
+            evidence = EXCLUDED.evidence,
+            verified_at = COALESCE(player_identity_claims.verified_at, now()),
+            updated_at = now()
+        "#,
+    )
+    .bind(auth_user.id)
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(verification_method)
+    .bind(evidence)
+    .execute(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    Ok(())
 }
 
 async fn load_player_replays(
@@ -491,6 +843,19 @@ fn normalize_terms(terms: Vec<String>) -> Vec<String> {
         .map(|term| term.trim().to_owned())
         .filter(|term| !term.is_empty())
         .collect()
+}
+
+fn normalize_public_display_name(value: &str) -> Result<String, ApiError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(ApiError::bad_request("display_name must not be empty"));
+    }
+    if value.chars().count() > 128 {
+        return Err(ApiError::bad_request(
+            "display_name must be 128 characters or fewer",
+        ));
+    }
+    Ok(value.to_owned())
 }
 
 fn parse_uuid_filter(name: &str, value: &str) -> Result<Uuid, ApiError> {
