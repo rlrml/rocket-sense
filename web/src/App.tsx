@@ -70,6 +70,7 @@ import {
   listReplayGroupReplays,
   listReplayEvents,
   listReplayFilterOptions,
+  listLinkedIdentities,
   listReplayProcessingDiagnostics,
   listReplays,
   logout,
@@ -108,6 +109,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypeResponse,
+  LinkedIdentityResponse,
   MechanicEventResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
@@ -1385,6 +1387,57 @@ function useCurrentUser(): CurrentUserResponse | null {
   }, [authRevision]);
 
   return user;
+}
+
+function useLinkedIdentities(enabled: boolean): {
+  identities: LinkedIdentityResponse[];
+  loading: boolean;
+  error: string | null;
+} {
+  const [identities, setIdentities] = useState<LinkedIdentityResponse[]>([]);
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState<string | null>(null);
+  const [authRevision, setAuthRevision] = useState(0);
+
+  useEffect(() => {
+    function refreshAuth() {
+      setAuthRevision((revision) => revision + 1);
+    }
+
+    window.addEventListener(authChangeEvent, refreshAuth);
+    return () => window.removeEventListener(authChangeEvent, refreshAuth);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!enabled) {
+      setIdentities([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    listLinkedIdentities()
+      .then((response) => {
+        if (!cancelled) setIdentities(response.identities);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setIdentities([]);
+        setError(err instanceof Error ? err.message : "Could not load linked identities.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, authRevision]);
+
+  return { identities, loading, error };
 }
 
 function useReplayGroups(enabled: boolean): {
@@ -4225,6 +4278,7 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
   const attemptedSessionHydration = useRef(false);
   const claims = useMemo(() => parseAccessTokenClaims(token), [token]);
   const currentUser = useCurrentUser();
+  const linkedIdentities = useLinkedIdentities(claims != null);
 
   useEffect(() => {
     if (token.trim()) return;
@@ -4425,6 +4479,42 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
               {creatingDevToken ? "Creating" : "Create dev token"}
             </button>
           </form>
+        </section>
+
+        <section className="account-panel linked-identities-panel">
+          <div>
+            <h2>Verified identities</h2>
+            <p className="muted-text">Provider accounts Rocket Sense has verified for this user.</p>
+          </div>
+          {linkedIdentities.loading ? (
+            <div className="status-line">
+              <RefreshCw size={16} className="spin" />
+              Loading identities
+            </div>
+          ) : linkedIdentities.error ? (
+            <p className="inline-status error">{linkedIdentities.error}</p>
+          ) : linkedIdentities.identities.length > 0 ? (
+            <ul className="linked-identity-list">
+              {linkedIdentities.identities.map((identity) => (
+                <li
+                  key={`${identity.provider_name}:${identity.provider_subject}`}
+                  className={`linked-identity provider-${identity.provider_name}`}
+                >
+                  <ProviderLoginIcon providerId={identity.provider_name} />
+                  <span className="linked-identity-main">
+                    <strong>{providerLabel(identity.provider_name)}</strong>
+                    <span>{identity.email ?? identity.provider_subject}</span>
+                  </span>
+                  <span className="linked-identity-meta">
+                    <span>{identity.provider_subject}</span>
+                    <time dateTime={identity.created_at}>{formatDate(identity.created_at)}</time>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted-text">No verified provider identities are stored for this user.</p>
+          )}
         </section>
       </div>
 

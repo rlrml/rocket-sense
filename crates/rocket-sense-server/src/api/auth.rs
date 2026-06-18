@@ -1,3 +1,4 @@
+use super::replays::{require_db, ApiError};
 use crate::{
     app::AppState,
     auth::{issue_access_token, issue_dev_token, AccessToken, AuthError, AuthUser, SESSION_COOKIE},
@@ -39,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/profile-token", post(create_profile_token))
         .route("/auth/logout", post(logout))
         .route("/me", get(get_current_user))
+        .route("/me/linked-identities", get(list_current_user_identities))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -147,6 +149,19 @@ pub struct CurrentUserResponse {
     pub is_admin: bool,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LinkedIdentityResponse {
+    pub provider_name: String,
+    pub provider_subject: String,
+    pub email: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LinkedIdentitiesResponse {
+    pub identities: Vec<LinkedIdentityResponse>,
+}
+
 #[utoipa::path(
     get,
     path = "/api/v1/me",
@@ -177,6 +192,39 @@ pub async fn get_current_user(
         provider_name: auth_user.provider_name,
         is_admin,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/me/linked-identities",
+    tag = "auth",
+    responses(
+        (status = 200, description = "Verified login identities linked to the current Rocket Sense user", body = LinkedIdentitiesResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_current_user_identities(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<LinkedIdentitiesResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    let identities = crate::auth::list_linked_auth_identities(pool, &auth_user)
+        .await
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .map(|identity| LinkedIdentityResponse {
+            provider_name: identity.provider_name,
+            provider_subject: identity.provider_subject,
+            email: identity.email,
+            created_at: identity.created_at,
+        })
+        .collect();
+
+    Ok(Json(LinkedIdentitiesResponse { identities }))
 }
 
 fn auth_options_response(
@@ -274,7 +322,7 @@ async fn finish_oauth_login(
     let provider = oauth_provider(&state, &provider)?;
     if provider.kind == OAuthProviderKind::Steam {
         let profile = finish_steam_login(&provider, &headers, &query).await?;
-        return finish_provider_login(&state, &provider, profile);
+        return finish_provider_login(&state, &provider, profile).await;
     }
 
     if let Some(error) = query.get("error") {
@@ -302,10 +350,10 @@ async fn finish_oauth_login(
     }
 
     let profile = exchange_oauth_code_for_profile(&provider, code, &expected_nonce).await?;
-    finish_provider_login(&state, &provider, profile)
+    finish_provider_login(&state, &provider, profile).await
 }
 
-fn finish_provider_login(
+async fn finish_provider_login(
     state: &AppState,
     provider: &OAuthProviderSettings,
     profile: OAuthProfile,
@@ -316,6 +364,13 @@ fn finish_provider_login(
         profile.email,
         profile.display_name,
     )?;
+    let user = if let Some(pool) = &state.db {
+        crate::auth::persist_provider_login(pool, user, &state.admin_emails)
+            .await
+            .map_err(|_| AuthError::internal("failed to persist authenticated identity"))?
+    } else {
+        user
+    };
     let token = issue_access_token(&user, &state.app_jwt_secret)?;
     let secure = provider.public_base_url.starts_with("https://");
     let session_cookie = session_cookie(&token.access_token, secure);

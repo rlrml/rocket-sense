@@ -71,6 +71,14 @@ separate concepts. The deployed app uses OAuth login providers. The API
 validates Rocket Sense bearer/session JWTs issued after provider verification
 and maps provider identity to internal `users` rows.
 
+Verified login identities are stored in `auth_identities` and can be queried
+for the current user through `/api/v1/me/linked-identities`. OAuth providers
+with a verified email can converge on the same Rocket Sense user through that
+email. Platform-only identities such as Epic Games, Xbox, and Steam are only
+reported after Rocket Sense has verified that specific provider login or an
+existing database link already associates the identity with the user; the app
+does not enumerate private third-party account connections from Epic.
+
 The initial implementation has explicit development auth only:
 
 ```sh
