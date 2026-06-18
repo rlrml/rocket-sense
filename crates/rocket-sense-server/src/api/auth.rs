@@ -6,7 +6,7 @@ use crate::{
 use axum::{
     extract::{Path, Query, State},
     http::{header::SET_COOKIE, HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Redirect, Response},
+    response::{AppendHeaders, Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Json, Router,
 };
@@ -37,6 +37,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/options", get(auth_options))
         .route("/auth/dev-token", post(create_dev_token))
         .route("/auth/profile-token", post(create_profile_token))
+        .route("/auth/logout", post(logout))
         .route("/me", get(get_current_user))
 }
 
@@ -117,6 +118,24 @@ pub async fn create_profile_token(
     State(state): State<AppState>,
 ) -> Result<Json<AccessToken>, AuthError> {
     issue_access_token(&auth_user, &state.app_jwt_secret).map(Json)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/auth/logout",
+    tag = "auth",
+    responses(
+        (status = 204, description = "Browser session cookie cleared")
+    )
+)]
+pub async fn logout() -> impl IntoResponse {
+    (
+        StatusCode::NO_CONTENT,
+        AppendHeaders([
+            (SET_COOKIE, clear_session_cookie(false)),
+            (SET_COOKIE, clear_session_cookie(true)),
+        ]),
+    )
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -1031,6 +1050,10 @@ fn session_cookie(token: &str, secure: bool) -> String {
         "/",
         true,
     )
+}
+
+fn clear_session_cookie(secure: bool) -> String {
+    cookie(SESSION_COOKIE, "", 0, secure, "/", true)
 }
 
 fn cookie(

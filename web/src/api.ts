@@ -32,6 +32,7 @@ const replayCacheKey = "rocket_sense_replay_cache";
 const replayEventsCacheKey = "rocket_sense_replay_events_cache";
 const eventPageSize = 5000;
 const maxReplayEvents = 50000;
+export const authChangeEvent = "rocket-sense-auth-change";
 
 type ApiRequestOptions = RequestInit & {
   includeAccessToken?: boolean;
@@ -43,10 +44,25 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string): void {
   localStorage.setItem(tokenKey, token);
+  window.dispatchEvent(new Event(authChangeEvent));
 }
 
 export function clearAccessToken(): void {
   localStorage.removeItem(tokenKey);
+  window.dispatchEvent(new Event(authChangeEvent));
+}
+
+export async function logout(): Promise<void> {
+  try {
+    await fetch("/api/v1/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+    });
+  } catch {
+    // Local logout should still complete if the session-clearing request fails.
+  } finally {
+    clearAccessToken();
+  }
 }
 
 async function request<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {

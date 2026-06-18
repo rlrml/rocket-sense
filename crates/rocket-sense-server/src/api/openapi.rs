@@ -19,6 +19,7 @@ use utoipa::{
         auth::auth_options,
         auth::create_dev_token,
         auth::create_profile_token,
+        auth::logout,
         auth::get_current_user,
         ballchasing::load_ballchasing_replay,
         ballchasing::proxy_ballchasing_replay_file,
