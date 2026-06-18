@@ -5194,6 +5194,10 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
+.provider-login-icon {
+  flex: 0 0 auto;
+}
+
 .provider-google {
   border-left: 4px solid #4285f4;
 }
@@ -5204,6 +5208,10 @@ tbody tr:last-child td {
 
 .provider-discord {
   border-left: 4px solid #5865f2;
+}
+
+.provider-epic {
+  border-left: 4px solid #313131;
 }
 
 .modal-fallback-link {

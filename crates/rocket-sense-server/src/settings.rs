@@ -25,11 +25,12 @@ pub enum OAuthProviderKind {
     Google,
     GitHub,
     Discord,
+    Epic,
 }
 
 impl OAuthProviderKind {
     pub fn all() -> &'static [Self] {
-        &[Self::Google, Self::GitHub, Self::Discord]
+        &[Self::Google, Self::GitHub, Self::Discord, Self::Epic]
     }
 
     pub fn id(self) -> &'static str {
@@ -37,6 +38,7 @@ impl OAuthProviderKind {
             Self::Google => "google",
             Self::GitHub => "github",
             Self::Discord => "discord",
+            Self::Epic => "epic",
         }
     }
 
@@ -45,6 +47,7 @@ impl OAuthProviderKind {
             Self::Google => "Google",
             Self::GitHub => "GitHub",
             Self::Discord => "Discord",
+            Self::Epic => "Epic Games",
         }
     }
 }
@@ -245,6 +248,11 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
             OAuthProviderKind::Discord,
             "DISCORD_OAUTH_CLIENT_ID",
             "DISCORD_OAUTH_CLIENT_SECRET",
+        ),
+        (
+            OAuthProviderKind::Epic,
+            "EPIC_OAUTH_CLIENT_ID",
+            "EPIC_OAUTH_CLIENT_SECRET",
         ),
     ]
     .into_iter()
