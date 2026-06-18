@@ -26,6 +26,7 @@ pub enum OAuthProviderKind {
     GitHub,
     Discord,
     Epic,
+    Xbox,
     Steam,
 }
 
@@ -36,6 +37,7 @@ impl OAuthProviderKind {
             Self::GitHub,
             Self::Discord,
             Self::Epic,
+            Self::Xbox,
             Self::Steam,
         ]
     }
@@ -46,6 +48,7 @@ impl OAuthProviderKind {
             Self::GitHub => "github",
             Self::Discord => "discord",
             Self::Epic => "epic",
+            Self::Xbox => "xbox",
             Self::Steam => "steam",
         }
     }
@@ -56,6 +59,7 @@ impl OAuthProviderKind {
             Self::GitHub => "GitHub",
             Self::Discord => "Discord",
             Self::Epic => "Epic Games",
+            Self::Xbox => "Xbox",
             Self::Steam => "Steam",
         }
     }
@@ -262,6 +266,11 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
             OAuthProviderKind::Epic,
             "EPIC_OAUTH_CLIENT_ID",
             "EPIC_OAUTH_CLIENT_SECRET",
+        ),
+        (
+            OAuthProviderKind::Xbox,
+            "XBOX_OAUTH_CLIENT_ID",
+            "XBOX_OAUTH_CLIENT_SECRET",
         ),
     ]
     .into_iter()

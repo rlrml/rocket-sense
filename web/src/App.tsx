@@ -4424,6 +4424,7 @@ interface AccessTokenClaims {
   iss?: string;
   sub?: string;
   email?: string;
+  display_name?: string;
   provider_name?: string;
   provider_subject?: string;
   iat?: number;
@@ -4467,6 +4468,8 @@ function providerLabel(provider: string): string {
       return "Discord";
     case "epic":
       return "Epic Games";
+    case "xbox":
+      return "Xbox";
     case "steam":
       return "Steam";
     default:
@@ -4712,7 +4715,7 @@ function legacyAuthOptions(): AuthOptionsResponse {
   return {
     mode: "oauth",
     login_url: `${deployedOrigin}/login`,
-    providers: ["google", "github", "discord", "epic", "steam"].map((id) => ({
+    providers: ["google", "github", "discord", "epic", "xbox", "steam"].map((id) => ({
       id,
       label: providerLabel(id),
       configured: true,

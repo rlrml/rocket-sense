@@ -471,6 +471,28 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name = "XBOX_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "XBOX_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "XBOX_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "XBOX_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
             name = "STEAM_WEB_API_KEY"
             value_from {
               secret_key_ref {
@@ -685,6 +707,28 @@ resource "kubernetes_deployment_v1" "worker" {
               secret_key_ref {
                 name     = "rocket-sense-secrets"
                 key      = "EPIC_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "XBOX_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "XBOX_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "XBOX_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "XBOX_OAUTH_CLIENT_SECRET"
                 optional = true
               }
             }

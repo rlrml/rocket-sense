@@ -46,6 +46,8 @@ at least these keys:
 - `DISCORD_OAUTH_CLIENT_SECRET`
 - `EPIC_OAUTH_CLIENT_ID`
 - `EPIC_OAUTH_CLIENT_SECRET`
+- `XBOX_OAUTH_CLIENT_ID`
+- `XBOX_OAUTH_CLIENT_SECRET`
 - `STEAM_WEB_API_KEY`
 
 Terraform references that Secret by name but never reads or stores the values.
@@ -101,9 +103,16 @@ For now:
   - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
   - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
   - Epic Games: `https://rocket-sense.duckdns.org/auth/epic/callback`
+  - Xbox: `https://rocket-sense.duckdns.org/auth/xbox/callback`
 - Steam login uses Steam OpenID. Store the generated Steam Web API key as
   `STEAM_WEB_API_KEY`; the registered Steam domain should be
   `rocket-sense.duckdns.org`.
+- Xbox OAuth credentials come from a Microsoft Entra app registration named
+  `Rocket Sense`, configured for personal Microsoft accounts only, with a web
+  platform redirect URI of
+  `https://rocket-sense.duckdns.org/auth/xbox/callback`. Store the application
+  client ID as `XBOX_OAUTH_CLIENT_ID` and a client secret value as
+  `XBOX_OAUTH_CLIENT_SECRET`.
 
 This leaves room to move edge routing into Kubernetes later by adding an ingress
 controller and Terraform-managed Ingress resources.

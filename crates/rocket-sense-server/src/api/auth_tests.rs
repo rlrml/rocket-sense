@@ -33,6 +33,10 @@ fn auth_options_reports_mode_and_configured_oauth_providers() {
     assert!(response
         .providers
         .iter()
+        .any(|provider| provider.id == "xbox" && provider.label == "Xbox"));
+    assert!(response
+        .providers
+        .iter()
         .any(|provider| provider.id == "steam" && provider.label == "Steam"));
 }
 

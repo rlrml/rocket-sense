@@ -122,7 +122,8 @@ pub async fn create_profile_token(
 #[derive(Debug, Serialize, ToSchema)]
 pub struct CurrentUserResponse {
     pub id: Uuid,
-    pub email: String,
+    pub email: Option<String>,
+    pub display_name: String,
     pub provider_name: String,
     pub is_admin: bool,
 }
@@ -153,6 +154,7 @@ pub async fn get_current_user(
     Ok(Json(CurrentUserResponse {
         id: auth_user.id,
         email: auth_user.email,
+        display_name: auth_user.display_name,
         provider_name: auth_user.provider_name,
         is_admin,
     }))
@@ -215,6 +217,10 @@ async fn start_oauth_login(
             .query_pairs_mut()
             .append_pair("nonce", &nonce)
             .append_pair("prompt", "select_account");
+    } else if provider.kind == OAuthProviderKind::Xbox {
+        authorize_url
+            .query_pairs_mut()
+            .append_pair("prompt", "select_account");
     }
     let cookie = oauth_state_cookie(&provider, &csrf_state, &nonce);
 
@@ -270,8 +276,12 @@ fn finish_provider_login(
     provider: &OAuthProviderSettings,
     profile: OAuthProfile,
 ) -> Result<Response, AuthError> {
-    let user =
-        AuthUser::from_provider_identity(provider.kind.id(), &profile.subject, profile.email)?;
+    let user = AuthUser::from_provider_identity(
+        provider.kind.id(),
+        &profile.subject,
+        profile.email,
+        profile.display_name,
+    )?;
     let token = issue_access_token(&user, &state.app_jwt_secret)?;
     let secure = provider.public_base_url.starts_with("https://");
     let session_cookie = session_cookie(&token.access_token, secure);
@@ -340,7 +350,8 @@ struct OAuthTokenResponse {
 #[derive(Debug)]
 struct OAuthProfile {
     subject: String,
-    email: String,
+    email: Option<String>,
+    display_name: Option<String>,
 }
 
 fn authorize_url(kind: OAuthProviderKind) -> &'static str {
@@ -349,6 +360,9 @@ fn authorize_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/authorize",
         OAuthProviderKind::Discord => "https://discord.com/oauth2/authorize",
         OAuthProviderKind::Epic => "https://www.epicgames.com/id/authorize",
+        OAuthProviderKind::Xbox => {
+            "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize"
+        }
         OAuthProviderKind::Steam => STEAM_OPENID_ENDPOINT,
     }
 }
@@ -359,6 +373,7 @@ fn token_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/access_token",
         OAuthProviderKind::Discord => "https://discord.com/api/oauth2/token",
         OAuthProviderKind::Epic => "https://api.epicgames.dev/epic/oauth/v2/token",
+        OAuthProviderKind::Xbox => "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
         OAuthProviderKind::Steam => STEAM_OPENID_ENDPOINT,
     }
 }
@@ -369,6 +384,7 @@ fn oauth_scope(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::GitHub => "read:user user:email",
         OAuthProviderKind::Discord => "identify email",
         OAuthProviderKind::Epic => "basic_profile",
+        OAuthProviderKind::Xbox => "xboxlive.signin",
         OAuthProviderKind::Steam => "",
     }
 }
@@ -384,7 +400,8 @@ async fn exchange_oauth_code_for_profile(
             let google_user = verify_google_id_token(provider, &id_token, expected_nonce).await?;
             Ok(OAuthProfile {
                 subject: google_user.sub,
-                email: google_user.email,
+                email: Some(google_user.email.clone()),
+                display_name: Some(google_user.email),
             })
         }
         OAuthProviderKind::GitHub => {
@@ -398,6 +415,10 @@ async fn exchange_oauth_code_for_profile(
         OAuthProviderKind::Epic => {
             let access_token = exchange_epic_code(provider, code).await?;
             fetch_epic_profile(&access_token).await
+        }
+        OAuthProviderKind::Xbox => {
+            let access_token = exchange_oauth_code(provider, code).await?;
+            fetch_xbox_profile(&access_token).await
         }
         OAuthProviderKind::Steam => Err(AuthError::internal(
             "Steam uses OpenID, not OAuth code flow",
@@ -604,7 +625,8 @@ async fn fetch_github_profile(access_token: &str) -> Result<OAuthProfile, AuthEr
 
     Ok(OAuthProfile {
         subject: user.id.to_string(),
-        email,
+        email: Some(email.clone()),
+        display_name: Some(email),
     })
 }
 
@@ -666,7 +688,8 @@ async fn fetch_discord_profile(access_token: &str) -> Result<OAuthProfile, AuthE
 
     Ok(OAuthProfile {
         subject: user.id,
-        email,
+        email: Some(email.clone()),
+        display_name: Some(email),
     })
 }
 
@@ -699,7 +722,8 @@ async fn fetch_epic_profile(access_token: &str) -> Result<OAuthProfile, AuthErro
         .ok_or_else(|| AuthError::unauthorized("Epic profile response had no subject"))?;
 
     Ok(OAuthProfile {
-        email: synthetic_epic_email(&subject),
+        email: Some(synthetic_epic_email(&subject)),
+        display_name: Some("Epic Games player".to_owned()),
         subject,
     })
 }
@@ -716,6 +740,126 @@ fn synthetic_epic_email(subject: &str) -> String {
         &local_part
     };
     format!("epic+{local_part}@users.rocket-sense.invalid")
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxUserTokenResponse {
+    #[serde(rename = "Token")]
+    token: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxXstsTokenResponse {
+    #[serde(rename = "DisplayClaims")]
+    display_claims: XboxDisplayClaims,
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxDisplayClaims {
+    xui: Vec<XboxUserClaim>,
+}
+
+#[derive(Debug, Deserialize)]
+struct XboxUserClaim {
+    #[serde(default)]
+    xid: Option<String>,
+    #[serde(default)]
+    uhs: Option<String>,
+    #[serde(default)]
+    gtg: Option<String>,
+}
+
+async fn fetch_xbox_profile(access_token: &str) -> Result<OAuthProfile, AuthError> {
+    let client = reqwest::Client::new();
+    let user_token = fetch_xbox_user_token(&client, access_token).await?;
+    let xsts = fetch_xbox_xsts_token(&client, &user_token.token).await?;
+    let user_claim = xsts
+        .display_claims
+        .xui
+        .into_iter()
+        .next()
+        .ok_or_else(|| AuthError::unauthorized("Xbox XSTS response had no user identity"))?;
+    let xuid = user_claim
+        .xid
+        .ok_or_else(|| AuthError::unauthorized("Xbox XSTS response had no XUID"))?;
+    let display_name = user_claim
+        .gtg
+        .or(user_claim.uhs)
+        .map(|identifier| format!("Xbox {identifier}"))
+        .unwrap_or_else(|| format!("Xbox {xuid}"));
+
+    Ok(OAuthProfile {
+        subject: xuid,
+        email: None,
+        display_name: Some(display_name),
+    })
+}
+
+async fn fetch_xbox_user_token(
+    client: &reqwest::Client,
+    access_token: &str,
+) -> Result<XboxUserTokenResponse, AuthError> {
+    let response = client
+        .post("https://user.auth.xboxlive.com/user/authenticate")
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "RelyingParty": "http://auth.xboxlive.com",
+            "TokenType": "JWT",
+            "Properties": {
+                "AuthMethod": "RPS",
+                "SiteName": "user.auth.xboxlive.com",
+                "RpsTicket": format!("d={access_token}"),
+            },
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            AuthError::unauthorized("failed to exchange Microsoft token for Xbox token")
+        })?;
+
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Xbox user token request was rejected",
+        ));
+    }
+
+    response
+        .json::<XboxUserTokenResponse>()
+        .await
+        .map_err(|_| AuthError::unauthorized("Xbox user token response was invalid"))
+}
+
+async fn fetch_xbox_xsts_token(
+    client: &reqwest::Client,
+    user_token: &str,
+) -> Result<XboxXstsTokenResponse, AuthError> {
+    let response = client
+        .post("https://xsts.auth.xboxlive.com/xsts/authorize")
+        .header("x-xbl-contract-version", "1")
+        .json(&serde_json::json!({
+            "RelyingParty": "http://xboxlive.com",
+            "TokenType": "JWT",
+            "Properties": {
+                "SandboxId": "RETAIL",
+                "UserTokens": [user_token],
+            },
+        }))
+        .send()
+        .await
+        .map_err(|_| {
+            AuthError::unauthorized("failed to exchange Xbox user token for XSTS token")
+        })?;
+
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Xbox XSTS token request was rejected",
+        ));
+    }
+
+    response
+        .json::<XboxXstsTokenResponse>()
+        .await
+        .map_err(|_| AuthError::unauthorized("Xbox XSTS token response was invalid"))
 }
 
 async fn finish_steam_login(
@@ -736,7 +880,8 @@ async fn finish_steam_login(
     let steam_id = verify_steam_openid(query).await?;
 
     Ok(OAuthProfile {
-        email: synthetic_steam_email(&steam_id),
+        email: Some(synthetic_steam_email(&steam_id)),
+        display_name: Some(format!("Steam {steam_id}")),
         subject: steam_id,
     })
 }

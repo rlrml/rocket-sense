@@ -22,7 +22,8 @@ const TOKEN_ISSUER: &str = "rocket-sense";
 #[derive(Debug, Clone)]
 pub struct AuthUser {
     pub id: Uuid,
-    pub email: String,
+    pub email: Option<String>,
+    pub display_name: String,
     pub provider_name: String,
     pub provider_subject: String,
 }
@@ -42,27 +43,32 @@ impl AuthUser {
             id: stable_user_id("dev", &normalized_email),
             provider_name: "dev".to_owned(),
             provider_subject: normalized_email.clone(),
-            email: normalized_email,
+            email: Some(normalized_email.clone()),
+            display_name: normalized_email,
         })
     }
 
     pub fn from_provider_identity(
         provider: &str,
         subject: &str,
-        email: String,
+        email: Option<String>,
+        display_name: Option<String>,
     ) -> Result<Self, AuthError> {
-        let normalized_email = email.trim().to_lowercase();
-        if normalized_email.is_empty() {
-            return Err(AuthError::unauthorized(format!(
-                "{provider} account has no email"
-            )));
-        }
+        let normalized_email = email
+            .map(|email| email.trim().to_lowercase())
+            .filter(|email| !email.is_empty());
+        let display_name = display_name
+            .map(|display_name| display_name.trim().to_owned())
+            .filter(|display_name| !display_name.is_empty())
+            .or_else(|| normalized_email.clone())
+            .unwrap_or_else(|| format!("{provider}:{subject}"));
 
         Ok(Self {
             id: stable_user_id(provider, subject),
             provider_name: provider.to_owned(),
             provider_subject: subject.to_owned(),
             email: normalized_email,
+            display_name,
         })
     }
 
@@ -80,9 +86,17 @@ impl AuthUser {
         let user_id = Uuid::parse_str(&token.claims.sub)
             .map_err(|_| AuthError::unauthorized("bearer token subject is not a user id"))?;
 
+        let email = token.claims.email;
+        let display_name = token
+            .claims
+            .display_name
+            .or_else(|| email.clone())
+            .unwrap_or_else(|| user_id.to_string());
+
         Ok(Self {
             id: user_id,
-            email: token.claims.email,
+            email,
+            display_name,
             provider_name: token
                 .claims
                 .provider_name
@@ -99,7 +113,10 @@ impl AuthUser {
 struct AccessTokenClaims {
     iss: String,
     sub: String,
-    email: String,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    display_name: Option<String>,
     #[serde(default)]
     provider_name: Option<String>,
     #[serde(default)]
@@ -127,6 +144,7 @@ pub fn issue_access_token(user: &AuthUser, secret: &str) -> Result<AccessToken, 
         iss: TOKEN_ISSUER.to_owned(),
         sub: user.id.to_string(),
         email: user.email.clone(),
+        display_name: Some(user.display_name.clone()),
         provider_name: Some(user.provider_name.clone()),
         provider_subject: Some(user.provider_subject.clone()),
         iat: issued_at.timestamp() as usize,
@@ -260,23 +278,27 @@ pub async fn resolve_is_admin(
     user: &AuthUser,
     admin_emails: &[String],
 ) -> Result<bool, sqlx::Error> {
-    let seed_admin = admin_emails
-        .iter()
-        .any(|email| email.eq_ignore_ascii_case(&user.email));
+    let seed_admin = admin_emails.iter().any(|email| {
+        user.email
+            .as_deref()
+            .is_some_and(|user_email| email.eq_ignore_ascii_case(user_email))
+    });
 
     let is_admin: bool = sqlx::query_scalar(
         r#"
         INSERT INTO users (id, primary_email, display_name, is_admin)
-        VALUES ($1, $2, $2, $3)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (id) DO UPDATE
         SET is_admin = users.is_admin OR EXCLUDED.is_admin,
             primary_email = EXCLUDED.primary_email,
+            display_name = COALESCE(users.display_name, EXCLUDED.display_name),
             updated_at = now()
         RETURNING is_admin
         "#,
     )
     .bind(user.id)
     .bind(&user.email)
+    .bind(&user.display_name)
     .bind(seed_admin)
     .fetch_one(pool)
     .await?;
@@ -319,7 +341,8 @@ mod tests {
         let user = AuthUser::from_access_token(&token.access_token, "test-secret")
             .expect("dev token should validate");
 
-        assert_eq!(user.email, "smoke@test.example");
+        assert_eq!(user.email.as_deref(), Some("smoke@test.example"));
+        assert_eq!(user.display_name, "smoke@test.example");
         assert_eq!(user.provider_name, "dev");
         assert_eq!(user.provider_subject, "smoke@test.example");
         assert_eq!(user.id, stable_user_id("dev", "smoke@test.example"));
@@ -353,6 +376,7 @@ mod tests {
             iss: TOKEN_ISSUER.to_owned(),
             sub: user.id.to_string(),
             email: user.email,
+            display_name: Some(user.display_name),
             provider_name: Some(user.provider_name),
             provider_subject: Some(user.provider_subject),
             iat: issued_at.timestamp() as usize,
