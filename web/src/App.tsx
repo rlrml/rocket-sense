@@ -41,6 +41,7 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
+import { siEpicgames } from "simple-icons";
 import {
   addReplaysToGroup,
   clearAccessToken,
@@ -4464,9 +4465,29 @@ function providerLabel(provider: string): string {
       return "GitHub";
     case "discord":
       return "Discord";
+    case "epic":
+      return "Epic Games";
     default:
       return provider;
   }
+}
+
+function ProviderLoginIcon({ providerId }: { providerId: string }) {
+  if (providerId === "epic") {
+    return (
+      <svg
+        className="provider-login-icon"
+        viewBox="0 0 24 24"
+        width="16"
+        height="16"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path d={siEpicgames.path} fill="currentColor" />
+      </svg>
+    );
+  }
+  return <LogIn size={16} />;
 }
 
 function LoginModal({
@@ -4638,7 +4659,7 @@ function LoginModal({
                     onClick={() => startOauth(provider)}
                     disabled={oauthProviderId != null}
                   >
-                    <LogIn size={16} />
+                    <ProviderLoginIcon providerId={provider.id} />
                     <span>Continue with {provider.label}</span>
                   </button>
                 ))
@@ -4688,7 +4709,7 @@ function legacyAuthOptions(): AuthOptionsResponse {
   return {
     mode: "oauth",
     login_url: `${deployedOrigin}/login`,
-    providers: ["google", "github", "discord"].map((id) => ({
+    providers: ["google", "github", "discord", "epic"].map((id) => ({
       id,
       label: providerLabel(id),
       configured: true,

@@ -26,4 +26,16 @@ fn auth_options_reports_mode_and_configured_oauth_providers() {
         .providers
         .iter()
         .any(|provider| provider.id == "google" && !provider.configured));
+    assert!(response
+        .providers
+        .iter()
+        .any(|provider| provider.id == "epic" && !provider.configured));
+}
+
+#[test]
+fn epic_synthetic_email_is_stable_and_internal() {
+    assert_eq!(
+        synthetic_epic_email("abc-123.def"),
+        "epic+abc123def@users.rocket-sense.invalid"
+    );
 }

@@ -302,6 +302,7 @@ fn authorize_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::Google => "https://accounts.google.com/o/oauth2/v2/auth",
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/authorize",
         OAuthProviderKind::Discord => "https://discord.com/oauth2/authorize",
+        OAuthProviderKind::Epic => "https://www.epicgames.com/id/authorize",
     }
 }
 
@@ -310,6 +311,7 @@ fn token_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::Google => "https://oauth2.googleapis.com/token",
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/access_token",
         OAuthProviderKind::Discord => "https://discord.com/api/oauth2/token",
+        OAuthProviderKind::Epic => "https://api.epicgames.dev/epic/oauth/v2/token",
     }
 }
 
@@ -318,6 +320,7 @@ fn oauth_scope(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::Google => "openid email profile",
         OAuthProviderKind::GitHub => "read:user user:email",
         OAuthProviderKind::Discord => "identify email",
+        OAuthProviderKind::Epic => "basic_profile",
     }
 }
 
@@ -342,6 +345,10 @@ async fn exchange_oauth_code_for_profile(
         OAuthProviderKind::Discord => {
             let access_token = exchange_oauth_code(provider, code).await?;
             fetch_discord_profile(&access_token).await
+        }
+        OAuthProviderKind::Epic => {
+            let access_token = exchange_epic_code(provider, code).await?;
+            fetch_epic_profile(&access_token).await
         }
     }
 }
@@ -407,6 +414,36 @@ async fn exchange_oauth_code(
         .await
         .map(|response| response.access_token)
         .map_err(|_| AuthError::unauthorized("OAuth token response did not include access_token"))
+}
+
+async fn exchange_epic_code(
+    provider: &OAuthProviderSettings,
+    code: &str,
+) -> Result<String, AuthError> {
+    let response = reqwest::Client::new()
+        .post(token_url(provider.kind))
+        .header(reqwest::header::ACCEPT, "application/json")
+        .basic_auth(&provider.client_id, Some(&provider.client_secret))
+        .form(&[
+            ("code", code),
+            ("redirect_uri", provider.redirect_uri().as_str()),
+            ("grant_type", "authorization_code"),
+        ])
+        .send()
+        .await
+        .map_err(|_| AuthError::unauthorized("failed to exchange Epic authorization code"))?;
+
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Epic authorization code exchange was rejected",
+        ));
+    }
+
+    response
+        .json::<OAuthTokenResponse>()
+        .await
+        .map(|response| response.access_token)
+        .map_err(|_| AuthError::unauthorized("Epic token response did not include access_token"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,6 +616,54 @@ async fn fetch_discord_profile(access_token: &str) -> Result<OAuthProfile, AuthE
         subject: user.id,
         email,
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct EpicUserInfoResponse {
+    sub: Option<String>,
+    account_id: Option<String>,
+    id: Option<String>,
+}
+
+async fn fetch_epic_profile(access_token: &str) -> Result<OAuthProfile, AuthError> {
+    let response = reqwest::Client::new()
+        .get("https://api.epicgames.dev/epic/oauth/v2/userInfo")
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .map_err(|_| AuthError::unauthorized("failed to fetch Epic profile"))?;
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized("Epic profile request was rejected"));
+    }
+
+    let user = response
+        .json::<EpicUserInfoResponse>()
+        .await
+        .map_err(|_| AuthError::unauthorized("Epic profile response was invalid"))?;
+    let subject = user
+        .sub
+        .or(user.account_id)
+        .or(user.id)
+        .ok_or_else(|| AuthError::unauthorized("Epic profile response had no subject"))?;
+
+    Ok(OAuthProfile {
+        email: synthetic_epic_email(&subject),
+        subject,
+    })
+}
+
+fn synthetic_epic_email(subject: &str) -> String {
+    let local_part: String = subject
+        .chars()
+        .filter(|ch| ch.is_ascii_alphanumeric())
+        .take(64)
+        .collect();
+    let local_part = if local_part.is_empty() {
+        "unknown"
+    } else {
+        &local_part
+    };
+    format!("epic+{local_part}@users.rocket-sense.invalid")
 }
 
 fn oauth_state_cookie(provider: &OAuthProviderSettings, state: &str, nonce: &str) -> String {

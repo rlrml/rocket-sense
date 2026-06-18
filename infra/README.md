@@ -44,6 +44,8 @@ at least these keys:
 - `GITHUB_OAUTH_CLIENT_SECRET`
 - `DISCORD_OAUTH_CLIENT_ID`
 - `DISCORD_OAUTH_CLIENT_SECRET`
+- `EPIC_OAUTH_CLIENT_ID`
+- `EPIC_OAUTH_CLIENT_SECRET`
 
 Terraform references that Secret by name but never reads or stores the values.
 
@@ -97,6 +99,7 @@ For now:
   - Google: `https://rocket-sense.duckdns.org/auth/google/callback`
   - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
   - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
+  - Epic Games: `https://rocket-sense.duckdns.org/auth/epic/callback`
 
 This leaves room to move edge routing into Kubernetes later by adding an ingress
 controller and Terraform-managed Ingress resources.

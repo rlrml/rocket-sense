@@ -449,6 +449,28 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name = "EPIC_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "EPIC_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "EPIC_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "EPIC_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
             name = "DATABASE_URL"
             value_from {
               secret_key_ref {
@@ -630,6 +652,28 @@ resource "kubernetes_deployment_v1" "worker" {
               secret_key_ref {
                 name     = "rocket-sense-secrets"
                 key      = "DISCORD_OAUTH_CLIENT_SECRET"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "EPIC_OAUTH_CLIENT_ID"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "EPIC_OAUTH_CLIENT_ID"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "EPIC_OAUTH_CLIENT_SECRET"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "EPIC_OAUTH_CLIENT_SECRET"
                 optional = true
               }
             }
