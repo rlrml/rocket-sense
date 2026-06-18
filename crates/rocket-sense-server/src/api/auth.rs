@@ -243,7 +243,7 @@ async fn finish_oauth_login(
             Html(format!(
                 "<h1>{} login failed</h1><p>{}</p>",
                 provider.kind.label(),
-                escape_html(&error)
+                escape_html(error)
             )),
         )
             .into_response());
@@ -261,7 +261,7 @@ async fn finish_oauth_login(
         return Err(AuthError::unauthorized("OAuth login state mismatch"));
     }
 
-    let profile = exchange_oauth_code_for_profile(&provider, &code, &expected_nonce).await?;
+    let profile = exchange_oauth_code_for_profile(&provider, code, &expected_nonce).await?;
     finish_provider_login(&state, &provider, profile)
 }
 
