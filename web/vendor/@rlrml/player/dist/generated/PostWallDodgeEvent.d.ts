@@ -1,4 +1,7 @@
 import type { RemoteIdTs } from "./RemoteIdTs.ts";
+/**
+ * A dodge shortly after leaving a wall.
+ */
 export type PostWallDodgeEvent = {
     time: number;
     frame: number;

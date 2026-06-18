@@ -1,4 +1,7 @@
 import type { RemoteIdTs } from "./RemoteIdTs.ts";
+/**
+ * A frame where a player's dodge/flip availability is refreshed.
+ */
 export type DodgeRefreshedEvent = {
     time: number;
     frame: number;

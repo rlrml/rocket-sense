@@ -1,4 +1,4 @@
-import { ReplayPlayer } from "./player";
+import { ReplayPlayer } from "./player/lib";
 import type { CameraSettings, LoadedReplay, PlaylistAdvanceMode, PlaylistEndMode, PlaylistItem, ReplayCameraViewMode, ReplayFreeCameraPreset, RawReplayFramesData, ReplayPlaylistPlayerOptions, ReplayPlaylistPlayerSnapshot, ReplayPlaylistPlayerState, ReplaySource, ResolvedPlaylistItem } from "./types";
 export { PlaylistLoadCache, PlaylistSession, createFullReplayPlaylistItem, createReplayBytesSource, createReplayFileSource, createReplayPathSource, createReplaySource, createStaticReplaySource, frameBound, timeBound, } from "./playlist-core";
 export type { FullReplayPlaylistItemOptions, PlaylistSessionOptions, PlaylistSessionState, } from "./playlist-core";
