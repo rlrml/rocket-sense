@@ -47,10 +47,3 @@ zstd = "0.13"
 
 rocket-sense-db = { path = "crates/rocket-sense-db" }
 rocket-sense-storage = { path = "crates/rocket-sense-storage" }
-
-# --- BEGIN synced [patch.crates-io] (managed by scripts/sync-subtr-actor) ---
-# Copied verbatim from vendor/subtr-actor/Cargo.toml so that subtr-actor is
-# the single place that controls patched crate revisions (e.g. boxcars).
-# Cargo only honors [patch] at the workspace root, hence the copy. Do not
-# edit by hand; run scripts/sync-subtr-actor instead.
-# --- END synced [patch.crates-io] ---
