@@ -2,14 +2,16 @@ import {
   createBallchasingOverlayPlugin,
   createBoostPadsPlugin,
   createNameTagPlugin,
-  createViewerFromParsed,
+  createPlayerFromParsed,
   fromReplayPlayerPlugin,
   type ReplayModel,
-  type ViewerFreeCameraPreset,
-  type ViewerPlayer,
-} from "@rlrml/viewer";
+  type PlayerFreeCameraPreset,
+  type ReplayPlayer,
+} from "@rlrml/player";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { contactCaptureMoment, setContactOverheadCamera } from "./contactCamera";
+import { PLAYER_ASSET_BASE } from "./playerAssets";
 import { preloadReplay, preloadReplayModel } from "./replayModel";
 
 // Re-exported for existing importers; the loader itself now lives in replayModel.ts
@@ -33,7 +35,9 @@ export interface EventClipCameraControls {
     ballCam?: boolean;
   }): boolean;
   /** Switch to a free-roaming camera preset (defaults to "side"). */
-  freeCamera(preset?: ViewerFreeCameraPreset): void;
+  freeCamera(preset?: PlayerFreeCameraPreset): void;
+  /** Switch to the kickoff-contact overhead view centered on the ball at a frame. */
+  overheadAtFrame(frameIndex: number | null | undefined): void;
 }
 
 /**
@@ -66,6 +70,10 @@ export type EventClipEndResolver = (replay: ReplayModel, nominalEnd: number) => 
 export interface EventClip {
   start: number;
   end: number;
+  /** Playback rate for this clip; defaults to normal speed. */
+  playbackRate?: number;
+  /** Position interpolation mode for this clip; defaults to the player's smooth interpolation. */
+  motionInterpolation?: "hermite" | "linear";
   /** Optional caller-defined resolver for starts that can only be pinned down after the replay is parsed. */
   resolveStart?: EventClipStartResolver;
   /** Optional caller-defined resolver for ends that can only be pinned down after the replay is parsed. */
@@ -137,15 +145,14 @@ export function EventClipPlayer({
   onClipEnd,
 }: EventClipPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<ViewerPlayer | null>(null);
+  const playerRef = useRef<ReplayPlayer | null>(null);
   const loopRef = useRef<{ start: number; end: number } | null>(null);
   const clipRef = useRef<EventClip | null>(clip);
   clipRef.current = clip;
   const onClipEndRef = useRef<EventClipPlayerProps["onClipEnd"]>(onClipEnd);
   onClipEndRef.current = onClipEnd;
-  // Key of the clip most recently applied to the live player. A re-apply with the
-  // same key (e.g. a perspective/camera change) keeps the playback position; only
-  // a new key restarts the loop from its start.
+  // Key of the clip most recently applied to the live player. Consumers include
+  // camera/perspective state in this key when switching views should restart.
   const appliedClipKeyRef = useRef<string | null>(null);
   const renderStatsRef = useRef({ count: 0, frameIndex: -1, time: -1 });
   // Lower-cased player remote id -> player track id, for event-focused camera targets.
@@ -260,8 +267,18 @@ export function EventClipPlayer({
       freeCamera(preset) {
         player.setFreeCameraPreset(preset ?? "side");
       },
+      overheadAtFrame(frameIndex) {
+        if (frameIndex == null) {
+          player.setFreeCameraPreset("overhead", { instant: true });
+          return;
+        }
+        const capture = contactCaptureMoment(replay, frameIndex);
+        setContactOverheadCamera(player, capture.ballPosition);
+      },
     };
     target.camera(cameraControls);
+    player.setPlaybackRate(target.playbackRate ?? 1);
+    player.setMotionInterpolation(target.motionInterpolation ?? "hermite");
     if (appliedClipKeyRef.current !== target.key) {
       player.seek(start);
     }
@@ -272,7 +289,7 @@ export function EventClipPlayer({
   // Load the replay and create the player once per replay id.
   useEffect(() => {
     let cancelled = false;
-    let player: ViewerPlayer | null = null;
+    let player: ReplayPlayer | null = null;
     let unsubscribe: (() => void) | null = null;
     let unsubscribeBeforeRender: (() => void) | null = null;
     // Watchdog independent of the render loop: guarantees the clip keeps looping
@@ -312,7 +329,8 @@ export function EventClipPlayer({
         }
         trackByPlayerKeyRef.current = trackByPlayerKey;
         trackByNameRef.current = trackByName;
-        player = createViewerFromParsed(containerRef.current, loadedReplay, {
+        player = createPlayerFromParsed(containerRef.current, loadedReplay, {
+          assetBase: PLAYER_ASSET_BASE,
           initialCameraViewMode: "free",
           initialPlaybackRate: 1,
           autoplay: false,
@@ -323,12 +341,6 @@ export function EventClipPlayer({
           // landing outside the requested event context.
           initialSkipKickoffsEnabled: false,
           initialSkipPostGoalTransitionsEnabled: false,
-          // The vendored player dist defaults its asset base to a *relative*
-          // path (right for its GitHub Pages deploy). Embedded at a nested SPA
-          // route that breaks: car/ball/draco URLs resolve against the route and
-          // 404. Pin to the origin root, where the backend serves /models and
-          // /draco (vite proxies both in dev).
-          assetBase: "/",
           // No skybox: the neutral background matches the prior inline player,
           // and /skyboxes isn't served at the root (only inside the standalone
           // player tree), so the default "space" HDR would just 404.
@@ -348,7 +360,7 @@ export function EventClipPlayer({
           // layer alive purely for that tagging and hide it in CSS
           // (.event-clip-canvas .sap-bc-floating-layer). The meter itself is
           // scaled down + pinned bottom-right (.event-clip-canvas .sap-bc-followed-*).
-          // createViewerFromParsed only auto-adds the camera plugin; the field
+          // createPlayerFromParsed only auto-adds the camera plugin; the field
           // boost pads are a separate opt-in plugin (createBoostPadsPlugin builds
           // a mesh per pad from the replay's boostPads). Without it the arena has
           // no pads at all — add it so the goal/kickoff clips show pickups.

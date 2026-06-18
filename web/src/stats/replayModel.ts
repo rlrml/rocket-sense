@@ -1,4 +1,4 @@
-import { loadReplay, type ReplayLoadResult, type ReplayModel } from "@rlrml/viewer";
+import { loadReplay, type ReplayLoadResult, type ReplayModel } from "@rlrml/player";
 import initSubtrActor, { get_stats_timeline_json } from "@rlrml/subtr-actor";
 
 // Parsing a replay is expensive, so cache the fully-decoded model per replay.
@@ -13,7 +13,7 @@ import initSubtrActor, { get_stats_timeline_json } from "@rlrml/subtr-actor";
 const replayLoadCache = new Map<string, Promise<ReplayLoadResult>>();
 
 // The standalone subtr-actor WASM (used for the stats-timeline scaffold below)
-// is a separate module from the one @rlrml/viewer drives for playback, so it
+// is a separate module from the one @rlrml/player drives for playback, so it
 // needs its own one-time wasm-bindgen init. Memoize it.
 let subtrActorReady: Promise<unknown> | null = null;
 function ensureSubtrActorReady(): Promise<unknown> {

@@ -3,7 +3,7 @@
 // tracks, downsample them, and project each sample onto the field via a
 // FieldProjection — only what they emphasize (taker/support vs. scorer) differs.
 
-import type { ReplayModel } from "@rlrml/viewer";
+import type { ReplayModel } from "@rlrml/player";
 import type { FieldProjection } from "./kickoffField";
 
 export interface PathPoint {

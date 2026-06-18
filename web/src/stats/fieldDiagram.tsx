@@ -5,7 +5,7 @@
 // keep only their own path-selection logic and hand a `FieldDiagramModel` to the
 // shared <FieldDiagramSurface>.
 
-import type { ReplayModel } from "@rlrml/viewer";
+import type { ReplayModel } from "@rlrml/player";
 import { type CSSProperties, type ReactNode, useEffect, useId, useState } from "react";
 import { type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
