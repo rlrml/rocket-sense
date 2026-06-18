@@ -807,18 +807,6 @@ function kickoffStrengthLabel(key: string): string {
   }
 }
 
-function orderTimeShares(
-  shares: RotationTimeShareResponse[],
-  prefix: string,
-  order: string[],
-): RotationTimeShareResponse[] {
-  return shares
-    .slice()
-    .sort(
-      (left, right) => orderIndex(left.key, prefix, order) - orderIndex(right.key, prefix, order),
-    );
-}
-
 function orderTimeSharesBySuffix(
   shares: RotationTimeShareResponse[],
   suffixForKey: (key: string) => string,
@@ -831,11 +819,6 @@ function orderTimeSharesBySuffix(
         orderSuffixIndex(suffixForKey(left.key), order) -
         orderSuffixIndex(suffixForKey(right.key), order),
     );
-}
-
-function orderIndex(key: string, prefix: string, order: string[]): number {
-  const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : key;
-  return orderSuffixIndex(suffix, order);
 }
 
 function orderSuffixIndex(suffix: string, order: string[]): number {
