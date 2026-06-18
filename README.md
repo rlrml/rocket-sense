@@ -26,7 +26,7 @@ just web-dev
 ```
 
 Vite serves the SPA at `http://127.0.0.1:5173` and proxies `/api`, `/auth`,
-`/login`, and `/subtr-actor` to `https://rocket-sense.duckdns.org`.
+and `/subtr-actor` to `https://rocket-sense.duckdns.org`.
 Set `ROCKET_SENSE_WEB_API_TARGET=http://127.0.0.1:8080` before `just web-dev`
 when you want to point the SPA at a local Axum server instead. Use
 `just web-build` or `just web-typecheck` to validate the client.

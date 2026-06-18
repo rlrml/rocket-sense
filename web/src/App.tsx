@@ -241,6 +241,7 @@ export function App() {
             <Route path="/mechanics/review" element={<EventsReviewPage />} />
             <Route path="/admin/processing" element={<AdminProcessingPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/login" element={<AccountPage initialLoginOpen />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="*" element={<NotFoundPage />} />
           </Routes>
@@ -4186,12 +4187,12 @@ function reviewStatusLabel(value: string): string {
   return reviewStatusOptions.find((option) => option.value === value)?.label ?? value;
 }
 
-function AccountPage() {
+function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean }) {
   const [token, setToken] = useState(() => getAccessToken() ?? "");
   const [devEmail, setDevEmail] = useState("");
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(initialLoginOpen);
   const [creatingSessionToken, setCreatingSessionToken] = useState(false);
   const [creatingDevToken, setCreatingDevToken] = useState(false);
   const [copied, setCopied] = useState(false);
