@@ -1254,10 +1254,7 @@ fn build_missed_event_snapshot(
     reviewer_user_id: Uuid,
 ) -> Value {
     let mut frames = serde_json::Map::new();
-    frames.insert(
-        "event".to_owned(),
-        Value::from(request.reviewed_event_frame),
-    );
+    frames.insert("event".to_owned(), Value::from(request.reviewed_event_frame));
     if let Some(start) = request.reviewed_start_frame {
         frames.insert("start".to_owned(), Value::from(start));
     }
@@ -1274,7 +1271,10 @@ fn build_missed_event_snapshot(
     };
 
     let mut snapshot = serde_json::Map::new();
-    snapshot.insert("source".to_owned(), Value::from(MISSED_EVENT_REVIEW_SOURCE));
+    snapshot.insert(
+        "source".to_owned(),
+        Value::from(MISSED_EVENT_REVIEW_SOURCE),
+    );
     snapshot.insert("authored".to_owned(), Value::Bool(true));
     snapshot.insert("status".to_owned(), Value::from(status));
     snapshot.insert(

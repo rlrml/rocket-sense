@@ -738,7 +738,8 @@ fn missed_event_review_rejects_out_of_range_confidence() {
 fn missed_event_snapshot_records_source_subject_and_frames() {
     let request = missed_event_review_request();
     let reviewer = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();
-    let snapshot = build_missed_event_snapshot(&request, "flick", "confirmed", reviewer);
+    let snapshot =
+        build_missed_event_snapshot(&request, "flick", "confirmed", reviewer);
 
     assert_eq!(
         snapshot["source"].as_str(),
