@@ -40,7 +40,7 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { siEpicgames, siSteam } from "simple-icons";
+import { siDiscord, siEpicgames, siGithub, siGoogle, siSteam } from "simple-icons";
 import {
   addReplaysToGroup,
   clearAccessToken,
@@ -81,7 +81,7 @@ import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
-import { PlatformIcon } from "./platform";
+import { PlatformIcon, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
 import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
@@ -4478,9 +4478,18 @@ function providerLabel(provider: string): string {
   }
 }
 
+const providerLoginIconPaths: Record<string, string> = {
+  google: siGoogle.path,
+  github: siGithub.path,
+  discord: siDiscord.path,
+  epic: siEpicgames.path,
+  xbox: xboxBrandPath,
+  steam: siSteam.path,
+};
+
 function ProviderLoginIcon({ providerId }: { providerId: string }) {
-  if (providerId === "epic" || providerId === "steam") {
-    const path = providerId === "epic" ? siEpicgames.path : siSteam.path;
+  const path = providerLoginIconPaths[providerId];
+  if (path) {
     return (
       <svg
         className="provider-login-icon"
@@ -4494,7 +4503,7 @@ function ProviderLoginIcon({ providerId }: { providerId: string }) {
       </svg>
     );
   }
-  return <LogIn size={16} />;
+  return <LogIn size={16} className="provider-login-icon" />;
 }
 
 function LoginModal({
@@ -4676,10 +4685,6 @@ function LoginModal({
                 </p>
               )}
             </div>
-            <a className="secondary-button modal-fallback-link" href={options.login_url}>
-              <ExternalLink size={16} />
-              Full login page
-            </a>
           </div>
         ) : null}
 
