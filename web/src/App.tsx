@@ -40,7 +40,7 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { siEpicgames } from "simple-icons";
+import { siEpicgames, siSteam } from "simple-icons";
 import {
   addReplaysToGroup,
   clearAccessToken,
@@ -4467,13 +4467,16 @@ function providerLabel(provider: string): string {
       return "Discord";
     case "epic":
       return "Epic Games";
+    case "steam":
+      return "Steam";
     default:
       return provider;
   }
 }
 
 function ProviderLoginIcon({ providerId }: { providerId: string }) {
-  if (providerId === "epic") {
+  if (providerId === "epic" || providerId === "steam") {
+    const path = providerId === "epic" ? siEpicgames.path : siSteam.path;
     return (
       <svg
         className="provider-login-icon"
@@ -4483,7 +4486,7 @@ function ProviderLoginIcon({ providerId }: { providerId: string }) {
         aria-hidden="true"
         focusable="false"
       >
-        <path d={siEpicgames.path} fill="currentColor" />
+        <path d={path} fill="currentColor" />
       </svg>
     );
   }
@@ -4709,7 +4712,7 @@ function legacyAuthOptions(): AuthOptionsResponse {
   return {
     mode: "oauth",
     login_url: `${deployedOrigin}/login`,
-    providers: ["google", "github", "discord", "epic"].map((id) => ({
+    providers: ["google", "github", "discord", "epic", "steam"].map((id) => ({
       id,
       label: providerLabel(id),
       configured: true,

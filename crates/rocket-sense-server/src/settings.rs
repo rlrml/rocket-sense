@@ -26,11 +26,18 @@ pub enum OAuthProviderKind {
     GitHub,
     Discord,
     Epic,
+    Steam,
 }
 
 impl OAuthProviderKind {
     pub fn all() -> &'static [Self] {
-        &[Self::Google, Self::GitHub, Self::Discord, Self::Epic]
+        &[
+            Self::Google,
+            Self::GitHub,
+            Self::Discord,
+            Self::Epic,
+            Self::Steam,
+        ]
     }
 
     pub fn id(self) -> &'static str {
@@ -39,6 +46,7 @@ impl OAuthProviderKind {
             Self::GitHub => "github",
             Self::Discord => "discord",
             Self::Epic => "epic",
+            Self::Steam => "steam",
         }
     }
 
@@ -48,6 +56,7 @@ impl OAuthProviderKind {
             Self::GitHub => "GitHub",
             Self::Discord => "Discord",
             Self::Epic => "Epic Games",
+            Self::Steam => "Steam",
         }
     }
 }
@@ -266,6 +275,15 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
             public_base_url: public_base_url.to_owned(),
         })
     })
+    .chain(env::var("STEAM_WEB_API_KEY").ok().and_then(|api_key| {
+        let api_key = api_key.trim().to_owned();
+        (!api_key.is_empty()).then(|| OAuthProviderSettings {
+            kind: OAuthProviderKind::Steam,
+            client_id: api_key,
+            client_secret: String::new(),
+            public_base_url: public_base_url.to_owned(),
+        })
+    }))
     .collect()
 }
 

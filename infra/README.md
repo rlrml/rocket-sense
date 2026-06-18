@@ -46,6 +46,7 @@ at least these keys:
 - `DISCORD_OAUTH_CLIENT_SECRET`
 - `EPIC_OAUTH_CLIENT_ID`
 - `EPIC_OAUTH_CLIENT_SECRET`
+- `STEAM_WEB_API_KEY`
 
 Terraform references that Secret by name but never reads or stores the values.
 
@@ -100,6 +101,9 @@ For now:
   - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
   - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
   - Epic Games: `https://rocket-sense.duckdns.org/auth/epic/callback`
+- Steam login uses Steam OpenID. Store the generated Steam Web API key as
+  `STEAM_WEB_API_KEY`; the registered Steam domain should be
+  `rocket-sense.duckdns.org`.
 
 This leaves room to move edge routing into Kubernetes later by adding an ingress
 controller and Terraform-managed Ingress resources.
