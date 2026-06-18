@@ -18,58 +18,7 @@ fi
 resolved_rev="$(git -C "$subtr_actor_dir" rev-parse HEAD)"
 echo "Using subtr-actor $resolved_rev"
 
-# Mirror subtr-actor's [patch.crates-io] section into the workspace root
-# Cargo.toml. Cargo only honors [patch] at the workspace root, so vendored
-# subtr-actor's own patches (e.g. a forked boxcars rev) have no effect on this
-# workspace unless copied here. Keeping the copy mechanical makes subtr-actor
-# the single place that controls patched crate revisions.
-sync_crates_io_patch() {
-  local source_manifest="$subtr_actor_dir/Cargo.toml"
-  local target_manifest="$repo_root/Cargo.toml"
-  local begin_marker='# --- BEGIN synced [patch.crates-io] (managed by scripts/sync-subtr-actor) ---'
-  local end_marker='# --- END synced [patch.crates-io] ---'
-
-  # Extract the [patch.crates-io] section (preceding comment block included,
-  # body up to the next section header). $(...) trims trailing blank lines.
-  local patch_block
-  patch_block="$(awk '
-    in_section {
-      if (/^\[/) exit
-      print
-      next
-    }
-    /^#/ { buf = buf $0 "\n"; next }
-    /^\[patch\.crates-io\]$/ { printf "%s", buf; print; in_section = 1; next }
-    { buf = "" }
-  ' "$source_manifest")"
-
-  # Drop any existing synced region, then re-append it at EOF.
-  local stripped
-  stripped="$(awk -v begin="$begin_marker" -v end="$end_marker" '
-    $0 == begin { skipping = 1; next }
-    skipping { if ($0 == end) skipping = 0; next }
-    { print }
-  ' "$target_manifest")"
-
-  {
-    printf '%s\n\n' "$stripped"
-    printf '%s\n' "$begin_marker"
-    printf '%s\n' '# Copied verbatim from vendor/subtr-actor/Cargo.toml so that subtr-actor is'
-    printf '%s\n' '# the single place that controls patched crate revisions (e.g. boxcars).'
-    printf '%s\n' '# Cargo only honors [patch] at the workspace root, hence the copy. Do not'
-    printf '%s\n' '# edit by hand; run scripts/sync-subtr-actor instead.'
-    if [[ -n "$patch_block" ]]; then
-      printf '%s\n' "$patch_block"
-    fi
-    printf '%s\n' "$end_marker"
-  } > "$target_manifest.tmp"
-  mv "$target_manifest.tmp" "$target_manifest"
-}
-
-sync_crates_io_patch
-
-# Re-resolves the workspace, applying any [patch.crates-io] changes synced
-# above in addition to picking up the new subtr-actor rev.
+# Re-resolve the workspace so Cargo.lock picks up the new subtr-actor rev.
 cargo update -p subtr-actor
 nix flake update subtr-actor-src
 
@@ -119,7 +68,7 @@ printf '%s\n' "$resolved_rev" > "$static_dir/.subtr-actor-rev"
 (cd "$repo_root/web" && npm install)
 
 git -C "$repo_root" add -f \
-  .gitmodules Cargo.toml Cargo.lock flake.lock vendor/subtr-actor \
+  .gitmodules Cargo.lock flake.lock vendor/subtr-actor \
   "$repo_root/web/package.json" "$repo_root/web/package-lock.json"
 # The built web vendor packages and static player assets are NOT committed
 # (generated from the submodule flake — see their .gitignores). Only the
