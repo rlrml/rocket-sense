@@ -202,6 +202,21 @@ async fn start_oauth_login(
         return start_steam_login(&provider, &csrf_state, &nonce);
     }
 
+    let authorize_url = oauth_authorize_url(&provider, &csrf_state, &nonce)?;
+    let cookie = oauth_state_cookie(&provider, &csrf_state, &nonce);
+
+    Ok((
+        [(SET_COOKIE, cookie)],
+        Redirect::temporary(authorize_url.as_str()),
+    )
+        .into_response())
+}
+
+fn oauth_authorize_url(
+    provider: &OAuthProviderSettings,
+    csrf_state: &str,
+    nonce: &str,
+) -> Result<url::Url, AuthError> {
     let redirect_uri = provider.redirect_uri();
     let mut authorize_url = url::Url::parse(authorize_url(provider.kind))
         .map_err(|_| AuthError::internal("failed to build OAuth authorize URL"))?;
@@ -210,25 +225,25 @@ async fn start_oauth_login(
         .append_pair("client_id", &provider.client_id)
         .append_pair("redirect_uri", &redirect_uri)
         .append_pair("response_type", "code")
-        .append_pair("state", &csrf_state)
+        .append_pair("state", csrf_state)
         .append_pair("scope", oauth_scope(provider.kind));
     if provider.kind == OAuthProviderKind::Google {
         authorize_url
             .query_pairs_mut()
-            .append_pair("nonce", &nonce)
+            .append_pair("nonce", nonce)
             .append_pair("prompt", "select_account");
+    } else if provider.kind == OAuthProviderKind::Epic {
+        if let Some(deployment_id) = &provider.deployment_id {
+            authorize_url
+                .query_pairs_mut()
+                .append_pair("deployment_id", deployment_id);
+        }
     } else if provider.kind == OAuthProviderKind::Xbox {
         authorize_url
             .query_pairs_mut()
             .append_pair("prompt", "select_account");
     }
-    let cookie = oauth_state_cookie(&provider, &csrf_state, &nonce);
-
-    Ok((
-        [(SET_COOKIE, cookie)],
-        Redirect::temporary(authorize_url.as_str()),
-    )
-        .into_response())
+    Ok(authorize_url)
 }
 
 async fn finish_oauth_login(
@@ -493,15 +508,21 @@ async fn exchange_epic_code(
     provider: &OAuthProviderSettings,
     code: &str,
 ) -> Result<String, AuthError> {
+    let redirect_uri = provider.redirect_uri();
+    let mut form = vec![
+        ("code", code),
+        ("redirect_uri", redirect_uri.as_str()),
+        ("grant_type", "authorization_code"),
+    ];
+    if let Some(deployment_id) = &provider.deployment_id {
+        form.push(("deployment_id", deployment_id.as_str()));
+    }
+
     let response = reqwest::Client::new()
         .post(token_url(provider.kind))
         .header(reqwest::header::ACCEPT, "application/json")
         .basic_auth(&provider.client_id, Some(&provider.client_secret))
-        .form(&[
-            ("code", code),
-            ("redirect_uri", provider.redirect_uri().as_str()),
-            ("grant_type", "authorization_code"),
-        ])
+        .form(&form)
         .send()
         .await
         .map_err(|_| AuthError::unauthorized("failed to exchange Epic authorization code"))?;

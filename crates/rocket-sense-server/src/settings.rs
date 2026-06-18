@@ -86,6 +86,7 @@ pub struct OAuthProviderSettings {
     pub kind: OAuthProviderKind,
     pub client_id: String,
     pub client_secret: String,
+    pub deployment_id: Option<String>,
     pub public_base_url: String,
 }
 
@@ -277,10 +278,16 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
     .filter_map(|(kind, client_id_env, client_secret_env)| {
         let client_id = env::var(client_id_env).ok()?;
         let client_secret = env::var(client_secret_env).ok()?;
+        let deployment_id = (kind == OAuthProviderKind::Epic)
+            .then(|| env::var("EPIC_OAUTH_DEPLOYMENT_ID").ok())
+            .flatten()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
         (!client_id.is_empty() && !client_secret.is_empty()).then(|| OAuthProviderSettings {
             kind,
             client_id,
             client_secret,
+            deployment_id,
             public_base_url: public_base_url.to_owned(),
         })
     })
@@ -290,6 +297,7 @@ fn oauth_providers(public_base_url: &str) -> Vec<OAuthProviderSettings> {
             kind: OAuthProviderKind::Steam,
             client_id: api_key,
             client_secret: String::new(),
+            deployment_id: None,
             public_base_url: public_base_url.to_owned(),
         })
     }))

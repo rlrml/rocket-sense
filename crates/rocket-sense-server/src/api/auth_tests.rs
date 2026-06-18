@@ -8,6 +8,7 @@ fn auth_options_reports_mode_and_configured_oauth_providers() {
             kind: OAuthProviderKind::GitHub,
             client_id: "client-id".to_owned(),
             client_secret: "client-secret".to_owned(),
+            deployment_id: None,
             public_base_url: "https://rocket-sense.example".to_owned(),
         }],
     );
@@ -38,6 +39,49 @@ fn auth_options_reports_mode_and_configured_oauth_providers() {
         .providers
         .iter()
         .any(|provider| provider.id == "steam" && provider.label == "Steam"));
+}
+
+#[test]
+fn epic_authorize_url_includes_deployment_id_when_configured() {
+    let provider = OAuthProviderSettings {
+        kind: OAuthProviderKind::Epic,
+        client_id: "epic-client-id".to_owned(),
+        client_secret: "epic-client-secret".to_owned(),
+        deployment_id: Some("epic-deployment-id".to_owned()),
+        public_base_url: "https://rocket-sense.example".to_owned(),
+    };
+
+    let url = oauth_authorize_url(&provider, "state", "nonce").expect("authorize url");
+    let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+    assert_eq!(
+        url.as_str().split('?').next(),
+        Some(authorize_url(provider.kind))
+    );
+    assert_eq!(
+        params.get("redirect_uri").map(String::as_str),
+        Some("https://rocket-sense.example/auth/epic/callback")
+    );
+    assert_eq!(
+        params.get("deployment_id").map(String::as_str),
+        Some("epic-deployment-id")
+    );
+}
+
+#[test]
+fn non_epic_authorize_url_does_not_include_deployment_id() {
+    let provider = OAuthProviderSettings {
+        kind: OAuthProviderKind::GitHub,
+        client_id: "github-client-id".to_owned(),
+        client_secret: "github-client-secret".to_owned(),
+        deployment_id: Some("ignored-deployment-id".to_owned()),
+        public_base_url: "https://rocket-sense.example".to_owned(),
+    };
+
+    let url = oauth_authorize_url(&provider, "state", "nonce").expect("authorize url");
+    let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+    assert!(!params.contains_key("deployment_id"));
 }
 
 #[test]
