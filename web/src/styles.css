@@ -5219,34 +5219,56 @@ tbody tr:last-child td {
 
 .provider-login-icon {
   flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
 }
 
 .provider-google {
   border-left: 4px solid #4285f4;
 }
 
+.provider-google .provider-login-icon {
+  color: #4285f4;
+}
+
 .provider-github {
   border-left: 4px solid #24292f;
+}
+
+.provider-github .provider-login-icon {
+  color: #24292f;
 }
 
 .provider-discord {
   border-left: 4px solid #5865f2;
 }
 
+.provider-discord .provider-login-icon {
+  color: #5865f2;
+}
+
 .provider-epic {
   border-left: 4px solid #313131;
+}
+
+.provider-epic .provider-login-icon {
+  color: #313131;
 }
 
 .provider-xbox {
   border-left: 4px solid #107c10;
 }
 
+.provider-xbox .provider-login-icon {
+  color: #107c10;
+}
+
 .provider-steam {
   border-left: 4px solid #1b2838;
 }
 
-.modal-fallback-link {
-  justify-self: start;
+.provider-steam .provider-login-icon {
+  color: #1b2838;
 }
 
 .muted-text {
