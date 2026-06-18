@@ -1,4 +1,4 @@
-import type { ReplayModel } from "@rlrml/viewer";
+import type { ReplayModel } from "@rlrml/player";
 import { useEffect, useId, useMemo, useState } from "react";
 import { fieldProjection, type FieldProjection, KickoffFieldBackground } from "./kickoffField";
 import { preloadReplayModel } from "./replayModel";
