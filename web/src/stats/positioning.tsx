@@ -29,6 +29,8 @@ export const positioningEventTypes = [
   "player_activity",
   "field_third",
   "field_half",
+  "ball_depth",
+  // Legacy split keys kept so already-indexed rows render until migrated.
   "ball_depth_behind_ball",
   "ball_depth_level_with_ball",
   "ball_depth_ahead_of_ball",
@@ -778,7 +780,7 @@ function playerPositioningSummaries(
       continue;
     }
 
-    if (event.event_type.startsWith("ball_depth_")) {
+    if (event.event_type === "ball_depth" || event.event_type.startsWith("ball_depth_")) {
       const state = stringPayload(event.payload, "state");
       if (state === "behind_ball") summary.behindBallSeconds += duration;
       else if (state === "level_with_ball") summary.levelWithBallSeconds += duration;

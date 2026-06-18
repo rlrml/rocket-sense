@@ -2,6 +2,7 @@ import type { MechanicEventResponse, ReplayPlayer } from "../types";
 
 export const rotationEventTypes = [
   "rotation_role",
+  // Legacy split keys kept so already-indexed rows render until migrated.
   "rotation_role_first_man",
   "rotation_role_second_man",
   "rotation_role_third_man",
@@ -298,6 +299,7 @@ function emptyRoleSeconds(): Record<RotationRole, number> {
 function rotationRole(event: MechanicEventResponse): RotationRole {
   const payloadRole = stringPayload(event.payload, "state");
   if (isRotationRole(payloadRole)) return payloadRole;
+  if (event.event_type === "rotation_role") return "unknown";
   if (event.event_type === "rotation_role_first_man") return "first_man";
   if (event.event_type === "rotation_role_second_man") return "second_man";
   if (event.event_type === "rotation_role_third_man") return "third_man";

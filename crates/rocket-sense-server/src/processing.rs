@@ -4968,22 +4968,9 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
             .unwrap_or_else(|| "goal_tag_unknown".to_owned()),
         "touch" => "touch".to_owned(),
         "timeline" => kind.as_deref().unwrap_or("event").to_owned(),
-        // Role and ball-depth spans split into per-state event types (e.g.
-        // `rotation_role_first_man`) so profile timing and overview shares can
-        // group by them, like the retired rotation_role_span/rotation_depth_span
-        // streams did.
-        "rotation_role" => format!(
-            "rotation_role_{}",
-            normalized_payload_field(payload, "state")
-                .as_deref()
-                .unwrap_or("unknown")
-        ),
-        "ball_depth" => format!(
-            "ball_depth_{}",
-            normalized_payload_field(payload, "state")
-                .as_deref()
-                .unwrap_or("unknown")
-        ),
+        "rotation_role" | "ball_depth" => metadata
+            .map(|metadata| metadata.id.to_owned())
+            .unwrap_or_else(|| stream.to_owned()),
         // All boost pickups share one review key (matching subtr-actor's registry); the
         // payload's `detection` field (`both` | `inferred_only` | `reported_only`) records
         // corroboration provenance and is indexed as a filterable attribute, not an
@@ -5009,7 +4996,6 @@ fn timeline_event_type(stream: &str, payload: &Value) -> (String, String, String
         "mechanics" | "timeline" => {
             display_name_from_key(kind.as_deref().unwrap_or(&event_type_key))
         }
-        "rotation_role" | "ball_depth" => display_name_from_key(&event_type_key),
         _ if metadata.is_some_and(|metadata| metadata.id == event_type_key) => metadata
             .map(|metadata| metadata.label.to_owned())
             .unwrap_or_else(|| display_name_from_key(&event_type_key)),

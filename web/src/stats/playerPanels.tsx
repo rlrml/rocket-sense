@@ -273,7 +273,7 @@ export function RotationTimeSharePanel({
   overview: PlayerStatOverviewResponse;
   stats: StatAggregateSetResponse;
 }) {
-  const depths = orderTimeShares(overview.rotation_depths, "rotation_depth_", rotationDepthOrder);
+  const depths = orderTimeSharesBySuffix(overview.rotation_depths, depthSuffix, rotationDepthOrder);
 
   return (
     <section className="chart-panel full-span rotation-share-panel">
@@ -819,8 +819,26 @@ function orderTimeShares(
     );
 }
 
+function orderTimeSharesBySuffix(
+  shares: RotationTimeShareResponse[],
+  suffixForKey: (key: string) => string,
+  order: string[],
+): RotationTimeShareResponse[] {
+  return shares
+    .slice()
+    .sort(
+      (left, right) =>
+        orderSuffixIndex(suffixForKey(left.key), order) -
+        orderSuffixIndex(suffixForKey(right.key), order),
+    );
+}
+
 function orderIndex(key: string, prefix: string, order: string[]): number {
   const suffix = key.startsWith(prefix) ? key.slice(prefix.length) : key;
+  return orderSuffixIndex(suffix, order);
+}
+
+function orderSuffixIndex(suffix: string, order: string[]): number {
   const index = order.indexOf(suffix);
   return index === -1 ? order.length : index;
 }

@@ -452,8 +452,18 @@ async fn load_rotation_time_shares(
         r#"
         SELECT
             event.source_stream AS stream,
-            et.key,
-            MIN(et.display_name) AS display_name,
+            CASE
+                WHEN event.source_stream IN ('rotation_role', 'ball_depth') THEN
+                    COALESCE(attributes.attributes->>'state', 'unknown')
+                ELSE et.key
+            END AS key,
+            MIN(
+                CASE
+                    WHEN event.source_stream IN ('rotation_role', 'ball_depth') THEN
+                        COALESCE(attributes.attributes->>'state', 'unknown')
+                    ELSE et.display_name
+                END
+            ) AS display_name,
             SUM(event.duration_seconds) AS seconds,
             COUNT(*) AS span_count
         FROM target_appearances appearance
@@ -466,9 +476,17 @@ async fn load_rotation_time_shares(
          AND event.source_stream IN ('rotation_role_span', 'rotation_depth_span', 'rotation_role', 'ball_depth')
         JOIN event_types et
           ON et.id = event.event_type_id
+        LEFT JOIN play_event_attributes attributes
+          ON attributes.event_id = event.id
         WHERE event.duration_seconds IS NOT NULL
-        GROUP BY event.source_stream, et.key
-        ORDER BY SUM(event.duration_seconds) DESC, et.key
+        GROUP BY
+            event.source_stream,
+            CASE
+                WHEN event.source_stream IN ('rotation_role', 'ball_depth') THEN
+                    COALESCE(attributes.attributes->>'state', 'unknown')
+                ELSE et.key
+            END
+        ORDER BY SUM(event.duration_seconds) DESC, key
         "#,
     );
 
@@ -480,7 +498,7 @@ async fn load_rotation_time_shares(
         let seconds: Option<f64> = row.try_get("seconds")?;
         let share = RotationTimeShareResponse {
             key: row.try_get("key")?,
-            display_name: row.try_get("display_name")?,
+            display_name: display_label(&row.try_get::<String, _>("display_name")?),
             seconds: finite_value(seconds).unwrap_or(0.0).max(0.0),
             span_count: count_column(&row, "span_count")?,
         };
