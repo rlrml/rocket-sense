@@ -1,4 +1,4 @@
-import type { ReplayModel } from "@rlrml/viewer";
+import type { ReplayModel } from "@rlrml/player";
 import {
   Anchor,
   CircleDotDashed,
@@ -22,6 +22,7 @@ import { PlayerIdentity } from "../playerIdentity";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
+import { contactCaptureMoment } from "./contactCamera";
 import { useEventPreviewSelection } from "./eventPreview";
 import { KickoffShapeIcon } from "./KickoffShapeIcon";
 import type { KickoffPathPlayer } from "./KickoffShapeDiagram";
@@ -49,6 +50,9 @@ import {
 const KickoffShapeDiagram = lazy(() =>
   import("./KickoffShapeDiagram").then((module) => ({ default: module.KickoffShapeDiagram })),
 );
+const KickoffContactImage = lazy(() =>
+  import("./KickoffContactImage").then((module) => ({ default: module.KickoffContactImage })),
+);
 
 export const kickoffEventTypes = ["kickoff"];
 
@@ -62,6 +66,9 @@ const KICKOFF_CLIP_FOLLOW_UP_POSTROLL_SECONDS = 1;
 const KICKOFF_CLIP_FIRST_TOUCH_POSTROLL_SECONDS = 2.5;
 const KICKOFF_CLIP_MAX_DURATION_SECONDS = 7;
 const KICKOFF_CLIP_MIN_DURATION_SECONDS = 3;
+const KICKOFF_CONTACT_PREVIEW_PREROLL_SECONDS = 1;
+const KICKOFF_CONTACT_PREVIEW_POSTROLL_SECONDS = 0.5;
+const KICKOFF_CONTACT_PREVIEW_PLAYBACK_RATE = 0.25;
 // How far past the kickoff's start frame to scan for the countdown -> 0 (live
 // action) transition when the payload has no indexed live-action frame.
 const KICKOFF_LIVE_ACTION_SEARCH_FRAMES = 240;
@@ -295,11 +302,38 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
   // camera on that player (loser and support players included); leaving the chip
   // falls back to the default winner perspective.
   const [perspective, setPerspective] = useState<KickoffPerspective | null>(null);
+  const [contactPreviewKickoffId, setContactPreviewKickoffId] = useState<string | null>(null);
   const perspectiveKey = perspective
     ? perspectiveChipKey(perspective.playerKey, perspective.playerName)
     : null;
   const buildClip = useCallback(
     (kickoff: KickoffRow, replayNonce: number): EventClip | null => {
+      const showingContact = contactPreviewKickoffId === kickoff.event.id;
+      if (showingContact && kickoff.firstTouch.frame != null) {
+        const contactFrame = kickoff.firstTouch.frame;
+        return {
+          start: 0,
+          end: 0,
+          playbackRate: KICKOFF_CONTACT_PREVIEW_PLAYBACK_RATE,
+          motionInterpolation: "linear",
+          startFrame: contactFrame,
+          resolveStart: (replay) =>
+            Math.max(
+              0,
+              contactCaptureMoment(replay, contactFrame).time -
+                KICKOFF_CONTACT_PREVIEW_PREROLL_SECONDS,
+            ),
+          resolveEnd: (replay) =>
+            Math.min(
+              replay.duration,
+              contactCaptureMoment(replay, contactFrame).time +
+                KICKOFF_CONTACT_PREVIEW_POSTROLL_SECONDS,
+            ),
+          camera: (cam) => cam.overheadAtFrame(contactFrame),
+          key: `${kickoff.event.id}:contact:${replayNonce}`,
+        };
+      }
+
       const previewStart = kickoffPreviewStart(kickoff);
       if (!previewStart) {
         return null;
@@ -333,12 +367,10 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
           }
           cam.freeCamera("side");
         },
-        // The perspective is intentionally NOT part of the key: same key means the
-        // player re-aims the camera without restarting the loop (see applyClip).
-        key: `${kickoff.event.id}:${replayNonce}`,
+        key: `${kickoff.event.id}:${perspectiveKey ?? "winner"}:${replayNonce}`,
       };
     },
-    [perspective],
+    [contactPreviewKickoffId, perspective, perspectiveKey],
   );
   const {
     activeItem: activeKickoff,
@@ -425,6 +457,7 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
                       onActivate={(force) => activateKickoff(kickoff, force)}
                       perspectiveKey={kickoff.event.id === activeKickoffId ? perspectiveKey : null}
                       onPerspective={setPerspective}
+                      onContactPreview={setContactPreviewKickoffId}
                       replayId={replayId}
                     />
                   ))}
@@ -448,7 +481,13 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
                     replayId={replayId}
                     clip={clip}
                     label={
-                      activeKickoff ? kickoffPreviewLabel(activeKickoff, perspective) : "Loading…"
+                      activeKickoff
+                        ? kickoffPreviewLabel(
+                            activeKickoff,
+                            perspective,
+                            contactPreviewKickoffId === activeKickoff.event.id,
+                          )
+                        : "Loading…"
                     }
                     openHref={`/replays/${encodeURIComponent(replayId)}/player`}
                   />
@@ -1527,15 +1566,18 @@ function KickoffCard({
   onActivate,
   perspectiveKey,
   onPerspective,
+  onContactPreview,
   replayId,
 }: {
   kickoff: KickoffRow;
   active: boolean;
   onActivate: (force: boolean) => void;
+  onContactPreview: (kickoffId: string | null) => void;
   replayId?: string;
 } & KickoffPerspectiveProps) {
   const blueSupport = kickoff.teamZeroSupport;
   const orangeSupport = kickoff.teamOneSupport;
+  const contactPreviewId = kickoff.firstTouch.frame == null ? null : kickoff.event.id;
 
   // The card is a clickable region but it contains its own interactive controls
   // (the per-player perspective buttons), so it can't be a <button> — nested
@@ -1585,24 +1627,6 @@ function KickoffCard({
       </div>
 
       <div className="kickoff-card-body">
-        {replayId ? (
-          <section className="kickoff-diagram-panel">
-            <div className="kickoff-section-title">
-              <span>Shape</span>
-              <strong>{kickoffShapeLabel(kickoff)}</strong>
-            </div>
-            <Suspense fallback={<div className="kickoff-path-status">Loading kickoff paths…</div>}>
-              <KickoffShapeDiagram
-                replayId={replayId}
-                startFrame={kickoffPathStartFrame(kickoff)}
-                endFrame={kickoffPathEndFrame(kickoff)}
-                winningTeam={kickoff.winningTeam}
-                players={kickoffPathPlayers(kickoff)}
-              />
-            </Suspense>
-          </section>
-        ) : null}
-
         <div className="kickoff-card-details">
           <header className="kickoff-card-header">
             <div className="kickoff-type-row">
@@ -1671,6 +1695,52 @@ function KickoffCard({
             />
           </div>
         </div>
+
+        {replayId ? (
+          <div className="kickoff-visual-stack">
+            <section className="kickoff-diagram-panel">
+              <div className="kickoff-section-title">
+                <span>Shape</span>
+                <strong>{kickoffShapeLabel(kickoff)}</strong>
+              </div>
+              <Suspense
+                fallback={<div className="kickoff-path-status">Loading kickoff paths…</div>}
+              >
+                <KickoffShapeDiagram
+                  replayId={replayId}
+                  startFrame={kickoffPathStartFrame(kickoff)}
+                  endFrame={kickoffPathEndFrame(kickoff)}
+                  winningTeam={kickoff.winningTeam}
+                  players={kickoffPathPlayers(kickoff)}
+                />
+              </Suspense>
+            </section>
+            <section
+              className="kickoff-contact-panel"
+              onMouseEnter={() => {
+                activate(false);
+                onContactPreview(contactPreviewId);
+              }}
+              onMouseLeave={() => onContactPreview(null)}
+              onFocus={() => {
+                activate(false);
+                onContactPreview(contactPreviewId);
+              }}
+              onBlur={() => onContactPreview(null)}
+              tabIndex={0}
+            >
+              <div className="kickoff-section-title">
+                <span>Contact</span>
+                <strong>Overhead</strong>
+              </div>
+              <Suspense
+                fallback={<div className="kickoff-contact-frame">Rendering contact image…</div>}
+              >
+                <KickoffContactImage replayId={replayId} frame={kickoff.firstTouch.frame} />
+              </Suspense>
+            </section>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -2364,11 +2434,18 @@ function isKickoffDirection(value: string | null): value is KickoffDirection {
   return value === "left" || value === "right" || value === "center" || value === "unknown";
 }
 
-function kickoffPreviewLabel(kickoff: KickoffRow, perspective: KickoffPerspective | null): string {
+function kickoffPreviewLabel(
+  kickoff: KickoffRow,
+  perspective: KickoffPerspective | null,
+  contactPreview: boolean,
+): string {
   const typeLabel = kickoffTypeName(kickoff.kickoffType);
   const base = typeLabel
     ? `${typeLabel} · ${kickoffDirectionName(kickoff.kickoffDirection)} · ${formatSeconds(kickoff.startTime)}`
     : formatSeconds(kickoff.startTime);
+  if (contactPreview) {
+    return `${base} · Contact overhead`;
+  }
   const followedPlayer = perspective ?? kickoffWinnerPreviewPlayer(kickoff);
   return followedPlayer?.playerName ? `${base} · Following ${followedPlayer.playerName}` : base;
 }

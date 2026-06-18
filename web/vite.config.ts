@@ -52,11 +52,11 @@ export default defineConfig({
     __SUBTR_ACTOR_REV__: JSON.stringify(subtrActorRev),
   },
   plugins: [react()],
-  // The replay viewer ships a web worker plus a wasm-bindgen module that load
+  // The replay player ships a web worker plus a wasm-bindgen module that load
   // via `new URL(..., import.meta.url)`. Keep them out of esbuild prebundling so
   // those asset URLs resolve correctly, and emit workers as ES modules.
   optimizeDeps: {
-    exclude: ["@rlrml/viewer"],
+    exclude: ["@rlrml/player"],
   },
   worker: {
     format: "es",
