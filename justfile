@@ -21,7 +21,10 @@ web-dev:
 web-dev-lan:
     cd web && npm run dev:lan
 
-web-build: vendor
+brand-assets:
+    {{nix_develop}} ./scripts/generate-brand-assets
+
+web-build: vendor brand-assets
     cd web && npm run build
 
 web-typecheck: vendor

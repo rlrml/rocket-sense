@@ -70,6 +70,11 @@ pub fn router() -> Router<AppState> {
             "/events/{event_id}/reviews",
             post(create_mechanic_event_review),
         )
+        // Author a review for an event the engine never detected (a "missed"
+        // event / false negative). Unlike the routes above, no detected event
+        // id is required: the review is anchored to the replay and frames.
+        .route("/events/reviews", post(create_missed_event_review))
+        .route("/mechanics/reviews", post(create_missed_event_review))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -707,6 +712,47 @@ pub struct CreateReviewResponse {
     pub created_at: DateTime<Utc>,
 }
 
+/// Request body for authoring a review of a *missed* event — an instance a
+/// human observed during playback that the detector never emitted. There is no
+/// detected `event_id`; the label is anchored to the replay plus the mechanic
+/// type, subject, and frame location.
+#[derive(Debug, Deserialize)]
+pub struct CreateMissedEventReviewRequest {
+    pub replay_id: Uuid,
+    /// Mechanic / event-type the human is asserting happened (normalized to a
+    /// canonical event-type key, e.g. `flick`).
+    pub reviewed_mechanic: String,
+    pub reviewed_subject_kind: Option<String>,
+    pub reviewed_subject_id: Option<String>,
+    /// Frame the mechanic occurs on. Required: a missed event without a temporal
+    /// anchor cannot be matched against detector output later.
+    pub reviewed_event_frame: i32,
+    pub reviewed_start_frame: Option<i32>,
+    pub reviewed_end_frame: Option<i32>,
+    /// Optional wall-clock playback time, preserved in the snapshot for context.
+    pub reviewed_event_time: Option<f64>,
+    pub confidence: Option<f64>,
+    pub notes: Option<String>,
+    /// Defaults to `confirmed` (a captured missed event is a confirmed positive).
+    pub status: Option<String>,
+    /// Free-form viewer-supplied context (ball/car positions, nearby detected
+    /// events, etc.), stored verbatim under `context` in the snapshot.
+    #[serde(default)]
+    pub context: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MissedEventReviewResponse {
+    pub id: Uuid,
+    pub event_id: Option<Uuid>,
+    pub replay_id: Uuid,
+    pub reviewer_user_id: Uuid,
+    pub status: String,
+    pub reviewed_event_type_key: Option<String>,
+    pub reviewed_event_frame: Option<i32>,
+    pub created_at: DateTime<Utc>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateEventReviewPlaylistRequest {
     pub name: String,
@@ -1088,6 +1134,228 @@ pub async fn create_mechanic_event_review(
             created_at: row.try_get("created_at").map_err(ApiError::internal)?,
         }),
     ))
+}
+
+/// Source tag stored in `event_snapshot.source` for human-authored missed
+/// events, so they are distinguishable from detector-backed reviews.
+pub(crate) const MISSED_EVENT_REVIEW_SOURCE: &str = "rocket-sense:manual-missed";
+
+pub async fn create_missed_event_review(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<CreateMissedEventReviewRequest>,
+) -> Result<(StatusCode, Json<MissedEventReviewResponse>), ApiError> {
+    let db = require_db(&state)?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let status = match request.status.as_deref() {
+        Some(raw) => normalize_review_status(raw)?,
+        None => "confirmed".to_owned(),
+    };
+    let reviewed_event_type_key = normalize_reviewed_event_type_key(&request.reviewed_mechanic)?;
+    validate_missed_event_review_request(&request)?;
+
+    let event_snapshot =
+        build_missed_event_snapshot(&request, &reviewed_event_type_key, &status, auth_user.id);
+
+    // INSERT ... SELECT FROM replays gates on the replay existing: a bogus
+    // replay_id yields zero rows (404) rather than a foreign-key 500.
+    let row = sqlx::query(
+        r#"
+        INSERT INTO event_reviews (
+            id,
+            event_id,
+            replay_id,
+            reviewer_user_id,
+            status,
+            reviewed_event_type_key,
+            reviewed_subject_kind,
+            reviewed_subject_id,
+            reviewed_start_frame,
+            reviewed_end_frame,
+            reviewed_event_frame,
+            confidence,
+            notes,
+            event_snapshot
+        )
+        SELECT
+            $1,
+            NULL,
+            replay.id,
+            $3,
+            $4,
+            $5,
+            $6,
+            $7,
+            $8,
+            $9,
+            $10,
+            $11,
+            $12,
+            $13
+        FROM replays replay
+        WHERE replay.id = $2
+        RETURNING
+            id,
+            event_id,
+            replay_id,
+            reviewer_user_id,
+            status,
+            reviewed_event_type_key,
+            reviewed_event_frame,
+            created_at
+        "#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(request.replay_id)
+    .bind(auth_user.id)
+    .bind(&status)
+    .bind(&reviewed_event_type_key)
+    .bind(request.reviewed_subject_kind.as_deref())
+    .bind(request.reviewed_subject_id.as_deref())
+    .bind(request.reviewed_start_frame)
+    .bind(request.reviewed_end_frame)
+    .bind(request.reviewed_event_frame)
+    .bind(request.confidence)
+    .bind(request.notes.as_deref())
+    .bind(event_snapshot)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(MissedEventReviewResponse {
+            id: row.try_get("id").map_err(ApiError::internal)?,
+            event_id: row.try_get("event_id").map_err(ApiError::internal)?,
+            replay_id: row.try_get("replay_id").map_err(ApiError::internal)?,
+            reviewer_user_id: row
+                .try_get("reviewer_user_id")
+                .map_err(ApiError::internal)?,
+            status: row.try_get("status").map_err(ApiError::internal)?,
+            reviewed_event_type_key: row
+                .try_get("reviewed_event_type_key")
+                .map_err(ApiError::internal)?,
+            reviewed_event_frame: row
+                .try_get("reviewed_event_frame")
+                .map_err(ApiError::internal)?,
+            created_at: row.try_get("created_at").map_err(ApiError::internal)?,
+        }),
+    ))
+}
+
+fn build_missed_event_snapshot(
+    request: &CreateMissedEventReviewRequest,
+    reviewed_event_type_key: &str,
+    status: &str,
+    reviewer_user_id: Uuid,
+) -> Value {
+    let mut frames = serde_json::Map::new();
+    frames.insert(
+        "event".to_owned(),
+        Value::from(request.reviewed_event_frame),
+    );
+    if let Some(start) = request.reviewed_start_frame {
+        frames.insert("start".to_owned(), Value::from(start));
+    }
+    if let Some(end) = request.reviewed_end_frame {
+        frames.insert("end".to_owned(), Value::from(end));
+    }
+
+    let primary_subject = match (
+        request.reviewed_subject_kind.as_deref(),
+        request.reviewed_subject_id.as_deref(),
+    ) {
+        (Some(kind), id) => serde_json::json!({ "kind": kind, "id": id }),
+        _ => Value::Null,
+    };
+
+    let mut snapshot = serde_json::Map::new();
+    snapshot.insert("source".to_owned(), Value::from(MISSED_EVENT_REVIEW_SOURCE));
+    snapshot.insert("authored".to_owned(), Value::Bool(true));
+    snapshot.insert("status".to_owned(), Value::from(status));
+    snapshot.insert(
+        "replayId".to_owned(),
+        Value::from(request.replay_id.to_string()),
+    );
+    snapshot.insert(
+        "reviewerUserId".to_owned(),
+        Value::from(reviewer_user_id.to_string()),
+    );
+    snapshot.insert(
+        "eventType".to_owned(),
+        serde_json::json!({ "key": reviewed_event_type_key }),
+    );
+    if !primary_subject.is_null() {
+        snapshot.insert("primarySubject".to_owned(), primary_subject);
+    }
+    snapshot.insert("frames".to_owned(), Value::Object(frames));
+    if let Some(time) = request.reviewed_event_time {
+        snapshot.insert("times".to_owned(), serde_json::json!({ "event": time }));
+    }
+    if let Some(confidence) = request.confidence {
+        snapshot.insert("confidence".to_owned(), serde_json::json!(confidence));
+    }
+    if let Some(notes) = request.notes.as_deref() {
+        snapshot.insert("notes".to_owned(), Value::from(notes));
+    }
+    if let Some(context) = request.context.clone() {
+        snapshot.insert("context".to_owned(), context);
+    }
+
+    Value::Object(snapshot)
+}
+
+fn validate_missed_event_review_request(
+    request: &CreateMissedEventReviewRequest,
+) -> Result<(), ApiError> {
+    if let Some(kind) = request.reviewed_subject_kind.as_deref() {
+        if !matches!(
+            kind,
+            "replay" | "team" | "player" | "ball" | "boost_pad" | "segment"
+        ) {
+            return Err(ApiError::bad_request(
+                "reviewed_subject_kind must be one of replay, team, player, ball, boost_pad, segment",
+            ));
+        }
+    }
+    if let Some(confidence) = request.confidence {
+        if !(0.0..=1.0).contains(&confidence) {
+            return Err(ApiError::bad_request(
+                "confidence must be between 0.0 and 1.0",
+            ));
+        }
+    }
+    if request.reviewed_event_frame < 0 {
+        return Err(ApiError::bad_request(
+            "reviewed_event_frame must be non-negative",
+        ));
+    }
+    if let (Some(start), Some(end)) = (request.reviewed_start_frame, request.reviewed_end_frame) {
+        if end < start {
+            return Err(ApiError::bad_request(
+                "reviewed_end_frame must be greater than or equal to reviewed_start_frame",
+            ));
+        }
+    }
+    if let Some(start) = request.reviewed_start_frame {
+        if request.reviewed_event_frame < start {
+            return Err(ApiError::bad_request(
+                "reviewed_event_frame must be within [reviewed_start_frame, reviewed_end_frame]",
+            ));
+        }
+    }
+    if let Some(end) = request.reviewed_end_frame {
+        if request.reviewed_event_frame > end {
+            return Err(ApiError::bad_request(
+                "reviewed_event_frame must be within [reviewed_start_frame, reviewed_end_frame]",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn saved_playlist_from_row(

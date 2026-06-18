@@ -64,6 +64,7 @@
             ])
             pkgs.just
             pkgs.kubectl
+            pkgs.librsvg
             pkgs.nodejs
             pkgs.opentofu
             pkgs.skopeo
@@ -143,6 +144,7 @@
           '';
         };
         rocketSenseServer = rustPlatform.buildRustPackage {
+          stdenv = pkgs.gcc14Stdenv;
           pname = "rocket-sense-server";
           version = "0.1.0";
           src = sourceWithSubtrActor;

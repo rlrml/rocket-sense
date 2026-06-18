@@ -690,3 +690,65 @@ fn stale_event_categories_are_canonicalized_by_event_type_key() {
         "mechanic"
     );
 }
+
+fn missed_event_review_request() -> CreateMissedEventReviewRequest {
+    CreateMissedEventReviewRequest {
+        replay_id: Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap(),
+        reviewed_mechanic: "flick".to_owned(),
+        reviewed_subject_kind: Some("player".to_owned()),
+        reviewed_subject_id: Some("steam:76561198298819443".to_owned()),
+        reviewed_event_frame: 1187,
+        reviewed_start_frame: Some(1182),
+        reviewed_end_frame: Some(1190),
+        reviewed_event_time: Some(52.89),
+        confidence: Some(1.0),
+        notes: Some("clear flick the engine missed".to_owned()),
+        status: None,
+        context: Some(serde_json::json!({ "ball": [-784.0, -3182.0, 204.0] })),
+    }
+}
+
+#[test]
+fn missed_event_review_validates_a_well_formed_request() {
+    assert!(validate_missed_event_review_request(&missed_event_review_request()).is_ok());
+}
+
+#[test]
+fn missed_event_review_rejects_unknown_subject_kind() {
+    let mut request = missed_event_review_request();
+    request.reviewed_subject_kind = Some("car".to_owned());
+    assert!(validate_missed_event_review_request(&request).is_err());
+}
+
+#[test]
+fn missed_event_review_rejects_event_frame_outside_span() {
+    let mut request = missed_event_review_request();
+    request.reviewed_event_frame = 2000;
+    assert!(validate_missed_event_review_request(&request).is_err());
+}
+
+#[test]
+fn missed_event_review_rejects_out_of_range_confidence() {
+    let mut request = missed_event_review_request();
+    request.confidence = Some(1.5);
+    assert!(validate_missed_event_review_request(&request).is_err());
+}
+
+#[test]
+fn missed_event_snapshot_records_source_subject_and_frames() {
+    let request = missed_event_review_request();
+    let reviewer = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();
+    let snapshot = build_missed_event_snapshot(&request, "flick", "confirmed", reviewer);
+
+    assert_eq!(
+        snapshot["source"].as_str(),
+        Some(MISSED_EVENT_REVIEW_SOURCE)
+    );
+    assert_eq!(snapshot["authored"].as_bool(), Some(true));
+    assert_eq!(snapshot["eventType"]["key"].as_str(), Some("flick"));
+    assert_eq!(snapshot["primarySubject"]["kind"].as_str(), Some("player"));
+    assert_eq!(snapshot["frames"]["event"].as_i64(), Some(1187));
+    assert_eq!(snapshot["frames"]["start"].as_i64(), Some(1182));
+    assert_eq!(snapshot["times"]["event"].as_f64(), Some(52.89));
+    assert!(snapshot["context"].is_object());
+}
