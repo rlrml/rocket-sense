@@ -83,10 +83,10 @@
     "subtr-actor-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1781347362,
-        "narHash": "sha256-p/d9QFnCHBl/j3qtxtv7Lm9S22UD2qPIJZkqTfpH0oM=",
-        "rev": "d1cbd748161633144df9fd54538167e5ad51d611",
-        "revCount": 1651,
+        "lastModified": 1781817658,
+        "narHash": "sha256-YdA88Q1hXuaesVU5XZprNtjq3FkYLvfOS2YuPY8KmDI=",
+        "rev": "afeefbb8f0aedc58fc7310690e3007af706ef7f5",
+        "revCount": 1729,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },

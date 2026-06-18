@@ -1,4 +1,4 @@
-import type { ReplayModel } from "@rlrml/viewer";
+import type { ReplayModel } from "@rlrml/player";
 import {
   Anchor,
   CircleDotDashed,

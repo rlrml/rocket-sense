@@ -16,7 +16,7 @@
     "check:style": "npm run format:check && npm run lint"
   },
   "dependencies": {
-    "@rlrml/viewer": "file:vendor/@rlrml/viewer",
+    "@rlrml/player": "file:vendor/@rlrml/player",
     "camera-controls": "^2.10.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",

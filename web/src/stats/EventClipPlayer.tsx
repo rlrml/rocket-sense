@@ -1,9 +1,9 @@
 import {
-  createViewerFromParsed,
+  createPlayerFromParsed,
   type ReplayModel,
-  type ViewerFreeCameraPreset,
-  type ViewerPlayer,
-} from "@rlrml/viewer";
+  type PlayerFreeCameraPreset,
+  type ReplayPlayer,
+} from "@rlrml/player";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { preloadReplay, preloadReplayModel } from "./replayModel";
@@ -29,7 +29,7 @@ export interface EventClipCameraControls {
     ballCam?: boolean;
   }): boolean;
   /** Switch to a free-roaming camera preset (defaults to "side"). */
-  freeCamera(preset?: ViewerFreeCameraPreset): void;
+  freeCamera(preset?: PlayerFreeCameraPreset): void;
 }
 
 /**
@@ -133,7 +133,7 @@ export function EventClipPlayer({
   onClipEnd,
 }: EventClipPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const playerRef = useRef<ViewerPlayer | null>(null);
+  const playerRef = useRef<ReplayPlayer | null>(null);
   const loopRef = useRef<{ start: number; end: number } | null>(null);
   const clipRef = useRef<EventClip | null>(clip);
   clipRef.current = clip;
@@ -268,7 +268,7 @@ export function EventClipPlayer({
   // Load the replay and create the player once per replay id.
   useEffect(() => {
     let cancelled = false;
-    let player: ViewerPlayer | null = null;
+    let player: ReplayPlayer | null = null;
     let unsubscribe: (() => void) | null = null;
     let unsubscribeBeforeRender: (() => void) | null = null;
     // Watchdog independent of the render loop: guarantees the clip keeps looping
@@ -308,7 +308,8 @@ export function EventClipPlayer({
         }
         trackByPlayerKeyRef.current = trackByPlayerKey;
         trackByNameRef.current = trackByName;
-        player = createViewerFromParsed(containerRef.current, loadedReplay, {
+        player = createPlayerFromParsed(containerRef.current, loadedReplay, {
+          assetBase: "/vendor/@rlrml/player/public/",
           initialCameraViewMode: "free",
           initialPlaybackRate: 1,
           autoplay: false,

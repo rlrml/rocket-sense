@@ -1,17 +1,17 @@
-import * as Ve from "@rlrml/subtr-actor";
-import * as l from "three";
-import { OrbitControls as vi } from "three/examples/jsm/controls/OrbitControls.js";
-import { RGBELoader as Da } from "three/examples/jsm/loaders/RGBELoader.js";
-import { RoomEnvironment as Ba } from "three/examples/jsm/environments/RoomEnvironment.js";
-import { GLTFLoader as ft } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { DRACOLoader as Mi } from "three/examples/jsm/loaders/DRACOLoader.js";
-import { OBJLoader as Fa } from "three/examples/jsm/loaders/OBJLoader.js";
-import { FBXLoader as Ra } from "three/examples/jsm/loaders/FBXLoader.js";
-import { clone as Xe } from "three/examples/jsm/utils/SkeletonUtils.js";
-import Ct from "camera-controls";
-import { boostAmountToPercent as Ti } from "./boost-units.js";
-import { BOOST_RAW_MAX as Yl, boostPercentToAmount as Zl } from "./boost-units.js";
-const St = "octane", Oa = {
+import * as _e from "@rlrml/subtr-actor";
+import * as h from "three";
+import { OrbitControls as pa } from "three/examples/jsm/controls/OrbitControls.js";
+import { HDRLoader as fa } from "three/examples/jsm/loaders/HDRLoader.js";
+import { RoomEnvironment as li } from "three/examples/jsm/environments/RoomEnvironment.js";
+import { GLTFLoader as tt } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { DRACOLoader as ci } from "three/examples/jsm/loaders/DRACOLoader.js";
+import { OBJLoader as ga } from "three/examples/jsm/loaders/OBJLoader.js";
+import { FBXLoader as ya } from "three/examples/jsm/loaders/FBXLoader.js";
+import { clone as Ve } from "three/examples/jsm/utils/SkeletonUtils.js";
+import pt from "camera-controls";
+import { boostAmountToPercent as hi } from "./boost-units.js";
+import { BOOST_RAW_MAX as Dl, boostPercentToAmount as kl } from "./boost-units.js";
+const ft = "octane", ba = {
   breakout: {
     kind: "breakout",
     label: "Breakout",
@@ -84,7 +84,7 @@ const St = "octane", Oa = {
     offset: 13.88,
     elevation: 17.05
   }
-}, Va = {
+}, xa = {
   "16batmobile": "plank",
   "70dodgechargerrt": "dominus",
   "89batmobile": "dominus",
@@ -341,14 +341,14 @@ const St = "octane", Oa = {
   batmobile2016: "plank",
   sentinel: "plank"
 };
-function La(n) {
+function wa(n) {
   const e = {};
   for (const [t, i] of n)
     for (const a of t)
       e[a] = i;
   return e;
 }
-const Na = La([
+const va = wa([
   [
     [
       22,
@@ -563,13 +563,13 @@ const Na = La([
   ],
   [[24, 803, 1603, 1691, 1919, 3594, 3614, 3622, 4268, 5265, 7052, 8524], "plank"]
 ]);
-function Ci(n) {
+function di(n) {
   return n.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
-function Si(n) {
+function mi(n) {
   if (!n)
     return null;
-  switch (Ci(n)) {
+  switch (di(n)) {
     case "breakout":
       return "breakout";
     case "dominus":
@@ -587,23 +587,16 @@ function Si(n) {
       return null;
   }
 }
-function Pi(n) {
-  return n ? Va[Ci(n)] ?? null : null;
+function ui(n) {
+  return n ? xa[di(n)] ?? null : null;
 }
-function Ga(n) {
-  return Si(n) ?? Pi(n);
+function Ma(n) {
+  return mi(n) ?? ui(n);
 }
-function Ei(n) {
-  return Oa[n];
+function pi(n) {
+  return ba[n];
 }
-function Ha(n) {
-  return {
-    position: [n.offset, 0, n.elevation],
-    rotationYDegrees: n.slopeDegrees,
-    dimensions: [n.length, n.width, n.height]
-  };
-}
-function ot(n, e) {
+function Ye(n, e) {
   if (!(!n || typeof n != "object")) {
     if ("Str" in n && typeof n.Str == "string") {
       e.push(n.Str);
@@ -622,55 +615,55 @@ function ot(n, e) {
       const t = n.Struct;
       if (typeof t.name == "string" && e.push(t.name), Array.isArray(t.fields))
         for (const i of t.fields)
-          Array.isArray(i) && (typeof i[0] == "string" && e.push(i[0]), ot(i[1], e));
+          Array.isArray(i) && (typeof i[0] == "string" && e.push(i[0]), Ye(i[1], e));
       return;
     }
     if ("Array" in n && Array.isArray(n.Array)) {
       for (const t of n.Array)
         if (Array.isArray(t))
           for (const i of t)
-            Array.isArray(i) && (typeof i[0] == "string" && e.push(i[0]), ot(i[1], e));
+            Array.isArray(i) && (typeof i[0] == "string" && e.push(i[0]), Ye(i[1], e));
     }
   }
 }
-function _i(n) {
-  const e = Si(n?.car_hitbox_family);
+function fi(n) {
+  const e = mi(n?.car_hitbox_family);
   if (e)
     return e;
   const t = n?.car_body_id;
   if (typeof t == "number") {
-    const o = Na[t];
-    if (o)
-      return o;
+    const s = va[t];
+    if (s)
+      return s;
   }
-  const i = Pi(n?.car_body_name);
+  const i = ui(n?.car_body_name);
   if (i)
     return i;
   const a = n?.stats;
   if (!a)
-    return St;
-  const s = [];
-  for (const [o, r] of Object.entries(a))
-    s.push(o), ot(r, s);
-  for (const o of s) {
-    const r = Ga(o);
+    return ft;
+  const o = [];
+  for (const [s, r] of Object.entries(a))
+    o.push(s), Ye(r, o);
+  for (const s of o) {
+    const r = Ma(s);
     if (r)
       return r;
   }
-  return St;
+  return ft;
 }
 function U(n) {
   const [e, t] = Object.entries(n)[0] ?? ["Unknown", "unknown"];
   return typeof t == "string" || typeof t == "number" ? `${e}:${t}` : t && typeof t == "object" ? `${e}:${JSON.stringify(t)}` : `${e}:${JSON.stringify(t)}`;
 }
-function ge(n, e) {
+function oe(n, e) {
   return Math.max(0, n - e);
 }
-function He(n) {
+function Ae(n) {
   return new Map(n.map((e) => [e.id, e]));
 }
-const X = 70, Pt = 73, $a = 3072, Wa = 4096, Ua = 1792, Ka = 4184, ja = 940, Xa = 3308, qa = 2816, Et = 3584, Ya = 2484, Za = 1788, Qa = 2300, Ja = 2048, en = 1036, tn = 1024, an = 1024, nn = 4240, gt = 34;
-function Le(n, e, t, i, a) {
+const j = 70, gt = 73, Ta = 3072, Ca = 4096, Sa = 1792, _a = 4184, Pa = 940, Ea = 3308, Ia = 2816, yt = 3584, Aa = 2484, za = 1788, Ba = 2300, Da = 2048, ka = 1036, Fa = 1024, Ra = 1024, Oa = 4240, it = 34;
+function Pe(n, e, t, i, a) {
   n.push({
     index: n.length,
     padId: null,
@@ -679,20 +672,20 @@ function Le(n, e, t, i, a) {
     events: []
   });
 }
+function Ee(n, e, t, i, a) {
+  Pe(n, -e, t, i, a), Pe(n, e, t, i, a);
+}
 function Ne(n, e, t, i, a) {
-  Le(n, -e, t, i, a), Le(n, e, t, i, a);
+  Pe(n, e, -t, i, a), Pe(n, e, t, i, a);
 }
-function qe(n, e, t, i, a) {
-  Le(n, e, -t, i, a), Le(n, e, t, i, a);
+function ae(n, e, t, i, a) {
+  Ee(n, e, -t, i, a), Ee(n, e, t, i, a);
 }
-function he(n, e, t, i, a) {
-  Ne(n, e, -t, i, a), Ne(n, e, t, i, a);
-}
-function Ii() {
+function gi() {
   const n = [];
-  return qe(n, 0, nn, X, "small"), he(n, Ua, Ka, X, "small"), he(n, $a, Wa, Pt, "big"), he(n, ja, Xa, X, "small"), qe(n, 0, qa, X, "small"), he(n, Et, Ya, X, "small"), he(n, Za, Qa, X, "small"), he(n, Ja, en, X, "small"), qe(n, 0, an, X, "small"), Ne(n, Et, 0, Pt, "big"), Ne(n, tn, 0, X, "small"), n;
+  return Ne(n, 0, Oa, j, "small"), ae(n, Sa, _a, j, "small"), ae(n, Ta, Ca, gt, "big"), ae(n, Pa, Ea, j, "small"), Ne(n, 0, Ia, j, "small"), ae(n, yt, Aa, j, "small"), ae(n, za, Ba, j, "small"), ae(n, Da, ka, j, "small"), Ne(n, 0, Ra, j, "small"), Ee(n, yt, 0, gt, "big"), Ee(n, Fa, 0, j, "small"), n;
 }
-function Ce(n) {
+function pe(n) {
   if (n === "Available")
     return !0;
   if (n && typeof n == "object") {
@@ -708,13 +701,13 @@ function Ce(n) {
   }
   return null;
 }
-function Ai(n) {
+function yi(n) {
   return n === "big" || n === "Big" ? "big" : n === "small" || n === "Small" ? "small" : null;
 }
-function ki(n) {
+function bi(n) {
   let e = null;
   for (const t of n) {
-    const i = Ce(t.kind);
+    const i = pe(t.kind);
     if (i === !1) {
       e = t.time;
       continue;
@@ -724,108 +717,108 @@ function ki(n) {
   }
   return null;
 }
-function sn(n, e, t, i) {
-  const a = He(e), s = /* @__PURE__ */ new Map();
-  for (const h of n.boost_pad_events ?? []) {
-    if (Ce(h.kind) === null) {
+function La(n, e, t, i) {
+  const a = Ae(e), o = /* @__PURE__ */ new Map();
+  for (const l of n.boost_pad_events ?? []) {
+    if (pe(l.kind) === null) {
       i?.advance();
       continue;
     }
-    const m = s.get(h.pad_id);
-    m ? m.push(h) : s.set(h.pad_id, [h]), i?.advance();
+    const m = o.get(l.pad_id);
+    m ? m.push(l) : o.set(l.pad_id, [l]), i?.advance();
   }
-  const o = n.boost_pads;
-  if (!o || o.length === 0)
-    return i?.advance(gt), Ii();
-  const r = [...o].sort((h, d) => h.index - d.index), c = new Array(r.length);
-  for (let h = 0; h < r.length; h += 1) {
-    const d = r[h], m = typeof d.pad_id == "string" ? d.pad_id : null, u = m ? [...s.get(m) ?? []] : [], p = Ai(d.size) ?? ki(u) ?? (d.position.z >= 72 ? "big" : "small"), g = u.sort((y, b) => y.time - b.time), f = new Array(g.length);
-    for (let y = 0; y < g.length; y += 1) {
-      const b = g[y], w = b.player ? U(b.player) : null;
-      f[y] = {
-        time: ge(b.time, t),
-        frame: b.frame,
-        available: Ce(b.kind) ?? !0,
-        playerId: w,
-        playerName: w ? a.get(w)?.name ?? w : null
+  const s = n.boost_pads;
+  if (!s || s.length === 0)
+    return i?.advance(it), gi();
+  const r = [...s].sort((l, d) => l.index - d.index), c = new Array(r.length);
+  for (let l = 0; l < r.length; l += 1) {
+    const d = r[l], m = typeof d.pad_id == "string" ? d.pad_id : null, u = m ? [...o.get(m) ?? []] : [], p = yi(d.size) ?? bi(u) ?? (d.position.z >= 72 ? "big" : "small"), f = u.sort((y, x) => y.time - x.time), g = new Array(f.length);
+    for (let y = 0; y < f.length; y += 1) {
+      const x = f[y], v = x.player ? U(x.player) : null;
+      g[y] = {
+        time: oe(x.time, t),
+        frame: x.frame,
+        available: pe(x.kind) ?? !0,
+        playerId: v,
+        playerName: v ? a.get(v)?.name ?? v : null
       };
     }
-    c[h] = {
+    c[l] = {
       index: d.index,
       padId: m,
       size: p,
       position: d.position,
-      events: f
+      events: g
     }, i?.advance();
   }
   return c;
 }
-async function on(n, e, t, i) {
-  const a = He(e), s = /* @__PURE__ */ new Map();
-  for (const h of n.boost_pad_events ?? []) {
-    if (Ce(h.kind) === null) {
+async function Va(n, e, t, i) {
+  const a = Ae(e), o = /* @__PURE__ */ new Map();
+  for (const l of n.boost_pad_events ?? []) {
+    if (pe(l.kind) === null) {
       i.advance() && await i.yieldToMainThread();
       continue;
     }
-    const m = s.get(h.pad_id);
-    m ? m.push(h) : s.set(h.pad_id, [h]), i.advance() && await i.yieldToMainThread();
+    const m = o.get(l.pad_id);
+    m ? m.push(l) : o.set(l.pad_id, [l]), i.advance() && await i.yieldToMainThread();
   }
-  const o = n.boost_pads;
-  if (!o || o.length === 0)
-    return i.advance(gt) && await i.yieldToMainThread(), Ii();
-  const r = [...o].sort((h, d) => h.index - d.index), c = new Array(r.length);
-  for (let h = 0; h < r.length; h += 1) {
-    const d = r[h], m = typeof d.pad_id == "string" ? d.pad_id : null, u = m ? [...s.get(m) ?? []] : [], p = Ai(d.size) ?? ki(u) ?? (d.position.z >= 72 ? "big" : "small"), g = u.sort((y, b) => y.time - b.time), f = new Array(g.length);
-    for (let y = 0; y < g.length; y += 1) {
-      const b = g[y], w = b.player ? U(b.player) : null;
-      f[y] = {
-        time: ge(b.time, t),
-        frame: b.frame,
-        available: Ce(b.kind) ?? !0,
-        playerId: w,
-        playerName: w ? a.get(w)?.name ?? w : null
+  const s = n.boost_pads;
+  if (!s || s.length === 0)
+    return i.advance(it) && await i.yieldToMainThread(), gi();
+  const r = [...s].sort((l, d) => l.index - d.index), c = new Array(r.length);
+  for (let l = 0; l < r.length; l += 1) {
+    const d = r[l], m = typeof d.pad_id == "string" ? d.pad_id : null, u = m ? [...o.get(m) ?? []] : [], p = yi(d.size) ?? bi(u) ?? (d.position.z >= 72 ? "big" : "small"), f = u.sort((y, x) => y.time - x.time), g = new Array(f.length);
+    for (let y = 0; y < f.length; y += 1) {
+      const x = f[y], v = x.player ? U(x.player) : null;
+      g[y] = {
+        time: oe(x.time, t),
+        frame: x.frame,
+        available: pe(x.kind) ?? !0,
+        playerId: v,
+        playerName: v ? a.get(v)?.name ?? v : null
       };
     }
-    c[h] = {
+    c[l] = {
       index: d.index,
       padId: m,
       size: p,
       position: d.position,
-      events: f
+      events: g
     }, i.advance() && await i.yieldToMainThread();
   }
   return c;
 }
-function yt(n) {
+function at(n) {
   return Number.isInteger(n.frame) && n.frame >= 0 ? n.frame : null;
 }
-function rn(n, e) {
+function Na(n, e) {
   if (typeof n.time == "number" && Number.isFinite(n.time))
     return n.time;
-  const t = yt(n);
+  const t = at(n);
   if (t === null)
     return null;
   const i = e.frame_data.metadata_frames[t]?.time;
   return typeof i == "number" && Number.isFinite(i) ? i : null;
 }
-function ln(n, e) {
-  return `bookmark:${yt(n) ?? "unknown"}:${n.description || "tick-mark"}:${e}`;
+function Ga(n, e) {
+  return `bookmark:${at(n) ?? "unknown"}:${n.description || "tick-mark"}:${e}`;
 }
-function zi(n, e, t) {
+function xi(n, e, t) {
   return (n.replay_tick_marks ?? []).flatMap((i, a) => {
     t?.advance();
-    const s = rn(i, n);
-    return s === null ? [] : [
+    const o = Na(i, n);
+    return o === null ? [] : [
       {
-        id: ln(i, a),
+        id: Ga(i, a),
         description: i.description,
-        frame: yt(i),
-        time: ge(s, e)
+        frame: at(i),
+        time: oe(o, e)
       }
     ];
   });
 }
-function Di(n) {
+function wi(n) {
   const e = n.description.trim() || "Replay bookmark";
   return {
     id: n.id,
@@ -838,13 +831,13 @@ function Di(n) {
     iconName: "bookmark"
   };
 }
-const ie = {
+const J = {
   distance: 270,
   height: 100,
   pitch: -4,
   fov: 110
-}, cn = 5e-3, hn = Number.POSITIVE_INFINITY, dn = 16, mn = !0, un = 0.15, pn = 10, fn = 0.1, gn = 10;
-function _t(n) {
+}, $a = 5e-3, Ha = Number.POSITIVE_INFINITY, Wa = 16, Ua = !0, ja = 0.15, Ka = 10, Xa = 0.1, Ya = 10;
+function bt(n) {
   const e = Math.hypot(n.x, n.y, n.z);
   return e < 1e-6 ? null : {
     x: n.x / e,
@@ -852,7 +845,7 @@ function _t(n) {
     z: n.z / e
   };
 }
-function Bi(n) {
+function vi(n) {
   const e = Math.hypot(n.x, n.y, n.z, n.w);
   return e < 1e-6 ? null : {
     x: n.x / e,
@@ -861,7 +854,7 @@ function Bi(n) {
     w: n.w / e
   };
 }
-function It(n, e) {
+function xt(n, e) {
   return {
     w: n.w * e.w - n.x * e.x - n.y * e.y - n.z * e.z,
     x: n.w * e.x + n.x * e.w + n.y * e.z - n.z * e.y,
@@ -869,9 +862,9 @@ function It(n, e) {
     z: n.w * e.z + n.x * e.y - n.y * e.x + n.z * e.w
   };
 }
-function At(n, e) {
-  const t = It(
-    It(e, {
+function wt(n, e) {
+  const t = xt(
+    xt(e, {
       x: n.x,
       y: n.y,
       z: n.z,
@@ -890,7 +883,7 @@ function At(n, e) {
     z: t.z
   };
 }
-function Fi(n) {
+function Mi(n) {
   if (n === "Empty")
     return {
       position: null,
@@ -903,10 +896,27 @@ function Fi(n) {
     position: e.location,
     linearVelocity: e.linear_velocity ?? null,
     angularVelocity: e.angular_velocity ?? null,
-    rotation: Bi(e.rotation)
+    rotation: vi(e.rotation)
   };
 }
-function Ri(n) {
+function vt(n) {
+  return n == null ? null : Math.max(-1, Math.min(1, (n - 128) / 128));
+}
+function Mt(n) {
+  return n == null ? null : (n > 127 ? n - 256 : n) * Math.PI / 128;
+}
+function Tt(n) {
+  return n ? { x: n[0], y: n[1], z: n[2] } : null;
+}
+const qa = {
+  cameraPitch: null,
+  cameraYaw: null,
+  throttle: null,
+  steer: null,
+  dodgeImpulse: null,
+  dodgeTorque: null
+};
+function Ti(n) {
   if (n === "Empty")
     return {
       isPresent: !1,
@@ -922,9 +932,10 @@ function Ri(n) {
       powerslideActive: !1,
       jumpActive: !1,
       doubleJumpActive: !1,
-      dodgeActive: !1
+      dodgeActive: !1,
+      ...qa
     };
-  const e = n.Data.rigid_body, t = Bi(e.rotation), i = t ? _t(At({ x: 1, y: 0, z: 0 }, t)) : null, a = t ? _t(At({ x: 0, y: 0, z: 1 }, t)) : null;
+  const e = n.Data.rigid_body, t = vi(e.rotation), i = t ? bt(wt({ x: 1, y: 0, z: 0 }, t)) : null, a = t ? bt(wt({ x: 0, y: 0, z: 1 }, t)) : null, o = n.Data.camera, s = n.Data.input;
   return {
     isPresent: !0,
     position: e.location,
@@ -939,13 +950,19 @@ function Ri(n) {
     powerslideActive: n.Data.powerslide_active,
     jumpActive: n.Data.jump_active,
     doubleJumpActive: n.Data.double_jump_active,
-    dodgeActive: n.Data.dodge_active
+    dodgeActive: n.Data.dodge_active,
+    cameraPitch: Mt(o?.pitch),
+    cameraYaw: Mt(o?.yaw),
+    throttle: vt(s?.throttle),
+    steer: vt(s?.steer),
+    dodgeImpulse: Tt(s?.dodge_impulse),
+    dodgeTorque: Tt(s?.dodge_torque)
   };
 }
-function yn(n) {
+function Za(n) {
   return n.position !== null;
 }
-function bn(n) {
+function Qa(n) {
   return {
     ...n,
     isPresent: !1,
@@ -955,105 +972,112 @@ function bn(n) {
     powerslideActive: !1,
     jumpActive: !1,
     doubleJumpActive: !1,
-    dodgeActive: !1
+    dodgeActive: !1,
+    // Camera look angles carry forward across a brief gap, but transient
+    // vehicle inputs reset to neutral so wheels/flips don't freeze mid-turn
+    // while the player has no data.
+    throttle: null,
+    steer: null,
+    dodgeImpulse: null,
+    dodgeTorque: null
   };
 }
-function Oi(n) {
+function Ci(n) {
   let e = null, t = null;
   for (let i = 0; i < n.length; i += 1) {
     const a = n[i];
-    if (yn(a)) {
+    if (Za(a)) {
       if (t !== null && e) {
-        const s = bn(e);
-        for (let o = t; o < i; o += 1)
-          n[o] = s;
+        const o = Qa(e);
+        for (let s = t; s < i; s += 1)
+          n[s] = o;
       }
       e = a, t = null;
     } else e && t === null && (t = i);
   }
 }
-function xn(n, e) {
+function Ja(n, e) {
   return Math.hypot(n.x - e.x, n.y - e.y, n.z - e.z);
 }
-function ve(n) {
+function ce(n) {
   return { x: n.x, y: n.y, z: n.z };
 }
-function kt(n) {
+function Ct(n) {
   return !!(n && "isPresent" in n && n.isPresent === !1);
 }
-function Ge(n, e, t) {
+function Ie(n, e, t) {
   if (!t.motionSmoothing || e.length < 3 || n.length < 3)
     return;
   let i = 0;
-  for (; i < e.length && (!e[i]?.position || !e[i]?.linearVelocity || kt(e[i])); )
+  for (; i < e.length && (!e[i]?.position || !e[i]?.linearVelocity || Ct(e[i])); )
     i += 1;
   if (i >= e.length - 1)
     return;
-  let a = ve(e[i].position);
-  for (let s = i + 1; s < e.length; s += 1) {
-    const o = e[s - 1], r = e[s];
-    if (!o.position || !r.position || kt(r))
+  let a = ce(e[i].position);
+  for (let o = i + 1; o < e.length; o += 1) {
+    const s = e[o - 1], r = e[o];
+    if (!s.position || !r.position || Ct(r))
       continue;
-    if (!o.linearVelocity || !r.linearVelocity) {
-      a = ve(r.position);
-      continue;
-    }
-    const c = n[s], h = n[s - 1], d = c && h ? c.time - h.time : 0;
-    if (d <= 0 || d > fn) {
-      a = ve(r.position);
+    if (!s.linearVelocity || !r.linearVelocity) {
+      a = ce(r.position);
       continue;
     }
-    if (xn(a, r.position) > gn) {
-      a = ve(r.position);
+    const c = n[o], l = n[o - 1], d = c && l ? c.time - l.time : 0;
+    if (d <= 0 || d > Xa) {
+      a = ce(r.position);
+      continue;
+    }
+    if (Ja(a, r.position) > Ya) {
+      a = ce(r.position);
       continue;
     }
     const m = {
-      x: (o.linearVelocity.x + r.linearVelocity.x) / 2,
-      y: (o.linearVelocity.y + r.linearVelocity.y) / 2,
-      z: (o.linearVelocity.z + r.linearVelocity.z) / 2
+      x: (s.linearVelocity.x + r.linearVelocity.x) / 2,
+      y: (s.linearVelocity.y + r.linearVelocity.y) / 2,
+      z: (s.linearVelocity.z + r.linearVelocity.z) / 2
     }, u = {
       x: a.x + m.x * d,
       y: a.y + m.y * d,
       z: a.z + m.z * d
-    }, p = (s - i) % t.smoothingAnchorInterval === 0 ? 0.5 : t.smoothingBlendFactor;
+    }, p = (o - i) % t.smoothingAnchorInterval === 0 ? 0.5 : t.smoothingBlendFactor;
     a = {
       x: u.x * (1 - p) + r.position.x * p,
       y: u.y * (1 - p) + r.position.y * p,
       z: u.z * (1 - p) + r.position.z * p
-    }, r.position = ve(a);
+    }, r.position = ce(a);
   }
 }
-function Vi(n) {
+function Si(n) {
   return {
-    motionSmoothing: n.motionSmoothing ?? mn,
-    smoothingBlendFactor: n.smoothingBlendFactor ?? un,
+    motionSmoothing: n.motionSmoothing ?? Ua,
+    smoothingBlendFactor: n.smoothingBlendFactor ?? ja,
     smoothingAnchorInterval: Math.max(
       1,
-      n.smoothingAnchorInterval ?? pn
+      n.smoothingAnchorInterval ?? Ka
     )
   };
 }
-function zt() {
+function St() {
   return typeof performance > "u" ? Date.now() : performance.now();
 }
-function wn() {
+function en() {
   return new Promise((n) => setTimeout(n, 0));
 }
-function vn(n) {
+function tn(n) {
   const e = n.meta.team_zero.length + n.meta.team_one.length, t = n.frame_data.players.reduce(
-    (o, [, r]) => o + r.frames.length,
+    (s, [, r]) => s + r.frames.length,
     0
-  ), i = n.boost_pads?.length ?? gt, a = n.boost_pad_events?.length ?? 0, s = (n.goal_events?.length ?? 0) + (n.player_stat_events?.length ?? 0) + (n.demolish_infos?.length ?? 0) + (n.replay_tick_marks?.length ?? 0);
+  ), i = n.boost_pads?.length ?? it, a = n.boost_pad_events?.length ?? 0, o = (n.goal_events?.length ?? 0) + (n.player_stat_events?.length ?? 0) + (n.demolish_infos?.length ?? 0) + (n.replay_tick_marks?.length ?? 0);
   return [
     Math.max(1, n.frame_data.metadata_frames.length),
     Math.max(1, e),
     Math.max(1, t),
     Math.max(1, n.frame_data.ball_data.frames.length),
     Math.max(1, i + a),
-    Math.max(1, s)
-  ].reduce((o, r) => o + r, 0);
+    Math.max(1, o)
+  ].reduce((s, r) => s + r, 0);
 }
-function Mn(n) {
+function an(n) {
   const e = n.frame_data.players.reduce(
     (t, [, i]) => t + i.frames.length,
     0
@@ -1064,222 +1088,238 @@ function Mn(n) {
     Math.max(1, n.frame_data.ball_data.frames.length)
   ].reduce((t, i) => t + i, 0);
 }
-function Li(n, e, t = {}) {
-  const i = vn(n), a = Mn(n);
-  let s = 0, o = 0, r = -1, c = -1, h = zt();
-  const d = t.yieldEveryMs ?? Number.POSITIVE_INFINITY, m = t.progressReportMinDelta ?? cn, u = Math.max(
+function _i(n, e, t = {}) {
+  const i = tn(n), a = an(n);
+  let o = 0, s = 0, r = -1, c = -1, l = St();
+  const d = t.yieldEveryMs ?? Number.POSITIVE_INFINITY, m = t.progressReportMinDelta ?? $a, u = Math.max(
     1,
-    t.progressReportFrameInterval ?? hn
+    t.progressReportFrameInterval ?? Ha
   ), p = () => {
     if (!e)
       return !1;
-    const f = Math.max(0, Math.min(1, s / i));
-    if (f <= r)
+    const g = Math.max(0, Math.min(1, o / i));
+    if (g <= r)
       return !1;
-    const b = o - c >= u;
-    return f >= 1 || f - r >= m || b ? (r = f, c = o, e(f, {
-      progress: f,
-      processedFrames: Math.min(o, a),
+    const x = s - c >= u;
+    return g >= 1 || g - r >= m || x ? (r = g, c = s, e(g, {
+      progress: g,
+      processedFrames: Math.min(s, a),
       totalFrames: a,
-      processedUnits: s,
+      processedUnits: o,
       totalUnits: i
     }), !0) : !1;
-  }, g = (f = !1) => {
-    const y = zt();
-    return !f && y - h < d ? !1 : (h = y, !0);
+  }, f = (g = !1) => {
+    const y = St();
+    return !g && y - l < d ? !1 : (l = y, !0);
   };
   return p(), {
-    advance(f = 1) {
-      if (f <= 0)
+    advance(g = 1) {
+      if (g <= 0)
         return !1;
-      s = Math.min(i, s + f);
+      o = Math.min(i, o + g);
       const y = p();
-      return g(y);
+      return f(y);
     },
-    advanceFrame(f = 1) {
-      if (f <= 0)
+    advanceFrame(g = 1) {
+      if (g <= 0)
         return !1;
-      o = Math.min(a, o + f), s = Math.min(i, s + f);
+      s = Math.min(a, s + g), o = Math.min(i, o + g);
       const y = p();
-      return g(y);
+      return f(y);
     },
     finish() {
-      s = i, o = a, p();
+      o = i, s = a, p();
     }
   };
 }
-function Tn(n, e) {
+function nn(n, e) {
   return {
-    ...Li(n, e.onProgress, {
+    ..._i(n, e.onProgress, {
       progressReportMinDelta: e.progressReportMinDelta,
       progressReportFrameInterval: e.progressReportFrameInterval,
-      yieldEveryMs: e.yieldEveryMs ?? dn
+      yieldEveryMs: e.yieldEveryMs ?? Wa
     }),
-    yieldToMainThread: e.yieldToMainThread ?? wn
+    yieldToMainThread: e.yieldToMainThread ?? en
   };
 }
-function Cn(n, e) {
+function on(n, e) {
   const t = n.frame_data.metadata_frames;
   if (t.length === 0)
     return e?.advanceFrame(), [];
   const i = t[0]?.time ?? 0, a = new Array(t.length);
-  for (let s = 0; s < t.length; s += 1) {
-    const o = t[s];
-    a[s] = {
-      time: o.time - i,
-      secondsRemaining: o.seconds_remaining,
-      gameState: o.replicated_game_state_name,
-      kickoffCountdown: o.replicated_game_state_time_remaining
+  for (let o = 0; o < t.length; o += 1) {
+    const s = t[o];
+    a[o] = {
+      time: s.time - i,
+      secondsRemaining: s.seconds_remaining,
+      gameState: s.replicated_game_state_name,
+      kickoffCountdown: s.replicated_game_state_time_remaining
     }, e?.advanceFrame();
   }
   return a;
 }
-async function Sn(n, e) {
+async function sn(n, e) {
   const t = n.frame_data.metadata_frames;
   if (t.length === 0)
     return e.advanceFrame() && await e.yieldToMainThread(), [];
   const i = t[0]?.time ?? 0, a = new Array(t.length);
-  for (let s = 0; s < t.length; s += 1) {
-    const o = t[s];
-    a[s] = {
-      time: o.time - i,
-      secondsRemaining: o.seconds_remaining,
-      gameState: o.replicated_game_state_name,
-      kickoffCountdown: o.replicated_game_state_time_remaining
+  for (let o = 0; o < t.length; o += 1) {
+    const s = t[o];
+    a[o] = {
+      time: s.time - i,
+      secondsRemaining: s.seconds_remaining,
+      gameState: s.replicated_game_state_name,
+      kickoffCountdown: s.replicated_game_state_time_remaining
     }, e.advanceFrame() && await e.yieldToMainThread();
   }
   return a;
 }
-function Ni(n, e, t, i) {
+function Pi(n, e, t, i) {
   return e.has(n) ? !0 : t.has(n) ? !1 : i && i !== "Empty" && typeof i.Data.is_team_0 == "boolean" ? i.Data.is_team_0 : !0;
 }
-function Pn(n) {
+function rn(n) {
   return n ? Object.entries(n) : [];
 }
-function ae(n, e) {
+function ee(n, e) {
   const t = n.find(([i]) => i === e)?.[1];
   return typeof t == "number" && Number.isFinite(t) ? t : void 0;
 }
-function Gi(n) {
-  const e = Pn(n?.stats);
+function Ei(n) {
+  const e = rn(n?.stats);
   return {
-    fov: ae(e, "CameraFOV") ?? ie.fov,
-    height: ae(e, "CameraHeight") ?? ie.height,
-    pitch: ae(e, "CameraPitch") ?? ie.pitch,
-    distance: ae(e, "CameraDistance") ?? ie.distance,
-    stiffness: ae(e, "CameraStiffness") ?? ie.stiffness,
-    swivelSpeed: ae(e, "CameraSwivelSpeed") ?? ie.swivelSpeed,
-    transitionSpeed: ae(e, "CameraTransitionSpeed") ?? ie.transitionSpeed
+    fov: ee(e, "CameraFOV") ?? J.fov,
+    height: ee(e, "CameraHeight") ?? J.height,
+    pitch: ee(e, "CameraPitch") ?? J.pitch,
+    distance: ee(e, "CameraDistance") ?? J.distance,
+    stiffness: ee(e, "CameraStiffness") ?? J.stiffness,
+    swivelSpeed: ee(e, "CameraSwivelSpeed") ?? J.swivelSpeed,
+    transitionSpeed: ee(e, "CameraTransitionSpeed") ?? J.transitionSpeed
   };
 }
-function En(n, e) {
+function ln(n, e) {
   const t = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), a = [...n.meta.team_zero, ...n.meta.team_one];
   if (a.length === 0)
     return e?.advance(), { byId: t, byName: i };
-  for (const s of a)
-    i.set(s.name, s), s.remote_id && t.set(U(s.remote_id), s), e?.advance();
+  for (const o of a)
+    i.set(o.name, o), o.remote_id && t.set(U(o.remote_id), o), e?.advance();
   return { byId: t, byName: i };
 }
-async function _n(n, e) {
+async function cn(n, e) {
   const t = /* @__PURE__ */ new Map(), i = /* @__PURE__ */ new Map(), a = [...n.meta.team_zero, ...n.meta.team_one];
   if (a.length === 0)
     return e.advance() && await e.yieldToMainThread(), { byId: t, byName: i };
-  for (const s of a)
-    i.set(s.name, s), s.remote_id && t.set(U(s.remote_id), s), e.advance() && await e.yieldToMainThread();
+  for (const o of a)
+    i.set(o.name, o), o.remote_id && t.set(U(o.remote_id), o), e.advance() && await e.yieldToMainThread();
   return { byId: t, byName: i };
 }
-function In(n, e) {
-  const t = new Set(n.meta.team_zero.map((r) => r.name)), i = new Set(n.meta.team_one.map((r) => r.name)), a = En(n, e), s = [];
-  let o = 0;
-  for (const [r, c] of n.frame_data.players) {
-    const h = new Array(c.frames.length);
-    let d;
-    for (let g = 0; g < c.frames.length; g += 1) {
-      const f = c.frames[g];
-      d === void 0 && f !== "Empty" && (d = f), h[g] = Ri(f), o += 1, e?.advanceFrame();
+function Ii(n) {
+  const e = /* @__PURE__ */ new Map();
+  for (const [t, i] of n.player_camera_events ?? [])
+    e.set(
+      U(t),
+      i.map((a) => ({
+        frame: a.frame,
+        ballCamActive: a.ball_cam_active,
+        behindViewActive: a.behind_view_active,
+        driving: a.driving
+      }))
+    );
+  return e;
+}
+function hn(n, e) {
+  const t = new Set(n.meta.team_zero.map((c) => c.name)), i = new Set(n.meta.team_one.map((c) => c.name)), a = ln(n, e), o = Ii(n), s = [];
+  let r = 0;
+  for (const [c, l] of n.frame_data.players) {
+    const d = new Array(l.frames.length);
+    let m;
+    for (let g = 0; g < l.frames.length; g += 1) {
+      const y = l.frames[g];
+      m === void 0 && y !== "Empty" && (m = y), d[g] = Ti(y), r += 1, e?.advanceFrame();
     }
-    Oi(h);
-    const m = U(r), u = d !== void 0 && d.Data.player_name ? d.Data.player_name : a.byId.get(m)?.name ?? m, p = a.byId.get(m) ?? a.byName.get(u);
+    Ci(d);
+    const u = U(c), p = m !== void 0 && m.Data.player_name ? m.Data.player_name : a.byId.get(u)?.name ?? u, f = a.byId.get(u) ?? a.byName.get(p);
     s.push({
-      id: m,
-      name: u,
-      isTeamZero: Ni(u, t, i, d),
-      cameraSettings: Gi(p),
-      hitbox: Ei(_i(p)),
-      frames: h
+      id: u,
+      name: p,
+      isTeamZero: Pi(p, t, i, m),
+      cameraSettings: Ei(f),
+      hitbox: pi(fi(f)),
+      frames: d,
+      cameraEvents: o.get(u) ?? []
     });
   }
-  return o === 0 && e?.advanceFrame(), s;
+  return r === 0 && e?.advanceFrame(), s;
 }
-async function An(n, e) {
-  const t = new Set(n.meta.team_zero.map((r) => r.name)), i = new Set(n.meta.team_one.map((r) => r.name)), a = await _n(n, e), s = [];
-  let o = 0;
-  for (const [r, c] of n.frame_data.players) {
-    const h = new Array(c.frames.length);
-    let d;
-    for (let g = 0; g < c.frames.length; g += 1) {
-      const f = c.frames[g];
-      d === void 0 && f !== "Empty" && (d = f), h[g] = Ri(f), o += 1, e.advanceFrame() && await e.yieldToMainThread();
+async function dn(n, e) {
+  const t = new Set(n.meta.team_zero.map((c) => c.name)), i = new Set(n.meta.team_one.map((c) => c.name)), a = await cn(n, e), o = Ii(n), s = [];
+  let r = 0;
+  for (const [c, l] of n.frame_data.players) {
+    const d = new Array(l.frames.length);
+    let m;
+    for (let g = 0; g < l.frames.length; g += 1) {
+      const y = l.frames[g];
+      m === void 0 && y !== "Empty" && (m = y), d[g] = Ti(y), r += 1, e.advanceFrame() && await e.yieldToMainThread();
     }
-    Oi(h);
-    const m = U(r), u = d !== void 0 && d.Data.player_name ? d.Data.player_name : a.byId.get(m)?.name ?? m, p = a.byId.get(m) ?? a.byName.get(u);
+    Ci(d);
+    const u = U(c), p = m !== void 0 && m.Data.player_name ? m.Data.player_name : a.byId.get(u)?.name ?? u, f = a.byId.get(u) ?? a.byName.get(p);
     s.push({
-      id: m,
-      name: u,
-      isTeamZero: Ni(u, t, i, d),
-      cameraSettings: Gi(p),
-      hitbox: Ei(_i(p)),
-      frames: h
+      id: u,
+      name: p,
+      isTeamZero: Pi(p, t, i, m),
+      cameraSettings: Ei(f),
+      hitbox: pi(fi(f)),
+      frames: d,
+      cameraEvents: o.get(u) ?? []
     });
   }
-  return o === 0 && e.advanceFrame() && await e.yieldToMainThread(), s;
+  return r === 0 && e.advanceFrame() && await e.yieldToMainThread(), s;
 }
-function kn(n, e) {
+function mn(n, e) {
   const t = n.frame_data.ball_data.frames;
   if (t.length === 0)
     return e?.advanceFrame(), [];
   const i = new Array(t.length);
   for (let a = 0; a < t.length; a += 1)
-    i[a] = Fi(t[a]), e?.advanceFrame();
+    i[a] = Mi(t[a]), e?.advanceFrame();
   return i;
 }
-async function zn(n, e) {
+async function un(n, e) {
   const t = n.frame_data.ball_data.frames;
   if (t.length === 0)
     return e.advanceFrame() && await e.yieldToMainThread(), [];
   const i = new Array(t.length);
   for (let a = 0; a < t.length; a += 1)
-    i[a] = Fi(t[a]), e.advanceFrame() && await e.yieldToMainThread();
+    i[a] = Mi(t[a]), e.advanceFrame() && await e.yieldToMainThread();
   return i;
 }
-function bt(n, e, t) {
+function nt(n, e, t) {
   return `${n}:${e}:${t}`;
 }
-function Hi(n) {
+function Ai(n) {
   return n.sort((e, t) => e.time !== t.time ? e.time - t.time : (e.frame ?? 0) - (t.frame ?? 0));
 }
-function $i(n, e, t) {
-  const i = n.player ? U(n.player) : null, a = i ? e.get(i)?.name ?? i : null, s = a ? `${a} scored` : "Goal";
+function zi(n, e, t) {
+  const i = n.player ? U(n.player) : null, a = i ? e.get(i)?.name ?? i : null, o = a ? `${a} scored` : "Goal";
   return {
-    id: bt("goal", n.frame, i ?? "team"),
-    time: ge(n.time, t),
+    id: nt("goal", n.frame, i ?? "team"),
+    time: oe(n.time, t),
     frame: n.frame,
     kind: "goal",
-    label: s,
+    label: o,
     shortLabel: "G",
     playerId: i,
     playerName: a,
     isTeamZero: n.scoring_team_is_team_0
   };
 }
-function Wi(n, e, t) {
-  const i = U(n.player), a = e.get(i)?.name ?? i, s = n.kind.toLowerCase(), o = n.kind === "Shot" ? "shot" : n.kind === "Save" ? "save" : "assist", r = n.kind === "Shot" ? "SH" : n.kind === "Save" ? "SV" : "A";
+function Bi(n, e, t) {
+  const i = U(n.player), a = e.get(i)?.name ?? i, o = n.kind.toLowerCase(), s = n.kind === "Shot" ? "shot" : n.kind === "Save" ? "save" : "assist", r = n.kind === "Shot" ? "SH" : n.kind === "Save" ? "SV" : "A";
   return {
-    id: bt(s, n.frame, i),
-    time: ge(n.time, t),
+    id: nt(o, n.frame, i),
+    time: oe(n.time, t),
     frame: n.frame,
-    kind: s,
-    label: `${a} ${o}`,
+    kind: o,
+    label: `${a} ${s}`,
     shortLabel: r,
     playerId: i,
     playerName: a,
@@ -1288,79 +1328,79 @@ function Wi(n, e, t) {
     isTeamZero: n.is_team_0
   };
 }
-function Ui(n, e, t) {
-  const i = U(n.attacker), a = U(n.victim), s = e.get(i), o = e.get(a);
+function Di(n, e, t) {
+  const i = U(n.attacker), a = U(n.victim), o = e.get(i), s = e.get(a);
   return {
-    id: bt("demo", n.frame, `${i}:${a}`),
-    time: ge(n.time, t),
+    id: nt("demo", n.frame, `${i}:${a}`),
+    time: oe(n.time, t),
     frame: n.frame,
     kind: "demo",
-    label: `${s?.name ?? i} demoed ${o?.name ?? a}`,
+    label: `${o?.name ?? i} demoed ${s?.name ?? a}`,
     shortLabel: "D",
     playerId: i,
-    playerName: s?.name ?? i,
+    playerName: o?.name ?? i,
     secondaryPlayerId: a,
-    secondaryPlayerName: o?.name ?? a,
+    secondaryPlayerName: s?.name ?? a,
     location: n.victim_location,
-    isTeamZero: s?.isTeamZero ?? null
+    isTeamZero: o?.isTeamZero ?? null
   };
 }
-function Dn(n, e, t, i, a) {
-  const s = He(e), o = [];
+function pn(n, e, t, i, a) {
+  const o = Ae(e), s = [];
   for (const r of n.goal_events ?? [])
-    o.push($i(r, s, i)), a?.advance();
+    s.push(zi(r, o, i)), a?.advance();
   for (const r of n.player_stat_events ?? [])
-    o.push(Wi(r, s, i)), a?.advance();
+    s.push(Bi(r, o, i)), a?.advance();
   for (const r of n.demolish_infos ?? [])
-    o.push(Ui(r, s, i)), a?.advance();
+    s.push(Di(r, o, i)), a?.advance();
   for (const r of t)
-    o.push(Di(r));
-  return o.length === 0 && a?.advance(), Hi(o);
+    s.push(wi(r));
+  return s.length === 0 && a?.advance(), Ai(s);
 }
-async function Bn(n, e, t, i, a) {
-  const s = He(e), o = [];
+async function fn(n, e, t, i, a) {
+  const o = Ae(e), s = [];
   for (const r of n.goal_events ?? [])
-    o.push($i(r, s, i)), a.advance() && await a.yieldToMainThread();
+    s.push(zi(r, o, i)), a.advance() && await a.yieldToMainThread();
   for (const r of n.player_stat_events ?? [])
-    o.push(Wi(r, s, i)), a.advance() && await a.yieldToMainThread();
+    s.push(Bi(r, o, i)), a.advance() && await a.yieldToMainThread();
   for (const r of n.demolish_infos ?? [])
-    o.push(Ui(r, s, i)), a.advance() && await a.yieldToMainThread();
+    s.push(Di(r, o, i)), a.advance() && await a.yieldToMainThread();
   for (const r of t)
-    o.push(Di(r));
-  return o.length === 0 && a.advance() && await a.yieldToMainThread(), Hi(o);
+    s.push(wi(r));
+  return s.length === 0 && a.advance() && await a.yieldToMainThread(), Ai(s);
 }
-function Sl(n, e = {}) {
-  const t = Li(n, e.onProgress, {
+function ol(n, e = {}) {
+  const t = _i(n, e.onProgress, {
     progressReportMinDelta: e.progressReportMinDelta,
     progressReportFrameInterval: e.progressReportFrameInterval
-  }), i = n.frame_data.metadata_frames[0]?.time ?? 0, a = Cn(n, t), s = In(n, t), o = kn(n, t), r = Vi(e);
-  Ge(a, o, r);
-  for (const m of s)
-    Ge(a, m.frames, r);
-  const c = sn(n, s, i, t), h = zi(n, i, t), d = Dn(n, s, h, i, t);
+  }), i = n.frame_data.metadata_frames[0]?.time ?? 0, a = on(n, t), o = hn(n, t), s = mn(n, t), r = Si(e);
+  Ie(a, s, r);
+  for (const m of o)
+    Ie(a, m.frames, r);
+  const c = La(n, o, i, t), l = xi(n, i, t), d = pn(n, o, l, i, t);
   return t.finish(), {
     frameCount: a.length,
     duration: a.at(-1)?.time ?? 0,
     rawStartTime: i,
     frames: a,
-    ballFrames: o,
+    ballFrames: s,
     boostPads: c,
-    players: s,
-    tickMarks: h,
+    players: o,
+    tickMarks: l,
     timelineEvents: d,
     teamZeroNames: n.meta.team_zero.map((m) => m.name),
     teamOneNames: n.meta.team_one.map((m) => m.name)
   };
 }
-async function Fn(n, e = {}) {
-  const t = Tn(n, e), i = n.frame_data.metadata_frames[0]?.time ?? 0, a = await Sn(n, t), s = await An(n, t), o = await zn(n, t), r = Vi(e);
-  Ge(a, o, r);
-  for (const m of s)
-    Ge(a, m.frames, r);
-  const c = await on(n, s, i, t), h = zi(n, i, t), d = await Bn(
+async function gn(n, e = {}) {
+  const t = nn(n, e), i = n.frame_data.metadata_frames[0]?.time ?? 0, a = await sn(n, t), o = await dn(n, t), s = await un(n, t), r = Si(e);
+  Ie(a, s, r);
+  for (const m of o)
+    Ie(a, m.frames, r);
+  const c = await Va(n, o, i, t), l = xi(n, i, t), d = await fn(
     n,
-    s,
-    h,
+    o,
+    l,
     i,
     t
   );
@@ -1369,10 +1409,10 @@ async function Fn(n, e = {}) {
     duration: a.at(-1)?.time ?? 0,
     rawStartTime: i,
     frames: a,
-    ballFrames: o,
+    ballFrames: s,
     boostPads: c,
-    players: s,
-    tickMarks: h,
+    players: o,
+    tickMarks: l,
     timelineEvents: d,
     teamZeroNames: n.meta.team_zero.map((m) => m.name),
     teamOneNames: n.meta.team_one.map((m) => m.name)
@@ -1383,46 +1423,46 @@ function fe(n, e) {
     return 0;
   let t = 0, i = n.frames.length - 1;
   for (; t <= i; ) {
-    const a = Math.floor((t + i) / 2), s = n.frames[a]?.time ?? 0;
-    if (s < e)
+    const a = Math.floor((t + i) / 2), o = n.frames[a]?.time ?? 0;
+    if (o < e)
       t = a + 1;
-    else if (s > e)
+    else if (o > e)
       i = a - 1;
     else
       return a;
   }
   return Math.max(0, t - 1);
 }
-let Ye = null;
-function Te(n) {
+let Ge = null;
+function me(n) {
   if (n instanceof Map)
     return Object.fromEntries(
-      Array.from(n.entries()).map(([e, t]) => [e, Te(t)])
+      Array.from(n.entries()).map(([e, t]) => [e, me(t)])
     );
   if (Array.isArray(n))
-    return n.map((e) => Te(e));
+    return n.map((e) => me(e));
   if (n && typeof n == "object") {
     const e = {};
     for (const [t, i] of Object.entries(n))
-      e[t] = Te(i);
+      e[t] = me(i);
     return e;
   }
   return n;
 }
-async function Rn() {
-  if (!Ye) {
-    const n = Ve.default;
-    Ye = typeof n == "function" ? n() : Promise.resolve();
+async function yn() {
+  if (!Ge) {
+    const n = _e.default;
+    Ge = typeof n == "function" ? n() : Promise.resolve();
   }
-  await Ye;
+  await Ge;
 }
-function On(n) {
+function bn(n) {
   return n.useWorker !== void 0 ? n.useWorker && typeof Worker < "u" : typeof Worker < "u";
 }
-function Vn(n) {
+function xn(n) {
   return n instanceof Error ? n : new Error(String(n));
 }
-function Ln(n = 100) {
+function wn(n = 100) {
   return typeof requestAnimationFrame != "function" ? Promise.resolve() : new Promise((e) => {
     let t = !1, i = null;
     const a = () => {
@@ -1431,47 +1471,47 @@ function Ln(n = 100) {
     i = setTimeout(a, n), requestAnimationFrame(() => a());
   });
 }
-async function Nn(n, e) {
+async function vn(n, e) {
   const t = new Worker(new URL(
     /* @vite-ignore */
-    "" + new URL("assets/wasm.worker-CWYpp-S4.js", import.meta.url).href,
+    "" + new URL("assets/wasm.worker-Cg4SXYvi.js", import.meta.url).href,
     import.meta.url
   ), {
     type: "module"
   }), i = n.slice();
-  return new Promise((a, s) => {
-    const o = () => {
+  return new Promise((a, o) => {
+    const s = () => {
       t.terminate();
     };
     t.onmessage = async (c) => {
-      const h = c.data;
-      if (h.type === "progress") {
-        e.onProgress?.(h.progress);
+      const l = c.data;
+      if (l.type === "progress") {
+        e.onProgress?.(l.progress);
         return;
       }
-      if (h.type === "error") {
-        o(), s(new Error(h.error));
+      if (l.type === "error") {
+        s(), o(new Error(l.error));
         return;
       }
-      o();
+      s();
       try {
-        e.onProgress?.({ stage: "decoding-replay", progress: 0 }), await Ln();
+        e.onProgress?.({ stage: "decoding-replay", progress: 0 }), await wn();
         const d = new TextDecoder(), m = JSON.parse(
-          d.decode(new Uint8Array(h.rawBuffer))
+          d.decode(new Uint8Array(l.rawBuffer))
         );
         e.onProgress?.({ stage: "decoding-replay", progress: 0.5 });
         const u = JSON.parse(
-          d.decode(new Uint8Array(h.replayBuffer))
+          d.decode(new Uint8Array(l.replayBuffer))
         );
         e.onProgress?.({ stage: "decoding-replay", progress: 1 }), a({
           raw: m,
           replay: u
         });
       } catch (d) {
-        s(Vn(d));
+        o(xn(d));
       }
     }, t.onerror = (c) => {
-      o(), s(new Error(c.message || "Replay loading worker failed"));
+      s(), o(new Error(c.message || "Replay loading worker failed"));
     };
     const r = {
       type: "load-replay",
@@ -1484,30 +1524,30 @@ async function Nn(n, e) {
     t.postMessage(r, [i.buffer]);
   });
 }
-async function $e(n, e = {}) {
-  if (On(e))
-    return Nn(n, e);
-  await Rn(), e.onProgress?.({ stage: "validating", progress: 0 });
-  const t = Gn(n);
+async function ze(n, e = {}) {
+  if (bn(e))
+    return vn(n, e);
+  await yn(), e.onProgress?.({ stage: "validating", progress: 0 });
+  const t = Mn(n);
   if (!t.valid)
     throw new Error(t.error ?? "Replay validation failed");
   e.onProgress?.({ stage: "processing", progress: 0 });
-  const i = Te(
-    e.onProgress ? Ve.get_replay_frames_data_with_progress(
+  const i = me(
+    e.onProgress ? _e.get_replay_frames_data_with_progress(
       n,
-      (s) => {
-        e.onProgress?.(s);
+      (o) => {
+        e.onProgress?.(o);
       },
       e.reportEveryNFrames ?? 1e3
-    ) : Ve.get_replay_frames_data(n)
+    ) : _e.get_replay_frames_data(n)
   );
   e.onProgress?.({ stage: "normalizing", progress: 0 });
-  const a = await Fn(i, {
+  const a = await gn(i, {
     motionSmoothing: e.motionSmoothing,
     smoothingBlendFactor: e.smoothingBlendFactor,
     smoothingAnchorInterval: e.smoothingAnchorInterval,
-    onProgress(s) {
-      e.onProgress?.({ stage: "normalizing", progress: s });
+    onProgress(o) {
+      e.onProgress?.({ stage: "normalizing", progress: o });
     }
   });
   return {
@@ -1515,19 +1555,19 @@ async function $e(n, e = {}) {
     replay: a
   };
 }
-function Gn(n) {
-  return Te(
-    Ve.validate_replay(n)
+function Mn(n) {
+  return me(
+    _e.validate_replay(n)
   );
 }
-async function Ki(n) {
-  return $e(n, { useWorker: !1 });
+async function Be(n) {
+  return ze(n, { useWorker: !1 });
 }
-async function Pl(n) {
-  const { raw: e } = await Ki(n);
+async function sl(n) {
+  const { raw: e } = await Be(n);
   return e;
 }
-class ji {
+class ki {
   _listeners = /* @__PURE__ */ new Map();
   on(e, t) {
     let i = this._listeners.get(e);
@@ -1556,16 +1596,16 @@ class ji {
     return !0;
   }
 }
-function Ze(n) {
+function $e(n) {
   return n ? { x: n.x, y: n.z, z: n.y } : null;
 }
-function Hn(n) {
+function Tn(n) {
   return n ? { x: n.x, y: n.z, z: n.y, w: -n.w } : null;
 }
-function $n(n) {
+function Cn(n) {
   return n * 100 / 255;
 }
-const Dt = {
+const _t = {
   Octane: {
     length: 118.0074,
     width: 84.19941,
@@ -1608,7 +1648,7 @@ const Dt = {
     offsetX: 11.37566,
     offsetZ: 21.504988
   }
-}, Wn = {
+}, Sn = {
   21: { name: "Backfire", hitbox: "Octane" },
   22: { name: "Breakout", hitbox: "Breakout" },
   23: { name: "Octane", hitbox: "Octane" },
@@ -1803,12 +1843,12 @@ const Dt = {
   11950: { name: "Chevrolet Astro", hitbox: "Merc" },
   12142: { name: "Homer's Car", hitbox: "Dominus" },
   12173: { name: "Ferrari F40", hitbox: "Breakout" }
-}, Un = Wn;
-function Xi(n) {
-  const e = Un[String(n)];
+}, _n = Sn;
+function Fi(n) {
+  const e = _n[String(n)];
   return e ? { name: e.name, hitboxType: e.hitbox } : null;
 }
-function Kn(n) {
+function Pn(n) {
   if (!n) return null;
   const e = {
     fov: n.fov,
@@ -1820,8 +1860,8 @@ function Kn(n) {
   };
   return n.transition_speed != null && (e.transitionSpeed = n.transition_speed), e;
 }
-const jn = 2200, Xn = !0, qn = !1, Yn = 0.15, Zn = 10, Qn = 0.1, Jn = 10, es = 0.1, ts = 0.15, is = 10;
-function Ee(n, e) {
+const En = 2200, In = !0, An = !1, zn = 0.15, Bn = 10, Dn = 0.1, kn = 10, Fn = 0.1, Rn = 0.15, On = 10;
+function he(n, e) {
   if (n.length === 0) return null;
   let t = 0, i = n.length - 1;
   if (e <= n[0].time) return n[0];
@@ -1832,7 +1872,7 @@ function Ee(n, e) {
   }
   return n[t];
 }
-class as {
+class Ln {
   position = { x: 0, y: 0, z: 0 };
   rotation = { x: 0, y: 0, z: 0, w: 1 };
   velocity = { x: 0, y: 0, z: 0 };
@@ -1840,15 +1880,15 @@ class as {
   sleeping = !1;
   visible = !0;
 }
-class ns {
+class Vn {
   constructor(e, t, i) {
     this.isBig = e, this.position = t, this.events = i;
   }
   isAvailable = !0;
 }
-class ss extends ji {
-  constructor(e, t, i, a, s, o = null) {
-    super(), this.id = e, this.name = t, this.team = i, this.carName = a, this.hitboxType = s, this.cameraSettings = o;
+class Nn extends ki {
+  constructor(e, t, i, a, o, s = null) {
+    super(), this.id = e, this.name = t, this.team = i, this.carName = a, this.hitboxType = o, this.cameraSettings = s;
   }
   position = { x: 0, y: 0, z: 0 };
   rotation = { x: 0, y: 0, z: 0, w: 1 };
@@ -1865,7 +1905,7 @@ class ss extends ji {
   isVisible = !0;
   isBallCam = !0;
 }
-class os extends ji {
+class Gn extends ki {
   constructor(e, t = {}) {
     super(), this.raw = e, this.options = t, this._compile();
   }
@@ -1879,7 +1919,7 @@ class os extends ji {
    * first frame — matching @rlrml/player's ReplayModel time axis exactly.
    */
   rawStartTime = 0;
-  ball = new as();
+  ball = new Ln();
   players = /* @__PURE__ */ new Map();
   boostPads = /* @__PURE__ */ new Map();
   _currentTime = 0;
@@ -1888,55 +1928,72 @@ class os extends ji {
   _ballFlags = [];
   // ball has none, kept for symmetry
   _playerFlags = {};
+  /** Coalesced ball-cam change timeline per player name (last-before on seek). */
+  _playerCameraEvents = {};
   _teams = {};
   _timelineCompaction = null;
   // ── Compilation: raw ReplayData -> ballcam-space timelines + entities. ──────
   _compile() {
     const e = this.raw.frame_data, t = this.raw.meta, i = e.metadata_frames, a = i[0]?.time ?? 0;
     this.rawStartTime = a;
-    const s = (r) => Math.max(0, r - a);
-    this.duration = i.length ? s(i[i.length - 1].time) : 0, this.frameTimes = i.map((r) => s(r.time));
-    const o = /* @__PURE__ */ new Map();
-    t.team_zero.forEach((r) => o.set(this._idKey(r.remote_id), { info: r, team: 0 })), t.team_one.forEach((r) => o.set(this._idKey(r.remote_id), { info: r, team: 1 })), e.ball_data.frames.forEach((r, c) => {
-      if (r === "Empty" || !("Data" in r)) return;
-      const h = this._rbToKeyframe(r.Data.rigid_body, s(i[c]?.time ?? a), c);
-      h && this._ballTimeline.push(h);
-    }), e.players.forEach(([r, c]) => {
-      const h = this._idKey(r), d = o.get(h);
-      let m = d?.info.name ?? null, u = d?.team ?? 0;
-      if (!m) {
-        for (const v of c.frames)
-          if (v !== "Empty" && "Data" in v && v.Data.player_name) {
-            m = v.Data.player_name, v.Data.is_team_0 != null && (u = v.Data.is_team_0 ? 0 : 1);
+    const o = (c) => Math.max(0, c - a);
+    this.duration = i.length ? o(i[i.length - 1].time) : 0, this.frameTimes = i.map((c) => o(c.time));
+    const s = /* @__PURE__ */ new Map();
+    t.team_zero.forEach((c) => s.set(this._idKey(c.remote_id), { info: c, team: 0 })), t.team_one.forEach((c) => s.set(this._idKey(c.remote_id), { info: c, team: 1 })), e.ball_data.frames.forEach((c, l) => {
+      if (c === "Empty" || !("Data" in c)) return;
+      const d = this._rbToKeyframe(c.Data.rigid_body, o(i[l]?.time ?? a), l);
+      d && this._ballTimeline.push(d);
+    }), e.players.forEach(([c, l]) => {
+      const d = this._idKey(c), m = s.get(d);
+      let u = m?.info.name ?? null, p = m?.team ?? 0;
+      if (!u) {
+        for (const C of l.frames)
+          if (C !== "Empty" && "Data" in C && C.Data.player_name) {
+            u = C.Data.player_name, C.Data.is_team_0 != null && (p = C.Data.is_team_0 ? 0 : 1);
             break;
           }
       }
-      m || (m = `Player_${h}`);
-      const p = d?.info, g = p?.car_body_id != null ? Xi(p.car_body_id) : null, f = p?.car_body_name ?? g?.name ?? "Octane", y = p?.car_hitbox_family ?? g?.hitboxType ?? "Octane", b = [], w = [];
-      c.frames.forEach((v, T) => {
-        const M = s(i[T]?.time ?? a);
-        if (v === "Empty" || !("Data" in v)) return;
-        const _ = this._rbToKeyframe(v.Data.rigid_body, M, T);
-        _ && b.push(_), w.push({
-          time: M,
-          boost: $n(v.Data.boost_amount ?? 0),
-          isBoosting: !!v.Data.boost_active,
-          present: !0
+      u || (u = `Player_${d}`);
+      const f = m?.info, g = f?.car_body_id != null ? Fi(f.car_body_id) : null, y = f?.car_body_name ?? g?.name ?? "Octane", x = f?.car_hitbox_family ?? g?.hitboxType ?? "Octane", v = [], b = [];
+      l.frames.forEach((C, w) => {
+        const S = o(i[w]?.time ?? a);
+        if (C === "Empty" || !("Data" in C)) return;
+        const E = this._rbToKeyframe(C.Data.rigid_body, S, w);
+        E && v.push(E);
+        const B = C.Data.input?.steer;
+        b.push({
+          time: S,
+          boost: Cn(C.Data.boost_amount ?? 0),
+          isBoosting: !!C.Data.boost_active,
+          present: !0,
+          // ReplicatedSteer is a byte (~128 neutral); normalize to -1..1 for
+          // the renderer's wheel steering (ActorManager scales by max angle).
+          steer: B == null ? 0 : Math.max(-1, Math.min(1, (B - 128) / 128))
         });
       });
-      const x = Kn(p?.camera_settings);
-      this._playerTimelines[m] = b, this._playerFlags[m] = w, this._teams[m] = u, this.playerList.push({ id: h, name: m, team: u, carName: f, hitboxType: y, cameraSettings: x }), this.players.set(
-        m,
-        new ss(h, m, u, f, y, x)
+      const M = Pn(f?.camera_settings);
+      this._playerTimelines[u] = v, this._playerFlags[u] = b, this._teams[u] = p, this.playerList.push({ id: d, name: u, team: p, carName: y, hitboxType: x, cameraSettings: M }), this.players.set(
+        u,
+        new Nn(d, u, p, y, x, M)
       );
-    }), this._preprocessMotionTimelines(), this._compileBoostPads(), this.seek(0);
+    });
+    const r = /* @__PURE__ */ new Map();
+    this.playerList.forEach((c) => r.set(c.id, c.name));
+    for (const [c, l] of this.raw.player_camera_events ?? []) {
+      const d = r.get(this._idKey(c));
+      d && (this._playerCameraEvents[d] = l.map((m) => ({
+        time: o(i[m.frame]?.time ?? a),
+        ballCam: m.ball_cam_active
+      })));
+    }
+    this._preprocessMotionTimelines(), this._compileBoostPads(), this.seek(0);
   }
   _timelineProcessingOptions() {
     return {
-      motionSmoothing: this.options.motionSmoothing ?? Xn,
-      smoothingBlendFactor: this.options.smoothingBlendFactor ?? Yn,
-      smoothingAnchorInterval: this.options.smoothingAnchorInterval ?? Zn,
-      timelineCompaction: this.options.timelineCompaction ?? qn,
+      motionSmoothing: this.options.motionSmoothing ?? In,
+      smoothingBlendFactor: this.options.smoothingBlendFactor ?? zn,
+      smoothingAnchorInterval: this.options.smoothingAnchorInterval ?? Bn,
+      timelineCompaction: this.options.timelineCompaction ?? An,
       disableFrameFiltering: this.options.disableFrameFiltering ?? !1
     };
   }
@@ -1954,12 +2011,12 @@ class os extends ji {
   }
   _buildTimelineCompaction() {
     if (this.frameTimes.length === 0) return null;
-    const e = this._detectPostGoalTimeGaps(), t = this._detectFirstKickoffGoTime(), i = t == null ? null : Me(t, e), s = e.reduce((o, r) => o + r.duration, 0) + (i ?? 0);
-    return s <= 0 ? null : {
+    const e = this._detectPostGoalTimeGaps(), t = this._detectFirstKickoffGoTime(), i = t == null ? null : de(t, e), o = e.reduce((s, r) => s + r.duration, 0) + (i ?? 0);
+    return o <= 0 ? null : {
       gaps: e,
       prematchEndTime: i,
-      removedDuration: s,
-      compactedDuration: Math.max(0, this.duration - s)
+      removedDuration: o,
+      compactedDuration: Math.max(0, this.duration - o)
     };
   }
   _detectPostGoalTimeGaps() {
@@ -1969,15 +2026,15 @@ class os extends ji {
       if (!Number.isInteger(i) || i < 0 || i >= this.frameTimes.length)
         continue;
       const a = this.frameTimes[i];
-      for (let s = i + 1; s < this.frameTimes.length; s += 1) {
-        const o = this.frameTimes[s - 1], r = this.frameTimes[s];
-        if (o - a > 10) break;
-        const c = r - o;
+      for (let o = i + 1; o < this.frameTimes.length; o += 1) {
+        const s = this.frameTimes[o - 1], r = this.frameTimes[o];
+        if (s - a > 10) break;
+        const c = r - s;
         if (c > 0.3) {
           e.push({
-            beforeFrame: s - 1,
-            afterFrame: s,
-            beforeTime: o,
+            beforeFrame: o - 1,
+            afterFrame: o,
+            beforeTime: s,
             afterTime: r,
             duration: c
           });
@@ -1991,8 +2048,8 @@ class os extends ji {
     const e = this.raw.frame_data.metadata_frames;
     let t = !1;
     for (let a = 0; a < e.length; a += 1) {
-      const s = e[a]?.replicated_game_state_time_remaining;
-      if (s != null && s > 0 && (t = !0), t && s === 0) return this.frameTimes[a] ?? null;
+      const o = e[a]?.replicated_game_state_time_remaining;
+      if (o != null && o > 0 && (t = !0), t && o === 0) return this.frameTimes[a] ?? null;
     }
     const i = e.findIndex((a) => a.replicated_game_state_name === 54);
     return i === -1 ? null : this.frameTimes[i] ?? null;
@@ -2004,31 +2061,31 @@ class os extends ji {
   _remapReplayGaps(e, t) {
     if (t.length === 0) return e;
     const i = [];
-    t.forEach((s, o) => {
-      const r = e.find((c) => c.time >= s.afterTime);
+    t.forEach((o, s) => {
+      const r = e.find((c) => c.time >= o.afterTime);
       r && i.push({
         ...r,
-        time: Me(s.afterTime, t.slice(0, o + 1))
+        time: de(o.afterTime, t.slice(0, s + 1))
       });
     });
-    const a = e.filter((s) => !Rt(s.time, t)).map((s) => ({ ...s, time: Me(s.time, t) }));
-    for (const s of i) {
-      if (a.some((r) => Math.abs(r.time - s.time) < 1e-3)) continue;
-      let o = a.findIndex((r) => r.time > s.time);
-      o === -1 && (o = a.length), a.splice(o, 0, s);
+    const a = e.filter((o) => !It(o.time, t)).map((o) => ({ ...o, time: de(o.time, t) }));
+    for (const o of i) {
+      if (a.some((r) => Math.abs(r.time - o.time) < 1e-3)) continue;
+      let s = a.findIndex((r) => r.time > o.time);
+      s === -1 && (s = a.length), a.splice(s, 0, o);
     }
     return a;
   }
   _remapPrematch(e, t) {
     let i = null;
-    for (const s of e)
-      if (s.time < t) i = s;
+    for (const o of e)
+      if (o.time < t) i = o;
       else break;
-    const a = e.filter((s) => s.time >= t).map((s) => ({ ...s, time: s.time - t }));
+    const a = e.filter((o) => o.time >= t).map((o) => ({ ...o, time: o.time - t }));
     return i && (a.length === 0 || a[0].time > 1e-3) && a.unshift({ ...i, time: 0 }), a;
   }
   _compactTime(e, t) {
-    const i = Me(e, t.gaps);
+    const i = de(e, t.gaps);
     return t.prematchEndTime === null ? i : Math.max(0, i - t.prematchEndTime);
   }
   _applyVelocityBasedPositionCorrection(e) {
@@ -2038,21 +2095,21 @@ class os extends ji {
       for (; a < i.length && (!i[a].position || !i[a].velocity); )
         a += 1;
       if (a >= i.length - 1) return;
-      let s = { ...i[a].position };
-      for (let o = a + 1; o < i.length; o += 1) {
-        const r = i[o - 1], c = i[o];
+      let o = { ...i[a].position };
+      for (let s = a + 1; s < i.length; s += 1) {
+        const r = i[s - 1], c = i[s];
         if (!r.position || !c.position) continue;
         if (!r.velocity || !c.velocity) {
-          s = { ...c.position };
+          o = { ...c.position };
           continue;
         }
-        const h = c.time - r.time;
-        if (h <= 0 || h > Qn) {
-          s = { ...c.position };
+        const l = c.time - r.time;
+        if (l <= 0 || l > Dn) {
+          o = { ...c.position };
           continue;
         }
-        if (Ft(s, c.position) > Jn) {
-          s = { ...c.position };
+        if (Et(o, c.position) > kn) {
+          o = { ...c.position };
           continue;
         }
         const d = {
@@ -2060,15 +2117,15 @@ class os extends ji {
           y: (r.velocity.y + c.velocity.y) / 2,
           z: (r.velocity.z + c.velocity.z) / 2
         }, m = {
-          x: s.x + d.x * h,
-          y: s.y + d.y * h,
-          z: s.z + d.z * h
-        }, u = (o - a) % e.smoothingAnchorInterval === 0 ? 0.5 : e.smoothingBlendFactor;
-        s = {
+          x: o.x + d.x * l,
+          y: o.y + d.y * l,
+          z: o.z + d.z * l
+        }, u = (s - a) % e.smoothingAnchorInterval === 0 ? 0.5 : e.smoothingBlendFactor;
+        o = {
           x: m.x * (1 - u) + c.position.x * u,
           y: m.y * (1 - u) + c.position.y * u,
           z: m.z * (1 - u) + c.position.z * u
-        }, c.position = { ...s };
+        }, c.position = { ...o };
       }
     };
     t(this._ballTimeline), Object.values(this._playerTimelines).forEach(t);
@@ -2083,25 +2140,25 @@ class os extends ji {
     const t = [e[0]];
     let i = 0;
     for (let a = 1; a < e.length; a += 1) {
-      const s = e[a], o = e[i];
-      if (!s.position || !s.velocity || !o.position || !o.velocity) {
-        t.push(s), i = a;
+      const o = e[a], s = e[i];
+      if (!o.position || !o.velocity || !s.position || !s.velocity) {
+        t.push(o), i = a;
         continue;
       }
-      const r = Bt(o.velocity), c = Bt(s.velocity);
-      if (r < is) {
-        t.push(s), i = a;
+      const r = Pt(s.velocity), c = Pt(o.velocity);
+      if (r < On) {
+        t.push(o), i = a;
         continue;
       }
-      if (Math.abs(c - r) / r < es) {
-        const h = s.time - o.time;
-        if (h > 1e-3) {
-          const d = r * h, m = Ft(o.position, s.position), u = Math.abs(m - d) / d;
-          if (Number.isFinite(u) && u > ts)
+      if (Math.abs(c - r) / r < Fn) {
+        const l = o.time - s.time;
+        if (l > 1e-3) {
+          const d = r * l, m = Et(s.position, o.position), u = Math.abs(m - d) / d;
+          if (Number.isFinite(u) && u > Rn)
             continue;
         }
       }
-      t.push(s), i = a;
+      t.push(o), i = a;
     }
     return t;
   }
@@ -2117,30 +2174,30 @@ class os extends ji {
       if (i === null) return;
       const a = Math.max(0, t.time - this.rawStartTime);
       if (this._timelineCompaction && this._isRemovedByTimelineCompaction(a)) return;
-      const s = this._timelineCompaction ? this._compactTime(a, this._timelineCompaction) : a, o = e.get(t.pad_id);
-      o ? o.push({ time: s, available: i }) : e.set(t.pad_id, [{ time: s, available: i }]);
+      const o = this._timelineCompaction ? this._compactTime(a, this._timelineCompaction) : a, s = e.get(t.pad_id);
+      s ? s.push({ time: o, available: i }) : e.set(t.pad_id, [{ time: o, available: i }]);
     }), (this.raw.boost_pads ?? []).forEach((t) => {
       const i = (t.pad_id ? e.get(t.pad_id) : void 0) ?? [];
-      i.sort((a, s) => a.time - s.time), this.boostPads.set(t.index, new ns(t.size === "Big", t.position, i));
+      i.sort((a, o) => a.time - o.time), this.boostPads.set(t.index, new Vn(t.size === "Big", t.position, i));
     });
   }
   _rbToKeyframe(e, t, i) {
-    const a = Ze(e.location);
+    const a = $e(e.location);
     return a ? {
       time: t,
       frame: i,
       position: a,
-      rotation: Hn(e.rotation),
-      velocity: Ze(e.linear_velocity) ?? { x: 0, y: 0, z: 0 },
-      angularVelocity: Ze(e.angular_velocity),
+      rotation: Tn(e.rotation),
+      velocity: $e(e.linear_velocity) ?? { x: 0, y: 0, z: 0 },
+      angularVelocity: $e(e.angular_velocity),
       sleeping: !!e.sleeping
     } : null;
   }
   _isRemovedByTimelineCompaction(e) {
     const t = this._timelineCompaction;
     if (!t) return !1;
-    if (Rt(e, t.gaps)) return !0;
-    const i = Me(e, t.gaps);
+    if (It(e, t.gaps)) return !0;
+    const i = de(e, t.gaps);
     return t.prematchEndTime !== null && i < t.prematchEndTime;
   }
   _idKey(e) {
@@ -2162,23 +2219,25 @@ class os extends ji {
     this._currentTime = Math.max(0, Math.min(e, this.duration)), this._updateEntities(this._currentTime), this.emit("seek", this._currentTime);
   }
   _updateEntities(e) {
-    const t = Ee(this._ballTimeline, e);
+    const t = he(this._ballTimeline, e);
     t && (this.ball.position = t.position, this.ball.rotation = t.rotation ?? this.ball.rotation, this.ball.velocity = t.velocity, this.ball.angularVelocity = t.angularVelocity ?? { x: 0, y: 0, z: 0 }, this.ball.sleeping = t.sleeping, this.ball.visible = !0);
     for (const [i, a] of this.players) {
-      const s = Ee(this._playerTimelines[i] ?? [], e);
-      if (s) {
-        a.position = s.position, a.rotation = s.rotation ?? a.rotation, a.velocity = s.velocity, a.angularVelocity = s.angularVelocity ?? { x: 0, y: 0, z: 0 }, a.sleeping = s.sleeping;
-        const c = s.velocity;
-        a.isSupersonic = Math.hypot(c.x, c.y, c.z) >= jn;
+      const o = he(this._playerTimelines[i] ?? [], e);
+      if (o) {
+        a.position = o.position, a.rotation = o.rotation ?? a.rotation, a.velocity = o.velocity, a.angularVelocity = o.angularVelocity ?? { x: 0, y: 0, z: 0 }, a.sleeping = o.sleeping;
+        const l = o.velocity;
+        a.isSupersonic = Math.hypot(l.x, l.y, l.z) >= En;
       }
-      const o = Ee(this._playerFlags[i] ?? [], e);
-      o && (a.boost = o.boost, a.isBoosting = o.isBoosting);
-      const r = this._playerTimelines[i] ?? [];
-      a.isVisible = r.length > 0 && e >= r[0].time - 1e-3 && e <= r[r.length - 1].time + 1;
+      const s = he(this._playerFlags[i] ?? [], e);
+      s && (a.boost = s.boost, a.isBoosting = s.isBoosting, a.steer = s.steer);
+      const r = he(this._playerCameraEvents[i] ?? [], e);
+      r && r.ballCam != null && (a.isBallCam = r.ballCam);
+      const c = this._playerTimelines[i] ?? [];
+      a.isVisible = c.length > 0 && e >= c[0].time - 1e-3 && e <= c[c.length - 1].time + 1;
     }
     for (const i of this.boostPads.values()) {
       if (i.events.length === 0) continue;
-      const a = Ee(i.events, e);
+      const a = he(i.events, e);
       i.isAvailable = a && a.time <= e ? a.available : !0;
     }
   }
@@ -2189,8 +2248,8 @@ class os extends ji {
     let i = 0, a = t.length - 1;
     if (e >= t[a]) return a;
     for (; i < a; ) {
-      const s = i + a + 1 >> 1;
-      t[s] <= e ? i = s : a = s - 1;
+      const o = i + a + 1 >> 1;
+      t[o] <= e ? i = o : a = o - 1;
     }
     return i;
   }
@@ -2239,14 +2298,14 @@ class os extends ji {
     return null;
   }
 }
-function Bt(n) {
+function Pt(n) {
   return Math.sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
 }
-function Ft(n, e) {
+function Et(n, e) {
   const t = e.x - n.x, i = e.y - n.y, a = e.z - n.z;
   return Math.sqrt(t * t + i * i + a * a);
 }
-function Me(n, e) {
+function de(n, e) {
   let t = 0;
   for (const i of e) {
     if (n < i.beforeTime) break;
@@ -2258,18 +2317,42 @@ function Me(n, e) {
   }
   return n - t;
 }
-function Rt(n, e) {
+function It(n, e) {
   return e.some((t) => n > t.beforeTime && n < t.afterTime);
 }
-class rs {
-  constructor(e) {
-    if (this.container = typeof e == "string" ? document.getElementById(e) : e, !this.container) {
+let ot = null;
+function $n() {
+  return typeof document < "u" && document.baseURI ? document.baseURI : typeof window < "u" && window.location?.href ? window.location.href : import.meta.url;
+}
+function Hn() {
+  return "./";
+}
+function Wn(n) {
+  return /^[a-z][a-z\d+\-.]*:/i.test(n) || n.startsWith("//");
+}
+function rl(n) {
+  ot = n == null ? null : String(n);
+}
+function Un(n = ot) {
+  const e = n == null || n === "" ? Hn() : String(n);
+  return new URL(e, $n()).href;
+}
+function G(n, e = ot) {
+  const t = String(n);
+  return Wn(t) ? t : new URL(t.replace(/^\/+/, ""), Un(e)).href;
+}
+class jn {
+  constructor(e, t = {}) {
+    if (this.container = typeof e == "string" ? document.getElementById(e) : e, this.assetBase = t.assetBase, !this.container) {
       console.error("Invalid container passed to SceneManager");
       return;
     }
-    this.scene = new l.Scene(), this.scene.background = new l.Color(8900331);
-    const t = this.container.clientWidth, i = this.container.clientHeight;
-    this.camera = new l.PerspectiveCamera(75, t / i, 10, 5e4), this.camera.position.set(0, 2e3, 5e3), this.renderer = new l.WebGLRenderer({ antialias: !0 }), this.renderer.setSize(t, i), this.renderer.shadowMap.enabled = !0, this.renderer.shadowMap.type = l.PCFSoftShadowMap, this.renderer.toneMapping = l.ACESFilmicToneMapping, this.renderer.toneMappingExposure = 1, this.renderer.outputColorSpace = l.SRGBColorSpace, this.container.appendChild(this.renderer.domElement), window.addEventListener("resize", () => this.onWindowResize());
+    this.scene = new h.Scene(), this.scene.background = new h.Color(8900331);
+    const i = this.container.clientWidth, a = this.container.clientHeight;
+    this.camera = new h.PerspectiveCamera(75, i / a, 10, 5e4), this.camera.position.set(0, 2e3, 5e3), this.renderer = new h.WebGLRenderer({
+      antialias: !0,
+      preserveDrawingBuffer: t.preserveDrawingBuffer === !0
+    }), this.renderer.setSize(i, a), this.renderer.shadowMap.enabled = !0, this.renderer.shadowMap.type = h.PCFSoftShadowMap, this.renderer.toneMapping = h.ACESFilmicToneMapping, this.renderer.toneMappingExposure = 1, this.renderer.outputColorSpace = h.SRGBColorSpace, this.container.appendChild(this.renderer.domElement), window.addEventListener("resize", () => this.onWindowResize());
   }
   /**
    * Asset-free default lighting. The original ballcam app lit everything via
@@ -2279,37 +2362,71 @@ class rs {
    * code, and a directional key light adds definition.
    */
   initDefaultEnvironment() {
-    const e = new l.PMREMGenerator(this.renderer);
-    this.scene.environment = e.fromScene(new Ba(), 0.04).texture, e.dispose();
-    const t = new l.DirectionalLight(16777215, 1.5);
-    t.position.set(3e3, 8e3, 4e3), this.scene.add(t);
-    const i = new l.AmbientLight(16777215, 0.4);
-    this.scene.add(i);
+    if (!this._neutralEnvTexture) {
+      const e = new h.PMREMGenerator(this.renderer);
+      this._neutralEnvTexture = e.fromScene(new li(), 0.04).texture, e.dispose();
+    }
+    if (this.scene.environment = this._neutralEnvTexture, !this._defaultLightsAdded) {
+      const e = new h.DirectionalLight(16777215, 1.5);
+      e.position.set(3e3, 8e3, 4e3), this.scene.add(e);
+      const t = new h.AmbientLight(16777215, 0.4);
+      this.scene.add(t), this._defaultLightsAdded = !0;
+    }
   }
-  loadSkybox(e = "HighFantasy4k") {
+  /**
+   * Load and apply a {@link PlayerEnvironment}: an HDR skybox that drives both
+   * the visible background and the image-based lighting (reflections/ambient) on
+   * every PBR material. Async and non-blocking — call it without awaiting so the
+   * neutral `initDefaultEnvironment()` lighting renders immediately and the HDR
+   * swaps in once decoded. Resolves `true` on success, `false` on load failure
+   * (the neutral default is left in place).
+   *
+   * @param {import("../environments.js").PlayerEnvironment} env
+   * @returns {Promise<boolean>}
+   */
+  applyEnvironment(e) {
     return new Promise((t) => {
-      const i = new Da(), a = `/skyboxes/${e}.hdr`;
+      const i = new fa(), a = G(e.skyboxUrl, this.assetBase);
       i.load(
         a,
-        (s) => {
-          this.scene.background && this.scene.background.dispose && this.scene.background.dispose(), s.mapping = l.EquirectangularReflectionMapping, this.scene.background = s, this.scene.environment = s, this.currentSkyboxId = e, console.log(`[SceneManager] HDR skybox loaded: ${e}`), t(!0);
+        (o) => {
+          this.scene.background && this.scene.background.dispose && this.scene.background.dispose(), o.mapping = h.EquirectangularReflectionMapping, this.scene.background = o, this.scene.environment = o, this.currentEnvironmentId = e.id;
+          const s = e.rotation ?? {};
+          this._skyboxBaseRotation = {
+            x: h.MathUtils.degToRad(s.x ?? 0),
+            y: h.MathUtils.degToRad(s.y ?? 0),
+            z: h.MathUtils.degToRad(s.z ?? 0)
+          }, this._skyboxAnimatedY = 0, this._skyboxAnimation = e.animation ?? null, this._applySkyboxRotation(), typeof e.exposure == "number" && (this.renderer.toneMappingExposure = e.exposure), console.log(`[SceneManager] environment applied: ${e.id}`), t(!0);
         },
         void 0,
-        (s) => {
-          console.error(`[SceneManager] Failed to load HDR skybox (${e}):`, s), this.scene.background = new l.Color(8900331), t(!1);
+        (o) => {
+          console.error(`[SceneManager] Failed to load environment "${e.id}":`, o), t(!1);
         }
       );
     });
   }
-  setSkybox(e) {
-    this.currentSkyboxId !== e && this.loadSkybox(e);
+  /** Apply base tilt + accumulated animation to background/environment rotation. */
+  _applySkyboxRotation() {
+    const e = this._skyboxBaseRotation;
+    if (!e) return;
+    const t = e.y + (this._skyboxAnimatedY ?? 0);
+    this.scene.backgroundRotation && this.scene.backgroundRotation.set(e.x, t, e.z), this.scene.environmentRotation && this.scene.environmentRotation.set(e.x, t, e.z);
   }
   /**
-   * Set a simple default background (no skybox HDR)
-   * Used when no custom environment is selected
+   * Advance the slow skybox drift, if the active environment enables it. Cheap
+   * no-op otherwise. `dt` is in seconds (already scaled by playback speed).
+   */
+  updateSkyboxAnimation(e) {
+    const t = this._skyboxAnimation;
+    !t || !t.enabled || !e || (this._skyboxAnimatedY = (this._skyboxAnimatedY ?? 0) + h.MathUtils.degToRad(t.speed * e), this._applySkyboxRotation());
+  }
+  /**
+   * Revert to the neutral default: a flat background plus the asset-free
+   * RoomEnvironment IBL (so PBR materials stay lit). Used when no environment is
+   * selected (`environment: false`) or when switching away from an HDR skybox.
    */
   setDefaultBackground() {
-    this.scene.background && this.scene.background.dispose && this.scene.background.dispose(), this.scene.background = new l.Color(1710638), this.scene.environment = null, this.currentSkyboxId = null, console.log("[SceneManager] Using default background (no skybox)");
+    this.scene.background && this.scene.background.dispose && this.scene.background.dispose(), this.scene.background = new h.Color(1710638), this.initDefaultEnvironment(), this.renderer.toneMappingExposure = 1, this._skyboxAnimation = null, this._skyboxBaseRotation = null, this.currentEnvironmentId = null, console.log("[SceneManager] Using neutral default environment (no skybox)");
   }
   setExposure(e) {
     this.renderer && (this.renderer.toneMappingExposure = e);
@@ -2326,52 +2443,67 @@ class rs {
     this.renderer && (this.renderer.dispose(), this.renderer.domElement && this.renderer.domElement.parentNode && this.renderer.domElement.parentNode.removeChild(this.renderer.domElement), this.renderer = null);
   }
 }
-class ls {
-  constructor(e) {
-    this.scene = e, this.arenaMeshes = [], this.drawingCollider = null, this.drawingColliderMeshes = [], this.arenaDecorMesh = null, this.showArenaDecor = !0, this.dracoLoader = new Mi(), this.dracoLoader.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.6/"), this.gltfLoader = new ft(), this.gltfLoader.setDRACOLoader(this.dracoLoader);
+const He = /* @__PURE__ */ new Map();
+async function Kn(n, e) {
+  const t = G("models/stadium/stadium.glb", e);
+  let i = He.get(t);
+  return i || (i = n.loadAsync(t).then((a) => {
+    const o = a.scene;
+    return Xn(o), o;
+  }).catch((a) => {
+    throw He.delete(t), a;
+  }), He.set(t, i)), i;
+}
+function Xn(n) {
+  const e = [
+    "Sol_Trait_T0",
+    "Sol_Trait_T1",
+    "Milieu_Forme",
+    "Milieu_Forme.001",
+    "cage_T0",
+    "cage_T1",
+    "Couleur_Hexagone_T0",
+    "Couleur_Hexagone_T1",
+    "wall_gradient_color_2",
+    "wall_gradient_color_2.001",
+    "Fond_BackBoard_Transparent",
+    // For Transparant_BackBoard_+_Cage meshes
+    "dégradé_transparent_T0",
+    "dégradé_transparent_T1",
+    // Glow effects on field edges
+    "grid_transperant",
+    // Goal glass mesh
+    "Detail_Milieu",
+    "Detail_Milieu.001"
+    // Field mid details
+  ], t = ["Glow", "Glass"], i = ["Plafond_Hexagone_T0", "Plafond_Hexagone_T1", "Plafond_Transparent"];
+  n.traverse((a) => {
+    if (!a.isMesh)
+      return;
+    a.receiveShadow = !0, a.castShadow = !i.includes(a.name), t.some(
+      (s) => a.name.includes(s)
+    ) && (console.log(`[ArenaManager] Disabling frustum culling for: ${a.name}`), a.frustumCulled = !1), a.material && /^Hexagone_T[01]$/.test(a.material.name ?? "") && (a.material = a.material.clone(), a.material.transparent = !0, a.material.opacity = 0.18, a.material.depthWrite = !1, a.renderOrder = 1), a.material && a.material.name === "bannière_pub" && (a.visible = !1), a.material && a.material.name === "Sol_Hexagone" && (a.material = a.material.clone(), a.material.color.setScalar(0.35), a.material.metalness = 0, a.material.roughness = 1), a.material && a.material.name && e.includes(a.material.name) && (console.log(
+      `[ArenaManager] Fixing visibility for: ${a.name} (material: ${a.material.name})`
+    ), a.material = a.material.clone(), a.material.side = h.DoubleSide, a.material.depthWrite = !1, a.renderOrder = 1, a.frustumCulled = !1);
+  });
+}
+class Yn {
+  constructor(e, t = {}) {
+    this.scene = e, this.assetBase = t.assetBase, this.arenaMeshes = [], this.drawingCollider = null, this.drawingColliderMeshes = [], this.arenaDecorMesh = null, this.showArenaDecor = !0, this.dracoLoader = new ci(), this.dracoLoader.setDecoderPath(G("draco/", this.assetBase)), this.gltfLoader = new tt(), this.gltfLoader.setDRACOLoader(this.dracoLoader);
   }
   async loadArenaMeshes() {
     try {
       console.log("Loading arena mesh...");
-      const t = (await this.gltfLoader.loadAsync("/models/stadium/stadium.glb")).scene, i = [
-        "Sol_Trait_T0",
-        "Sol_Trait_T1",
-        "Milieu_Forme",
-        "Milieu_Forme.001",
-        "cage_T0",
-        "cage_T1",
-        "Couleur_Hexagone_T0",
-        "Couleur_Hexagone_T1",
-        "wall_gradient_color_2",
-        "wall_gradient_color_2.001",
-        "Fond_BackBoard_Transparent",
-        // For Transparant_BackBoard_+_Cage meshes
-        "dégradé_transparent_T0",
-        "dégradé_transparent_T1",
-        // Glow effects on field edges
-        "grid_transperant",
-        // Goal glass mesh
-        "Detail_Milieu",
-        "Detail_Milieu.001"
-        // Field mid details
-      ], a = ["Glow", "Glass"], s = [
-        "Plafond_Hexagone_T0",
-        "Plafond_Hexagone_T1",
-        "Plafond_Transparent"
-      ];
-      t.traverse((o) => {
-        o.isMesh && (o.receiveShadow = !0, o.castShadow = !s.includes(o.name), this.arenaMeshes.push(o), a.some(
-          (c) => o.name.includes(c)
-        ) && (console.log(`[ArenaManager] Disabling frustum culling for: ${o.name}`), o.frustumCulled = !1), o.material && /^Hexagone_T[01]$/.test(o.material.name ?? "") && (o.material = o.material.clone(), o.material.transparent = !0, o.material.opacity = 0.18, o.material.depthWrite = !1, o.renderOrder = 1), o.material && o.material.name === "bannière_pub" && (o.visible = !1), o.material && o.material.name === "Sol_Hexagone" && (o.material = o.material.clone(), o.material.color.setScalar(0.35), o.material.metalness = 0, o.material.roughness = 1), o.material && o.material.name && i.includes(o.material.name) && (console.log(
-          `[ArenaManager] Fixing visibility for: ${o.name} (material: ${o.material.name})`
-        ), o.material = o.material.clone(), o.material.side = l.DoubleSide, o.material.depthWrite = !1, o.renderOrder = 1, o.frustumCulled = !1));
+      const t = (await Kn(this.gltfLoader, this.assetBase)).clone(!0);
+      t.traverse((i) => {
+        i.isMesh && this.arenaMeshes.push(i);
       }), console.log(`[ArenaManager] Collected ${this.arenaMeshes.length} meshes for raycasting`), this.scene.add(t), console.log("Arena mesh loaded successfully with correct orientation");
     } catch (e) {
       console.error("Error loading arena mesh:", e);
-      const t = new l.PlaneGeometry(10240, 8192), i = new l.MeshStandardMaterial({
+      const t = new h.PlaneGeometry(10240, 8192), i = new h.MeshStandardMaterial({
         color: 3355443,
-        side: l.DoubleSide
-      }), a = new l.Mesh(t, i);
+        side: h.DoubleSide
+      }), a = new h.Mesh(t, i);
       a.rotation.x = -Math.PI / 2, a.receiveShadow = !0, this.scene.add(a), this.arenaMeshes.push(a);
     }
   }
@@ -2396,14 +2528,16 @@ class ls {
   async loadDrawingCollider(e = !1) {
     try {
       console.log("[ArenaManager] Loading drawing collider...");
-      const i = await new Fa().loadAsync("/models/stadium/DrawingArena.obj");
+      const i = await new ga().loadAsync(
+        G("models/stadium/DrawingArena.obj", this.assetBase)
+      );
       i.rotation.x = Math.PI / 2, i.rotation.y = Math.PI, i.scale.setScalar(0.99), i.position.y = 20, i.traverse((a) => {
-        a.isMesh && (this.drawingColliderMeshes.push(a), a.castShadow = !1, a.receiveShadow = !1, e ? a.material = new l.MeshBasicMaterial({
+        a.isMesh && (this.drawingColliderMeshes.push(a), a.castShadow = !1, a.receiveShadow = !1, e ? a.material = new h.MeshBasicMaterial({
           color: 65280,
           transparent: !0,
           opacity: 0.7,
-          side: l.DoubleSide
-        }) : a.material = new l.MeshBasicMaterial({
+          side: h.DoubleSide
+        }) : a.material = new h.MeshBasicMaterial({
           visible: !1
         }));
       }), this.drawingCollider = i, this.scene.add(i), console.log(
@@ -2419,12 +2553,12 @@ class ls {
    */
   setDrawingColliderVisible(e) {
     for (const t of this.drawingColliderMeshes)
-      e ? t.material = new l.MeshBasicMaterial({
+      e ? t.material = new h.MeshBasicMaterial({
         color: 65280,
         wireframe: !0,
         transparent: !0,
         opacity: 0.5
-      }) : t.material = new l.MeshBasicMaterial({
+      }) : t.material = new h.MeshBasicMaterial({
         visible: !1
       });
   }
@@ -2435,7 +2569,9 @@ class ls {
   async loadArenaDecor(e = !0) {
     try {
       console.log("[ArenaManager] Loading arena decoration mesh...");
-      const t = await this.gltfLoader.loadAsync("/models/stadium/arene.glb");
+      const t = await this.gltfLoader.loadAsync(
+        G("models/stadium/arene.glb", this.assetBase)
+      );
       this.arenaDecorMesh = t.scene, this.showArenaDecor = e, this.arenaDecorMesh.traverse((i) => {
         i.isMesh && (i.receiveShadow = !0, i.castShadow = !0);
       }), this.arenaDecorMesh.visible = e, this.scene.add(this.arenaDecorMesh), console.log(`[ArenaManager] Arena decoration loaded, visible: ${e}`);
@@ -2458,11 +2594,12 @@ class ls {
     return this.showArenaDecor;
   }
 }
-class cs {
-  constructor() {
-    this.fbxLoader = new Ra(), this.gltfLoader = new ft(), this.textureLoader = new l.TextureLoader();
-    const e = new Mi();
-    e.setDecoderPath("/draco/"), this.gltfLoader.setDRACOLoader(e), this.modelCache = /* @__PURE__ */ new Map(), this.loadingPromises = /* @__PURE__ */ new Map(), this.modelConfig = {
+const qn = /* @__PURE__ */ new Map(), Zn = /* @__PURE__ */ new Map(), Qn = /* @__PURE__ */ new Map(), Jn = /* @__PURE__ */ new Map();
+class eo {
+  constructor(e = {}) {
+    this.assetBase = e.assetBase, this.fbxLoader = new ya(), this.gltfLoader = new tt(), this.textureLoader = new h.TextureLoader();
+    const t = new ci();
+    t.setDecoderPath(G("draco/", this.assetBase)), this.gltfLoader.setDRACOLoader(t), this.modelCache = qn, this.loadingPromises = Zn, this.modelConfig = {
       octane: {
         format: "glb",
         file: "octane.glb",
@@ -2512,7 +2649,7 @@ class cs {
         wheelSockets: !0,
         wheelModel: "Wheel_Boog.glb"
       }
-    }, this.wheelModelCache = /* @__PURE__ */ new Map(), this.wheelLoadingPromises = /* @__PURE__ */ new Map(), this.preloadReady = Promise.resolve(), this._preloadStarted = !1, this.carNameToModel = {
+    }, this.wheelModelCache = Qn, this.wheelLoadingPromises = Jn, this.preloadReady = Promise.resolve(), this._preloadStarted = !1, this.carNameToModel = {
       Octane: "octane",
       "Octane ZSR": "octane",
       Fennec: "fennec",
@@ -2532,8 +2669,8 @@ class cs {
       Hybrid: "x-devil",
       Merc: "merc"
     }, this.TEAM_COLORS = {
-      blue: new l.Color(26367),
-      orange: new l.Color(16737792)
+      blue: new h.Color(26367),
+      orange: new h.Color(16737792)
     }, this.HITBOX_DIMENSIONS = {
       octane: {
         length: 118.0074,
@@ -2583,8 +2720,8 @@ class cs {
     this._preloadStarted = !0;
     const t = /* @__PURE__ */ new Set();
     for (const a of e) {
-      const s = this.getModelTypeForCar(a.carName, a.hitboxType);
-      t.add(s);
+      const o = this.getModelTypeForCar(a.carName, a.hitboxType);
+      t.add(o);
     }
     const i = [...t];
     return console.log(
@@ -2626,49 +2763,56 @@ class cs {
    * @returns {Promise<{model: THREE.Group, chassisTexture: THREE.Texture}>}
    */
   async loadModel(e) {
-    if (this.modelCache.has(e))
-      return this.modelCache.get(e);
-    if (this.loadingPromises.has(e))
-      return this.loadingPromises.get(e);
-    const t = this._loadModelInternal(e);
-    this.loadingPromises.set(e, t);
+    const t = this.modelCacheKey(e);
+    if (this.modelCache.has(t))
+      return this.modelCache.get(t);
+    if (this.loadingPromises.has(t))
+      return this.loadingPromises.get(t);
+    const i = this._loadModelInternal(e);
+    this.loadingPromises.set(t, i);
     try {
-      const i = await t;
-      return this.modelCache.set(e, i), i;
+      const a = await i;
+      return this.modelCache.set(t, a), a;
     } finally {
-      this.loadingPromises.delete(e);
+      this.loadingPromises.delete(t);
     }
   }
+  modelCacheKey(e) {
+    return G(`models/cars/${e}`, this.assetBase);
+  }
   async _loadModelInternal(e) {
-    const t = `/models/cars/${e}`, i = this.modelConfig[e] || {
+    const t = `models/cars/${e}`, i = this.modelConfig[e] || {
       format: "glb",
       file: `${e}.glb`,
       scale: 100,
       wheelSockets: !0,
       wheelModel: "Wheel_Boog.glb"
     };
-    let a, s = null, o = null;
+    let a, o = null, s = null;
     if (i.format === "glb") {
-      const c = `${t}/${i.file}`;
-      i.wheelSockets && i.wheelModel ? ([a, o] = await Promise.all([
+      const c = G(`${t}/${i.file}`, this.assetBase);
+      i.wheelSockets && i.wheelModel ? ([a, s] = await Promise.all([
         this._loadGLB(c),
         this.loadWheelModel(i.wheelModel)
       ]), console.log(`✓ Loaded GLB model with separate wheels: ${c}`)) : (a = await this._loadGLB(c), console.log(`✓ Loaded GLB model: ${c}`));
     } else {
-      const c = `${t}/${i.file}.fbx`, h = i.file, d = `${t}/${h}_engine.png`;
-      [a, s] = await Promise.all([
+      const c = G(`${t}/${i.file}.fbx`, this.assetBase), l = i.file, d = G(
+        `${t}/${l}_engine.png`,
+        this.assetBase
+      );
+      [a, o] = await Promise.all([
         this._loadFBX(c),
         this._loadTexture(d).catch((m) => (console.warn(`⚠️ Could not load texture ${d}:`, m.message), null))
       ]);
     }
-    this._processModelMaterials(a, s, e, i.format);
+    this._processModelMaterials(a, o, e, i.format);
     const r = this._calculateModelScale(a, e, i.scale);
     if (a.userData.scaleInfo = r, a.userData.format = i.format, i.wheelSockets) {
       a.userData.wheelSockets = !0, a.userData.wheelModelName = i.wheelModel;
       const c = this._findWheelSockets(a);
       a.userData.wheelSocketObjects = c, console.log(`🔌 Found ${Object.keys(c).length} wheel sockets`);
     }
-    return { model: a, chassisTexture: s, wheelModel: o };
+    return { model: a, chassisTexture: o, wheelModel: s };
   }
   /**
    * Find wheel socket empty objects in the model
@@ -2680,10 +2824,10 @@ class cs {
   _findWheelSockets(e) {
     const t = {}, i = ["Wheel_BL", "Wheel_BR", "Wheel_FL", "Wheel_FR"];
     console.log("🔍 Searching for wheel sockets..."), e.traverse((a) => {
-      const s = a.name, o = s.toLowerCase();
+      const o = a.name, s = o.toLowerCase();
       for (const r of i)
-        (s === r || o === r.toLowerCase()) && (t[r] = a, console.log(
-          `   Found socket: "${s}" at position (${a.position.x.toFixed(2)}, ${a.position.y.toFixed(2)}, ${a.position.z.toFixed(2)})`
+        (o === r || s === r.toLowerCase()) && (t[r] = a, console.log(
+          `   Found socket: "${o}" at position (${a.position.x.toFixed(2)}, ${a.position.y.toFixed(2)}, ${a.position.z.toFixed(2)})`
         ));
     });
     for (const a of i)
@@ -2700,15 +2844,15 @@ class cs {
    * @returns {{ scale: number, offsetX: number, offsetY: number }}
    */
   _calculateModelScale(e, t, i = null) {
-    const a = new l.Box3().setFromObject(e), s = new l.Vector3();
-    a.getSize(s), console.log(`📐 ${t.toUpperCase()} model dimensions (raw):`), console.log(`   Size: X=${s.x.toFixed(2)}, Y=${s.y.toFixed(2)}, Z=${s.z.toFixed(2)}`), console.log(`   Min Y: ${a.min.y.toFixed(2)}, Max Y: ${a.max.y.toFixed(2)}`);
-    const o = this.HITBOX_DIMENSIONS[t] || this.HITBOX_DIMENSIONS.octane;
+    const a = new h.Box3().setFromObject(e), o = new h.Vector3();
+    a.getSize(o), console.log(`📐 ${t.toUpperCase()} model dimensions (raw):`), console.log(`   Size: X=${o.x.toFixed(2)}, Y=${o.y.toFixed(2)}, Z=${o.z.toFixed(2)}`), console.log(`   Min Y: ${a.min.y.toFixed(2)}, Max Y: ${a.max.y.toFixed(2)}`);
+    const s = this.HITBOX_DIMENSIONS[t] || this.HITBOX_DIMENSIONS.octane;
     let r;
     if (i !== null)
       r = i, console.log(`   Using override scale: ${r}`);
     else {
-      const c = s.z, d = o.length * 1 / c;
-      r = d * 0.55, console.log(`   Target RL: ${o.length} x ${o.width} x ${o.height} uu`), console.log(`   Scale to RL: ${d.toFixed(4)}, Final scale: ${r.toFixed(6)}`);
+      const c = o.z, d = s.length * 1 / c;
+      r = d * 0.55, console.log(`   Target RL: ${s.length} x ${s.width} x ${s.height} uu`), console.log(`   Scale to RL: ${d.toFixed(4)}, Final scale: ${r.toFixed(6)}`);
     }
     return { scale: r };
   }
@@ -2740,21 +2884,22 @@ class cs {
    * @returns {Promise<THREE.Group>}
    */
   async loadWheelModel(e) {
-    if (this.wheelModelCache.has(e))
-      return this.wheelModelCache.get(e);
-    if (this.wheelLoadingPromises.has(e))
-      return this.wheelLoadingPromises.get(e);
-    const t = this._loadGLB(`/models/wheels/${e}`);
-    this.wheelLoadingPromises.set(e, t);
+    const t = G(`models/wheels/${e}`, this.assetBase);
+    if (this.wheelModelCache.has(t))
+      return this.wheelModelCache.get(t);
+    if (this.wheelLoadingPromises.has(t))
+      return this.wheelLoadingPromises.get(t);
+    const i = this._loadGLB(t);
+    this.wheelLoadingPromises.set(t, i);
     try {
-      const i = await t;
-      return console.log(`✓ Loaded wheel model: ${e}`), i.traverse((a) => {
-        a.isMesh && (a.castShadow = !0, a.receiveShadow = !0);
-      }), this.wheelModelCache.set(e, i), i;
-    } catch (i) {
-      throw console.error(`Failed to load wheel model ${e}:`, i), i;
+      const a = await i;
+      return console.log(`✓ Loaded wheel model: ${e}`), a.traverse((o) => {
+        o.isMesh && (o.castShadow = !0, o.receiveShadow = !0);
+      }), this.wheelModelCache.set(t, a), a;
+    } catch (a) {
+      throw console.error(`Failed to load wheel model ${e}:`, a), a;
     } finally {
-      this.wheelLoadingPromises.delete(e);
+      this.wheelLoadingPromises.delete(t);
     }
   }
   _loadTexture(e) {
@@ -2762,7 +2907,7 @@ class cs {
       this.textureLoader.load(
         e,
         (a) => {
-          a.flipY = !1, a.colorSpace = l.SRGBColorSpace, t(a);
+          a.flipY = !1, a.colorSpace = h.SRGBColorSpace, t(a);
         },
         void 0,
         (a) => i(new Error(`Failed to load texture: ${e}`))
@@ -2771,36 +2916,36 @@ class cs {
   }
   _processModelMaterials(e, t, i, a = "fbx") {
     console.log(`📦 Processing materials for ${i} (${a}):`);
-    const s = ["body", "paint"], o = [];
+    const o = ["body", "paint"], s = [];
     e.traverse((r) => {
-      r.isLight && (o.push(r), console.log(`  🔦 Removing imported light: "${r.name || r.type}"`));
-    }), o.forEach((r) => {
+      r.isLight && (s.push(r), console.log(`  🔦 Removing imported light: "${r.name || r.type}"`));
+    }), s.forEach((r) => {
       r.parent && r.parent.remove(r);
     }), e.traverse((r) => {
-      r.isMesh && (console.log(`  Mesh: "${r.name}"`), (Array.isArray(r.material) ? r.material : [r.material]).forEach((h, d) => {
+      r.isMesh && (console.log(`  Mesh: "${r.name}"`), (Array.isArray(r.material) ? r.material : [r.material]).forEach((l, d) => {
         console.log(
-          `    [${d}] Material: "${h.name}" - Color: #${h.color?.getHexString() || "none"}`
+          `    [${d}] Material: "${l.name}" - Color: #${l.color?.getHexString() || "none"}`
         );
-        const m = (h.name || "").toLowerCase(), u = (r.name || "").toLowerCase(), p = s.some(
-          (g) => m.includes(g) || u.includes(g)
+        const m = (l.name || "").toLowerCase(), u = (r.name || "").toLowerCase(), p = o.some(
+          (f) => m.includes(f) || u.includes(f)
         );
         if (a === "glb")
-          (h.isMeshStandardMaterial || h.isMeshPhysicalMaterial) && (console.log(
-            `      → GLB material (keeping as-is): metalness=${h.metalness?.toFixed(2)}, roughness=${h.roughness?.toFixed(2)}`
-          ), h.userData.originalColor = h.color?.clone(), h.userData.isBodyMaterial = p);
-        else if (h.isMeshPhongMaterial || h.isMeshLambertMaterial || h.isMeshBasicMaterial) {
-          let g;
-          p ? (g = new l.MeshStandardMaterial({
-            color: h.color,
-            map: h.map,
+          (l.isMeshStandardMaterial || l.isMeshPhysicalMaterial) && (console.log(
+            `      → GLB material (keeping as-is): metalness=${l.metalness?.toFixed(2)}, roughness=${l.roughness?.toFixed(2)}`
+          ), l.userData.originalColor = l.color?.clone(), l.userData.isBodyMaterial = p);
+        else if (l.isMeshPhongMaterial || l.isMeshLambertMaterial || l.isMeshBasicMaterial) {
+          let f;
+          p ? (f = new h.MeshStandardMaterial({
+            color: l.color,
+            map: l.map,
             metalness: 0.8,
             roughness: 0.15
-          }), console.log("      → Body material: shiny metallic")) : (g = new l.MeshStandardMaterial({
-            color: h.color,
-            map: h.map,
+          }), console.log("      → Body material: shiny metallic")) : (f = new h.MeshStandardMaterial({
+            color: l.color,
+            map: l.map,
             metalness: 0.1,
             roughness: 0.6
-          }), console.log("      → Non-body material: matte")), g.name = h.name, Array.isArray(r.material) ? r.material[d] = g : r.material = g;
+          }), console.log("      → Non-body material: matte")), f.name = l.name, Array.isArray(r.material) ? r.material[d] = f : r.material = f;
         }
       }));
     }), t ? console.log(`  ✓ Chassis texture loaded for ${i}`) : a === "fbx" && console.log(`  ⚠️ No chassis texture for ${i}`);
@@ -2832,15 +2977,15 @@ class cs {
       const a = await this.loadModel(i);
       if (!a || !a.model)
         return console.warn(`No cached model for ${i}`), null;
-      const s = a.model.userData.format || "fbx";
-      let o;
-      s === "glb" ? (o = Xe(a.model), o.traverse((h) => {
-        h.isMesh && (Array.isArray(h.material) ? h.material = h.material.map((d) => d.clone()) : h.material && (h.material = h.material.clone()));
-      })) : o = a.model.clone(), this.applyTeamColor(o, t);
-      const r = new l.Group(), c = a.model.userData.scaleInfo;
-      return c && o.scale.setScalar(c.scale), r.add(o), o.traverse((h) => {
-        h.isMesh && (h.castShadow = !0);
-      }), r.userData.modelType = i, r.userData.hitboxType = e, r.userData.team = t, r.userData.isFBXModel = s === "fbx", r.userData.isGLBModel = s === "glb", r;
+      const o = a.model.userData.format || "fbx";
+      let s;
+      o === "glb" ? (s = Ve(a.model), s.traverse((l) => {
+        l.isMesh && (Array.isArray(l.material) ? l.material = l.material.map((d) => d.clone()) : l.material && (l.material = l.material.clone()));
+      })) : s = a.model.clone(), this.applyTeamColor(s, t);
+      const r = new h.Group(), c = a.model.userData.scaleInfo;
+      return c && s.scale.setScalar(c.scale), r.add(s), s.traverse((l) => {
+        l.isMesh && (l.castShadow = !0);
+      }), r.userData.modelType = i, r.userData.hitboxType = e, r.userData.team = t, r.userData.isFBXModel = o === "fbx", r.userData.isGLBModel = o === "glb", r;
     } catch (a) {
       return console.error(`Failed to create car mesh for ${e}:`, a), null;
     }
@@ -2852,28 +2997,28 @@ class cs {
    */
   applyTeamColor(e, t) {
     const i = t === 0 ? this.TEAM_COLORS.blue : this.TEAM_COLORS.orange, a = ["body", "paint"];
-    let s = !1;
-    console.log("🔍 Analyzing car meshes for team coloring:"), e.traverse((o) => {
-      if (o.isMesh) {
-        const r = Array.isArray(o.material) ? o.material : [o.material];
-        console.log(`  Mesh: "${o.name}" with ${r.length} material(s)`), r.forEach((c, h) => {
+    let o = !1;
+    console.log("🔍 Analyzing car meshes for team coloring:"), e.traverse((s) => {
+      if (s.isMesh) {
+        const r = Array.isArray(s.material) ? s.material : [s.material];
+        console.log(`  Mesh: "${s.name}" with ${r.length} material(s)`), r.forEach((c, l) => {
           console.log(
-            `    [${h}] Material: "${c.name}", isBodyMaterial: ${c.userData?.isBodyMaterial}`
+            `    [${l}] Material: "${c.name}", isBodyMaterial: ${c.userData?.isBodyMaterial}`
           );
         });
       }
-    }), e.traverse((o) => {
-      o.isMesh && (Array.isArray(o.material) ? o.material : [o.material]).forEach((c, h) => {
-        const d = (c.name || "").toLowerCase(), m = (o.name || "").toLowerCase(), u = c.userData?.isBodyMaterial || a.some((p) => d.includes(p) || m.includes(p));
-        if (console.log(`    Checking "${c.name}" on "${o.name}": isBody=${u}`), u) {
-          s = !0;
+    }), e.traverse((s) => {
+      s.isMesh && (Array.isArray(s.material) ? s.material : [s.material]).forEach((c, l) => {
+        const d = (c.name || "").toLowerCase(), m = (s.name || "").toLowerCase(), u = c.userData?.isBodyMaterial || a.some((p) => d.includes(p) || m.includes(p));
+        if (console.log(`    Checking "${c.name}" on "${s.name}": isBody=${u}`), u) {
+          o = !0;
           const p = c.clone();
-          p.color = i.clone(), p.metalness = 0.39, p.roughness = 0.47, p.userData = { ...c.userData }, Array.isArray(o.material) ? o.material[h] = p : o.material = p, console.log(
-            `🎨 Applied team color to: "${c.name}" on mesh "${o.name}" (index ${h})`
+          p.color = i.clone(), p.metalness = 0.39, p.roughness = 0.47, p.userData = { ...c.userData }, Array.isArray(s.material) ? s.material[l] = p : s.material = p, console.log(
+            `🎨 Applied team color to: "${c.name}" on mesh "${s.name}" (index ${l})`
           );
         }
       });
-    }), s || console.warn("⚠️ No body material found for team coloring! Check material names.");
+    }), o || console.warn("⚠️ No body material found for team coloring! Check material names.");
   }
   /**
    * Update the team color of an existing car mesh
@@ -2891,7 +3036,7 @@ class cs {
    */
   isModelReady(e, t) {
     const i = this.getModelTypeForCar(e, t);
-    return this.modelCache.has(i);
+    return this.modelCache.has(this.modelCacheKey(i));
   }
   /**
    * Get a synchronous car mesh if available (returns null if not loaded)
@@ -2901,18 +3046,18 @@ class cs {
    * @returns {THREE.Group|null}
    */
   getCarMeshSync(e, t, i = 0) {
-    const a = this.getModelTypeForCar(e, t), s = this.modelCache.get(a);
-    if (!s || !s.model)
+    const a = this.getModelTypeForCar(e, t), o = this.modelCache.get(this.modelCacheKey(a));
+    if (!o || !o.model)
       return null;
-    const o = s.model.userData.format || "fbx", r = s.model.userData.wheelSockets;
+    const s = o.model.userData.format || "fbx", r = o.model.userData.wheelSockets;
     let c;
-    o === "glb" ? (c = Xe(s.model), c.traverse((m) => {
+    s === "glb" ? (c = Ve(o.model), c.traverse((m) => {
       m.isMesh && (Array.isArray(m.material) ? m.material = m.material.map((u) => u.clone()) : m.material && (m.material = m.material.clone()));
-    })) : c = s.model.clone(), this.applyTeamColor(c, i);
-    const h = new l.Group(), d = s.model.userData.scaleInfo;
-    return d && c.scale.setScalar(d.scale), h.add(c), c.traverse((m) => {
+    })) : c = o.model.clone(), this.applyTeamColor(c, i);
+    const l = new h.Group(), d = o.model.userData.scaleInfo;
+    return d && c.scale.setScalar(d.scale), l.add(c), c.traverse((m) => {
       m.isMesh && (m.castShadow = !0);
-    }), h.userData.modelType = a, h.userData.carName = e, h.userData.hitboxType = t, h.userData.team = i, h.userData.isFBXModel = o === "fbx", h.userData.isGLBModel = o === "glb", h.userData.hasWheelSockets = r, r ? h.userData.wheels = this._attachWheelsToSockets(c, s.wheelModel) : h.userData.wheels = this._findWheelMeshes(c), h;
+    }), l.userData.modelType = a, l.userData.carName = e, l.userData.hitboxType = t, l.userData.team = i, l.userData.isFBXModel = s === "fbx", l.userData.isGLBModel = s === "glb", l.userData.hasWheelSockets = r, r ? l.userData.wheels = this._attachWheelsToSockets(c, o.wheelModel) : l.userData.wheels = this._findWheelMeshes(c), l;
   }
   /**
    * Attach wheel models to socket empty objects in the car model
@@ -2931,24 +3076,24 @@ class cs {
     if (!t)
       return console.warn("⚠️ No wheel model template available for socket attachment"), i;
     console.log("🔧 Attaching wheels to sockets...");
-    const s = {};
-    e.traverse((o) => {
-      const r = o.name;
-      a[r] && (s[r] = o);
+    const o = {};
+    e.traverse((s) => {
+      const r = s.name;
+      a[r] && (o[r] = s);
     });
-    for (const [o, r] of Object.entries(a)) {
-      const c = s[o];
+    for (const [s, r] of Object.entries(a)) {
+      const c = o[s];
       if (!c) {
-        console.warn(`   ⚠️ Socket not found: ${o}`);
+        console.warn(`   ⚠️ Socket not found: ${s}`);
         continue;
       }
-      const h = Xe(t);
-      h.traverse((d) => {
+      const l = Ve(t);
+      l.traverse((d) => {
         d.isMesh && (Array.isArray(d.material) ? d.material = d.material.map((m) => m.clone()) : d.material && (d.material = d.material.clone()), d.castShadow = !0);
-      }), h.position.set(0, 0, 0), h.rotation.set(0, 0, 0), c.add(h), console.log(
-        `   ✓ Attached wheel to ${o} (${r.position} ${r.side})`
+      }), l.position.set(0, 0, 0), l.rotation.set(0, 0, 0), c.add(l), console.log(
+        `   ✓ Attached wheel to ${s} (${r.position} ${r.side})`
       ), i.push({
-        mesh: h,
+        mesh: l,
         steeringPivot: r.position === "front" ? c : null,
         side: r.side,
         position: r.position,
@@ -2975,60 +3120,59 @@ class cs {
     };
     console.log("🔍 Searching for wheels in model...");
     const a = {};
-    e.traverse((s) => {
-      const r = s.name.toLowerCase().match(/^wheel_(fl|fr|rl|rr)_(y|z)$/);
+    e.traverse((o) => {
+      const r = o.name.toLowerCase().match(/^wheel_(fl|fr|rl|rr)_(y|z)$/);
       if (r) {
-        const c = r[1], h = r[2];
-        a[c] || (a[c] = {}), a[c][h] = s, console.log(
-          `   Found: "${s.name}" (${h === "y" ? "wheel mesh" : "steering pivot"})`
+        const c = r[1], l = r[2];
+        a[c] || (a[c] = {}), a[c][l] = o, console.log(
+          `   Found: "${o.name}" (${l === "y" ? "wheel mesh" : "steering pivot"})`
         );
       }
     });
-    for (const [s, o] of Object.entries(a)) {
-      const r = i[s];
+    for (const [o, s] of Object.entries(a)) {
+      const r = i[o];
       if (!r) continue;
-      const c = o.y, h = o.z;
-      c && (s === "fr" && (c.rotation.z += Math.PI, console.log("   Fixed FR wheel orientation (rotation.z += PI)")), t.push({
+      const c = s.y, l = s.z;
+      c && (o === "fr" && (c.rotation.z += Math.PI, console.log("   Fixed FR wheel orientation (rotation.z += PI)")), t.push({
         mesh: c,
-        steeringPivot: r.position === "front" ? h : null,
+        steeringPivot: r.position === "front" ? l : null,
         side: r.side,
         position: r.position
       }), console.log(
-        `🛞 Wheel ${s.toUpperCase()}: mesh="${c.name}"${h && r.position === "front" ? `, steering="${h.name}"` : ""}`
+        `🛞 Wheel ${o.toUpperCase()}: mesh="${c.name}"${l && r.position === "front" ? `, steering="${l.name}"` : ""}`
       ));
     }
-    return t.length === 0 ? (console.warn("⚠️ No wheel meshes found. Expected: Wheel_FL_Y, Wheel_FR_Y, etc."), console.warn("   Listing all objects in model:"), e.traverse((s) => {
-      console.log(`   - "${s.name}" (${s.type})`);
+    return t.length === 0 ? (console.warn("⚠️ No wheel meshes found. Expected: Wheel_FL_Y, Wheel_FR_Y, etc."), console.warn("   Listing all objects in model:"), e.traverse((o) => {
+      console.log(`   - "${o.name}" (${o.type})`);
     })) : console.log(`✓ Found ${t.length} wheels`), t;
   }
   dispose() {
-    this.modelCache.forEach(({ model: e, chassisTexture: t }) => {
-      e.traverse((i) => {
-        i.isMesh && (i.geometry && i.geometry.dispose(), (Array.isArray(i.material) ? i.material : [i.material]).forEach((s) => s.dispose()));
-      }), t && t.dispose();
-    }), this.modelCache.clear(), this.wheelModelCache.forEach((e) => {
-      e.traverse((t) => {
-        t.isMesh && (t.geometry && t.geometry.dispose(), (Array.isArray(t.material) ? t.material : [t.material]).forEach((a) => a.dispose()));
-      });
-    }), this.wheelModelCache.clear();
   }
 }
-class hs {
-  constructor(e, t) {
-    this.scene = e, this.effectsManager = t, this.actors = {}, this.ballActorId = null, this.ballIndicator = null, this.ballVerticalLine = null, this.playerNames = /* @__PURE__ */ new Set(), this.actorToPlayer = {}, this.actorLinks = {}, this.playerNameToCarActorId = {}, this.playerNameToPriActorId = {}, this.playerTeams = {}, this.actorLoadouts = {}, this.carBodyIds = {}, this.carModelLoader = new cs(), this.pendingCarReplacements = /* @__PURE__ */ new Map(), this._p0 = new l.Vector3(), this._p1 = new l.Vector3(), this._v0 = new l.Vector3(), this._v1 = new l.Vector3(), this._nextRot = new l.Quaternion(), this._q0 = new l.Quaternion(), this._q1 = new l.Quaternion(), this._qResult = new l.Quaternion(), this.onPlayerFound = null, this.lastBallTouchTeam = 0, this.BALL_TOUCH_DISTANCE = 200, this.ballTimeline = [], this.playerTimelineMap = {}, this.timelineIndices = { ball: 0, players: {} }, this.interpolantsInitialized = !1, this.animationMixer = null, this.animationActions = {}, this.animationClock = new l.Clock(!1), this.replayDuration = 0, this.useAnimationSystem = !1, this.SMOOTHING_WINDOW = 5, this.positionBuffers = {}, this.rotationBuffers = {}, this.interpolationEnabled = !0, this.interpolationMethod = "lerp", this.smoothingWindowSize = 12, this.lastFrameInfo = null, this._lowPassState = /* @__PURE__ */ new Map(), this._lowPassAlpha = 0.3, this._predictState = /* @__PURE__ */ new Map(), this._predictCorrectionTime = 0.1, this._smoothingBuffers = /* @__PURE__ */ new Map(), this._adaptiveState = /* @__PURE__ */ new Map(), this.ballModel = null, this._ballModelReplaced = !1;
-    const i = new ft();
-    this.ballModelReady = new Promise((a) => {
+const to = 2, We = /* @__PURE__ */ new Map();
+function io(n) {
+  const e = G("models/ball/scene.gltf", n);
+  let t = We.get(e);
+  if (!t) {
+    const i = new tt();
+    t = new Promise((a) => {
       i.load(
-        "/models/ball/scene.gltf",
-        (s) => {
-          this.ballModel = s.scene, console.log("✓ Ball model loaded"), a(!0);
+        e,
+        (o) => {
+          console.log("✓ Ball model loaded"), a(o.scene);
         },
         void 0,
-        (s) => {
-          console.error("Failed to load ball model:", s), a(!1);
+        (o) => {
+          console.error("Failed to load ball model:", o), We.delete(e), a(null);
         }
       );
-    });
+    }), We.set(e, t);
+  }
+  return t;
+}
+class ao {
+  constructor(e, t, i = {}) {
+    this.scene = e, this.effectsManager = t, this.assetBase = i.assetBase, this.actors = {}, this.ballActorId = null, this.ballIndicator = null, this.ballVerticalLine = null, this.playerNames = /* @__PURE__ */ new Set(), this.actorToPlayer = {}, this.actorLinks = {}, this.playerNameToCarActorId = {}, this.playerNameToPriActorId = {}, this.playerTeams = {}, this.actorLoadouts = {}, this.carBodyIds = {}, this.carModelLoader = new eo({ assetBase: this.assetBase }), this.pendingCarReplacements = /* @__PURE__ */ new Map(), this._lastGoalScanTime = null, this._firedGoalTimes = /* @__PURE__ */ new Set(), this._p0 = new h.Vector3(), this._p1 = new h.Vector3(), this._v0 = new h.Vector3(), this._v1 = new h.Vector3(), this._nextRot = new h.Quaternion(), this._q0 = new h.Quaternion(), this._q1 = new h.Quaternion(), this._qResult = new h.Quaternion(), this.onPlayerFound = null, this.lastBallTouchTeam = 0, this.BALL_TOUCH_DISTANCE = 200, this.ballTimeline = [], this.playerTimelineMap = {}, this.timelineIndices = { ball: 0, players: {} }, this.interpolantsInitialized = !1, this.animationMixer = null, this.animationActions = {}, this.animationClock = new h.Clock(!1), this.replayDuration = 0, this.useAnimationSystem = !1, this.SMOOTHING_WINDOW = 5, this.positionBuffers = {}, this.rotationBuffers = {}, this.interpolationEnabled = !0, this.interpolationMethod = "lerp", this.smoothingWindowSize = 12, this.lastFrameInfo = null, this._lowPassState = /* @__PURE__ */ new Map(), this._lowPassAlpha = 0.3, this._predictState = /* @__PURE__ */ new Map(), this._predictCorrectionTime = 0.1, this._smoothingBuffers = /* @__PURE__ */ new Map(), this._adaptiveState = /* @__PURE__ */ new Map(), this.ballModel = null, this._ballModelReplaced = !1, this.ballModelReady = io(this.assetBase).then((a) => (this.ballModel = a, a !== null));
   }
   /**
    * Wait for ball model to be loaded, then replace the ball mesh if not already done.
@@ -3045,14 +3189,14 @@ class hs {
     const i = this.ballModel.clone();
     i.userData = t.userData, i.position.copy(t.position), i.quaternion.copy(t.quaternion), i.scale.copy(t.scale);
     const a = 92.75;
-    i.scale.set(a, a, a), i.traverse((s) => {
-      s.isMesh && (s.castShadow = !0, s.receiveShadow = !0);
+    i.scale.set(a, a, a), i.traverse((o) => {
+      o.isMesh && (o.castShadow = !0, o.receiveShadow = !0);
     }), this.scene.remove(t), this.scene.add(i), t.geometry && t.geometry.dispose(), t.material && t.material.dispose(), this.actors[e] = i, console.log("✓ Ball replaced with GLTF model");
   }
   reset() {
     Object.values(this.actors).forEach((e) => {
       this.scene.remove(e), e.geometry && e.geometry.dispose(), e.material && e.material.dispose();
-    }), this.actors = {}, this.ballActorId = null, this.ballIndicator && (this.scene.remove(this.ballIndicator), this.ballIndicator.geometry && this.ballIndicator.geometry.dispose(), this.ballIndicator.material && this.ballIndicator.material.dispose(), this.ballIndicator = null), this.ballVerticalLine && (this.scene.remove(this.ballVerticalLine), this.ballVerticalLine.geometry && this.ballVerticalLine.geometry.dispose(), this.ballVerticalLine.material && this.ballVerticalLine.material.dispose(), this.ballVerticalLine = null), this.actorToPlayer = {}, this.actorLinks = {}, this.playerNameToCarActorId = {}, this.playerNameToPriActorId = {}, this.actorLoadouts = {};
+    }), this.actors = {}, this.ballActorId = null, this.ballIndicator && (this.scene.remove(this.ballIndicator), this.ballIndicator.geometry && this.ballIndicator.geometry.dispose(), this.ballIndicator.material && this.ballIndicator.material.dispose(), this.ballIndicator = null), this.ballVerticalLine && (this.scene.remove(this.ballVerticalLine), this.ballVerticalLine.geometry && this.ballVerticalLine.geometry.dispose(), this.ballVerticalLine.material && this.ballVerticalLine.material.dispose(), this.ballVerticalLine = null), this.actorToPlayer = {}, this.actorLinks = {}, this.playerNameToCarActorId = {}, this.playerNameToPriActorId = {}, this.actorLoadouts = {}, this._lastGoalScanTime = null, this._firedGoalTimes.clear();
   }
   setPlayerTeams(e) {
     this.playerTeams = e;
@@ -3073,8 +3217,8 @@ class hs {
         i.carName,
         i.hitboxType
       );
-      const s = this.playerNameToCarActorId[i.name];
-      this.actors[s];
+      const o = this.playerNameToCarActorId[i.name];
+      this.actors[o];
     }), console.log(`[ActorManager] Created ${t.length} car meshes + 1 ball`);
   }
   /**
@@ -3083,10 +3227,10 @@ class hs {
    * @param {Object} timelines - { ballTimeline, playerTimelines } from framework
    */
   initInterpolants(e) {
-    console.log("[ActorManager] Initializing interpolation system..."), this.ballTimeline = e.ballTimeline || [], this.playerTimelineMap = e.playerTimelines || {}, this.ballTimelineCorrected = this._correctTimeShiftedPositions(this.ballTimeline), this.playerTimelineMapCorrected = {}, Object.entries(this.playerTimelineMap).forEach(([a, s]) => {
-      this.playerTimelineMapCorrected[a] = this._correctTimeShiftedPositions(s);
-    }), this.ballTimelineFiltered = this._filterBadFrames(this.ballTimeline), this.playerTimelineMapFiltered = {}, Object.entries(this.playerTimelineMap).forEach(([a, s]) => {
-      this.playerTimelineMapFiltered[a] = this._filterBadFrames(s);
+    console.log("[ActorManager] Initializing interpolation system..."), this.ballTimeline = e.ballTimeline || [], this.playerTimelineMap = e.playerTimelines || {}, this.ballTimelineCorrected = this._correctTimeShiftedPositions(this.ballTimeline), this.playerTimelineMapCorrected = {}, Object.entries(this.playerTimelineMap).forEach(([a, o]) => {
+      this.playerTimelineMapCorrected[a] = this._correctTimeShiftedPositions(o);
+    }), this.ballTimelineFiltered = this._filterBadFrames(this.ballTimeline), this.playerTimelineMapFiltered = {}, Object.entries(this.playerTimelineMap).forEach(([a, o]) => {
+      this.playerTimelineMapFiltered[a] = this._filterBadFrames(o);
     }), this.timelineIndices = {
       ball: 0,
       players: {}
@@ -3102,9 +3246,9 @@ class hs {
     const t = this.ballTimeline.length - this.ballTimelineFiltered.length, i = this.ballTimelineCorrected._correctedCount || 0;
     console.log(
       `  Ball: ${this.ballTimeline.length} keyframes (${i} corrected, ${t} filtered)`
-    ), Object.entries(this.playerTimelineMap).forEach(([a, s]) => {
-      const o = this.playerTimelineMapCorrected[a]?._correctedCount || 0;
-      console.log(`  ${a}: ${s.length} keyframes (${o} corrected)`);
+    ), Object.entries(this.playerTimelineMap).forEach(([a, o]) => {
+      const s = this.playerTimelineMapCorrected[a]?._correctedCount || 0;
+      console.log(`  ${a}: ${o.length} keyframes (${s} corrected)`);
     }), console.log(`  Replay duration: ${this.replayDuration.toFixed(2)}s`), console.log("[ActorManager] Animation system ready");
   }
   /**
@@ -3112,22 +3256,22 @@ class hs {
    * This is the recommended approach for smooth replay playback with variable frame deltas
    */
   _initAnimationSystem() {
-    console.log("[ActorManager] Building Three.js animation clips..."), this.animationMixer = new l.AnimationMixer(this.scene);
+    console.log("[ActorManager] Building Three.js animation clips..."), this.animationMixer = new h.AnimationMixer(this.scene);
     const e = this.actors[this.ballActorId];
     if (e && this.ballTimeline.length > 0) {
       const t = this._createAnimationClip("ball", this.ballTimeline, e);
       if (t) {
         const i = this.animationMixer.clipAction(t, e);
-        i.setLoop(l.LoopOnce), i.clampWhenFinished = !0, this.animationActions.ball = i, console.log(`  ✓ Ball animation: ${t.duration.toFixed(2)}s`);
+        i.setLoop(h.LoopOnce), i.clampWhenFinished = !0, this.animationActions.ball = i, console.log(`  ✓ Ball animation: ${t.duration.toFixed(2)}s`);
       }
     }
     Object.entries(this.playerTimelineMap).forEach(([t, i]) => {
-      const a = this.playerNameToCarActorId[t], s = this.actors[a];
-      if (s && i.length > 0) {
-        const o = this._createAnimationClip(t, i, s);
-        if (o) {
-          const r = this.animationMixer.clipAction(o, s);
-          r.setLoop(l.LoopOnce), r.clampWhenFinished = !0, this.animationActions[t] = r, console.log(`  ✓ ${t} animation: ${o.duration.toFixed(2)}s`);
+      const a = this.playerNameToCarActorId[t], o = this.actors[a];
+      if (o && i.length > 0) {
+        const s = this._createAnimationClip(t, i, o);
+        if (s) {
+          const r = this.animationMixer.clipAction(s, o);
+          r.setLoop(h.LoopOnce), r.clampWhenFinished = !0, this.animationActions[t] = r, console.log(`  ✓ ${t} animation: ${s.duration.toFixed(2)}s`);
         }
       }
     }), console.log("[ActorManager] Animation clips ready");
@@ -3141,53 +3285,53 @@ class hs {
    */
   _createAnimationClip(e, t, i) {
     if (!t || t.length < 2) return null;
-    const a = [], s = [], o = [], r = t[0];
-    r.time > 0 && (a.push(0), r.position ? s.push(
+    const a = [], o = [], s = [], r = t[0];
+    r.time > 0 && (a.push(0), r.position ? o.push(
       r.position.x,
       r.position.y,
       r.position.z
-    ) : s.push(0, 0, 0), r.rotation ? o.push(
+    ) : o.push(0, 0, 0), r.rotation ? s.push(
       r.rotation.x,
       r.rotation.y,
       r.rotation.z,
       r.rotation.w
-    ) : o.push(0, 0, 0, 1));
+    ) : s.push(0, 0, 0, 1));
     for (const u of t) {
       if (a.push(u.time), u.position)
-        s.push(u.position.x, u.position.y, u.position.z);
+        o.push(u.position.x, u.position.y, u.position.z);
       else {
-        const p = s.length - 3;
-        p >= 0 ? s.push(s[p], s[p + 1], s[p + 2]) : s.push(0, 0, 0);
+        const p = o.length - 3;
+        p >= 0 ? o.push(o[p], o[p + 1], o[p + 2]) : o.push(0, 0, 0);
       }
       if (u.rotation)
-        o.push(
+        s.push(
           u.rotation.x,
           u.rotation.y,
           u.rotation.z,
           u.rotation.w
         );
       else {
-        const p = o.length - 4;
-        p >= 0 ? o.push(
-          o[p],
-          o[p + 1],
-          o[p + 2],
-          o[p + 3]
-        ) : o.push(0, 0, 0, 1);
+        const p = s.length - 4;
+        p >= 0 ? s.push(
+          s[p],
+          s[p + 1],
+          s[p + 2],
+          s[p + 3]
+        ) : s.push(0, 0, 0, 1);
       }
     }
-    const c = new l.VectorKeyframeTrack(
+    const c = new h.VectorKeyframeTrack(
       ".position",
       a,
-      s,
-      l.InterpolateLinear
-    ), h = new l.QuaternionKeyframeTrack(
+      o,
+      h.InterpolateLinear
+    ), l = new h.QuaternionKeyframeTrack(
       ".quaternion",
       a,
-      o
+      s
       // Quaternion tracks use SLERP by default
     ), d = a[a.length - 1] - a[0];
-    return new l.AnimationClip(e, d, [c, h]);
+    return new h.AnimationClip(e, d, [c, l]);
   }
   /**
    * Start all animations (call when replay starts playing)
@@ -3262,13 +3406,13 @@ class hs {
     for (i.push({ x: t.x, y: t.y, z: t.z }); i.length > this.SMOOTHING_WINDOW; )
       i.shift();
     if (i.length === 1) return t;
-    let a = 0, s = 0, o = 0;
+    let a = 0, o = 0, s = 0;
     for (const r of i)
-      a += r.x, s += r.y, o += r.z;
+      a += r.x, o += r.y, s += r.z;
     return {
       x: a / i.length,
-      y: s / i.length,
-      z: o / i.length
+      y: o / i.length,
+      z: s / i.length
     };
   }
   /**
@@ -3308,14 +3452,14 @@ class hs {
       return a;
     if (a + 2 < e.length && e[a + 1].time <= t && e[a + 2].time > t)
       return a + 1;
-    let s = 0, o = e.length - 2;
-    for (; s <= o; ) {
-      const r = Math.floor((s + o) / 2);
+    let o = 0, s = e.length - 2;
+    for (; o <= s; ) {
+      const r = Math.floor((o + s) / 2);
       if (e[r].time <= t && e[r + 1].time > t)
         return r;
-      e[r].time > t ? o = r - 1 : s = r + 1;
+      e[r].time > t ? s = r - 1 : o = r + 1;
     }
-    return Math.max(0, Math.min(s, e.length - 2));
+    return Math.max(0, Math.min(o, e.length - 2));
   }
   /**
    * Apply smoothing filter to a position (moving average)
@@ -3329,13 +3473,13 @@ class hs {
     for (i.push({ x: t.x, y: t.y, z: t.z }); i.length > this.smoothingWindowSize; )
       i.shift();
     if (i.length === 1) return t;
-    let a = 0, s = 0, o = 0;
+    let a = 0, o = 0, s = 0;
     for (const r of i)
-      a += r.x, s += r.y, o += r.z;
+      a += r.x, o += r.y, s += r.z;
     return {
       x: a / i.length,
-      y: s / i.length,
-      z: o / i.length
+      y: o / i.length,
+      z: s / i.length
     };
   }
   /**
@@ -3349,12 +3493,12 @@ class hs {
     const i = `ema-${e}`;
     if (!this._smoothingBuffers.has(i))
       return this._smoothingBuffers.set(i, { x: t.x, y: t.y, z: t.z }), t;
-    const a = this._smoothingBuffers.get(i), s = Math.max(0.05, Math.min(0.5, 1 / this.smoothingWindowSize)), o = {
-      x: s * t.x + (1 - s) * a.x,
-      y: s * t.y + (1 - s) * a.y,
-      z: s * t.z + (1 - s) * a.z
+    const a = this._smoothingBuffers.get(i), o = Math.max(0.05, Math.min(0.5, 1 / this.smoothingWindowSize)), s = {
+      x: o * t.x + (1 - o) * a.x,
+      y: o * t.y + (1 - o) * a.y,
+      z: o * t.z + (1 - o) * a.z
     };
-    return this._smoothingBuffers.set(i, o), o;
+    return this._smoothingBuffers.set(i, s), s;
   }
   /**
    * Apply double exponential smoothing (Holt's method)
@@ -3370,14 +3514,14 @@ class hs {
         level: { x: t.x, y: t.y, z: t.z },
         trend: { x: 0, y: 0, z: 0 }
       }), t;
-    const a = this._smoothingBuffers.get(i), s = Math.max(0.1, Math.min(0.6, 2 / this.smoothingWindowSize)), o = s * 0.5, r = {
-      x: s * t.x + (1 - s) * (a.level.x + a.trend.x),
-      y: s * t.y + (1 - s) * (a.level.y + a.trend.y),
-      z: s * t.z + (1 - s) * (a.level.z + a.trend.z)
+    const a = this._smoothingBuffers.get(i), o = Math.max(0.1, Math.min(0.6, 2 / this.smoothingWindowSize)), s = o * 0.5, r = {
+      x: o * t.x + (1 - o) * (a.level.x + a.trend.x),
+      y: o * t.y + (1 - o) * (a.level.y + a.trend.y),
+      z: o * t.z + (1 - o) * (a.level.z + a.trend.z)
     }, c = {
-      x: o * (r.x - a.level.x) + (1 - o) * a.trend.x,
-      y: o * (r.y - a.level.y) + (1 - o) * a.trend.y,
-      z: o * (r.z - a.level.z) + (1 - o) * a.trend.z
+      x: s * (r.x - a.level.x) + (1 - s) * a.trend.x,
+      y: s * (r.y - a.level.y) + (1 - s) * a.trend.y,
+      z: s * (r.z - a.level.z) + (1 - s) * a.trend.z
     };
     return a.level = r, a.trend = c, {
       x: r.x + c.x,
@@ -3398,14 +3542,14 @@ class hs {
     for (a.push({ x: t.x, y: t.y, z: t.z }); a.length > this.smoothingWindowSize; )
       a.shift();
     if (a.length === 1) return t;
-    let s = 0, o = 0, r = 0, c = 0;
-    for (let h = 0; h < a.length; h++) {
-      const d = h + 1;
-      s += a[h].x * d, o += a[h].y * d, r += a[h].z * d, c += d;
+    let o = 0, s = 0, r = 0, c = 0;
+    for (let l = 0; l < a.length; l++) {
+      const d = l + 1;
+      o += a[l].x * d, s += a[l].y * d, r += a[l].z * d, c += d;
     }
     return {
-      x: s / c,
-      y: o / c,
+      x: o / c,
+      y: s / c,
       z: r / c
     };
   }
@@ -3422,16 +3566,16 @@ class hs {
     for (a.push({ x: t.x, y: t.y, z: t.z }); a.length > this.smoothingWindowSize; )
       a.shift();
     if (a.length === 1) return t;
-    const s = a.length / 3;
-    let o = 0, r = 0, c = 0, h = 0;
+    const o = a.length / 3;
+    let s = 0, r = 0, c = 0, l = 0;
     for (let d = 0; d < a.length; d++) {
-      const m = a.length - 1 - d, u = Math.exp(-(m * m) / (2 * s * s));
-      o += a[d].x * u, r += a[d].y * u, c += a[d].z * u, h += u;
+      const m = a.length - 1 - d, u = Math.exp(-(m * m) / (2 * o * o));
+      s += a[d].x * u, r += a[d].y * u, c += a[d].z * u, l += u;
     }
     return {
-      x: o / h,
-      y: r / h,
-      z: c / h
+      x: s / l,
+      y: r / l,
+      z: c / l
     };
   }
   /**
@@ -3454,50 +3598,50 @@ class hs {
         lastTime: i,
         derivedVel: { x: 0, y: 0, z: 0 }
       }), t;
-    const a = this._adaptiveState.get(e), s = i - a.lastTime;
-    s > 1e-3 && (a.derivedVel = {
-      x: (t.x - a.lastPos.x) / s,
-      y: (t.y - a.lastPos.y) / s,
-      z: (t.z - a.lastPos.z) / s
+    const a = this._adaptiveState.get(e), o = i - a.lastTime;
+    o > 1e-3 && (a.derivedVel = {
+      x: (t.x - a.lastPos.x) / o,
+      y: (t.y - a.lastPos.y) / o,
+      z: (t.z - a.lastPos.z) / o
     });
-    const o = Math.sqrt(
+    const s = Math.sqrt(
       a.derivedVel.x ** 2 + a.derivedVel.y ** 2 + a.derivedVel.z ** 2
-    ), r = 2, c = this.smoothingWindowSize, h = 300, d = 1500;
+    ), r = 2, c = this.smoothingWindowSize, l = 300, d = 1500;
     let m;
-    if (o < h)
+    if (s < l)
       m = c;
-    else if (o > d)
+    else if (s > d)
       m = r;
     else {
-      const y = (o - h) / (d - h);
+      const y = (s - l) / (d - l);
       m = Math.round(c - y * (c - r));
     }
     if (a.buffer.length >= 2) {
-      const y = a.buffer[a.buffer.length - 1], b = a.buffer[a.buffer.length - 2], w = {
-        x: y.x - b.x,
-        y: y.y - b.y,
-        z: y.z - b.z
-      }, x = {
+      const y = a.buffer[a.buffer.length - 1], x = a.buffer[a.buffer.length - 2], v = {
+        x: y.x - x.x,
+        y: y.y - x.y,
+        z: y.z - x.z
+      }, b = {
         x: t.x - y.x,
         y: t.y - y.y,
         z: t.z - y.z
-      }, v = Math.sqrt(w.x ** 2 + w.y ** 2 + w.z ** 2), T = Math.sqrt(x.x ** 2 + x.y ** 2 + x.z ** 2);
-      if (v > 0.1 && T > 0.1 && (w.x * x.x + w.y * x.y + w.z * x.z) / (v * T) < 0.5)
+      }, M = Math.sqrt(v.x ** 2 + v.y ** 2 + v.z ** 2), C = Math.sqrt(b.x ** 2 + b.y ** 2 + b.z ** 2);
+      if (M > 0.1 && C > 0.1 && (v.x * b.x + v.y * b.y + v.z * b.z) / (M * C) < 0.5)
         for (; a.buffer.length > Math.max(2, m / 2); )
           a.buffer.shift();
     }
     for (a.buffer.push({ x: t.x, y: t.y, z: t.z }); a.buffer.length > m; )
       a.buffer.shift();
     if (a.lastPos = { x: t.x, y: t.y, z: t.z }, a.lastTime = i, a.buffer.length === 1) return t;
-    let u = 0, p = 0, g = 0, f = 0;
+    let u = 0, p = 0, f = 0, g = 0;
     for (let y = 0; y < a.buffer.length; y++) {
-      const b = y + 1;
-      u += a.buffer[y].x * b, p += a.buffer[y].y * b, g += a.buffer[y].z * b, f += b;
+      const x = y + 1;
+      u += a.buffer[y].x * x, p += a.buffer[y].y * x, f += a.buffer[y].z * x, g += x;
     }
     return {
-      x: u / f,
-      y: p / f,
-      z: g / f
+      x: u / g,
+      y: p / g,
+      z: f / g
     };
   }
   /**
@@ -3518,16 +3662,16 @@ class hs {
         dz: 0,
         lastTime: performance.now()
       }), t;
-    const a = this._smoothingBuffers.get(i), s = performance.now(), o = Math.max(1e-3, (s - a.lastTime) / 1e3);
-    a.lastTime = s;
-    const r = 0.5 + (20 - this.smoothingWindowSize) * 0.1, c = 0.01 * this.smoothingWindowSize, h = 1, d = (t.x - a.x) / o, m = (t.y - a.y) / o, u = (t.z - a.z) / o, p = this._oneEuroAlpha(o, h), g = p * d + (1 - p) * a.dx, f = p * m + (1 - p) * a.dy, y = p * u + (1 - p) * a.dz, b = Math.sqrt(
-      g * g + f * f + y * y
-    ), w = r + c * b, x = this._oneEuroAlpha(o, w), v = {
-      x: x * t.x + (1 - x) * a.x,
-      y: x * t.y + (1 - x) * a.y,
-      z: x * t.z + (1 - x) * a.z
+    const a = this._smoothingBuffers.get(i), o = performance.now(), s = Math.max(1e-3, (o - a.lastTime) / 1e3);
+    a.lastTime = o;
+    const r = 0.5 + (20 - this.smoothingWindowSize) * 0.1, c = 0.01 * this.smoothingWindowSize, l = 1, d = (t.x - a.x) / s, m = (t.y - a.y) / s, u = (t.z - a.z) / s, p = this._oneEuroAlpha(s, l), f = p * d + (1 - p) * a.dx, g = p * m + (1 - p) * a.dy, y = p * u + (1 - p) * a.dz, x = Math.sqrt(
+      f * f + g * g + y * y
+    ), v = r + c * x, b = this._oneEuroAlpha(s, v), M = {
+      x: b * t.x + (1 - b) * a.x,
+      y: b * t.y + (1 - b) * a.y,
+      z: b * t.z + (1 - b) * a.z
     };
-    return a.x = v.x, a.y = v.y, a.z = v.z, a.dx = g, a.dy = f, a.dz = y, v;
+    return a.x = M.x, a.y = M.y, a.z = M.z, a.dx = f, a.dy = g, a.dz = y, M;
   }
   /**
    * Helper for One Euro Filter - calculate smoothing factor
@@ -3538,12 +3682,12 @@ class hs {
   /**
    * Catmull-Rom spline interpolation (uses 4 keyframes)
    */
-  _catmullRomInterpolate(e, t, i, a, s) {
-    const o = s * s, r = o * s, c = -0.5 * r + o - 0.5 * s, h = 1.5 * r - 2.5 * o + 1, d = -1.5 * r + 2 * o + 0.5 * s, m = 0.5 * r - 0.5 * o;
+  _catmullRomInterpolate(e, t, i, a, o) {
+    const s = o * o, r = s * o, c = -0.5 * r + s - 0.5 * o, l = 1.5 * r - 2.5 * s + 1, d = -1.5 * r + 2 * s + 0.5 * o, m = 0.5 * r - 0.5 * s;
     return {
-      x: c * e.x + h * t.x + d * i.x + m * a.x,
-      y: c * e.y + h * t.y + d * i.y + m * a.y,
-      z: c * e.z + h * t.z + d * i.z + m * a.z
+      x: c * e.x + l * t.x + d * i.x + m * a.x,
+      y: c * e.y + l * t.y + d * i.y + m * a.y,
+      z: c * e.z + l * t.z + d * i.z + m * a.z
     };
   }
   /**
@@ -3556,12 +3700,12 @@ class hs {
   _applyLowPassFilter(e, t) {
     if (!this._lowPassState.has(e))
       return this._lowPassState.set(e, { x: t.x, y: t.y, z: t.z }), t;
-    const i = this._lowPassState.get(e), a = Math.max(0.05, Math.min(0.5, 1 / this.smoothingWindowSize)), s = {
+    const i = this._lowPassState.get(e), a = Math.max(0.05, Math.min(0.5, 1 / this.smoothingWindowSize)), o = {
       x: a * t.x + (1 - a) * i.x,
       y: a * t.y + (1 - a) * i.y,
       z: a * t.z + (1 - a) * i.z
     };
-    return this._lowPassState.set(e, s), s;
+    return this._lowPassState.set(e, o), o;
   }
   /**
    * Calculate derived velocity from position differences
@@ -3594,7 +3738,7 @@ class hs {
    * @returns {Object} Predicted/corrected position {x, y, z}
    */
   _predictCorrectInterpolate(e, t, i, a) {
-    const s = a - t.time, o = i.time - t.time, r = s / o;
+    const o = a - t.time, s = i.time - t.time, r = o / s;
     if (!t.velocity)
       return {
         x: t.position.x + (i.position.x - t.position.x) * r,
@@ -3602,17 +3746,17 @@ class hs {
         z: t.position.z + (i.position.z - t.position.z) * r
       };
     const c = {
-      x: t.position.x + t.velocity.x * s,
-      y: t.position.y + t.velocity.y * s,
-      z: t.position.z + t.velocity.z * s
-    }, h = {
       x: t.position.x + t.velocity.x * o,
       y: t.position.y + t.velocity.y * o,
       z: t.position.z + t.velocity.z * o
+    }, l = {
+      x: t.position.x + t.velocity.x * s,
+      y: t.position.y + t.velocity.y * s,
+      z: t.position.z + t.velocity.z * s
     }, d = {
-      x: i.position.x - h.x,
-      y: i.position.y - h.y,
-      z: i.position.z - h.z
+      x: i.position.x - l.x,
+      y: i.position.y - l.y,
+      z: i.position.z - l.z
     }, m = r * r * (3 - 2 * r);
     return {
       x: c.x + d.x * m,
@@ -3632,8 +3776,8 @@ class hs {
    * @param {boolean} isBall - Whether this is the ball (applies gravity)
    * @returns {Object} Interpolated position {x, y, z}
    */
-  _velocitySmoothInterpolate(e, t, i, a, s = !1) {
-    const o = a - t.time, r = i.time - t.time, c = o / r, h = 650, d = 93, m = 500;
+  _velocitySmoothInterpolate(e, t, i, a, o = !1) {
+    const s = a - t.time, r = i.time - t.time, c = s / r, l = 650, d = 93, m = 500;
     if (!t.velocity)
       return {
         x: t.position.x + (i.position.x - t.position.x) * c,
@@ -3641,35 +3785,35 @@ class hs {
         z: t.position.z + (i.position.z - t.position.z) * c
       };
     let u = {
-      x: t.position.x + t.velocity.x * o,
-      y: t.position.y + t.velocity.y * o,
-      z: t.position.z + t.velocity.z * o
+      x: t.position.x + t.velocity.x * s,
+      y: t.position.y + t.velocity.y * s,
+      z: t.position.z + t.velocity.z * s
     };
-    s && t.position.z > d + 10 && (u.z = t.position.z + t.velocity.z * o - 0.5 * h * o * o, u.z < d && (u.z = d));
+    o && t.position.z > d + 10 && (u.z = t.position.z + t.velocity.z * s - 0.5 * l * s * s, u.z < d && (u.z = d));
     const p = i.position;
-    let g = {
+    let f = {
       x: t.position.x + t.velocity.x * r,
       y: t.position.y + t.velocity.y * r,
       z: t.position.z + t.velocity.z * r
     };
-    s && t.position.z > d + 10 && (g.z = t.position.z + t.velocity.z * r - 0.5 * h * r * r, g.z < d && (g.z = d));
-    const f = {
-      x: p.x - g.x,
-      y: p.y - g.y,
-      z: p.z - g.z
-    }, y = c < 0.5 ? 2 * c * c : 1 - Math.pow(-2 * c + 2, 2) / 2, b = Math.sqrt(
-      f.x * f.x + f.y * f.y + f.z * f.z
+    o && t.position.z > d + 10 && (f.z = t.position.z + t.velocity.z * r - 0.5 * l * r * r, f.z < d && (f.z = d));
+    const g = {
+      x: p.x - f.x,
+      y: p.y - f.y,
+      z: p.z - f.z
+    }, y = c < 0.5 ? 2 * c * c : 1 - Math.pow(-2 * c + 2, 2) / 2, x = Math.sqrt(
+      g.x * g.x + g.y * g.y + g.z * g.z
     );
-    let w = 1;
-    if (b > 0 && r > 0) {
-      const v = m * r;
-      b > v * 2 && (w = v * 2 / b);
+    let v = 1;
+    if (x > 0 && r > 0) {
+      const M = m * r;
+      x > M * 2 && (v = M * 2 / x);
     }
-    const x = y * w + (1 - w) * c;
+    const b = y * v + (1 - v) * c;
     return {
-      x: u.x + f.x * x,
-      y: u.y + f.y * x,
-      z: u.z + f.z * x
+      x: u.x + g.x * b,
+      y: u.y + g.y * b,
+      z: u.z + g.z * b
     };
   }
   /**
@@ -3688,18 +3832,18 @@ class hs {
    * @returns {Object} Interpolated position {x, y, z}
    */
   _physicsTickInterpolate(e, t, i) {
-    const a = t.time - e.time, s = i - e.time, o = s / a;
+    const a = t.time - e.time, o = i - e.time, s = o / a;
     if (!e.velocity || !t.velocity)
       return {
-        x: e.position.x + (t.position.x - e.position.x) * o,
-        y: e.position.y + (t.position.y - e.position.y) * o,
-        z: e.position.z + (t.position.z - e.position.z) * o
+        x: e.position.x + (t.position.x - e.position.x) * s,
+        y: e.position.y + (t.position.y - e.position.y) * s,
+        z: e.position.z + (t.position.z - e.position.z) * s
       };
-    const r = (e.velocity.x + t.velocity.x) / 2, c = (e.velocity.y + t.velocity.y) / 2, h = (e.velocity.z + t.velocity.z) / 2, d = e.position.x + r * s, m = e.position.y + c * s, u = e.position.z + h * s, p = e.position.x + r * a, g = e.position.y + c * a, f = e.position.z + h * a, y = t.position.x - p, b = t.position.y - g, w = t.position.z - f;
+    const r = (e.velocity.x + t.velocity.x) / 2, c = (e.velocity.y + t.velocity.y) / 2, l = (e.velocity.z + t.velocity.z) / 2, d = e.position.x + r * o, m = e.position.y + c * o, u = e.position.z + l * o, p = e.position.x + r * a, f = e.position.y + c * a, g = e.position.z + l * a, y = t.position.x - p, x = t.position.y - f, v = t.position.z - g;
     return {
-      x: d + y * o,
-      y: m + b * o,
-      z: u + w * o
+      x: d + y * s,
+      y: m + x * s,
+      z: u + v * s
     };
   }
   /**
@@ -3712,18 +3856,18 @@ class hs {
    * Best for visual quality when exact position accuracy is not critical.
    */
   _velocityOnlyInterpolate(e, t, i) {
-    const a = i - e.time, s = t.time - e.time, o = a / s;
+    const a = i - e.time, o = t.time - e.time, s = a / o;
     if (!e.velocity || !t.velocity)
       return {
-        x: e.position.x + (t.position.x - e.position.x) * o,
-        y: e.position.y + (t.position.y - e.position.y) * o,
-        z: e.position.z + (t.position.z - e.position.z) * o
+        x: e.position.x + (t.position.x - e.position.x) * s,
+        y: e.position.y + (t.position.y - e.position.y) * s,
+        z: e.position.z + (t.position.z - e.position.z) * s
       };
-    const r = e.velocity.x + (t.velocity.x - e.velocity.x) * o / 2, c = e.velocity.y + (t.velocity.y - e.velocity.y) * o / 2, h = e.velocity.z + (t.velocity.z - e.velocity.z) * o / 2;
+    const r = e.velocity.x + (t.velocity.x - e.velocity.x) * s / 2, c = e.velocity.y + (t.velocity.y - e.velocity.y) * s / 2, l = e.velocity.z + (t.velocity.z - e.velocity.z) * s / 2;
     return {
       x: e.position.x + r * a,
       y: e.position.y + c * a,
-      z: e.position.z + h * a
+      z: e.position.z + l * a
     };
   }
   /**
@@ -3740,30 +3884,30 @@ class hs {
    * produce incorrect results.
    */
   _smartHybridInterpolate(e, t, i) {
-    const a = i - e.time, s = t.time - e.time, o = Math.max(0, Math.min(1, a / s));
+    const a = i - e.time, o = t.time - e.time, s = Math.max(0, Math.min(1, a / o));
     if (!e.velocity || !t.velocity)
       return {
-        x: e.position.x + (t.position.x - e.position.x) * o,
-        y: e.position.y + (t.position.y - e.position.y) * o,
-        z: e.position.z + (t.position.z - e.position.z) * o
+        x: e.position.x + (t.position.x - e.position.x) * s,
+        y: e.position.y + (t.position.y - e.position.y) * s,
+        z: e.position.z + (t.position.z - e.position.z) * s
       };
     const r = Math.sqrt(e.velocity.x ** 2 + e.velocity.y ** 2 + e.velocity.z ** 2), c = Math.sqrt(t.velocity.x ** 2 + t.velocity.y ** 2 + t.velocity.z ** 2);
-    let h = 1;
-    r > 10 && c > 10 && (h = (e.velocity.x * t.velocity.x + e.velocity.y * t.velocity.y + e.velocity.z * t.velocity.z) / (r * c));
+    let l = 1;
+    r > 10 && c > 10 && (l = (e.velocity.x * t.velocity.x + e.velocity.y * t.velocity.y + e.velocity.z * t.velocity.z) / (r * c));
     const d = r > 10 ? Math.abs(c - r) / r : 0;
-    if (h < 0.95 || d > 0.1) {
-      const u = o * o * (3 - 2 * o);
+    if (l < 0.95 || d > 0.1) {
+      const u = s * s * (3 - 2 * s);
       return {
         x: e.position.x + (t.position.x - e.position.x) * u,
         y: e.position.y + (t.position.y - e.position.y) * u,
         z: e.position.z + (t.position.z - e.position.z) * u
       };
     } else {
-      const u = (e.velocity.x + t.velocity.x) / 2, p = (e.velocity.y + t.velocity.y) / 2, g = (e.velocity.z + t.velocity.z) / 2, f = e.position.x + u * a, y = e.position.y + p * a, b = e.position.z + g * a, w = e.position.x + u * s, x = e.position.y + p * s, v = e.position.z + g * s, T = t.position.x - w, M = t.position.y - x, _ = t.position.z - v;
+      const u = (e.velocity.x + t.velocity.x) / 2, p = (e.velocity.y + t.velocity.y) / 2, f = (e.velocity.z + t.velocity.z) / 2, g = e.position.x + u * a, y = e.position.y + p * a, x = e.position.z + f * a, v = e.position.x + u * o, b = e.position.y + p * o, M = e.position.z + f * o, C = t.position.x - v, w = t.position.y - b, S = t.position.z - M;
       return {
-        x: f + T * o,
-        y: y + M * o,
-        z: b + _ * o
+        x: g + C * s,
+        y: y + w * s,
+        z: x + S * s
       };
     }
   }
@@ -3779,9 +3923,9 @@ class hs {
     if (!e.velocity || !t.velocity || !e.position || !t.position) return !1;
     const i = t.time - e.time;
     if (i < 1e-3) return !1;
-    const a = (e.velocity.x + t.velocity.x) / 2, s = (e.velocity.y + t.velocity.y) / 2, o = (e.velocity.z + t.velocity.z) / 2, r = Math.sqrt(a ** 2 + s ** 2 + o ** 2);
+    const a = (e.velocity.x + t.velocity.x) / 2, o = (e.velocity.y + t.velocity.y) / 2, s = (e.velocity.z + t.velocity.z) / 2, r = Math.sqrt(a ** 2 + o ** 2 + s ** 2);
     if (r < 200) return !1;
-    const c = t.position.x - e.position.x, h = t.position.y - e.position.y, d = t.position.z - e.position.z, m = Math.sqrt(c * c + h * h + d * d), u = r * i, p = m / u;
+    const c = t.position.x - e.position.x, l = t.position.y - e.position.y, d = t.position.z - e.position.z, m = Math.sqrt(c * c + l * l + d * d), u = r * i, p = m / u;
     return p < 0.6 || p > 1.4;
   }
   /**
@@ -3795,8 +3939,8 @@ class hs {
     if (!e || e.length < 2) return e;
     const t = [e[0]];
     for (let i = 1; i < e.length; i++) {
-      const a = t[t.length - 1], s = e[i];
-      this._isBadFrame(a, s) || t.push(s);
+      const a = t[t.length - 1], o = e[i];
+      this._isBadFrame(a, o) || t.push(o);
     }
     return t;
   }
@@ -3822,27 +3966,27 @@ class hs {
     const t = [];
     let i = 0;
     for (let a = 0; a < e.length; a++) {
-      const s = e[a], o = {
-        ...s,
-        position: s.position ? { ...s.position } : null,
-        velocity: s.velocity ? { ...s.velocity } : null,
-        rotation: s.rotation ? { ...s.rotation } : null
+      const o = e[a], s = {
+        ...o,
+        position: o.position ? { ...o.position } : null,
+        velocity: o.velocity ? { ...o.velocity } : null,
+        rotation: o.rotation ? { ...o.rotation } : null
       };
-      if (a > 0 && s.position && s.velocity) {
+      if (a > 0 && o.position && o.velocity) {
         const r = e[a - 1];
         if (r.position && r.velocity) {
-          const c = s.time - r.time;
+          const c = o.time - r.time;
           if (c > 1e-3) {
-            const h = (r.velocity.x + s.velocity.x) / 2, d = (r.velocity.y + s.velocity.y) / 2, m = (r.velocity.z + s.velocity.z) / 2, u = Math.sqrt(h ** 2 + d ** 2 + m ** 2);
+            const l = (r.velocity.x + o.velocity.x) / 2, d = (r.velocity.y + o.velocity.y) / 2, m = (r.velocity.z + o.velocity.z) / 2, u = Math.sqrt(l ** 2 + d ** 2 + m ** 2);
             if (u > 100) {
-              const p = s.position.x - r.position.x, g = s.position.y - r.position.y, f = s.position.z - r.position.z, y = Math.sqrt(p * p + g * g + f * f), b = u * c, w = y / b;
-              let x = 0;
-              w > 0.15 && w < 0.35 ? x = c * 0.75 : w > 0.4 && w < 0.6 ? x = c * 0.5 : w > 0.65 && w < 0.85 && (x = c * 0.25), x > 0 && (o.position.x += s.velocity.x * x, o.position.y += s.velocity.y * x, o.position.z += s.velocity.z * x, i++);
+              const p = o.position.x - r.position.x, f = o.position.y - r.position.y, g = o.position.z - r.position.z, y = Math.sqrt(p * p + f * f + g * g), x = u * c, v = y / x;
+              let b = 0;
+              v > 0.15 && v < 0.35 ? b = c * 0.75 : v > 0.4 && v < 0.6 ? b = c * 0.5 : v > 0.65 && v < 0.85 && (b = c * 0.25), b > 0 && (s.position.x += o.velocity.x * b, s.position.y += o.velocity.y * b, s.position.z += o.velocity.z * b, i++);
             }
           }
         }
       }
-      t.push(o);
+      t.push(s);
     }
     return t._correctedCount = i, t;
   }
@@ -3851,11 +3995,11 @@ class hs {
    * Now uses pre-filtered timeline, so this is just lerp
    */
   _timeShiftedInterpolate(e, t, i) {
-    const a = i - e.time, s = t.time - e.time, o = Math.max(0, Math.min(1, a / s));
+    const a = i - e.time, o = t.time - e.time, s = Math.max(0, Math.min(1, a / o));
     return {
-      x: e.position.x + (t.position.x - e.position.x) * o,
-      y: e.position.y + (t.position.y - e.position.y) * o,
-      z: e.position.z + (t.position.z - e.position.z) * o
+      x: e.position.x + (t.position.x - e.position.x) * s,
+      y: e.position.y + (t.position.y - e.position.y) * s,
+      z: e.position.z + (t.position.z - e.position.z) * s
     };
   }
   /**
@@ -3875,27 +4019,27 @@ class hs {
    * @param {Array} timeline - Full timeline for anchor lookup
    * @param {number} currentIdx - Current index in timeline
    */
-  _velocityAnchoredInterpolate(e, t, i, a, s, o) {
+  _velocityAnchoredInterpolate(e, t, i, a, o, s) {
     if (!t.velocity || !i.velocity) {
-      const b = (a - t.time) / (i.time - t.time);
+      const x = (a - t.time) / (i.time - t.time);
       return {
-        x: t.position.x + (i.position.x - t.position.x) * b,
-        y: t.position.y + (i.position.y - t.position.y) * b,
-        z: t.position.z + (i.position.z - t.position.z) * b
+        x: t.position.x + (i.position.x - t.position.x) * x,
+        y: t.position.y + (i.position.y - t.position.y) * x,
+        z: t.position.z + (i.position.z - t.position.z) * x
       };
     }
     this._velocityAnchorState || (this._velocityAnchorState = /* @__PURE__ */ new Map());
     let r = this._velocityAnchorState.get(e);
     (!r || Math.abs(a - r.lastTime) > 0.5 || // Seek detected
-    o % 10 === 0) && (r = {
+    s % 10 === 0) && (r = {
       anchorPos: { ...t.position },
       anchorTime: t.time,
-      anchorIdx: o,
+      anchorIdx: s,
       lastTime: a
     }, this._velocityAnchorState.set(e, r)), a - r.anchorTime;
     let d = r.anchorPos.x, m = r.anchorPos.y, u = r.anchorPos.z;
-    const p = (t.velocity.x + i.velocity.x) / 2, g = (t.velocity.y + i.velocity.y) / 2, f = (t.velocity.z + i.velocity.z) / 2, y = a - t.time;
-    return r.anchorIdx === o ? (d = r.anchorPos.x + p * y, m = r.anchorPos.y + g * y, u = r.anchorPos.z + f * y) : (d = t.position.x + p * y, m = t.position.y + g * y, u = t.position.z + f * y), r.lastTime = a, { x: d, y: m, z: u };
+    const p = (t.velocity.x + i.velocity.x) / 2, f = (t.velocity.y + i.velocity.y) / 2, g = (t.velocity.z + i.velocity.z) / 2, y = a - t.time;
+    return r.anchorIdx === s ? (d = r.anchorPos.x + p * y, m = r.anchorPos.y + f * y, u = r.anchorPos.z + g * y) : (d = t.position.x + p * y, m = t.position.y + f * y, u = t.position.z + g * y), r.lastTime = a, { x: d, y: m, z: u };
   }
   /**
    * Hermite Spline interpolation
@@ -3921,27 +4065,27 @@ class hs {
    * @returns {Object} Interpolated position {x, y, z}
    */
   _hermiteInterpolate(e, t, i) {
-    const a = t.time - e.time, s = i - e.time, o = Math.max(0, Math.min(1, s / a)), r = {
-      x: e.position.x + (t.position.x - e.position.x) * o,
-      y: e.position.y + (t.position.y - e.position.y) * o,
-      z: e.position.z + (t.position.z - e.position.z) * o
+    const a = t.time - e.time, o = i - e.time, s = Math.max(0, Math.min(1, o / a)), r = {
+      x: e.position.x + (t.position.x - e.position.x) * s,
+      y: e.position.y + (t.position.y - e.position.y) * s,
+      z: e.position.z + (t.position.z - e.position.z) * s
     };
     if (!e.velocity || !t.velocity)
       return r;
-    const c = o * o, h = c * o, d = 2 * h - 3 * c + 1, m = h - 2 * c + o, u = -2 * h + 3 * c, p = h - c, g = {
+    const c = s * s, l = c * s, d = 2 * l - 3 * c + 1, m = l - 2 * c + s, u = -2 * l + 3 * c, p = l - c, f = {
       x: e.velocity.x * a,
       y: e.velocity.y * a,
       z: e.velocity.z * a
-    }, f = {
+    }, g = {
       x: t.velocity.x * a,
       y: t.velocity.y * a,
       z: t.velocity.z * a
     }, y = {
-      x: d * e.position.x + m * g.x + u * t.position.x + p * f.x,
-      y: d * e.position.y + m * g.y + u * t.position.y + p * f.y,
-      z: d * e.position.z + m * g.z + u * t.position.z + p * f.z
-    }, b = y.x - r.x, w = y.y - r.y, x = y.z - r.z, v = t.position.x - e.position.x, T = t.position.y - e.position.y, M = t.position.z - e.position.z;
-    return b * b + w * w + x * x > v * v + T * T + M * M ? r : y;
+      x: d * e.position.x + m * f.x + u * t.position.x + p * g.x,
+      y: d * e.position.y + m * f.y + u * t.position.y + p * g.y,
+      z: d * e.position.z + m * f.z + u * t.position.z + p * g.z
+    }, x = y.x - r.x, v = y.y - r.y, b = y.z - r.z, M = t.position.x - e.position.x, C = t.position.y - e.position.y, w = t.position.z - e.position.z;
+    return x * x + v * v + b * b > M * M + C * C + w * w ? r : y;
   }
   /**
    * Physics Simulation Interpolation (RocketSim-based)
@@ -3964,23 +4108,23 @@ class hs {
    * @returns {Object} Interpolated position {x, y, z}
    */
   _physicsSimInterpolate(e, t, i, a = !1) {
-    const s = t.time - e.time, o = i - e.time, r = Math.max(0, Math.min(1, o / s));
+    const o = t.time - e.time, s = i - e.time, r = Math.max(0, Math.min(1, s / o));
     if (!e.velocity || !t.velocity)
       return {
         x: e.position.x + (t.position.x - e.position.x) * r,
         y: e.position.y + (t.position.y - e.position.y) * r,
         z: e.position.z + (t.position.z - e.position.z) * r
       };
-    const c = -650, h = r * r, d = h * r, m = 2 * d - 3 * h + 1, u = d - 2 * h + r, p = -2 * d + 3 * h, g = d - h;
-    let f = e.velocity.y * s, y = t.velocity.y * s;
+    const c = -650, l = r * r, d = l * r, m = 2 * d - 3 * l + 1, u = d - 2 * l + r, p = -2 * d + 3 * l, f = d - l;
+    let g = e.velocity.y * o, y = t.velocity.y * o;
     if (a) {
-      const b = 0.5 * c * s * s;
-      f += b * 0.5, y += b * 0.5;
+      const x = 0.5 * c * o * o;
+      g += x * 0.5, y += x * 0.5;
     }
     return {
-      x: m * e.position.x + u * (e.velocity.x * s) + p * t.position.x + g * (t.velocity.x * s),
-      y: m * e.position.y + u * f + p * t.position.y + g * y,
-      z: m * e.position.z + u * (e.velocity.z * s) + p * t.position.z + g * (t.velocity.z * s)
+      x: m * e.position.x + u * (e.velocity.x * o) + p * t.position.x + f * (t.velocity.x * o),
+      y: m * e.position.y + u * g + p * t.position.y + f * y,
+      z: m * e.position.z + u * (e.velocity.z * o) + p * t.position.z + f * (t.velocity.z * o)
     };
   }
   /**
@@ -4003,190 +4147,190 @@ class hs {
       }, { ...t.position };
     const i = this._findKeyframeIndex(this.ballTimeline, e, this.timelineIndices.ball);
     this.timelineIndices.ball = i;
-    const a = this.ballTimeline[i], s = this.ballTimeline[i + 1];
+    const a = this.ballTimeline[i], o = this.ballTimeline[i + 1];
     if (this.lastFrameInfo = {
       currentFrame: i,
       totalFrames: this.ballTimeline.length
     }, !a || !a.position) return null;
     if (!this.interpolationEnabled)
       return { ...a.position };
-    if (!s || !s.position) return a.position;
-    const o = s.time - a.time;
-    if (o <= 0) return a.position;
-    const r = s.position.x - a.position.x, c = s.position.y - a.position.y, h = s.position.z - a.position.z;
-    if (Math.sqrt(r * r + c * c + h * h) > 2e3)
+    if (!o || !o.position) return a.position;
+    const s = o.time - a.time;
+    if (s <= 0) return a.position;
+    const r = o.position.x - a.position.x, c = o.position.y - a.position.y, l = o.position.z - a.position.z;
+    if (Math.sqrt(r * r + c * c + l * l) > 2e3)
       return a.sleeping ? null : { ...a.position };
     if (a.sleeping)
       return { ...a.position };
-    const m = (e - a.time) / o;
+    const m = (e - a.time) / s;
     let u;
     switch (this.interpolationMethod) {
       case "catmull-rom": {
-        const p = this.ballTimeline[Math.max(0, i - 1)], g = this.ballTimeline[Math.min(this.ballTimeline.length - 1, i + 2)];
-        p?.position && g?.position ? u = this._catmullRomInterpolate(p.position, a.position, s.position, g.position, m) : u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+        const p = this.ballTimeline[Math.max(0, i - 1)], f = this.ballTimeline[Math.min(this.ballTimeline.length - 1, i + 2)];
+        p?.position && f?.position ? u = this._catmullRomInterpolate(p.position, a.position, o.position, f.position, m) : u = {
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         };
         break;
       }
       case "lerp-smooth": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applySmoothing("ball", u);
         break;
       }
       case "lerp-ema": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyEmaSmoothing("ball", u);
         break;
       }
       case "lerp-dema": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyDoubleEmaSmoothing("ball", u);
         break;
       }
       case "lerp-wma": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyWeightedSmoothing("ball", u);
         break;
       }
       case "lerp-gauss": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyGaussianSmoothing("ball", u);
         break;
       }
       case "one-euro": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyOneEuroFilter("ball", u);
         break;
       }
       case "predict-correct": {
-        u = this._predictCorrectInterpolate("ball", a, s, e);
+        u = this._predictCorrectInterpolate("ball", a, o, e);
         break;
       }
       case "velocity-smooth": {
-        u = this._velocitySmoothInterpolate("ball", a, s, e, !0);
+        u = this._velocitySmoothInterpolate("ball", a, o, e, !0);
         break;
       }
       case "physics-tick": {
-        u = this._physicsTickInterpolate(a, s, e);
+        u = this._physicsTickInterpolate(a, o, e);
         break;
       }
       case "hermite": {
-        u = this._hermiteInterpolate(a, s, e);
+        u = this._hermiteInterpolate(a, o, e);
         break;
       }
       case "physics-sim": {
         const p = this.ballTimelineCorrected;
         if (p && p.length >= 2) {
-          const g = this._findKeyframeIndex(
+          const f = this._findKeyframeIndex(
             p,
             e,
             this.timelineIndicesCorrected.ball
           );
-          this.timelineIndicesCorrected.ball = g;
-          const f = p[g], y = p[g + 1];
-          if (f?.position && y?.position) {
-            u = this._physicsSimInterpolate(f, y, e, !0);
+          this.timelineIndicesCorrected.ball = f;
+          const g = p[f], y = p[f + 1];
+          if (g?.position && y?.position) {
+            u = this._physicsSimInterpolate(g, y, e, !0);
             break;
           }
         }
-        u = this._physicsSimInterpolate(a, s, e, !0);
+        u = this._physicsSimInterpolate(a, o, e, !0);
         break;
       }
       case "velocity-only": {
-        u = this._velocityOnlyInterpolate(a, s, e);
+        u = this._velocityOnlyInterpolate(a, o, e);
         break;
       }
       case "smart-hybrid": {
-        u = this._smartHybridInterpolate(a, s, e);
+        u = this._smartHybridInterpolate(a, o, e);
         break;
       }
       case "time-shifted": {
         const p = this.ballTimelineFiltered;
         if (!p || p.length < 2) {
           u = {
-            x: a.position.x + (s.position.x - a.position.x) * m,
-            y: a.position.y + (s.position.y - a.position.y) * m,
-            z: a.position.z + (s.position.z - a.position.z) * m
+            x: a.position.x + (o.position.x - a.position.x) * m,
+            y: a.position.y + (o.position.y - a.position.y) * m,
+            z: a.position.z + (o.position.z - a.position.z) * m
           };
           break;
         }
-        const g = this._findKeyframeIndex(
+        const f = this._findKeyframeIndex(
           p,
           e,
           this.timelineIndicesFiltered.ball
         );
-        this.timelineIndicesFiltered.ball = g;
-        const f = p[g], y = p[g + 1];
-        if (!f?.position || !y?.position) {
-          u = f?.position ? { ...f.position } : { ...a.position };
+        this.timelineIndicesFiltered.ball = f;
+        const g = p[f], y = p[f + 1];
+        if (!g?.position || !y?.position) {
+          u = g?.position ? { ...g.position } : { ...a.position };
           break;
         }
-        const b = y.time - f.time, w = b > 0 ? Math.max(0, Math.min(1, (e - f.time) / b)) : 0;
+        const x = y.time - g.time, v = x > 0 ? Math.max(0, Math.min(1, (e - g.time) / x)) : 0;
         u = {
-          x: f.position.x + (y.position.x - f.position.x) * w,
-          y: f.position.y + (y.position.y - f.position.y) * w,
-          z: f.position.z + (y.position.z - f.position.z) * w
+          x: g.position.x + (y.position.x - g.position.x) * v,
+          y: g.position.y + (y.position.y - g.position.y) * v,
+          z: g.position.z + (y.position.z - g.position.z) * v
         };
         break;
       }
       case "position-lerp": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         };
         break;
       }
       case "position-catmull": {
-        const p = this.ballTimeline[Math.max(0, i - 1)], g = this.ballTimeline[Math.min(this.ballTimeline.length - 1, i + 2)];
-        p?.position && g?.position ? u = this._catmullRomInterpolate(p.position, a.position, s.position, g.position, m) : u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+        const p = this.ballTimeline[Math.max(0, i - 1)], f = this.ballTimeline[Math.min(this.ballTimeline.length - 1, i + 2)];
+        p?.position && f?.position ? u = this._catmullRomInterpolate(p.position, a.position, o.position, f.position, m) : u = {
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         };
         break;
       }
       case "position-smooth": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyLowPassFilter("ball", u);
         break;
       }
       case "adaptive-smooth": {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         }, u = this._applyAdaptiveSmoothing("ball", u, e);
         break;
       }
       default: {
         u = {
-          x: a.position.x + (s.position.x - a.position.x) * m,
-          y: a.position.y + (s.position.y - a.position.y) * m,
-          z: a.position.z + (s.position.z - a.position.z) * m
+          x: a.position.x + (o.position.x - a.position.x) * m,
+          y: a.position.y + (o.position.y - a.position.y) * m,
+          z: a.position.z + (o.position.z - a.position.z) * m
         };
         break;
       }
@@ -4204,22 +4348,22 @@ class hs {
     const t = this.ballTimeline[0];
     if (e < t.time && t.rotation)
       return { ...t.rotation };
-    const i = this.timelineIndices.ball, a = this.ballTimeline[i], s = this.ballTimeline[i + 1];
+    const i = this.timelineIndices.ball, a = this.ballTimeline[i], o = this.ballTimeline[i + 1];
     if (!a || !a.rotation) return null;
     if (!this.interpolationEnabled)
       return { ...a.rotation };
-    if (!s || !s.rotation) return a.rotation;
-    const o = s.time - a.time;
-    if (o <= 0) return a.rotation;
-    if (a.position && s.position) {
-      const c = s.position.x - a.position.x, h = s.position.y - a.position.y, d = s.position.z - a.position.z;
-      if (Math.sqrt(c * c + h * h + d * d) > 2e3)
+    if (!o || !o.rotation) return a.rotation;
+    const s = o.time - a.time;
+    if (s <= 0) return a.rotation;
+    if (a.position && o.position) {
+      const c = o.position.x - a.position.x, l = o.position.y - a.position.y, d = o.position.z - a.position.z;
+      if (Math.sqrt(c * c + l * l + d * d) > 2e3)
         return { ...a.rotation };
     }
     if (a.sleeping)
       return { ...a.rotation };
-    const r = (e - a.time) / o;
-    return this._q0.set(a.rotation.x, a.rotation.y, a.rotation.z, a.rotation.w), this._q1.set(s.rotation.x, s.rotation.y, s.rotation.z, s.rotation.w), this._qResult.slerpQuaternions(this._q0, this._q1, r), { x: this._qResult.x, y: this._qResult.y, z: this._qResult.z, w: this._qResult.w };
+    const r = (e - a.time) / s;
+    return this._q0.set(a.rotation.x, a.rotation.y, a.rotation.z, a.rotation.w), this._q1.set(o.rotation.x, o.rotation.y, o.rotation.z, o.rotation.w), this._qResult.slerpQuaternions(this._q0, this._q1, r), { x: this._qResult.x, y: this._qResult.y, z: this._qResult.z, w: this._qResult.w };
   }
   /**
    * Get interpolated position for player at given time
@@ -4235,93 +4379,93 @@ class hs {
     const a = i[0];
     if (t < a.time && a.position)
       return { ...a.position };
-    const s = this._findKeyframeIndex(
+    const o = this._findKeyframeIndex(
       i,
       t,
       this.timelineIndices.players[e] || 0
     );
-    this.timelineIndices.players[e] = s;
-    const o = i[s], r = i[s + 1];
-    if (!o || !o.position) return null;
+    this.timelineIndices.players[e] = o;
+    const s = i[o], r = i[o + 1];
+    if (!s || !s.position) return null;
     if (!this.interpolationEnabled)
-      return { ...o.position };
-    if (!r || !r.position) return o.position;
-    const c = r.time - o.time;
-    if (c <= 0) return o.position;
-    const h = (t - o.time) / c;
+      return { ...s.position };
+    if (!r || !r.position) return s.position;
+    const c = r.time - s.time;
+    if (c <= 0) return s.position;
+    const l = (t - s.time) / c;
     let d;
     switch (this.interpolationMethod) {
       case "catmull-rom": {
-        const m = i[Math.max(0, s - 1)], u = i[Math.min(i.length - 1, s + 2)];
-        m?.position && u?.position ? d = this._catmullRomInterpolate(m.position, o.position, r.position, u.position, h) : d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+        const m = i[Math.max(0, o - 1)], u = i[Math.min(i.length - 1, o + 2)];
+        m?.position && u?.position ? d = this._catmullRomInterpolate(m.position, s.position, r.position, u.position, l) : d = {
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         };
         break;
       }
       case "lerp-smooth": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applySmoothing(`player-${e}`, d);
         break;
       }
       case "lerp-ema": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyEmaSmoothing(`player-${e}`, d);
         break;
       }
       case "lerp-dema": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyDoubleEmaSmoothing(`player-${e}`, d);
         break;
       }
       case "lerp-wma": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyWeightedSmoothing(`player-${e}`, d);
         break;
       }
       case "lerp-gauss": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyGaussianSmoothing(`player-${e}`, d);
         break;
       }
       case "one-euro": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyOneEuroFilter(`player-${e}`, d);
         break;
       }
       case "predict-correct": {
-        d = this._predictCorrectInterpolate(`player-${e}`, o, r, t);
+        d = this._predictCorrectInterpolate(`player-${e}`, s, r, t);
         break;
       }
       case "velocity-smooth": {
-        d = this._velocitySmoothInterpolate(`player-${e}`, o, r, t, !1);
+        d = this._velocitySmoothInterpolate(`player-${e}`, s, r, t, !1);
         break;
       }
       case "physics-tick": {
-        d = this._physicsTickInterpolate(o, r, t);
+        d = this._physicsTickInterpolate(s, r, t);
         break;
       }
       case "hermite": {
-        d = this._hermiteInterpolate(o, r, t);
+        d = this._hermiteInterpolate(s, r, t);
         break;
       }
       case "physics-sim": {
@@ -4333,30 +4477,30 @@ class hs {
             this.timelineIndicesCorrected.players[e] || 0
           );
           this.timelineIndicesCorrected.players[e] = u;
-          const p = m[u], g = m[u + 1];
-          if (p?.position && g?.position) {
-            d = this._physicsSimInterpolate(p, g, t, !1);
+          const p = m[u], f = m[u + 1];
+          if (p?.position && f?.position) {
+            d = this._physicsSimInterpolate(p, f, t, !1);
             break;
           }
         }
-        d = this._physicsSimInterpolate(o, r, t, !1);
+        d = this._physicsSimInterpolate(s, r, t, !1);
         break;
       }
       case "velocity-only": {
-        d = this._velocityOnlyInterpolate(o, r, t);
+        d = this._velocityOnlyInterpolate(s, r, t);
         break;
       }
       case "smart-hybrid": {
-        d = this._smartHybridInterpolate(o, r, t);
+        d = this._smartHybridInterpolate(s, r, t);
         break;
       }
       case "time-shifted": {
         const m = this.playerTimelineMapFiltered[e];
         if (!m || m.length < 2) {
           d = {
-            x: o.position.x + (r.position.x - o.position.x) * h,
-            y: o.position.y + (r.position.y - o.position.y) * h,
-            z: o.position.z + (r.position.z - o.position.z) * h
+            x: s.position.x + (r.position.x - s.position.x) * l,
+            y: s.position.y + (r.position.y - s.position.y) * l,
+            z: s.position.z + (r.position.z - s.position.z) * l
           };
           break;
         }
@@ -4366,57 +4510,57 @@ class hs {
           this.timelineIndicesFiltered.players[e] || 0
         );
         this.timelineIndicesFiltered.players[e] = u;
-        const p = m[u], g = m[u + 1];
-        if (!p?.position || !g?.position) {
-          d = p?.position ? { ...p.position } : { ...o.position };
+        const p = m[u], f = m[u + 1];
+        if (!p?.position || !f?.position) {
+          d = p?.position ? { ...p.position } : { ...s.position };
           break;
         }
-        const f = g.time - p.time, y = f > 0 ? Math.max(0, Math.min(1, (t - p.time) / f)) : 0;
+        const g = f.time - p.time, y = g > 0 ? Math.max(0, Math.min(1, (t - p.time) / g)) : 0;
         d = {
-          x: p.position.x + (g.position.x - p.position.x) * y,
-          y: p.position.y + (g.position.y - p.position.y) * y,
-          z: p.position.z + (g.position.z - p.position.z) * y
+          x: p.position.x + (f.position.x - p.position.x) * y,
+          y: p.position.y + (f.position.y - p.position.y) * y,
+          z: p.position.z + (f.position.z - p.position.z) * y
         };
         break;
       }
       case "position-lerp": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         };
         break;
       }
       case "position-catmull": {
-        const m = i[Math.max(0, s - 1)], u = i[Math.min(i.length - 1, s + 2)];
-        m?.position && u?.position ? d = this._catmullRomInterpolate(m.position, o.position, r.position, u.position, h) : d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+        const m = i[Math.max(0, o - 1)], u = i[Math.min(i.length - 1, o + 2)];
+        m?.position && u?.position ? d = this._catmullRomInterpolate(m.position, s.position, r.position, u.position, l) : d = {
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         };
         break;
       }
       case "position-smooth": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyLowPassFilter(`player-${e}`, d);
         break;
       }
       case "adaptive-smooth": {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         }, d = this._applyAdaptiveSmoothing(`player-${e}`, d, t);
         break;
       }
       default: {
         d = {
-          x: o.position.x + (r.position.x - o.position.x) * h,
-          y: o.position.y + (r.position.y - o.position.y) * h,
-          z: o.position.z + (r.position.z - o.position.z) * h
+          x: s.position.x + (r.position.x - s.position.x) * l,
+          y: s.position.y + (r.position.y - s.position.y) * l,
+          z: s.position.z + (r.position.z - s.position.z) * l
         };
         break;
       }
@@ -4435,43 +4579,43 @@ class hs {
     const a = i[0];
     if (t < a.time && a.rotation)
       return { ...a.rotation };
-    const s = this.timelineIndices.players[e] || 0, o = i[s], r = i[s + 1];
-    if (!o || !o.rotation) return null;
+    const o = this.timelineIndices.players[e] || 0, s = i[o], r = i[o + 1];
+    if (!s || !s.rotation) return null;
     if (!this.interpolationEnabled)
-      return { ...o.rotation };
-    if (!r || !r.rotation) return o.rotation;
-    const c = r.time - o.time;
-    if (c <= 0) return o.rotation;
-    const h = (t - o.time) / c;
-    return this._q0.set(o.rotation.x, o.rotation.y, o.rotation.z, o.rotation.w), this._q1.set(r.rotation.x, r.rotation.y, r.rotation.z, r.rotation.w), this._qResult.slerpQuaternions(this._q0, this._q1, h), { x: this._qResult.x, y: this._qResult.y, z: this._qResult.z, w: this._qResult.w };
+      return { ...s.rotation };
+    if (!r || !r.rotation) return s.rotation;
+    const c = r.time - s.time;
+    if (c <= 0) return s.rotation;
+    const l = (t - s.time) / c;
+    return this._q0.set(s.rotation.x, s.rotation.y, s.rotation.z, s.rotation.w), this._q1.set(r.rotation.x, r.rotation.y, r.rotation.z, r.rotation.w), this._qResult.slerpQuaternions(this._q0, this._q1, l), { x: this._qResult.x, y: this._qResult.y, z: this._qResult.z, w: this._qResult.w };
   }
   /**
    * Create the ball mesh
    */
   _createBallMesh() {
-    const e = "ball", t = new l.SphereGeometry(92.75, 16, 16), i = new l.MeshStandardMaterial({ color: 16777215 }), a = new l.Mesh(t, i);
+    const e = "ball", t = new h.SphereGeometry(92.75, 16, 16), i = new h.MeshStandardMaterial({ color: 16777215 }), a = new h.Mesh(t, i);
     a.castShadow = !0, a.receiveShadow = !0, a.userData = {
-      location: new l.Vector3(),
-      rotation: new l.Quaternion(),
-      velocity: new l.Vector3(),
-      angularVelocity: new l.Vector3(),
+      location: new h.Vector3(),
+      rotation: new h.Quaternion(),
+      velocity: new h.Vector3(),
+      angularVelocity: new h.Vector3(),
       isCar: !1,
       isBall: !0,
       playerId: null,
       sleeping: !1,
       isHiddenByGoal: !1
     }, this.scene.add(a), this.actors[e] = a, this.ballActorId = e, this.ballModel && !this._ballModelReplaced && (this.replaceBallWithModel(e), this._ballModelReplaced = !0);
-    const s = 92.75, o = new l.RingGeometry(s * 0.95, s, 32), r = new l.MeshBasicMaterial({ color: 16777215, side: l.DoubleSide });
-    this.ballIndicator = new l.Mesh(o, r), this.ballIndicator.rotation.x = -Math.PI / 2, this.ballIndicator.visible = !1, this.scene.add(this.ballIndicator);
-    const c = new l.BufferGeometry().setFromPoints([
-      new l.Vector3(0, 0, 0),
-      new l.Vector3(0, 1, 0)
-    ]), h = new l.LineBasicMaterial({
+    const o = 92.75, s = new h.RingGeometry(o * 0.95, o, 32), r = new h.MeshBasicMaterial({ color: 16777215, side: h.DoubleSide });
+    this.ballIndicator = new h.Mesh(s, r), this.ballIndicator.rotation.x = -Math.PI / 2, this.ballIndicator.visible = !1, this.scene.add(this.ballIndicator);
+    const c = new h.BufferGeometry().setFromPoints([
+      new h.Vector3(0, 0, 0),
+      new h.Vector3(0, 1, 0)
+    ]), l = new h.LineBasicMaterial({
       color: 16777215,
       opacity: 0.5,
       transparent: !0
     });
-    this.ballVerticalLine = new l.Line(c, h), this.ballVerticalLine.frustumCulled = !1, this.ballVerticalLine.visible = !1, this.scene.add(this.ballVerticalLine);
+    this.ballVerticalLine = new h.Line(c, l), this.ballVerticalLine.frustumCulled = !1, this.ballVerticalLine.visible = !1, this.scene.add(this.ballVerticalLine);
   }
   /**
    * Create a car mesh for a player
@@ -4480,15 +4624,15 @@ class hs {
    * @param {number} index - Player index (used as actor ID)
    * @param {Object} loadout - Player's TeamLoadout (optional)
    */
-  _createCarMesh(e, t, i, a, s) {
-    const o = `car_${i}`, r = new l.BoxGeometry(118, 36, 84), c = t === 0 ? 3381759 : 16737792, h = new l.MeshStandardMaterial({ color: c }), d = new l.Mesh(r, h);
+  _createCarMesh(e, t, i, a, o) {
+    const s = `car_${i}`, r = new h.BoxGeometry(118, 36, 84), c = t === 0 ? 3381759 : 16737792, l = new h.MeshStandardMaterial({ color: c }), d = new h.Mesh(r, l);
     d.castShadow = !0, d.receiveShadow = !0;
-    const m = a || "Octane", u = s || "Octane";
+    const m = a || "Octane", u = o || "Octane";
     d.userData = {
-      location: new l.Vector3(),
-      rotation: new l.Quaternion(),
-      velocity: new l.Vector3(),
-      angularVelocity: new l.Vector3(),
+      location: new h.Vector3(),
+      rotation: new h.Quaternion(),
+      velocity: new h.Vector3(),
+      angularVelocity: new h.Vector3(),
       isCar: !0,
       isBall: !1,
       playerId: e,
@@ -4497,7 +4641,7 @@ class hs {
       steer: 0,
       carName: m,
       hitboxType: u
-    }, this.scene.add(d), this.actors[o] = d, this.playerNameToCarActorId[e] = o, this.playerNames.add(e), this.effectsManager.createBoostTrail(d, o), this.onPlayerFound && this.onPlayerFound(e), this.replaceCarWithModel(o, d, m, u), console.log(
+    }, this.scene.add(d), this.actors[s] = d, this.playerNameToCarActorId[e] = s, this.playerNames.add(e), this.effectsManager.createBoostTrail(d, s), this.onPlayerFound && this.onPlayerFound(e), this.replaceCarWithModel(s, d, m, u), console.log(
       `[ActorManager] Created car for ${e} (team ${t === 0 ? "blue" : "orange"}, ${m} / ${u} hitbox)`
     );
   }
@@ -4512,11 +4656,11 @@ class hs {
     const i = this.actors[this.ballActorId];
     if (i && e.ball) {
       const a = e.ball;
-      let s = !0;
+      let o = !0;
       if (!this.useAnimationSystem || !this.animationMixer)
         if (this.interpolantsInitialized && this.ballTimeline && this.ballTimeline.length >= 2) {
-          const o = this.getBallPositionAt(t), r = this.getBallRotationAt(t);
-          o ? i.position.set(o.x, o.y, o.z) : s = !1, r && i.quaternion.set(r.x, r.y, r.z, r.w);
+          const s = this.getBallPositionAt(t), r = this.getBallRotationAt(t);
+          s ? i.position.set(s.x, s.y, s.z) : o = !1, r && i.quaternion.set(r.x, r.y, r.z, r.w);
         } else
           i.position.set(a.position.x, a.position.y, a.position.z), i.quaternion.set(
             a.rotation.x,
@@ -4528,7 +4672,7 @@ class hs {
         a.angularVelocity.x,
         a.angularVelocity.y,
         a.angularVelocity.z
-      ), i.userData.sleeping = a.sleeping, i.visible = s && a.visible !== !1 && !i.userData.isHiddenByGoal, this.ballIndicator && (this.ballIndicator.position.set(i.position.x, 2, i.position.z), this.ballIndicator.visible = i.visible), this.ballVerticalLine) {
+      ), i.userData.sleeping = a.sleeping, i.visible = o && a.visible !== !1 && !i.userData.isHiddenByGoal, this.ballIndicator && (this.ballIndicator.position.set(i.position.x, 2, i.position.z), this.ballIndicator.visible = i.visible), this.ballVerticalLine) {
         const r = new Float32Array([
           i.position.x,
           2,
@@ -4539,18 +4683,18 @@ class hs {
         ]);
         this.ballVerticalLine.geometry.setAttribute(
           "position",
-          new l.BufferAttribute(r, 3)
+          new h.BufferAttribute(r, 3)
         ), this.ballVerticalLine.geometry.attributes.position.needsUpdate = !0, this.ballVerticalLine.visible = i.visible;
       }
       if (i.userData.velocity && i.visible) {
-        let o = this.lastBallTouchTeam, r = this.BALL_TOUCH_DISTANCE;
+        let s = this.lastBallTouchTeam, r = this.BALL_TOUCH_DISTANCE;
         Object.keys(this.actors).forEach((c) => {
-          const h = this.actors[c];
-          if (h && h.userData.isCar && h.userData.playerId) {
-            const d = i.position.distanceTo(h.position);
-            d < r && (r = d, o = h.userData.team || 0);
+          const l = this.actors[c];
+          if (l && l.userData.isCar && l.userData.playerId) {
+            const d = i.position.distanceTo(l.position);
+            d < r && (r = d, s = l.userData.team || 0);
           }
-        }), r < this.BALL_TOUCH_DISTANCE && (this.lastBallTouchTeam = o), this.effectsManager.updateBallTrail(
+        }), r < this.BALL_TOUCH_DISTANCE && (this.lastBallTouchTeam = s), this.effectsManager.updateBallTrail(
           i.position,
           i.userData.velocity,
           this.lastBallTouchTeam
@@ -4558,34 +4702,59 @@ class hs {
       }
     }
     e.getAllPlayers().forEach((a) => {
-      const s = this.playerNameToCarActorId[a.name];
-      if (!s) return;
-      const o = this.actors[s];
+      const o = this.playerNameToCarActorId[a.name];
       if (!o) return;
+      const s = this.actors[o];
+      if (!s) return;
       const r = a.name;
       if (!this.useAnimationSystem || !this.animationMixer)
         if (this.interpolantsInitialized && this.playerTimelineMap[r]) {
-          const h = this.getPlayerPositionAt(r, t), d = this.getPlayerRotationAt(r, t);
-          h && o.position.set(h.x, h.y, h.z), d && o.quaternion.set(d.x, d.y, d.z, d.w);
+          const l = this.getPlayerPositionAt(r, t), d = this.getPlayerRotationAt(r, t);
+          l && s.position.set(l.x, l.y, l.z), d && s.quaternion.set(d.x, d.y, d.z, d.w);
         } else
-          o.position.set(
+          s.position.set(
             a.position.x,
             a.position.y,
             a.position.z
-          ), o.quaternion.set(
+          ), s.quaternion.set(
             a.rotation.x,
             a.rotation.y,
             a.rotation.z,
             a.rotation.w
           );
-      o.userData.location.copy(o.position), o.userData.rotation.copy(o.quaternion), o.userData.velocity.set(
+      s.userData.location.copy(s.position), s.userData.rotation.copy(s.quaternion), s.userData.velocity.set(
         a.velocity.x,
         a.velocity.y,
         a.velocity.z
-      ), o.userData.sleeping = a.sleeping, o.userData.steer = a.steer || 0;
-      const c = o.position.length() > 0.1;
-      o.visible = a.isVisible && c && !o.userData.sleeping;
-    });
+      ), s.userData.sleeping = a.sleeping, s.userData.steer = a.steer || 0;
+      const c = s.position.length() > 0.1;
+      s.visible = a.isVisible && c && !s.userData.sleeping;
+    }), this._updateGoalExplosions(t);
+  }
+  /**
+   * Trigger the team-colored goal explosion the first time forward playback
+   * crosses each goal, and hide the ball for the celebration window so it
+   * vanishes inside the blast (matching the original Ballcam player). Robust to
+   * scrubbing and post-goal skips: keyed on goal time, self-correcting on
+   * backward seeks, and the ball-hidden state is recomputed every frame.
+   */
+  _updateGoalExplosions(e) {
+    const t = this.effectsManager, i = t && t.explosions ? t.explosions.goalEvents : null;
+    if (!(i instanceof Map) || i.size === 0) return;
+    const a = this._lastGoalScanTime;
+    a !== null && e < a - 1e-3 && this._firedGoalTimes.clear();
+    const o = this.actors[this.ballActorId];
+    let s = !1;
+    for (const r of i.values()) {
+      const c = r.time;
+      if (!Number.isFinite(c)) continue;
+      if (e >= c && e <= c + to && (s = !0), a !== null && a < c && e >= c && !this._firedGoalTimes.has(c)) {
+        this._firedGoalTimes.add(c);
+        const d = this.getBallPositionAt(c) || o && o.position || null;
+        d && this.effectsManager.triggerGoalExplosion(d, r.team);
+      }
+    }
+    o && (o.userData.isHiddenByGoal = s, s && (o.visible = !1)), this._lastGoalScanTime = e;
   }
   /**
    * Process a network frame for mesh lifecycle management
@@ -4597,18 +4766,18 @@ class hs {
    */
   processFrame(e, t, i, a) {
     if (e) {
-      if (e.new_actors && e.new_actors.forEach((s) => {
-        if (!this.actors[s.actor_id]) {
-          const o = t(s.object_id), r = o && o.includes("Ball"), c = o && o.includes("Car");
+      if (e.new_actors && e.new_actors.forEach((o) => {
+        if (!this.actors[o.actor_id]) {
+          const s = t(o.object_id), r = s && s.includes("Ball"), c = s && s.includes("Car");
           if (r || c) {
-            let h;
-            r ? h = new l.SphereGeometry(92.75, 16, 16) : h = new l.BoxGeometry(118, 36, 84);
-            const d = new l.MeshStandardMaterial({
+            let l;
+            r ? l = new h.SphereGeometry(92.75, 16, 16) : l = new h.BoxGeometry(118, 36, 84);
+            const d = new h.MeshStandardMaterial({
               color: r ? 16777215 : Math.random() * 16777215
-            }), m = new l.Mesh(h, d);
+            }), m = new h.Mesh(l, d);
             if (m.userData = {
-              location: new l.Vector3(),
-              rotation: new l.Quaternion(),
+              location: new h.Vector3(),
+              rotation: new h.Quaternion(),
               isCar: c,
               isBall: r,
               playerId: null,
@@ -4617,81 +4786,81 @@ class hs {
               // Will be set from TeamLoadout
               hasReceivedUpdate: !1
               // Track if actor has received at least one RigidBody update
-            }, this.scene.add(m), this.actors[s.actor_id] = m, r) {
-              this.ballActorId = s.actor_id, this.ballModel && this.replaceBallWithModel(s.actor_id);
-              const u = 92.75, p = new l.RingGeometry(u * 0.95, u, 32), g = new l.MeshBasicMaterial({
+            }, this.scene.add(m), this.actors[o.actor_id] = m, r) {
+              this.ballActorId = o.actor_id, this.ballModel && this.replaceBallWithModel(o.actor_id);
+              const u = 92.75, p = new h.RingGeometry(u * 0.95, u, 32), f = new h.MeshBasicMaterial({
                 color: 16777215,
-                side: l.DoubleSide
+                side: h.DoubleSide
               });
-              this.ballIndicator = new l.Mesh(p, g), this.ballIndicator.rotation.x = -Math.PI / 2, this.ballIndicator.visible = !1, this.scene.add(this.ballIndicator);
-              const f = new l.BufferGeometry().setFromPoints([
-                new l.Vector3(0, 0, 0),
-                new l.Vector3(0, 1, 0)
-              ]), y = new l.LineBasicMaterial({
+              this.ballIndicator = new h.Mesh(p, f), this.ballIndicator.rotation.x = -Math.PI / 2, this.ballIndicator.visible = !1, this.scene.add(this.ballIndicator);
+              const g = new h.BufferGeometry().setFromPoints([
+                new h.Vector3(0, 0, 0),
+                new h.Vector3(0, 1, 0)
+              ]), y = new h.LineBasicMaterial({
                 color: 16777215,
                 opacity: 0.5,
                 transparent: !0
               });
-              this.ballVerticalLine = new l.Line(f, y), this.ballVerticalLine.frustumCulled = !1, this.ballVerticalLine.visible = !1, this.scene.add(this.ballVerticalLine);
-            } else c && this.effectsManager.createBoostTrail(m, s.actor_id);
+              this.ballVerticalLine = new h.Line(g, y), this.ballVerticalLine.frustumCulled = !1, this.ballVerticalLine.visible = !1, this.scene.add(this.ballVerticalLine);
+            } else c && this.effectsManager.createBoostTrail(m, o.actor_id);
           }
         }
-      }), e.deleted_actors && e.deleted_actors.forEach((s) => {
-        if (this.actors[s]) {
-          const o = this.actors[s];
-          o.userData.isCar && this.effectsManager.removeBoostTrail(s), this.scene.remove(o), o.geometry && o.geometry.dispose(), o.material && o.material.dispose(), delete this.actors[s], this.ballActorId === s && (this.ballActorId = null, this.ballIndicator && (this.scene.remove(this.ballIndicator), this.ballIndicator.geometry && this.ballIndicator.geometry.dispose(), this.ballIndicator.material && this.ballIndicator.material.dispose(), this.ballIndicator = null), this.ballVerticalLine && (this.scene.remove(this.ballVerticalLine), this.ballVerticalLine.geometry && this.ballVerticalLine.geometry.dispose(), this.ballVerticalLine.material && this.ballVerticalLine.material.dispose(), this.ballVerticalLine = null));
+      }), e.deleted_actors && e.deleted_actors.forEach((o) => {
+        if (this.actors[o]) {
+          const s = this.actors[o];
+          s.userData.isCar && this.effectsManager.removeBoostTrail(o), this.scene.remove(s), s.geometry && s.geometry.dispose(), s.material && s.material.dispose(), delete this.actors[o], this.ballActorId === o && (this.ballActorId = null, this.ballIndicator && (this.scene.remove(this.ballIndicator), this.ballIndicator.geometry && this.ballIndicator.geometry.dispose(), this.ballIndicator.material && this.ballIndicator.material.dispose(), this.ballIndicator = null), this.ballVerticalLine && (this.scene.remove(this.ballVerticalLine), this.ballVerticalLine.geometry && this.ballVerticalLine.geometry.dispose(), this.ballVerticalLine.material && this.ballVerticalLine.material.dispose(), this.ballVerticalLine = null));
         }
-      }), e.updated_actors && e.updated_actors.forEach((s) => {
-        const o = this.actors[s.actor_id];
-        s.attribute.TeamLoadout && (this.actorLoadouts[s.actor_id] = s.attribute.TeamLoadout, o && o.userData.isCar && (o.userData.teamLoadout = s.attribute.TeamLoadout, this.resolveBodyId(o, s.actor_id)));
-        const r = t(s.object_id), c = r && (r.includes("PRI_TA") || r.includes("PlayerReplicationInfo"));
-        if (s.attribute.String && this.playerNames.has(s.attribute.String)) {
-          const h = s.attribute.String;
-          this.actorToPlayer[s.actor_id] = h, c && !this.playerNameToPriActorId[h] && (this.playerNameToPriActorId[h] = s.actor_id, console.log(
-            `[ActorManager] Mapped ${h} -> PRI Actor ${s.actor_id} (object: ${r})`
-          )), this.checkCarPlayerLink(s.actor_id);
+      }), e.updated_actors && e.updated_actors.forEach((o) => {
+        const s = this.actors[o.actor_id];
+        o.attribute.TeamLoadout && (this.actorLoadouts[o.actor_id] = o.attribute.TeamLoadout, s && s.userData.isCar && (s.userData.teamLoadout = o.attribute.TeamLoadout, this.resolveBodyId(s, o.actor_id)));
+        const r = t(o.object_id), c = r && (r.includes("PRI_TA") || r.includes("PlayerReplicationInfo"));
+        if (o.attribute.String && this.playerNames.has(o.attribute.String)) {
+          const l = o.attribute.String;
+          this.actorToPlayer[o.actor_id] = l, c && !this.playerNameToPriActorId[l] && (this.playerNameToPriActorId[l] = o.actor_id, console.log(
+            `[ActorManager] Mapped ${l} -> PRI Actor ${o.actor_id} (object: ${r})`
+          )), this.checkCarPlayerLink(o.actor_id);
         }
-        if (s.attribute.Reservation && this.playerNames.has(s.attribute.Reservation.name)) {
-          const h = s.attribute.Reservation.name;
-          this.actorToPlayer[s.actor_id] = h, c && !this.playerNameToPriActorId[h] && (this.playerNameToPriActorId[h] = s.actor_id, console.log(
-            `[ActorManager] Mapped ${h} -> PRI Actor ${s.actor_id} (object: ${r})`
-          )), this.checkCarPlayerLink(s.actor_id);
+        if (o.attribute.Reservation && this.playerNames.has(o.attribute.Reservation.name)) {
+          const l = o.attribute.Reservation.name;
+          this.actorToPlayer[o.actor_id] = l, c && !this.playerNameToPriActorId[l] && (this.playerNameToPriActorId[l] = o.actor_id, console.log(
+            `[ActorManager] Mapped ${l} -> PRI Actor ${o.actor_id} (object: ${r})`
+          )), this.checkCarPlayerLink(o.actor_id);
         }
-        if (s.attribute.ActiveActor) {
-          const h = s.attribute.ActiveActor.actor;
-          this.actorLinks[s.actor_id] || (this.actorLinks[s.actor_id] = /* @__PURE__ */ new Set()), this.actorLinks[s.actor_id].add(h), o && o.userData.isCar && this.checkCarPlayerLink(h, s.actor_id);
+        if (o.attribute.ActiveActor) {
+          const l = o.attribute.ActiveActor.actor;
+          this.actorLinks[o.actor_id] || (this.actorLinks[o.actor_id] = /* @__PURE__ */ new Set()), this.actorLinks[o.actor_id].add(l), s && s.userData.isCar && this.checkCarPlayerLink(l, o.actor_id);
         }
-        if (o && s.attribute && s.attribute.RigidBody) {
-          const h = s.attribute.RigidBody;
-          if (h.location && (o.userData.location.set(h.location.x, h.location.z, h.location.y), o.userData.lastUpdateTime = e.time, o.userData.hasReceivedUpdate = !0), h.linear_velocity && (o.userData.velocity || (o.userData.velocity = new l.Vector3()), o.userData.velocity.set(
-            h.linear_velocity.x,
-            h.linear_velocity.z,
-            h.linear_velocity.y
-          )), h.rotation && o.userData.rotation.set(h.rotation.x, h.rotation.z, h.rotation.y, -h.rotation.w), h.angular_velocity && (o.userData.angularVelocity || (o.userData.angularVelocity = new l.Vector3()), o.userData.angularVelocity.set(
-            h.angular_velocity.x,
-            h.angular_velocity.z,
-            h.angular_velocity.y
-          )), h.sleeping !== void 0 && (o.userData.sleeping = h.sleeping, h.sleeping && (o.userData.velocity && o.userData.velocity.set(0, 0, 0), o.userData.angularVelocity && o.userData.angularVelocity.set(0, 0, 0))), o.userData.isBall && o.userData.isHiddenByGoal && h.location) {
-            const d = h.location.x, m = h.location.y, u = h.location.z;
-            Math.sqrt(d * d + m * m + u * u) < 500 && (o.userData.isHiddenByGoal = !1);
+        if (s && o.attribute && o.attribute.RigidBody) {
+          const l = o.attribute.RigidBody;
+          if (l.location && (s.userData.location.set(l.location.x, l.location.z, l.location.y), s.userData.lastUpdateTime = e.time, s.userData.hasReceivedUpdate = !0), l.linear_velocity && (s.userData.velocity || (s.userData.velocity = new h.Vector3()), s.userData.velocity.set(
+            l.linear_velocity.x,
+            l.linear_velocity.z,
+            l.linear_velocity.y
+          )), l.rotation && s.userData.rotation.set(l.rotation.x, l.rotation.z, l.rotation.y, -l.rotation.w), l.angular_velocity && (s.userData.angularVelocity || (s.userData.angularVelocity = new h.Vector3()), s.userData.angularVelocity.set(
+            l.angular_velocity.x,
+            l.angular_velocity.z,
+            l.angular_velocity.y
+          )), l.sleeping !== void 0 && (s.userData.sleeping = l.sleeping, l.sleeping && (s.userData.velocity && s.userData.velocity.set(0, 0, 0), s.userData.angularVelocity && s.userData.angularVelocity.set(0, 0, 0))), s.userData.isBall && s.userData.isHiddenByGoal && l.location) {
+            const d = l.location.x, m = l.location.y, u = l.location.z;
+            Math.sqrt(d * d + m * m + u * u) < 500 && (s.userData.isHiddenByGoal = !1);
           }
         }
       }), this.effectsManager.explosions.goalEvents.has(i)) {
-        const s = this.effectsManager.explosions.goalEvents.get(i), o = this.actors[this.ballActorId];
-        o && (a || (this.effectsManager.triggerGoalExplosion(o.position, s.team), console.log(
-          `🎯 GOAL! Explosion at frame ${i} for team ${s.team} by ${s.playerName}`
-        )), o.userData.isHiddenByGoal = !0);
+        const o = this.effectsManager.explosions.goalEvents.get(i), s = this.actors[this.ballActorId];
+        s && (a || (this.effectsManager.triggerGoalExplosion(s.position, o.team), console.log(
+          `🎯 GOAL! Explosion at frame ${i} for team ${o.team} by ${o.playerName}`
+        )), s.userData.isHiddenByGoal = !0);
       }
       if (this.effectsManager.explosions.demoEvents.has(i)) {
-        const s = this.effectsManager.explosions.demoEvents.get(i), o = this.actors[s.victimActorId];
-        if (o) {
+        const o = this.effectsManager.explosions.demoEvents.get(i), s = this.actors[o.victimActorId];
+        if (s) {
           if (!a) {
-            const r = o.userData.playerId, c = r && this.playerTeams && this.playerTeams[r] || 0;
-            this.effectsManager.triggerDemoExplosion(o.position, c), console.log(
-              `💥 DEMO! Explosion at frame ${i} for actor ${s.victimActorId}`
+            const r = s.userData.playerId, c = r && this.playerTeams && this.playerTeams[r] || 0;
+            this.effectsManager.triggerDemoExplosion(s.position, c), console.log(
+              `💥 DEMO! Explosion at frame ${i} for actor ${o.victimActorId}`
             );
           }
-          o.userData.sleeping = !0;
+          s.userData.sleeping = !0;
         }
       }
     }
@@ -4700,12 +4869,12 @@ class hs {
     if (!e || !e.userData.isCar || !e.userData.teamLoadout) return;
     let i = 0;
     e.userData.playerId && Object.prototype.hasOwnProperty.call(this.playerTeams, e.userData.playerId) && (i = this.playerTeams[e.userData.playerId]);
-    const a = e.userData.teamLoadout, s = i === 1 ? a.orange?.body : a.blue?.body;
-    s && e.userData.bodyId !== s && (e.userData.bodyId = s, this.updateCarHitbox(e, s, t));
+    const a = e.userData.teamLoadout, o = i === 1 ? a.orange?.body : a.blue?.body;
+    o && e.userData.bodyId !== o && (e.userData.bodyId = o, this.updateCarHitbox(e, o, t));
   }
   updateCarHitbox(e, t, i) {
-    const a = Xi(t), s = a?.name || "Octane", o = a?.hitboxType || "Octane";
-    this.replaceCarWithModel(i, e, s, o);
+    const a = Fi(t), o = a?.name || "Octane", s = a?.hitboxType || "Octane";
+    this.replaceCarWithModel(i, e, o, s);
   }
   /**
    * Replace a car's BoxGeometry with a loaded FBX model
@@ -4716,132 +4885,132 @@ class hs {
     else {
       this.pendingCarReplacements.set(e, { oldMesh: t, carName: i, hitboxType: a });
       try {
-        const s = this.carModelLoader.getModelTypeForCar(i, a);
-        await this.carModelLoader.loadModel(s);
-        const o = this.pendingCarReplacements.get(e);
-        o && this.actors[e] === o.oldMesh && this._doCarReplacement(e, o.oldMesh, o.carName, o.hitboxType), this.pendingCarReplacements.delete(e);
-      } catch (s) {
-        console.warn(`Failed to load model for ${i} (${a}):`, s), this.pendingCarReplacements.delete(e), t && (t.visible = !0);
+        const o = this.carModelLoader.getModelTypeForCar(i, a);
+        await this.carModelLoader.loadModel(o);
+        const s = this.pendingCarReplacements.get(e);
+        s && this.actors[e] === s.oldMesh && this._doCarReplacement(e, s.oldMesh, s.carName, s.hitboxType), this.pendingCarReplacements.delete(e);
+      } catch (o) {
+        console.warn(`Failed to load model for ${i} (${a}):`, o), this.pendingCarReplacements.delete(e), t && (t.visible = !0);
       }
     }
   }
   _doCarReplacement(e, t, i, a) {
-    let s = 0;
-    t.userData.playerId && Object.prototype.hasOwnProperty.call(this.playerTeams, t.userData.playerId) ? s = this.playerTeams[t.userData.playerId] : t.userData.team !== void 0 && (s = t.userData.team);
-    const o = this.carModelLoader.getCarMeshSync(i, a, s);
-    if (!o) {
+    let o = 0;
+    t.userData.playerId && Object.prototype.hasOwnProperty.call(this.playerTeams, t.userData.playerId) ? o = this.playerTeams[t.userData.playerId] : t.userData.team !== void 0 && (o = t.userData.team);
+    const s = this.carModelLoader.getCarMeshSync(i, a, o);
+    if (!s) {
       console.warn(`Could not get car mesh for ${i} (${a})`);
       return;
     }
-    const r = o.userData.wheels;
-    o.userData = { ...t.userData }, o.userData.isFBXModel = !0, o.userData.carName = i, o.userData.hitboxType = a, o.userData.wheels = r, o.position.copy(t.position), o.quaternion.copy(t.quaternion), this.scene.remove(t), t.geometry && t.geometry.dispose(), t.material && (Array.isArray(t.material) ? t.material.forEach((h) => h.dispose()) : t.material.dispose()), this.scene.add(o), this.actors[e] = o, this.effectsManager.removeBoostTrail(e), this.effectsManager.createBoostTrail(o, e);
+    const r = s.userData.wheels;
+    s.userData = { ...t.userData }, s.userData.isFBXModel = !0, s.userData.carName = i, s.userData.hitboxType = a, s.userData.wheels = r, s.position.copy(t.position), s.quaternion.copy(t.quaternion), this.scene.remove(t), t.geometry && t.geometry.dispose(), t.material && (Array.isArray(t.material) ? t.material.forEach((l) => l.dispose()) : t.material.dispose()), this.scene.add(s), this.actors[e] = s, this.effectsManager.removeBoostTrail(e), this.effectsManager.createBoostTrail(s, e);
     const c = this.carModelLoader.getModelTypeForCar(i, a);
     console.log(
-      `🚗 Replaced car ${e} with ${c.toUpperCase()} model (${i}, ${a} hitbox, team ${s === 0 ? "blue" : "orange"})`
+      `🚗 Replaced car ${e} with ${c.toUpperCase()} model (${i}, ${a} hitbox, team ${o === 0 ? "blue" : "orange"})`
     );
   }
   checkCarPlayerLink(e, t) {
     const i = this.actorToPlayer[e], a = this.actorLoadouts[e];
     if (!(!i && !a))
       if (t) {
-        const s = this.actors[t];
-        s && s.userData.isCar && (this.onPlayerFound && this.onPlayerFound(i), s.userData.playerId = i, this.playerNameToCarActorId[i] = t, a && (s.userData.teamLoadout = a), this.resolveBodyId(s, t));
+        const o = this.actors[t];
+        o && o.userData.isCar && (this.onPlayerFound && this.onPlayerFound(i), o.userData.playerId = i, this.playerNameToCarActorId[i] = t, a && (o.userData.teamLoadout = a), this.resolveBodyId(o, t));
       } else
-        this.actorLinks[e] && this.actorLinks[e].forEach((s) => {
-          this.checkCarPlayerLink(e, s);
+        this.actorLinks[e] && this.actorLinks[e].forEach((o) => {
+          this.checkCarPlayerLink(e, o);
         });
   }
   updateInterpolation(e, t, i) {
     const a = t[i];
-    if (a && Object.keys(this.actors).forEach((s) => {
-      const o = this.actors[s], r = o.userData.location, c = o.userData.rotation;
-      if (!r || !c || !o.userData.hasReceivedUpdate) return;
-      let h = null, d = 0;
+    if (a && Object.keys(this.actors).forEach((o) => {
+      const s = this.actors[o], r = s.userData.location, c = s.userData.rotation;
+      if (!r || !c || !s.userData.hasReceivedUpdate) return;
+      let l = null, d = 0;
       for (let m = i + 1; m < Math.min(t.length, i + 60); m++) {
         const u = t[m];
         if (u.updated_actors) {
           const p = u.updated_actors.find(
-            (g) => g.actor_id == s && g.attribute && g.attribute.RigidBody
+            (f) => f.actor_id == o && f.attribute && f.attribute.RigidBody
           );
           if (p) {
-            h = p, d = u.time;
+            l = p, d = u.time;
             break;
           }
         }
       }
-      if (h) {
-        const m = o.userData.lastUpdateTime || a.time, u = d;
+      if (l) {
+        const m = s.userData.lastUpdateTime || a.time, u = d;
         if (u > m) {
-          const p = (e - m) / (u - m), g = Math.max(0, Math.min(1, p)), f = u - m || 0.033, y = h.attribute.RigidBody;
+          const p = (e - m) / (u - m), f = Math.max(0, Math.min(1, p)), g = u - m || 0.033, y = l.attribute.RigidBody;
           if (y.location)
-            if (this._p0.copy(r), this._p1.set(y.location.x, y.location.z, y.location.y), o.userData.sleeping)
-              o.position.copy(r);
+            if (this._p0.copy(r), this._p1.set(y.location.x, y.location.z, y.location.y), s.userData.sleeping)
+              s.position.copy(r);
             else {
-              const b = h.attribute.RigidBody;
-              if (o.userData.velocity && b.linear_velocity) {
-                const w = g, x = w * w, v = x * w;
-                if (f > 0.5)
-                  o.position.lerpVectors(r, this._p1, g);
+              const x = l.attribute.RigidBody;
+              if (s.userData.velocity && x.linear_velocity) {
+                const v = f, b = v * v, M = b * v;
+                if (g > 0.5)
+                  s.position.lerpVectors(r, this._p1, f);
                 else {
-                  this._v0.copy(o.userData.velocity).multiplyScalar(f), this._v1.set(
-                    b.linear_velocity.x,
-                    b.linear_velocity.z,
-                    b.linear_velocity.y
-                  ).multiplyScalar(f);
-                  const T = 2 * v - 3 * x + 1, M = v - 2 * x + w, _ = -2 * v + 3 * x, D = v - x;
-                  o.position.set(
-                    T * this._p0.x + M * this._v0.x + _ * this._p1.x + D * this._v1.x,
-                    T * this._p0.y + M * this._v0.y + _ * this._p1.y + D * this._v1.y,
-                    T * this._p0.z + M * this._v0.z + _ * this._p1.z + D * this._v1.z
+                  this._v0.copy(s.userData.velocity).multiplyScalar(g), this._v1.set(
+                    x.linear_velocity.x,
+                    x.linear_velocity.z,
+                    x.linear_velocity.y
+                  ).multiplyScalar(g);
+                  const C = 2 * M - 3 * b + 1, w = M - 2 * b + v, S = -2 * M + 3 * b, E = M - b;
+                  s.position.set(
+                    C * this._p0.x + w * this._v0.x + S * this._p1.x + E * this._v1.x,
+                    C * this._p0.y + w * this._v0.y + S * this._p1.y + E * this._v1.y,
+                    C * this._p0.z + w * this._v0.z + S * this._p1.z + E * this._v1.z
                   );
                 }
               } else
-                o.position.lerpVectors(r, this._p1, g);
+                s.position.lerpVectors(r, this._p1, f);
             }
           else
-            o.position.copy(r);
-          y.rotation ? (this._nextRot.set(y.rotation.x, y.rotation.z, y.rotation.y, -y.rotation.w), o.quaternion.slerpQuaternions(c, this._nextRot, g)) : o.quaternion.copy(c);
+            s.position.copy(r);
+          y.rotation ? (this._nextRot.set(y.rotation.x, y.rotation.z, y.rotation.y, -y.rotation.w), s.quaternion.slerpQuaternions(c, this._nextRot, f)) : s.quaternion.copy(c);
           return;
         }
       }
-      o.position.copy(r), o.quaternion.copy(c);
-    }), Object.keys(this.actors).forEach((s) => {
-      const o = this.actors[s];
-      if (o && o.userData.isCar) {
-        const c = o.position.length() > 0.1, h = o.userData.sleeping === !0;
-        o.visible = c && !h;
+      s.position.copy(r), s.quaternion.copy(c);
+    }), Object.keys(this.actors).forEach((o) => {
+      const s = this.actors[o];
+      if (s && s.userData.isCar) {
+        const c = s.position.length() > 0.1, l = s.userData.sleeping === !0;
+        s.visible = c && !l;
       }
     }), this.ballActorId && this.actors[this.ballActorId]) {
-      const s = this.actors[this.ballActorId];
-      if (s.visible = !s.userData.isHiddenByGoal, this.ballIndicator && (this.ballIndicator.position.set(s.position.x, 2, s.position.z), this.ballIndicator.visible = s.visible), this.ballVerticalLine) {
+      const o = this.actors[this.ballActorId];
+      if (o.visible = !o.userData.isHiddenByGoal, this.ballIndicator && (this.ballIndicator.position.set(o.position.x, 2, o.position.z), this.ballIndicator.visible = o.visible), this.ballVerticalLine) {
         const r = new Float32Array([
-          s.position.x,
+          o.position.x,
           2,
-          s.position.z,
-          s.position.x,
-          s.position.y,
-          s.position.z
+          o.position.z,
+          o.position.x,
+          o.position.y,
+          o.position.z
         ]);
         this.ballVerticalLine.geometry.setAttribute(
           "position",
-          new l.BufferAttribute(r, 3)
-        ), this.ballVerticalLine.geometry.attributes.position.needsUpdate = !0, this.ballVerticalLine.visible = s.visible;
+          new h.BufferAttribute(r, 3)
+        ), this.ballVerticalLine.geometry.attributes.position.needsUpdate = !0, this.ballVerticalLine.visible = o.visible;
       }
-      if (s.userData.velocity && s.visible) {
-        let o = this.lastBallTouchTeam, r = this.BALL_TOUCH_DISTANCE;
+      if (o.userData.velocity && o.visible) {
+        let s = this.lastBallTouchTeam, r = this.BALL_TOUCH_DISTANCE;
         Object.keys(this.actors).forEach((c) => {
-          const h = this.actors[c];
-          if (h && h.userData.isCar && h.userData.playerId) {
-            const d = s.position.distanceTo(h.position);
+          const l = this.actors[c];
+          if (l && l.userData.isCar && l.userData.playerId) {
+            const d = o.position.distanceTo(l.position);
             if (d < r) {
               r = d;
-              const m = h.userData.playerId;
-              Object.prototype.hasOwnProperty.call(this.playerTeams, m) && (o = this.playerTeams[m]);
+              const m = l.userData.playerId;
+              Object.prototype.hasOwnProperty.call(this.playerTeams, m) && (s = this.playerTeams[m]);
             }
           }
-        }), r < this.BALL_TOUCH_DISTANCE && (this.lastBallTouchTeam = o), this.effectsManager.updateBallTrail(
-          s.position,
-          s.userData.velocity,
+        }), r < this.BALL_TOUCH_DISTANCE && (this.lastBallTouchTeam = s), this.effectsManager.updateBallTrail(
+          o.position,
+          o.userData.velocity,
           this.lastBallTouchTeam
         );
       }
@@ -4859,18 +5028,18 @@ class hs {
       t && !this._warnedNoCarId && (console.warn(`⚠️ updateBoostState: No carId for ${e}`), this._warnedNoCarId = !0);
       return;
     }
-    const s = this.actors[a];
-    if (!s || !s.userData.isCar) {
+    const o = this.actors[a];
+    if (!o || !o.userData.isCar) {
       t && console.warn(`⚠️ updateBoostState: No mesh for car ${a}, player ${e}`);
       return;
     }
-    const o = s.userData.velocity || new l.Vector3(0, 0, 0), r = t && !i;
+    const s = o.userData.velocity || new h.Vector3(0, 0, 0), r = t && !i;
     this.effectsManager.updateBoostTrail(
       a,
       r,
-      s.position,
-      s.quaternion,
-      o
+      o.position,
+      o.quaternion,
+      s
     );
   }
   /**
@@ -4897,23 +5066,23 @@ class hs {
     this._previousCarPositions || (this._previousCarPositions = /* @__PURE__ */ new Map()), Object.keys(this.actors).forEach((i) => {
       const a = this.actors[i];
       if (!a || !a.userData.isCar || !a.userData.isFBXModel && !a.userData.hasWheelSockets || !a.userData.wheels || a.userData.wheels.length === 0) return;
-      const s = a.position;
-      let o = this._previousCarPositions.get(i);
-      o || (o = s.clone(), this._previousCarPositions.set(i, o));
-      const c = new l.Vector3().subVectors(s, o).length();
-      if (this._previousCarPositions.set(i, s.clone()), c < 0.01) return;
+      const o = a.position;
+      let s = this._previousCarPositions.get(i);
+      s || (s = o.clone(), this._previousCarPositions.set(i, s));
+      const c = new h.Vector3().subVectors(o, s).length();
+      if (this._previousCarPositions.set(i, o.clone()), c < 0.01) return;
       const m = Math.min(c / e, 0.5) * 1;
       let u = 0;
       a.userData.steer !== void 0 && (u = -a.userData.steer * t), a.userData.wheels.forEach((p) => {
         if (p.socket) {
-          const g = p.side === "left" ? 1 : -1;
-          if (p.mesh.rotateZ(g * m), p.position === "front" && p.steeringPivot) {
-            const f = p.side === "left" ? -1 : 1;
-            p.steeringPivot.rotation.y = f * u;
+          const f = p.side === "left" ? 1 : -1;
+          if (p.mesh.rotateZ(f * m), p.position === "front" && p.steeringPivot) {
+            const g = p.side === "left" ? -1 : 1;
+            p.steeringPivot.rotation.y = g * u;
           }
         } else {
-          const g = p.side === "left" ? -1 : 1;
-          p.mesh.rotateY(g * m), p.position === "front" && p.steeringPivot && (p.steeringPivot.rotation.z = u);
+          const f = p.side === "left" ? -1 : 1;
+          p.mesh.rotateY(f * m), p.position === "front" && p.steeringPivot && (p.steeringPivot.rotation.z = u);
         }
       });
     });
@@ -4928,16 +5097,16 @@ class hs {
     const a = this.playerNameToCarActorId[e];
     if (!a)
       return;
-    const s = this.actors[a];
-    if (!s || !s.userData.isCar)
+    const o = this.actors[a];
+    if (!o || !o.userData.isCar)
       return;
-    const o = s.userData.velocity || new l.Vector3(0, 0, 0);
+    const s = o.userData.velocity || new h.Vector3(0, 0, 0);
     this.effectsManager.updateSupersonicTrail(
       a,
       t,
-      s.position,
-      s.quaternion,
-      o,
+      o.position,
+      o.quaternion,
+      s,
       i
     );
   }
@@ -5009,7 +5178,7 @@ class hs {
     return this.lastFrameInfo;
   }
   // ============================================
-  // LIVE MODE METHODS (027-live-viewer)
+  // LIVE MODE METHODS (027-live-player)
   // ============================================
   /**
    * Create ball mesh for live mode
@@ -5017,12 +5186,12 @@ class hs {
    * @returns {THREE.Mesh} The ball mesh
    */
   createBallMeshForLive() {
-    const e = new l.SphereGeometry(92.75, 16, 16), t = new l.MeshStandardMaterial({ color: 16777215 }), i = new l.Mesh(e, t);
+    const e = new h.SphereGeometry(92.75, 16, 16), t = new h.MeshStandardMaterial({ color: 16777215 }), i = new h.Mesh(e, t);
     if (i.castShadow = !0, i.receiveShadow = !0, i.userData = {
-      location: new l.Vector3(),
-      rotation: new l.Quaternion(),
-      velocity: new l.Vector3(),
-      angularVelocity: new l.Vector3(),
+      location: new h.Vector3(),
+      rotation: new h.Quaternion(),
+      velocity: new h.Vector3(),
+      angularVelocity: new h.Vector3(),
       isCar: !1,
       isBall: !0,
       playerId: null,
@@ -5031,9 +5200,9 @@ class hs {
     }, this.scene.add(i), this.ballModel) {
       const a = this.ballModel.clone();
       a.position.copy(i.position), a.quaternion.copy(i.quaternion), a.userData = { ...i.userData };
-      const s = 92.75;
-      return a.scale.set(s, s, s), a.traverse((o) => {
-        o.isMesh && (o.castShadow = !0, o.receiveShadow = !0);
+      const o = 92.75;
+      return a.scale.set(o, o, o), a.traverse((s) => {
+        s.isMesh && (s.castShadow = !0, s.receiveShadow = !0);
       }), this.scene.remove(i), this.scene.add(a), i.geometry && i.geometry.dispose(), i.material && i.material.dispose(), console.log("✓ Live ball created with GLTF model"), a;
     }
     return i;
@@ -5048,12 +5217,12 @@ class hs {
    * @returns {THREE.Mesh} The car mesh
    */
   createCarMeshForLive(e, t, i, a = null) {
-    const s = `live_car_${t}`, o = new l.BoxGeometry(118, 36, 84), r = e === 0 ? 3381759 : 16737792, c = new l.MeshStandardMaterial({ color: r }), h = new l.Mesh(o, c);
-    return h.castShadow = !0, h.receiveShadow = !0, h.visible = !1, h.userData = {
-      location: new l.Vector3(),
-      rotation: new l.Quaternion(),
-      velocity: new l.Vector3(),
-      angularVelocity: new l.Vector3(),
+    const o = `live_car_${t}`, s = new h.BoxGeometry(118, 36, 84), r = e === 0 ? 3381759 : 16737792, c = new h.MeshStandardMaterial({ color: r }), l = new h.Mesh(s, c);
+    return l.castShadow = !0, l.receiveShadow = !0, l.visible = !1, l.userData = {
+      location: new h.Vector3(),
+      rotation: new h.Quaternion(),
+      velocity: new h.Vector3(),
+      angularVelocity: new h.Vector3(),
       isCar: !0,
       isBall: !1,
       playerId: i,
@@ -5061,10 +5230,10 @@ class hs {
       sleeping: !1,
       steer: 0,
       bodyId: a,
-      liveActorId: s
-    }, this.scene.add(h), this.actors[s] = h, this.playerNameToCarActorId[i] = s, this.effectsManager.createBoostTrail(h, s), a && a > 0 ? this.updateCarHitbox(h, a, s) : this.replaceCarWithModel(s, h, "Octane", "Octane"), console.log(
+      liveActorId: o
+    }, this.scene.add(l), this.actors[o] = l, this.playerNameToCarActorId[i] = o, this.effectsManager.createBoostTrail(l, o), a && a > 0 ? this.updateCarHitbox(l, a, o) : this.replaceCarWithModel(o, l, "Octane", "Octane"), console.log(
       `[ActorManager] Created live car for ${i} (team ${e === 0 ? "blue" : "orange"}, bodyId: ${a})`
-    ), h;
+    ), l;
   }
   /**
    * Update boost particles for live mode car
@@ -5076,13 +5245,13 @@ class hs {
    * @param {THREE.Mesh} mesh - Car mesh
    */
   updateBoostParticlesLive(e, t, i, a) {
-    const s = t && i > 0, o = a.userData.velocity || new l.Vector3(0, 0, 0);
+    const o = t && i > 0, s = a.userData.velocity || new h.Vector3(0, 0, 0);
     this.effectsManager.updateBoostTrail(
       e,
-      s,
+      o,
       a.position,
       a.quaternion,
-      o
+      s
     );
   }
   /**
@@ -5093,13 +5262,13 @@ class hs {
    * @param {THREE.Mesh} mesh - Car mesh
    */
   updateSupersonicTrailLive(e, t, i, a) {
-    const s = a.userData.velocity || new l.Vector3(0, 0, 0);
+    const o = a.userData.velocity || new h.Vector3(0, 0, 0);
     this.effectsManager.updateSupersonicTrail(
       e,
       t,
       a.position,
       a.quaternion,
-      s,
+      o,
       i
     );
   }
@@ -5119,57 +5288,57 @@ class hs {
     e && (this.scene.remove(e), e.geometry && e.geometry.dispose(), e.material && e.material.dispose());
   }
 }
-function q(n, e, t) {
+function K(n, e, t) {
   t === -1 ? (n.clearUpdateRanges?.(), n.addUpdateRange?.(0, n.count * n.itemSize)) : n.addUpdateRange ? (n.clearUpdateRanges(), n.addUpdateRange(e, t)) : (n.updateRange.offset = e, n.updateRange.count = t);
 }
-class A extends l.Object3D {
+class I extends h.Object3D {
   constructor(e, t) {
     super(), this.active = !1, this.orientToMovement = !1, t && (this.orientToMovement = !0), this.scene = e, this.geometry = null, this.mesh = null, this.nodeCenters = null, this.lastNodeCenter = null, this.currentNodeCenter = null, this.lastOrientationDir = null, this.nodeIDs = null, this.currentLength = 0, this.currentEnd = 0, this.currentNodeID = 0, this.advanceFrequency = 60, this.advancePeriod = 1 / this.advanceFrequency, this.lastAdvanceTime = 0, this.paused = !1, this.pauseAdvanceUpdateTimeDiff = 0, this._internalTime = 0, this._useInternalTime = !1;
   }
   setAdvanceFrequency(e) {
     this.advanceFrequency = e, this.advancePeriod = 1 / this.advanceFrequency;
   }
-  initialize(e, t, i, a, s, o) {
-    this.deactivate(), this.destroyMesh(), this.length = t > 0 ? t + 1 : 0, this.dragTexture = i ? 1 : 0, this.targetObject = o, this.initializeLocalHeadGeometry(a, s), this.nodeIDs = [], this.nodeCenters = [];
+  initialize(e, t, i, a, o, s) {
+    this.deactivate(), this.destroyMesh(), this.length = t > 0 ? t + 1 : 0, this.dragTexture = i ? 1 : 0, this.targetObject = s, this.initializeLocalHeadGeometry(a, o), this.nodeIDs = [], this.nodeCenters = [];
     for (let r = 0; r < this.length; r++)
-      this.nodeIDs[r] = -1, this.nodeCenters[r] = new l.Vector3();
-    this.material = e, this.initializeGeometry(), this.initializeMesh(), this.material.uniforms.trailLength.value = 0, this.material.uniforms.minID.value = 0, this.material.uniforms.maxID.value = 0, this.material.uniforms.dragTexture.value = this.dragTexture, this.material.uniforms.maxTrailLength.value = this.length, this.material.uniforms.verticesPerNode.value = this.VerticesPerNode, this.material.uniforms.textureTileFactor.value = new l.Vector2(1, 1), this.reset();
+      this.nodeIDs[r] = -1, this.nodeCenters[r] = new h.Vector3();
+    this.material = e, this.initializeGeometry(), this.initializeMesh(), this.material.uniforms.trailLength.value = 0, this.material.uniforms.minID.value = 0, this.material.uniforms.maxID.value = 0, this.material.uniforms.dragTexture.value = this.dragTexture, this.material.uniforms.maxTrailLength.value = this.length, this.material.uniforms.verticesPerNode.value = this.VerticesPerNode, this.material.uniforms.textureTileFactor.value = new h.Vector2(1, 1), this.reset();
   }
   initializeLocalHeadGeometry(e, t) {
     if (this.localHeadGeometry = [], t) {
       this.VerticesPerNode = 0;
-      for (let i = 0; i < t.length && i < A.MaxHeadVertices; i++) {
+      for (let i = 0; i < t.length && i < I.MaxHeadVertices; i++) {
         const a = t[i];
-        if (a && a instanceof l.Vector3) {
-          const s = new l.Vector3();
-          s.copy(a), this.localHeadGeometry.push(s), this.VerticesPerNode++;
+        if (a && a instanceof h.Vector3) {
+          const o = new h.Vector3();
+          o.copy(a), this.localHeadGeometry.push(o), this.VerticesPerNode++;
         }
       }
     } else {
       const i = (e || 1) / 2;
-      this.localHeadGeometry.push(new l.Vector3(-i, 0, 0)), this.localHeadGeometry.push(new l.Vector3(i, 0, 0)), this.VerticesPerNode = 2;
+      this.localHeadGeometry.push(new h.Vector3(-i, 0, 0)), this.localHeadGeometry.push(new h.Vector3(i, 0, 0)), this.VerticesPerNode = 2;
     }
     this.FacesPerNode = (this.VerticesPerNode - 1) * 2, this.FaceIndicesPerNode = this.FacesPerNode * 3;
   }
   initializeGeometry() {
     this.vertexCount = this.length * this.VerticesPerNode, this.faceCount = this.length * this.FacesPerNode;
-    const e = new l.BufferGeometry(), t = new Float32Array(this.vertexCount), i = new Float32Array(this.vertexCount * this.VerticesPerNode), a = new Float32Array(this.vertexCount * A.PositionComponentCount), s = new Float32Array(this.vertexCount * A.PositionComponentCount), o = new Float32Array(this.vertexCount * A.UVComponentCount), r = new Uint32Array(this.faceCount * A.IndicesPerFace), c = new l.BufferAttribute(t, 1);
+    const e = new h.BufferGeometry(), t = new Float32Array(this.vertexCount), i = new Float32Array(this.vertexCount * this.VerticesPerNode), a = new Float32Array(this.vertexCount * I.PositionComponentCount), o = new Float32Array(this.vertexCount * I.PositionComponentCount), s = new Float32Array(this.vertexCount * I.UVComponentCount), r = new Uint32Array(this.faceCount * I.IndicesPerFace), c = new h.BufferAttribute(t, 1);
     c.dynamic = !0, e.setAttribute("nodeID", c);
-    const h = new l.BufferAttribute(i, 1);
-    h.dynamic = !0, e.setAttribute("nodeVertexID", h);
-    const d = new l.BufferAttribute(
-      s,
-      A.PositionComponentCount
+    const l = new h.BufferAttribute(i, 1);
+    l.dynamic = !0, e.setAttribute("nodeVertexID", l);
+    const d = new h.BufferAttribute(
+      o,
+      I.PositionComponentCount
     );
     d.dynamic = !0, e.setAttribute("nodeCenter", d);
-    const m = new l.BufferAttribute(
+    const m = new h.BufferAttribute(
       a,
-      A.PositionComponentCount
+      I.PositionComponentCount
     );
     m.dynamic = !0, e.setAttribute("position", m);
-    const u = new l.BufferAttribute(o, A.UVComponentCount);
+    const u = new h.BufferAttribute(s, I.UVComponentCount);
     u.dynamic = !0, e.setAttribute("uv", u);
-    const p = new l.BufferAttribute(r, 1);
+    const p = new h.BufferAttribute(r, 1);
     p.dynamic = !0, e.setIndex(p), this.geometry = e;
   }
   zeroVertices() {
@@ -5178,7 +5347,7 @@ class A extends l.Object3D {
       const i = t * 3;
       e.array[i] = 0, e.array[i + 1] = 0, e.array[i + 2] = 0;
     }
-    e.needsUpdate = !0, q(e, 0, -1);
+    e.needsUpdate = !0, K(e, 0, -1);
   }
   zeroIndices() {
     const e = this.geometry.getIndex();
@@ -5186,17 +5355,17 @@ class A extends l.Object3D {
       const i = t * 3;
       e.array[i] = 0, e.array[i + 1] = 0, e.array[i + 2] = 0;
     }
-    e.needsUpdate = !0, q(e, 0, -1);
+    e.needsUpdate = !0, K(e, 0, -1);
   }
   formInitialFaces() {
     this.zeroIndices();
     const e = this.geometry.getIndex();
     for (let t = 0; t < this.length - 1; t++)
       this.connectNodes(t, t + 1);
-    e.needsUpdate = !0, q(e, 0, -1);
+    e.needsUpdate = !0, K(e, 0, -1);
   }
   initializeMesh() {
-    this.mesh = new l.Mesh(this.geometry, this.material), this.mesh.dynamic = !0, this.mesh.matrixAutoUpdate = !1;
+    this.mesh = new h.Mesh(this.geometry, this.material), this.mesh.dynamic = !0, this.mesh.matrixAutoUpdate = !1;
   }
   destroyMesh() {
     this.mesh && (this.scene.remove(this.mesh), this.mesh = null);
@@ -5208,7 +5377,7 @@ class A extends l.Object3D {
     this.currentLength < this.length ? this.material.uniforms.minID.value = 0 : this.material.uniforms.minID.value = this.currentNodeID - this.length, this.material.uniforms.maxID.value = this.currentNodeID, this.material.uniforms.trailLength.value = this.currentLength, this.material.uniforms.maxTrailLength.value = this.length, this.material.uniforms.verticesPerNode.value = this.VerticesPerNode;
   }
   advance = (function() {
-    const e = new l.Matrix4();
+    const e = new h.Matrix4();
     return function() {
       this.targetObject.updateMatrixWorld(), e.copy(this.targetObject.matrixWorld), this.advanceWithTransform(e), this.updateUniforms();
     };
@@ -5227,8 +5396,8 @@ class A extends l.Object3D {
         t.position,
         t.tangent
       ), this.currentLength >= 1 && (this.connectNodes(this.currentEnd, a), this.currentLength >= this.length)) {
-        const s = this.currentEnd + 1 >= this.length ? 0 : this.currentEnd + 1;
-        this.disconnectNodes(s);
+        const o = this.currentEnd + 1 >= this.length ? 0 : this.currentEnd + 1;
+        this.disconnectNodes(o);
       }
       this.currentLength < this.length && this.currentLength++, this.currentEnd++, this.currentEnd >= this.length && (this.currentEnd = 0), this.currentLength >= 1 && (this.currentLength < this.length ? this.geometry.setDrawRange(0, (this.currentLength - 1) * this.FaceIndicesPerNode) : this.geometry.setDrawRange(0, this.currentLength * this.FaceIndicesPerNode)), this.updateNodeID(this.currentEnd, this.currentNodeID), this.currentNodeID++;
     };
@@ -5255,7 +5424,7 @@ class A extends l.Object3D {
     }
   }
   updateHead = (function() {
-    const e = new l.Matrix4();
+    const e = new h.Matrix4();
     return function() {
       this.currentEnd < 0 || (this.targetObject.updateMatrixWorld(), e.copy(this.targetObject.matrixWorld), this.updateNodePositionsFromTransformMatrix(this.currentEnd, e));
     };
@@ -5263,54 +5432,54 @@ class A extends l.Object3D {
   updateNodeID(e, t) {
     this.nodeIDs[e] = t;
     const i = this.geometry.getAttribute("nodeID"), a = this.geometry.getAttribute("nodeVertexID");
-    for (let s = 0; s < this.VerticesPerNode; s++) {
-      const o = e * this.VerticesPerNode + s;
-      i.array[o] = t, a.array[o] = s;
+    for (let o = 0; o < this.VerticesPerNode; o++) {
+      const s = e * this.VerticesPerNode + o;
+      i.array[s] = t, a.array[s] = o;
     }
-    i.needsUpdate = !0, a.needsUpdate = !0, q(i, e * this.VerticesPerNode, this.VerticesPerNode), q(a, e * this.VerticesPerNode, this.VerticesPerNode);
+    i.needsUpdate = !0, a.needsUpdate = !0, K(i, e * this.VerticesPerNode, this.VerticesPerNode), K(a, e * this.VerticesPerNode, this.VerticesPerNode);
   }
   updateNodeCenter(e, t) {
     this.lastNodeCenter = this.currentNodeCenter, this.currentNodeCenter = this.nodeCenters[e], this.currentNodeCenter.copy(t);
     const i = this.geometry.getAttribute("nodeCenter");
     for (let a = 0; a < this.VerticesPerNode; a++) {
-      const s = (e * this.VerticesPerNode + a) * 3;
-      i.array[s] = t.x, i.array[s + 1] = t.y, i.array[s + 2] = t.z;
+      const o = (e * this.VerticesPerNode + a) * 3;
+      i.array[o] = t.x, i.array[o + 1] = t.y, i.array[o + 2] = t.z;
     }
-    i.needsUpdate = !0, q(
+    i.needsUpdate = !0, K(
       i,
-      e * this.VerticesPerNode * A.PositionComponentCount,
-      this.VerticesPerNode * A.PositionComponentCount
+      e * this.VerticesPerNode * I.PositionComponentCount,
+      this.VerticesPerNode * I.PositionComponentCount
     );
   }
   updateNodePositionsFromOrientationTangent = (function() {
-    const e = new l.Quaternion(), t = new l.Vector3(), i = [];
-    for (let a = 0; a < A.MaxHeadVertices; a++) {
-      const s = new l.Vector3();
-      i.push(s);
+    const e = new h.Quaternion(), t = new h.Vector3(), i = [];
+    for (let a = 0; a < I.MaxHeadVertices; a++) {
+      const o = new h.Vector3();
+      i.push(o);
     }
-    return function(s, o, r) {
+    return function(o, s, r) {
       const c = this.geometry.getAttribute("position");
-      this.updateNodeCenter(s, o), t.copy(o), t.sub(A.LocalHeadOrigin), e.setFromUnitVectors(A.LocalOrientationTangent, r);
-      for (let h = 0; h < this.localHeadGeometry.length; h++) {
-        const d = i[h];
-        d.copy(this.localHeadGeometry[h]), d.applyQuaternion(e), d.add(t);
+      this.updateNodeCenter(o, s), t.copy(s), t.sub(I.LocalHeadOrigin), e.setFromUnitVectors(I.LocalOrientationTangent, r);
+      for (let l = 0; l < this.localHeadGeometry.length; l++) {
+        const d = i[l];
+        d.copy(this.localHeadGeometry[l]), d.applyQuaternion(e), d.add(t);
       }
-      for (let h = 0; h < this.localHeadGeometry.length; h++) {
-        const d = (this.VerticesPerNode * s + h) * A.PositionComponentCount, m = i[h];
+      for (let l = 0; l < this.localHeadGeometry.length; l++) {
+        const d = (this.VerticesPerNode * o + l) * I.PositionComponentCount, m = i[l];
         c.array[d] = m.x, c.array[d + 1] = m.y, c.array[d + 2] = m.z;
       }
       c.needsUpdate = !0;
     };
   })();
   updateNodePositionsFromTransformMatrix = (function() {
-    const e = new l.Matrix3(), t = new l.Quaternion(), i = new l.Vector3(), a = new l.Vector3(), s = new l.Vector3(), o = new l.Vector3(), r = [];
-    for (let h = 0; h < A.MaxHeadVertices; h++) {
-      const d = new l.Vector3();
+    const e = new h.Matrix3(), t = new h.Quaternion(), i = new h.Vector3(), a = new h.Vector3(), o = new h.Vector3(), s = new h.Vector3(), r = [];
+    for (let l = 0; l < I.MaxHeadVertices; l++) {
+      const d = new h.Vector3();
       r.push(d);
     }
-    function c(h, d) {
+    function c(l, d) {
       const m = d.elements;
-      h.set(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
+      l.set(m[0], m[1], m[2], m[4], m[5], m[6], m[8], m[9], m[10]);
     }
     return function(d, m) {
       const u = this.geometry.getAttribute("position");
@@ -5319,21 +5488,21 @@ class A extends l.Object3D {
         r[p].copy(this.localHeadGeometry[p]);
       for (let p = 0; p < this.localHeadGeometry.length; p++)
         r[p].applyMatrix4(m);
-      if (this.lastNodeCenter && this.orientToMovement && (c(e, m), s.set(0, 0, -1), s.applyMatrix3(e), o.copy(this.currentNodeCenter), o.sub(this.lastNodeCenter), o.normalize(), o.lengthSq() <= 1e-4 && this.lastOrientationDir && o.copy(this.lastOrientationDir), o.lengthSq() > 1e-4)) {
-        this.lastOrientationDir || (this.lastOrientationDir = new l.Vector3()), t.setFromUnitVectors(s, o), a.copy(this.currentNodeCenter);
+      if (this.lastNodeCenter && this.orientToMovement && (c(e, m), o.set(0, 0, -1), o.applyMatrix3(e), s.copy(this.currentNodeCenter), s.sub(this.lastNodeCenter), s.normalize(), s.lengthSq() <= 1e-4 && this.lastOrientationDir && s.copy(this.lastOrientationDir), s.lengthSq() > 1e-4)) {
+        this.lastOrientationDir || (this.lastOrientationDir = new h.Vector3()), t.setFromUnitVectors(o, s), a.copy(this.currentNodeCenter);
         for (let p = 0; p < this.localHeadGeometry.length; p++) {
-          const g = r[p];
-          g.sub(a), g.applyQuaternion(t), g.add(a);
+          const f = r[p];
+          f.sub(a), f.applyQuaternion(t), f.add(a);
         }
       }
       for (let p = 0; p < this.localHeadGeometry.length; p++) {
-        const g = (this.VerticesPerNode * d + p) * A.PositionComponentCount, f = r[p];
-        u.array[g] = f.x, u.array[g + 1] = f.y, u.array[g + 2] = f.z;
+        const f = (this.VerticesPerNode * d + p) * I.PositionComponentCount, g = r[p];
+        u.array[f] = g.x, u.array[f + 1] = g.y, u.array[f + 2] = g.z;
       }
-      u.needsUpdate = !0, q(
+      u.needsUpdate = !0, K(
         u,
-        d * this.VerticesPerNode * A.PositionComponentCount,
-        this.VerticesPerNode * A.PositionComponentCount
+        d * this.VerticesPerNode * I.PositionComponentCount,
+        this.VerticesPerNode * I.PositionComponentCount
       );
     };
   })();
@@ -5344,12 +5513,12 @@ class A extends l.Object3D {
       count: -1
     };
     return function(i, a) {
-      const s = this.geometry.getIndex();
-      for (let o = 0; o < this.localHeadGeometry.length - 1; o++) {
-        const r = this.VerticesPerNode * i + o, c = this.VerticesPerNode * a + o, h = (i * this.FacesPerNode + o * A.FacesPerQuad) * A.IndicesPerFace;
-        s.array[h] = r, s.array[h + 1] = c, s.array[h + 2] = r + 1, s.array[h + 3] = c, s.array[h + 4] = c + 1, s.array[h + 5] = r + 1;
+      const o = this.geometry.getIndex();
+      for (let s = 0; s < this.localHeadGeometry.length - 1; s++) {
+        const r = this.VerticesPerNode * i + s, c = this.VerticesPerNode * a + s, l = (i * this.FacesPerNode + s * I.FacesPerQuad) * I.IndicesPerFace;
+        o.array[l] = r, o.array[l + 1] = c, o.array[l + 2] = r + 1, o.array[l + 3] = c, o.array[l + 4] = c + 1, o.array[l + 5] = r + 1;
       }
-      return s.needsUpdate = !0, q(s, 0, -1), e.attribute = s, e.offset = i * this.FacesPerNode * A.IndicesPerFace, e.count = this.FacesPerNode * A.IndicesPerFace, e;
+      return o.needsUpdate = !0, K(o, 0, -1), e.attribute = o, e.offset = i * this.FacesPerNode * I.IndicesPerFace, e.count = this.FacesPerNode * I.IndicesPerFace, e;
     };
   })();
   disconnectNodes = /* @__PURE__ */ (function() {
@@ -5360,11 +5529,11 @@ class A extends l.Object3D {
     };
     return function(i) {
       const a = this.geometry.getIndex();
-      for (let s = 0; s < this.localHeadGeometry.length - 1; s++) {
-        const o = (i * this.FacesPerNode + s * A.FacesPerQuad) * A.IndicesPerFace;
-        a.array[o] = 0, a.array[o + 1] = 0, a.array[o + 2] = 0, a.array[o + 3] = 0, a.array[o + 4] = 0, a.array[o + 5] = 0;
+      for (let o = 0; o < this.localHeadGeometry.length - 1; o++) {
+        const s = (i * this.FacesPerNode + o * I.FacesPerQuad) * I.IndicesPerFace;
+        a.array[s] = 0, a.array[s + 1] = 0, a.array[s + 2] = 0, a.array[s + 3] = 0, a.array[s + 4] = 0, a.array[s + 5] = 0;
       }
-      return a.needsUpdate = !0, q(a, 0, -1), e.attribute = a, e.offset = i * this.FacesPerNode * A.IndicesPerFace, e.count = this.FacesPerNode * A.IndicesPerFace, e;
+      return a.needsUpdate = !0, K(a, 0, -1), e.attribute = a, e.offset = i * this.FacesPerNode * I.IndicesPerFace, e.count = this.FacesPerNode * I.IndicesPerFace, e;
     };
   })();
   deactivate() {
@@ -5374,45 +5543,45 @@ class A extends l.Object3D {
     this.isActive || (this.scene.add(this.mesh), this.isActive = !0);
   }
   static createMaterial(e, t, i) {
-    return i = i || {}, i.trailLength = { type: "f", value: null }, i.verticesPerNode = { type: "f", value: null }, i.minID = { type: "f", value: null }, i.maxID = { type: "f", value: null }, i.dragTexture = { type: "f", value: null }, i.maxTrailLength = { type: "f", value: null }, i.textureTileFactor = { type: "v2", value: null }, i.headColor = { type: "v4", value: new l.Vector4() }, i.tailColor = { type: "v4", value: new l.Vector4() }, e = e || A.Shader.BaseVertexShader, t = t || A.Shader.BaseFragmentShader, new l.ShaderMaterial({
+    return i = i || {}, i.trailLength = { type: "f", value: null }, i.verticesPerNode = { type: "f", value: null }, i.minID = { type: "f", value: null }, i.maxID = { type: "f", value: null }, i.dragTexture = { type: "f", value: null }, i.maxTrailLength = { type: "f", value: null }, i.textureTileFactor = { type: "v2", value: null }, i.headColor = { type: "v4", value: new h.Vector4() }, i.tailColor = { type: "v4", value: new h.Vector4() }, e = e || I.Shader.BaseVertexShader, t = t || I.Shader.BaseFragmentShader, new h.ShaderMaterial({
       uniforms: i,
       vertexShader: e,
       fragmentShader: t,
       transparent: !0,
       alphaTest: 0.5,
-      blending: l.CustomBlending,
-      blendSrc: l.SrcAlphaFactor,
-      blendDst: l.OneMinusSrcAlphaFactor,
-      blendEquation: l.AddEquation,
+      blending: h.CustomBlending,
+      blendSrc: h.SrcAlphaFactor,
+      blendDst: h.OneMinusSrcAlphaFactor,
+      blendEquation: h.AddEquation,
       depthTest: !0,
       depthWrite: !1,
-      side: l.DoubleSide
+      side: h.DoubleSide
     });
   }
   static createBaseMaterial(e) {
-    return A.createMaterial(
-      A.Shader.BaseVertexShader,
-      A.Shader.BaseFragmentShader,
+    return I.createMaterial(
+      I.Shader.BaseVertexShader,
+      I.Shader.BaseFragmentShader,
       e
     );
   }
   static createTexturedMaterial(e) {
-    return e = {}, e.trailTexture = { type: "t", value: null }, A.createMaterial(
-      A.Shader.TexturedVertexShader,
-      A.Shader.TexturedFragmentShader,
+    return e = {}, e.trailTexture = { type: "t", value: null }, I.createMaterial(
+      I.Shader.TexturedVertexShader,
+      I.Shader.TexturedFragmentShader,
       e
     );
   }
   static get MaxHeadVertices() {
     return 128;
   }
-  static _LocalOrientationTangent = new l.Vector3(1, 0, 0);
+  static _LocalOrientationTangent = new h.Vector3(1, 0, 0);
   static get LocalOrientationTangent() {
-    return A._LocalOrientationTangent;
+    return I._LocalOrientationTangent;
   }
-  static _LocalHeadOrigin = new l.Vector3(0, 0, 0);
+  static _LocalHeadOrigin = new h.Vector3(0, 0, 0);
   static get LocalHeadOrigin() {
-    return A._LocalHeadOrigin;
+    return I._LocalHeadOrigin;
   }
   static get PositionComponentCount() {
     return 3;
@@ -5508,7 +5677,7 @@ class A extends l.Object3D {
     }
   };
 }
-const Ot = {
+const At = {
   vertexShader: `
         attribute float nodeID;
         attribute float nodeVertexID;
@@ -5556,7 +5725,7 @@ const Ot = {
         }
     `
 };
-function Vt() {
+function zt() {
   const n = {
     trailLength: { type: "f", value: null },
     verticesPerNode: { type: "f", value: null },
@@ -5564,78 +5733,78 @@ function Vt() {
     maxID: { type: "f", value: null },
     dragTexture: { type: "f", value: null },
     maxTrailLength: { type: "f", value: null },
-    textureTileFactor: { type: "v2", value: new l.Vector2(1, 1) },
-    headColor: { type: "v4", value: new l.Vector4() },
-    tailColor: { type: "v4", value: new l.Vector4() },
+    textureTileFactor: { type: "v2", value: new h.Vector2(1, 1) },
+    headColor: { type: "v4", value: new h.Vector4() },
+    tailColor: { type: "v4", value: new h.Vector4() },
     intensityMultiplier: { type: "f", value: 1 }
   };
-  return new l.ShaderMaterial({
+  return new h.ShaderMaterial({
     uniforms: n,
-    vertexShader: Ot.vertexShader,
-    fragmentShader: Ot.fragmentShader,
+    vertexShader: At.vertexShader,
+    fragmentShader: At.fragmentShader,
     transparent: !0,
-    blending: l.AdditiveBlending,
+    blending: h.AdditiveBlending,
     depthTest: !0,
     depthWrite: !1,
-    side: l.DoubleSide
+    side: h.DoubleSide
   });
 }
-class ds {
+class no {
   constructor(e, t, i, a = 1) {
     this.scene = e, this.team = t, this.config = i, this.active = !0, this.dying = !1, this.deathTime = 0, this.maxDeathTime = 0.8, this.intensity = a, this.teamColors = {
       0: {
-        head: new l.Vector4(0.2, 0.4, 1, 1),
+        head: new h.Vector4(0.2, 0.4, 1, 1),
         // Deep blue (less cyan)
-        tail: new l.Vector4(0.1, 0.2, 0.8, 0)
+        tail: new h.Vector4(0.1, 0.2, 0.8, 0)
         // Darker blue, transparent
       },
       1: {
-        head: new l.Vector4(1, 0.45, 0, 1),
+        head: new h.Vector4(1, 0.45, 0, 1),
         // Vibrant orange
-        tail: new l.Vector4(0.8, 0.25, 0, 0)
+        tail: new h.Vector4(0.8, 0.25, 0, 0)
         // Darker orange, transparent
       }
-    }, this.mainTarget = new l.Object3D(), this.secondaryTargets = [
-      new l.Object3D(),
-      new l.Object3D(),
-      new l.Object3D(),
-      new l.Object3D()
-    ], e.add(this.mainTarget), this.secondaryTargets.forEach((s) => e.add(s)), this.mainTrail = this._createMainTrail(), this.secondaryTrails = this._createSecondaryTrails(), this._updateColors(), this._updateIntensity(), this.mainTrail.activate(), this.secondaryTrails.forEach((s) => s.activate());
+    }, this.mainTarget = new h.Object3D(), this.secondaryTargets = [
+      new h.Object3D(),
+      new h.Object3D(),
+      new h.Object3D(),
+      new h.Object3D()
+    ], e.add(this.mainTarget), this.secondaryTargets.forEach((o) => e.add(o)), this.mainTrail = this._createMainTrail(), this.secondaryTrails = this._createSecondaryTrails(), this._updateColors(), this._updateIntensity(), this.mainTrail.activate(), this.secondaryTrails.forEach((o) => o.activate());
   }
   _createMainTrail() {
-    const e = new A(this.scene, !1), t = Vt(), i = this.config.mainTrailWidth, a = [
+    const e = new I(this.scene, !1), t = zt(), i = this.config.mainTrailWidth, a = [
       // Vertical ribbon (Y axis)
-      new l.Vector3(0, -i, 0),
-      new l.Vector3(0, i, 0),
+      new h.Vector3(0, -i, 0),
+      new h.Vector3(0, i, 0),
       // Horizontal ribbon (X axis)
-      new l.Vector3(-i, 0, 0),
-      new l.Vector3(i, 0, 0),
+      new h.Vector3(-i, 0, 0),
+      new h.Vector3(i, 0, 0),
       // Depth ribbon (Z axis)
-      new l.Vector3(0, 0, -i),
-      new l.Vector3(0, 0, i)
+      new h.Vector3(0, 0, -i),
+      new h.Vector3(0, 0, i)
     ];
     return e.initialize(t, this.config.trailLength, !1, 0, a, this.mainTarget), e.setAdvanceFrequency(60), e.mesh && (e.mesh.frustumCulled = !1, e.mesh.renderOrder = 100), e;
   }
   _createSecondaryTrails() {
     const e = [];
     for (let t = 0; t < 4; t++) {
-      const i = new A(this.scene, !1), a = Vt(), s = this.config.secondaryTrailWidth, o = [
+      const i = new I(this.scene, !1), a = zt(), o = this.config.secondaryTrailWidth, s = [
         // Vertical ribbon (Y axis)
-        new l.Vector3(0, -s, 0),
-        new l.Vector3(0, s, 0),
+        new h.Vector3(0, -o, 0),
+        new h.Vector3(0, o, 0),
         // Horizontal ribbon (X axis)
-        new l.Vector3(-s, 0, 0),
-        new l.Vector3(s, 0, 0),
+        new h.Vector3(-o, 0, 0),
+        new h.Vector3(o, 0, 0),
         // Depth ribbon (Z axis)
-        new l.Vector3(0, 0, -s),
-        new l.Vector3(0, 0, s)
+        new h.Vector3(0, 0, -o),
+        new h.Vector3(0, 0, o)
       ];
       i.initialize(
         a,
         this.config.trailLength,
         !1,
         0,
-        o,
+        s,
         this.secondaryTargets[t]
       ), i.setAdvanceFrequency(60), i.mesh && (i.mesh.frustumCulled = !1, i.mesh.renderOrder = 100), e.push(i);
     }
@@ -5675,17 +5844,17 @@ class ds {
     if (this.dying) return;
     const a = t.clone().normalize();
     this.mainTarget.position.copy(e), this.mainTarget.updateMatrixWorld();
-    for (let s = 0; s < 4; s++) {
-      const r = s / 4 * Math.PI * 2 + i, c = new l.Vector3(
+    for (let o = 0; o < 4; o++) {
+      const r = o / 4 * Math.PI * 2 + i, c = new h.Vector3(
         Math.cos(r) * this.config.secondaryTrailOffset,
         Math.sin(r) * this.config.secondaryTrailOffset,
         0
       );
       if (a.lengthSq() > 1e-3) {
-        const h = new l.Vector3(0, 0, 1), d = new l.Quaternion();
-        d.setFromUnitVectors(h, a), c.applyQuaternion(d);
+        const l = new h.Vector3(0, 0, 1), d = new h.Quaternion();
+        d.setFromUnitVectors(l, a), c.applyQuaternion(d);
       }
-      this.secondaryTargets[s].position.copy(e).add(c), this.secondaryTargets[s].updateMatrixWorld();
+      this.secondaryTargets[o].position.copy(e).add(c), this.secondaryTargets[o].updateMatrixWorld();
     }
   }
   update(e) {
@@ -5706,7 +5875,7 @@ class ds {
     }), this.scene.remove(this.mainTarget), this.secondaryTargets.forEach((e) => this.scene.remove(e));
   }
 }
-class ms {
+class oo {
   /**
    * @param {THREE.Scene} scene - The scene to add trails to
    * @param {number} team - Team color (0 = blue, 1 = orange)
@@ -5763,7 +5932,7 @@ class ms {
       this.currentSegment && !this.currentSegment.dying && (this.currentSegment.startDying(), this.currentSegment = null), this.wasEmitting = !1;
       return;
     }
-    this.currentIntensity = this._calculateIntensity(a), this.active || this.activate(), !this.wasEmitting || !this.currentSegment ? (this.currentSegment && !this.currentSegment.dying && this.currentSegment.startDying(), this.currentSegment = new ds(
+    this.currentIntensity = this._calculateIntensity(a), this.active || this.activate(), !this.wasEmitting || !this.currentSegment ? (this.currentSegment && !this.currentSegment.dying && this.currentSegment.startDying(), this.currentSegment = new no(
       this.scene,
       this.team,
       this.config,
@@ -5810,43 +5979,43 @@ class ms {
     this.segments = [], this.currentSegment = null;
   }
 }
-let _e = null, Ie = null, Ae = null, Lt = !1;
-function us() {
-  Lt || (ys(), bs(), xs(), Lt = !0);
+let ye = null, be = null, xe = null, Bt = !1;
+function so() {
+  Bt || (ho(), mo(), uo(), Bt = !0);
 }
-let Y = null;
-class ps {
+let X = null;
+class ro {
   constructor(e, t, i, a = 2) {
     this.scene = e, this.renderer = t, this.camera = i, this.maxExplosions = a, this.explosions = [], this.warmedUp = !1, this.initPool();
   }
   initPool() {
-    this.sphereGeo = new l.SphereGeometry(1, 16, 12), this.coreGeo = new l.SphereGeometry(1, 12, 8), this.ringGeo = new l.RingGeometry(0.5, 1, 32), this.particleGeo = new l.PlaneGeometry(1, 1), this.coreMaterial = new l.MeshBasicMaterial({
+    this.sphereGeo = new h.SphereGeometry(1, 16, 12), this.coreGeo = new h.SphereGeometry(1, 12, 8), this.ringGeo = new h.RingGeometry(0.5, 1, 32), this.particleGeo = new h.PlaneGeometry(1, 1), this.coreMaterial = new h.MeshBasicMaterial({
       color: 16777130,
       transparent: !0,
       opacity: 0.9,
-      blending: l.AdditiveBlending,
-      side: l.DoubleSide,
+      blending: h.AdditiveBlending,
+      side: h.DoubleSide,
       depthWrite: !1
-    }), this.sphereMaterial = new l.MeshBasicMaterial({
+    }), this.sphereMaterial = new h.MeshBasicMaterial({
       color: 16737792,
       transparent: !0,
       opacity: 0.5,
-      blending: l.AdditiveBlending,
-      side: l.DoubleSide,
+      blending: h.AdditiveBlending,
+      side: h.DoubleSide,
       depthWrite: !1
-    }), this.ringMaterial = new l.MeshBasicMaterial({
+    }), this.ringMaterial = new h.MeshBasicMaterial({
       color: 16746496,
       transparent: !0,
       opacity: 0.7,
-      blending: l.AdditiveBlending,
-      side: l.DoubleSide,
+      blending: h.AdditiveBlending,
+      side: h.DoubleSide,
       depthWrite: !1
-    }), this.particleMaterial = new l.MeshBasicMaterial({
+    }), this.particleMaterial = new h.MeshBasicMaterial({
       color: 16763904,
       transparent: !0,
       opacity: 0.8,
-      blending: l.AdditiveBlending,
-      side: l.DoubleSide,
+      blending: h.AdditiveBlending,
+      side: h.DoubleSide,
       depthWrite: !1
     });
     for (let e = 0; e < this.maxExplosions; e++) {
@@ -5859,67 +6028,67 @@ class ps {
   warmup() {
     if (this.warmedUp || !this.renderer || !this.camera) return;
     console.log("[SimplifiedExplosionPool] Starting GPU shader warmup...");
-    const e = this.renderer.getClearColor(new l.Color()), t = this.renderer.getClearAlpha(), i = this.renderer.autoClear;
+    const e = this.renderer.getClearColor(new h.Color()), t = this.renderer.getClearAlpha(), i = this.renderer.autoClear;
     for (const a of this.explosions) {
       a.container.position.copy(this.camera.position), a.container.visible = !0, a.core.scale.set(1e-3, 1e-3, 1e-3), a.sphere.scale.set(1e-3, 1e-3, 1e-3), a.ring.scale.set(1e-3, 1e-3, 1e-3);
-      for (const s of a.particles)
-        s.mesh.scale.set(1e-3, 1e-3, 1e-3);
+      for (const o of a.particles)
+        o.mesh.scale.set(1e-3, 1e-3, 1e-3);
     }
     this.renderer.autoClear = !1, this.renderer.render(this.scene, this.camera);
     for (const a of this.explosions) {
       a.container.visible = !1, a.core.scale.set(0.1, 0.1, 0.1), a.sphere.scale.set(0.1, 0.1, 0.1), a.ring.scale.set(0.1, 0.1, 0.1);
-      for (const s of a.particles)
-        s.mesh.scale.set(12, 12, 12);
+      for (const o of a.particles)
+        o.mesh.scale.set(12, 12, 12);
     }
     this.renderer.autoClear = i, this.renderer.setClearColor(e, t), this.warmedUp = !0, console.log("[SimplifiedExplosionPool] GPU shader warmup complete");
   }
   createExplosion() {
-    const e = new l.Group();
+    const e = new h.Group();
     e.visible = !1, e.renderOrder = 999, this.scene.add(e);
-    const t = this.coreMaterial.clone(), i = this.sphereMaterial.clone(), a = this.ringMaterial.clone(), s = this.particleMaterial.clone(), o = new l.Mesh(this.coreGeo, t);
-    o.scale.set(0.1, 0.1, 0.1), o.renderOrder = 999, e.add(o);
-    const r = new l.Mesh(this.sphereGeo, i);
+    const t = this.coreMaterial.clone(), i = this.sphereMaterial.clone(), a = this.ringMaterial.clone(), o = this.particleMaterial.clone(), s = new h.Mesh(this.coreGeo, t);
+    s.scale.set(0.1, 0.1, 0.1), s.renderOrder = 999, e.add(s);
+    const r = new h.Mesh(this.sphereGeo, i);
     r.scale.set(0.1, 0.1, 0.1), r.renderOrder = 999, e.add(r);
-    const c = new l.Mesh(this.ringGeo, a);
+    const c = new h.Mesh(this.ringGeo, a);
     c.rotation.x = -Math.PI / 2, c.scale.set(0.1, 0.1, 0.1), c.renderOrder = 999, e.add(c);
-    const h = [];
+    const l = [];
     for (let d = 0; d < 12; d++) {
-      const m = new l.Mesh(this.particleGeo, s);
+      const m = new h.Mesh(this.particleGeo, o);
       m.scale.set(12, 12, 12), m.renderOrder = 999, e.add(m);
-      const u = d / 12 * Math.PI * 2, p = (Math.random() - 0.3) * Math.PI, g = 350 + Math.random() * 250;
-      h.push({
+      const u = d / 12 * Math.PI * 2, p = (Math.random() - 0.3) * Math.PI, f = 350 + Math.random() * 250;
+      l.push({
         mesh: m,
-        velocity: new l.Vector3(
-          Math.cos(u) * Math.cos(p) * g,
-          Math.sin(p) * g + 100,
+        velocity: new h.Vector3(
+          Math.cos(u) * Math.cos(p) * f,
+          Math.sin(p) * f + 100,
           // Upward bias
-          Math.sin(u) * Math.cos(p) * g
+          Math.sin(u) * Math.cos(p) * f
         )
       });
     }
     return {
       container: e,
-      core: o,
+      core: s,
       coreMat: t,
       sphere: r,
       ring: c,
-      particles: h,
-      particleMat: s,
+      particles: l,
+      particleMat: o,
       active: !1,
       elapsed: 0,
       duration: 0.4,
-      position: new l.Vector3()
+      position: new h.Vector3()
     };
   }
   trigger(e) {
     let t = this.explosions.find((i) => !i.active);
     t || (t = this.explosions[0], this.resetExplosion(t)), t.active = !0, t.elapsed = 0, t.position.copy(e), t.container.position.copy(e), t.container.visible = !0, t.core.scale.set(0.1, 0.1, 0.1), t.coreMat.opacity = 1, t.sphere.scale.set(0.1, 0.1, 0.1), t.sphere.material.opacity = 0.6, t.ring.scale.set(0.1, 0.1, 0.1), t.ring.material.opacity = 0.8, t.particleMat.opacity = 0.9, t.particles.forEach((i, a) => {
       i.mesh.position.set(0, 0, 0);
-      const s = a / 12 * Math.PI * 2, o = (Math.random() - 0.3) * Math.PI, r = 350 + Math.random() * 250;
+      const o = a / 12 * Math.PI * 2, s = (Math.random() - 0.3) * Math.PI, r = 350 + Math.random() * 250;
       i.velocity.set(
-        Math.cos(s) * Math.cos(o) * r,
-        Math.sin(o) * r + 100,
-        Math.sin(s) * Math.cos(o) * r
+        Math.cos(o) * Math.cos(s) * r,
+        Math.sin(s) * r + 100,
+        Math.sin(o) * Math.cos(s) * r
       );
     });
   }
@@ -5937,10 +6106,10 @@ class ps {
       }
       const a = 30 + i * 80;
       t.core.scale.set(a, a, a), t.coreMat.opacity = 1 * Math.pow(1 - i, 2);
-      const s = 50 + i * 200;
-      t.sphere.scale.set(s, s, s), t.sphere.material.opacity = 0.6 * (1 - i);
-      const o = 80 + i * 350;
-      t.ring.scale.set(o, o, o), t.ring.material.opacity = 0.8 * (1 - i * i), t.particleMat.opacity = 0.9 * (1 - i);
+      const o = 50 + i * 200;
+      t.sphere.scale.set(o, o, o), t.sphere.material.opacity = 0.6 * (1 - i);
+      const s = 80 + i * 350;
+      t.ring.scale.set(s, s, s), t.ring.material.opacity = 0.8 * (1 - i * i), t.particleMat.opacity = 0.9 * (1 - i);
       for (const r of t.particles)
         r.mesh.position.add(r.velocity.clone().multiplyScalar(e)), r.velocity.y -= 300 * e, this.camera && r.mesh.lookAt(this.camera.position);
     }
@@ -5951,14 +6120,14 @@ class ps {
     this.coreGeo.dispose(), this.sphereGeo.dispose(), this.ringGeo.dispose(), this.particleGeo.dispose(), this.coreMaterial.dispose(), this.sphereMaterial.dispose(), this.ringMaterial.dispose(), this.particleMaterial.dispose();
   }
 }
-function qi(n, e = null, t = null) {
-  return Y || (Y = new ps(n, e, t)), e && t && !Y.warmedUp && (Y.renderer = e, Y.camera = t, Y.warmup()), Y;
+function Ri(n, e = null, t = null) {
+  return X || (X = new ro(n, e, t)), e && t && !X.warmedUp && (X.renderer = e, X.camera = t, X.warmup()), X;
 }
-function fs(n, e, t) {
-  qi(n, e, t), Yi(n, e, t);
+function lo(n, e, t) {
+  Ri(n, e, t), Oi(n, e, t);
 }
-let Z = null;
-const Nt = {
+let Y = null;
+const Dt = {
   // Team 0 = Blue
   0: {
     core: 6737151,
@@ -5982,117 +6151,117 @@ const Nt = {
     // Pale orange
   }
 };
-class gs {
+class co {
   constructor(e, t, i, a = 2) {
     this.scene = e, this.renderer = t, this.camera = i, this.maxExplosions = a, this.explosions = [], this.warmedUp = !1, this.initPool();
   }
   initPool() {
-    this.coreGeo = new l.SphereGeometry(1, 16, 12), this.sphereGeo = new l.SphereGeometry(1, 20, 14), this.ringGeo = new l.RingGeometry(0.3, 1, 48), this.particleGeo = new l.PlaneGeometry(1, 1), this.rayGeo = new l.PlaneGeometry(1, 1);
+    this.coreGeo = new h.SphereGeometry(1, 16, 12), this.sphereGeo = new h.SphereGeometry(1, 20, 14), this.ringGeo = new h.RingGeometry(0.3, 1, 48), this.particleGeo = new h.PlaneGeometry(1, 1), this.rayGeo = new h.PlaneGeometry(1, 1);
     for (let e = 0; e < this.maxExplosions; e++) {
       const t = this.createExplosion();
       this.explosions.push(t);
     }
   }
   createMaterialsForTeam(e) {
-    const t = Nt[e] || Nt[0];
+    const t = Dt[e] || Dt[0];
     return {
-      core: new l.MeshBasicMaterial({
+      core: new h.MeshBasicMaterial({
         color: t.core,
         transparent: !0,
         opacity: 1,
-        blending: l.AdditiveBlending,
-        side: l.DoubleSide,
+        blending: h.AdditiveBlending,
+        side: h.DoubleSide,
         depthWrite: !1
       }),
-      sphere: new l.MeshBasicMaterial({
+      sphere: new h.MeshBasicMaterial({
         color: t.sphere,
         transparent: !0,
         opacity: 0.6,
-        blending: l.AdditiveBlending,
-        side: l.DoubleSide,
+        blending: h.AdditiveBlending,
+        side: h.DoubleSide,
         depthWrite: !1
       }),
-      ring: new l.MeshBasicMaterial({
+      ring: new h.MeshBasicMaterial({
         color: t.ring,
         transparent: !0,
         opacity: 0.8,
-        blending: l.AdditiveBlending,
-        side: l.DoubleSide,
+        blending: h.AdditiveBlending,
+        side: h.DoubleSide,
         depthWrite: !1
       }),
-      particles: new l.MeshBasicMaterial({
+      particles: new h.MeshBasicMaterial({
         color: t.particles,
         transparent: !0,
         opacity: 0.9,
-        blending: l.AdditiveBlending,
-        side: l.DoubleSide,
+        blending: h.AdditiveBlending,
+        side: h.DoubleSide,
         depthWrite: !1
       }),
-      rays: new l.MeshBasicMaterial({
+      rays: new h.MeshBasicMaterial({
         color: t.core,
         transparent: !0,
         opacity: 0.7,
-        blending: l.AdditiveBlending,
-        side: l.DoubleSide,
+        blending: h.AdditiveBlending,
+        side: h.DoubleSide,
         depthWrite: !1
       })
     };
   }
   createExplosion() {
-    const e = new l.Group();
+    const e = new h.Group();
     e.visible = !1, e.renderOrder = 999, this.scene.add(e);
     const t = {
       0: this.createMaterialsForTeam(0),
       1: this.createMaterialsForTeam(1)
-    }, i = new l.Mesh(this.coreGeo, t[0].core);
+    }, i = new h.Mesh(this.coreGeo, t[0].core);
     i.scale.set(0.1, 0.1, 0.1), i.renderOrder = 999, e.add(i);
-    const a = new l.Mesh(this.coreGeo, t[0].core.clone());
+    const a = new h.Mesh(this.coreGeo, t[0].core.clone());
     a.scale.set(0.1, 0.1, 0.1), a.renderOrder = 999, e.add(a);
-    const s = new l.Mesh(this.coreGeo, t[0].sphere.clone());
-    s.scale.set(0.1, 0.1, 0.1), s.renderOrder = 999, e.add(s);
-    const o = new l.Mesh(this.sphereGeo, t[0].sphere);
+    const o = new h.Mesh(this.coreGeo, t[0].sphere.clone());
     o.scale.set(0.1, 0.1, 0.1), o.renderOrder = 999, e.add(o);
+    const s = new h.Mesh(this.sphereGeo, t[0].sphere);
+    s.scale.set(0.1, 0.1, 0.1), s.renderOrder = 999, e.add(s);
     const r = [], c = [];
     for (let p = 0; p < 12; p++) {
-      const g = new l.Mesh(this.rayGeo, t[0].rays.clone());
-      g.scale.set(20, 300, 1), g.renderOrder = 999;
-      const f = p / 12 * Math.PI * 2;
-      g.rotation.z = f, g.position.set(0, 0, 0), e.add(g), c.push({ mesh: g, baseAngle: f });
+      const f = new h.Mesh(this.rayGeo, t[0].rays.clone());
+      f.scale.set(20, 300, 1), f.renderOrder = 999;
+      const g = p / 12 * Math.PI * 2;
+      f.rotation.z = g, f.position.set(0, 0, 0), e.add(f), c.push({ mesh: f, baseAngle: g });
     }
-    const h = [], d = 12, m = 8;
+    const l = [], d = 12, m = 8;
     for (let p = 0; p < d; p++) {
-      const g = p / d * Math.PI * 2, f = p % 3 === 0 ? 0.6 : p % 3 === 1 ? 0.2 : -0.1;
+      const f = p / d * Math.PI * 2, g = p % 3 === 0 ? 0.6 : p % 3 === 1 ? 0.2 : -0.1;
       for (let y = 0; y < m; y++) {
-        const b = new l.Mesh(this.particleGeo, t[0].particles.clone());
-        b.scale.set(40, 40, 40), b.renderOrder = 999, e.add(b);
-        const w = g + (Math.random() - 0.5) * 0.3, x = f + (Math.random() - 0.5) * 0.2, M = 1800 * (1 - y / m * 0.5) + Math.random() * 300, _ = y * 0.02, D = 1 - y / m * 0.4, F = (35 + Math.random() * 25) * D;
-        h.push({
-          mesh: b,
-          velocity: new l.Vector3(
-            Math.cos(w) * Math.cos(x) * M,
-            Math.sin(x) * M + 300,
-            Math.sin(w) * Math.cos(x) * M
+        const x = new h.Mesh(this.particleGeo, t[0].particles.clone());
+        x.scale.set(40, 40, 40), x.renderOrder = 999, e.add(x);
+        const v = f + (Math.random() - 0.5) * 0.3, b = g + (Math.random() - 0.5) * 0.2, w = 1800 * (1 - y / m * 0.5) + Math.random() * 300, S = y * 0.02, E = 1 - y / m * 0.4, B = (35 + Math.random() * 25) * E;
+        l.push({
+          mesh: x,
+          velocity: new h.Vector3(
+            Math.cos(v) * Math.cos(b) * w,
+            Math.sin(b) * w + 300,
+            Math.sin(v) * Math.cos(b) * w
           ),
-          initialScale: F,
-          delay: _,
+          initialScale: B,
+          delay: S,
           jetIndex: p
         });
       }
     }
     const u = 100;
     for (let p = 0; p < u; p++) {
-      const g = new l.Mesh(this.particleGeo, t[0].particles.clone()), f = 8 + Math.random() * 18;
-      g.scale.set(f, f, f), g.renderOrder = 999, e.add(g);
-      const y = Math.random() * Math.PI * 2, b = (Math.random() - 0.5) * Math.PI, w = Math.random();
-      let x;
-      w < 0.3 ? x = 1500 + Math.random() * 800 : w < 0.6 ? x = 800 + Math.random() * 600 : x = 300 + Math.random() * 500, h.push({
-        mesh: g,
-        velocity: new l.Vector3(
-          Math.cos(y) * Math.cos(b) * x,
-          Math.sin(b) * x + 150,
-          Math.sin(y) * Math.cos(b) * x
+      const f = new h.Mesh(this.particleGeo, t[0].particles.clone()), g = 8 + Math.random() * 18;
+      f.scale.set(g, g, g), f.renderOrder = 999, e.add(f);
+      const y = Math.random() * Math.PI * 2, x = (Math.random() - 0.5) * Math.PI, v = Math.random();
+      let b;
+      v < 0.3 ? b = 1500 + Math.random() * 800 : v < 0.6 ? b = 800 + Math.random() * 600 : b = 300 + Math.random() * 500, l.push({
+        mesh: f,
+        velocity: new h.Vector3(
+          Math.cos(y) * Math.cos(x) * b,
+          Math.sin(x) * b + 150,
+          Math.sin(y) * Math.cos(x) * b
         ),
-        initialScale: f,
+        initialScale: g,
         delay: Math.random() * 0.2,
         // Staggered launch
         jetIndex: -1
@@ -6103,18 +6272,18 @@ class gs {
       container: e,
       core: i,
       core2: a,
-      core3: s,
-      sphere: o,
+      core3: o,
+      sphere: s,
       rings: r,
       rays: c,
-      particles: h,
+      particles: l,
       materials: t,
       currentTeam: 0,
       active: !1,
       elapsed: 0,
       duration: 1.8,
       // Longer for dramatic jets
-      position: new l.Vector3(),
+      position: new h.Vector3(),
       rotationOffset: 0
     };
   }
@@ -6169,31 +6338,31 @@ class gs {
     for (const c of i.rings)
       c.mesh.scale.set(0.1, 0.1, 0.1), c.mesh.material.opacity = 0.9;
     for (let c = 0; c < i.rays.length; c++) {
-      const h = i.rays[c];
-      h.mesh.material.opacity = 0.8, h.mesh.scale.set(40, 0.1, 1);
+      const l = i.rays[c];
+      l.mesh.material.opacity = 0.8, l.mesh.scale.set(40, 0.1, 1);
     }
-    const s = 12, o = 8;
+    const o = 12, s = 8;
     let r = 0;
-    for (let c = 0; c < s; c++) {
-      const h = c / s * Math.PI * 2, d = c % 3 === 0 ? 0.6 : c % 3 === 1 ? 0.2 : -0.1;
-      for (let m = 0; m < o && !(r >= i.particles.length); m++) {
+    for (let c = 0; c < o; c++) {
+      const l = c / o * Math.PI * 2, d = c % 3 === 0 ? 0.6 : c % 3 === 1 ? 0.2 : -0.1;
+      for (let m = 0; m < s && !(r >= i.particles.length); m++) {
         const u = i.particles[r];
         u.mesh.position.set(0, 0, 0), u.mesh.material.opacity = 1;
         const p = u.initialScale;
         u.mesh.scale.set(p, p, p);
-        const g = h + (Math.random() - 0.5) * 0.3, f = d + (Math.random() - 0.5) * 0.2, w = 1800 * (1 - m / o * 0.5) + Math.random() * 300;
+        const f = l + (Math.random() - 0.5) * 0.3, g = d + (Math.random() - 0.5) * 0.2, v = 1800 * (1 - m / s * 0.5) + Math.random() * 300;
         u.velocity.set(
-          Math.cos(g) * Math.cos(f) * w,
-          Math.sin(f) * w + 300,
-          Math.sin(g) * Math.cos(f) * w
+          Math.cos(f) * Math.cos(g) * v,
+          Math.sin(g) * v + 300,
+          Math.sin(f) * Math.cos(g) * v
         ), u.delay = m * 0.02, r++;
       }
     }
     for (; r < i.particles.length; ) {
       const c = i.particles[r];
       c.mesh.position.set(0, 0, 0), c.mesh.material.opacity = 1;
-      const h = c.initialScale;
-      c.mesh.scale.set(h, h, h);
+      const l = c.initialScale;
+      c.mesh.scale.set(l, l, l);
       const d = Math.random() * Math.PI * 2, m = (Math.random() - 0.4) * Math.PI, u = 600 + Math.random() * 800;
       c.velocity.set(
         Math.cos(d) * Math.cos(m) * u,
@@ -6215,30 +6384,30 @@ class gs {
         continue;
       }
       t.rotationOffset += e * 2;
-      const a = this.easeOutElastic(Math.min(i * 2, 1)), s = this.easeOutExpo(i), o = this.easeOutBack(Math.min(i * 1.5, 1)), r = 1 + Math.sin(t.elapsed * 15) * 0.15 * (1 - i), c = (150 + a * 300) * r;
+      const a = this.easeOutElastic(Math.min(i * 2, 1)), o = this.easeOutExpo(i), s = this.easeOutBack(Math.min(i * 1.5, 1)), r = 1 + Math.sin(t.elapsed * 15) * 0.15 * (1 - i), c = (150 + a * 300) * r;
       t.core.scale.set(c, c, c), t.core.material.opacity = 1 * Math.pow(1 - i, 1.2);
-      const h = 1 + Math.sin(t.elapsed * 12 + 1) * 0.12 * (1 - i), d = (200 + o * 400) * h;
+      const l = 1 + Math.sin(t.elapsed * 12 + 1) * 0.12 * (1 - i), d = (200 + s * 400) * l;
       t.core2.scale.set(d, d, d), t.core2.material.opacity = 0.7 * Math.pow(1 - i, 1.5);
-      const m = 300 + s * 600;
+      const m = 300 + o * 600;
       t.core3.scale.set(m, m, m), t.core3.material.opacity = 0.4 * Math.pow(1 - i, 2);
-      const u = 400 + s * 1200;
+      const u = 400 + o * 1200;
       t.sphere.scale.set(u, u, u), t.sphere.material.opacity = 0.3 * (1 - i * i);
-      for (let f = 0; f < t.rings.length; f++) {
-        const y = t.rings[f], b = this.easeOutExpo(Math.min(i * (1.2 + f * 0.1), 1)), w = 300 + f * 100 + b * (1500 + f * 200);
-        y.mesh.scale.set(w, w, w), y.mesh.material.opacity = 0.8 * Math.pow(1 - i, 1.5), y.axis === "horizontal" ? y.mesh.rotation.z = t.rotationOffset * 0.3 : y.axis === "verticalX" ? y.mesh.rotation.x += e * 1.5 : y.axis === "verticalZ" ? y.mesh.rotation.y += e * 1.2 : y.mesh.rotation.z += e * 0.8;
+      for (let g = 0; g < t.rings.length; g++) {
+        const y = t.rings[g], x = this.easeOutExpo(Math.min(i * (1.2 + g * 0.1), 1)), v = 300 + g * 100 + x * (1500 + g * 200);
+        y.mesh.scale.set(v, v, v), y.mesh.material.opacity = 0.8 * Math.pow(1 - i, 1.5), y.axis === "horizontal" ? y.mesh.rotation.z = t.rotationOffset * 0.3 : y.axis === "verticalX" ? y.mesh.rotation.x += e * 1.5 : y.axis === "verticalZ" ? y.mesh.rotation.y += e * 1.2 : y.mesh.rotation.z += e * 0.8;
       }
-      const p = 200 + s * 2e3, g = 1 + Math.sin(t.elapsed * 20) * 0.1 * (1 - i);
-      for (let f = 0; f < t.rays.length; f++) {
-        const y = t.rays[f], b = p * g * (0.8 + Math.sin(f * 0.5 + t.elapsed * 8) * 0.2), w = 60 * (1 - i * 0.4);
-        y.mesh.scale.set(w, b, 1), y.mesh.rotation.z = y.baseAngle + t.rotationOffset * 0.5, y.mesh.material.opacity = 0.8 * Math.pow(1 - i, 1.3);
+      const p = 200 + o * 2e3, f = 1 + Math.sin(t.elapsed * 20) * 0.1 * (1 - i);
+      for (let g = 0; g < t.rays.length; g++) {
+        const y = t.rays[g], x = p * f * (0.8 + Math.sin(g * 0.5 + t.elapsed * 8) * 0.2), v = 60 * (1 - i * 0.4);
+        y.mesh.scale.set(v, x, 1), y.mesh.rotation.z = y.baseAngle + t.rotationOffset * 0.5, y.mesh.material.opacity = 0.8 * Math.pow(1 - i, 1.3);
       }
-      for (const f of t.particles) {
-        if (Math.max(0, t.elapsed - (f.delay || 0)) > 0) {
-          f.mesh.position.add(f.velocity.clone().multiplyScalar(e)), f.velocity.y -= 600 * e, f.velocity.multiplyScalar(0.995);
-          const b = Math.max(0.3, 1 - i * 0.7), w = f.initialScale * b;
-          f.mesh.scale.set(w, w, w);
+      for (const g of t.particles) {
+        if (Math.max(0, t.elapsed - (g.delay || 0)) > 0) {
+          g.mesh.position.add(g.velocity.clone().multiplyScalar(e)), g.velocity.y -= 600 * e, g.velocity.multiplyScalar(0.995);
+          const x = Math.max(0.3, 1 - i * 0.7), v = g.initialScale * x;
+          g.mesh.scale.set(v, v, v);
         }
-        f.mesh.material.opacity = 1 * Math.pow(1 - i, 1.2), this.camera && f.mesh.lookAt(this.camera.position);
+        g.mesh.material.opacity = 1 * Math.pow(1 - i, 1.2), this.camera && g.mesh.lookAt(this.camera.position);
       }
     }
   }
@@ -6251,48 +6420,48 @@ class gs {
     this.coreGeo.dispose(), this.sphereGeo.dispose(), this.ringGeo.dispose(), this.particleGeo.dispose(), this.rayGeo.dispose();
   }
 }
-function Yi(n, e = null, t = null) {
-  return Z || (Z = new gs(n, e, t)), e && t && !Z.warmedUp && (Z.renderer = e, Z.camera = t, Z.warmup()), Z;
+function Oi(n, e = null, t = null) {
+  return Y || (Y = new co(n, e, t)), e && t && !Y.warmedUp && (Y.renderer = e, Y.camera = t, Y.warmup()), Y;
 }
-function ys() {
-  if (_e) return _e;
+function ho() {
+  if (ye) return ye;
   const n = document.createElement("canvas");
   n.width = 64, n.height = 64;
   const e = n.getContext("2d"), t = e.createRadialGradient(32, 32, 0, 32, 32, 32);
-  return t.addColorStop(0, "rgba(255,255,255,1)"), t.addColorStop(0.2, "rgba(255,255,255,0.8)"), t.addColorStop(0.5, "rgba(255,255,255,0.3)"), t.addColorStop(1, "rgba(255,255,255,0)"), e.fillStyle = t, e.fillRect(0, 0, 64, 64), _e = new l.CanvasTexture(n), _e;
+  return t.addColorStop(0, "rgba(255,255,255,1)"), t.addColorStop(0.2, "rgba(255,255,255,0.8)"), t.addColorStop(0.5, "rgba(255,255,255,0.3)"), t.addColorStop(1, "rgba(255,255,255,0)"), e.fillStyle = t, e.fillRect(0, 0, 64, 64), ye = new h.CanvasTexture(n), ye;
 }
-function bs() {
-  if (Ie) return Ie;
+function mo() {
+  if (be) return be;
   const n = document.createElement("canvas");
   n.width = 128, n.height = 128;
   const e = n.getContext("2d"), t = e.createRadialGradient(64, 64, 0, 64, 64, 64);
-  return t.addColorStop(0, "rgba(255,255,255,1)"), t.addColorStop(0.1, "rgba(255,200,100,0.9)"), t.addColorStop(0.4, "rgba(255,100,50,0.4)"), t.addColorStop(0.7, "rgba(255,50,0,0.1)"), t.addColorStop(1, "rgba(0,0,0,0)"), e.fillStyle = t, e.fillRect(0, 0, 128, 128), Ie = new l.CanvasTexture(n), Ie;
+  return t.addColorStop(0, "rgba(255,255,255,1)"), t.addColorStop(0.1, "rgba(255,200,100,0.9)"), t.addColorStop(0.4, "rgba(255,100,50,0.4)"), t.addColorStop(0.7, "rgba(255,50,0,0.1)"), t.addColorStop(1, "rgba(0,0,0,0)"), e.fillStyle = t, e.fillRect(0, 0, 128, 128), be = new h.CanvasTexture(n), be;
 }
-function xs() {
-  if (Ae) return Ae;
+function uo() {
+  if (xe) return xe;
   const n = document.createElement("canvas");
   n.width = 64, n.height = 64;
   const e = n.getContext("2d"), t = e.createImageData(64, 64);
   for (let i = 0; i < t.data.length; i += 4) {
-    const a = i / 4 % 64, s = Math.floor(i / 4 / 64), o = a - 32, r = s - 32, c = Math.sqrt(o * o + r * r) / 32, h = Math.random() * 0.3 + 0.7, d = Math.max(0, 1 - c * c) * h * 255;
+    const a = i / 4 % 64, o = Math.floor(i / 4 / 64), s = a - 32, r = o - 32, c = Math.sqrt(s * s + r * r) / 32, l = Math.random() * 0.3 + 0.7, d = Math.max(0, 1 - c * c) * l * 255;
     t.data[i] = 255, t.data[i + 1] = 255, t.data[i + 2] = 255, t.data[i + 3] = d;
   }
-  return e.putImageData(t, 0, 0), Ae = new l.CanvasTexture(n), Ae;
+  return e.putImageData(t, 0, 0), xe = new h.CanvasTexture(n), xe;
 }
-class ws {
+class po {
   constructor(e) {
     this.carMesh = e, this.active = !1, this.particleCount = 120, this.particles = [];
-    const t = new l.BufferGeometry(), i = new Float32Array(this.particleCount * 3), a = new Float32Array(this.particleCount * 3), s = new Float32Array(this.particleCount), o = new Float32Array(this.particleCount);
+    const t = new h.BufferGeometry(), i = new Float32Array(this.particleCount * 3), a = new Float32Array(this.particleCount * 3), o = new Float32Array(this.particleCount), s = new Float32Array(this.particleCount);
     for (let c = 0; c < this.particleCount; c++)
-      i[c * 3] = 0, i[c * 3 + 1] = 0, i[c * 3 + 2] = 0, a[c * 3] = 1, a[c * 3 + 1] = 0.5, a[c * 3 + 2] = 0.1, s[c] = 2, o[c] = 0, this.particles.push({
+      i[c * 3] = 0, i[c * 3 + 1] = 0, i[c * 3 + 2] = 0, a[c * 3] = 1, a[c * 3 + 1] = 0.5, a[c * 3 + 2] = 0.1, o[c] = 2, s[c] = 0, this.particles.push({
         life: 0,
         maxLife: 0.5,
-        velocity: new l.Vector3(),
+        velocity: new h.Vector3(),
         active: !1,
         initialAlpha: 0
       });
-    t.setAttribute("position", new l.BufferAttribute(i, 3)), t.setAttribute("color", new l.BufferAttribute(a, 3)), t.setAttribute("size", new l.BufferAttribute(s, 1)), t.setAttribute("alpha", new l.BufferAttribute(o, 1)), this.geometry = t;
-    const r = new l.ShaderMaterial({
+    t.setAttribute("position", new h.BufferAttribute(i, 3)), t.setAttribute("color", new h.BufferAttribute(a, 3)), t.setAttribute("size", new h.BufferAttribute(o, 1)), t.setAttribute("alpha", new h.BufferAttribute(s, 1)), this.geometry = t;
+    const r = new h.ShaderMaterial({
       uniforms: {},
       vertexShader: `
                 attribute float size;
@@ -6317,59 +6486,66 @@ class ws {
                     float dist = length(gl_PointCoord - vec2(0.5));
                     if (dist > 0.5) discard;
 
-                    // Softer glow without a white-hot billboard flare.
+                    // Soft halo so neighbouring sprites merge into a cohesive
+                    // flame instead of reading as separate dots.
                     float glow = 1.0 - (dist * 2.0);
-                    glow = pow(glow, 1.05);
+                    glow = pow(glow, 1.35);
 
-                    gl_FragColor = vec4(vColor * glow * 0.95, vAlpha * glow);
+                    // Hot specular core: a small white-gold center that gives the
+                    // exhaust the glossy, almost-reflective sheen of the in-game
+                    // boost flame. Concentrated near the sprite center (high power).
+                    float core = pow(clamp(1.0 - dist * 2.0, 0.0, 1.0), 6.0);
+                    vec3 col = vColor * glow + vec3(1.0, 0.92, 0.7) * core * 0.75;
+
+                    gl_FragColor = vec4(col, vAlpha * glow);
                 }
             `,
       transparent: !0,
       depthWrite: !1,
-      blending: l.AdditiveBlending
+      blending: h.AdditiveBlending
     });
-    this.points = new l.Points(t, r), this.points.frustumCulled = !1, this.nextParticleIndex = 0;
+    this.points = new h.Points(t, r), this.points.frustumCulled = !1, this.nextParticleIndex = 0;
   }
   setActive(e) {
     this.active = e;
   }
   emit(e, t, i, a = 1) {
     if (!this.active) return;
-    const s = Math.floor(Math.random() * 2) + 2, o = Math.max(1, Math.round(s * a));
-    for (let r = 0; r < o; r++) {
-      const c = this.particles[this.nextParticleIndex], h = this.geometry.attributes.position.array, d = this.geometry.attributes.alpha.array, m = this.geometry.attributes.size.array, u = this.geometry.attributes.color.array, p = this.nextParticleIndex, g = new l.Vector3(-55, 0, 0);
-      g.applyQuaternion(t);
-      const f = new l.Vector3(
-        (Math.random() - 0.5) * 10,
-        (Math.random() - 0.5) * 15,
-        (Math.random() - 0.5) * 15
-      ), y = e.clone().add(g).add(f);
-      h[p * 3] = y.x, h[p * 3 + 1] = y.y, h[p * 3 + 2] = y.z;
-      const b = new l.Vector3(-1, 0, 0);
-      b.applyQuaternion(t), b.multiplyScalar(115 + Math.random() * 55), c.velocity.copy(b), c.velocity.add(i.clone().multiplyScalar(0.2)), c.velocity.add(
-        new l.Vector3(
+    const o = Math.floor(Math.random() * 2) + 3, s = Math.max(1, Math.round(o * a));
+    for (let r = 0; r < s; r++) {
+      const c = this.particles[this.nextParticleIndex], l = this.geometry.attributes.position.array, d = this.geometry.attributes.alpha.array, m = this.geometry.attributes.size.array, u = this.geometry.attributes.color.array, p = this.nextParticleIndex, f = new h.Vector3(-55, 0, 0);
+      f.applyQuaternion(t);
+      const g = new h.Vector3(
+        (Math.random() - 0.5) * 7,
+        (Math.random() - 0.5) * 9,
+        (Math.random() - 0.5) * 9
+      ), y = e.clone().add(f).add(g);
+      l[p * 3] = y.x, l[p * 3 + 1] = y.y, l[p * 3 + 2] = y.z;
+      const x = new h.Vector3(-1, 0, 0);
+      x.applyQuaternion(t), x.multiplyScalar(95 + Math.random() * 45), c.velocity.copy(x), c.velocity.add(i.clone().multiplyScalar(0.2)), c.velocity.add(
+        new h.Vector3(
           (Math.random() - 0.5) * 30,
           (Math.random() - 0.5) * 30,
           (Math.random() - 0.5) * 30
         )
-      ), c.life = 0, c.maxLife = 0.22 + Math.random() * 0.22, c.active = !0, c.initialAlpha = 0.52 + Math.random() * 0.18, d[p] = c.initialAlpha, m[p] = 1.8 + Math.random() * 1.1, c.initialSize = m[p], u[p * 3] = 1, u[p * 3 + 1] = 0.45 + Math.random() * 0.2, u[p * 3 + 2] = 0.12 + Math.random() * 0.12, this.nextParticleIndex = (this.nextParticleIndex + 1) % this.particleCount;
+      ), c.life = 0, c.maxLife = 0.2 + Math.random() * 0.18, c.active = !0, c.initialAlpha = 0.52 + Math.random() * 0.18, d[p] = c.initialAlpha, m[p] = 1.5 + Math.random() * 0.9, c.initialSize = m[p], u[p * 3] = 1, u[p * 3 + 1] = 0.45 + Math.random() * 0.2, u[p * 3 + 2] = 0.12 + Math.random() * 0.12, this.nextParticleIndex = (this.nextParticleIndex + 1) % this.particleCount;
     }
     this.geometry.attributes.position.needsUpdate = !0, this.geometry.attributes.alpha.needsUpdate = !0, this.geometry.attributes.size.needsUpdate = !0, this.geometry.attributes.color.needsUpdate = !0;
   }
   update(e) {
-    const t = this.geometry.attributes.position.array, i = this.geometry.attributes.alpha.array, a = this.geometry.attributes.size.array, s = this.geometry.attributes.color.array;
-    for (let o = 0; o < this.particleCount; o++) {
-      const r = this.particles[o];
+    const t = this.geometry.attributes.position.array, i = this.geometry.attributes.alpha.array, a = this.geometry.attributes.size.array, o = this.geometry.attributes.color.array;
+    for (let s = 0; s < this.particleCount; s++) {
+      const r = this.particles[s];
       if (!r.active) continue;
       if (r.life += e, r.life >= r.maxLife) {
-        r.active = !1, i[o] = 0, a[o] = 0;
+        r.active = !1, i[s] = 0, a[s] = 0;
         continue;
       }
-      t[o * 3] += r.velocity.x * e, t[o * 3 + 1] += r.velocity.y * e, t[o * 3 + 2] += r.velocity.z * e;
-      const c = r.life / r.maxLife, h = r.initialAlpha || 0.6;
-      i[o] = h * Math.pow(1 - c, 0.75);
+      t[s * 3] += r.velocity.x * e, t[s * 3 + 1] += r.velocity.y * e, t[s * 3 + 2] += r.velocity.z * e;
+      const c = r.life / r.maxLife, l = r.initialAlpha || 0.6;
+      i[s] = l * Math.pow(1 - c, 0.75);
       const d = r.initialSize || 3;
-      a[o] = d * (1 - c * 0.7), s[o * 3] = 1, s[o * 3 + 1] = Math.max(0.16, 0.52 - c * 0.34), s[o * 3 + 2] = Math.max(0, 0.16 - c * 0.16), r.velocity.y += 20 * e;
+      a[s] = d * (1 - c * 0.7), o[s * 3] = 1, o[s * 3 + 1] = Math.max(0.16, 0.52 - c * 0.34), o[s * 3 + 2] = Math.max(0, 0.16 - c * 0.16), r.velocity.y += 20 * e;
     }
     this.geometry.attributes.position.needsUpdate = !0, this.geometry.attributes.alpha.needsUpdate = !0, this.geometry.attributes.size.needsUpdate = !0, this.geometry.attributes.color.needsUpdate = !0;
   }
@@ -6383,30 +6559,30 @@ class ws {
     this.geometry.dispose(), this.points.material.dispose();
   }
 }
-class vs {
+class fo {
   constructor(e, t, i, a) {
     this.scene = e, this.team = t, this.trailWidth = i, this.trailLength = a, this.active = !0, this.dying = !1, this.deathTime = 0, this.maxDeathTime = 1.5, this.teamColors = {
-      0: new l.Vector4(0.3, 0.6, 1, 0.9),
+      0: new h.Vector4(0.3, 0.6, 1, 0.9),
       // Blue
-      1: new l.Vector4(1, 0.5, 0.15, 0.9)
+      1: new h.Vector4(1, 0.5, 0.15, 0.9)
       // Orange
-    }, this.leftTarget = new l.Object3D(), this.rightTarget = new l.Object3D(), e.add(this.leftTarget), e.add(this.rightTarget), this.leftTrail = this.createTrail(this.leftTarget), this.rightTrail = this.createTrail(this.rightTarget), this.updateColors(), this.leftTrail.activate(), this.rightTrail.activate();
+    }, this.leftTarget = new h.Object3D(), this.rightTarget = new h.Object3D(), e.add(this.leftTarget), e.add(this.rightTarget), this.leftTrail = this.createTrail(this.leftTarget), this.rightTrail = this.createTrail(this.rightTarget), this.updateColors(), this.leftTrail.activate(), this.rightTrail.activate();
   }
   createTrail(e) {
-    const t = new A(this.scene, !1), i = A.createBaseMaterial();
-    i.blending = l.AdditiveBlending, i.depthWrite = !1, i.side = l.DoubleSide;
-    const a = this.trailWidth, s = [
+    const t = new I(this.scene, !1), i = I.createBaseMaterial();
+    i.blending = h.AdditiveBlending, i.depthWrite = !1, i.side = h.DoubleSide;
+    const a = this.trailWidth, o = [
       // Vertical ribbon
-      new l.Vector3(0, 0, 0),
-      new l.Vector3(0, a, 0),
+      new h.Vector3(0, 0, 0),
+      new h.Vector3(0, a, 0),
       // Horizontal ribbon (perpendicular)
-      new l.Vector3(-a / 2, a / 2, 0),
-      new l.Vector3(a / 2, a / 2, 0)
+      new h.Vector3(-a / 2, a / 2, 0),
+      new h.Vector3(a / 2, a / 2, 0)
     ];
-    return t.initialize(i, this.trailLength, !1, 0, s, e), t.setAdvanceFrequency(60), t.mesh && (t.mesh.frustumCulled = !1), t;
+    return t.initialize(i, this.trailLength, !1, 0, o, e), t.setAdvanceFrequency(60), t.mesh && (t.mesh.frustumCulled = !1), t;
   }
   updateColors() {
-    const e = this.teamColors[this.team] || this.teamColors[0], t = new l.Vector4(e.x * 0.3, e.y * 0.3, e.z * 0.3, 0);
+    const e = this.teamColors[this.team] || this.teamColors[0], t = new h.Vector4(e.x * 0.3, e.y * 0.3, e.z * 0.3, 0);
     this.leftTrail?.material && (this.leftTrail.material.uniforms.headColor.value.copy(e), this.leftTrail.material.uniforms.tailColor.value.copy(t)), this.rightTrail?.material && (this.rightTrail.material.uniforms.headColor.value.copy(e), this.rightTrail.material.uniforms.tailColor.value.copy(t));
   }
   // Start the death process - trail will fade out
@@ -6419,8 +6595,8 @@ class vs {
   update(e) {
     if (this.dying) {
       this.deathTime += e;
-      const i = 1 - Math.min(1, this.deathTime / this.maxDeathTime), a = this.teamColors[this.team] || this.teamColors[0], s = new l.Vector4(a.x, a.y, a.z, a.w * i), o = new l.Vector4(a.x * 0.3, a.y * 0.3, a.z * 0.3, 0);
-      this.leftTrail?.material && (this.leftTrail.material.uniforms.headColor.value.copy(s), this.leftTrail.material.uniforms.tailColor.value.copy(o)), this.rightTrail?.material && (this.rightTrail.material.uniforms.headColor.value.copy(s), this.rightTrail.material.uniforms.tailColor.value.copy(o)), this.deathTime >= this.maxDeathTime && (this.active = !1);
+      const i = 1 - Math.min(1, this.deathTime / this.maxDeathTime), a = this.teamColors[this.team] || this.teamColors[0], o = new h.Vector4(a.x, a.y, a.z, a.w * i), s = new h.Vector4(a.x * 0.3, a.y * 0.3, a.z * 0.3, 0);
+      this.leftTrail?.material && (this.leftTrail.material.uniforms.headColor.value.copy(o), this.leftTrail.material.uniforms.tailColor.value.copy(s)), this.rightTrail?.material && (this.rightTrail.material.uniforms.headColor.value.copy(o), this.rightTrail.material.uniforms.tailColor.value.copy(s)), this.deathTime >= this.maxDeathTime && (this.active = !1);
     }
     this.leftTrail.isActive && this.leftTrail.update(e), this.rightTrail.isActive && this.rightTrail.update(e);
   }
@@ -6428,7 +6604,7 @@ class vs {
     this.leftTrail.deactivate(), this.rightTrail.deactivate(), this.leftTrail.geometry && this.leftTrail.geometry.dispose(), this.rightTrail.geometry && this.rightTrail.geometry.dispose(), this.leftTrail.material && this.leftTrail.material.dispose(), this.rightTrail.material && this.rightTrail.material.dispose(), this.scene.remove(this.leftTarget), this.scene.remove(this.rightTarget);
   }
 }
-class Ms {
+class go {
   constructor(e, t = 0) {
     this.scene = e, this.team = t, this.active = !1, this.trailLength = 80, this.trailWidth = 15, this.arenaBounds = {
       floor: 0,
@@ -6449,16 +6625,16 @@ class Ms {
   isGrounded(e) {
     const t = this.groundedThreshold, i = this.arenaBounds;
     if (e.y < t)
-      return { grounded: !0, surface: "floor", normal: new l.Vector3(0, 1, 0) };
+      return { grounded: !0, surface: "floor", normal: new h.Vector3(0, 1, 0) };
     if (e.y > i.ceiling - t)
-      return { grounded: !0, surface: "ceiling", normal: new l.Vector3(0, -1, 0) };
+      return { grounded: !0, surface: "ceiling", normal: new h.Vector3(0, -1, 0) };
     if (Math.abs(e.x) > i.wallX - t) {
       const a = e.x > 0 ? -1 : 1;
-      return { grounded: !0, surface: "wall", normal: new l.Vector3(a, 0, 0) };
+      return { grounded: !0, surface: "wall", normal: new h.Vector3(a, 0, 0) };
     }
     if (Math.abs(e.z) > i.wallZ - t) {
       const a = e.z > 0 ? -1 : 1;
-      return { grounded: !0, surface: "wall", normal: new l.Vector3(0, 0, a) };
+      return { grounded: !0, surface: "wall", normal: new h.Vector3(0, 0, a) };
     }
     return { grounded: !1, surface: null, normal: null };
   }
@@ -6469,29 +6645,29 @@ class Ms {
       this.currentSegment && !this.currentSegment.dying && (this.currentSegment.startDying(), this.currentSegment = null), this.wasGrounded = !1;
       return;
     }
-    (!this.wasGrounded || !this.currentSegment) && (this.currentSegment && !this.currentSegment.dying && this.currentSegment.startDying(), this.currentSegment = new vs(
+    (!this.wasGrounded || !this.currentSegment) && (this.currentSegment && !this.currentSegment.dying && this.currentSegment.startDying(), this.currentSegment = new fo(
       this.scene,
       this.team,
       this.trailWidth,
       this.trailLength
     ), this.segments.push(this.currentSegment)), this.wasGrounded = !0;
-    const o = new l.Vector3(-30, 5, 40), r = new l.Vector3(-30, 5, -40);
-    o.applyQuaternion(t), r.applyQuaternion(t);
-    const c = e.clone().add(o), h = e.clone().add(r), d = 2;
+    const s = new h.Vector3(-30, 5, 40), r = new h.Vector3(-30, 5, -40);
+    s.applyQuaternion(t), r.applyQuaternion(t);
+    const c = e.clone().add(s), l = e.clone().add(r), d = 2;
     if (a.surface === "floor")
-      c.y = d, h.y = d;
+      c.y = d, l.y = d;
     else if (a.surface === "ceiling")
-      c.y = this.arenaBounds.ceiling - d, h.y = this.arenaBounds.ceiling - d;
+      c.y = this.arenaBounds.ceiling - d, l.y = this.arenaBounds.ceiling - d;
     else if (a.surface === "wall") {
       if (a.normal.x !== 0) {
         const m = a.normal.x > 0 ? -this.arenaBounds.wallX + d : this.arenaBounds.wallX - d;
-        c.x = m, h.x = m;
+        c.x = m, l.x = m;
       } else if (a.normal.z !== 0) {
         const m = a.normal.z > 0 ? -this.arenaBounds.wallZ + d : this.arenaBounds.wallZ - d;
-        c.z = m, h.z = m;
+        c.z = m, l.z = m;
       }
     }
-    this.currentSegment.updatePosition(c, h, t);
+    this.currentSegment.updatePosition(c, l, t);
   }
   update(e) {
     for (let t = this.segments.length - 1; t >= 0; t--) {
@@ -6512,18 +6688,24 @@ class Ms {
     this.segments = [], this.currentSegment = null;
   }
 }
-class Ts {
+class yo {
   constructor(e) {
     this.scene = e, this.renderer = null, this.camera = null, this.explosions = {
-      active: []
-    }, this.boostTrails = /* @__PURE__ */ new Map(), this.supersonicTrails = /* @__PURE__ */ new Map(), this.ballTrail = null, us();
+      active: [],
+      // frameIndex -> { time, team, playerName }: the replay's goal events, so
+      // ActorManager can fire a team-colored explosion when playback reaches a
+      // goal. Populated via setGoalEvents(); demoEvents is reserved for the
+      // (currently inert) demolition path.
+      goalEvents: /* @__PURE__ */ new Map(),
+      demoEvents: /* @__PURE__ */ new Map()
+    }, this.boostTrails = /* @__PURE__ */ new Map(), this.supersonicTrails = /* @__PURE__ */ new Map(), this.ballTrail = null, so();
   }
   /**
    * Set renderer and camera references for explosion pools
    * Should be called from GameEngine after initialization
    */
   setRenderContext(e, t) {
-    this.renderer = e, this.camera = t, fs(this.scene, e, t);
+    this.renderer = e, this.camera = t, lo(this.scene, e, t);
   }
   reset() {
     this.explosions.active.forEach((e) => e.removeFromScene(this.scene)), this.explosions.active = [], this.boostTrails.forEach((e) => {
@@ -6536,6 +6718,20 @@ class Ts {
     this.explosions.goalEvents.clear(), this.explosions.demoEvents.clear();
   }
   /**
+   * Register the replay's goal events so the goal explosion fires when playback
+   * reaches each one. Each event is `{ frame, time, team, playerName }` (team:
+   * 0 = blue, 1 = orange). Static per replay — call once after load.
+   */
+  setGoalEvents(e) {
+    this.explosions.goalEvents.clear();
+    for (const t of e ?? [])
+      Number.isFinite(t.frame) && this.explosions.goalEvents.set(t.frame, {
+        time: t.time,
+        team: t.team ?? 0,
+        playerName: t.playerName ?? ""
+      });
+  }
+  /**
    * Reset ball trail (call when seeking to avoid stale segments)
    */
   resetBallTrail() {
@@ -6546,35 +6742,35 @@ class Ts {
       const a = this.boostTrails.get(t);
       a.removeFromScene(this.scene), a.dispose();
     }
-    const i = new ws(e);
+    const i = new po(e);
     return i.addToScene(this.scene), this.boostTrails.set(t, i), i;
   }
   removeBoostTrail(e) {
     const t = this.boostTrails.get(e);
     t && (t.removeFromScene(this.scene), t.dispose(), this.boostTrails.delete(e));
   }
-  updateBoostTrail(e, t, i, a, s) {
-    const o = this.boostTrails.get(e);
-    o && (o.setActive(t), t && o.emit(i, a, s, this._playbackSpeed || 1));
+  updateBoostTrail(e, t, i, a, o) {
+    const s = this.boostTrails.get(e);
+    s && (s.setActive(t), t && s.emit(i, a, o, this._playbackSpeed || 1));
   }
   createSupersonicTrail(e, t) {
     if (this.supersonicTrails.has(e)) {
       const a = this.supersonicTrails.get(e);
       a.removeFromScene(this.scene), a.dispose();
     }
-    const i = new Ms(this.scene, t);
+    const i = new go(this.scene, t);
     return i.addToScene(this.scene), this.supersonicTrails.set(e, i), i;
   }
   removeSupersonicTrail(e) {
     const t = this.supersonicTrails.get(e);
     t && (t.removeFromScene(this.scene), t.dispose(), this.supersonicTrails.delete(e));
   }
-  updateSupersonicTrail(e, t, i, a, s, o) {
+  updateSupersonicTrail(e, t, i, a, o, s) {
     let r = this.supersonicTrails.get(e);
-    !r && t && (r = this.createSupersonicTrail(e, o)), r && (o !== void 0 && r.team !== o && r.setTeam(o), r.setActive(t), t && r.emit(i, a, s));
+    !r && t && (r = this.createSupersonicTrail(e, s)), r && (s !== void 0 && r.team !== s && r.setTeam(s), r.setActive(t), t && r.emit(i, a, o));
   }
   createBallTrail() {
-    return this.ballTrail && (this.ballTrail.removeFromScene(this.scene), this.ballTrail.dispose()), this.ballTrail = new ms(this.scene, 0), this.ballTrail.addToScene(this.scene), console.log("✓ Spiral ball trail created and added to scene"), this.ballTrail;
+    return this.ballTrail && (this.ballTrail.removeFromScene(this.scene), this.ballTrail.dispose()), this.ballTrail = new oo(this.scene, 0), this.ballTrail.addToScene(this.scene), console.log("✓ Spiral ball trail created and added to scene"), this.ballTrail;
   }
   /**
    * Update ball trail with position and velocity
@@ -6588,7 +6784,7 @@ class Ts {
     this.ballTrail.emit(e, t, a);
   }
   triggerGoalExplosion(e, t) {
-    const i = Yi(this.scene, this.renderer, this.camera);
+    const i = Oi(this.scene, this.renderer, this.camera);
     i && (this.camera && (i.camera = this.camera), i.trigger(e, t));
   }
   /**
@@ -6598,26 +6794,26 @@ class Ts {
    * @param {number} team - Team (0 = blue, 1 = orange)
    */
   triggerDemoExplosion(e, t, i) {
-    typeof t == "number" && (t = new l.Quaternion());
-    const a = qi(this.scene);
+    typeof t == "number" && (t = new h.Quaternion());
+    const a = Ri(this.scene);
     a && a.trigger(e);
   }
   update(e, t = !0, i = 1) {
     this._playbackSpeed = i;
     const a = e * i;
-    Y && Y.update(a), Z && Z.update(a);
-    for (let s = this.explosions.active.length - 1; s >= 0; s--) {
-      const o = this.explosions.active[s];
-      o.update(a) && (o.removeFromScene(this.scene), this.explosions.active.splice(s, 1));
+    X && X.update(a), Y && Y.update(a);
+    for (let o = this.explosions.active.length - 1; o >= 0; o--) {
+      const s = this.explosions.active[o];
+      s.update(a) && (s.removeFromScene(this.scene), this.explosions.active.splice(o, 1));
     }
-    t && (this.boostTrails.forEach((s) => {
-      s.update(a);
-    }), this.supersonicTrails.forEach((s) => {
-      s.update(a);
+    t && (this.boostTrails.forEach((o) => {
+      o.update(a);
+    }), this.supersonicTrails.forEach((o) => {
+      o.update(a);
     }), this.ballTrail && this.ballTrail.update(a));
   }
 }
-const Gt = {
+const kt = {
   Octane: 65535,
   // Cyan
   Dominus: 16746496,
@@ -6631,7 +6827,7 @@ const Gt = {
   Merc: 16776960
   // Yellow
 };
-class Cs {
+class bo {
   /**
    * @param {THREE.Scene} scene - The scene to add hitboxes to
    */
@@ -6653,32 +6849,32 @@ class Cs {
    * @returns {THREE.Group} - Group containing wireframe box and center pivot sphere
    */
   createHitboxWireframe(e) {
-    const t = Dt[e] || Dt.Octane, i = Gt[e] || Gt.Octane, a = t.length, s = t.width, o = t.height, r = t.offsetX, c = t.offsetZ;
+    const t = _t[e] || _t.Octane, i = kt[e] || kt.Octane, a = t.length, o = t.width, s = t.height, r = t.offsetX, c = t.offsetZ;
     console.log(`[HitboxManager] Creating hitbox for ${e}:`, {
       dims: t,
       length: a,
-      width: s,
-      height: o,
+      width: o,
+      height: s,
       offsetX: r,
       offsetY: c
     });
-    const h = new l.Group(), d = new l.BoxGeometry(a, o, s), m = new l.EdgesGeometry(d), u = new l.LineBasicMaterial({
+    const l = new h.Group(), d = new h.BoxGeometry(a, s, o), m = new h.EdgesGeometry(d), u = new h.LineBasicMaterial({
       color: i,
       linewidth: 2,
       transparent: !0,
       opacity: 0.8,
       depthTest: !1
-    }), p = new l.LineSegments(m, u);
-    p.frustumCulled = !1, p.position.set(r, c, 0), h.add(p);
-    const g = 3.33, f = new l.SphereGeometry(g, 8, 6), y = new l.WireframeGeometry(f), b = new l.LineBasicMaterial({
+    }), p = new h.LineSegments(m, u);
+    p.frustumCulled = !1, p.position.set(r, c, 0), l.add(p);
+    const f = 3.33, g = new h.SphereGeometry(f, 8, 6), y = new h.WireframeGeometry(g), x = new h.LineBasicMaterial({
       color: 16777215,
       // White for visibility
       linewidth: 1,
       transparent: !0,
       opacity: 0.9,
       depthTest: !1
-    }), w = new l.LineSegments(y, b);
-    return w.frustumCulled = !1, h.add(w), h.userData.hitboxType = e, h.frustumCulled = !1, h;
+    }), v = new h.LineSegments(y, x);
+    return v.frustumCulled = !1, l.add(v), l.userData.hitboxType = e, l.frustumCulled = !1, l;
   }
   /**
    * Add or update a hitbox for a car
@@ -6715,17 +6911,17 @@ class Cs {
    */
   updateHitboxes(e, t, i) {
     if (!this.enabled) return;
-    for (const [s, o] of Object.entries(t)) {
-      const r = e[o];
+    for (const [o, s] of Object.entries(t)) {
+      const r = e[s];
       if (!r || !r.userData.isCar) continue;
-      const c = i ? i(s) : "Octane";
-      this.hitboxes.has(o) || this.addHitbox(o, c);
-      const { mesh: h } = this.hitboxes.get(o);
-      h.position.copy(r.position), h.quaternion.copy(r.quaternion), h.visible = this.enabled && r.visible;
+      const c = i ? i(o) : "Octane";
+      this.hitboxes.has(s) || this.addHitbox(s, c);
+      const { mesh: l } = this.hitboxes.get(s);
+      l.position.copy(r.position), l.quaternion.copy(r.quaternion), l.visible = this.enabled && r.visible;
     }
     const a = new Set(Object.values(t));
-    for (const s of this.hitboxes.keys())
-      a.has(s) || this.removeHitbox(s);
+    for (const o of this.hitboxes.keys())
+      a.has(o) || this.removeHitbox(o);
   }
   /**
    * Reset all hitboxes
@@ -6744,21 +6940,242 @@ class Cs {
     this.reset();
   }
 }
-function Ss(n, e) {
-  return n.frames.length === 0 ? 0 : l.MathUtils.clamp(Math.round(e), 0, n.frames.length - 1);
+const Li = [
+  "baseGroup",
+  "glowMesh",
+  "innerGlowMesh",
+  "lensColumnMesh",
+  "lensRimMesh",
+  "topGlowMesh",
+  "coreGlowMesh",
+  "highlightMesh"
+];
+function Ue(n, e, t, i) {
+  const a = new h.Mesh(
+    new h.CircleGeometry(n, 32),
+    new h.MeshBasicMaterial({
+      color: e,
+      transparent: !0,
+      opacity: t,
+      blending: h.AdditiveBlending,
+      side: h.DoubleSide,
+      depthWrite: !1
+    })
+  );
+  return a.rotation.x = -Math.PI / 2, a.renderOrder = i, a;
 }
-function Zi(n) {
+function Ft(n, e) {
+  n && n.traverse((t) => {
+    const i = t;
+    if (!i.isMesh || !(i.material instanceof h.MeshBasicMaterial))
+      return;
+    const a = i.userData.baseOpacity;
+    i.material.opacity = (a ?? i.material.opacity) * e;
+  });
+}
+function we(n, e, t) {
+  n.rotation.x = -Math.PI / 2, n.renderOrder = t, n.frustumCulled = !1, n.userData.baseOpacity = e, n.material.transparent = !0, n.material.opacity = e, n.material.side = h.DoubleSide, n.material.depthWrite = !1;
+}
+function xo(n) {
+  const e = new h.Group();
+  e.renderOrder = 98, e.frustumCulled = !1;
+  const t = new h.MeshBasicMaterial({ color: 1118477 }), i = new h.MeshBasicMaterial({
+    color: 16752640,
+    blending: h.AdditiveBlending
+  }), a = new h.Mesh(new h.CircleGeometry(n * 0.55, 48), t.clone());
+  we(a, 0.86, 98), e.add(a);
+  const o = new h.Mesh(
+    new h.RingGeometry(n * 0.45, n * 0.62, 48),
+    new h.MeshBasicMaterial({
+      color: 16765242,
+      blending: h.AdditiveBlending
+    })
+  );
+  we(o, 0.78, 100), o.position.y = 1.4, e.add(o);
+  function s(r, c, l) {
+    const d = new h.Shape();
+    return [
+      [r * Math.cos(-l * 0.72), r * Math.sin(-l * 0.72)],
+      [c * Math.cos(-l), c * Math.sin(-l)],
+      [c * Math.cos(l), c * Math.sin(l)],
+      [r * Math.cos(l * 0.72), r * Math.sin(l * 0.72)]
+    ].forEach(([u, p], f) => {
+      f === 0 ? d.moveTo(u, p) : d.lineTo(u, p);
+    }), d.closePath(), d;
+  }
+  for (let r = 0; r < 3; r += 1) {
+    const c = r * (Math.PI * 2) / 3 + Math.PI / 2, l = new h.Mesh(
+      new h.ShapeGeometry(s(n * 0.52, n * 1.42, 0.33)),
+      t.clone()
+    );
+    we(l, 0.86, 98), l.rotation.z = c, e.add(l);
+    const d = new h.Mesh(
+      new h.ShapeGeometry(s(n * 0.66, n * 1.2, 0.21)),
+      i.clone()
+    );
+    we(d, 0.86, 99), d.position.y = 1.1, d.rotation.z = c, e.add(d);
+  }
+  return e;
+}
+function Rt(n, e) {
+  for (const t of Li) {
+    const i = n.userData[t];
+    i && (i.visible = e);
+  }
+}
+function wo() {
+  let n = /* @__PURE__ */ new Map();
+  function e(i) {
+    const a = i.player.adapter.boostPads;
+    !a || a.size === 0 || (console.log(`[boost-pads] Creating ${a.size} boost pads...`), n = /* @__PURE__ */ new Map(), a.forEach((o, s) => {
+      const r = o.isBig;
+      let c, l, d;
+      if (r) {
+        c = new h.SphereGeometry(37, 24, 18), l = new h.MeshPhysicalMaterial({
+          color: 16757274,
+          emissive: 16747008,
+          emissiveIntensity: 0.42,
+          metalness: 0.04,
+          roughness: 0.08,
+          clearcoat: 1,
+          clearcoatRoughness: 0.025,
+          transmission: 0.18,
+          thickness: 30,
+          ior: 1.42,
+          envMapIntensity: 1.9,
+          blending: h.AdditiveBlending,
+          transparent: !0,
+          // CRITICAL: Required for opacity changes
+          opacity: 0.68,
+          depthWrite: !1
+          // Fix transparency sorting with arena walls
+        }), d = new h.Mesh(c, l), d.renderOrder = 100;
+        const f = xo(37 * 2.05);
+        f.position.y = -140, d.add(f), d.userData.baseGroup = f;
+        const g = new h.Mesh(
+          new h.CylinderGeometry(37 * 0.12, 37 * 0.18, 112, 24, 1, !0),
+          new h.MeshBasicMaterial({
+            color: 16761664,
+            transparent: !0,
+            opacity: 0.28,
+            blending: h.AdditiveBlending,
+            side: h.DoubleSide,
+            depthWrite: !1
+          })
+        );
+        g.position.y = -62, g.renderOrder = 99, d.add(g), d.userData.lensColumnMesh = g;
+        const y = new h.Mesh(
+          new h.SphereGeometry(37 * 1.03, 24, 14),
+          new h.MeshBasicMaterial({
+            color: 16768890,
+            transparent: !0,
+            opacity: 0.32,
+            blending: h.AdditiveBlending,
+            side: h.BackSide,
+            depthWrite: !1
+          })
+        );
+        y.renderOrder = 101, d.add(y), d.userData.lensRimMesh = y;
+        const x = new h.SphereGeometry(37 * 1.3, 20, 14), v = new h.MeshBasicMaterial({
+          color: 16758315,
+          transparent: !0,
+          opacity: 0.16,
+          blending: h.AdditiveBlending,
+          side: h.BackSide,
+          // Render inside of sphere for halo effect
+          depthWrite: !1
+        }), b = new h.Mesh(x, v);
+        b.renderOrder = 99, d.add(b), d.userData.glowMesh = b;
+        const M = new h.SphereGeometry(37 * 1.12, 20, 14), C = new h.MeshBasicMaterial({
+          color: 16761130,
+          transparent: !0,
+          opacity: 0.22,
+          blending: h.AdditiveBlending,
+          side: h.BackSide,
+          depthWrite: !1
+        }), w = new h.Mesh(M, C);
+        w.renderOrder = 99, d.add(w), d.userData.innerGlowMesh = w, d.userData.needsLight = !0;
+      } else {
+        c = new h.CylinderGeometry(45, 45 * 0.92, 8, 32), l = new h.MeshPhysicalMaterial({
+          color: 16761370,
+          emissive: 16750336,
+          emissiveIntensity: 0.72,
+          metalness: 0.88,
+          roughness: 0.14,
+          clearcoat: 1,
+          clearcoatRoughness: 0.05,
+          envMapIntensity: 2,
+          transparent: !0,
+          // CRITICAL: Required for opacity changes
+          opacity: 1,
+          depthWrite: !1
+          // Fix transparency sorting with arena walls
+        }), d = new h.Mesh(c, l), d.renderOrder = 100;
+        const g = Ue(45 * 1.42, 16756736, 0.34, 101);
+        g.position.y = 8 / 2 + 0.15, d.add(g), d.userData.topGlowMesh = g;
+        const y = Ue(45 * 0.74, 16777114, 0.42, 102);
+        y.position.y = 8 / 2 + 0.35, d.add(y), d.userData.coreGlowMesh = y;
+        const x = Ue(45 * 0.42, 16775376, 0.46, 103);
+        x.position.set(-45 * 0.18, 8 / 2 + 0.55, -45 * 0.12), x.scale.y = 0.34, d.add(x), d.userData.highlightMesh = x;
+      }
+      const u = r ? 130 : 10;
+      if (d.position.set(
+        o.position.x,
+        // X stays the same
+        u,
+        // Y = height (use our custom float height)
+        o.position.y
+        // Z = Unreal Y (position along the field length)
+      ), d.userData.padId = s, d.userData.isBig = r, d.userData.isAvailable = !0, i.scene.add(d), n.set(s, d), d.userData.needsLight) {
+        const p = new h.PointLight(16751872, 0.7, 480);
+        p.decay = 0, p.position.set(o.position.x, u - 50, o.position.y), i.scene.add(p), d.userData.light = p;
+      }
+    }), console.log(`[boost-pads] ✓ Created ${n.size} boost pad meshes`));
+  }
+  function t(i) {
+    i.player.adapter.boostPads.forEach((o, s) => {
+      const r = n.get(s);
+      if (!r) return;
+      const c = o.isAvailable;
+      r.userData.isAvailable !== c && (r.userData.isAvailable = c, c ? (r.material.color.setHex(o.isBig ? 16757274 : 16761370), r.material.emissive.setHex(o.isBig ? 16747008 : 16750336), r.material.emissiveIntensity = o.isBig ? 0.42 : 0.72, r.material.opacity = o.isBig ? 0.68 : 1, r.visible = !0, Rt(r, !0), Ft(r.userData.baseGroup, 1), r.userData.light && (r.userData.light.intensity = 0.85), r.userData.glowMesh && (r.userData.glowMesh.visible = !0), r.userData.innerGlowMesh && (r.userData.innerGlowMesh.visible = !0)) : (r.material.color.setHex(o.isBig ? 9063424 : 9065472), r.material.emissive.setHex(0), r.material.emissiveIntensity = 0, r.material.opacity = 0.2, r.visible = !0, Rt(r, !1), r.userData.baseGroup && (r.userData.baseGroup.visible = !0, Ft(r.userData.baseGroup, 0.26)), r.userData.light && (r.userData.light.intensity = 0), r.userData.glowMesh && (r.userData.glowMesh.visible = !1), r.userData.innerGlowMesh && (r.userData.innerGlowMesh.visible = !1)));
+    });
+  }
+  return {
+    id: "boost-pads",
+    setup(i) {
+      e(i);
+    },
+    beforeRender(i) {
+      t(i);
+    },
+    teardown(i) {
+      n.forEach((a) => {
+        i.scene.remove(a), a.geometry.dispose(), a.material.dispose();
+        for (const s of Li) {
+          const r = a.userData[s];
+          r && r.traverse((c) => {
+            const l = c;
+            l.isMesh && (l.geometry.dispose(), l.material.dispose());
+          });
+        }
+        const o = a.userData.light;
+        o && (i.scene.remove(o), o.dispose());
+      }), n.clear();
+    }
+  };
+}
+function vo(n) {
   if (n.frames.length === 0)
     return null;
   const e = /* @__PURE__ */ new Map();
   for (const a of n.frames)
     e.set(a.gameState, (e.get(a.gameState) ?? 0) + 1);
   let t = null, i = -1;
-  for (const [a, s] of e.entries())
-    s <= i || (t = a, i = s);
+  for (const [a, o] of e.entries())
+    o <= i || (t = a, i = o);
   return t;
 }
-function Qi(n, e) {
+function Mo(n, e) {
   if (e === null)
     return null;
   for (const t of n.frames) {
@@ -6768,32 +7185,32 @@ function Qi(n, e) {
   }
   return null;
 }
-function Ji(n, e) {
+function Vi(n, e) {
   return e === null ? n.kickoffCountdown <= 0 : n.gameState === e;
 }
-function xt(n, e) {
+function st(n, e) {
   return n.kickoffCountdown > 0 ? !0 : e !== null && n.gameState === e;
 }
-function Ps(n, e) {
+function To(n, e) {
   return n.ballFrames[e]?.position ? !0 : n.players.some((t) => t.frames[e]?.position);
 }
-function Es(n, e, t, i) {
-  return xt(e, i) && Ps(n, t);
+function Co(n, e, t, i) {
+  return st(e, i) && To(n, t);
 }
-function Fe(n, e, t, i, a) {
-  return !Ji(e, i) && !Es(n, e, t, a);
+function Ce(n, e, t, i, a) {
+  return !Vi(e, i) && !Co(n, e, t, a);
 }
-function Ht(n, e, t, i, a, s, o) {
-  return i && Fe(n, e, t, s, o) || a && xt(e, o);
+function Ot(n, e, t, i, a, o, s) {
+  return i && Ce(n, e, t, o, s) || a && st(e, s);
 }
-function ea(n, e, t, i, a) {
-  const s = [], { frames: o } = n;
-  if (o.length === 0 || !e && !t)
-    return s;
+function So(n, e, t, i, a) {
+  const o = [], { frames: s } = n;
+  if (s.length === 0 || !e && !t)
+    return o;
   let r = 0;
-  for (; r < o.length; ) {
-    const c = o[r];
-    if (!c || !Ht(
+  for (; r < s.length; ) {
+    const c = s[r];
+    if (!c || !Ot(
       n,
       c,
       r,
@@ -6805,11 +7222,11 @@ function ea(n, e, t, i, a) {
       r += 1;
       continue;
     }
-    const h = c.time;
+    const l = c.time;
     let d = r + 1;
-    for (; d < o.length && Ht(
+    for (; d < s.length && Ot(
       n,
-      o[d],
+      s[d],
       d,
       e,
       t,
@@ -6817,17 +7234,17 @@ function ea(n, e, t, i, a) {
       a
     ); )
       d += 1;
-    const m = o[d]?.time ?? n.duration;
-    if (m > h) {
-      const u = s.at(-1);
-      u && u.endTime >= h ? u.endTime = Math.max(u.endTime, m) : s.push({ startTime: h, endTime: m });
+    const m = s[d]?.time ?? n.duration;
+    if (m > l) {
+      const u = o.at(-1);
+      u && u.endTime >= l ? u.endTime = Math.max(u.endTime, m) : o.push({ startTime: l, endTime: m });
     }
     r = d;
   }
-  return s;
+  return o;
 }
-function ta(n, e, t) {
-  const i = l.MathUtils.clamp(t, 0, n);
+function _o(n, e, t) {
+  const i = h.MathUtils.clamp(t, 0, n);
   for (const a of e) {
     if (i < a.startTime)
       break;
@@ -6846,319 +7263,80 @@ function ta(n, e, t) {
     hiddenBySkip: !1
   };
 }
-function ia(n, e, t, i) {
-  return l.MathUtils.clamp(i, 0, n);
+function Po(n, e, t, i) {
+  return h.MathUtils.clamp(i, 0, n);
 }
-function aa(n, e) {
+function Eo(n, e) {
   const t = e.at(-1);
-  return !t || t.endTime < n ? n : l.MathUtils.clamp(t.startTime, 0, n);
+  return !t || t.endTime < n ? n : h.MathUtils.clamp(t.startTime, 0, n);
 }
-function na(n, e, t) {
+function Io(n, e, t) {
   const i = n.frames[e];
   if (!i || i.kickoffCountdown <= 0)
     return null;
   let a = e;
   for (; a > 0 && (n.frames[a - 1]?.kickoffCountdown ?? 0) > 0; )
     a -= 1;
-  let s = e + 1;
-  for (; s < n.frames.length && n.frames[s].kickoffCountdown > 0; )
-    s += 1;
-  let o = 0;
-  for (let h = a; h < s; h += 1)
-    o = Math.max(o, n.frames[h].kickoffCountdown);
-  const r = n.frames[s]?.time ?? n.duration, c = Math.max(0, r - t);
+  let o = e + 1;
+  for (; o < n.frames.length && n.frames[o].kickoffCountdown > 0; )
+    o += 1;
+  let s = 0;
+  for (let l = a; l < o; l += 1)
+    s = Math.max(s, n.frames[l].kickoffCountdown);
+  const r = n.frames[o]?.time ?? n.duration, c = Math.max(0, r - t);
   return {
     kind: "kickoff-countdown",
-    countdown: Math.max(1, Math.min(o, Math.ceil(c))),
+    countdown: Math.max(1, Math.min(s, Math.ceil(c))),
     secondsRemaining: c,
     endsAt: r
   };
 }
-function sa(n, e) {
+function Ao(n, e) {
   const t = fe(n, e), i = Math.min(t + 1, n.frames.length - 1);
   if (i === t)
     return { frameIndex: t, nextFrameIndex: i, alpha: 0, dt: 0 };
-  const a = n.frames[t]?.time ?? 0, s = n.frames[i]?.time ?? a;
-  return s <= a ? { frameIndex: t, nextFrameIndex: i, alpha: 0, dt: 0 } : {
+  const a = n.frames[t]?.time ?? 0, o = n.frames[i]?.time ?? a;
+  return o <= a ? { frameIndex: t, nextFrameIndex: i, alpha: 0, dt: 0 } : {
     frameIndex: t,
     nextFrameIndex: i,
-    alpha: l.MathUtils.clamp((e - a) / (s - a), 0, 1),
-    dt: s - a
+    alpha: h.MathUtils.clamp((e - a) / (o - a), 0, 1),
+    dt: o - a
   };
 }
-const _s = 1.4, $t = 0.18, ke = 0.14, Is = 120, Wt = 90, As = 40, ks = 100, zs = 45, Ds = 0.58, Ut = 0.82, Bs = 132, Fs = 0.5, oa = new l.Vector3(-1, 0, 0), J = new l.Vector3(0, 0, 1), Kt = new l.Vector3(-1, 0, 0), Rs = new l.Vector3(0, 0, 700), Os = new l.Vector3(0, 0, 900), jt = new l.Vector3(9600, 12600, -5500).normalize(), rt = 48, Xt = 4120, qt = 5140, Vs = 0, Ls = 2200, Yt = 1.08, Ns = 16, Gs = 16, Hs = 3e-3, $s = 0.05;
-function ue(n, e, t) {
+new h.Vector3(-1, 0, 0);
+new h.Vector3(0, 0, 1);
+new h.Vector3(-1, 0, 0);
+new h.Vector3(0, 0, 700);
+new h.Vector3(0, 0, 900);
+new h.Vector3(9600, 12600, -5500).normalize();
+function Ni(n, e, t) {
   return n ? !e || t <= 0 ? n : {
-    x: l.MathUtils.lerp(n.x, e.x, t),
-    y: l.MathUtils.lerp(n.y, e.y, t),
-    z: l.MathUtils.lerp(n.z, e.z, t)
+    x: h.MathUtils.lerp(n.x, e.x, t),
+    y: h.MathUtils.lerp(n.y, e.y, t),
+    z: h.MathUtils.lerp(n.z, e.z, t)
   } : e;
 }
-function wt(n, e, t, i, a, s) {
-  const o = ue(n, e, s);
-  if (!n || !e || !t || !i || a <= 0 || s <= 0 || s >= 1)
-    return o;
-  const r = s, c = r * r, h = c * r, d = 2 * h - 3 * c + 1, m = h - 2 * c + r, u = -2 * h + 3 * c, p = h - c, g = (y, b, w, x) => d * y + m * w * a + u * b + p * x * a, f = {
-    x: g(n.x, e.x, t.x, i.x),
-    y: g(n.y, e.y, t.y, i.y),
-    z: g(n.z, e.z, t.z, i.z)
-  };
-  if (o) {
-    const y = f.x - o.x, b = f.y - o.y, w = f.z - o.z, x = y * y + b * b + w * w, v = e.x - n.x, T = e.y - n.y, M = e.z - n.z, _ = v * v + T * T + M * M;
-    if (x > _)
-      return o;
-  }
-  return f;
-}
-function ra(n, e, t) {
-  const i = n ?? e;
-  if (!i)
+const zo = 3.2;
+function Bo(n, e, t, i) {
+  const a = fe(n, e), o = n.frames[a];
+  if (!o || !st(o, i))
     return null;
-  const a = new l.Quaternion(i.x, i.y, i.z, i.w);
-  return !e || t <= 0 || n === null ? a : a.slerp(new l.Quaternion(e.x, e.y, e.z, e.w), t);
-}
-function vt(n) {
-  return new l.Vector3(n.x, n.y, n.z);
-}
-function la(n, e) {
-  return new l.Vector3(
-    -n.x * e,
-    n.y * e,
-    n.z * e
+  const s = n.frames.find(
+    (r, c) => c > a && Vi(r, t)
   );
+  return !s || s.time === e ? null : s.time;
 }
-function Qe(n) {
-  return new l.Vector3(-n.x, n.y, n.z).normalize();
-}
-function Ws(n, e, t = 16 / 9) {
-  const i = rt, a = Number.isFinite(t) && t > 0 ? t : 16 / 9;
-  switch (n) {
-    case "overhead": {
-      const s = Rs.clone().multiplyScalar(e), o = new l.Vector3(0, 0, -1), r = Zt({
-        aspect: a,
-        fieldScale: e,
-        fov: i,
-        forward: o,
-        margin: Yt,
-        target: s,
-        up: Kt
-      });
-      return {
-        position: s.clone().addScaledVector(o, -r),
-        target: s,
-        up: Kt.clone(),
-        fov: i
-      };
-    }
-    case "side": {
-      const s = Os.clone().multiplyScalar(e), o = Zt({
-        aspect: a,
-        fieldScale: e,
-        fov: i,
-        forward: jt,
-        margin: Yt,
-        target: s,
-        up: J
-      });
-      return {
-        position: s.clone().addScaledVector(jt, -o),
-        target: s,
-        up: J.clone(),
-        fov: i
-      };
-    }
-  }
-}
-function Zt(n) {
-  const { aspect: e, fieldScale: t, fov: i, forward: a, margin: s, target: o, up: r } = n, c = a.clone().normalize(), h = new l.Vector3().crossVectors(c, r).normalize(), d = new l.Vector3().crossVectors(h, c).normalize(), m = Math.tan(l.MathUtils.degToRad(i) / 2), u = m * e;
-  let p = 1;
-  for (const g of [-Xt, Xt])
-    for (const f of [-qt, qt])
-      for (const y of [Vs, Ls]) {
-        const w = new l.Vector3(g, f, y).multiplyScalar(t).sub(o), x = Math.abs(w.dot(h)), v = Math.abs(w.dot(d)), T = w.dot(c);
-        p = Math.max(
-          p,
-          x / u - T,
-          v / m - T
-        );
-      }
-  return Math.max(1, p * s);
-}
-function Us(n) {
-  const { fov: e, position: t, sceneState: i, target: a, up: s } = n, { camera: o, controls: r } = i;
-  r.enabled = !1, o.position.lerp(t, ke), r.target.lerp(a, ke), o.up.lerp(s, ke).normalize(), o.fov = l.MathUtils.lerp(o.fov, e, ke), o.updateProjectionMatrix(), o.lookAt(r.target);
-  const c = o.position.distanceToSquared(t) <= Ns, h = r.target.distanceToSquared(a) <= Gs, d = o.up.angleTo(s) <= Hs, m = Math.abs(o.fov - e) <= $s;
-  return !c || !h || !d || !m ? !1 : (o.position.copy(t), r.target.copy(a), o.up.copy(s).normalize(), o.fov = e, o.updateProjectionMatrix(), o.lookAt(a), r.enabled = !0, !0);
-}
-function Ks(n, e, t, i) {
-  return !e || i <= 0 || e.isPresent === !1 || !e.position ? n : {
-    ...n,
-    position: wt(
-      n.position ?? null,
-      e.position,
-      n.linearVelocity ?? null,
-      e.linearVelocity ?? null,
-      t,
-      i
-    ) ?? n.position,
-    forward: ue(n.forward ?? null, e.forward ?? null, i) ?? n.forward,
-    up: ue(n.up ?? null, e.up ?? null, i) ?? n.up,
-    linearVelocity: ue(n.linearVelocity ?? null, e.linearVelocity ?? null, i) ?? n.linearVelocity
-  };
-}
-function js(n) {
-  const e = n.linearVelocity ? Qe(n.linearVelocity) : null, t = n.forward ? Qe(n.forward) : null, i = n.up ? Qe(n.up) : null;
-  if ((n.position?.z ?? 1 / 0) < Is) {
-    const c = (t ?? e ?? oa.clone()).clone().setZ(0);
-    if (c.lengthSq() < 1e-4)
-      return null;
-    c.normalize(), e && e.lengthSq() > 1e-4 && c.dot(e) < 0 && c.negate();
-    const h = new l.Vector3().crossVectors(J, c).normalize(), d = new l.Vector3().crossVectors(c, h).normalize();
-    return { forward: c, up: d, right: h };
-  }
-  if (!t || !i)
+function Do(n, e, t, i) {
+  const a = fe(n, e), o = n.frames[a];
+  if (!o || !Ce(n, o, a, t, i))
     return null;
-  const s = t.clone().normalize(), o = new l.Vector3().crossVectors(i, s).normalize(), r = new l.Vector3().crossVectors(s, o).normalize();
-  return { forward: s, up: r, right: o };
-}
-function Xs(n) {
-  const {
-    cameraViewMode: e,
-    attachedPlayerId: t,
-    ballCamEnabled: i,
-    ballPosition: a,
-    cameraDistanceScale: s,
-    customCameraSettings: o,
-    desiredCameraPosition: r,
-    desiredLookTarget: c,
-    attachedPlayerUnavailable: h = !1,
-    fieldScale: d,
-    frameIndex: m,
-    nextFrameIndex: u,
-    alpha: p,
-    dt: g,
-    renderDelta: f,
-    replay: y,
-    sceneState: b,
-    blendState: w
-  } = n, x = b.controls, v = w ?? {
-    currentBlend: i ? 1 : 0,
-    targetBlend: i ? 1 : 0,
-    lastIsBallCam: i
-  };
-  if (e === "free") {
-    x.enabled = !0, b.camera.fov = l.MathUtils.lerp(
-      b.camera.fov,
-      rt,
-      $t
-    ), b.camera.updateProjectionMatrix();
-    return;
-  }
-  if (!t) {
-    x.enabled = !0, b.camera.fov = l.MathUtils.lerp(
-      b.camera.fov,
-      rt,
-      $t
-    ), b.camera.updateProjectionMatrix();
-    return;
-  }
-  const T = y.players.find((k) => k.id === t), M = T?.frames[m];
-  if (!T || h || !M?.position || M.isPresent === !1) {
-    x.enabled = !0;
-    return;
-  }
-  x.enabled = !1;
-  const _ = T.frames[u] ?? M, D = Ks(M, _, g, p), F = la(D.position ?? M.position, d), S = js(D), I = S?.forward ?? oa.clone(), V = S?.right ?? new l.Vector3(0, 1, 0), L = {
-    ...T.cameraSettings,
-    ...o ?? {}
-  }, G = (L.distance ?? 270) * d * s, W = (L.height ?? 100) * d * _s, K = l.MathUtils.degToRad(L.pitch ?? -4), j = I.clone().applyAxisAngle(V, K).normalize(), oe = F.clone().addScaledVector(J, W), Ke = I.clone().multiplyScalar(-G).addScaledVector(J, W).applyAxisAngle(V, K), Q = F.clone().addScaledVector(J, As * d), ye = L.fov ?? 110;
-  let re = ye;
-  const le = Q.clone().add(Ke);
-  le.z = Math.max(Wt * d, le.z);
-  const be = Q.clone();
-  let $ = le, ce = be;
-  if (a) {
-    const k = a.clone().addScaledVector(J, zs * d), z = k.clone().sub(Q), O = (z.lengthSq() > 1e-4 ? z.normalize() : j.clone()).multiplyScalar(Ut).addScaledVector(j, 1 - Ut).normalize();
-    ce = Q.clone().lerp(k, Ds), $ = oe.clone().addScaledVector(O, -G);
-    const P = Math.min(
-      1,
-      Math.max(0, (k.z - Q.z) / (800 * d))
-    );
-    $.z -= P * ks * d, $.z = Math.max(Wt * d, $.z);
-    const B = Q.clone().sub($), R = k.clone().sub($);
-    if (B.lengthSq() > 1e-4 && R.lengthSq() > 1e-4) {
-      const N = B.angleTo(R);
-      re = Math.min(
-        Bs,
-        Math.max(re, l.MathUtils.radToDeg(N) * 1.7)
-      );
-    }
-  }
-  v.lastIsBallCam !== null && v.lastIsBallCam !== i ? v.targetBlend = i ? 1 : 0 : (v.targetBlend = i ? 1 : 0, v.lastIsBallCam === null && (v.currentBlend = v.targetBlend)), v.lastIsBallCam = i;
-  const Pe = L.transitionSpeed ?? 1.3, je = Math.max(
-    0.15,
-    Math.min(0.6, Fs / Pe)
-  ), C = Math.max(0, f) / je;
-  v.currentBlend < v.targetBlend ? v.currentBlend = Math.min(
-    v.currentBlend + C,
-    v.targetBlend
-  ) : v.currentBlend > v.targetBlend && (v.currentBlend = Math.max(
-    v.currentBlend - C,
-    v.targetBlend
-  ));
-  const E = v.currentBlend * v.currentBlend * (3 - 2 * v.currentBlend);
-  r.lerpVectors(le, $, E), c.lerpVectors(be, ce, E), b.camera.position.copy(r), b.camera.up.copy(J), x.target.copy(c), b.camera.fov = l.MathUtils.lerp(ye, re, E), b.camera.updateProjectionMatrix(), b.camera.lookAt(x.target);
-}
-const qs = 2.25, ca = 3.2, Re = "free";
-function ne(n) {
-  return typeof n == "number" && Number.isFinite(n) ? n : void 0;
-}
-function lt(n) {
-  if (!n)
-    return null;
-  const e = {}, t = ne(n.fov), i = ne(n.height), a = ne(n.pitch), s = ne(n.distance), o = ne(n.stiffness), r = ne(n.swivelSpeed), c = ne(n.transitionSpeed);
-  return t !== void 0 && (e.fov = t), i !== void 0 && (e.height = i), a !== void 0 && (e.pitch = a), s !== void 0 && (e.distance = s), o !== void 0 && (e.stiffness = o), r !== void 0 && (e.swivelSpeed = r), c !== void 0 && (e.transitionSpeed = c), e;
-}
-function Ys(n) {
-  const e = n.initialAttachedPlayerId ?? null;
-  return {
-    speed: Math.max(0.1, n.initialPlaybackRate ?? 1),
-    cameraDistanceScale: Math.max(
-      0.25,
-      n.initialCameraDistanceScale ?? qs
-    ),
-    customCameraSettings: lt(n.initialCustomCameraSettings),
-    attachedPlayerId: e,
-    cameraViewMode: n.initialCameraViewMode ?? (e ? "follow" : Re),
-    ballCamEnabled: n.initialBallCamEnabled ?? !1,
-    boostMeterEnabled: n.initialBoostMeterEnabled ?? !1,
-    boostPickupAnimationEnabled: n.initialBoostPickupAnimationEnabled ?? !0,
-    hitboxWireframesEnabled: n.initialHitboxWireframesEnabled ?? !1,
-    hitboxOnlyModeEnabled: n.initialHitboxOnlyModeEnabled ?? !1,
-    skipPostGoalTransitionsEnabled: n.initialSkipPostGoalTransitionsEnabled ?? !0,
-    skipKickoffsEnabled: n.initialSkipKickoffsEnabled ?? !1
-  };
-}
-function ha(n, e, t, i) {
-  const a = fe(n, e), s = n.frames[a];
-  if (!s || !xt(s, i))
-    return null;
-  const o = n.frames.find(
-    (r, c) => c > a && Ji(r, t)
+  const s = n.frames.find(
+    (l, d) => d > a && !Ce(n, l, d, t, i)
   );
-  return !o || o.time === e ? null : o.time;
-}
-function da(n, e, t, i) {
-  const a = fe(n, e), s = n.frames[a];
-  if (!s || !Fe(n, s, a, t, i))
-    return null;
-  const o = n.frames.find(
-    (h, d) => d > a && !Fe(n, h, d, t, i)
-  );
-  if (o)
-    return o.time === e ? null : o.time;
+  if (s)
+    return s.time === e ? null : s.time;
   let r = a;
-  for (; r > 0 && Fe(
+  for (; r > 0 && Ce(
     n,
     n.frames[r - 1],
     r - 1,
@@ -7169,40 +7347,14 @@ function da(n, e, t, i) {
   const c = n.frames[r]?.time;
   return c === void 0 || c === e ? null : c;
 }
-function Zs({
-  replay: n,
-  sceneState: e,
-  fieldScale: t,
-  frameWindow: i
-}) {
-  const a = n.ballFrames[i.frameIndex] ?? null, s = n.ballFrames[i.nextFrameIndex] ?? a, o = wt(
-    a?.position ?? null,
-    s?.position ?? null,
-    a?.linearVelocity ?? null,
-    s?.linearVelocity ?? null,
-    i.dt,
-    i.alpha
-  ), r = o ? la(o, t) : null;
-  if (o) {
-    e.ballMesh.visible = !0, e.ballMesh.position.copy(vt(o));
-    const c = ra(
-      a?.rotation ?? null,
-      s?.rotation ?? null,
-      i.alpha
-    );
-    c ? e.ballMesh.quaternion.copy(c) : e.ballMesh.quaternion.identity();
-  } else
-    e.ballMesh.visible = !1;
-  return { ballFrame: a, nextBallFrame: s, ballPosition: r };
-}
-function ma(n) {
+function ko(n) {
   return !!n?.position && n?.isPresent !== !1;
 }
-function ct(n, e, t) {
+function Fo(n, e, t) {
   for (let i = n.length - 1; i >= 0; i -= 1) {
-    const a = n[i], s = t - a.time;
-    if (!(s < 0)) {
-      if (s > ca)
+    const a = n[i], o = t - a.time;
+    if (!(o < 0)) {
+      if (o > zo)
         break;
       if (a.kind === "demo" && a.secondaryPlayerId === e)
         return a;
@@ -7210,60 +7362,28 @@ function ct(n, e, t) {
   }
   return null;
 }
-function Je({
-  indicator: n,
-  fallbackPosition: e,
-  demoEvent: t,
-  currentTime: i,
-  camera: a
-}) {
-  if (!n)
-    return;
-  const s = t?.location ?? e;
-  if (!t || !s) {
-    n.group.visible = !1;
-    return;
+const Ro = "space", Oo = {
+  // Mirrors ballcam's "Space" environment, including its slow skybox drift.
+  // Disable with `animation: { enabled: false }` on a custom descriptor.
+  space: {
+    id: "space",
+    skyboxUrl: "/skyboxes/PlanetaryEarth4k.hdr",
+    exposure: 1.45,
+    rotation: { x: 8, y: 0, z: 28 },
+    animation: { enabled: !0, speed: 2 }
   }
-  const o = Math.max(0, i - t.time), r = i * 8, c = 1 + 0.08 * Math.sin(r);
-  n.group.visible = !0, n.group.position.copy(vt(s)), n.ring.rotation.z = r * 0.15, n.ring.scale.setScalar(c), n.label.quaternion.copy(a.quaternion), n.label.scale.setScalar(1 + 0.04 * Math.sin(r + 1.3));
-  const h = l.MathUtils.clamp(1 - o / ca, 0.28, 1);
-  for (const d of [n.ring, n.label]) {
-    const m = d.material;
-    m instanceof l.Material && (m.opacity = h);
+};
+function Lo(n) {
+  if (n === !1) return null;
+  if (typeof n == "string") {
+    const e = Oo[n];
+    return e || (console.warn(`[player] unknown environment "${n}"; using neutral default`), null);
   }
+  return n;
 }
-function Qs(n, e, t, i, a) {
-  if (!e) {
-    n.visible = !1;
-    return;
-  }
-  n.visible = !0;
-  const s = i * 36 + a * 1.7, o = 0.86 + 0.14 * Math.sin(s), r = l.MathUtils.clamp(0.62 + t * 0.88, 0.62, 1.5), c = r * (1.02 + o * 0.52), h = 1.02 + r * 0.28;
-  n.scale.set(c, h, h);
-  for (const [d, m] of n.children.entries()) {
-    const u = m, p = 0.92 + 0.14 * Math.sin(s + d * 0.85);
-    u.scale.setScalar(p), u.traverse((g) => {
-      if (!(g instanceof l.Mesh))
-        return;
-      const f = g.material;
-      if (f instanceof l.MeshBasicMaterial)
-        switch (g.name) {
-          case "outer-flame":
-            f.opacity = 0.24 + r * 0.24;
-            break;
-          case "inner-flame":
-            f.opacity = 0.58 + r * 0.3;
-            break;
-          case "glow":
-            f.opacity = 0.4 + r * 0.26;
-            break;
-        }
-    });
-  }
-}
-const Js = new Proxy({}, { get: () => () => {
+const Vo = new Proxy({}, { get: () => () => {
 } });
-function Qt(n) {
+function Lt(n) {
   if (!n) return null;
   const e = {};
   for (const t of Object.keys(n)) {
@@ -7272,40 +7392,40 @@ function Qt(n) {
   }
   return e;
 }
-const Jt = 48, ze = 0.14, eo = 16, to = 16, io = 3e-3, ao = 0.05, no = 1.08, ei = 4120, ti = 5140, so = 0, oo = 2200, ro = new l.Vector3(0, 700, 0), lo = new l.Vector3(-1, 0, 0), co = new l.Vector3(0, -1, 0), ho = new l.Vector3(0, 900, 0), mo = new l.Vector3(0, 1, 0), uo = new l.Vector3(9600, -5500, 12600).normalize();
-function po(n, e) {
-  const t = Number.isFinite(e) && e > 0 ? e : 1.7777777777777777, i = n === "overhead" ? ro.clone() : ho.clone(), a = n === "overhead" ? lo.clone() : mo.clone(), s = n === "overhead" ? co.clone() : uo.clone(), o = fo({
+const Vt = 48, ve = 0.14, No = 16, Go = 16, $o = 3e-3, Ho = 0.05, Wo = 1.08, Nt = 4120, Gt = 5140, Uo = 0, jo = 2200, Ko = new h.Vector3(0, 700, 0), Xo = new h.Vector3(-1, 0, 0), Yo = new h.Vector3(0, -1, 0), qo = new h.Vector3(0, 900, 0), Zo = new h.Vector3(0, 1, 0), Qo = new h.Vector3(9600, -5500, 12600).normalize();
+function Jo(n, e) {
+  const t = Number.isFinite(e) && e > 0 ? e : 1.7777777777777777, i = n === "overhead" ? Ko.clone() : qo.clone(), a = n === "overhead" ? Xo.clone() : Zo.clone(), o = n === "overhead" ? Yo.clone() : Qo.clone(), s = es({
     aspect: t,
-    fov: Jt,
-    forward: s,
-    margin: no,
+    fov: Vt,
+    forward: o,
+    margin: Wo,
     target: i,
     up: a
   });
   return {
-    position: i.clone().addScaledVector(s, -o),
+    position: i.clone().addScaledVector(o, -s),
     target: i,
     up: a,
-    fov: Jt
+    fov: Vt
   };
 }
-function fo(n) {
-  const { aspect: e, fov: t, forward: i, margin: a, target: s, up: o } = n, r = i.clone().normalize(), c = new l.Vector3().crossVectors(r, o).normalize(), h = new l.Vector3().crossVectors(c, r).normalize(), d = Math.tan(l.MathUtils.degToRad(t) / 2), m = d * e;
+function es(n) {
+  const { aspect: e, fov: t, forward: i, margin: a, target: o, up: s } = n, r = i.clone().normalize(), c = new h.Vector3().crossVectors(r, s).normalize(), l = new h.Vector3().crossVectors(c, r).normalize(), d = Math.tan(h.MathUtils.degToRad(t) / 2), m = d * e;
   let u = 1;
-  for (const p of [-ei, ei])
-    for (const g of [so, oo])
-      for (const f of [-ti, ti]) {
-        const y = new l.Vector3(p, g, f).sub(s), b = Math.abs(y.dot(c)), w = Math.abs(y.dot(h)), x = y.dot(r);
+  for (const p of [-Nt, Nt])
+    for (const f of [Uo, jo])
+      for (const g of [-Gt, Gt]) {
+        const y = new h.Vector3(p, f, g).sub(o), x = Math.abs(y.dot(c)), v = Math.abs(y.dot(l)), b = y.dot(r);
         u = Math.max(
           u,
-          b / m - x,
-          w / d - x
+          x / m - b,
+          v / d - b
         );
       }
   return Math.max(1, u * a);
 }
-function go(n) {
-  const e = new l.Group();
+function ts(n) {
+  const e = new h.Group();
   return e.name = "replayRoot", e.matrixAutoUpdate = !1, e.matrix.set(
     1,
     0,
@@ -7325,16 +7445,16 @@ function go(n) {
     1
   ), n.add(e), e;
 }
-class yo extends EventTarget {
+class is extends EventTarget {
   container;
   /** The subtr-actor adapter — the sole data source (timelines + live entities). */
   adapter;
   /**
    * @rlrml/player's normalized `ReplayModel` over the same raw WASM output the
-   * adapter consumes (docs/PLAYER_PARITY.md Phase 2) — the data surface
+   * adapter consumes (docs/player/PLAYER_PARITY.md Phase 2) — the data surface
    * @rlrml/player consumers read. Shares the adapter's time axis (t=0 at the
    * first frame) and player-id format. Null when constructed directly with an
-   * adapter only; `createViewer()` always provides it.
+   * adapter only; `createPlayer()` always provides it.
    */
   replay;
   options;
@@ -7351,7 +7471,7 @@ class yo extends EventTarget {
    */
   replayRoot;
   /**
-   * @rlrml/player's `ReplayScene` surface (docs/PLAYER_PARITY.md Phase 3+):
+   * @rlrml/player's `ReplayScene` surface (docs/player/PLAYER_PARITY.md Phase 3+):
    * what `ReplayPlayer.sceneState`-reading consumers (js/stat-evaluation-player
    * stat modules) use to mount THREE overlays. `scene`/`camera`/`renderer`/
    * `controls`/`replayRoot`/`resize` are real; `ballMesh`/`playerMeshes` are
@@ -7374,7 +7494,7 @@ class yo extends EventTarget {
   currentTime = 0;
   lastTickAt = null;
   freeCameraTransition = null;
-  // ── @rlrml/player-parity state (docs/PLAYER_PARITY.md). Camera fields are
+  // ── @rlrml/player-parity state (docs/player/PLAYER_PARITY.md). Camera fields are
   //    delegated to an installed camera plugin (id "camera") when present; the
   //    display toggles are tracked-but-inert until their rendering lands.
   cameraDistanceScaleValue;
@@ -7401,18 +7521,36 @@ class yo extends EventTarget {
   timelineSegmentsCacheKey = null;
   timelineSegmentsCache = [];
   constructor(e, t, i = {}, a = null) {
-    super(), this.container = e, this.adapter = t, this.replay = a, this.options = i, a && (this.liveGameState = Zi(a), this.kickoffGameState = Qi(a, this.liveGameState)), this.speed = Math.max(0.1, i.initialPlaybackRate ?? i.speed ?? 1), this.loop = i.loop ?? !1, this.cameraDistanceScaleValue = Math.max(0.25, i.initialCameraDistanceScale ?? 1), this.customCameraSettingsValue = Qt(
+    super(), this.container = e, this.adapter = t, this.replay = a, this.options = i, a && (this.liveGameState = vo(a), this.kickoffGameState = Mo(a, this.liveGameState)), this.speed = Math.max(0.1, i.initialPlaybackRate ?? i.speed ?? 1), this.loop = i.loop ?? !1, this.cameraDistanceScaleValue = Math.max(0.25, i.initialCameraDistanceScale ?? 1), this.customCameraSettingsValue = Lt(
       i.initialCustomCameraSettings
-    ), this.attachedPlayerIdValue = i.initialAttachedPlayerId ?? null, this.cameraViewModeValue = i.initialCameraViewMode ?? (this.attachedPlayerIdValue ? "follow" : "free"), this.ballCamEnabledValue = i.initialBallCamEnabled ?? null, this.boostMeterEnabledValue = i.initialBoostMeterEnabled ?? !1, this.boostPickupAnimationEnabledValue = i.initialBoostPickupAnimationEnabled ?? !0, this.hitboxWireframesEnabledValue = i.initialHitboxWireframesEnabled ?? !1, this.hitboxOnlyModeEnabledValue = i.initialHitboxOnlyModeEnabled ?? !1, this.skipPostGoalTransitionsEnabledValue = i.initialSkipPostGoalTransitionsEnabled ?? !0, this.skipKickoffsEnabledValue = i.initialSkipKickoffsEnabled ?? !1, this.sceneManager = new rs(e), this.sceneManager.initDefaultEnvironment(), this.arenaManager = new ls(this.scene), this.effectsEnabled = i.effects ?? !0, this.effectsManager = this.effectsEnabled ? new Ts(this.scene) : Js, this.actorManager = new hs(this.scene, this.effectsManager), i.motionInterpolation && this.setMotionInterpolation(i.motionInterpolation), this.actorManager.initFromFramework(t), this.actorManager.initInterpolants(t.getTimelines()), this.hitboxManager = new Cs(this.scene), this.controls = new vi(this.camera, this.renderer.domElement), this.controls.zoomSpeed = 2.5, this.camera.position.set(0, 4e3, 6e3), this.controls.target.set(0, 200, 0), this.controls.update(), this.replayRoot = go(this.scene), this.sceneState = this.createSceneState(), this.ready = Promise.all([
-      this.arenaManager.loadArenaMeshes().catch((s) => {
-        console.warn("[viewer] arena load failed", s);
+    ), this.attachedPlayerIdValue = i.initialAttachedPlayerId ?? null, this.cameraViewModeValue = i.initialCameraViewMode ?? (this.attachedPlayerIdValue ? "follow" : "free"), this.ballCamEnabledValue = i.initialBallCamEnabled ?? null, this.boostMeterEnabledValue = i.initialBoostMeterEnabled ?? !1, this.boostPickupAnimationEnabledValue = i.initialBoostPickupAnimationEnabled ?? !0, this.hitboxWireframesEnabledValue = i.initialHitboxWireframesEnabled ?? !1, this.hitboxOnlyModeEnabledValue = i.initialHitboxOnlyModeEnabled ?? !1, this.skipPostGoalTransitionsEnabledValue = i.initialSkipPostGoalTransitionsEnabled ?? !0, this.skipKickoffsEnabledValue = i.initialSkipKickoffsEnabled ?? !1, this.sceneManager = new jn(e, {
+      assetBase: i.assetBase,
+      preserveDrawingBuffer: i.preserveDrawingBuffer
+    }), this.sceneManager.initDefaultEnvironment(), this.applyEnvironmentSpec(i.environment ?? Ro), this.arenaManager = new Yn(this.scene, { assetBase: i.assetBase }), this.effectsEnabled = i.effects ?? !0, this.effectsManager = this.effectsEnabled ? new yo(this.scene) : Vo, this.actorManager = new ao(this.scene, this.effectsManager, {
+      assetBase: i.assetBase
+    }), i.motionInterpolation && this.setMotionInterpolation(i.motionInterpolation), this.actorManager.initFromFramework(t), this.actorManager.initInterpolants(t.getTimelines()), this.hitboxManager = new bo(this.scene), this.effectsEnabled && this.replay && this.effectsManager.setGoalEvents(
+      this.replay.timelineEvents.filter((o) => o.kind === "goal").map((o) => ({
+        frame: o.frame,
+        time: o.time,
+        team: o.isTeamZero ? 0 : 1,
+        playerName: o.playerName ?? ""
+      }))
+    ), this.controls = new pa(this.camera, this.renderer.domElement), this.controls.zoomSpeed = 2.5, this.camera.position.set(0, 4e3, 6e3), this.controls.target.set(0, 200, 0), this.controls.update(), this.replayRoot = ts(this.scene), this.sceneState = this.createSceneState(), this.ready = Promise.all([
+      this.arenaManager.loadArenaMeshes().catch((o) => {
+        console.warn("[player] arena load failed", o);
       }),
       this.actorManager.waitForBallModel().catch(() => !1)
     ]).then(() => {
+      if (this.effectsEnabled)
+        try {
+          this.effectsManager.setRenderContext(this.renderer, this.camera);
+        } catch (o) {
+          console.warn("[player] explosion warmup failed", o);
+        }
     }), this.installResizeHandling();
-    for (const s of i.plugins ?? [])
-      this.installPlugin(s, !1);
-    this.applyInitialCameraOptions(), this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded(), this.scheduleAnimationFrame(), this.emitChange(), i.autoplay && this.play();
+    for (const o of i.plugins ?? [])
+      this.installPlugin(o, !1);
+    this.plugins.some((o) => o.plugin.id === "boost-pads") || this.installPlugin(wo(), !1), this.applyInitialCameraOptions(), this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded(), this.scheduleAnimationFrame(), this.emitChange(), i.autoplay && this.play();
   }
   get scene() {
     return this.sceneManager.scene;
@@ -7425,6 +7563,25 @@ class yo extends EventTarget {
   }
   get duration() {
     return this.adapter.duration;
+  }
+  // ── Environment (skybox + IBL) ──────────────────────────────────────────────
+  /**
+   * Switch the skybox environment at runtime. Accepts a built-in id (e.g.
+   * `"space"`), a full `PlayerEnvironment` descriptor, or `false` for the
+   * neutral default (no skybox). Non-blocking: the HDR swaps in when decoded.
+   */
+  setEnvironment(e) {
+    this.applyEnvironmentSpec(e);
+  }
+  applyEnvironmentSpec(e) {
+    const t = Lo(e);
+    if (!t) {
+      this.sceneManager.setDefaultBackground();
+      return;
+    }
+    this.sceneManager.applyEnvironment(t).catch((i) => {
+      console.warn(`[player] environment "${t.id}" failed to load`, i);
+    });
   }
   // ── Playback control ────────────────────────────────────────────────────────
   play() {
@@ -7447,7 +7604,7 @@ class yo extends EventTarget {
   }
   /**
    * Switch position interpolation between replay samples (see
-   * ViewerOptions.motionInterpolation). Takes effect on the next rendered
+   * PlayerOptions.motionInterpolation). Takes effect on the next rendered
    * frame — handy for A/B-ing smoothness live.
    */
   setMotionInterpolation(e) {
@@ -7484,9 +7641,15 @@ class yo extends EventTarget {
   setCameraViewMode(e) {
     this.cameraViewModeValue = e, this.attachmentTouched = !0, this.freeCameraTransition = null, this.syncCameraAttachment(), this.emitChange();
   }
-  setFreeCameraPreset(e) {
-    this.cameraViewModeValue = "free", this.attachmentTouched = !0, this.syncCameraAttachment(), this.freeCameraTransition = po(e, this.camera.aspect), this.emitChange();
+  setFreeCameraPreset(e, t = {}) {
+    this.cameraViewModeValue = "free", this.attachmentTouched = !0, this.syncCameraAttachment();
+    const i = Jo(e, this.camera.aspect);
+    t.instant ? (this.camera.position.copy(i.position), this.controls.target.copy(i.target), this.camera.up.copy(i.up).normalize(), this.camera.fov = i.fov, this.camera.updateProjectionMatrix(), this.camera.lookAt(i.target), this.controls.enabled = !0, this.freeCameraTransition = null) : this.freeCameraTransition = i, this.emitChange();
   }
+  /**
+   * Force ball cam (`true`) or car cam (`false`), or pass `null` to follow the
+   * attached player's recorded ball-cam toggle ("player" view — the default).
+   */
   setBallCamEnabled(e) {
     this.ballCamEnabledValue = e, this.getCameraPlugin()?.setBallCam(e), this.emitChange();
   }
@@ -7514,7 +7677,7 @@ class yo extends EventTarget {
   }
   // ── State surface (@rlrml/player parity) ────────────────────────────────────
   setState(e) {
-    e.speed !== void 0 && (this.speed = Math.max(0.1, e.speed)), e.cameraDistanceScale !== void 0 && (this.cameraDistanceScaleValue = Math.max(0.25, e.cameraDistanceScale), this.getCameraPlugin()?.setDistanceScale(this.cameraDistanceScaleValue)), e.customCameraSettings !== void 0 && this.applyCustomCameraSettings(e.customCameraSettings), e.cameraViewMode !== void 0 && (this.cameraViewModeValue = e.cameraViewMode, this.attachmentTouched = !0), e.attachedPlayerId !== void 0 && (this.attachedPlayerIdValue = e.attachedPlayerId, this.attachmentTouched = !0, e.cameraViewMode === void 0 && (this.cameraViewModeValue = e.attachedPlayerId ? "follow" : "free")), (e.cameraViewMode !== void 0 || e.attachedPlayerId !== void 0) && (this.freeCameraTransition = null, this.syncCameraAttachment()), e.ballCamEnabled !== void 0 && (this.ballCamEnabledValue = e.ballCamEnabled, this.getCameraPlugin()?.setBallCam(e.ballCamEnabled)), e.boostMeterEnabled !== void 0 && (this.boostMeterEnabledValue = e.boostMeterEnabled), e.boostPickupAnimationEnabled !== void 0 && (this.boostPickupAnimationEnabledValue = e.boostPickupAnimationEnabled), e.hitboxWireframesEnabled !== void 0 && (this.hitboxWireframesEnabledValue = e.hitboxWireframesEnabled), e.hitboxOnlyModeEnabled !== void 0 && (this.hitboxOnlyModeEnabledValue = e.hitboxOnlyModeEnabled), e.skipPostGoalTransitionsEnabled !== void 0 && (this.skipPostGoalTransitionsEnabledValue = e.skipPostGoalTransitionsEnabled), e.skipKickoffsEnabled !== void 0 && (this.skipKickoffsEnabledValue = e.skipKickoffsEnabled), e.currentTime !== void 0 && this.seekInternal(e.currentTime), e.playing !== void 0 && e.playing !== this.playing && this.setPlayingInternal(e.playing), this.playing && (e.currentTime !== void 0 || e.playing !== void 0) && (this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded()), this.emitChange();
+    e.speed !== void 0 && (this.speed = Math.max(0.1, e.speed)), e.cameraDistanceScale !== void 0 && (this.cameraDistanceScaleValue = Math.max(0.25, e.cameraDistanceScale), this.getCameraPlugin()?.setDistanceScale(this.cameraDistanceScaleValue)), e.customCameraSettings !== void 0 && this.applyCustomCameraSettings(e.customCameraSettings), e.cameraViewMode !== void 0 && (this.cameraViewModeValue = e.cameraViewMode, this.attachmentTouched = !0), e.attachedPlayerId !== void 0 && (this.attachedPlayerIdValue = e.attachedPlayerId, this.attachmentTouched = !0, e.cameraViewMode === void 0 && (this.cameraViewModeValue = e.attachedPlayerId ? "follow" : "free")), (e.cameraViewMode !== void 0 || e.attachedPlayerId !== void 0) && (this.freeCameraTransition = null, this.syncCameraAttachment()), e.useReplayBallCam === !0 ? (this.ballCamEnabledValue = null, this.getCameraPlugin()?.setBallCam(null)) : e.ballCamEnabled !== void 0 && (this.ballCamEnabledValue = e.ballCamEnabled, this.getCameraPlugin()?.setBallCam(e.ballCamEnabled)), e.boostMeterEnabled !== void 0 && (this.boostMeterEnabledValue = e.boostMeterEnabled), e.boostPickupAnimationEnabled !== void 0 && (this.boostPickupAnimationEnabledValue = e.boostPickupAnimationEnabled), e.hitboxWireframesEnabled !== void 0 && (this.hitboxWireframesEnabledValue = e.hitboxWireframesEnabled), e.hitboxOnlyModeEnabled !== void 0 && (this.hitboxOnlyModeEnabledValue = e.hitboxOnlyModeEnabled), e.skipPostGoalTransitionsEnabled !== void 0 && (this.skipPostGoalTransitionsEnabledValue = e.skipPostGoalTransitionsEnabled), e.skipKickoffsEnabled !== void 0 && (this.skipKickoffsEnabledValue = e.skipKickoffsEnabled), e.currentTime !== void 0 && this.seekInternal(e.currentTime), e.playing !== void 0 && e.playing !== this.playing && this.setPlayingInternal(e.playing), this.playing && (e.currentTime !== void 0 || e.playing !== void 0) && (this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded()), this.emitChange();
   }
   getState() {
     const e = this.adapter.frameIndexAt(this.currentTime), t = this.getCameraPlugin();
@@ -7522,8 +7685,8 @@ class yo extends EventTarget {
     if (t)
       if (t.getMode() === "follow") {
         i = "follow";
-        const s = t.getTarget();
-        a = (s ? this.adapter.playerList.find((r) => r.name === s) : void 0)?.id ?? a;
+        const o = t.getTarget();
+        a = (o ? this.adapter.playerList.find((r) => r.name === o) : void 0)?.id ?? a;
       } else
         i = "free", a = null;
     return {
@@ -7533,7 +7696,7 @@ class yo extends EventTarget {
       // Kickoff countdowns, like @rlrml/player. The adapter's frame timeline is
       // the ReplayModel's (same metadata frames, same time axis), so its index
       // is valid against the model.
-      activeMetadata: this.replay ? na(this.replay, e, this.currentTime) : null,
+      activeMetadata: this.replay ? Io(this.replay, e, this.currentTime) : null,
       playing: this.playing,
       speed: this.speed,
       cameraDistanceScale: this.cameraDistanceScaleValue,
@@ -7541,6 +7704,9 @@ class yo extends EventTarget {
       cameraViewMode: i,
       attachedPlayerId: a,
       ballCamEnabled: t ? t.getBallCam() : this.ballCamEnabledValue ?? !1,
+      // null override = follow the player's recorded ball-cam toggle.
+      useReplayBallCam: this.ballCamEnabledValue === null,
+      effectiveBallCamEnabled: t ? t.getBallCam() : this.ballCamEnabledValue ?? !1,
       boostMeterEnabled: this.boostMeterEnabledValue,
       boostPickupAnimationEnabled: this.boostPickupAnimationEnabledValue,
       hitboxWireframesEnabled: this.hitboxWireframesEnabledValue,
@@ -7564,7 +7730,7 @@ class yo extends EventTarget {
   getTimelineSegments() {
     if (!this.replay) return [];
     const e = `${this.skipPostGoalTransitionsEnabledValue}:${this.skipKickoffsEnabledValue}`;
-    return this.timelineSegmentsCacheKey === e ? this.timelineSegmentsCache : (this.timelineSegmentsCacheKey = e, this.timelineSegmentsCache = ea(
+    return this.timelineSegmentsCacheKey === e ? this.timelineSegmentsCache : (this.timelineSegmentsCacheKey = e, this.timelineSegmentsCache = So(
       this.replay,
       this.skipPostGoalTransitionsEnabledValue,
       this.skipKickoffsEnabledValue,
@@ -7573,14 +7739,14 @@ class yo extends EventTarget {
     ), this.timelineSegmentsCache);
   }
   projectReplayTimeToTimeline(e) {
-    return ta(
+    return _o(
       this.replay?.duration ?? this.duration,
       this.getTimelineSegments(),
       e
     );
   }
   projectTimelineTimeToReplay(e) {
-    return ia(
+    return Po(
       this.replay?.duration ?? this.duration,
       this.getTimelineDuration(),
       this.getTimelineSegments(),
@@ -7630,11 +7796,11 @@ class yo extends EventTarget {
     this.playing = e, this.lastTickAt = null, e ? this.actorManager.resumeAnimations() : this.actorManager.pauseAnimations();
   }
   seekInternal(e) {
-    this.currentTime = l.MathUtils.clamp(e, 0, this.duration), this.actorManager.seekAnimations(this.currentTime), this.effectsManager.resetBallTrail(), this.actorManager.resetWheelTracking();
+    this.currentTime = h.MathUtils.clamp(e, 0, this.duration), this.actorManager.seekAnimations(this.currentTime), this.effectsManager.resetBallTrail(), this.actorManager.resetWheelTracking();
   }
   /** Where playback stops: the last segment's start if skips run to the end. */
   getPlaybackEndTime() {
-    return this.replay ? aa(this.replay.duration, this.getTimelineSegments()) : this.duration;
+    return this.replay ? Eo(this.replay.duration, this.getTimelineSegments()) : this.duration;
   }
   /**
    * Jump past a kickoff countdown when skip-kickoffs is on (@rlrml/player
@@ -7644,7 +7810,7 @@ class yo extends EventTarget {
    */
   skipPastKickoffIfNeeded() {
     if (!this.replay || !this.skipKickoffsEnabledValue) return !1;
-    const e = ha(
+    const e = Bo(
       this.replay,
       this.currentTime,
       this.liveGameState,
@@ -7655,7 +7821,7 @@ class yo extends EventTarget {
   /** Same as skipPastKickoffIfNeeded, for post-goal replay/celebration windows. */
   skipPostGoalTransitionIfNeeded() {
     if (!this.replay || !this.skipPostGoalTransitionsEnabledValue) return !1;
-    const e = da(
+    const e = Do(
       this.replay,
       this.currentTime,
       this.liveGameState,
@@ -7671,6 +7837,19 @@ class yo extends EventTarget {
   playerNameForId(e) {
     return this.adapter.playerList.find((t) => t.id === e)?.name ?? null;
   }
+  /**
+   * When ball cam has not been manually overridden (`ballCamEnabledValue ===
+   * null`), drive the follow camera from the attached player's replay ball-cam
+   * state (resolved per-frame onto `entity.isBallCam` by the adapter), matching
+   * the core @rlrml/player behavior. A manual `setBallCamEnabled` takes over.
+   */
+  applyReplayBallCam() {
+    if (this.ballCamEnabledValue !== null || this.cameraViewModeValue !== "follow" || !this.attachedPlayerIdValue) return;
+    const e = this.playerNameForId(this.attachedPlayerIdValue);
+    if (!e) return;
+    const t = this.adapter.getAllPlayers().find((i) => i.name === e);
+    t && this.getCameraPlugin()?.setBallCam(t.isBallCam);
+  }
   /** Push the parity view-mode/attachment onto the camera plugin. */
   syncCameraAttachment() {
     const e = this.getCameraPlugin();
@@ -7678,7 +7857,7 @@ class yo extends EventTarget {
       if (this.cameraViewModeValue === "follow" && this.attachedPlayerIdValue) {
         const t = this.playerNameForId(this.attachedPlayerIdValue);
         if (!t) {
-          console.warn(`[viewer] no player with id ${JSON.stringify(this.attachedPlayerIdValue)}`);
+          console.warn(`[player] no player with id ${JSON.stringify(this.attachedPlayerIdValue)}`);
           return;
         }
         this.camera.up.set(0, 1, 0), e.follow(t);
@@ -7688,7 +7867,7 @@ class yo extends EventTarget {
     }
   }
   applyCustomCameraSettings(e) {
-    this.customCameraSettingsValue = Qt(e);
+    this.customCameraSettingsValue = Lt(e);
     const t = this.getCameraPlugin();
     t && (t.setCameraSettings(null), this.customCameraSettingsValue && t.setCameraSettings(this.customCameraSettingsValue));
   }
@@ -7702,8 +7881,8 @@ class yo extends EventTarget {
     (e.initialAttachedPlayerId !== void 0 || e.initialCameraViewMode !== void 0) && (this.attachmentTouched = !0), this.pushCameraParityState();
   }
   computeFrameRenderInfo() {
-    const e = this.adapter.frameTimes, t = this.adapter.frameIndexAt(this.currentTime), i = Math.min(t + 1, Math.max(e.length - 1, 0)), a = e[t] ?? 0, s = e[i] ?? a, o = s > a ? l.MathUtils.clamp((this.currentTime - a) / (s - a), 0, 1) : 0;
-    return { frameIndex: t, nextFrameIndex: i, alpha: o, currentTime: this.currentTime };
+    const e = this.adapter.frameTimes, t = this.adapter.frameIndexAt(this.currentTime), i = Math.min(t + 1, Math.max(e.length - 1, 0)), a = e[t] ?? 0, o = e[i] ?? a, s = o > a ? h.MathUtils.clamp((this.currentTime - a) / (o - a), 0, 1) : 0;
+    return { frameIndex: t, nextFrameIndex: i, alpha: s, currentTime: this.currentTime };
   }
   installResizeHandling() {
     typeof ResizeObserver > "u" || (this.resizeObserver = new ResizeObserver(() => this.sceneManager.onWindowResize()), this.resizeObserver.observe(this.container));
@@ -7717,13 +7896,13 @@ class yo extends EventTarget {
     if (this.playing) {
       i = this.lastTickAt === null ? 0 : Math.min(0.1, (e - this.lastTickAt) / 1e3), this.lastTickAt = e;
       let a = this.currentTime + i * this.speed;
-      const s = this.getPlaybackEndTime();
-      a >= s && (this.loop ? (a = 0, this.actorManager.seekAnimations(0), this.effectsManager.resetBallTrail(), this.actorManager.resetWheelTracking()) : (a = s, this.playing = !1)), t = a !== this.currentTime || !this.playing, this.currentTime = a, this.playing && (t = this.skipPostGoalTransitionIfNeeded() || t, t = this.skipPastKickoffIfNeeded() || t);
+      const o = this.getPlaybackEndTime();
+      a >= o && (this.loop ? (a = 0, this.actorManager.seekAnimations(0), this.effectsManager.resetBallTrail(), this.actorManager.resetWheelTracking()) : (a = o, this.playing = !1)), t = a !== this.currentTime || !this.playing, this.currentTime = a, this.playing && (t = this.skipPostGoalTransitionIfNeeded() || t, t = this.skipPastKickoffIfNeeded() || t);
     }
     this.render(i), t && this.emitChange(), this.scheduleAnimationFrame();
   };
-  render(e = 0) {
-    if (this.adapter.seek(this.currentTime), this.playing && this.actorManager.updateAnimations(e * this.speed), this.actorManager.updateFromFramework(this.adapter, this.currentTime), this.updatePlayerStates(), this.updateHitboxVisualization(), this.effectsManager.update(e, this.playing, this.speed), this.playing && this.actorManager.updateWheelRotations(), this.controls.update(), this.beforeRenderCallbacks.length > 0) {
+  renderFrame(e = 0) {
+    if (this.adapter.seek(this.currentTime), this.playing && this.actorManager.updateAnimations(e * this.speed), this.actorManager.updateFromFramework(this.adapter, this.currentTime), this.updatePlayerStates(), this.applyReplayBallCam(), this.updateHitboxVisualization(), this.effectsManager.update(e, this.playing, this.speed), this.playing && this.actorManager.updateWheelRotations(), this.sceneManager.updateSkyboxAnimation(this.playing ? e * this.speed : 0), this.controls.update(), this.beforeRenderCallbacks.length > 0) {
       const t = this.computeFrameRenderInfo();
       for (const i of [...this.beforeRenderCallbacks])
         i(t);
@@ -7735,16 +7914,19 @@ class yo extends EventTarget {
     }
     this.updateFreeCameraTransition(), this.renderer.render(this.scene, this.camera);
   }
+  render(e = 0) {
+    this.renderFrame(e);
+  }
   updateFreeCameraTransition() {
     const e = this.freeCameraTransition;
     if (!e) return;
-    this.controls.enabled = !1, this.camera.position.lerp(e.position, ze), this.controls.target.lerp(e.target, ze), this.camera.up.lerp(e.up, ze).normalize(), this.camera.fov = l.MathUtils.lerp(
+    this.controls.enabled = !1, this.camera.position.lerp(e.position, ve), this.controls.target.lerp(e.target, ve), this.camera.up.lerp(e.up, ve).normalize(), this.camera.fov = h.MathUtils.lerp(
       this.camera.fov,
       e.fov,
-      ze
+      ve
     ), this.camera.updateProjectionMatrix(), this.camera.lookAt(this.controls.target);
-    const t = this.camera.position.distanceToSquared(e.position) <= eo, i = this.controls.target.distanceToSquared(e.target) <= to, a = this.camera.up.angleTo(e.up) <= io, s = Math.abs(this.camera.fov - e.fov) <= ao;
-    !t || !i || !a || !s || (this.camera.position.copy(e.position), this.controls.target.copy(e.target), this.camera.up.copy(e.up).normalize(), this.camera.fov = e.fov, this.camera.updateProjectionMatrix(), this.camera.lookAt(e.target), this.controls.enabled = !0, this.freeCameraTransition = null);
+    const t = this.camera.position.distanceToSquared(e.position) <= No, i = this.controls.target.distanceToSquared(e.target) <= Go, a = this.camera.up.angleTo(e.up) <= $o, o = Math.abs(this.camera.fov - e.fov) <= Ho;
+    !t || !i || !a || !o || (this.camera.position.copy(e.position), this.controls.target.copy(e.target), this.camera.up.copy(e.up).normalize(), this.camera.fov = e.fov, this.camera.updateProjectionMatrix(), this.camera.lookAt(e.target), this.controls.enabled = !0, this.freeCameraTransition = null);
   }
   /**
    * Per-player boost / supersonic effect state, ported from the original
@@ -7795,12 +7977,12 @@ class yo extends EventTarget {
   }
   installPlugin(e, t) {
     const i = typeof e == "function" ? e() : e;
-    if (this.plugins.some((s) => s.plugin.id === i.id))
-      throw new Error(`Viewer plugin "${i.id}" is already installed`);
+    if (this.plugins.some((o) => o.plugin.id === i.id))
+      throw new Error(`Player plugin "${i.id}" is already installed`);
     const a = { definition: e, plugin: i };
     return this.plugins.push(a), i.setup?.(this.createPluginContext()), i.id === "camera" && this.pushCameraParityState(), i.onStateChange?.(this.createPluginStateContext(this.getState())), t && this.render(), () => {
-      const s = this.plugins.indexOf(a);
-      s < 0 || (this.plugins.splice(s, 1), i.teardown?.(this.createPluginContext()));
+      const o = this.plugins.indexOf(a);
+      o < 0 || (this.plugins.splice(o, 1), i.teardown?.(this.createPluginContext()));
     };
   }
   /**
@@ -7809,7 +7991,7 @@ class yo extends EventTarget {
    * Object3Ds; a snapshot would go stale).
    */
   createSceneState() {
-    const e = this.actorManager, t = this, i = new l.Mesh();
+    const e = this.actorManager, t = this, i = new h.Mesh();
     return {
       get scene() {
         return t.scene;
@@ -7824,7 +8006,7 @@ class yo extends EventTarget {
       controls: this.controls,
       resize: () => this.sceneManager.onWindowResize(),
       // Parity with ReplayPlayer.destroy() → sceneState.dispose(); consumers
-      // should normally call viewer.destroy() instead.
+      // should normally call player.destroy() instead.
       dispose: () => this.destroy(),
       get ballMesh() {
         return (e.ballActorId != null ? e.actors[e.ballActorId] : null) ?? i;
@@ -7832,9 +8014,9 @@ class yo extends EventTarget {
       // Car Object3Ds keyed by stable player id, rebuilt per access.
       get playerMeshes() {
         const a = /* @__PURE__ */ new Map();
-        for (const s of t.adapter.playerList) {
-          const o = e.playerNameToCarActorId[s.name], r = o != null ? e.actors[o] : void 0;
-          r && a.set(s.id, r);
+        for (const o of t.adapter.playerList) {
+          const s = e.playerNameToCarActorId[o.name], r = s != null ? e.actors[s] : void 0;
+          r && a.set(o.id, r);
         }
         return a;
       },
@@ -7869,21 +8051,21 @@ class yo extends EventTarget {
       velocity: t.velocity,
       visible: t.visible,
       object3d: e.ballActorId != null ? e.actors[e.ballActorId] ?? null : null
-    }, a = this.adapter.getAllPlayers().map((s) => {
-      const o = e.playerNameToCarActorId[s.name];
+    }, a = this.adapter.getAllPlayers().map((o) => {
+      const s = e.playerNameToCarActorId[o.name];
       return {
-        id: s.id,
-        name: s.name,
-        team: s.team,
-        carName: s.carName,
-        hitboxType: s.hitboxType,
-        position: s.position,
-        rotation: s.rotation,
-        velocity: s.velocity,
-        boost: s.boost,
-        isBoosting: s.isBoosting,
-        visible: s.isVisible,
-        object3d: o != null ? e.actors[o] ?? null : null
+        id: o.id,
+        name: o.name,
+        team: o.team,
+        carName: o.carName,
+        hitboxType: o.hitboxType,
+        position: o.position,
+        rotation: o.rotation,
+        velocity: o.velocity,
+        boost: o.boost,
+        isBoosting: o.isBoosting,
+        visible: o.isVisible,
+        object3d: s != null ? e.actors[s] ?? null : null
       };
     });
     return {
@@ -7902,11 +8084,11 @@ class yo extends EventTarget {
     this.dispatchEvent(new CustomEvent("change", { detail: e }));
   }
 }
-const ua = Ct.default ?? Ct;
-ua.install({ THREE: l });
-class bo {
+const Gi = pt.default ?? pt;
+Gi.install({ THREE: h });
+class as {
   constructor(e, t) {
-    this.camera = e, this.domElement = t, this.controls = new ua(e, t), this.controls.dollyToCursor = !1, this.controls.infinityDolly = !1, this.controls.dollySpeed = 2.5, this.controls.smoothTime = 0.05, this.controls.draggingSmoothTime = 0.05, this.controls.minPolarAngle = 0.1, this.controls.maxPolarAngle = Math.PI / 2 - 0.1, this.controls.minDistance = 100, this.controls.maxDistance = 1e4, this.minHeight = 50, this.mode = "free", this.defaultFreecamPosition = new l.Vector3(0, 1e3, 5e3), this.defaultFreecamLookAt = new l.Vector3(0, 100, 0), this.onPointerLockStateChange = null, this.targetCar = null, this.targetBall = null, this.followDistance = 260, this.followHeight = 90, this.followAngle = -4, this.stiffness = 0.45, this.swivelSpeed = 4.3, this.currentBlend = 0, this.targetBlend = 0, this.transitionSpeed = 1.3, this.baseDuration = 0.5, this.lastIsBallCam = null, this.currentCamPos = null, this.currentLookTarget = null, this._tempQuatCarCam = new l.Quaternion(), this._tempQuatBallCam = new l.Quaternion(), this._tempMatrix = new l.Matrix4(), this.controls.enabled = !0, t.addEventListener("contextmenu", (i) => i.preventDefault()), this.isFollowingViewer = !1, this.followTargetPosition = new l.Vector3(), this.followTargetQuaternion = new l.Quaternion(), this.followPositionLerpFactor = 0.12, this.followRotationSlerpFactor = 0.1, this.hasFollowTarget = !1, this.isRightMouseDown = !1, this.lastMouseX = null, this.lastMouseY = null, this.savedCameraState = null, this.isInReplayMode = !1;
+    this.camera = e, this.domElement = t, this.controls = new Gi(e, t), this.controls.dollyToCursor = !1, this.controls.infinityDolly = !1, this.controls.dollySpeed = 2.5, this.controls.smoothTime = 0.05, this.controls.draggingSmoothTime = 0.05, this.controls.minPolarAngle = 0.1, this.controls.maxPolarAngle = Math.PI / 2 - 0.1, this.controls.minDistance = 100, this.controls.maxDistance = 1e4, this.minHeight = 50, this.mode = "free", this.defaultFreecamPosition = new h.Vector3(0, 1e3, 5e3), this.defaultFreecamLookAt = new h.Vector3(0, 100, 0), this.onPointerLockStateChange = null, this.targetCar = null, this.targetBall = null, this.followDistance = 260, this.followHeight = 90, this.followAngle = -4, this.stiffness = 0.45, this.swivelSpeed = 4.3, this.currentBlend = 0, this.targetBlend = 0, this.transitionSpeed = 1.3, this.baseDuration = 0.5, this.lastIsBallCam = null, this.currentCamPos = null, this.currentLookTarget = null, this._tempQuatCarCam = new h.Quaternion(), this._tempQuatBallCam = new h.Quaternion(), this._tempMatrix = new h.Matrix4(), this.controls.enabled = !0, t.addEventListener("contextmenu", (i) => i.preventDefault()), this.isFollowingViewer = !1, this.followTargetPosition = new h.Vector3(), this.followTargetQuaternion = new h.Quaternion(), this.followPositionLerpFactor = 0.12, this.followRotationSlerpFactor = 0.1, this.hasFollowTarget = !1, this.isRightMouseDown = !1, this.lastMouseX = null, this.lastMouseY = null, this.savedCameraState = null, this.isInReplayMode = !1;
   }
   /**
    * Set camera mode
@@ -7944,7 +8126,7 @@ class bo {
           up: !1,
           down: !1
         }, this.freeCamSpeed = 2e3, this.freeCamRotation = { yaw: 0, pitch: 0 };
-        const t = new l.Vector3();
+        const t = new h.Vector3();
         this.camera.getWorldDirection(t), this.freeCamRotation.yaw = Math.atan2(t.x, t.z), this.freeCamRotation.pitch = Math.asin(-t.y), this.onKeyDown = (i) => this.handleFreeCamKeyDown(i), this.onKeyUp = (i) => this.handleFreeCamKeyUp(i), this.onMouseMove = (i) => this.handleFreeCamMouseMove(i), this.onMouseDown = (i) => {
           i.button === 2 && this.mode === "free" && !this.isFollowingViewer && (this.isRightMouseDown = !0, this.domElement.requestPointerLock?.());
         }, this.onMouseUp = (i) => {
@@ -8054,24 +8236,24 @@ class bo {
    */
   updateFreeCam(e) {
     if (!this.freeCamKeys) return;
-    const t = new l.Vector3(
+    const t = new h.Vector3(
       Math.sin(this.freeCamRotation.yaw) * Math.cos(this.freeCamRotation.pitch),
       -Math.sin(this.freeCamRotation.pitch),
       Math.cos(this.freeCamRotation.yaw) * Math.cos(this.freeCamRotation.pitch)
     );
     t.normalize();
-    const i = new l.Vector3(
+    const i = new h.Vector3(
       Math.sin(this.freeCamRotation.yaw) * Math.cos(this.freeCamRotation.pitch),
       -Math.sin(this.freeCamRotation.pitch),
       Math.cos(this.freeCamRotation.yaw) * Math.cos(this.freeCamRotation.pitch)
     );
     i.normalize();
-    const a = new l.Vector3(
+    const a = new h.Vector3(
       Math.sin(this.freeCamRotation.yaw - Math.PI / 2),
       0,
       Math.cos(this.freeCamRotation.yaw - Math.PI / 2)
-    ), s = new l.Vector3(0, 1, 0), o = new l.Vector3(), r = this.freeCamSpeed * e;
-    this.freeCamKeys.forward && o.add(i.clone().multiplyScalar(r)), this.freeCamKeys.backward && o.add(i.clone().multiplyScalar(-r)), this.freeCamKeys.right && o.add(a.clone().multiplyScalar(r)), this.freeCamKeys.left && o.add(a.clone().multiplyScalar(-r)), this.freeCamKeys.up && o.add(s.clone().multiplyScalar(r)), this.freeCamKeys.down && o.add(s.clone().multiplyScalar(-r)), o.length() > 0 && o.normalize().multiplyScalar(r), this.camera.position.add(o);
+    ), o = new h.Vector3(0, 1, 0), s = new h.Vector3(), r = this.freeCamSpeed * e;
+    this.freeCamKeys.forward && s.add(i.clone().multiplyScalar(r)), this.freeCamKeys.backward && s.add(i.clone().multiplyScalar(-r)), this.freeCamKeys.right && s.add(a.clone().multiplyScalar(r)), this.freeCamKeys.left && s.add(a.clone().multiplyScalar(-r)), this.freeCamKeys.up && s.add(o.clone().multiplyScalar(r)), this.freeCamKeys.down && s.add(o.clone().multiplyScalar(-r)), s.length() > 0 && s.normalize().multiplyScalar(r), this.camera.position.add(s);
     const c = this.camera.position.clone().add(t);
     this.camera.lookAt(c), this.controls.setLookAt(
       this.camera.position.x,
@@ -8099,14 +8281,14 @@ class bo {
     }
     if (this.mode === "ballOrbit") {
       if (this.targetBall) {
-        const g = this.targetBall.position;
-        this.lastBallOrbitPos || (this.lastBallOrbitPos = g.clone());
-        const f = new l.Vector3().subVectors(g, this.lastBallOrbitPos);
-        if (this.controls.setTarget(g.x, g.y, g.z, !1), f.lengthSq() > 0.01) {
-          const y = new l.Vector3();
+        const f = this.targetBall.position;
+        this.lastBallOrbitPos || (this.lastBallOrbitPos = f.clone());
+        const g = new h.Vector3().subVectors(f, this.lastBallOrbitPos);
+        if (this.controls.setTarget(f.x, f.y, f.z, !1), g.lengthSq() > 0.01) {
+          const y = new h.Vector3();
           this.controls.getPosition(y);
-          const b = y.x + f.x, w = y.y + f.y, x = y.z + f.z;
-          this.controls.setPosition(b, w, x, !1), this.lastBallOrbitPos.copy(g);
+          const x = y.x + g.x, v = y.y + g.y, b = y.z + g.z;
+          this.controls.setPosition(x, v, b, !1), this.lastBallOrbitPos.copy(f);
         }
       }
       this.controls.update(e);
@@ -8118,47 +8300,47 @@ class bo {
     }
     const i = this.targetCar.position.clone(), a = this.targetCar.quaternion;
     if (this.lastIsBallCam !== null && this.lastIsBallCam !== t && !t) {
-      const g = new l.Vector3().subVectors(this.camera.position, i);
-      g.y = 0, g.length() > 0.01 && (g.normalize(), this.smoothedCarYaw = Math.atan2(-g.x, -g.z));
+      const f = new h.Vector3().subVectors(this.camera.position, i);
+      f.y = 0, f.length() > 0.01 && (f.normalize(), this.smoothedCarYaw = Math.atan2(-f.x, -f.z));
     }
     this.lastIsBallCam = t;
-    const s = this.calculateCarCamPosition(i, a, e), o = this.calculateBallCamPosition(i, a, e);
+    const o = this.calculateCarCamPosition(i, a, e), s = this.calculateBallCamPosition(i, a, e);
     this.targetBlend = t ? 1 : 0;
     const r = Math.max(
       0.15,
       Math.min(0.6, this.baseDuration / this.transitionSpeed)
     ), c = e / r;
     this.currentBlend < this.targetBlend ? this.currentBlend = Math.min(this.currentBlend + c, this.targetBlend) : this.currentBlend > this.targetBlend && (this.currentBlend = Math.max(this.currentBlend - c, this.targetBlend));
-    const h = this.currentBlend, d = h * h * (3 - 2 * h), m = new l.Vector3().lerpVectors(
-      s.cameraPos,
+    const l = this.currentBlend, d = l * l * (3 - 2 * l), m = new h.Vector3().lerpVectors(
       o.cameraPos,
+      s.cameraPos,
       d
     );
     this._tempMatrix.lookAt(
-      s.cameraPos,
-      s.lookTarget,
-      new l.Vector3(0, 1, 0)
-    ), this._tempQuatCarCam.setFromRotationMatrix(this._tempMatrix), this._tempMatrix.lookAt(
       o.cameraPos,
       o.lookTarget,
-      new l.Vector3(0, 1, 0)
+      new h.Vector3(0, 1, 0)
+    ), this._tempQuatCarCam.setFromRotationMatrix(this._tempMatrix), this._tempMatrix.lookAt(
+      s.cameraPos,
+      s.lookTarget,
+      new h.Vector3(0, 1, 0)
     ), this._tempQuatBallCam.setFromRotationMatrix(this._tempMatrix), this._tempQuatCarCam.dot(this._tempQuatBallCam) < 0 && this._tempQuatBallCam.set(
       -this._tempQuatBallCam.x,
       -this._tempQuatBallCam.y,
       -this._tempQuatBallCam.z,
       -this._tempQuatBallCam.w
     );
-    const u = new l.Quaternion().slerpQuaternions(
+    const u = new h.Quaternion().slerpQuaternions(
       this._tempQuatCarCam,
       this._tempQuatBallCam,
       d
     );
     if (this.camera.position.copy(m), this.camera.quaternion.copy(u), this.followAngle !== 0) {
-      const g = this.followAngle * Math.PI / 180;
-      this.camera.rotateX(-g);
+      const f = this.followAngle * Math.PI / 180;
+      this.camera.rotateX(-f);
     }
-    this.currentCamPos || (this.currentCamPos = new l.Vector3()), this.currentLookTarget || (this.currentLookTarget = new l.Vector3()), this.currentCamPos.copy(m);
-    const p = new l.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    this.currentCamPos || (this.currentCamPos = new h.Vector3()), this.currentLookTarget || (this.currentLookTarget = new h.Vector3()), this.currentCamPos.copy(m);
+    const p = new h.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion);
     this.currentLookTarget.copy(m).add(p.multiplyScalar(100)), this.enforceMinHeight();
   }
   /**
@@ -8169,16 +8351,16 @@ class bo {
   calculateBallCamPosition(e, t, i = 1 / 60) {
     if (!this.targetBall)
       return this.calculateCarCamPosition(e, t, i);
-    const a = this.targetBall.position.clone(), s = new l.Vector3().subVectors(e, a);
-    s.y = 0, s.normalize();
-    const o = e.clone().add(s.multiplyScalar(this.followDistance)), r = a.y - e.y, h = Math.min(1, Math.max(0, r / 800));
-    o.y = e.y + this.followHeight - h * 100, o.y < this.minHeight && (o.y = this.minHeight);
-    const d = new l.Vector3().lerpVectors(
+    const a = this.targetBall.position.clone(), o = new h.Vector3().subVectors(e, a);
+    o.y = 0, o.normalize();
+    const s = e.clone().add(o.multiplyScalar(this.followDistance)), r = a.y - e.y, l = Math.min(1, Math.max(0, r / 800));
+    s.y = e.y + this.followHeight - l * 100, s.y < this.minHeight && (s.y = this.minHeight);
+    const d = new h.Vector3().lerpVectors(
       a,
-      new l.Vector3(e.x, e.y + 100, e.z),
-      h * 0.6
+      new h.Vector3(e.x, e.y + 100, e.z),
+      l * 0.6
     );
-    return { cameraPos: o, lookTarget: d };
+    return { cameraPos: s, lookTarget: d };
   }
   /**
    * Calculate car cam position and look target
@@ -8186,42 +8368,42 @@ class bo {
    */
   calculateCarCamPosition(e, t, i = 1 / 60) {
     this.lastCarPos || (this.lastCarPos = e.clone());
-    const a = new l.Vector3().subVectors(e, this.lastCarPos);
+    const a = new h.Vector3().subVectors(e, this.lastCarPos);
     a.y = 0;
-    const s = a.length(), o = new l.Vector3(1, 0, 0);
-    o.applyQuaternion(t);
-    const r = Math.atan2(o.x, o.z), c = new l.Vector3(0, 1, 0);
+    const o = a.length(), s = new h.Vector3(1, 0, 0);
+    s.applyQuaternion(t);
+    const r = Math.atan2(s.x, s.z), c = new h.Vector3(0, 1, 0);
     c.applyQuaternion(t);
-    const h = c.y < 0.5;
+    const l = c.y < 0.5;
     let d;
-    if (h && s > 0.01)
+    if (l && o > 0.01)
       a.normalize(), d = Math.atan2(a.x, a.z);
-    else if (s > 0.05) {
+    else if (o > 0.05) {
       a.normalize();
-      let x = Math.atan2(a.x, a.z) - r;
-      for (; x > Math.PI; ) x -= Math.PI * 2;
-      for (; x < -Math.PI; ) x += Math.PI * 2;
-      Math.abs(x) > Math.PI / 2 ? d = r + Math.PI : d = r;
+      let b = Math.atan2(a.x, a.z) - r;
+      for (; b > Math.PI; ) b -= Math.PI * 2;
+      for (; b < -Math.PI; ) b += Math.PI * 2;
+      Math.abs(b) > Math.PI / 2 ? d = r + Math.PI : d = r;
     } else
       d = r;
     this.lastCarPos.copy(e), this.smoothedCarYaw === void 0 && (this.smoothedCarYaw = d);
     let m = d - this.smoothedCarYaw;
     for (; m > Math.PI; ) m -= Math.PI * 2;
     for (; m < -Math.PI; ) m += Math.PI * 2;
-    const u = h ? this.swivelSpeed * 0.4 : this.swivelSpeed;
+    const u = l ? this.swivelSpeed * 0.4 : this.swivelSpeed;
     this.smoothedCarYaw += m * Math.min(1, u * (1 / 60));
-    const p = -Math.sin(this.smoothedCarYaw), g = -Math.cos(this.smoothedCarYaw), f = new l.Vector3(
+    const p = -Math.sin(this.smoothedCarYaw), f = -Math.cos(this.smoothedCarYaw), g = new h.Vector3(
       e.x + p * this.followDistance,
       e.y + this.followHeight,
-      e.z + g * this.followDistance
+      e.z + f * this.followDistance
     );
-    f.y < this.minHeight && (f.y = this.minHeight);
-    const y = 50, b = new l.Vector3(
+    g.y < this.minHeight && (g.y = this.minHeight);
+    const y = 50, x = new h.Vector3(
       e.x + Math.sin(this.smoothedCarYaw) * y,
       e.y,
       e.z + Math.cos(this.smoothedCarYaw) * y
     );
-    return { cameraPos: f, lookTarget: b };
+    return { cameraPos: g, lookTarget: x };
   }
   /**
    * Enforce minimum camera height
@@ -8245,8 +8427,8 @@ class bo {
   /**
    * Smoothly move camera to position and target
    */
-  moveTo(e, t, i, a, s, o, r = !0) {
-    this.controls.setLookAt(e, t, i, a, s, o, r);
+  moveTo(e, t, i, a, o, s, r = !0) {
+    this.controls.setLookAt(e, t, i, a, o, s, r);
   }
   /**
    * Set transition smoothness
@@ -8298,7 +8480,7 @@ class bo {
       return console.warn("[CameraManager] No saved camera state to restore"), null;
     const e = this.savedCameraState;
     console.log("[CameraManager] Restoring camera state:", e.mode), this.camera.position.copy(e.position), this.camera.quaternion.copy(e.quaternion), this.currentBlend = e.currentBlend, this.targetBlend = e.targetBlend, this.smoothedCarYaw = e.smoothedCarYaw, e.freeCamRotation && this.freeCamRotation && (this.freeCamRotation.yaw = e.freeCamRotation.yaw, this.freeCamRotation.pitch = e.freeCamRotation.pitch), e.lastBallOrbitPos && (this.lastBallOrbitPos = e.lastBallOrbitPos);
-    const t = new l.Vector3(0, 0, -1).applyQuaternion(e.quaternion);
+    const t = new h.Vector3(0, 0, -1).applyQuaternion(e.quaternion);
     t.multiplyScalar(100).add(e.position), this.controls.setLookAt(
       e.position.x,
       e.position.y,
@@ -8339,7 +8521,7 @@ class bo {
    */
   setupPodiumCamera() {
     this.isInReplayMode || (this.saveCameraState(), this.isInReplayMode = !0);
-    const e = new l.Vector3(0, 1500, 3e3), t = new l.Vector3(0, 200, 0);
+    const e = new h.Vector3(0, 1500, 3e3), t = new h.Vector3(0, 200, 0);
     this.camera.position.copy(e), this.camera.lookAt(t), this.controls.setLookAt(
       e.x,
       e.y,
@@ -8359,10 +8541,10 @@ class bo {
   setFreecamState(e, t) {
     if (e && (this.followTargetPosition.set(e.x, e.y, e.z), t && this.followTargetQuaternion.set(t.x, t.y, t.z, t.w), !this.hasFollowTarget)) {
       if (this.camera.position.copy(this.followTargetPosition), this.camera.quaternion.copy(this.followTargetQuaternion), this.freeCamRotation) {
-        const a = new l.Vector3();
+        const a = new h.Vector3();
         this.camera.getWorldDirection(a), this.freeCamRotation.yaw = Math.atan2(a.x, a.z), this.freeCamRotation.pitch = Math.asin(-a.y);
       }
-      const i = new l.Vector3();
+      const i = new h.Vector3();
       this.camera.getWorldDirection(i), i.multiplyScalar(100).add(this.camera.position), this.controls.setLookAt(
         e.x,
         e.y,
@@ -8381,7 +8563,7 @@ class bo {
    */
   setBallOrbitState(e) {
     if (e && (this.followTargetOrbitParams ? (this.followTargetOrbitParams.distance = e.distance, this.followTargetOrbitParams.azimuth = e.azimuth, this.followTargetOrbitParams.polar = e.polar) : this.followTargetOrbitParams = { ...e }, this.followCurrentOrbitParams || (this.followCurrentOrbitParams = { ...e }), !this.hasFollowTarget)) {
-      const t = this.targetBall?.position || new l.Vector3(0, 100, 0);
+      const t = this.targetBall?.position || new h.Vector3(0, 100, 0);
       this.controls.setTarget(t.x, t.y, t.z, !1), this.controls.dollyTo(e.distance, !1), this.controls.rotateTo(e.azimuth, e.polar, !1), this.followCurrentOrbitParams = { ...e }, this.hasFollowTarget = !0;
     }
   }
@@ -8414,10 +8596,10 @@ class bo {
         }
       } else {
         if (this.camera.position.lerp(this.followTargetPosition, this.followPositionLerpFactor), this.camera.quaternion.slerp(this.followTargetQuaternion, this.followRotationSlerpFactor), this.freeCamRotation) {
-          const i = new l.Vector3();
+          const i = new h.Vector3();
           this.camera.getWorldDirection(i), this.freeCamRotation.yaw = Math.atan2(i.x, i.z), this.freeCamRotation.pitch = Math.asin(-i.y);
         }
-        const t = new l.Vector3();
+        const t = new h.Vector3();
         this.camera.getWorldDirection(t), t.multiplyScalar(100).add(this.camera.position), this.controls.setLookAt(
           this.camera.position.x,
           this.camera.position.y,
@@ -8431,11 +8613,11 @@ class bo {
   }
   /**
    * Set camera to default freecam position (side view of field)
-   * Call this when initializing the viewer or when switching to freecam
+   * Call this when initializing the player or when switching to freecam
    */
   setDefaultFreecamPosition() {
     if (this.camera.position.copy(this.defaultFreecamPosition), this.camera.lookAt(this.defaultFreecamLookAt), this.freeCamRotation) {
-      const e = new l.Vector3();
+      const e = new h.Vector3();
       this.camera.getWorldDirection(e), this.freeCamRotation.yaw = Math.atan2(e.x, e.z), this.freeCamRotation.pitch = Math.asin(-e.y);
     }
     this.controls.setLookAt(
@@ -8469,12 +8651,12 @@ class bo {
     this.controls.dispose(), this.ballOrbitScrollHandler && this.domElement.removeEventListener("wheel", this.ballOrbitScrollHandler), this.onKeyDown && document.removeEventListener("keydown", this.onKeyDown), this.onKeyUp && document.removeEventListener("keyup", this.onKeyUp), this.onMouseMove && document.removeEventListener("mousemove", this.onMouseMove), this.onMouseDown && this.domElement.removeEventListener("mousedown", this.onMouseDown), this.onMouseUp && document.removeEventListener("mouseup", this.onMouseUp), this.onPointerLockChange && document.removeEventListener("pointerlockchange", this.onPointerLockChange), this.onMouseLeave && this.domElement.removeEventListener("mouseleave", this.onMouseLeave), this.onWindowBlur && window.removeEventListener("blur", this.onWindowBlur), this.onVisibilityChange && document.removeEventListener("visibilitychange", this.onVisibilityChange);
   }
 }
-function ii(n) {
+function $t(n) {
   if (n.pitch === void 0 || n.angle !== void 0) return n;
   const { pitch: e, ...t } = n;
   return { ...t, angle: e };
 }
-const xo = {
+const ns = {
   distance: 260,
   height: 90,
   angle: -4,
@@ -8483,82 +8665,82 @@ const xo = {
   transitionSpeed: 1.3,
   fov: 110
 };
-function wo(n = {}) {
-  let e = null, t = null, i = n.mode ?? (n.follow ? "follow" : "orbit"), a = n.follow ?? null, s = n.ballCam ?? null, o = s ?? !0, r = ii({ ...n.settings }), c = 1;
-  const h = n.useRecordedSettings !== !1;
+function os(n = {}) {
+  let e = null, t = null, i = n.mode ?? (n.follow ? "follow" : "orbit"), a = n.follow ?? null, o = n.ballCam ?? null, s = o ?? !0, r = $t({ ...n.settings }), c = 1;
+  const l = n.useRecordedSettings !== !1;
   let d = null;
-  const m = new l.Vector3();
+  const m = new h.Vector3();
   let u = !1;
   function p() {
     if (!(!t || !e)) {
       if (t.player.controls.enabled = i === "orbit", i === "free")
         e.setMode("free");
       else if (i === "ballOrbit") {
-        const x = y();
-        x && e.setTargetBall(x), e.setMode("ballOrbit");
+        const b = y();
+        b && e.setTargetBall(b), e.setMode("ballOrbit");
       } else
         e.setMode("car");
       d = null;
     }
   }
-  function g() {
-    return !h || !t || !a ? null : t.player.adapter.getPlayer(a)?.cameraSettings ?? null;
-  }
   function f() {
-    const x = { ...xo, ...g(), ...r };
-    return c !== 1 && x.distance !== void 0 && (x.distance *= c), x;
+    return !l || !t || !a ? null : t.player.adapter.getPlayer(a)?.cameraSettings ?? null;
+  }
+  function g() {
+    const b = { ...ns, ...f(), ...r };
+    return c !== 1 && b.distance !== void 0 && (b.distance *= c), b;
   }
   function y() {
     if (!t) return null;
-    const x = t.player.actorManager;
-    return x.ballActorId != null ? x.actors[x.ballActorId] ?? null : null;
+    const b = t.player.actorManager;
+    return b.ballActorId != null ? b.actors[b.ballActorId] ?? null : null;
   }
-  function b(x) {
-    const v = f().fov;
-    if (!v) return;
-    const T = v * Math.PI / 180, M = 16 / 9, _ = 2 * Math.atan(Math.tan(T / 2) / M), D = 2 * Math.atan(Math.tan(T / 2) / x.aspect), F = Math.max(_, D) * 180 / Math.PI;
-    Math.abs(x.fov - F) > 0.1 && (x.fov = F, x.updateProjectionMatrix());
+  function x(b) {
+    const M = g().fov;
+    if (!M) return;
+    const C = M * Math.PI / 180, w = 16 / 9, S = 2 * Math.atan(Math.tan(C / 2) / w), E = 2 * Math.atan(Math.tan(C / 2) / b.aspect), B = Math.max(S, E) * 180 / Math.PI;
+    Math.abs(b.fov - B) > 0.1 && (b.fov = B, b.updateProjectionMatrix());
   }
-  function w(x, v) {
+  function v(b, M) {
     if (!e) return;
     if (i === "free") {
-      r.freeCamSpeed && (e.freeCamSpeed = r.freeCamSpeed), e.update(v);
+      r.freeCamSpeed && (e.freeCamSpeed = r.freeCamSpeed), e.update(M);
       return;
     }
     if (i === "ballOrbit") {
-      x.ball.object3d && e.setTargetBall(x.ball.object3d), e.update(v);
+      b.ball.object3d && e.setTargetBall(b.ball.object3d), e.update(M);
       return;
     }
-    const M = (a ? x.cars.find((D) => D.name === a) : void 0)?.object3d ?? null;
-    if (!M) {
-      e.update(v);
+    const w = (a ? b.cars.find((E) => E.name === a) : void 0)?.object3d ?? null;
+    if (!w) {
+      e.update(M);
       return;
     }
-    e.setTargetCar(M), x.ball.object3d && e.setTargetBall(x.ball.object3d), e.setFollowSettings(f());
-    const _ = a ? x.player.adapter.getPlayer(a) : void 0;
-    o = s ?? _?.isBallCam ?? !0, m.copy(M.position), u = !0, e.update(v, o);
+    e.setTargetCar(w), b.ball.object3d && e.setTargetBall(b.ball.object3d), e.setFollowSettings(g());
+    const S = a ? b.player.adapter.getPlayer(a) : void 0;
+    s = o ?? S?.isBallCam ?? !0, m.copy(w.position), u = !0, e.update(M, s);
   }
   return {
     id: "camera",
-    setup(x) {
-      t = x, e = new bo(x.camera, x.renderer.domElement), p();
+    setup(b) {
+      t = b, e = new as(b.camera, b.renderer.domElement), p();
     },
-    beforeRender(x) {
-      if (!e || (b(x.camera), i === "orbit")) return;
-      const v = performance.now(), T = d === null ? 1 / 60 : Math.min(0.1, (v - d) / 1e3);
-      d = v, w(x, T);
+    beforeRender(b) {
+      if (!e || (x(b.camera), i === "orbit")) return;
+      const M = performance.now(), C = d === null ? 1 / 60 : Math.min(0.1, (M - d) / 1e3);
+      d = M, v(b, C);
     },
     teardown() {
       i = "orbit", t && (t.player.controls.enabled = !0), e?.dispose(), e = null, t = null;
     },
-    setMode(x) {
-      x !== i && (i = x, p());
+    setMode(b) {
+      b !== i && (i = b, p());
     },
     getMode() {
       return i;
     },
-    follow(x) {
-      a = x, i = "follow", p();
+    follow(b) {
+      a = b, i = "follow", p();
     },
     release() {
       i = "orbit", t && u && t.player.controls.target.copy(m), p();
@@ -8566,31 +8748,171 @@ function wo(n = {}) {
     getTarget() {
       return a;
     },
-    setBallCam(x) {
-      s = x, x !== null && (o = x);
+    setBallCam(b) {
+      o = b, b !== null && (s = b);
     },
     getBallCam() {
-      return o;
+      return s;
     },
-    setCameraSettings(x) {
-      r = x === null ? {} : { ...r, ...ii(x) };
+    setCameraSettings(b) {
+      r = b === null ? {} : { ...r, ...$t(b) };
     },
-    setDistanceScale(x) {
-      c = Math.max(0.25, x);
+    setDistanceScale(b) {
+      c = Math.max(0.25, b);
     },
     getDistanceScale() {
       return c;
     },
     getCameraSettings() {
-      return f();
+      return g();
     },
     getRecordedSettings() {
-      const x = g();
-      return x ? { ...x } : null;
+      const b = f();
+      return b ? { ...b } : null;
     }
   };
 }
-class vo {
+const $i = 1280, Hi = 720, Wi = "image/png", ss = 2, rs = 3e4;
+async function ll(n, e = {}) {
+  return ls(await Be(n), e);
+}
+async function cl(n, e, t = {}) {
+  return Ui(await Be(n), e, t);
+}
+async function ls(n, e = {}) {
+  const [t] = await Ui(n, [e], e);
+  if (!t)
+    throw new Error("Static image capture did not produce a result");
+  return t;
+}
+async function Ui(n, e, t = {}) {
+  if (e.length === 0)
+    return [];
+  const i = ji(t, e[0]), a = ue(i.width, $i), o = ue(i.height, Hi), s = ds(a, o);
+  let r = null;
+  try {
+    r = lt(s, n, {
+      ...t.playerOptions,
+      autoplay: !1,
+      loop: !1,
+      preserveDrawingBuffer: !0
+    }), await hs(r, t.readyTimeoutMs), r.pause();
+    const c = [];
+    for (const l of e)
+      c.push(await cs(r, t, l));
+    return c;
+  } finally {
+    r?.destroy(), s.remove();
+  }
+}
+async function cs(n, e, t) {
+  const i = ji(e, t), a = ue(i.width, $i), o = ue(i.height, Hi), s = Ki(
+    i.pixelRatio,
+    typeof window > "u" ? 1 : window.devicePixelRatio || 1
+  ), r = i.mimeType ?? Wi;
+  n.renderer.setPixelRatio(s), n.renderer.setSize(a, o, !1), n.camera.aspect = a / o, n.camera.updateProjectionMatrix(), ms(n, i), await us(n, i.camera), fs(n, ue(i.settleFrames, ss));
+  const c = n.renderer.domElement, l = c.toDataURL(r, i.quality), d = await gs(c, r, i.quality, l), m = n.getState();
+  return {
+    blob: d,
+    dataUrl: l,
+    width: a,
+    height: o,
+    pixelRatio: s,
+    mimeType: d.type || r,
+    time: m.currentTime,
+    frameIndex: m.frameIndex
+  };
+}
+function ji(n, e) {
+  return {
+    ...n,
+    ...e,
+    playerOptions: n.playerOptions,
+    readyTimeoutMs: n.readyTimeoutMs
+  };
+}
+async function hs(n, e) {
+  if (e === !1) {
+    await n.ready;
+    return;
+  }
+  const t = Ki(e, rs);
+  let i = null;
+  try {
+    await Promise.race([
+      n.ready.then(() => "ready"),
+      new Promise((o) => {
+        i = setTimeout(() => o("timeout"), t);
+      })
+    ]) === "timeout" && console.warn(
+      `[player] static image capture proceeding before assets settled after ${t}ms`
+    );
+  } finally {
+    i != null && clearTimeout(i);
+  }
+}
+function ds(n, e) {
+  const t = document.createElement("div");
+  return t.style.position = "fixed", t.style.left = "-10000px", t.style.top = "0", t.style.width = `${n}px`, t.style.height = `${e}px`, t.style.overflow = "hidden", t.style.pointerEvents = "none", t.setAttribute("aria-hidden", "true"), document.body.appendChild(t), t;
+}
+function ms(n, e) {
+  if (e.frameIndex != null) {
+    n.setFrameIndex(e.frameIndex);
+    return;
+  }
+  n.seek(e.time ?? 0);
+}
+async function us(n, e) {
+  if (!e || e.mode === "free") {
+    n.setFreeCameraPreset(e?.preset ?? "side", { instant: !0 });
+    return;
+  }
+  if (e.mode === "custom") {
+    await e.setup(n);
+    return;
+  }
+  const t = ps(n, e);
+  if (!t)
+    throw new Error("Unable to resolve static image capture player target");
+  e.cameraSettings !== void 0 && n.setCustomCameraSettings(e.cameraSettings), e.cameraDistanceScale !== void 0 && n.setCameraDistanceScale(e.cameraDistanceScale), n.setAttachedPlayer(t.id), n.setBallCamEnabled(e.ballCam === "replay" ? null : e.ballCam ?? !0);
+}
+function ps(n, e) {
+  if (e.playerId) {
+    const i = n.adapter.playerList.find((a) => a.id === e.playerId);
+    if (i)
+      return i;
+  }
+  const t = e.playerName?.trim().toLowerCase();
+  return t ? n.adapter.playerList.find((i) => i.name.trim().toLowerCase() === t) ?? null : n.adapter.playerList[0] ?? null;
+}
+function fs(n, e) {
+  for (let t = 0; t < e; t += 1)
+    n.renderFrame(1 / 60);
+}
+function gs(n, e, t, i) {
+  return new Promise((a) => {
+    n.toBlob(
+      (o) => {
+        a(o ?? ys(i));
+      },
+      e,
+      t
+    );
+  });
+}
+function ys(n) {
+  const [e, t] = n.split(",", 2), i = e?.match(/^data:([^;]+)/)?.[1] ?? Wi, a = atob(t ?? ""), o = new Uint8Array(a.length);
+  for (let s = 0; s < a.length; s += 1)
+    o[s] = a.charCodeAt(s);
+  return new Blob([o], { type: i });
+}
+function ue(n, e) {
+  return typeof n == "number" && Number.isFinite(n) && n > 0 ? Math.round(n) : e;
+}
+function Ki(n, e) {
+  return typeof n == "number" && Number.isFinite(n) && n > 0 ? n : e;
+}
+class bs {
   constructor(e, t) {
     this.scene = e, this.camera = t, this.nameTags = /* @__PURE__ */ new Map(), this.playerTeams = {}, this.teamColors = {
       0: {
@@ -8616,14 +8938,14 @@ class vo {
   createOrUpdateNameTag(e, t, i) {
     let a = this.nameTags.get(e);
     if (a || (a = this._createNameTag(e), this.nameTags.set(e, a)), (Math.abs((a.lastBoost || 0) - t) > 1 || a.lastBoost === void 0) && (this._updateTexture(a, e, t), a.lastBoost = t), i && this.camera) {
-      const o = this.camera.position.distanceTo(i), r = 80, c = 200, h = 500, m = Math.max(0, Math.min(1, (o - h) / (5e3 - h))), u = r + m * (c - r);
+      const s = this.camera.position.distanceTo(i), r = 80, c = 200, l = 500, m = Math.max(0, Math.min(1, (s - l) / (5e3 - l))), u = r + m * (c - r);
       a.sprite.position.set(i.x, i.y + u, i.z);
-      const p = 800, g = this.canvasWidth / this.canvasHeight;
-      if (o < p) {
-        const f = p / Math.max(o, 100), y = this.spriteScale * f;
-        a.sprite.scale.set(y * g, y, 1);
+      const p = 800, f = this.canvasWidth / this.canvasHeight;
+      if (s < p) {
+        const g = p / Math.max(s, 100), y = this.spriteScale * g;
+        a.sprite.scale.set(y * f, y, 1);
       } else
-        a.sprite.scale.set(this.spriteScale * g, this.spriteScale, 1);
+        a.sprite.scale.set(this.spriteScale * f, this.spriteScale, 1);
       a.sprite.visible = !0;
     }
   }
@@ -8633,35 +8955,35 @@ class vo {
   _createNameTag(e) {
     const t = document.createElement("canvas");
     t.width = this.canvasWidth, t.height = this.canvasHeight;
-    const i = t.getContext("2d"), a = new l.CanvasTexture(t);
-    a.minFilter = l.LinearFilter, a.magFilter = l.LinearFilter;
-    const s = new l.SpriteMaterial({
+    const i = t.getContext("2d"), a = new h.CanvasTexture(t);
+    a.minFilter = h.LinearFilter, a.magFilter = h.LinearFilter;
+    const o = new h.SpriteMaterial({
       map: a,
       transparent: !0,
       depthTest: !1,
       depthWrite: !1,
       sizeAttenuation: !1
-    }), o = new l.Sprite(s), r = this.canvasWidth / this.canvasHeight;
-    return o.scale.set(this.spriteScale * r, this.spriteScale, 1), o.renderOrder = 999, this.scene.add(o), { sprite: o, canvas: t, ctx: i, texture: a };
+    }), s = new h.Sprite(o), r = this.canvasWidth / this.canvasHeight;
+    return s.scale.set(this.spriteScale * r, this.spriteScale, 1), s.renderOrder = 999, this.scene.add(s), { sprite: s, canvas: t, ctx: i, texture: a };
   }
   /**
    * Update the canvas texture with current boost value
    */
   _updateTexture(e, t, i) {
-    const { canvas: a, ctx: s, texture: o } = e, r = this.playerTeams[t] ?? 0, c = this.teamColors[r], h = a.width, d = a.height;
-    s.clearRect(0, 0, h, d);
-    const m = 4, u = 44, p = (d - u) / 2, g = 28, f = 8;
-    s.font = "bold 20px Arial, sans-serif";
-    const b = s.measureText(t).width + g + f * 3 + m * 2, w = (h - b) / 2, x = u / 2;
-    s.beginPath(), s.roundRect(w, p, b, u, x), s.fillStyle = c.bg, s.fill(), s.strokeStyle = c.border, s.lineWidth = 3, s.stroke();
-    const v = w + f + g / 2 + 2, T = d / 2, M = g / 2 - 2;
-    if (s.beginPath(), s.arc(v, T, M, 0, Math.PI * 2), s.fillStyle = c.bg, s.fill(), s.strokeStyle = "#FFFFFF", s.lineWidth = 2, s.stroke(), i > 0) {
-      const D = Math.min(100, Math.max(0, i)) / 100, F = M * 2 * D, S = T + M - F;
-      s.save(), s.beginPath(), s.arc(v, T, M - 1, 0, Math.PI * 2), s.clip(), s.fillStyle = "#FFFFFF", s.fillRect(v - M, S, M * 2, F), s.restore(), i >= 100 && (s.shadowColor = "rgba(255, 255, 255, 0.8)", s.shadowBlur = 10, s.beginPath(), s.arc(v, T, M - 1, 0, Math.PI * 2), s.fillStyle = "#FFFFFF", s.fill(), s.shadowBlur = 0);
+    const { canvas: a, ctx: o, texture: s } = e, r = this.playerTeams[t] ?? 0, c = this.teamColors[r], l = a.width, d = a.height;
+    o.clearRect(0, 0, l, d);
+    const m = 4, u = 44, p = (d - u) / 2, f = 28, g = 8;
+    o.font = "bold 20px Arial, sans-serif";
+    const x = o.measureText(t).width + f + g * 3 + m * 2, v = (l - x) / 2, b = u / 2;
+    o.beginPath(), o.roundRect(v, p, x, u, b), o.fillStyle = c.bg, o.fill(), o.strokeStyle = c.border, o.lineWidth = 3, o.stroke();
+    const M = v + g + f / 2 + 2, C = d / 2, w = f / 2 - 2;
+    if (o.beginPath(), o.arc(M, C, w, 0, Math.PI * 2), o.fillStyle = c.bg, o.fill(), o.strokeStyle = "#FFFFFF", o.lineWidth = 2, o.stroke(), i > 0) {
+      const E = Math.min(100, Math.max(0, i)) / 100, B = w * 2 * E, z = C + w - B;
+      o.save(), o.beginPath(), o.arc(M, C, w - 1, 0, Math.PI * 2), o.clip(), o.fillStyle = "#FFFFFF", o.fillRect(M - w, z, w * 2, B), o.restore(), i >= 100 && (o.shadowColor = "rgba(255, 255, 255, 0.8)", o.shadowBlur = 10, o.beginPath(), o.arc(M, C, w - 1, 0, Math.PI * 2), o.fillStyle = "#FFFFFF", o.fill(), o.shadowBlur = 0);
     }
-    s.font = "bold 20px Arial, sans-serif", s.fillStyle = c.text, s.textAlign = "left", s.textBaseline = "middle", s.shadowColor = "rgba(0, 0, 0, 0.5)", s.shadowBlur = 3, s.shadowOffsetX = 1, s.shadowOffsetY = 1;
-    const _ = v + M + f;
-    s.fillText(t, _, d / 2), s.shadowBlur = 0, o.needsUpdate = !0;
+    o.font = "bold 20px Arial, sans-serif", o.fillStyle = c.text, o.textAlign = "left", o.textBaseline = "middle", o.shadowColor = "rgba(0, 0, 0, 0.5)", o.shadowBlur = 3, o.shadowOffsetX = 1, o.shadowOffsetY = 1;
+    const S = M + w + g;
+    o.fillText(t, S, d / 2), o.shadowBlur = 0, s.needsUpdate = !0;
   }
   /**
    * Hide a name tag (when car is not visible)
@@ -8679,21 +9001,21 @@ class vo {
    * @param {string|null} followedPlayer - Player being followed in player cam (hide their tag)
    */
   update(e, t, i, a = null) {
-    const s = /* @__PURE__ */ new Set();
-    Object.entries(i).forEach(([o, r]) => {
-      if (o === a) {
-        this.hideNameTag(o), s.add(o);
+    const o = /* @__PURE__ */ new Set();
+    Object.entries(i).forEach(([s, r]) => {
+      if (s === a) {
+        this.hideNameTag(s), o.add(s);
         return;
       }
       const c = e[r];
       if (!c || !c.visible) {
-        this.hideNameTag(o);
+        this.hideNameTag(s);
         return;
       }
-      const h = t[o] ?? 0;
-      this.createOrUpdateNameTag(o, h, c.position), s.add(o);
-    }), this.nameTags.forEach((o, r) => {
-      s.has(r) || (o.sprite.visible = !1);
+      const l = t[s] ?? 0;
+      this.createOrUpdateNameTag(s, l, c.position), o.add(s);
+    }), this.nameTags.forEach((s, r) => {
+      o.has(r) || (s.sprite.visible = !1);
     });
   }
   /**
@@ -8711,143 +9033,49 @@ class vo {
     this.reset();
   }
 }
-function El() {
+function hl() {
   let n = null;
   return {
     id: "name-tags",
     setup(e) {
-      n = new vo(e.scene, e.camera), n.setPlayerTeams(e.player.adapter.getPlayerTeams());
+      n = new bs(e.scene, e.camera), n.setPlayerTeams(e.player.adapter.getPlayerTeams());
     },
     beforeRender(e) {
       if (!n) return;
       const t = {}, i = {}, a = {};
       for (const s of e.cars)
         s.object3d && (t[s.name] = s.object3d, i[s.name] = s.boost, a[s.name] = s.name);
-      n.update(t, i, a, null);
+      const o = e.state.cameraViewMode === "follow" && e.state.attachedPlayerId ? e.player.adapter.playerList.find(
+        (s) => s.id === e.state.attachedPlayerId || s.name === e.state.attachedPlayerId
+      )?.name ?? null : null;
+      n.update(t, i, a, o ?? null);
     },
     teardown() {
       n?.dispose(), n = null;
     }
   };
 }
-function _l() {
-  let n = /* @__PURE__ */ new Map();
-  function e(i) {
-    const a = i.player.adapter.boostPads;
-    !a || a.size === 0 || (console.log(`[boost-pads] Creating ${a.size} boost pads...`), n = /* @__PURE__ */ new Map(), a.forEach((s, o) => {
-      const r = s.isBig;
-      let c, h, d;
-      if (r) {
-        c = new l.SphereGeometry(50, 16, 16), h = new l.MeshStandardMaterial({
-          color: 16768324,
-          // Bright yellow/orange core
-          emissive: 16755200,
-          emissiveIntensity: 1,
-          metalness: 0.3,
-          roughness: 0.2,
-          transparent: !0,
-          // CRITICAL: Required for opacity changes
-          opacity: 1,
-          depthWrite: !1
-          // Fix transparency sorting with arena walls
-        }), d = new l.Mesh(c, h), d.renderOrder = 100;
-        const g = new l.SphereGeometry(100, 16, 16), f = new l.MeshBasicMaterial({
-          color: 16755200,
-          transparent: !0,
-          opacity: 0.3,
-          blending: l.AdditiveBlending,
-          side: l.BackSide,
-          // Render inside of sphere for halo effect
-          depthWrite: !1
-        }), y = new l.Mesh(g, f);
-        y.renderOrder = 99, d.add(y), d.userData.glowMesh = y;
-        const b = new l.SphereGeometry(50 * 1.4, 16, 16), w = new l.MeshBasicMaterial({
-          color: 16763904,
-          transparent: !0,
-          opacity: 0.4,
-          blending: l.AdditiveBlending,
-          side: l.BackSide,
-          depthWrite: !1
-        }), x = new l.Mesh(b, w);
-        x.renderOrder = 99, d.add(x), d.userData.innerGlowMesh = x, d.userData.needsLight = !0;
-      } else
-        c = new l.CylinderGeometry(40, 40, 5, 16), h = new l.MeshStandardMaterial({
-          color: 16763904,
-          // Yellow/orange
-          emissive: 16750848,
-          emissiveIntensity: 0.4,
-          metalness: 0.2,
-          roughness: 0.8,
-          transparent: !0,
-          // CRITICAL: Required for opacity changes
-          opacity: 1,
-          depthWrite: !1
-          // Fix transparency sorting with arena walls
-        }), d = new l.Mesh(c, h), d.renderOrder = 100;
-      const u = r ? 150 : 10;
-      if (d.position.set(
-        s.position.x,
-        // X stays the same
-        u,
-        // Y = height (use our custom float height)
-        s.position.y
-        // Z = Unreal Y (position along the field length)
-      ), d.userData.padId = o, d.userData.isBig = r, d.userData.isAvailable = !0, i.scene.add(d), n.set(o, d), d.userData.needsLight) {
-        const p = new l.PointLight(16755200, 1, 600);
-        p.decay = 0, p.position.set(s.position.x, u - 50, s.position.y), i.scene.add(p), d.userData.light = p;
-      }
-    }), console.log(`[boost-pads] ✓ Created ${n.size} boost pad meshes`));
-  }
-  function t(i) {
-    i.player.adapter.boostPads.forEach((s, o) => {
-      const r = n.get(o);
-      if (!r) return;
-      const c = s.isAvailable;
-      r.userData.isAvailable !== c && (r.userData.isAvailable = c, c ? (r.material.color.setHex(s.isBig ? 16768324 : 16763904), r.material.emissive.setHex(s.isBig ? 16755200 : 16750848), r.material.emissiveIntensity = s.isBig ? 1 : 0.4, r.material.opacity = 1, r.visible = !0, r.userData.light && (r.userData.light.intensity = 1), r.userData.glowMesh && (r.userData.glowMesh.visible = !0), r.userData.innerGlowMesh && (r.userData.innerGlowMesh.visible = !0)) : (r.material.color.setHex(s.isBig ? 16755200 : 16763904), r.material.emissive.setHex(0), r.material.emissiveIntensity = 0, r.material.opacity = 0.2, r.visible = !0, r.userData.light && (r.userData.light.intensity = 0), r.userData.glowMesh && (r.userData.glowMesh.visible = !1), r.userData.innerGlowMesh && (r.userData.innerGlowMesh.visible = !1)));
-    });
-  }
-  return {
-    id: "boost-pads",
-    setup(i) {
-      e(i);
-    },
-    beforeRender(i) {
-      t(i);
-    },
-    teardown(i) {
-      n.forEach((a) => {
-        i.scene.remove(a), a.geometry.dispose(), a.material.dispose();
-        for (const o of ["glowMesh", "innerGlowMesh"]) {
-          const r = a.userData[o];
-          r && (r.geometry.dispose(), r.material.dispose());
-        }
-        const s = a.userData.light;
-        s && (i.scene.remove(s), s.dispose());
-      }), n.clear();
-    }
-  };
-}
-const Mo = {
+const xs = {
   "top-left": "top: 8px; left: 8px;",
   "top-right": "top: 8px; right: 8px;",
   "bottom-left": "bottom: 8px; left: 8px;",
   "bottom-right": "bottom: 8px; right: 8px;"
 };
-function Il(n = {}) {
+function dl(n = {}) {
   const e = n.corner ?? "top-right", t = n.updateIntervalMs ?? 500, i = () => typeof n.mount == "function" ? n.mount() : n.mount ?? null;
-  let a = null, s = null, o = null, r = 0, c = performance.now(), h = 0, d = 0;
+  let a = null, o = null, s = null, r = 0, c = performance.now(), l = 0, d = 0;
   const m = typeof n.onSample == "function";
   return {
     id: "fps-overlay",
     setup(u) {
-      if (c = performance.now(), r = 0, d = u.player.getState().frameIndex, h = d, m) return;
-      const p = i(), g = p != null;
-      a = document.createElement("div"), a.className = "viewer-fps-overlay", a.style.cssText = g ? `
+      if (c = performance.now(), r = 0, d = u.player.getState().frameIndex, l = d, m) return;
+      const p = i(), f = p != null;
+      a = document.createElement("div"), a.className = "player-fps-overlay", a.style.cssText = f ? `
           display: inline-flex; gap: 10px; align-items: center;
           font: 600 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
           color: #c8d4e6; letter-spacing: 0.02em; white-space: nowrap;
         ` : `
-          position: absolute; ${Mo[e]}
+          position: absolute; ${xs[e]}
           z-index: 30; pointer-events: none; user-select: none;
           display: flex; gap: 10px;
           font: 600 11px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -8856,31 +9084,89 @@ function Il(n = {}) {
           padding: 4px 8px; letter-spacing: 0.02em; white-space: nowrap;
           text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
         `;
-      const f = document.createElement("span");
-      f.append("Render "), s = document.createElement("span"), s.style.color = "#7fd4ff", s.textContent = "– fps", f.append(s);
+      const g = document.createElement("span");
+      g.append("Render "), o = document.createElement("span"), o.style.color = "#7fd4ff", o.textContent = "– fps", g.append(o);
       const y = document.createElement("span");
-      y.append("Replay "), o = document.createElement("span"), o.style.color = "#9affc0", o.textContent = "– fps", y.append(o), a.append(f, y), p ? p.appendChild(a) : (getComputedStyle(u.container).position === "static" && (u.container.style.position = "relative"), u.container.appendChild(a));
+      y.append("Replay "), s = document.createElement("span"), s.style.color = "#9affc0", s.textContent = "– fps", y.append(s), a.append(g, y), p ? p.appendChild(a) : (getComputedStyle(u.container).position === "static" && (u.container.style.position = "relative"), u.container.appendChild(a));
     },
     beforeRender(u) {
       r += 1, d = u.frameIndex;
-      const p = performance.now(), g = p - c;
-      if (g < t) return;
-      const f = g / 1e3, y = r / f, b = Math.abs(d - h) / f;
-      n.onSample ? n.onSample({ renderFps: y, replayFps: b }) : (s && (s.textContent = `${y.toFixed(0)} fps`), o && (o.textContent = `${b.toFixed(0)} fps`)), r = 0, c = p, h = d;
+      const p = performance.now(), f = p - c;
+      if (f < t) return;
+      const g = f / 1e3, y = r / g, x = Math.abs(d - l) / g;
+      n.onSample ? n.onSample({ renderFps: y, replayFps: x }) : (o && (o.textContent = `${y.toFixed(0)} fps`), s && (s.textContent = `${x.toFixed(0)} fps`)), r = 0, c = p, l = d;
     },
     teardown() {
-      a?.remove(), a = null, s = null, o = null;
+      a?.remove(), a = null, o = null, s = null;
     }
   };
 }
-function ht(n, e) {
+const ws = 4;
+function vs(n) {
+  const e = n.trim();
+  return (e ? `${e} SCORED !!` : "GOAL !!").toUpperCase();
+}
+function Ms(n) {
+  return n ? n.timelineEvents.filter((e) => e.kind === "goal").map((e) => ({ time: e.time, scorerName: e.playerName ?? "" })).sort((e, t) => e.time - t.time) : [];
+}
+function ml(n = {}) {
+  const e = n.durationSeconds ?? ws, t = n.formatText ?? vs, i = (p) => (typeof n.mount == "function" ? n.mount() : n.mount) ?? p.container;
+  let a = [], o = null, s = null, r = null;
+  const c = /* @__PURE__ */ new Set();
+  let l = 0, d = "", m = null;
+  function u(p) {
+    if (s && p !== m) {
+      if (m = p, p === null) {
+        s.style.opacity = "0";
+        return;
+      }
+      s.textContent = p, s.style.opacity = "1";
+    }
+  }
+  return {
+    id: "scored-text",
+    setup(p) {
+      a = Ms(p.replay), r = null, c.clear(), l = 0, d = "", m = null;
+      const f = i(p);
+      f === p.container && getComputedStyle(p.container).position === "static" && (p.container.style.position = "relative"), o = document.createElement("div"), o.className = "player-scored-text-overlay", o.style.cssText = `
+        position: absolute; inset: 0; z-index: 50;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: none; user-select: none;
+      `, s = document.createElement("div"), s.className = "player-scored-text", s.style.cssText = `
+        font-family: "Bourgeois", "Arial Black", system-ui, sans-serif;
+        font-size: 6rem; line-height: 1; text-align: center;
+        color: #ffcb58;
+        text-shadow:
+          0 6px 25px rgba(0, 0, 0, 0.35),
+          0 0 4px #ffcb58, 0 0 8px #ffcb58, 0 0 15px #ffcb58;
+        opacity: 0; transition: opacity 0.15s ease-out;
+      `, o.appendChild(s), f.appendChild(o);
+    },
+    beforeRender(p) {
+      if (!s || a.length === 0) return;
+      const f = p.time, g = r;
+      g !== null && f < g - 1e-3 && (c.clear(), l = 0);
+      for (const v of a)
+        g !== null && g < v.time && f >= v.time && !c.has(v.time) && (c.add(v.time), d = t(v.scorerName), l = performance.now() + e * 1e3);
+      r = f;
+      const y = a.find(
+        (v) => f >= v.time && f <= v.time + e
+      ), x = performance.now() < l;
+      u(y ? t(y.scorerName) : x ? d : null);
+    },
+    teardown() {
+      o?.remove(), o = null, s = null, a = [], c.clear(), m = null;
+    }
+  };
+}
+function qe(n, e) {
   if (!n.replay)
     throw new Error(
-      `[viewer] cannot run @rlrml/player plugin "${e}" without a ReplayModel — construct the viewer via createViewer(), which always provides one.`
+      `[player] cannot run @rlrml/player plugin "${e}" without a ReplayModel — construct the player via createPlayer(), which always provides one.`
     );
   return {
-    // ViewerPlayer implements ReplayPlayer's control + timeline surface
-    // (docs/PLAYER_PARITY.md), which is all a DOM plugin calls.
+    // ReplayPlayer implements ReplayPlayer's control + timeline surface
+    // (docs/player/PLAYER_PARITY.md), which is all a DOM plugin calls.
     player: n.player,
     replay: n.replay,
     scene: n.player.sceneState,
@@ -8888,43 +9174,43 @@ function ht(n, e) {
     options: n.options
   };
 }
-function pa(n, e) {
-  return { ...ht(n, e), state: n.state };
+function Xi(n, e) {
+  return { ...qe(n, e), state: n.state };
 }
-function To(n, e, t, i, a) {
-  const s = n.frames[i.frameIndex] ?? null, o = n.frames[i.nextFrameIndex] ?? s, r = {
+function Ts(n, e, t, i, a) {
+  const o = n.frames[i.frameIndex] ?? null, s = n.frames[i.nextFrameIndex] ?? o, r = {
     track: n,
     mesh: t.playerMeshes.get(n.id) ?? null,
     boostTrail: t.playerBoostTrails.get(n.id) ?? null,
-    frame: s,
-    nextFrame: o,
+    frame: o,
+    nextFrame: s,
     interpolatedPosition: null,
     boostFraction: 0
   };
   if (!r.mesh)
     return r;
-  const c = ue(
-    s?.position ?? null,
+  const c = Ni(
     o?.position ?? null,
+    s?.position ?? null,
     i.alpha
   );
-  if (!c || ct(e.timelineEvents, n.id, a) || !ma(s))
+  if (!c || Fo(e.timelineEvents, n.id, a) || !ko(o))
     return r;
   r.interpolatedPosition = c;
-  const h = s?.boostFraction ?? 0, d = o?.boostFraction ?? h;
-  return r.boostFraction = l.MathUtils.lerp(
-    h,
+  const l = o?.boostFraction ?? 0, d = s?.boostFraction ?? l;
+  return r.boostFraction = h.MathUtils.lerp(
+    l,
     d,
     i.alpha
   ), r;
 }
-function Co(n, e) {
-  const t = pa(n, e), i = t.replay, a = t.scene, s = sa(i, n.currentTime), o = i.ballFrames[s.frameIndex] ?? null, r = i.ballFrames[s.nextFrameIndex] ?? o, c = ue(
-    o?.position ?? null,
+function Cs(n, e) {
+  const t = Xi(n, e), i = t.replay, a = t.scene, o = Ao(i, n.currentTime), s = i.ballFrames[o.frameIndex] ?? null, r = i.ballFrames[o.nextFrameIndex] ?? s, c = Ni(
+    s?.position ?? null,
     r?.position ?? null,
-    s.alpha
-  ), h = c ? a.replayRoot.localToWorld(
-    new l.Vector3(
+    o.alpha
+  ), l = c ? a.replayRoot.localToWorld(
+    new h.Vector3(
       c.x,
       c.y,
       c.z
@@ -8932,319 +9218,468 @@ function Co(n, e) {
   ) : null;
   return {
     ...t,
-    frameIndex: s.frameIndex,
-    nextFrameIndex: s.nextFrameIndex,
-    alpha: s.alpha,
+    frameIndex: o.frameIndex,
+    nextFrameIndex: o.nextFrameIndex,
+    alpha: o.alpha,
     currentTime: n.currentTime,
-    frame: i.frames[s.frameIndex] ?? null,
-    nextFrame: i.frames[s.nextFrameIndex] ?? null,
-    ballFrame: o,
+    frame: i.frames[o.frameIndex] ?? null,
+    nextFrame: i.frames[o.nextFrameIndex] ?? null,
+    ballFrame: s,
     nextBallFrame: r,
-    ballPosition: h,
+    ballPosition: l,
     players: i.players.map(
-      (d) => To(d, i, a, s, n.currentTime)
+      (d) => Ts(d, i, a, o, n.currentTime)
     )
   };
 }
-function Al(n) {
+function ul(n) {
   return {
     ...n,
     setup: n.setup ? (e) => {
-      n.setup?.(ht(e, n.id));
+      n.setup?.(qe(e, n.id));
     } : void 0,
     onStateChange: n.onStateChange ? (e) => {
-      n.onStateChange?.(pa(e, n.id));
+      n.onStateChange?.(Xi(e, n.id));
     } : void 0,
     beforeRender: n.beforeRender ? (e) => {
-      n.beforeRender?.(Co(e, n.id));
+      n.beforeRender?.(Cs(e, n.id));
     } : void 0,
     teardown: n.teardown ? (e) => {
-      n.teardown?.(ht(e, n.id));
+      n.teardown?.(qe(e, n.id));
     } : void 0
   };
 }
-function et(n) {
+function ie(n) {
   n.depthTest = !1, n.depthWrite = !1, n.transparent = !0, n.polygonOffset = !0, n.polygonOffsetFactor = -2, n.polygonOffsetUnits = -2, n.forceSinglePass = !0;
 }
-const pe = 6, So = 0.6;
+const $ = 6, Ss = 0.6;
+function q(n) {
+  return n * Ss;
+}
+function _s(n) {
+  return q(n.size === "big" ? 150 : 92);
+}
+function rt(n) {
+  return q(n.size === "big" ? 104 : 46);
+}
+function Ps(n) {
+  return q(n.size === "big" ? 34 : 14);
+}
+function Yi(n) {
+  return $ + Ps(n) + rt(n);
+}
 function Se(n) {
-  return n * So;
+  return n.size === "big" ? Yi(n) : $ + q(1.2);
 }
-function Po(n) {
-  return Se(n.size === "big" ? 150 : 92);
+function qi(n) {
+  return n.size === "big" ? Yi(n) : $ + q(0.8);
 }
-function fa(n) {
-  return Se(n.size === "big" ? 155 : 46);
+function Es(n) {
+  return n.size === "big" ? 13206784 : 16765209;
 }
-function Eo(n) {
-  return Se(n.size === "big" ? 34 : 14);
+function Ht(n, e) {
+  n.traverse((t) => {
+    const i = t;
+    if (!i.isMesh || !(i.material instanceof h.MeshBasicMaterial))
+      return;
+    const a = i.userData.baseOpacity;
+    i.material.opacity = (a ?? i.material.opacity) * e;
+  });
 }
-function ga(n) {
-  return pe + Eo(n) + fa(n);
+function Is(n) {
+  const e = new h.Group();
+  e.renderOrder = 18, e.frustumCulled = !1;
+  const t = new h.MeshBasicMaterial({
+    color: 1118477,
+    transparent: !0,
+    opacity: 0.86,
+    side: h.DoubleSide,
+    depthWrite: !1
+  });
+  ie(t);
+  const i = new h.MeshBasicMaterial({
+    color: 16752640,
+    transparent: !0,
+    opacity: 0.86,
+    side: h.DoubleSide,
+    blending: h.AdditiveBlending,
+    depthWrite: !1
+  });
+  ie(i);
+  const a = new h.Mesh(new h.CircleGeometry(n * 0.55, 48), t.clone());
+  a.userData.baseOpacity = t.opacity, a.position.z = $ - 2.2, a.renderOrder = 18, a.frustumCulled = !1, e.add(a);
+  const o = new h.Mesh(
+    new h.RingGeometry(n * 0.45, n * 0.62, 48),
+    new h.MeshBasicMaterial({
+      color: 16765242,
+      transparent: !0,
+      opacity: 0.78,
+      side: h.DoubleSide,
+      blending: h.AdditiveBlending,
+      depthWrite: !1
+    })
+  );
+  ie(o.material), o.userData.baseOpacity = o.material.opacity, o.position.z = $ - 1.1, o.renderOrder = 20, o.frustumCulled = !1, e.add(o);
+  function s(r, c, l) {
+    const d = new h.Shape();
+    return [
+      [r * Math.cos(-l * 0.72), r * Math.sin(-l * 0.72)],
+      [c * Math.cos(-l), c * Math.sin(-l)],
+      [c * Math.cos(l), c * Math.sin(l)],
+      [r * Math.cos(l * 0.72), r * Math.sin(l * 0.72)]
+    ].forEach(([u, p], f) => {
+      f === 0 ? d.moveTo(u, p) : d.lineTo(u, p);
+    }), d.closePath(), d;
+  }
+  for (let r = 0; r < 3; r += 1) {
+    const c = r * (Math.PI * 2) / 3 + Math.PI / 2, l = new h.Mesh(
+      new h.ShapeGeometry(s(n * 0.52, n * 1.42, 0.33)),
+      t.clone()
+    );
+    l.userData.baseOpacity = t.opacity, l.position.z = $ - 2, l.rotation.z = c, l.renderOrder = 18, l.frustumCulled = !1, e.add(l);
+    const d = new h.Mesh(
+      new h.ShapeGeometry(s(n * 0.66, n * 1.2, 0.21)),
+      i.clone()
+    );
+    d.userData.baseOpacity = i.opacity, d.position.z = $ - 0.8, d.rotation.z = c, d.renderOrder = 19, d.frustumCulled = !1, e.add(d);
+  }
+  return e;
 }
-function ya(n) {
-  return n.size === "big" ? ga(n) : pe + Se(1.2);
-}
-function ba(n) {
-  return n.size === "big" ? ga(n) : pe + Se(0.8);
-}
-function _o(n) {
-  return n.size === "big" ? 16096779 : 16436245;
-}
-function Io(n) {
-  const e = Po(n), t = _o(n), i = fa(n), a = n.size === "big", s = new l.Group();
+function As(n, e) {
+  const t = _s(n), i = Es(n), a = rt(n), o = n.size === "big", s = new h.Group();
   s.position.set(n.position.x, n.position.y, n.position.z), s.renderOrder = 20, s.frustumCulled = !1;
-  const o = new l.Mesh(
-    new l.RingGeometry(e * 0.72, e, 24),
-    new l.MeshBasicMaterial({
-      color: t,
+  const r = o ? Is(t) : new h.Group();
+  o && s.add(r);
+  const c = new h.Mesh(
+    new h.RingGeometry(t * (o ? 0.62 : 0.72), t * (o ? 0.82 : 1), 32),
+    new h.MeshBasicMaterial({
+      color: o ? 16765239 : i,
       transparent: !0,
-      opacity: 0.92,
-      side: l.DoubleSide,
+      opacity: o ? 0.82 : 0.92,
+      side: h.DoubleSide,
+      blending: o ? h.AdditiveBlending : h.NormalBlending,
       depthWrite: !1
     })
   );
-  et(o.material), o.position.z = pe, o.renderOrder = 20, o.frustumCulled = !1, s.add(o);
-  const r = new l.Mesh(
-    new l.CircleGeometry(e * 0.58, 24),
-    new l.MeshBasicMaterial({
-      color: t,
+  ie(c.material), c.position.z = $, c.renderOrder = 20, c.frustumCulled = !1, s.add(c);
+  const l = new h.Mesh(
+    new h.CircleGeometry(t * (o ? 0.54 : 0.58), 32),
+    new h.MeshBasicMaterial({
+      color: o ? 16754176 : i,
       transparent: !0,
-      opacity: 0.3,
-      side: l.DoubleSide,
+      opacity: o ? 0.46 : 0.3,
+      side: h.DoubleSide,
+      blending: o ? h.AdditiveBlending : h.NormalBlending,
       depthWrite: !1
     })
   );
-  et(r.material), r.position.z = pe + 0.5, r.renderOrder = 21, r.frustumCulled = !1, s.add(r);
-  const c = new l.Mesh(
-    new l.CircleGeometry(e * 0.42, 20),
-    new l.MeshBasicMaterial({
+  ie(l.material), l.position.z = $ + 0.5, l.renderOrder = 21, l.frustumCulled = !1, s.add(l);
+  const d = new h.Mesh(
+    new h.CircleGeometry(t * 0.42, 20),
+    new h.MeshBasicMaterial({
       color: 16777215,
       transparent: !0,
       opacity: 0.22,
-      side: l.DoubleSide,
+      side: h.DoubleSide,
       depthWrite: !1
     })
   );
-  et(c.material), c.position.z = pe + 1, c.renderOrder = 22, c.frustumCulled = !1, s.add(c);
-  const h = new l.Mesh(
-    a ? new l.SphereGeometry(i, 32, 18) : new l.CircleGeometry(i * 0.9, 24),
-    a ? new l.MeshPhongMaterial({
-      color: t,
-      emissive: new l.Color(t),
-      emissiveIntensity: 0.6,
-      shininess: 88,
-      specular: new l.Color(16773826),
+  ie(d.material), d.position.z = $ + 1, d.renderOrder = 22, d.frustumCulled = !1, s.add(d);
+  const m = new h.Mesh(
+    o ? new h.SphereGeometry(a, 32, 18) : new h.SphereGeometry(a * 1.22, 32, 12),
+    o ? new h.MeshPhysicalMaterial({
+      color: 16757274,
+      emissive: new h.Color(16747008),
+      emissiveIntensity: 0.42,
+      metalness: 0.04,
+      roughness: 0.08,
+      clearcoat: 1,
+      clearcoatRoughness: 0.025,
+      transmission: 0.18,
+      thickness: q(48),
+      ior: 1.42,
+      envMap: e.reflectionMap,
+      envMapIntensity: 1.9,
       transparent: !0,
-      opacity: 0.92,
-      depthWrite: !1
-    }) : new l.MeshBasicMaterial({
-      color: t,
+      opacity: 0.68,
+      depthWrite: !1,
+      blending: h.AdditiveBlending
+    }) : new h.MeshPhysicalMaterial({
+      color: i,
+      emissive: new h.Color(16751872),
+      emissiveIntensity: 0.72,
+      metalness: 0.88,
+      roughness: 0.14,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+      envMap: e.reflectionMap,
+      envMapIntensity: 2,
       transparent: !0,
-      opacity: 0.88,
-      side: l.DoubleSide,
-      blending: l.AdditiveBlending,
+      opacity: 0.96,
       depthWrite: !1
     })
   );
-  h.position.z = ya(n), h.renderOrder = 23, h.frustumCulled = !1, s.add(h);
-  const d = new l.Mesh(
-    a ? new l.SphereGeometry(i * 1.36, 32, 14) : new l.CircleGeometry(i * 1.35, 28),
-    new l.MeshBasicMaterial({
-      color: t,
+  m.position.z = Se(n), o || (m.scale.z = 0.18), m.renderOrder = 23, m.frustumCulled = !1, s.add(m);
+  const u = new h.Mesh(
+    o ? new h.CylinderGeometry(t * 0.07, t * 0.11, a * 2.04, 24, 1, !0) : new h.CylinderGeometry(
+      a * 0.72,
+      a * 1.12,
+      a * 0.42,
+      24,
+      1,
+      !0
+    ),
+    new h.MeshBasicMaterial({
+      color: o ? 16761664 : 16766538,
       transparent: !0,
-      opacity: a ? 0.2 : 0.16,
-      side: l.DoubleSide,
-      blending: l.AdditiveBlending,
+      opacity: o ? 0.28 : 0.12,
+      side: h.DoubleSide,
+      blending: h.AdditiveBlending,
       depthWrite: !1
     })
   );
-  return d.position.z = ba(n), d.renderOrder = 24, d.frustumCulled = !1, s.add(d), { group: s, ring: o, core: r, cooldown: c, orb: h, glow: d };
+  u.rotation.x = Math.PI / 2, u.position.z = o ? $ + q(58) : $ + q(7), u.renderOrder = 23, u.frustumCulled = !1, s.add(u);
+  const p = new h.Mesh(
+    new h.SphereGeometry(o ? a * 1.01 : a * 1.24, 32, 14),
+    new h.MeshBasicMaterial({
+      color: o ? 16768890 : i,
+      transparent: !0,
+      opacity: o ? 0.32 : 0.12,
+      side: h.BackSide,
+      blending: h.AdditiveBlending,
+      depthWrite: !1
+    })
+  );
+  p.position.z = Se(n), o || (p.scale.z = 0.18), p.renderOrder = 24, p.frustumCulled = !1, s.add(p);
+  const f = new h.Mesh(
+    new h.CircleGeometry(o ? a * 0.72 : a * 0.82, 24),
+    new h.MeshBasicMaterial({
+      color: o ? 16768898 : 16775119,
+      transparent: !0,
+      opacity: o ? 0.52 : 0.34,
+      side: h.DoubleSide,
+      blending: h.AdditiveBlending,
+      depthWrite: !1
+    })
+  );
+  ie(f.material), f.scale.y = o ? 0.36 : 0.44, f.position.set(
+    o ? -a * 0.16 : -a * 0.22,
+    o ? a * 0.1 : a * 0.12,
+    Se(n) + (o ? a * 0.5 : a * 0.16)
+  ), f.renderOrder = 25, f.frustumCulled = !1, s.add(f);
+  const g = new h.Mesh(
+    o ? new h.SphereGeometry(a * 1.28, 32, 14) : new h.CircleGeometry(a * 1.82, 32),
+    new h.MeshBasicMaterial({
+      color: i,
+      transparent: !0,
+      opacity: o ? 0.16 : 0.28,
+      side: h.DoubleSide,
+      blending: h.AdditiveBlending,
+      depthWrite: !1
+    })
+  );
+  return g.position.z = qi(n), g.renderOrder = 24, g.frustumCulled = !1, s.add(g), { group: s, base: r, ring: c, core: l, cooldown: d, orb: m, lensColumn: u, lensRim: p, sheen: f, glow: g };
 }
-function Ao(n, e) {
+function zs(n) {
+  const e = n.scene.scene.environment;
+  if (e instanceof h.Texture)
+    return {
+      reflectionMap: e,
+      dispose() {
+      }
+    };
+  const t = new h.PMREMGenerator(n.scene.renderer), i = t.fromScene(new li(), 0.04).texture;
+  return t.dispose(), {
+    reflectionMap: i,
+    dispose() {
+      i.dispose();
+    }
+  };
+}
+function Bs(n, e) {
   let t = -1;
-  for (let s = 0; s < n.events.length && !(n.events[s].time > e); s += 1)
-    t = s;
+  for (let o = 0; o < n.events.length && !(n.events[o].time > e); o += 1)
+    t = o;
   if (t < 0)
     return { available: !0, progress: 1 };
   const i = n.events[t];
   if (i.available)
     return { available: !0, progress: 1 };
-  const a = n.events.slice(t + 1).find((s) => s.available);
+  const a = n.events.slice(t + 1).find((o) => o.available);
   return !a || a.time <= i.time ? { available: !1, progress: 0 } : {
     available: !1,
-    progress: l.MathUtils.clamp(
+    progress: h.MathUtils.clamp(
       (e - i.time) / (a.time - i.time),
       0,
       1
     )
   };
 }
-function ko(n, e, t, i) {
-  const { available: a, progress: s } = Ao(e, t), o = e.size === "big", r = 0.92 + 0.08 * Math.sin(t * 6 + e.index * 0.45), c = 0.96 + 0.04 * Math.sin(t * (o ? 4.8 : 7.2) + e.index * 0.37), h = o ? Math.sin(t * 2.2 + e.index * 0.61) * 18 : 0, d = ya(e) + h, m = ba(e) + h;
-  if (n.orb.position.z = d, n.glow.position.z = m, n.orb.rotation.z = t * (o ? 0.9 : 1.25), n.glow.rotation.z = -t * 0.45, a) {
-    n.group.visible = !0, n.ring.material.opacity = 0.95, n.core.material.opacity = o ? 0.56 : 0.5, n.cooldown.visible = !1, n.ring.scale.setScalar(r), n.core.scale.setScalar(1), n.orb.visible = !0, n.glow.visible = !0, n.orb.material.opacity = o ? 0.96 : 0.9, n.glow.material.opacity = (o ? 0.2 : 0.16) + (c - 0.96), n.orb.scale.setScalar(c), n.glow.scale.setScalar(o ? 1.02 + (c - 0.96) * 2 : 1);
+function Ds(n, e, t, i) {
+  const { available: a, progress: o } = Bs(e, t), s = e.size === "big", r = 0.92 + 0.08 * Math.sin(t * 6 + e.index * 0.45), c = (s ? 0.98 : 0.96) + (s ? 0.025 : 0.04) * Math.sin(t * (s ? 4.8 : 7.2) + e.index * 0.37), l = s ? Math.sin(t * 2.2 + e.index * 0.61) * 10 : 0, d = Se(e) + l, m = qi(e) + l, u = rt(e);
+  if (n.orb.position.z = d, n.lensRim.position.z = d, n.sheen.position.z = d + (s ? u * 0.5 : u * 0.16), n.glow.position.z = m, n.orb.rotation.z = t * (s ? 0.9 : 1.25), n.lensRim.rotation.z = -t * (s ? 0.7 : 1.1), n.lensColumn.rotation.z = t * 0.18, n.sheen.rotation.z = t * (s ? -0.35 : -0.8), n.glow.rotation.z = -t * 0.45, a) {
+    n.group.visible = !0, Ht(n.base, 1), n.ring.material.opacity = s ? 0.82 : 0.95, n.core.material.opacity = s ? 0.48 : 0.5, n.cooldown.visible = !1, n.base.visible = s, n.base.scale.setScalar(1 + (r - 0.92) * 0.18), n.ring.scale.setScalar(s ? 1 + (r - 0.92) * 0.32 : r), n.core.scale.setScalar(1), n.orb.visible = !0, n.lensColumn.visible = !0, n.lensRim.visible = !0, n.sheen.visible = !0, n.glow.visible = !0, n.orb.material.opacity = s ? 0.68 : 0.98, n.lensColumn.material.opacity = (s ? 0.28 : 0.12) + (c - (s ? 0.98 : 0.96)) * 0.34, n.lensRim.material.opacity = (s ? 0.32 : 0.12) + (c - (s ? 0.98 : 0.96)) * 0.55, n.sheen.material.opacity = (s ? 0.52 : 0.34) + (c - (s ? 0.98 : 0.96)) * 0.7, n.glow.material.opacity = (s ? 0.16 : 0.28) + (c - (s ? 0.98 : 0.96)), n.orb.scale.setScalar(c), n.lensRim.scale.setScalar(1.01 + (c - (s ? 0.98 : 0.96)) * 1.7), n.lensColumn.scale.setScalar(1 + (c - (s ? 0.98 : 0.96)) * 1.2), s || (n.orb.scale.z = 0.18 * c, n.lensRim.scale.z = 0.18 * c), n.sheen.scale.setScalar(s ? 1.02 + (c - 0.96) : 1.06 + (c - 0.96)), n.sheen.scale.y *= s ? 0.36 : 0.44, n.glow.scale.setScalar(s ? 1.02 + (c - 0.96) * 2 : 1);
     return;
   }
-  if (n.group.visible = !0, n.ring.material.opacity = 0.18, n.core.material.opacity = 0.07, n.ring.scale.setScalar(1), n.core.scale.setScalar(1), n.orb.visible = !1, n.glow.visible = !1, n.cooldown.visible = i, i) {
-    const u = 0.3 + s * 0.7;
-    n.cooldown.scale.setScalar(u), n.cooldown.material.opacity = 0.16 + s * 0.2;
+  if (n.group.visible = !0, Ht(n.base, 0.26), n.ring.material.opacity = 0.18, n.core.material.opacity = 0.07, n.base.scale.setScalar(1), n.ring.scale.setScalar(1), n.core.scale.setScalar(1), n.orb.visible = !1, n.lensColumn.visible = !1, n.lensRim.visible = !1, n.sheen.visible = !1, n.glow.visible = !1, n.cooldown.visible = i, i) {
+    const p = 0.3 + o * 0.7;
+    n.cooldown.scale.setScalar(p), n.cooldown.material.opacity = 0.16 + o * 0.2;
   }
 }
-function kl(n = {}) {
+function pl(n = {}) {
   const e = n.showCooldownProgress ?? !0;
-  let t = null;
-  const i = /* @__PURE__ */ new Map();
-  function a(o) {
-    t = new l.Group(), t.name = "boost-pad-overlay", t.renderOrder = 20, t.frustumCulled = !1;
-    for (const r of o.replay.boostPads) {
-      const c = Io(r);
-      t.add(c.group), i.set(r.index, c);
+  let t = null, i = null;
+  const a = /* @__PURE__ */ new Map();
+  function o(r) {
+    t = new h.Group(), t.name = "boost-pad-overlay", t.renderOrder = 20, t.frustumCulled = !1, i = zs(r);
+    for (const c of r.replay.boostPads) {
+      const l = As(c, i);
+      t.add(l.group), a.set(c.index, l);
     }
-    o.scene.replayRoot.add(t);
+    r.scene.replayRoot.add(t);
   }
-  function s(o) {
-    for (const r of o.replay.boostPads) {
-      const c = i.get(r.index);
-      c && ko(c, r, o.state.currentTime, e);
+  function s(r) {
+    for (const c of r.replay.boostPads) {
+      const l = a.get(c.index);
+      l && Ds(l, c, r.state.currentTime, e);
     }
   }
   return {
     id: "boost-pad-overlay",
-    setup(o) {
-      a(o), s({
-        ...o,
-        state: o.player.getState()
+    setup(r) {
+      o(r), s({
+        ...r,
+        state: r.player.getState()
       });
     },
-    onStateChange(o) {
-      s(o);
+    onStateChange(r) {
+      s(r);
     },
     teardown() {
-      t?.removeFromParent(), t = null, i.clear();
+      t?.removeFromParent(), i?.dispose(), i = null, t = null, a.clear();
     }
   };
 }
-const zo = 1.35, Do = "#57a8ff", Bo = "#ff9c40", Fo = 256, Ro = 160, Oo = 360, Vo = 225, Lo = 260, No = 430, xa = 18, ai = 120;
-function Go(n) {
-  return n ? Do : Bo;
+const ks = 1.35, Fs = "#57a8ff", Rs = "#ff9c40", Os = 256, Ls = 160, Vs = 360, Ns = 225, Gs = 260, $s = 430, Zi = 18, Wt = 120;
+function Hs(n) {
+  return n ? Fs : Rs;
 }
-function Ho(n) {
+function Ws(n) {
   return n.events.filter((e) => !e.available && e.playerId);
 }
-function wa(n, e) {
+function Qi(n, e) {
   const t = document.createElement("canvas");
-  t.width = Fo, t.height = Ro;
+  t.width = Os, t.height = Ls;
   const i = t.getContext("2d");
   if (!i)
     throw new Error("Unable to create boost pickup count canvas");
   i.clearRect(0, 0, t.width, t.height), i.textAlign = "center", i.textBaseline = "middle", i.lineJoin = "round", i.font = "800 124px sans-serif", i.lineWidth = 18, i.strokeStyle = "rgba(4, 10, 18, 0.88)", i.strokeText(`${n}`, t.width / 2, t.height / 2), i.fillStyle = e, i.fillText(`${n}`, t.width / 2, t.height / 2);
-  const a = new l.CanvasTexture(t);
-  return a.colorSpace = l.SRGBColorSpace, a.needsUpdate = !0, a;
+  const a = new h.CanvasTexture(t);
+  return a.colorSpace = h.SRGBColorSpace, a.needsUpdate = !0, a;
 }
-function $o(n) {
+function Us(n) {
   n?.dispose();
 }
-function Wo(n) {
-  const e = new l.Group();
+function js(n) {
+  const e = new h.Group();
   e.visible = !1, e.renderOrder = 60, e.frustumCulled = !1;
-  const t = wa(1, n), i = new l.SpriteMaterial({
+  const t = Qi(1, n), i = new h.SpriteMaterial({
     map: t,
     transparent: !0,
     depthTest: !1,
     depthWrite: !1
-  }), a = new l.Sprite(i);
-  a.scale.set(Oo, Vo, 1), a.renderOrder = 62, a.frustumCulled = !1, e.add(a);
-  const s = new l.MeshBasicMaterial({
+  }), a = new h.Sprite(i);
+  a.scale.set(Vs, Ns, 1), a.renderOrder = 62, a.frustumCulled = !1, e.add(a);
+  const o = new h.MeshBasicMaterial({
     color: n,
     transparent: !0,
     opacity: 0,
-    side: l.DoubleSide,
+    side: h.DoubleSide,
     depthTest: !1,
     depthWrite: !1,
-    blending: l.AdditiveBlending
-  }), o = new l.Mesh(
-    new l.RingGeometry(ai * 0.72, ai, 36),
-    s
+    blending: h.AdditiveBlending
+  }), s = new h.Mesh(
+    new h.RingGeometry(Wt * 0.72, Wt, 36),
+    o
   );
-  return o.position.z = xa, o.renderOrder = 61, o.frustumCulled = !1, e.add(o), { group: e, textMaterial: i, ringMaterial: s };
+  return s.position.z = Zi, s.renderOrder = 61, s.frustumCulled = !1, e.add(s), { group: e, textMaterial: i, ringMaterial: o };
 }
-function Uo(n, e) {
-  n.currentCount !== e && ($o(n.textMaterial.map), n.textMaterial.map = wa(e, n.color), n.textMaterial.needsUpdate = !0, n.currentCount = e);
+function Ks(n, e) {
+  n.currentCount !== e && (Us(n.textMaterial.map), n.textMaterial.map = Qi(e, n.color), n.textMaterial.needsUpdate = !0, n.currentCount = e);
 }
-function Ko(n) {
+function Xs(n) {
   const e = /* @__PURE__ */ new Map();
   for (const a of n.replay.players)
     e.set(a.id, a);
   const t = [];
   for (const a of n.replay.boostPads)
-    for (const s of Ho(a))
-      t.push({ pad: a, event: s });
-  t.sort((a, s) => a.event.time !== s.event.time ? a.event.time - s.event.time : a.event.frame !== s.event.frame ? a.event.frame - s.event.frame : a.pad.index - s.pad.index);
+    for (const o of Ws(a))
+      t.push({ pad: a, event: o });
+  t.sort((a, o) => a.event.time !== o.event.time ? a.event.time - o.event.time : a.event.frame !== o.event.frame ? a.event.frame - o.event.frame : a.pad.index - o.pad.index);
   const i = [];
-  for (const { pad: a, event: s } of t) {
-    if (!s.playerId)
+  for (const { pad: a, event: o } of t) {
+    if (!o.playerId)
       continue;
-    const o = e.get(s.playerId);
-    if (!o)
+    const s = e.get(o.playerId);
+    if (!s)
       continue;
-    const r = Go(o.isTeamZero), { group: c, textMaterial: h, ringMaterial: d } = Wo(r);
+    const r = Hs(s.isTeamZero), { group: c, textMaterial: l, ringMaterial: d } = js(r);
     c.position.copy(a.position), n.scene.replayRoot.add(c), i.push({
-      time: s.time,
+      time: o.time,
       pad: a,
-      event: s,
-      player: o,
+      event: o,
+      player: s,
       color: r,
       currentCount: 1,
-      position: new l.Vector3(a.position.x, a.position.y, a.position.z),
+      position: new h.Vector3(a.position.x, a.position.y, a.position.z),
       size: a.size,
       group: c,
-      textMaterial: h,
+      textMaterial: l,
       ringMaterial: d
     });
   }
   return i;
 }
-function jo(n, e, t) {
-  const i = l.MathUtils.clamp(e / t, 0, 1), a = 1 - Math.pow(1 - i, 3), s = i * i, o = n.size === "big" ? No : Lo, r = n.size === "big" ? 360 : 280, c = 1 + Math.sin(i * Math.PI) * 0.22;
+function Ys(n, e, t) {
+  const i = h.MathUtils.clamp(e / t, 0, 1), a = 1 - Math.pow(1 - i, 3), o = i * i, s = n.size === "big" ? $s : Gs, r = n.size === "big" ? 360 : 280, c = 1 + Math.sin(i * Math.PI) * 0.22;
   n.group.visible = !0, n.group.position.set(
     n.position.x,
     n.position.y,
-    n.position.z + o + a * r
-  ), n.group.scale.setScalar(c), n.textMaterial.opacity = Math.max(0, 1 - s), n.ringMaterial.opacity = Math.max(0, 0.48 * (1 - i));
-  const h = n.group.children[1];
-  if (h) {
+    n.position.z + s + a * r
+  ), n.group.scale.setScalar(c), n.textMaterial.opacity = Math.max(0, 1 - o), n.ringMaterial.opacity = Math.max(0, 0.48 * (1 - i));
+  const l = n.group.children[1];
+  if (l) {
     const d = 0.75 + a * (n.size === "big" ? 2.8 : 1.85);
-    h.scale.setScalar(d), h.position.z = xa - o - a * r;
+    l.scale.setScalar(d), l.position.z = Zi - s - a * r;
   }
 }
-function zl(n = {}) {
-  const e = Math.max(0.1, n.durationSeconds ?? zo);
+function fl(n = {}) {
+  const e = Math.max(0.1, n.durationSeconds ?? ks);
   let t = [];
-  function i(s) {
+  function i(o) {
     return n.includePickup?.({
-      pad: s.pad,
-      event: s.event,
-      player: s.player
+      pad: o.pad,
+      event: o.event,
+      player: o.player
     }) ?? !0;
   }
   function a() {
-    for (const s of t)
-      s.group.visible = !1;
+    for (const o of t)
+      o.group.visible = !1;
   }
   return {
     id: "boost-pickup-animation",
-    setup(s) {
-      t = Ko(s);
+    setup(o) {
+      t = Xs(o);
     },
-    beforeRender(s) {
-      if (!s.state.boostPickupAnimationEnabled) {
+    beforeRender(o) {
+      if (!o.state.boostPickupAnimationEnabled) {
         a();
         return;
       }
-      const o = s.currentTime - e, r = /* @__PURE__ */ new Map();
+      const s = o.currentTime - e, r = /* @__PURE__ */ new Map();
       for (const c of t) {
-        if (c.time > s.currentTime) {
+        if (c.time > o.currentTime) {
           c.group.visible = !1;
           continue;
         }
@@ -9252,128 +9687,128 @@ function zl(n = {}) {
           c.group.visible = !1;
           continue;
         }
-        const h = (r.get(c.player.id) ?? 0) + 1;
-        if (r.set(c.player.id, h), c.time < o) {
+        const l = (r.get(c.player.id) ?? 0) + 1;
+        if (r.set(c.player.id, l), c.time < s) {
           c.group.visible = !1;
           continue;
         }
-        Uo(c, h), jo(c, s.currentTime - c.time, e);
+        Ks(c, l), Ys(c, o.currentTime - c.time, e);
       }
     },
     teardown() {
-      for (const s of t)
-        s.group.removeFromParent(), s.group.traverse((o) => {
-          (o instanceof l.Mesh || o instanceof l.Sprite) && o.geometry?.dispose();
-        }), s.textMaterial.map?.dispose(), s.textMaterial.dispose(), s.ringMaterial.dispose();
+      for (const o of t)
+        o.group.removeFromParent(), o.group.traverse((s) => {
+          (s instanceof h.Mesh || s instanceof h.Sprite) && s.geometry?.dispose();
+        }), o.textMaterial.map?.dispose(), o.textMaterial.dispose(), o.ringMaterial.dispose();
       t = [];
     }
   };
 }
-const Xo = 60, qo = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
-function Yo(n) {
+const qs = 60, Zs = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+function Qs(n) {
   if (n && MediaRecorder.isTypeSupported(n))
     return n;
-  for (const e of qo)
+  for (const e of Zs)
     if (MediaRecorder.isTypeSupported(e))
       return e;
   return "";
 }
-function Zo(n) {
+function Js(n) {
   return n instanceof Error ? n.message : String(n);
 }
-function Dl(n = {}) {
-  let e = null, t = null, i = [], a = null, s = 0, o = 0, r = "", c = 0, h = null, d = null, m = null, u = null, p = !1, g = null;
-  const f = /* @__PURE__ */ new Set();
+function gl(n = {}) {
+  let e = null, t = null, i = [], a = null, o = 0, s = 0, r = "", c = 0, l = null, d = null, m = null, u = null, p = !1, f = null;
+  const g = /* @__PURE__ */ new Set();
   function y() {
     return {
-      state: t ? t.state === "recording" ? "recording" : "stopping" : h ? "error" : a ? "ready" : "idle",
-      elapsedSeconds: o,
+      state: t ? t.state === "recording" ? "recording" : "stopping" : l ? "error" : a ? "ready" : "idle",
+      elapsedSeconds: s,
       mimeType: r,
       sizeBytes: c,
-      error: h
+      error: l
     };
   }
-  function b() {
-    const M = y();
-    n.onStatusChange?.(M);
-    for (const _ of f)
-      _(M);
+  function x() {
+    const w = y();
+    n.onStatusChange?.(w);
+    for (const S of g)
+      S(w);
   }
-  function w() {
+  function v() {
     if (!e)
       throw new Error("Canvas recorder plugin is not installed");
     return e;
   }
-  function x(M) {
-    t = null, u = null, p = !1, a = M, c = M?.size ?? 0, g && e && e.player.setState({
-      currentTime: g.currentTime,
-      speed: g.speed,
-      playing: g.playing
-    }), g = null, M && n.onComplete?.(M), b(), m?.(M), m = null, d = null;
+  function b(w) {
+    t = null, u = null, p = !1, a = w, c = w?.size ?? 0, f && e && e.player.setState({
+      currentTime: f.currentTime,
+      speed: f.speed,
+      playing: f.playing
+    }), f = null, w && n.onComplete?.(w), x(), m?.(w), m = null, d = null;
   }
-  function v(M) {
-    h = Zo(M), t = null, u = null, p = !1, g = null, b(), m?.(null), m = null, d = null;
+  function M(w) {
+    l = Js(w), t = null, u = null, p = !1, f = null, x(), m?.(null), m = null, d = null;
   }
-  const T = {
+  const C = {
     id: "canvas-recorder",
-    setup(M) {
-      e = M;
+    setup(w) {
+      e = w;
     },
-    beforeRender(M) {
-      t?.state === "recording" && (o = (performance.now() - s) / 1e3, b()), t?.state === "recording" && u !== null && M.currentTime >= u && T.stop();
+    beforeRender(w) {
+      t?.state === "recording" && (s = (performance.now() - o) / 1e3, x()), t?.state === "recording" && u !== null && w.currentTime >= u && C.stop();
     },
-    onStateChange(M) {
-      p && t?.state === "recording" && !M.state.playing && o > 0 && T.stop();
+    onStateChange(w) {
+      p && t?.state === "recording" && !w.state.playing && s > 0 && C.stop();
     },
     teardown() {
-      t?.state === "recording" && t.stop(), e = null, t = null, u = null, p = !1, g = null, m?.(null), m = null, d = null, f.clear();
+      t?.state === "recording" && t.stop(), e = null, t = null, u = null, p = !1, f = null, m?.(null), m = null, d = null, g.clear();
     },
-    start(M = {}) {
-      const _ = w();
+    start(w = {}) {
+      const S = v();
       if (t?.state === "recording")
         throw new Error("Canvas recording is already in progress");
       if (typeof MediaRecorder > "u")
         throw new Error("MediaRecorder is not available in this browser");
-      const D = _.scene.renderer.domElement;
-      if (!D.captureStream)
+      const E = S.scene.renderer.domElement;
+      if (!E.captureStream)
         throw new Error("Canvas captureStream is not available in this browser");
-      h = null, a = null, i = [], c = 0, o = 0, s = performance.now(), r = Yo(M.mimeType ?? n.mimeType);
-      const F = Math.max(1, M.fps ?? n.fps ?? Xo), S = D.captureStream(F);
-      t = new MediaRecorder(S, {
+      l = null, a = null, i = [], c = 0, s = 0, o = performance.now(), r = Qs(w.mimeType ?? n.mimeType);
+      const B = Math.max(1, w.fps ?? n.fps ?? qs), z = E.captureStream(B);
+      t = new MediaRecorder(z, {
         mimeType: r,
-        videoBitsPerSecond: M.videoBitsPerSecond ?? n.videoBitsPerSecond
-      }), d = new Promise((I) => {
-        m = I;
-      }), t.addEventListener("dataavailable", (I) => {
-        I.data.size > 0 && (i.push(I.data), c += I.data.size, b());
+        videoBitsPerSecond: w.videoBitsPerSecond ?? n.videoBitsPerSecond
+      }), d = new Promise((k) => {
+        m = k;
+      }), t.addEventListener("dataavailable", (k) => {
+        k.data.size > 0 && (i.push(k.data), c += k.data.size, x());
       }), t.addEventListener(
         "stop",
         () => {
-          S.getTracks().forEach((I) => I.stop()), x(new Blob(i, { type: r || "video/webm" }));
+          z.getTracks().forEach((k) => k.stop()), b(new Blob(i, { type: r || "video/webm" }));
         },
         { once: !0 }
       ), t.addEventListener(
         "error",
-        (I) => {
-          S.getTracks().forEach((V) => V.stop()), v(I.error ?? I);
+        (k) => {
+          z.getTracks().forEach((L) => L.stop()), M(k.error ?? k);
         },
         { once: !0 }
-      ), t.start(1e3), b();
+      ), t.start(1e3), x();
     },
     stop() {
       if (!t)
         return Promise.resolve(a);
       if (t.state === "inactive")
         return d ?? Promise.resolve(a);
-      const M = d ?? new Promise((_) => {
-        m = _;
+      const w = d ?? new Promise((S) => {
+        m = S;
       });
-      return t.stop(), b(), M;
+      return t.stop(), x(), w;
     },
     clear() {
       if (t?.state === "recording")
         throw new Error("Cannot clear a recording while recording is in progress");
-      a = null, i = [], c = 0, o = 0, h = null, b();
+      a = null, i = [], c = 0, s = 0, l = null, x();
     },
     getRecording() {
       return a;
@@ -9381,43 +9816,43 @@ function Dl(n = {}) {
     getStatus() {
       return y();
     },
-    subscribe(M) {
-      return f.add(M), M(y()), () => {
-        f.delete(M);
+    subscribe(w) {
+      return g.add(w), w(y()), () => {
+        g.delete(w);
       };
     },
-    recordRange(M = {}) {
-      const _ = w(), D = _.player.getState();
-      (M.restorePlaybackState ?? !0) && (g = D);
-      const F = M.playbackRate ?? D.speed, S = M.startTime ?? D.currentTime;
-      u = M.endTime ?? D.duration, p = !0, _.player.setState({
-        currentTime: S,
-        speed: F,
+    recordRange(w = {}) {
+      const S = v(), E = S.player.getState();
+      (w.restorePlaybackState ?? !0) && (f = E);
+      const B = w.playbackRate ?? E.speed, z = w.startTime ?? E.currentTime;
+      u = w.endTime ?? E.duration, p = !0, S.player.setState({
+        currentTime: z,
+        speed: B,
         playing: !1
-      }), T.start(M);
-      const I = d;
-      return _.player.play(), (I ?? Promise.resolve(null)).then((V) => {
-        if (!V)
+      }), C.start(w);
+      const k = d;
+      return S.player.play(), (k ?? Promise.resolve(null)).then((L) => {
+        if (!L)
           throw new Error("Recording stopped without producing a video");
-        return V;
+        return L;
       });
     },
-    recordFullReplay(M = {}) {
-      return T.recordRange({
-        ...M,
-        startTime: M.startTime ?? 0,
-        endTime: M.endTime ?? w().replay.duration
+    recordFullReplay(w = {}) {
+      return C.recordRange({
+        ...w,
+        startTime: w.startTime ?? 0,
+        endTime: w.endTime ?? v().replay.duration
       });
     }
   };
-  return T;
+  return C;
 }
-const ni = "subtr-actor-timeline-overlay-styles";
-function Qo() {
-  if (document.getElementById(ni))
+const Ut = "subtr-actor-timeline-overlay-styles";
+function er() {
+  if (document.getElementById(Ut))
     return;
   const n = document.createElement("style");
-  n.id = ni, n.textContent = `
+  n.id = Ut, n.textContent = `
     .sap-tl-root {
       position: absolute;
       inset: 0;
@@ -9892,14 +10327,14 @@ function Qo() {
     }
   `, document.head.append(n);
 }
-const Jo = /* @__PURE__ */ new Set(["goal", "save", "bookmark"]), er = 0.2, tt = 60, tr = 2, ir = 4, ar = 0.01, si = 0.01;
-function dt(n) {
+const tr = /* @__PURE__ */ new Set(["goal", "save", "bookmark"]), ir = 0.2, je = 60, ar = 2, nr = 4, or = 0.01, jt = 0.01;
+function Ze(n) {
   if (!Number.isFinite(n))
     return "--:--.--";
   const e = Math.max(0, n), t = Math.floor(e / 60), i = Math.floor(e % 60), a = Math.floor((e - Math.floor(e)) * 100);
   return `${t}:${String(i).padStart(2, "0")}.${String(a).padStart(2, "0")}`;
 }
-function oi(n) {
+function Kt(n) {
   switch (n.kind) {
     case "goal":
       return 5;
@@ -9916,20 +10351,20 @@ function oi(n) {
       return 0;
   }
 }
-function nr(n) {
+function sr(n) {
   switch (n.kind) {
     case "goal":
     case "goal-context":
     case "goal-tag":
-      return ir;
+      return nr;
     default:
-      return tr;
+      return ar;
   }
 }
-function sr(n) {
-  return n.seekTime !== void 0 && Number.isFinite(n.seekTime) ? Math.max(0, n.seekTime) : Number.isFinite(n.time) ? Math.max(0, n.time - nr(n)) : 0;
+function rr(n) {
+  return n.seekTime !== void 0 && Number.isFinite(n.seekTime) ? Math.max(0, n.seekTime) : Number.isFinite(n.time) ? Math.max(0, n.time - sr(n)) : 0;
 }
-function or(n) {
+function lr(n) {
   if (n.color)
     return n.color;
   if (n.isTeamZero === !0)
@@ -9953,23 +10388,23 @@ function or(n) {
       return "#d1d9e0";
   }
 }
-function rr(n) {
+function cr(n) {
   if (n.events.length > 1)
     return `${n.events.length}`;
   const e = n.events[0];
   return e ? e.shortLabel && e.shortLabel.trim() !== "" ? e.shortLabel.slice(0, 3).toUpperCase() : e.kind.slice(0, 1).toUpperCase() : "";
 }
-function mt(n) {
+function Qe(n) {
   return [...n].sort((e, t) => {
-    const i = oi(t) - oi(e);
+    const i = Kt(t) - Kt(e);
     return i !== 0 ? i : e.time - t.time;
   });
 }
-function lr(n) {
-  return n.events.map((e) => `${dt(e.time)} ${e.label ?? e.kind}`).join(`
+function hr(n) {
+  return n.events.map((e) => `${Ze(e.time)} ${e.label ?? e.kind}`).join(`
 `);
 }
-function va(n) {
+function Ji(n) {
   const e = /* @__PURE__ */ new Map();
   for (const t of n) {
     const i = t.frame !== void 0 ? `frame:${t.frame}` : `time:${t.time.toFixed(2)}`, a = e.get(i);
@@ -9985,11 +10420,11 @@ function va(n) {
   }
   return [...e.values()].map((t) => ({
     ...t,
-    events: mt(t.events)
+    events: Qe(t.events)
   })).sort((t, i) => t.time - i.time);
 }
-function ri(n) {
-  if (n.length <= tt)
+function Xt(n) {
+  if (n.length <= je)
     return n;
   const e = n[0]?.time ?? 0, i = (n[n.length - 1]?.time ?? e) - e;
   if (i <= 0)
@@ -9997,68 +10432,68 @@ function ri(n) {
       {
         key: "compact:0",
         time: e,
-        events: mt(n.flatMap((o) => o.events))
+        events: Qe(n.flatMap((s) => s.events))
       }
     ];
-  const a = i / tt, s = /* @__PURE__ */ new Map();
-  for (const o of n) {
+  const a = i / je, o = /* @__PURE__ */ new Map();
+  for (const s of n) {
     const r = Math.min(
-      tt - 1,
-      Math.max(0, Math.floor((o.time - e) / a))
-    ), c = s.get(r);
+      je - 1,
+      Math.max(0, Math.floor((s.time - e) / a))
+    ), c = o.get(r);
     if (c) {
-      c.events.push(...o.events);
+      c.events.push(...s.events);
       continue;
     }
-    s.set(r, {
+    o.set(r, {
       key: `compact:${r}`,
-      time: o.time,
-      events: [...o.events]
+      time: s.time,
+      events: [...s.events]
     });
   }
-  return [...s.values()].map((o) => ({
-    ...o,
-    events: mt(o.events)
-  })).sort((o, r) => o.time - r.time);
+  return [...o.values()].map((s) => ({
+    ...s,
+    events: Qe(s.events)
+  })).sort((s, r) => s.time - r.time);
 }
-function Ma(n, e) {
+function ea(n, e) {
   return n ? typeof n == "function" ? n(e) : n : [];
 }
-function cr(n, e) {
+function dr(n, e) {
   const t = [];
   for (const i of n) {
-    const a = Ma(i.source, e);
+    const a = ea(i.source, e);
     a.length !== 0 && t.push({
       key: i.key,
       label: i.label,
-      buckets: va(a)
+      buckets: Ji(a)
     });
   }
   return t;
 }
-function hr(n, e) {
+function mr(n, e) {
   return n ? typeof n == "function" ? n(e) : n : [];
 }
-function dr(n, e) {
+function ur(n, e) {
   const t = /* @__PURE__ */ new Set(), i = [];
   for (const a of n)
-    for (const s of hr(a, e)) {
-      const o = s.id;
-      if (o !== void 0) {
-        if (t.has(o))
+    for (const o of mr(a, e)) {
+      const s = o.id;
+      if (s !== void 0) {
+        if (t.has(s))
           continue;
-        t.add(o);
+        t.add(s);
       }
-      i.push(s);
+      i.push(o);
     }
   return i;
 }
-function mr(n) {
+function pr(n) {
   const e = /* @__PURE__ */ new Map();
   for (const t of n) {
-    const i = t.lane ?? "default", a = t.laneLabel ?? t.lane ?? "", s = e.get(i);
-    if (s) {
-      s.ranges.push(t);
+    const i = t.lane ?? "default", a = t.laneLabel ?? t.lane ?? "", o = e.get(i);
+    if (o) {
+      o.ranges.push(t);
       continue;
     }
     e.set(i, {
@@ -10072,38 +10507,38 @@ function mr(n) {
     ranges: [...t.ranges].sort((i, a) => i.startTime - a.startTime)
   }));
 }
-function ur(n) {
+function fr(n) {
   return n.color ? n.color : n.isTeamZero === !0 ? "#3b82f6" : n.isTeamZero === !1 ? "#f59e0b" : "#d1d9e0";
 }
-function pr(n, e) {
+function gr(n, e) {
   if (n.replayEvents)
-    return Ma(n.replayEvents, e);
+    return ea(n.replayEvents, e);
   if (n.includeReplayEvents === !1)
     return [];
-  const t = new Set(n.replayEventKinds ?? Jo);
+  const t = new Set(n.replayEventKinds ?? tr);
   return e.replay.timelineEvents.filter((i) => t.has(i.kind));
 }
-function fr(n, e) {
-  const t = e.player.projectReplayTimeToTimeline(sr(n));
+function yr(n, e) {
+  const t = e.player.projectReplayTimeToTimeline(rr(n));
   if (!t.hiddenBySkip)
     return t.seekTime;
   const i = Math.min(
     e.player.getTimelineDuration(),
-    t.timelineTime + ar
+    t.timelineTime + or
   );
   return e.player.projectTimelineTimeToReplay(i);
 }
-function De(n, e) {
+function Me(n, e) {
   return `${n / Math.max(e, 1e-4) * 100}%`;
 }
-function gr(n, e, t) {
+function br(n, e, t) {
   let i = n.timelineTime, a = e.timelineTime;
-  return a <= i && (n.hiddenBySkip || e.hiddenBySkip) && (i >= t ? (i = Math.max(0, t - si), a = t) : a = Math.min(
+  return a <= i && (n.hiddenBySkip || e.hiddenBySkip) && (i >= t ? (i = Math.max(0, t - jt), a = t) : a = Math.min(
     t,
-    i + si
+    i + jt
   )), { startTimelineTime: i, endTimelineTime: a };
 }
-function Bl(n = {}) {
+function yl(n = {}) {
   const e = n.pauseWhileScrubbing ?? !0;
   let t = 0;
   const i = n.events ? [
@@ -10113,283 +10548,283 @@ function Bl(n = {}) {
       source: n.events
     }
   ] : [], a = n.ranges ? [n.ranges] : [];
-  let s = null, o = null, r = null, c = null, h = null, d = null, m = null, u = null, p = null, g = null, f = null, y = null, b = !1, w = "", x = !1, v = !1, T = null, M = [], _ = [], D = null;
-  const F = /* @__PURE__ */ new Map(), S = [], I = [], V = [], L = [];
-  let G = 0, W = /* @__PURE__ */ new Set();
-  function K() {
-    T && ($(T), oe({
-      ...T,
-      state: T.player.getState()
+  let o = null, s = null, r = null, c = null, l = null, d = null, m = null, u = null, p = null, f = null, g = null, y = null, x = !1, v = "", b = !1, M = !1, C = null, w = [], S = [], E = null;
+  const B = /* @__PURE__ */ new Map(), z = [], k = [], L = [], H = [];
+  let W = 0, se = /* @__PURE__ */ new Set();
+  function Fe() {
+    C && (Oe(C), ge({
+      ...C,
+      state: C.player.getState()
     }));
   }
-  function j() {
-    T && (ce(T), oe({
-      ...T,
-      state: T.player.getState()
+  function Re() {
+    C && (Le(C), ge({
+      ...C,
+      state: C.player.getState()
     }));
   }
-  function oe(C) {
-    if (!c || !h || !d || !m || !u || !p || !o)
+  function ge(T) {
+    if (!c || !l || !d || !m || !u || !p || !s)
       return;
-    const E = C.player.getTimelineCurrentTime(), k = C.player.getTimelineDuration(), z = [
-      k.toFixed(4),
-      C.state.skipKickoffsEnabled ? "1" : "0",
-      C.state.skipPostGoalTransitionsEnabled ? "1" : "0"
+    const P = T.player.getTimelineCurrentTime(), D = T.player.getTimelineDuration(), A = [
+      D.toFixed(4),
+      T.state.skipKickoffsEnabled ? "1" : "0",
+      T.state.skipPostGoalTransitionsEnabled ? "1" : "0"
     ].join(":");
-    D !== z && ($(C), ce(C), D = z), c.min = "0", c.max = `${k}`, c.step = "0.01", c.value = `${Math.min(E, k)}`, h.dataset.playing = C.state.playing ? "true" : "false", h.setAttribute("aria-label", C.state.playing ? "Pause replay" : "Play replay"), h.title = C.state.playing ? "Pause replay" : "Play replay", d.textContent = C.state.playing ? "||" : ">", m.textContent = C.state.playing ? "Pause" : "Play", u.textContent = dt(E), p.textContent = `-${dt(k - E)}`, o.dataset.scrubbing = x ? "true" : "false", le(E);
-    for (const P of I) {
-      const B = Math.max(0, P.startTimelineTime), R = Math.min(k, P.endTimelineTime);
-      if (Math.max(0, R - B) <= 1e-4) {
-        P.element.hidden = !0;
+    E !== A && (Oe(T), Le(T), E = A), c.min = "0", c.max = `${D}`, c.step = "0.01", c.value = `${Math.min(P, D)}`, l.dataset.playing = T.state.playing ? "true" : "false", l.setAttribute("aria-label", T.state.playing ? "Pause replay" : "Play replay"), l.title = T.state.playing ? "Pause replay" : "Play replay", d.textContent = T.state.playing ? "||" : ">", m.textContent = T.state.playing ? "Pause" : "Play", u.textContent = Ze(P), p.textContent = `-${Ze(D - P)}`, s.dataset.scrubbing = b ? "true" : "false", ma(P);
+    for (const _ of k) {
+      const F = Math.max(0, _.startTimelineTime), R = Math.min(D, _.endTimelineTime);
+      if (Math.max(0, R - F) <= 1e-4) {
+        _.element.hidden = !0;
         continue;
       }
-      P.element.hidden = !1, P.element.dataset.active = E >= B && E <= R ? "true" : "false";
+      _.element.hidden = !1, _.element.dataset.active = P >= F && P <= R ? "true" : "false";
     }
-    const O = De(Math.min(E, k), k);
-    for (const P of L)
-      P.element.style.left = O;
-    for (const P of V)
-      P.element.style.left = O;
+    const O = Me(Math.min(P, D), D);
+    for (const _ of H)
+      _.element.style.left = O;
+    for (const _ of L)
+      _.element.style.left = O;
   }
-  function Ke(C) {
-    let E = 0, k = S.length;
-    for (; E < k; ) {
-      const z = Math.floor((E + k) / 2);
-      S[z].timelineTime <= C ? E = z + 1 : k = z;
+  function ha(T) {
+    let P = 0, D = z.length;
+    for (; P < D; ) {
+      const A = Math.floor((P + D) / 2);
+      z[A].timelineTime <= T ? P = A + 1 : D = A;
     }
-    return E;
+    return P;
   }
-  function Q(C) {
-    let E = 0, k = S.length;
-    for (; E < k; ) {
-      const z = Math.floor((E + k) / 2);
-      S[z].timelineTime < C ? E = z + 1 : k = z;
+  function da(T) {
+    let P = 0, D = z.length;
+    for (; P < D; ) {
+      const A = Math.floor((P + D) / 2);
+      z[A].timelineTime < T ? P = A + 1 : D = A;
     }
-    return E;
+    return P;
   }
-  function ye(C, E) {
-    C.active !== E && (C.active = E, C.element.dataset.active = E ? "true" : "false");
+  function ht(T, P) {
+    T.active !== P && (T.active = P, T.element.dataset.active = P ? "true" : "false");
   }
-  function re(C, E) {
-    C.passed !== E && (C.passed = E, C.element.dataset.passed = E ? "true" : "false");
+  function dt(T, P) {
+    T.passed !== P && (T.passed = P, T.element.dataset.passed = P ? "true" : "false");
   }
-  function le(C) {
-    if (S.length === 0)
+  function ma(T) {
+    if (z.length === 0)
       return;
-    const E = Ke(C);
-    if (E > G)
-      for (let P = G; P < E; P += 1)
-        re(S[P], !0);
-    else if (E < G)
-      for (let P = E; P < G; P += 1)
-        re(S[P], !1);
-    G = E;
-    const k = Q(C - er), z = E, O = /* @__PURE__ */ new Set();
-    for (let P = k; P < z; P += 1) {
-      const B = S[P];
-      O.add(B), ye(B, !0);
+    const P = ha(T);
+    if (P > W)
+      for (let _ = W; _ < P; _ += 1)
+        dt(z[_], !0);
+    else if (P < W)
+      for (let _ = P; _ < W; _ += 1)
+        dt(z[_], !1);
+    W = P;
+    const D = da(T - ir), A = P, O = /* @__PURE__ */ new Set();
+    for (let _ = D; _ < A; _ += 1) {
+      const F = z[_];
+      O.add(F), ht(F, !0);
     }
-    for (const P of W)
-      O.has(P) || ye(P, !1);
-    W = O;
+    for (const _ of se)
+      O.has(_) || ht(_, !1);
+    se = O;
   }
-  function be(C, E, k) {
-    const z = C.events[0];
-    if (!z)
+  function mt(T, P, D) {
+    const A = T.events[0];
+    if (!A)
       return null;
-    const O = E.player.projectReplayTimeToTimeline(C.time), P = document.createElement("button");
-    P.type = "button", P.className = "sap-tl-marker", P.style.left = De(O.timelineTime, k), P.style.color = or(z), P.title = lr(C), P.textContent = rr(C), P.addEventListener("click", () => {
-      E.player.seek(fr(z, E));
-    }), P.dataset.active = "false", P.dataset.passed = "false";
-    const B = {
-      element: P,
+    const O = P.player.projectReplayTimeToTimeline(T.time), _ = document.createElement("button");
+    _.type = "button", _.className = "sap-tl-marker", _.style.left = Me(O.timelineTime, D), _.style.color = lr(A), _.title = hr(T), _.textContent = cr(T), _.addEventListener("click", () => {
+      P.player.seek(yr(A, P));
+    }), _.dataset.active = "false", _.dataset.passed = "false";
+    const F = {
+      element: _,
       timelineTime: O.timelineTime,
       active: !1,
       passed: !1
     };
-    return F.set(C.key, B), S.push(B), P;
+    return B.set(T.key, F), z.push(F), _;
   }
-  function $(C) {
-    if (!f || !g)
+  function Oe(T) {
+    if (!g || !f)
       return;
-    f.replaceChildren(), g.replaceChildren(), F.clear(), S.splice(0, S.length), G = 0, W = /* @__PURE__ */ new Set(), L.splice(0, L.length);
-    const E = pr(n, C);
-    M = [], E.length > 0 && M.push({
+    g.replaceChildren(), f.replaceChildren(), B.clear(), z.splice(0, z.length), W = 0, se = /* @__PURE__ */ new Set(), H.splice(0, H.length);
+    const P = gr(n, T);
+    w = [], P.length > 0 && w.push({
       key: "replay",
       label: n.replayEventsLabel ?? "Replay",
-      buckets: va(E)
-    }), M.push(...cr(i, C));
-    const k = Math.max(C.player.getTimelineDuration(), 1e-4), z = M[0];
-    if (z?.key === "replay")
-      for (const P of ri(z.buckets)) {
-        const B = be(
-          { ...P, key: `${z.key}:${P.key}` },
-          C,
-          k
+      buckets: Ji(P)
+    }), w.push(...dr(i, T));
+    const D = Math.max(T.player.getTimelineDuration(), 1e-4), A = w[0];
+    if (A?.key === "replay")
+      for (const _ of Xt(A.buckets)) {
+        const F = mt(
+          { ..._, key: `${A.key}:${_.key}` },
+          T,
+          D
         );
-        B && f.append(B);
+        F && g.append(F);
       }
-    const O = M.filter((P) => P.key !== "replay");
-    g.hidden = O.length === 0;
-    for (const P of O) {
-      const B = document.createElement("div");
-      B.className = "sap-tl-event-lane", B.dataset.label = P.label;
+    const O = w.filter((_) => _.key !== "replay");
+    f.hidden = O.length === 0;
+    for (const _ of O) {
+      const F = document.createElement("div");
+      F.className = "sap-tl-event-lane", F.dataset.label = _.label;
       const R = document.createElement("span");
-      R.className = "sap-tl-event-lane-label", R.textContent = P.label, R.setAttribute("aria-label", P.label), B.append(R);
-      const N = document.createElement("div");
-      N.className = "sap-tl-event-lane-track";
-      const xe = document.createElement("div");
-      xe.className = "sap-tl-markers";
-      for (const we of ri(P.buckets)) {
-        const H = be(
-          { ...we, key: `${P.key}:${we.key}` },
-          C,
-          k
+      R.className = "sap-tl-event-lane-label", R.textContent = _.label, R.setAttribute("aria-label", _.label), F.append(R);
+      const V = document.createElement("div");
+      V.className = "sap-tl-event-lane-track";
+      const re = document.createElement("div");
+      re.className = "sap-tl-markers";
+      for (const le of Xt(_.buckets)) {
+        const N = mt(
+          { ...le, key: `${_.key}:${le.key}` },
+          T,
+          D
         );
-        H && xe.append(H);
+        N && re.append(N);
       }
-      const te = document.createElement("div");
-      te.className = "sap-tl-event-playhead", N.append(xe, te), L.push({ element: te }), B.append(N), g.append(B);
+      const Q = document.createElement("div");
+      Q.className = "sap-tl-event-playhead", V.append(re, Q), H.push({ element: Q }), F.append(V), f.append(F);
     }
-    S.sort((P, B) => P.timelineTime - B.timelineTime);
+    z.sort((_, F) => _.timelineTime - F.timelineTime);
   }
-  function ce(C) {
+  function Le(T) {
     if (!r)
       return;
-    r.replaceChildren(), I.splice(0, I.length), V.splice(0, V.length);
-    const E = dr(a, C).filter(
-      (z) => Number.isFinite(z.startTime) && Number.isFinite(z.endTime) && z.endTime > z.startTime
+    r.replaceChildren(), k.splice(0, k.length), L.splice(0, L.length);
+    const P = ur(a, T).filter(
+      (A) => Number.isFinite(A.startTime) && Number.isFinite(A.endTime) && A.endTime > A.startTime
     );
-    _ = mr(E);
-    const k = Math.max(C.player.getTimelineDuration(), 1e-4);
-    if (_.length === 0) {
+    S = pr(P);
+    const D = Math.max(T.player.getTimelineDuration(), 1e-4);
+    if (S.length === 0) {
       r.hidden = !0;
       return;
     }
     r.hidden = !1;
-    for (const z of _) {
+    for (const A of S) {
       const O = document.createElement("div");
       O.className = "sap-tl-range-lane";
-      const P = document.createElement("div");
-      if (P.className = "sap-tl-range-lane-track", z.label) {
-        O.dataset.label = z.label;
+      const _ = document.createElement("div");
+      if (_.className = "sap-tl-range-lane-track", A.label) {
+        O.dataset.label = A.label;
         const R = document.createElement("span");
-        R.className = "sap-tl-range-lane-label", R.textContent = z.label, R.setAttribute("aria-label", z.label), O.append(R);
+        R.className = "sap-tl-range-lane-label", R.textContent = A.label, R.setAttribute("aria-label", A.label), O.append(R);
       }
-      for (const R of z.ranges) {
-        const N = C.player.projectReplayTimeToTimeline(R.startTime), xe = C.player.projectReplayTimeToTimeline(R.endTime), { startTimelineTime: te, endTimelineTime: we } = gr(
-          N,
-          xe,
-          k
-        ), H = document.createElement("div");
-        H.className = "sap-tl-range-segment", R.className && H.classList.add(R.className), H.style.background = ur(R), H.title = R.label ?? z.label, H.dataset.active = "false", H.style.left = De(te, k), H.style.width = De(
-          Math.max(0, we - te),
-          k
-        ), P.append(H), I.push({
+      for (const R of A.ranges) {
+        const V = T.player.projectReplayTimeToTimeline(R.startTime), re = T.player.projectReplayTimeToTimeline(R.endTime), { startTimelineTime: Q, endTimelineTime: le } = br(
+          V,
+          re,
+          D
+        ), N = document.createElement("div");
+        N.className = "sap-tl-range-segment", R.className && N.classList.add(R.className), N.style.background = fr(R), N.title = R.label ?? A.label, N.dataset.active = "false", N.style.left = Me(Q, D), N.style.width = Me(
+          Math.max(0, le - Q),
+          D
+        ), _.append(N), k.push({
           range: R,
-          element: H,
-          startTimelineTime: te,
-          endTimelineTime: we
+          element: N,
+          startTimelineTime: Q,
+          endTimelineTime: le
         });
       }
-      const B = document.createElement("div");
-      B.className = "sap-tl-range-playhead", P.append(B), V.push({ element: B }), O.append(P), r.append(O);
+      const F = document.createElement("div");
+      F.className = "sap-tl-range-playhead", _.append(F), L.push({ element: F }), O.append(_), r.append(O);
     }
   }
-  function Pe() {
-    x && (x = !1, o?.setAttribute("data-scrubbing", "false"), v && T?.player.play(), v = !1);
+  function ut() {
+    b && (b = !1, s?.setAttribute("data-scrubbing", "false"), M && C?.player.play(), M = !1);
   }
-  function je() {
-    if (x || (x = !0, o?.setAttribute("data-scrubbing", "true"), !e))
+  function ua() {
+    if (b || (b = !0, s?.setAttribute("data-scrubbing", "true"), !e))
       return;
-    const C = T?.player;
-    C && (v = C.getState().playing, v && C.pause());
+    const T = C?.player;
+    T && (M = T.getState().playing, M && T.pause());
   }
   return {
     id: "timeline-overlay",
-    addEventSource(C, E = {}) {
+    addEventSource(T, P = {}) {
       return i.push({
-        key: E.id ?? `events:${t++}`,
-        label: E.label ?? "Events",
-        source: C
-      }), K(), () => {
-        this.removeEventSource(C);
+        key: P.id ?? `events:${t++}`,
+        label: P.label ?? "Events",
+        source: T
+      }), Fe(), () => {
+        this.removeEventSource(T);
       };
     },
-    removeEventSource(C) {
-      const E = i.findIndex((k) => k.source === C);
-      return E < 0 ? !1 : (i.splice(E, 1), K(), !0);
+    removeEventSource(T) {
+      const P = i.findIndex((D) => D.source === T);
+      return P < 0 ? !1 : (i.splice(P, 1), Fe(), !0);
     },
     refreshEvents() {
-      K();
+      Fe();
     },
-    addRangeSource(C) {
-      return a.push(C), j(), () => {
-        this.removeRangeSource(C);
+    addRangeSource(T) {
+      return a.push(T), Re(), () => {
+        this.removeRangeSource(T);
       };
     },
-    removeRangeSource(C) {
-      const E = a.indexOf(C);
-      return E < 0 ? !1 : (a.splice(E, 1), j(), !0);
+    removeRangeSource(T) {
+      const P = a.indexOf(T);
+      return P < 0 ? !1 : (a.splice(P, 1), Re(), !0);
     },
     refreshRanges() {
-      j();
+      Re();
     },
-    setup(C) {
-      T = C, Qo(), getComputedStyle(C.container).position === "static" && (b = !0, w = C.container.style.position, C.container.style.position = "relative"), s = document.createElement("div"), s.className = "sap-tl-root", o = document.createElement("div"), o.className = "sap-tl-shell", o.dataset.scrubbing = "false";
-      const E = document.createElement("div");
-      E.className = "sap-tl-topline";
-      const k = document.createElement("div");
-      k.className = "sap-tl-primary", h = document.createElement("button"), h.type = "button", h.className = "sap-tl-toggle sap-tl-track-toggle", d = document.createElement("span"), d.className = "sap-tl-toggle-icon", d.setAttribute("aria-hidden", "true"), d.textContent = ">", m = document.createElement("span"), m.className = "sap-tl-toggle-label", m.textContent = "Play", h.append(d, m), h.addEventListener("click", () => {
-        C.player.togglePlayback();
-      }), u = document.createElement("span"), u.className = "sap-tl-current", u.textContent = "0:00.00", p = document.createElement("span"), p.className = "sap-tl-remaining", p.textContent = "-0:00.00", k.append(u), E.append(k, p);
-      const z = document.createElement("div");
-      z.className = "sap-tl-track-wrap", r = document.createElement("div"), r.className = "sap-tl-ranges", r.hidden = !0, g = document.createElement("div"), g.className = "sap-tl-event-lanes", g.hidden = !0;
+    setup(T) {
+      C = T, er(), getComputedStyle(T.container).position === "static" && (x = !0, v = T.container.style.position, T.container.style.position = "relative"), o = document.createElement("div"), o.className = "sap-tl-root", s = document.createElement("div"), s.className = "sap-tl-shell", s.dataset.scrubbing = "false";
+      const P = document.createElement("div");
+      P.className = "sap-tl-topline";
+      const D = document.createElement("div");
+      D.className = "sap-tl-primary", l = document.createElement("button"), l.type = "button", l.className = "sap-tl-toggle sap-tl-track-toggle", d = document.createElement("span"), d.className = "sap-tl-toggle-icon", d.setAttribute("aria-hidden", "true"), d.textContent = ">", m = document.createElement("span"), m.className = "sap-tl-toggle-label", m.textContent = "Play", l.append(d, m), l.addEventListener("click", () => {
+        T.player.togglePlayback();
+      }), u = document.createElement("span"), u.className = "sap-tl-current", u.textContent = "0:00.00", p = document.createElement("span"), p.className = "sap-tl-remaining", p.textContent = "-0:00.00", D.append(u), P.append(D, p);
+      const A = document.createElement("div");
+      A.className = "sap-tl-track-wrap", r = document.createElement("div"), r.className = "sap-tl-ranges", r.hidden = !0, f = document.createElement("div"), f.className = "sap-tl-event-lanes", f.hidden = !0;
       const O = document.createElement("div");
       O.className = "sap-tl-track-rail";
-      const P = document.createElement("div");
-      P.className = "sap-tl-main-rail", f = document.createElement("div"), f.className = "sap-tl-markers", c = document.createElement("input"), c.className = "sap-tl-range", c.type = "range", c.min = "0", c.max = `${C.replay.duration}`, c.step = "0.01", c.value = "0";
-      const B = () => {
-        je();
+      const _ = document.createElement("div");
+      _.className = "sap-tl-main-rail", g = document.createElement("div"), g.className = "sap-tl-markers", c = document.createElement("input"), c.className = "sap-tl-range", c.type = "range", c.min = "0", c.max = `${T.replay.duration}`, c.step = "0.01", c.value = "0";
+      const F = () => {
+        ua();
       }, R = () => {
-        c && C.player.seek(C.player.projectTimelineTimeToReplay(Number(c.value)));
-      }, N = () => {
-        Pe();
+        c && T.player.seek(T.player.projectTimelineTimeToReplay(Number(c.value)));
+      }, V = () => {
+        ut();
       };
-      c.addEventListener("pointerdown", B), c.addEventListener("input", R), c.addEventListener("change", N), window.addEventListener("pointerup", N), window.addEventListener("pointercancel", N), y = () => {
-        c?.removeEventListener("pointerdown", B), c?.removeEventListener("input", R), c?.removeEventListener("change", N), window.removeEventListener("pointerup", N), window.removeEventListener("pointercancel", N);
-      }, O.append(P, f, c), z.append(r, g, h, O), o.append(E, z), s.append(o), C.container.append(s), $(C), ce(C), oe({
-        ...C,
-        state: C.player.getState()
+      c.addEventListener("pointerdown", F), c.addEventListener("input", R), c.addEventListener("change", V), window.addEventListener("pointerup", V), window.addEventListener("pointercancel", V), y = () => {
+        c?.removeEventListener("pointerdown", F), c?.removeEventListener("input", R), c?.removeEventListener("change", V), window.removeEventListener("pointerup", V), window.removeEventListener("pointercancel", V);
+      }, O.append(_, g, c), A.append(r, f, l, O), s.append(P, A), o.append(s), T.container.append(o), Oe(T), Le(T), ge({
+        ...T,
+        state: T.player.getState()
       });
     },
-    onStateChange(C) {
-      T = C, oe(C);
+    onStateChange(T) {
+      C = T, ge(T);
     },
-    teardown(C) {
-      y?.(), y = null, Pe(), s?.remove(), s = null, o = null, r = null, g = null, c = null, h = null, d = null, m = null, u = null, p = null, f = null, T = null, M = [], _ = [], D = null, F.clear(), S.splice(0, S.length), I.splice(0, I.length), V.splice(0, V.length), L.splice(0, L.length), G = 0, W = /* @__PURE__ */ new Set(), b && (C.container.style.position = w, b = !1);
+    teardown(T) {
+      y?.(), y = null, ut(), o?.remove(), o = null, s = null, r = null, f = null, c = null, l = null, d = null, m = null, u = null, p = null, g = null, C = null, w = [], S = [], E = null, B.clear(), z.splice(0, z.length), k.splice(0, k.length), L.splice(0, L.length), H.splice(0, H.length), W = 0, se = /* @__PURE__ */ new Set(), x && (T.container.style.position = v, x = !1);
     }
   };
 }
-async function Fl(n, e, t = {}) {
-  return yr(n, await Ki(e), t);
+async function bl(n, e, t = {}) {
+  return lt(n, await Be(e), t);
 }
-function yr(n, e, t = {}) {
-  const i = new os(e.raw, {
+function lt(n, e, t = {}) {
+  const i = new Gn(e.raw, {
     motionSmoothing: t.motionSmoothing,
     smoothingBlendFactor: t.smoothingBlendFactor,
     smoothingAnchorInterval: t.smoothingAnchorInterval,
     timelineCompaction: t.timelineCompaction,
     disableFrameFiltering: t.disableFrameFiltering
-  }), a = new yo(n, i, t, e.replay);
-  return a.getPlugins().some((s) => s.id === "camera") || a.addPlugin(wo()), a;
+  }), a = new is(n, i, t, e.replay);
+  return a.getPlugins().some((o) => o.id === "camera") || a.addPlugin(os()), a;
 }
-const br = "https://ballchasing.com/api", Ta = "https://ballchasing.com", xr = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function Ca(n, e) {
+const xr = "https://ballchasing.com/api", ta = "https://ballchasing.com", wr = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function ia(n, e) {
   const i = (e instanceof URL ? e.href : e).replace(/\/+$/, "");
   return new URL(`${i}/${n.replace(/^\/+/, "")}`);
 }
-function wr(n) {
+function vr(n) {
   const e = new Headers(n.fetchInit?.headers);
   return {
     ...n.fetchInit,
@@ -10398,16 +10833,16 @@ function wr(n) {
     signal: n.signal ?? n.fetchInit?.signal
   };
 }
-function vr(n, e) {
+function Mr(n, e) {
   const t = n.statusText ? ` ${n.statusText}` : "", i = n.status === 401 || n.status === 403 || n.status === 404 ? ". The replay may be private, unavailable, or not downloadable without a Ballchasing session" : "";
   return `Failed to fetch Ballchasing replay from ${e.href} (${n.status}${t})${i}`;
 }
-function li(n) {
-  return xr.test(n.trim());
+function Yt(n) {
+  return wr.test(n.trim());
 }
-function We(n) {
+function De(n) {
   const e = n.trim();
-  if (li(e))
+  if (Yt(e))
     return e.toLowerCase();
   let t;
   try {
@@ -10417,57 +10852,57 @@ function We(n) {
   }
   if (!/(^|\.)ballchasing\.com$/i.test(t.hostname))
     throw new Error(`Invalid Ballchasing replay URL: ${n}`);
-  const i = t.pathname.split("/").filter(Boolean), a = i.findIndex((r) => r === "replay"), s = i.findIndex((r) => r === "replays"), o = a >= 0 ? i[a + 1] : s >= 0 ? i[s + 1] : void 0;
-  if (!o || !li(o))
+  const i = t.pathname.split("/").filter(Boolean), a = i.findIndex((r) => r === "replay"), o = i.findIndex((r) => r === "replays"), s = a >= 0 ? i[a + 1] : o >= 0 ? i[o + 1] : void 0;
+  if (!s || !Yt(s))
     throw new Error(`Invalid Ballchasing replay URL: ${n}`);
-  return o.toLowerCase();
+  return s.toLowerCase();
 }
-function Rl(n) {
-  return `ballchasing-${We(n)}.replay`;
+function xl(n) {
+  return `ballchasing-${De(n)}.replay`;
 }
-function Mr(n, e = Ta) {
-  const t = We(n);
-  return Ca(`dl/replay/${encodeURIComponent(t)}`, e);
+function Tr(n, e = ta) {
+  const t = De(n);
+  return ia(`dl/replay/${encodeURIComponent(t)}`, e);
 }
-function Ol(n, e = br) {
-  const t = We(n);
-  return Ca(`replays/${encodeURIComponent(t)}/file`, e);
+function wl(n, e = xr) {
+  const t = De(n);
+  return ia(`replays/${encodeURIComponent(t)}/file`, e);
 }
-async function Tr(n, e = {}) {
-  const t = Mr(n, e.baseUrl ?? Ta), i = e.fetch ?? globalThis.fetch;
+async function Cr(n, e = {}) {
+  const t = Tr(n, e.baseUrl ?? ta), i = e.fetch ?? globalThis.fetch;
   if (!i)
     throw new Error("No fetch implementation is available");
-  const a = await i(t, wr(e));
+  const a = await i(t, vr(e));
   if (!a.ok)
-    throw new Error(vr(a, t));
+    throw new Error(Mr(a, t));
   return new Uint8Array(await a.arrayBuffer());
 }
-function Vl(n, e = {}) {
-  const t = We(n);
+function vl(n, e = {}) {
+  const t = De(n);
   return {
     id: `ballchasing:${t}`,
     async load(i) {
-      const a = await Tr(t, e);
-      return $e(a, {
+      const a = await Cr(t, e);
+      return ze(a, {
         useWorker: !0,
-        onProgress(s) {
+        onProgress(o) {
           i?.updateProgress({
-            stage: s.stage,
-            progress: s.progress,
-            processedFrames: s.processedFrames,
-            totalFrames: s.totalFrames
+            stage: o.stage,
+            progress: o.progress,
+            processedFrames: o.processedFrames,
+            totalFrames: o.totalFrames
           });
         }
       });
     }
   };
 }
-const ci = "subtr-actor-ballchasing-overlay-styles", Cr = "#3b82f6", Sr = "#f59e0b";
-function Pr() {
-  if (document.getElementById(ci))
+const Sr = 250, qt = "subtr-actor-ballchasing-overlay-styles", Ke = "#3b82f6", Zt = "#f59e0b";
+function _r() {
+  if (document.getElementById(qt))
     return;
   const n = document.createElement("style");
-  n.id = ci, n.textContent = `
+  n.id = qt, n.textContent = `
     .sap-bc-overlay-root {
       position: absolute;
       inset: 0;
@@ -10506,6 +10941,10 @@ function Pr() {
       display: none;
     }
 
+    .sap-bc-floating-track.sap-bc-player-following {
+      display: none;
+    }
+
     .sap-bc-boost-bar {
       position: relative;
       display: inline-flex;
@@ -10513,12 +10952,12 @@ function Pr() {
       justify-content: center;
       min-width: 8rem;
       max-width: 14rem;
-      min-height: 1.45rem;
+      min-height: 1.7rem;
       border-radius: 999px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      background: rgba(6, 11, 17, 0.42);
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+      border: 1px solid rgba(255, 255, 255, 0.42);
+      background: rgba(6, 11, 17, 0.52);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.24);
       backdrop-filter: blur(6px);
       transition:
         border-color 0.12s ease-out,
@@ -10567,11 +11006,11 @@ function Pr() {
       max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
-      padding: 0.22rem 0.72rem;
+      padding: 0.24rem 0.78rem;
       color: #ffffff;
-      font-size: 0.72rem;
-      font-weight: 700;
-      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
+      font-size: 0.82rem;
+      font-weight: 800;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.75);
       white-space: nowrap;
       font-variant-numeric: tabular-nums;
     }
@@ -10592,14 +11031,14 @@ function Pr() {
       right: calc(50% + 2.7rem);
       flex-direction: row;
       justify-content: flex-end;
-      border-bottom: 2px solid ${Cr};
+      border-bottom: 2px solid ${Ke};
     }
 
     .sap-bc-team-hud-orange {
       left: calc(50% + 2.7rem);
       flex-direction: row;
       justify-content: flex-start;
-      border-bottom: 2px solid ${Sr};
+      border-bottom: 2px solid ${Zt};
     }
 
     .sap-bc-hud-player {
@@ -10677,6 +11116,98 @@ function Pr() {
         0 12px 28px rgba(0, 0, 0, 0.28);
     }
 
+    .sap-bc-followed-hud {
+      position: absolute;
+      right: 1rem;
+      bottom: 5.2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.72rem;
+      min-width: 8.8rem;
+      padding: 0.58rem 0.7rem;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 0.55rem;
+      background: rgba(6, 11, 17, 0.58);
+      box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+      backdrop-filter: blur(8px);
+    }
+
+    .sap-bc-followed-hud[hidden] {
+      display: none;
+    }
+
+    .sap-bc-followed-hud-blue {
+      border-color: rgba(109, 169, 255, 0.52);
+    }
+
+    .sap-bc-followed-hud-orange {
+      border-color: rgba(255, 189, 110, 0.52);
+    }
+
+    .sap-bc-followed-boost-ring {
+      --sap-bc-followed-boost: 0%;
+      --sap-bc-followed-color: ${Ke};
+      position: relative;
+      display: grid;
+      place-items: center;
+      width: 4.1rem;
+      height: 4.1rem;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      background:
+        radial-gradient(circle at center, rgba(6, 11, 17, 0.95) 0 57%, transparent 58%),
+        conic-gradient(
+          var(--sap-bc-followed-color) var(--sap-bc-followed-boost),
+          rgba(255, 255, 255, 0.16) 0
+        );
+      box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, 0.2),
+        0 10px 22px rgba(0, 0, 0, 0.22);
+    }
+
+    .sap-bc-followed-hud-blue .sap-bc-followed-boost-ring {
+      --sap-bc-followed-color: ${Ke};
+    }
+
+    .sap-bc-followed-hud-orange .sap-bc-followed-boost-ring {
+      --sap-bc-followed-color: ${Zt};
+    }
+
+    .sap-bc-followed-boost-value {
+      color: #ffffff;
+      font-size: 1.45rem;
+      font-weight: 800;
+      font-variant-numeric: tabular-nums;
+      line-height: 1;
+      text-shadow: 0 1px 3px rgba(0, 0, 0, 0.72);
+    }
+
+    .sap-bc-followed-meta {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      color: rgba(255, 255, 255, 0.82);
+      font-size: 0.58rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      line-height: 1.15;
+      text-transform: uppercase;
+    }
+
+    .sap-bc-followed-name {
+      display: block;
+      max-width: 8rem;
+      margin-top: 0.18rem;
+      overflow: hidden;
+      color: #ffffff;
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0;
+      text-overflow: ellipsis;
+      text-transform: none;
+      white-space: nowrap;
+    }
+
     @media (max-width: 900px) {
       .sap-bc-team-hud {
         top: 3.25rem;
@@ -10694,117 +11225,233 @@ function Pr() {
         font-size: 0.64rem;
         padding-inline: 0.58rem;
       }
+
+      /*
+       * Team HUDs (a row of per-player boost bars on each side of center) are
+       * too wide for a phone: with fixed-width bars a 3v3 roster runs off both
+       * edges. Cap each HUD to its half of the viewport, anchor it tight to
+       * center, and let the bars flex-shrink to share the space.
+       */
+      .sap-bc-team-hud {
+        max-width: calc(50vw - 0.6rem);
+        gap: 0.2rem;
+        padding: 0.28rem 0.3rem;
+      }
+
+      .sap-bc-team-hud-blue {
+        right: calc(50% + 0.3rem);
+      }
+
+      .sap-bc-team-hud-orange {
+        left: calc(50% + 0.3rem);
+      }
+
+      .sap-bc-team-hud .sap-bc-hud-player {
+        flex: 1 1 0;
+        min-width: 0;
+      }
+
+      .sap-bc-hud-boost-bar {
+        min-width: 0;
+        max-width: none;
+        width: 100%;
+      }
+
+      .sap-bc-hud-boost-text {
+        gap: 0.2rem;
+        padding-inline: 0.32rem;
+        font-size: 0.58rem;
+      }
+
+      .sap-bc-followed-hud {
+        right: 0.65rem;
+        bottom: 4.85rem;
+        min-width: 7.5rem;
+        gap: 0.55rem;
+        padding: 0.5rem 0.58rem;
+      }
+
+      .sap-bc-followed-boost-ring {
+        width: 3.45rem;
+        height: 3.45rem;
+      }
+
+      .sap-bc-followed-boost-value {
+        font-size: 1.2rem;
+      }
+
+      .sap-bc-followed-name {
+        max-width: 6.2rem;
+        font-size: 0.68rem;
+      }
     }
   `, document.head.append(n);
 }
-function Er(n, e) {
+function Pr(n, e) {
   const t = n.players[e], i = t.frame?.boostAmount ?? 0, a = t.nextFrame?.boostAmount ?? i;
-  return l.MathUtils.lerp(i, a, n.alpha);
+  return h.MathUtils.lerp(i, a, n.alpha);
 }
-function hi(n, e, t, i) {
+function Er(n, e) {
+  const t = n.replay.players.find((u) => u.id === e);
+  if (!t)
+    return null;
+  const i = fe(n.replay, n.state.currentTime), a = Math.min(i + 1, n.replay.frames.length - 1), o = n.replay.frames[i], s = n.replay.frames[a] ?? o, r = o?.time ?? n.state.currentTime, c = s?.time ?? r, l = c > r ? h.MathUtils.clamp((n.state.currentTime - r) / (c - r), 0, 1) : 0, d = t.frames[i]?.boostAmount ?? 0, m = t.frames[a]?.boostAmount ?? d;
+  return h.MathUtils.lerp(d, m, l);
+}
+function Qt(n, e, t, i) {
   if (!n || !e)
     return;
-  const a = Math.max(0, Math.min(100, Math.round(Ti(t))));
+  const a = Math.max(0, Math.min(100, Math.round(hi(t))));
   n.style.width = `${a}%`, e.textContent = `${a} ${i}`;
 }
-function di(n, e, t, i) {
+function Jt(n, e, t, i) {
+  if (!n)
+    return;
+  const a = Math.max(0, Math.min(100, Math.round(hi(e))));
+  n.root.hidden = !1, n.root.classList.toggle("sap-bc-followed-hud-blue", i), n.root.classList.toggle("sap-bc-followed-hud-orange", !i), n.root.setAttribute("aria-label", `${t} boost ${a}`), n.ring.style.setProperty("--sap-bc-followed-boost", `${a}%`), n.value.textContent = `${a}`, n.name.textContent = t;
+}
+function ei(n, e, t, i) {
   if (!n)
     return;
   const a = () => {
     e.player.setAttachedPlayer(t);
   };
-  n.classList.add("sap-bc-player-selectable"), n.tabIndex = 0, n.setAttribute("role", "button"), n.setAttribute("aria-label", `Follow ${i}`), n.title = `Follow ${i}`, n.addEventListener("click", a), n.addEventListener("keydown", (s) => {
-    s.key !== "Enter" && s.key !== " " || (s.preventDefault(), a());
+  n.classList.add("sap-bc-player-selectable"), n.tabIndex = 0, n.setAttribute("role", "button"), n.setAttribute("aria-label", `Follow ${i}`), n.title = `Follow ${i}`, n.addEventListener("click", a), n.addEventListener("keydown", (o) => {
+    o.key !== "Enter" && o.key !== " " || (o.preventDefault(), a());
   });
 }
-function _r(n, e, t, i, a) {
+function Ir(n, e, t, i, a) {
   if (n.getWorldPosition(a), a.add(e), a.project(t), a.z < -1 || a.z > 1)
     return !1;
-  const s = i.clientWidth || 1, o = i.clientHeight || 1;
-  return a.x = (a.x + 1) * s / 2, a.y = (1 - a.y) * o / 2, !(a.x < -80 || a.x > s + 80 || a.y < -80 || a.y > o + 80);
+  const o = i.clientWidth || 1, s = i.clientHeight || 1;
+  return a.x = (a.x + 1) * o / 2, a.y = (1 - a.y) * s / 2, !(a.x < -80 || a.x > o + 80 || a.y < -80 || a.y > s + 80);
 }
-function Ll(n = {}) {
-  const e = n.showFloatingNames ?? !0, t = n.showFloatingBoostBars ?? !0, i = n.showTeamBoostHud ?? !0;
-  let a = null, s = null, o = null, r = null, c = !1, h = "";
-  const d = /* @__PURE__ */ new Map(), m = new l.Vector3(), u = new l.Vector3(0, 0, 255);
-  function p(f) {
-    for (const [y, b] of d.entries()) {
-      const w = y === f;
-      b.floatingRoot?.classList.toggle("sap-bc-player-following", w), b.teamHudEntry?.classList.toggle("sap-bc-player-following", w), b.floatingRoot?.setAttribute("aria-pressed", w ? "true" : "false"), b.teamHudEntry?.setAttribute("aria-pressed", w ? "true" : "false");
+function Ml(n = {}) {
+  const e = n.showFloatingNames ?? !0, t = n.showFloatingBoostBars ?? !0, i = n.showTeamBoostHud ?? !0, a = n.showFollowedPlayerHud ?? !0;
+  let o = null, s = null, r = null, c = null, l = null, d = !1, m = "";
+  const u = /* @__PURE__ */ new Map(), p = n.floatingLiftUu, f = new h.Vector3(), g = new h.Vector3();
+  function y() {
+    const M = typeof p == "function" ? p() : p;
+    return typeof M == "number" && Number.isFinite(M) ? M : Sr;
+  }
+  function x(M) {
+    for (const [C, w] of u.entries()) {
+      const S = C === M;
+      w.floatingRoot?.classList.toggle("sap-bc-player-following", S), w.teamHudEntry?.classList.toggle("sap-bc-player-following", S), w.floatingRoot?.setAttribute("aria-pressed", S ? "true" : "false"), w.teamHudEntry?.setAttribute("aria-pressed", S ? "true" : "false");
     }
   }
-  function g(f, y) {
-    Pr(), getComputedStyle(y).position === "static" && (c = !0, h = y.style.position, y.style.position = "relative"), a = document.createElement("div"), a.className = "sap-bc-overlay-root", e || t ? (s = document.createElement("div"), s.className = "sap-bc-floating-layer", a.append(s)) : s = null, i ? (o = document.createElement("div"), o.className = "sap-bc-team-hud sap-bc-team-hud-blue", r = document.createElement("div"), r.className = "sap-bc-team-hud sap-bc-team-hud-orange", a.append(o, r)) : (o = null, r = null);
-    for (const b of f.replay.players) {
-      let w = null, x = null, v = null, T = null;
-      s && (w = document.createElement("div"), w.className = "sap-bc-floating-track", w.hidden = !0, (e || t) && (x = document.createElement("div"), x.className = `sap-bc-boost-bar ${b.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, v = document.createElement("div"), v.className = `sap-bc-boost-fill ${b.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, T = document.createElement("span"), T.className = "sap-bc-boost-text", x.append(v, T), w.append(x)), di(w, f, b.id, b.name), s.append(w));
-      let M = null, _ = null, D = null;
+  function v(M) {
+    if (!l || !M.state.attachedPlayerId) {
+      l && (l.root.hidden = !0);
+      return;
+    }
+    const C = M.replay.players.find(
+      (S) => S.id === M.state.attachedPlayerId
+    );
+    if (!C) {
+      l.root.hidden = !0;
+      return;
+    }
+    const w = Er(M, C.id);
+    if (w === null) {
+      l.root.hidden = !0;
+      return;
+    }
+    Jt(l, w, C.name, C.isTeamZero);
+  }
+  function b(M, C) {
+    if (_r(), getComputedStyle(C).position === "static" && (d = !0, m = C.style.position, C.style.position = "relative"), o = document.createElement("div"), o.className = "sap-bc-overlay-root", e || t ? (s = document.createElement("div"), s.className = "sap-bc-floating-layer", o.append(s)) : s = null, i ? (r = document.createElement("div"), r.className = "sap-bc-team-hud sap-bc-team-hud-blue", c = document.createElement("div"), c.className = "sap-bc-team-hud sap-bc-team-hud-orange", o.append(r, c)) : (r = null, c = null), a) {
+      const w = document.createElement("div");
+      w.className = "sap-bc-followed-hud", w.hidden = !0;
+      const S = document.createElement("div");
+      S.className = "sap-bc-followed-boost-ring";
+      const E = document.createElement("span");
+      E.className = "sap-bc-followed-boost-value", S.append(E);
+      const B = document.createElement("div");
+      B.className = "sap-bc-followed-meta", B.textContent = "Boost";
+      const z = document.createElement("span");
+      z.className = "sap-bc-followed-name", B.append(z), w.append(S, B), o.append(w), l = {
+        root: w,
+        ring: S,
+        value: E,
+        name: z
+      };
+    } else
+      l = null;
+    for (const w of M.replay.players) {
+      let S = null, E = null, B = null, z = null;
+      s && (S = document.createElement("div"), S.className = "sap-bc-floating-track", S.hidden = !0, (e || t) && (E = document.createElement("div"), E.className = `sap-bc-boost-bar ${w.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, B = document.createElement("div"), B.className = `sap-bc-boost-fill ${w.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, z = document.createElement("span"), z.className = "sap-bc-boost-text", E.append(B, z), S.append(E)), ei(S, M, w.id, w.name), s.append(S));
+      let k = null, L = null, H = null;
       if (i) {
-        M = document.createElement("div"), M.className = "sap-bc-hud-player";
-        const F = document.createElement("div");
-        F.className = `sap-bc-hud-boost-bar ${b.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, _ = document.createElement("div"), _.className = `sap-bc-hud-boost-fill ${b.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, D = document.createElement("span"), D.className = "sap-bc-hud-boost-text", F.append(_, D), M.append(F), di(M, f, b.id, b.name), (b.isTeamZero ? o : r)?.append(M);
+        k = document.createElement("div"), k.className = "sap-bc-hud-player";
+        const W = document.createElement("div");
+        W.className = `sap-bc-hud-boost-bar ${w.isTeamZero ? "sap-bc-boost-bar-blue" : "sap-bc-boost-bar-orange"}`, L = document.createElement("div"), L.className = `sap-bc-hud-boost-fill ${w.isTeamZero ? "sap-bc-boost-fill-blue" : "sap-bc-boost-fill-orange"}`, H = document.createElement("span"), H.className = "sap-bc-hud-boost-text", W.append(L, H), k.append(W), ei(k, M, w.id, w.name), (w.isTeamZero ? r : c)?.append(k);
       }
-      d.set(b.id, {
-        floatingRoot: w,
-        floatingBoostFill: v,
-        floatingBoostText: T,
-        teamHudEntry: M,
-        teamHudFill: _,
-        teamHudText: D
+      u.set(w.id, {
+        floatingRoot: S,
+        floatingBoostFill: B,
+        floatingBoostText: z,
+        teamHudEntry: k,
+        teamHudFill: L,
+        teamHudText: H
       });
     }
-    u.set(0, 0, 255 * (f.options.fieldScale ?? 1)), y.append(a), p(f.player.getState().attachedPlayerId);
+    C.append(o), x(M.player.getState().attachedPlayerId), v({ ...M, state: M.player.getState() });
   }
   return {
     id: "ballchasing-overlay",
-    setup(f) {
-      g(f, f.container);
+    setup(M) {
+      b(M, M.container);
     },
-    onStateChange(f) {
-      p(f.state.attachedPlayerId);
+    onStateChange(M) {
+      x(M.state.attachedPlayerId), v(M);
     },
-    teardown(f) {
-      a?.remove(), a = null, s = null, o = null, r = null, d.clear(), c && (f.container.style.position = h, c = !1);
+    teardown(M) {
+      o?.remove(), o = null, s = null, r = null, c = null, l = null, u.clear(), d && (M.container.style.position = m, d = !1);
     },
-    beforeRender(f) {
-      if (a)
-        for (const [y, b] of f.players.entries()) {
-          const w = d.get(b.track.id);
-          if (!w)
+    beforeRender(M) {
+      if (!o)
+        return;
+      g.copy(M.scene.camera.up).normalize().multiplyScalar(y() * (M.options.fieldScale ?? 1));
+      let C = !1;
+      for (const [w, S] of M.players.entries()) {
+        const E = u.get(S.track.id);
+        if (!E)
+          continue;
+        const B = Pr(M, w), z = E.floatingRoot?.classList.contains("sap-bc-player-following") ?? !1;
+        z && (Jt(l, B, S.track.name, S.track.isTeamZero), C = !0), Qt(
+          E.floatingBoostFill,
+          E.floatingBoostText,
+          B,
+          S.track.name
+        ), Qt(E.teamHudFill, E.teamHudText, B, S.track.name);
+        const k = S.mesh, L = k !== null && S.interpolatedPosition !== null;
+        if (E.teamHudEntry?.classList.toggle("sap-bc-hud-player-inactive", !L), !!E.floatingRoot) {
+          if (z || !L || !Ir(
+            k,
+            g,
+            M.scene.camera,
+            M.container,
+            f
+          )) {
+            E.floatingRoot.hidden = !0;
             continue;
-          const x = Er(f, y);
-          hi(
-            w.floatingBoostFill,
-            w.floatingBoostText,
-            x,
-            b.track.name
-          ), hi(w.teamHudFill, w.teamHudText, x, b.track.name);
-          const v = b.mesh, T = v !== null && b.interpolatedPosition !== null;
-          if (w.teamHudEntry?.classList.toggle("sap-bc-hud-player-inactive", !T), !!w.floatingRoot) {
-            if (!T || !_r(
-              v,
-              u,
-              f.scene.camera,
-              f.container,
-              m
-            )) {
-              w.floatingRoot.hidden = !0;
-              continue;
-            }
-            w.floatingRoot.hidden = !1, w.floatingRoot.style.transform = `translate(${m.x.toFixed(1)}px, ${m.y.toFixed(1)}px) translate(-50%, -100%)`;
           }
+          E.floatingRoot.hidden = !1, E.floatingRoot.style.transform = `translate(${f.x.toFixed(1)}px, ${f.y.toFixed(1)}px) translate(-50%, -100%)`;
         }
+      }
+      !C && l && (l.root.hidden = !0);
     }
   };
 }
-function ee(n) {
+function Z(n) {
   return n !== null && typeof n == "object" && !Array.isArray(n);
 }
-function Mt(n) {
-  return ee(n);
+function ct(n) {
+  return Z(n);
 }
-function mi(n, e) {
-  if (!ee(n))
+function ti(n, e) {
+  if (!Z(n))
     throw new Error(`${e} must be an object`);
   const t = n.kind, i = n.value;
   if (t !== "frame" && t !== "time")
@@ -10816,9 +11463,9 @@ function mi(n, e) {
     value: i
   };
 }
-function Ir(n, e) {
+function Ar(n, e) {
   const t = `manifest.replays[${e}]`;
-  if (!ee(n))
+  if (!Z(n))
     throw new Error(`${t} must be an object`);
   if (typeof n.id != "string" || n.id.trim() === "")
     throw new Error(`${t}.id must be a non-empty string`);
@@ -10826,40 +11473,40 @@ function Ir(n, e) {
     throw new Error(`${t}.path must be a string when provided`);
   if (n.label !== void 0 && typeof n.label != "string")
     throw new Error(`${t}.label must be a string when provided`);
-  if (n.meta !== void 0 && !Mt(n.meta))
+  if (n.meta !== void 0 && !ct(n.meta))
     throw new Error(`${t}.meta must be an object when provided`);
   const i = typeof n.path == "string" ? n.path : "";
   return {
     id: n.id,
     path: i,
     label: typeof n.label == "string" ? n.label : n.id,
-    locator: kr(n.locator, `${t}.locator`, i),
+    locator: Br(n.locator, `${t}.locator`, i),
     meta: n.meta ?? {}
   };
 }
-function Ar(n, e) {
+function zr(n, e) {
   const t = `manifest.items[${e}]`;
-  if (!ee(n))
+  if (!Z(n))
     throw new Error(`${t} must be an object`);
   if (typeof n.replay != "string" || n.replay.trim() === "")
     throw new Error(`${t}.replay must be a non-empty string`);
   if (n.label !== void 0 && typeof n.label != "string")
     throw new Error(`${t}.label must be a string when provided`);
-  if (n.meta !== void 0 && !Mt(n.meta))
+  if (n.meta !== void 0 && !ct(n.meta))
     throw new Error(`${t}.meta must be an object when provided`);
   return {
     id: typeof n.id == "string" && n.id.trim() !== "" ? n.id : `${n.replay}:${e}`,
     replay: n.replay,
-    start: mi(n.start, `${t}.start`),
-    end: mi(n.end, `${t}.end`),
+    start: ti(n.start, `${t}.start`),
+    end: ti(n.end, `${t}.end`),
     label: typeof n.label == "string" ? n.label : "",
     meta: n.meta ?? {}
   };
 }
-function kr(n, e, t) {
+function Br(n, e, t) {
   if (n === void 0)
     return t ? { kind: "path", path: t } : { kind: "inline" };
-  if (!ee(n))
+  if (!Z(n))
     throw new Error(`${e} must be an object when provided`);
   if (typeof n.kind != "string" || n.kind.trim() === "")
     throw new Error(`${e}.kind must be a non-empty string`);
@@ -10876,8 +11523,8 @@ function kr(n, e, t) {
     cachePath: n.cachePath
   };
 }
-function zr(n) {
-  if (!ee(n))
+function Dr(n) {
+  if (!Z(n))
     throw new Error("manifest.playback must be an object");
   if (n.advanceMode !== void 0 && n.advanceMode !== "auto" && n.advanceMode !== "manual")
     throw new Error('manifest.playback.advanceMode must be "auto" or "manual"');
@@ -10890,34 +11537,34 @@ function zr(n) {
     endMode: n.endMode ?? "stop"
   };
 }
-function Be(n, e) {
+function Te(n, e) {
   if (n != null) {
     if (typeof n != "number" || !Number.isInteger(n) || !Number.isFinite(n) || n < 0)
       throw new Error(`${e} must be a non-negative integer when provided`);
     return n;
   }
 }
-function ui(n, e) {
+function ii(n, e) {
   if (n != null) {
     if (typeof n != "string")
       throw new Error(`${e} must be a string when provided`);
     return n;
   }
 }
-function Dr(n) {
-  if (!ee(n))
+function kr(n) {
+  if (!Z(n))
     throw new Error("manifest.page must be an object when provided");
   return {
-    next: ui(n.next, "manifest.page.next"),
-    previous: ui(n.previous, "manifest.page.previous"),
-    total: Be(n.total, "manifest.page.total"),
-    count: Be(n.count, "manifest.page.count"),
-    limit: Be(n.limit, "manifest.page.limit"),
-    offset: Be(n.offset, "manifest.page.offset")
+    next: ii(n.next, "manifest.page.next"),
+    previous: ii(n.previous, "manifest.page.previous"),
+    total: Te(n.total, "manifest.page.total"),
+    count: Te(n.count, "manifest.page.count"),
+    limit: Te(n.limit, "manifest.page.limit"),
+    offset: Te(n.offset, "manifest.page.offset")
   };
 }
-function Br(n) {
-  if (!ee(n))
+function Fr(n) {
+  if (!Z(n))
     throw new Error("manifest must be an object");
   if (!Array.isArray(n.items))
     throw new Error("manifest.items must be an array");
@@ -10925,21 +11572,21 @@ function Br(n) {
     throw new Error("manifest.replays must be an array when provided");
   if (n.label !== void 0 && typeof n.label != "string")
     throw new Error("manifest.label must be a string when provided");
-  if (n.meta !== void 0 && !Mt(n.meta))
+  if (n.meta !== void 0 && !ct(n.meta))
     throw new Error("manifest.meta must be an object when provided");
-  const e = n.playback === void 0 ? { advanceMode: "manual", endMode: "stop" } : zr(n.playback);
+  const e = n.playback === void 0 ? { advanceMode: "manual", endMode: "stop" } : Dr(n.playback);
   return {
     version: typeof n.version == "number" ? n.version : 1,
     kind: typeof n.kind == "string" ? n.kind : "playlist",
-    replays: (n.replays ?? []).map(Ir),
-    items: n.items.map(Ar),
+    replays: (n.replays ?? []).map(Ar),
+    items: n.items.map(zr),
     label: typeof n.label == "string" ? n.label : "Playlist",
-    page: n.page === void 0 ? void 0 : Dr(n.page),
+    page: n.page === void 0 ? void 0 : kr(n.page),
     meta: n.meta ?? {},
     playback: e
   };
 }
-async function Nl(n) {
+async function Tl(n) {
   const e = await n.text();
   let t;
   try {
@@ -10949,9 +11596,9 @@ async function Nl(n) {
       `Failed to parse playlist manifest JSON: ${i instanceof Error ? i.message : String(i)}`
     );
   }
-  return Br(t);
+  return Fr(t);
 }
-function Gl(n, e) {
+function Cl(n, e) {
   const t = new Map(
     (n.replays ?? []).map((i) => [i.id, i])
   );
@@ -10969,1075 +11616,16 @@ function Gl(n, e) {
     };
   });
 }
-const Sa = 0.08, Fr = 0.22, Rr = 0.94, Tt = 1, Oe = 0.32, pi = 1024, Or = 16, Vr = 1.5;
-function fi(n) {
-  const e = new l.MeshBasicMaterial({
-    color: n,
-    transparent: !0,
-    opacity: Tt,
-    side: l.DoubleSide
-  });
-  return e.forceSinglePass = !0, e;
-}
-function Lr(n) {
-  return new l.MeshLambertMaterial({
-    color: n,
-    side: l.DoubleSide,
-    transparent: !0,
-    opacity: Tt
-  });
-}
-function de(n, e, t, i) {
-  return new l.Mesh(new l.BoxGeometry(n, t, e, 6, 1, 6), i);
-}
-function Nr(n) {
-  return new l.Color(n).lerp(new l.Color(0), Rr);
-}
-function it(n, e, t, i, a, s, o, r) {
-  n.beginPath();
-  for (let c = 0; c <= e; c += 8) {
-    const h = c / e, d = i * t + Math.sin(h * Math.PI * 2 + s) * a + Math.sin(h * Math.PI * 4 + s * 0.5) * a * 0.35;
-    c === 0 ? n.moveTo(c, d) : n.lineTo(c, d);
-  }
-  n.lineWidth = o, n.strokeStyle = r, n.stroke();
-}
-function at(n, e, t, i, a, s, o, r) {
-  n.beginPath();
-  for (let c = 0; c <= t; c += 8) {
-    const h = c / t, d = i * e + Math.sin(h * Math.PI * 2 + s) * a + Math.sin(h * Math.PI * 6 + s * 0.3) * a * 0.18;
-    c === 0 ? n.moveTo(d, c) : n.lineTo(d, c);
-  }
-  n.lineWidth = o, n.strokeStyle = r, n.stroke();
-}
-function nt(n, e, t, i, a, s) {
-  n.beginPath(), n.arc(e, t, i, 0, Math.PI * 2), n.fillStyle = a, n.fill(), n.lineWidth = Math.max(6, i * 0.15), n.strokeStyle = s, n.stroke();
-}
-function Gr(n) {
-  const e = document.createElement("canvas");
-  e.width = pi, e.height = pi;
-  const t = e.getContext("2d");
-  if (!t)
-    throw new Error("Unable to create ball texture canvas");
-  const { width: i, height: a } = e, s = t.createLinearGradient(0, 0, i, a);
-  s.addColorStop(0, "#faf7ee"), s.addColorStop(0.55, "#e7e1d0"), s.addColorStop(1, "#d5cfbe"), t.fillStyle = s, t.fillRect(0, 0, i, a), t.globalAlpha = 0.22;
-  for (let c = 0; c < 28; c += 1) {
-    const h = c / 27 * a;
-    t.fillStyle = c % 2 === 0 ? "#ffffff" : "#d3cbb6", t.fillRect(0, h, i, a / 54);
-  }
-  t.globalAlpha = 1;
-  const o = "#2d313b";
-  t.lineCap = "round", it(t, i, a, 0.24, 22, 0.35, 18, o), it(t, i, a, 0.5, 14, 1.1, 20, o), it(t, i, a, 0.77, 20, 2.35, 18, o), at(t, i, a, 0.2, 24, 0.2, 18, o), at(t, i, a, 0.48, 18, 1.6, 18, o), at(t, i, a, 0.76, 26, 2.7, 18, o), t.globalAlpha = 0.92, nt(t, i * 0.28, a * 0.32, 88, "#f1a63a", "#fff4d7"), nt(t, i * 0.68, a * 0.6, 72, "#4db0ff", "#eef8ff"), nt(t, i * 0.76, a * 0.2, 54, "#1f232c", "#f0ece1"), t.globalAlpha = 1, t.beginPath(), t.moveTo(i * 0.08, a * 0.86), t.quadraticCurveTo(i * 0.28, a * 0.72, i * 0.42, a * 0.8), t.quadraticCurveTo(i * 0.58, a * 0.9, i * 0.82, a * 0.78), t.lineWidth = 24, t.strokeStyle = "rgba(255, 246, 220, 0.9)", t.stroke();
-  const r = new l.CanvasTexture(e);
-  return r.colorSpace = l.SRGBColorSpace, r.anisotropy = Math.min(8, n.capabilities.getMaxAnisotropy()), r;
-}
-function Hr(n, e, t, i) {
-  return new l.Mesh(new l.BoxGeometry(n, e, t, 6, 6, 1), i);
-}
-function $r(n) {
-  const e = 10280 * n, t = 8240 * n, i = 1960 * n, a = 1e3 * n, s = 1900 * n, o = 800 * n, r = 900 * n, c = Math.max(1, n), h = [], d = [1, -1];
-  function m(f, y, b = null) {
-    const w = f.material.clone();
-    return f.material = w, h.push({
-      mesh: f,
-      material: w,
-      outwardLocal: y.clone().normalize(),
-      fixedOpacity: b
-    }), f;
-  }
-  function u(f) {
-    const y = new l.Group(), b = fi(f), w = t / 2 - a - s / 2, x = Math.sqrt(2 * Math.pow(a, 2));
-    for (const T of d) {
-      const M = m(
-        de(w, i, c, b),
-        new l.Vector3(0, 1, 0)
-      );
-      M.position.set(T * (w / 2 + s / 2), 0, i / 2), y.add(M);
-      const _ = m(
-        de(x, i, c, b),
-        new l.Vector3(0, 1, 0)
-      );
-      _.position.set(
-        T * (t / 2 - a / 2),
-        -a / 2,
-        i / 2
-      ), _.rotateZ(-T * Math.PI / 4), y.add(_);
-    }
-    const v = m(
-      de(s, i - o, c, b),
-      new l.Vector3(0, 1, 0)
-    );
-    return v.position.set(0, 0, i / 2 + o / 2), y.add(v), y;
-  }
-  function p(f, y) {
-    const b = new l.Group(), w = [
-      [t / 2, 0],
-      [-t / 2, 0],
-      [-t / 2, e / 2 - a],
-      [-t / 2 + a, e / 2],
-      [-s / 2, e / 2],
-      [-s / 2, e / 2 + r],
-      [s / 2, e / 2 + r],
-      [s / 2, e / 2],
-      [t / 2 - a, e / 2],
-      [t / 2, e / 2 - a],
-      [t / 2, 0]
-    ], x = new l.Shape();
-    w.forEach(([S, I], V) => {
-      V === 0 ? x.moveTo(S, I) : x.lineTo(S, I);
-    });
-    const v = Lr(f), T = fi(f), M = m(
-      new l.Mesh(new l.ShapeGeometry(x), v),
-      new l.Vector3(0, 0, -1)
-    );
-    M.receiveShadow = !0, b.add(M);
-    for (const S of d) {
-      const I = m(
-        de(r, o, c, T),
-        new l.Vector3(0, -S, 0),
-        Oe
-      );
-      I.position.set(
-        S * s / 2,
-        e / 2 + r / 2,
-        o / 2
-      ), I.rotateZ(Math.PI / 2), b.add(I);
-    }
-    const _ = m(
-      Hr(s, r, c, T),
-      new l.Vector3(0, 0, 1),
-      Oe
-    );
-    _.position.set(0, e / 2 + r / 2, o), b.add(_);
-    const D = m(
-      de(s, o, c, T),
-      new l.Vector3(0, 1, 0),
-      Oe
-    );
-    D.position.set(0, e / 2 + r, o / 2), b.add(D);
-    const F = u(f);
-    F.position.y = e / 2, b.add(F);
-    for (const S of d) {
-      const I = m(
-        de(
-          e / 2 - a,
-          i,
-          c,
-          T
-        ),
-        new l.Vector3(0, -S, 0)
-      );
-      I.position.set(
-        S * t / 2,
-        (e / 2 - a) / 2,
-        i / 2
-      ), I.rotateZ(Math.PI / 2), b.add(I);
-    }
-    return y && b.rotateZ(Math.PI), b;
-  }
-  const g = new l.Group();
-  return g.add(p(16771251, !1)), g.add(p(8381439, !0)), { stadium: g, wallPanels: h };
-}
-function Wr(n, e) {
-  const t = Ha(n), i = Nr(e), a = new l.Group();
-  a.name = `${n.kind}-hitbox-overlay`, a.visible = !1, a.position.set(...t.position), a.rotateY(l.MathUtils.degToRad(t.rotationYDegrees));
-  const s = new l.BoxGeometry(...t.dimensions), o = new l.MeshBasicMaterial({
-    color: i,
-    transparent: !0,
-    opacity: Sa,
-    depthTest: !1,
-    depthWrite: !1,
-    side: l.DoubleSide
-  }), r = new l.Mesh(s, o);
-  r.name = "hitbox-overlay-fill", r.renderOrder = 9, a.add(r);
-  const c = new l.EdgesGeometry(s), h = new l.LineBasicMaterial({
-    color: i,
-    transparent: !0,
-    opacity: 1,
-    depthTest: !1,
-    depthWrite: !1
-  }), d = new l.LineSegments(c, h);
-  return d.name = "hitbox-overlay-lines", d.renderOrder = 10, a.add(d), a;
-}
-function Ur(n, e) {
-  const t = n.getObjectByName("hitbox-overlay-fill");
-  t && (t.material.opacity = e ? Fr : Sa);
-}
-function Kr(n) {
-  const e = [
-    [100, -100, 100],
-    [100, 100, 100],
-    [-100, 100, 100],
-    [-100, -100, 100],
-    [150, -220, 20],
-    [-150, -220, 20],
-    [130, -400, -20],
-    [-130, -400, -20],
-    [140, 170, 25],
-    [-140, 170, 25],
-    [130, 240, 25],
-    [-130, 240, 25],
-    [130, -400, -80],
-    [-130, -400, -80],
-    [150, -220, -80],
-    [-150, -220, -80],
-    [140, 170, -80],
-    [-140, 170, -80],
-    [130, 240, -80],
-    [-130, 240, -80]
-  ], t = [
-    [0, 1, 2],
-    [0, 2, 3],
-    [4, 0, 5],
-    [0, 3, 5],
-    [6, 4, 5],
-    [6, 5, 7],
-    [1, 8, 9],
-    [1, 9, 2],
-    [4, 8, 1],
-    [4, 1, 0],
-    [3, 2, 9],
-    [3, 9, 5],
-    [8, 10, 11],
-    [8, 11, 9],
-    [12, 6, 7],
-    [12, 7, 13],
-    [7, 5, 15],
-    [7, 15, 13],
-    [6, 14, 4],
-    [12, 14, 6],
-    [14, 16, 4],
-    [4, 16, 8],
-    [5, 9, 15],
-    [15, 9, 17],
-    [16, 18, 8],
-    [8, 18, 10],
-    [9, 11, 17],
-    [17, 11, 19],
-    [10, 18, 11],
-    [11, 18, 19],
-    [14, 12, 13],
-    [14, 13, 15],
-    [16, 14, 15],
-    [16, 15, 17],
-    [18, 16, 17],
-    [18, 17, 19]
-  ], i = new l.BufferGeometry();
-  i.setAttribute("position", new l.Float32BufferAttribute(e.flat(), 3)), i.setIndex(t.flat()), i.computeVertexNormals();
-  const a = new l.Group(), s = new l.Group(), o = new l.Mesh(i, new l.MeshLambertMaterial({ color: n }));
-  o.castShadow = !0, s.add(o);
-  const r = new l.MeshPhongMaterial({
-    color: 1710894,
-    shininess: 120,
-    transparent: !0,
-    opacity: 0.82
-  }), c = [
-    [100, -100, 100],
-    [-100, -100, 100],
-    [150, -220, 20],
-    [-150, -220, 20],
-    [100, 100, 100],
-    [-100, 100, 100],
-    [140, 170, 25],
-    [-140, 170, 25],
-    [100, -100, 100],
-    [100, 100, 100],
-    [150, -220, 20],
-    [140, 170, 25],
-    [-100, -100, 100],
-    [-100, 100, 100],
-    [-150, -220, 20],
-    [-140, 170, 25]
-  ], h = [
-    [0, 2, 3],
-    [0, 3, 1],
-    [4, 6, 7],
-    [4, 7, 5],
-    [8, 10, 11],
-    [8, 11, 9],
-    [12, 14, 15],
-    [12, 15, 13]
-  ], d = new l.BufferGeometry();
-  d.setAttribute(
-    "position",
-    new l.Float32BufferAttribute(c.flat(), 3)
-  ), d.setIndex(h.flat()), d.computeVertexNormals();
-  const m = new l.Mesh(d, r);
-  m.position.z = 1, s.add(m);
-  const u = new l.MeshBasicMaterial({
-    color: 8968191,
-    transparent: !0,
-    opacity: 0.34,
-    side: l.DoubleSide
-  }), p = new l.BufferGeometry();
-  p.setAttribute(
-    "position",
-    new l.Float32BufferAttribute(
-      [90, -110, 95, -90, -110, 95, 140, -210, 25, -140, -210, 25],
-      3
-    )
-  ), p.setIndex([0, 2, 3, 0, 3, 1]), p.computeVertexNormals();
-  const g = new l.Mesh(p, u);
-  g.position.z = 2, s.add(g);
-  const f = new l.MeshPhongMaterial({
-    color: 2236962,
-    shininess: 48
-  }), y = (b, w, x, v) => {
-    const T = new l.Mesh(new l.CylinderGeometry(70, 70, v, 10), f);
-    return T.rotateZ(Math.PI / 2), T.position.set(b, w, x), T.castShadow = !0, T;
-  };
-  return s.add(y(120, -300, -60, 50)), s.add(y(-120, -300, -60, 50)), s.add(y(120, 150, -60, 70)), s.add(y(-120, 150, -60, 70)), s.position.set(0, 0, 50), s.rotateZ(Math.PI / 2), s.scale.set(0.35, 0.35, 0.35), a.add(s), a;
-}
-function jr() {
-  const n = new l.Group();
-  n.visible = !1, n.position.set(-124, 0, 8);
-  const e = new l.ConeGeometry(30, 220, 14, 1, !0);
-  e.rotateZ(Math.PI / 2), e.translate(-110, 0, 0);
-  const t = new l.ConeGeometry(17, 150, 12, 1, !0);
-  t.rotateZ(Math.PI / 2), t.translate(-75, 0, 0);
-  const i = new l.SphereGeometry(21, 12, 12), a = [-38, 38];
-  for (const s of a) {
-    const o = new l.Group();
-    o.position.set(0, s, 0);
-    const r = new l.MeshBasicMaterial({
-      color: "#ff9b2f",
-      transparent: !0,
-      opacity: 0.42,
-      blending: l.AdditiveBlending,
-      depthWrite: !1,
-      side: l.DoubleSide
-    });
-    r.forceSinglePass = !0;
-    const c = new l.Mesh(e, r);
-    c.name = "outer-flame", o.add(c);
-    const h = new l.MeshBasicMaterial({
-      color: "#fff2ba",
-      transparent: !0,
-      opacity: 0.9,
-      blending: l.AdditiveBlending,
-      depthWrite: !1,
-      side: l.DoubleSide
-    });
-    h.forceSinglePass = !0;
-    const d = new l.Mesh(t, h);
-    d.name = "inner-flame", o.add(d);
-    const m = new l.MeshBasicMaterial({
-      color: "#fff8db",
-      transparent: !0,
-      opacity: 0.62,
-      blending: l.AdditiveBlending,
-      depthWrite: !1
-    });
-    m.forceSinglePass = !0;
-    const u = new l.Mesh(i, m);
-    u.name = "glow", u.position.x = -10, o.add(u), n.add(o);
-  }
-  return n;
-}
-function Xr() {
-  const n = new l.Group();
-  n.visible = !1, n.position.set(0, 0, 235);
-  const e = 240, t = 82, i = 188, a = 20, s = new l.PlaneGeometry(e, t), o = new l.MeshBasicMaterial({
-    color: 463645,
-    transparent: !0,
-    opacity: 0.78,
-    side: l.DoubleSide,
-    depthWrite: !1
-  }), r = new l.Mesh(s, o);
-  r.position.z = -1, n.add(r);
-  const c = new l.PlaneGeometry(i, a), h = new l.MeshBasicMaterial({
-    color: 1385521,
-    transparent: !0,
-    opacity: 0.92,
-    side: l.DoubleSide,
-    depthWrite: !1
-  }), d = new l.Mesh(c, h);
-  d.position.y = -18, n.add(d);
-  const m = new l.PlaneGeometry(i, a), u = new l.MeshBasicMaterial({
-    color: 16761415,
-    transparent: !0,
-    opacity: 0.98,
-    side: l.DoubleSide,
-    depthWrite: !1
-  }), p = new l.Mesh(m, u);
-  p.position.y = -18, n.add(p);
-  const g = document.createElement("canvas");
-  g.width = 512, g.height = 160;
-  const f = g.getContext("2d");
-  if (!f)
-    throw new Error("Unable to create boost meter label context");
-  const y = new l.CanvasTexture(g);
-  y.colorSpace = l.SRGBColorSpace, y.needsUpdate = !0;
-  const b = new l.PlaneGeometry(190, 48), w = new l.MeshBasicMaterial({
-    map: y,
-    transparent: !0,
-    depthWrite: !1,
-    side: l.DoubleSide
-  }), x = new l.Mesh(b, w);
-  return x.position.set(0, 15, 0), n.add(x), {
-    group: n,
-    fillMesh: p,
-    fillMaterial: u,
-    labelTexture: y,
-    labelContext: f,
-    labelCanvas: g,
-    lastPercent: null
-  };
-}
-function qr() {
-  const n = new l.Group();
-  n.visible = !1;
-  const e = new l.MeshBasicMaterial({
-    color: 16765276,
-    transparent: !0,
-    opacity: 0.86,
-    depthWrite: !1
-  }), t = new l.Mesh(new l.TorusGeometry(170, 8, 8, 48), e);
-  t.position.z = 16, n.add(t);
-  const i = document.createElement("canvas");
-  i.width = 512, i.height = 192;
-  const a = i.getContext("2d");
-  if (!a)
-    throw new Error("Unable to create demo indicator label context");
-  a.textAlign = "center", a.textBaseline = "middle", a.lineJoin = "round", a.font = "800 86px sans-serif", a.lineWidth = 20, a.strokeStyle = "rgba(7, 19, 29, 0.94)", a.strokeText("DEMO", i.width / 2, 88), a.fillStyle = "#fff0b8", a.fillText("DEMO", i.width / 2, 88), a.font = "700 34px sans-serif", a.lineWidth = 10, a.strokeText("RESPAWNING", i.width / 2, 150), a.fillStyle = "#ffbd4a", a.fillText("RESPAWNING", i.width / 2, 150);
-  const s = new l.CanvasTexture(i);
-  s.colorSpace = l.SRGBColorSpace;
-  const o = new l.MeshBasicMaterial({
-    map: s,
-    transparent: !0,
-    depthWrite: !1,
-    side: l.DoubleSide
-  }), r = new l.Mesh(new l.PlaneGeometry(310, 116), o);
-  return r.position.z = 300, n.add(r), { group: n, ring: t, label: r };
-}
-function Yr(n, e, t, i) {
-  n.fillMesh.scale.x = Math.max(1e-3, e);
-  const a = 94;
-  n.fillMesh.position.x = -(1 - e) * a, n.fillMesh.position.y = -18;
-  const s = Math.max(0, Math.min(100, Math.round(Ti(t))));
-  if (n.lastPercent !== s) {
-    const { labelContext: o, labelCanvas: r, labelTexture: c } = n;
-    o.clearRect(0, 0, r.width, r.height), o.textAlign = "center", o.textBaseline = "middle", o.lineJoin = "round", o.font = "700 84px sans-serif", o.lineWidth = 18, o.strokeStyle = "rgba(7, 19, 29, 0.92)", o.strokeText(`${s}`, r.width / 2, 78), o.fillStyle = "#fff8e1", o.fillText(`${s}`, r.width / 2, 78), o.font = "600 30px sans-serif", o.lineWidth = 10, o.strokeText("BOOST", r.width / 2, 130), o.fillStyle = "#ffcf70", o.fillText("BOOST", r.width / 2, 130), c.needsUpdate = !0, n.lastPercent = s;
-  }
-  n.group.quaternion.copy(i.quaternion);
-}
-function Zr(n) {
-  n.add(new l.AmbientLight("#d8ecff", 1.6));
-  const e = new l.DirectionalLight("#fff6df", 2.4);
-  e.position.set(4e3, -6e3, 5e3), n.add(e);
-  const t = new l.DirectionalLight("#97d7ff", 1.2);
-  t.position.set(-5e3, 4e3, 3e3), n.add(t);
-}
-function Qr(n) {
-  const e = Gr(n), t = new l.MeshPhongMaterial({
-    color: 16777215,
-    map: e,
-    shininess: 42,
-    specular: new l.Color("#f7f2e3")
-  });
-  return {
-    mesh: new l.Mesh(new l.SphereGeometry(93, 24, 24), t),
-    texture: e
-  };
-}
-function Jr(n, e, t) {
-  const i = new l.Scene();
-  i.background = new l.Color("#081119");
-  const a = new l.PerspectiveCamera(48, 1, 10 * t, 5e5 * t);
-  a.up.set(0, 0, 1), a.position.set(0, -9e3 * t, 5e3 * t), a.lookAt(0, 0, 0);
-  const s = new l.WebGLRenderer({
-    antialias: !1,
-    powerPreference: "high-performance"
-  });
-  s.setPixelRatio(Math.min(window.devicePixelRatio || 1, Vr)), s.domElement.style.display = "block", s.domElement.style.width = "100%", s.domElement.style.height = "100%", s.domElement.tabIndex = 0, s.domElement.setAttribute("aria-label", "Replay player viewport"), n.replaceChildren(s.domElement);
-  const o = new vi(a, s.domElement);
-  o.enableDamping = !0, o.maxDistance = 16e4 * t, o.keyPanSpeed = Or, o.target.set(0, 0, 600 * t), o.listenToKeyEvents(s.domElement), o.update();
-  const r = () => {
-    s.domElement.focus();
-  };
-  s.domElement.addEventListener("pointerdown", r);
-  const { stadium: c, wallPanels: h } = $r(t);
-  i.add(c), Zr(i);
-  const d = new l.Group();
-  d.scale.set(-t, t, t), i.add(d);
-  const { mesh: m, texture: u } = Qr(s);
-  d.add(m);
-  const p = /* @__PURE__ */ new Map(), g = /* @__PURE__ */ new Map(), f = /* @__PURE__ */ new Map(), y = /* @__PURE__ */ new Map(), b = /* @__PURE__ */ new Map(), w = /* @__PURE__ */ new Map();
-  for (const S of e.players) {
-    const I = new l.Group(), V = S.isTeamZero ? "#57a8ff" : "#ff9c40", L = Kr(V), G = Wr(S.hitbox, V);
-    I.add(L), I.add(G);
-    const W = jr();
-    I.add(W);
-    const K = Xr();
-    I.add(K.group);
-    const j = qr();
-    d.add(I), d.add(j.group), p.set(S.id, I), g.set(S.id, L), f.set(S.id, G), y.set(S.id, W), b.set(S.id, K), w.set(S.id, j);
-  }
-  const x = () => {
-    const S = n.clientWidth || 1, I = n.clientHeight || 1;
-    a.aspect = S / I, a.updateProjectionMatrix(), s.setSize(S, I, !1);
-  };
-  x();
-  const v = new l.Vector3(), T = new l.Vector3(), M = new l.Quaternion(), _ = new l.Vector3();
-  return {
-    scene: i,
-    replayRoot: d,
-    camera: a,
-    renderer: s,
-    controls: o,
-    resize: x,
-    dispose: () => {
-      s.domElement.removeEventListener("pointerdown", r), o.stopListenToKeyEvents(), o.dispose(), u.dispose(), s.dispose(), n.replaceChildren();
-    },
-    ballMesh: m,
-    playerMeshes: p,
-    playerBodyMeshes: g,
-    playerHitboxes: f,
-    playerBoostTrails: y,
-    playerBoostMeters: b,
-    playerDemoIndicators: w,
-    updateWallVisibility: () => {
-      i.updateMatrixWorld(!0);
-      for (const S of h) {
-        if (S.fixedOpacity !== null) {
-          S.material.transparent = !0, S.material.opacity = S.fixedOpacity, S.material.depthWrite = !1;
-          continue;
-        }
-        S.mesh.getWorldPosition(v), S.mesh.getWorldQuaternion(M), T.copy(S.outwardLocal).applyQuaternion(M).normalize(), _.copy(a.position).sub(v);
-        const I = T.dot(_) > 0;
-        S.material.transparent = !0, S.material.opacity = I ? Oe : Tt, S.material.depthWrite = !I;
-      }
-    }
-  };
-}
-const el = 1;
-class tl extends EventTarget {
-  container;
-  replay;
-  options;
-  sceneState;
-  beforeRenderCallbacks = [];
-  plugins = [];
-  fieldScale;
-  desiredCameraPosition = new l.Vector3();
-  desiredLookTarget = new l.Vector3();
-  boundWindowResize = () => this.sceneState.resize();
-  attachedCameraBlendState;
-  liveGameState;
-  kickoffGameState;
-  timelineSegmentsCacheKey = null;
-  timelineSegmentsCache = [];
-  resizeObserver = null;
-  animationFrameId = null;
-  disposed = !1;
-  playing = !1;
-  speed = 1;
-  currentTime = 0;
-  lastCameraRenderAt = null;
-  playbackStartedAt = 0;
-  playbackStartedTime = 0;
-  cameraDistanceScale;
-  customCameraSettings;
-  cameraViewMode;
-  freeCameraTransition = null;
-  attachedPlayerId;
-  ballCamEnabled;
-  boostMeterEnabled;
-  boostPickupAnimationEnabled;
-  hitboxWireframesEnabled;
-  hitboxOnlyModeEnabled;
-  skipPostGoalTransitionsEnabled;
-  skipKickoffsEnabled;
-  constructor(e, t, i = {}) {
-    super(), this.container = e, this.replay = t, this.options = i, this.fieldScale = i.fieldScale ?? el, this.sceneState = Jr(e, t, this.fieldScale), this.liveGameState = Zi(t), this.kickoffGameState = Qi(t, this.liveGameState);
-    const a = Ys(i);
-    this.speed = a.speed, this.cameraDistanceScale = a.cameraDistanceScale, this.customCameraSettings = a.customCameraSettings, this.attachedPlayerId = a.attachedPlayerId, this.cameraViewMode = a.cameraViewMode, this.ballCamEnabled = a.ballCamEnabled, this.attachedCameraBlendState = {
-      currentBlend: a.ballCamEnabled ? 1 : 0,
-      targetBlend: a.ballCamEnabled ? 1 : 0,
-      lastIsBallCam: a.ballCamEnabled
-    }, this.boostMeterEnabled = a.boostMeterEnabled, this.boostPickupAnimationEnabled = a.boostPickupAnimationEnabled, this.hitboxWireframesEnabled = a.hitboxWireframesEnabled, this.hitboxOnlyModeEnabled = a.hitboxOnlyModeEnabled, this.skipPostGoalTransitionsEnabled = a.skipPostGoalTransitionsEnabled, this.skipKickoffsEnabled = a.skipKickoffsEnabled, this.setHitboxVisualizationVisibility(), this.installResizeHandling();
-    for (const s of i.plugins ?? [])
-      this.installPlugin(s, !1);
-    this.render(), this.scheduleAnimationFrame(), this.emitChange(), i.autoplay && this.play();
-  }
-  play() {
-    this.playing || (this.playing = !0, this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded(), this.reanchorPlaybackClock(), this.emitChange());
-  }
-  pause() {
-    this.playing && (this.syncPlaybackClock(), this.playing = !1, this.emitChange());
-  }
-  togglePlayback() {
-    this.playing ? this.pause() : this.play();
-  }
-  setPlaybackRate(e) {
-    this.playing && this.syncPlaybackClock(), this.speed = Math.max(0.1, e), this.playing && this.reanchorPlaybackClock(), this.emitChange();
-  }
-  setCameraDistanceScale(e) {
-    this.cameraDistanceScale = Math.max(0.25, e), this.render(), this.emitChange();
-  }
-  setCustomCameraSettings(e) {
-    this.customCameraSettings = lt(e), this.render(), this.emitChange();
-  }
-  setAttachedPlayer(e) {
-    this.attachedPlayerId = e, this.cameraViewMode = e ? "follow" : Re, this.freeCameraTransition = null, this.render(), this.emitChange();
-  }
-  setCameraViewMode(e) {
-    this.cameraViewMode = e, this.freeCameraTransition = null, this.render(), this.emitChange();
-  }
-  setFreeCameraPreset(e) {
-    const { fov: t, position: i, target: a, up: s } = Ws(
-      e,
-      this.fieldScale,
-      this.sceneState.camera.aspect
-    );
-    this.cameraViewMode = Re, this.freeCameraTransition = {
-      position: i,
-      target: a,
-      up: s,
-      fov: t
-    }, this.render(), this.emitChange();
-  }
-  setBallCamEnabled(e) {
-    this.ballCamEnabled = e, this.render(), this.emitChange();
-  }
-  setBoostMeterEnabled(e) {
-    if (this.boostMeterEnabled = e, !e)
-      for (const t of this.sceneState.playerBoostMeters.values())
-        t.group.visible = !1;
-    this.render(), this.emitChange();
-  }
-  setBoostPickupAnimationEnabled(e) {
-    this.boostPickupAnimationEnabled = e, this.render(), this.emitChange();
-  }
-  setHitboxWireframesEnabled(e) {
-    this.hitboxWireframesEnabled = e, this.setHitboxVisualizationVisibility(), this.render(), this.emitChange();
-  }
-  setHitboxOnlyModeEnabled(e) {
-    this.hitboxOnlyModeEnabled = e, this.setHitboxVisualizationVisibility(), this.render(), this.emitChange();
-  }
-  setSkipPostGoalTransitionsEnabled(e) {
-    this.skipPostGoalTransitionsEnabled = e, e && this.playing && this.skipPostGoalTransitionIfNeeded(), this.render(), this.emitChange();
-  }
-  setSkipKickoffsEnabled(e) {
-    this.skipKickoffsEnabled = e, e && this.playing && (this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded()), this.render(), this.emitChange();
-  }
-  seek(e) {
-    this.currentTime = this.clampReplayTime(e), this.playing && (this.skipPostGoalTransitionIfNeeded(), this.skipPastKickoffIfNeeded()), this.playing && this.reanchorPlaybackClock(), this.render(), this.emitChange();
-  }
-  setFrameIndex(e) {
-    const t = Ss(this.replay, e), i = this.replay.frames[t]?.time ?? 0, a = this.playing, s = this.currentTime !== i || a;
-    this.playing = !1, this.currentTime = i, this.render(), s && this.emitChange();
-  }
-  stepFrames(e) {
-    if (!Number.isFinite(e) || this.replay.frames.length === 0)
-      return;
-    const t = fe(this.replay, this.currentTime);
-    this.setFrameIndex(t + Math.trunc(e));
-  }
-  stepForwardFrame() {
-    this.stepFrames(1);
-  }
-  stepBackwardFrame() {
-    this.stepFrames(-1);
-  }
-  setState(e) {
-    const t = performance.now();
-    if (e.speed !== void 0 && (this.playing && this.syncPlaybackClock(t), this.speed = Math.max(0.1, e.speed)), e.cameraDistanceScale !== void 0 && (this.cameraDistanceScale = Math.max(0.25, e.cameraDistanceScale)), e.customCameraSettings !== void 0 && (this.customCameraSettings = lt(e.customCameraSettings)), e.cameraViewMode !== void 0 && (this.cameraViewMode = e.cameraViewMode), e.attachedPlayerId !== void 0 && (this.attachedPlayerId = e.attachedPlayerId, e.cameraViewMode === void 0 && (this.cameraViewMode = this.attachedPlayerId ? "follow" : Re)), e.ballCamEnabled !== void 0 && (this.ballCamEnabled = e.ballCamEnabled), e.boostMeterEnabled !== void 0 && (this.boostMeterEnabled = e.boostMeterEnabled, !this.boostMeterEnabled))
-      for (const i of this.sceneState.playerBoostMeters.values())
-        i.group.visible = !1;
-    e.boostPickupAnimationEnabled !== void 0 && (this.boostPickupAnimationEnabled = e.boostPickupAnimationEnabled), e.hitboxWireframesEnabled !== void 0 && (this.hitboxWireframesEnabled = e.hitboxWireframesEnabled, this.setHitboxVisualizationVisibility()), e.hitboxOnlyModeEnabled !== void 0 && (this.hitboxOnlyModeEnabled = e.hitboxOnlyModeEnabled, this.setHitboxVisualizationVisibility()), e.skipPostGoalTransitionsEnabled !== void 0 && (this.skipPostGoalTransitionsEnabled = e.skipPostGoalTransitionsEnabled), e.skipKickoffsEnabled !== void 0 && (this.skipKickoffsEnabled = e.skipKickoffsEnabled), e.currentTime !== void 0 && (this.currentTime = this.clampReplayTime(e.currentTime)), e.playing !== void 0 && e.playing !== this.playing && (e.playing ? this.playing = !0 : (e.currentTime === void 0 && this.syncPlaybackClock(t), this.playing = !1)), this.playing && (this.skipPostGoalTransitionIfNeeded(t), this.skipPastKickoffIfNeeded(t), this.reanchorPlaybackClock(t)), this.render(), this.emitChange();
-  }
-  getState() {
-    const e = fe(this.replay, this.currentTime);
-    return {
-      currentTime: this.currentTime,
-      duration: this.replay.duration,
-      frameIndex: e,
-      activeMetadata: this.getActiveMetadata(e, this.currentTime),
-      playing: this.playing,
-      speed: this.speed,
-      cameraDistanceScale: this.cameraDistanceScale,
-      customCameraSettings: this.customCameraSettings,
-      cameraViewMode: this.cameraViewMode,
-      attachedPlayerId: this.attachedPlayerId,
-      ballCamEnabled: this.ballCamEnabled,
-      boostMeterEnabled: this.boostMeterEnabled,
-      boostPickupAnimationEnabled: this.boostPickupAnimationEnabled,
-      hitboxWireframesEnabled: this.hitboxWireframesEnabled,
-      hitboxOnlyModeEnabled: this.hitboxOnlyModeEnabled,
-      skipPostGoalTransitionsEnabled: this.skipPostGoalTransitionsEnabled,
-      skipKickoffsEnabled: this.skipKickoffsEnabled
-    };
-  }
-  getSnapshot() {
-    return this.getState();
-  }
-  getTimelineDuration() {
-    return this.replay.duration;
-  }
-  getTimelineCurrentTime() {
-    return this.projectReplayTimeToTimeline(this.currentTime).timelineTime;
-  }
-  getTimelineSegments() {
-    const e = `${this.skipPostGoalTransitionsEnabled}:${this.skipKickoffsEnabled}`;
-    return this.timelineSegmentsCacheKey === e ? this.timelineSegmentsCache : (this.timelineSegmentsCacheKey = e, this.timelineSegmentsCache = this.computeTimelineSegments(), this.timelineSegmentsCache);
-  }
-  projectReplayTimeToTimeline(e) {
-    return ta(
-      this.replay.duration,
-      this.getTimelineSegments(),
-      e
-    );
-  }
-  projectTimelineTimeToReplay(e) {
-    return ia(
-      this.replay.duration,
-      this.getTimelineDuration(),
-      this.getTimelineSegments(),
-      e
-    );
-  }
-  clampReplayTime(e) {
-    return l.MathUtils.clamp(e, 0, this.replay.duration);
-  }
-  getPlaybackEndTime() {
-    return aa(this.replay.duration, this.getTimelineSegments());
-  }
-  subscribe(e) {
-    const t = (i) => {
-      e(i.detail);
-    };
-    return this.addEventListener("change", t), e(this.getState()), () => {
-      this.removeEventListener("change", t);
-    };
-  }
-  onBeforeRender(e) {
-    return this.beforeRenderCallbacks.push(e), () => {
-      const t = this.beforeRenderCallbacks.indexOf(e);
-      t >= 0 && this.beforeRenderCallbacks.splice(t, 1);
-    };
-  }
-  addPlugin(e) {
-    return this.installPlugin(e, !0);
-  }
-  removePlugin(e) {
-    const t = this.plugins.findIndex((a) => a.plugin.id === e);
-    if (t < 0)
-      return !1;
-    const [i] = this.plugins.splice(t, 1);
-    return i.plugin.teardown?.(this.createPluginContext()), this.render(), !0;
-  }
-  getPlugins() {
-    return this.plugins.map((e) => e.plugin);
-  }
-  destroy() {
-    for (this.playing && this.pause(), this.disposed = !0, this.animationFrameId !== null && (cancelAnimationFrame(this.animationFrameId), this.animationFrameId = null), this.resizeObserver ? (this.resizeObserver.disconnect(), this.resizeObserver = null) : window.removeEventListener("resize", this.boundWindowResize); this.plugins.length > 0; )
-      this.plugins.pop()?.plugin.teardown?.(this.createPluginContext());
-    this.sceneState.dispose();
-  }
-  dispose() {
-    this.destroy();
-  }
-  installResizeHandling() {
-    if (typeof ResizeObserver < "u") {
-      this.resizeObserver = new ResizeObserver(() => {
-        this.sceneState.resize();
-      }), this.resizeObserver.observe(this.container);
-      return;
-    }
-    window.addEventListener("resize", this.boundWindowResize);
-  }
-  scheduleAnimationFrame() {
-    this.animationFrameId !== null || this.disposed || (this.animationFrameId = requestAnimationFrame(this.tick));
-  }
-  reanchorPlaybackClock(e = performance.now()) {
-    this.playbackStartedAt = e, this.playbackStartedTime = this.currentTime;
-  }
-  setHitboxVisualizationVisibility() {
-    for (const e of this.sceneState.playerHitboxes.values())
-      e.visible = this.hitboxWireframesEnabled || this.hitboxOnlyModeEnabled, Ur(e, this.hitboxOnlyModeEnabled);
-    for (const e of this.sceneState.playerBodyMeshes.values())
-      e.visible = !this.hitboxOnlyModeEnabled;
-    if (this.hitboxOnlyModeEnabled) {
-      for (const e of this.sceneState.playerBoostTrails.values())
-        e.visible = !1;
-      for (const e of this.sceneState.playerBoostMeters.values())
-        e.group.visible = !1;
-    }
-  }
-  syncPlaybackClock(e = performance.now()) {
-    if (!this.playing)
-      return !1;
-    const t = (e - this.playbackStartedAt) / 1e3, i = l.MathUtils.clamp(
-      this.playbackStartedTime + t * this.speed,
-      0,
-      this.getPlaybackEndTime()
-    ), a = i !== this.currentTime;
-    return this.currentTime = i, a;
-  }
-  tick = (e) => {
-    if (this.animationFrameId = null, this.disposed)
-      return;
-    let t = !1;
-    this.playing && (t = this.syncPlaybackClock(e), t = this.skipPostGoalTransitionIfNeeded(e) || t, t = this.skipPastKickoffIfNeeded(e) || t, this.currentTime >= this.getPlaybackEndTime() && (this.playing = !1, t = !0)), this.render(), t && this.emitChange(), this.scheduleAnimationFrame();
-  };
-  getCameraRenderDelta() {
-    const e = typeof performance > "u" ? Date.now() : performance.now(), t = this.lastCameraRenderAt;
-    return this.lastCameraRenderAt = e, t === null ? 1 / 60 : Math.max(0, Math.min(0.1, (e - t) / 1e3));
-  }
-  render() {
-    const e = sa(this.replay, this.currentTime), t = e.frameIndex, { ballFrame: i, nextBallFrame: a, ballPosition: s } = Zs({
-      replay: this.replay,
-      sceneState: this.sceneState,
-      fieldScale: this.fieldScale,
-      frameWindow: e
-    }), o = [];
-    for (const [h, d] of this.replay.players.entries()) {
-      const m = this.sceneState.playerMeshes.get(d.id), u = this.sceneState.playerBoostTrails.get(d.id), p = this.sceneState.playerBoostMeters.get(d.id), g = this.sceneState.playerDemoIndicators.get(d.id), f = d.frames[t] ?? null, y = d.frames[e.nextFrameIndex] ?? f;
-      let b = null, w = null, x = 0;
-      if (!m) {
-        g && (g.group.visible = !1), o.push({
-          track: d,
-          mesh: null,
-          boostTrail: u ?? null,
-          frame: f,
-          nextFrame: y,
-          interpolatedPosition: w,
-          boostFraction: x
-        });
-        continue;
-      }
-      b = wt(
-        f?.position ?? null,
-        y?.position ?? null,
-        f?.linearVelocity ?? null,
-        y?.linearVelocity ?? null,
-        e.dt,
-        e.alpha
-      );
-      const v = ct(
-        this.replay.timelineEvents,
-        d.id,
-        this.currentTime
-      );
-      if (!b) {
-        m.visible = !1, u && (u.visible = !1), p && (p.group.visible = !1), Je({
-          indicator: g ?? null,
-          fallbackPosition: null,
-          demoEvent: v,
-          currentTime: this.currentTime,
-          camera: this.sceneState.camera
-        }), o.push({
-          track: d,
-          mesh: m,
-          boostTrail: u ?? null,
-          frame: f,
-          nextFrame: y,
-          interpolatedPosition: w,
-          boostFraction: x
-        });
-        continue;
-      }
-      if (v) {
-        m.visible = !1, u && (u.visible = !1), p && (p.group.visible = !1), Je({
-          indicator: g ?? null,
-          fallbackPosition: b,
-          demoEvent: v,
-          currentTime: this.currentTime,
-          camera: this.sceneState.camera
-        }), o.push({
-          track: d,
-          mesh: m,
-          boostTrail: u ?? null,
-          frame: f,
-          nextFrame: y,
-          interpolatedPosition: w,
-          boostFraction: x
-        });
-        continue;
-      }
-      if (!ma(f)) {
-        m.visible = !1, u && (u.visible = !1), p && (p.group.visible = !1), Je({
-          indicator: g ?? null,
-          fallbackPosition: b,
-          demoEvent: null,
-          currentTime: this.currentTime,
-          camera: this.sceneState.camera
-        }), o.push({
-          track: d,
-          mesh: m,
-          boostTrail: u ?? null,
-          frame: f,
-          nextFrame: y,
-          interpolatedPosition: w,
-          boostFraction: x
-        });
-        continue;
-      }
-      m.visible = !0, g && (g.group.visible = !1), w = b, m.position.copy(vt(b));
-      const M = ra(
-        f?.rotation ?? null,
-        y?.rotation ?? null,
-        e.alpha
-      );
-      M ? m.quaternion.copy(M) : m.quaternion.identity();
-      const _ = f?.boostFraction ?? 0, D = y?.boostFraction ?? _;
-      if (x = l.MathUtils.lerp(
-        _,
-        D,
-        e.alpha
-      ), u) {
-        const F = (e.alpha >= 0.5 ? y?.boostActive : f?.boostActive) ?? f?.boostActive ?? y?.boostActive ?? !1;
-        this.hitboxOnlyModeEnabled ? u.visible = !1 : Qs(u, F, x, this.currentTime, h);
-      }
-      p && (this.boostMeterEnabled && !this.hitboxOnlyModeEnabled ? (p.group.visible = !0, Yr(
-        p,
-        x,
-        l.MathUtils.lerp(
-          f?.boostAmount ?? 0,
-          y?.boostAmount ?? f?.boostAmount ?? 0,
-          e.alpha
-        ),
-        this.sceneState.camera
-      )) : p.group.visible = !1), o.push({
-        track: d,
-        mesh: m,
-        boostTrail: u ?? null,
-        frame: f,
-        nextFrame: y,
-        interpolatedPosition: w,
-        boostFraction: x
-      });
-    }
-    Xs({
-      sceneState: this.sceneState,
-      replay: this.replay,
-      fieldScale: this.fieldScale,
-      cameraViewMode: this.cameraViewMode,
-      attachedPlayerId: this.attachedPlayerId,
-      ballCamEnabled: this.ballCamEnabled,
-      cameraDistanceScale: this.cameraDistanceScale,
-      customCameraSettings: this.customCameraSettings,
-      frameIndex: t,
-      nextFrameIndex: e.nextFrameIndex,
-      alpha: e.alpha,
-      dt: e.dt,
-      renderDelta: this.getCameraRenderDelta(),
-      attachedPlayerUnavailable: this.attachedPlayerId !== null && ct(this.replay.timelineEvents, this.attachedPlayerId, this.currentTime) !== null,
-      ballPosition: s,
-      desiredCameraPosition: this.desiredCameraPosition,
-      desiredLookTarget: this.desiredLookTarget,
-      blendState: this.attachedCameraBlendState
-    }), this.cameraViewMode === "free" && this.freeCameraTransition && Us({
-      sceneState: this.sceneState,
-      ...this.freeCameraTransition
-    }) && (this.freeCameraTransition = null), this.sceneState.controls.update(), this.sceneState.updateWallVisibility();
-    const r = {
-      frameIndex: e.frameIndex,
-      nextFrameIndex: e.nextFrameIndex,
-      alpha: e.alpha,
-      currentTime: this.currentTime
-    };
-    for (const h of this.beforeRenderCallbacks)
-      h(r);
-    const c = this.createRenderContext(
-      r,
-      i,
-      a,
-      s,
-      o
-    );
-    for (const h of this.plugins)
-      h.plugin.beforeRender?.(c);
-    this.sceneState.renderer.render(this.sceneState.scene, this.sceneState.camera);
-  }
-  skipPastKickoffIfNeeded(e) {
-    if (!this.skipKickoffsEnabled)
-      return !1;
-    const t = ha(
-      this.replay,
-      this.currentTime,
-      this.liveGameState,
-      this.kickoffGameState
-    );
-    return t === null ? !1 : (this.currentTime = t, this.playing && this.reanchorPlaybackClock(e), !0);
-  }
-  skipPostGoalTransitionIfNeeded(e) {
-    if (!this.skipPostGoalTransitionsEnabled)
-      return !1;
-    const t = da(
-      this.replay,
-      this.currentTime,
-      this.liveGameState,
-      this.kickoffGameState
-    );
-    return t === null ? !1 : (this.currentTime = t, this.playing && this.reanchorPlaybackClock(e), !0);
-  }
-  getActiveMetadata(e, t) {
-    return na(this.replay, e, t);
-  }
-  computeTimelineSegments() {
-    return ea(
-      this.replay,
-      this.skipPostGoalTransitionsEnabled,
-      this.skipKickoffsEnabled,
-      this.liveGameState,
-      this.kickoffGameState
-    );
-  }
-  installPlugin(e, t) {
-    const i = typeof e == "function" ? e() : e;
-    if (this.plugins.some((s) => s.plugin.id === i.id))
-      throw new Error(`Replay player plugin "${i.id}" is already installed`);
-    const a = { definition: e, plugin: i };
-    return this.plugins.push(a), i.setup?.(this.createPluginContext()), i.onStateChange?.(this.createPluginStateContext(this.getState())), t && this.render(), () => {
-      const s = this.plugins.indexOf(a);
-      s < 0 || (this.plugins.splice(s, 1), i.teardown?.(this.createPluginContext()), this.render());
-    };
-  }
-  createPluginContext() {
-    return {
-      player: this,
-      replay: this.replay,
-      scene: this.sceneState,
-      container: this.container,
-      options: this.options
-    };
-  }
-  createPluginStateContext(e) {
-    return {
-      ...this.createPluginContext(),
-      state: e
-    };
-  }
-  createRenderContext(e, t, i, a, s) {
-    return {
-      ...this.createPluginStateContext(this.getState()),
-      ...e,
-      frame: this.replay.frames[e.frameIndex] ?? null,
-      nextFrame: this.replay.frames[e.nextFrameIndex] ?? null,
-      ballFrame: t,
-      nextBallFrame: i,
-      ballPosition: a,
-      players: s
-    };
-  }
-  emitChange() {
-    const e = this.getState(), t = this.createPluginStateContext(e);
-    for (const i of this.plugins)
-      i.plugin.onStateChange?.(t);
-    this.dispatchEvent(new CustomEvent("change", { detail: e }));
-  }
-}
-function il(n) {
+function Rr(n) {
   return typeof n != "string";
 }
-function gi(n, e, t) {
+function ai(n, e, t) {
   return Math.min(Math.max(n, e), t);
 }
-function Pa(n) {
+function aa(n) {
   return n instanceof Error ? n.message : "Failed to load replay";
 }
-function Ea(n) {
+function na(n) {
   return n.preloadPolicy ? n.preloadPolicy : n.preloadRadius !== void 0 ? {
     kind: "adjacent",
     ahead: n.preloadRadius,
@@ -12048,97 +11636,97 @@ function Ea(n) {
     behind: 1
   };
 }
-function _a(n) {
+function oa(n) {
   return n.advanceMode ? n.advanceMode : n.advanceOnEnd === !1 ? "manual" : "auto";
 }
-function Ia(n) {
+function sa(n) {
   return n.endMode ?? "stop";
 }
-function ut(n) {
+function Je(n) {
   const e = [], t = /* @__PURE__ */ new Set();
   for (const i of n)
     t.has(i.replay.id) || (t.add(i.replay.id), e.push(i.replay));
   return e;
 }
-function yi(n, e, t, i, a) {
-  const s = [], o = /* @__PURE__ */ new Set([a]);
-  for (let r = e + t; r >= 0 && r < n.length && s.length < Math.max(0, i); r += t) {
+function ni(n, e, t, i, a) {
+  const o = [], s = /* @__PURE__ */ new Set([a]);
+  for (let r = e + t; r >= 0 && r < n.length && o.length < Math.max(0, i); r += t) {
     const c = n[r]?.replay;
-    !c || o.has(c.id) || (o.add(c.id), s.push(c));
+    !c || s.has(c.id) || (s.add(c.id), o.push(c));
   }
-  return s;
+  return o;
 }
-function Aa(n, e, t) {
+function ra(n, e, t) {
   const i = n[e];
   if (!i)
     return [];
   if (t.kind === "none")
     return [];
   if (t.kind === "all")
-    return ut(n).filter((c) => c.id !== i.replay.id);
+    return Je(n).filter((c) => c.id !== i.replay.id);
   if (t.kind === "adjacent") {
-    const c = yi(
+    const c = ni(
       n,
       e,
       -1,
       t.behind ?? 0,
       i.replay.id
-    ), h = yi(
+    ), l = ni(
       n,
       e,
       1,
       t.ahead,
       i.replay.id
     );
-    return [...c, ...h];
+    return [...c, ...l];
   }
   const a = {
     items: n,
     currentIndex: e,
     currentItem: i
-  }, s = /* @__PURE__ */ new Set([i.replay.id]), o = [], r = new Map(
-    ut(n).map((c) => [c.id, c])
+  }, o = /* @__PURE__ */ new Set([i.replay.id]), s = [], r = new Map(
+    Je(n).map((c) => [c.id, c])
   );
   for (const c of t.pick(a)) {
-    const h = il(c) ? c : r.get(c);
-    !h || s.has(h.id) || (s.add(h.id), o.push(h));
+    const l = Rr(c) ? c : r.get(c);
+    !l || o.has(l.id) || (o.add(l.id), s.push(l));
   }
-  return o;
+  return s;
 }
-function Hl(n) {
+function Sl(n) {
   return { kind: "frame", value: n };
 }
-function bi(n) {
+function oi(n) {
   return { kind: "time", value: n };
 }
-function Ue(n, e) {
+function ke(n, e) {
   return { id: n, load: e };
 }
-function al(n, e) {
-  return Ue(n, async () => e);
+function Or(n, e) {
+  return ke(n, async () => e);
 }
-function $l(n, e) {
-  return Ue(n, async () => $e(e, { useWorker: !0 }));
+function _l(n, e) {
+  return ke(n, async () => ze(e, { useWorker: !0 }));
 }
-function Wl(n, e = n.webkitRelativePath || n.name) {
-  return Ue(e, async () => {
+function Pl(n, e = n.webkitRelativePath || n.name) {
+  return ke(e, async () => {
     const t = new Uint8Array(await n.arrayBuffer());
-    return $e(t, { useWorker: !0 });
+    return ze(t, { useWorker: !0 });
   });
 }
-function Ul(n, e, t = n) {
-  return Ue(t, async (i) => e(n, i));
+function El(n, e, t = n) {
+  return ke(t, async (i) => e(n, i));
 }
-function nl(n, e = {}) {
+function Lr(n, e = {}) {
   return {
     replay: n,
-    start: bi(0),
-    end: bi(Number.POSITIVE_INFINITY),
+    start: oi(0),
+    end: oi(Number.POSITIVE_INFINITY),
     label: e.label,
     meta: e.meta
   };
 }
-class ka {
+class la {
   cache = /* @__PURE__ */ new Map();
   states = /* @__PURE__ */ new Map();
   listeners = /* @__PURE__ */ new Set();
@@ -12155,18 +11743,18 @@ class ka {
     });
     const i = {
       sourceId: e.id,
-      updateProgress: (s) => this.updateProgress(e.id, s)
-    }, a = Promise.resolve().then(() => e.load(i)).then((s) => (this.setSourceState(e.id, {
+      updateProgress: (o) => this.updateProgress(e.id, o)
+    }, a = Promise.resolve().then(() => e.load(i)).then((o) => (this.setSourceState(e.id, {
       status: "loaded",
       progress: null,
       error: null,
       completedAt: Date.now()
-    }), s)).catch((s) => {
+    }), o)).catch((o) => {
       throw this.cache.delete(e.id), this.setSourceState(e.id, {
         status: "error",
-        error: Pa(s),
+        error: aa(o),
         completedAt: Date.now()
-      }), s;
+      }), o;
     });
     return this.cache.set(e.id, a), a;
   }
@@ -12227,7 +11815,7 @@ class ka {
       e();
   }
 }
-class Kl {
+class Il {
   items;
   loadCache;
   currentItemIndex = 0;
@@ -12244,7 +11832,7 @@ class Kl {
   advanceMode;
   endMode;
   constructor(e, t = {}) {
-    this.items = e, this.loadCache = t.loadCache ?? new ka(), this.preloadPolicy = Ea(t), this.advanceMode = _a(t), this.endMode = Ia(t), e.length > 0 && (this.currentItemIndex = gi(t.initialItemIndex ?? 0, 0, e.length - 1), this.pendingLoad = this.loadItem(this.currentItemIndex));
+    this.items = e, this.loadCache = t.loadCache ?? new la(), this.preloadPolicy = na(t), this.advanceMode = oa(t), this.endMode = sa(t), e.length > 0 && (this.currentItemIndex = ai(t.initialItemIndex ?? 0, 0, e.length - 1), this.pendingLoad = this.loadItem(this.currentItemIndex));
   }
   async waitForCurrentItem() {
     await this.pendingLoad;
@@ -12304,17 +11892,17 @@ class Kl {
   async loadItem(e) {
     if (this.items.length === 0)
       return;
-    const t = gi(e, 0, this.items.length - 1), i = ++this.loadGeneration, a = this.items[t];
+    const t = ai(e, 0, this.items.length - 1), i = ++this.loadGeneration, a = this.items[t];
     this.pendingItemIndex = t, this.loading = !0, this.error = null, this.playlistEnded = !1, this.emitChange();
     try {
-      const s = await this.loadCache.load(a.replay);
+      const o = await this.loadCache.load(a.replay);
       if (this.disposed || i !== this.loadGeneration)
         return;
-      this.currentItemIndex = t, this.pendingItemIndex = null, this.currentLoaded = s, this.loading = !1, this.error = null, this.loadCache.preload(Aa(this.items, t, this.preloadPolicy)), this.emitChange();
-    } catch (s) {
+      this.currentItemIndex = t, this.pendingItemIndex = null, this.currentLoaded = o, this.loading = !1, this.error = null, this.loadCache.preload(ra(this.items, t, this.preloadPolicy)), this.emitChange();
+    } catch (o) {
       if (this.disposed || i !== this.loadGeneration)
         return;
-      throw this.pendingItemIndex = null, this.loading = !1, this.error = Pa(s), this.currentLoaded = null, this.emitChange(), s;
+      throw this.pendingItemIndex = null, this.loading = !1, this.error = aa(o), this.currentLoaded = null, this.emitChange(), o;
     }
   }
   emitChange() {
@@ -12323,56 +11911,56 @@ class Kl {
       t(e);
   }
 }
-const sl = 2.25, ol = 1, st = 1e-4;
-function me(n, e, t) {
+const Vr = 2.25, Nr = 1, Xe = 1e-4;
+function ne(n, e, t) {
   return Math.min(Math.max(n, e), t);
 }
-function rl(n, e) {
+function Gr(n, e) {
   if (n.frames.length === 0)
     return 0;
   const t = n.frames.length - 1;
-  return me(Math.round(e), 0, t);
+  return ne(Math.round(e), 0, t);
 }
-function ll(n) {
+function $r(n) {
   return n instanceof Error ? n.message : "Failed to load replay";
 }
-function se(n) {
+function te(n) {
   return typeof n == "number" && Number.isFinite(n) ? n : void 0;
 }
-function za(n) {
+function ca(n) {
   if (!n)
     return null;
-  const e = {}, t = se(n.fov), i = se(n.height), a = se(n.pitch), s = se(n.distance), o = se(n.stiffness), r = se(n.swivelSpeed), c = se(n.transitionSpeed);
-  return t !== void 0 && (e.fov = t), i !== void 0 && (e.height = i), a !== void 0 && (e.pitch = a), s !== void 0 && (e.distance = s), o !== void 0 && (e.stiffness = o), r !== void 0 && (e.swivelSpeed = r), c !== void 0 && (e.transitionSpeed = c), e;
+  const e = {}, t = te(n.fov), i = te(n.height), a = te(n.pitch), o = te(n.distance), s = te(n.stiffness), r = te(n.swivelSpeed), c = te(n.transitionSpeed);
+  return t !== void 0 && (e.fov = t), i !== void 0 && (e.height = i), a !== void 0 && (e.pitch = a), o !== void 0 && (e.distance = o), s !== void 0 && (e.stiffness = s), r !== void 0 && (e.swivelSpeed = r), c !== void 0 && (e.transitionSpeed = c), e;
 }
-function xi(n, e) {
+function si(n, e) {
   if (e.kind === "frame") {
-    const i = rl(n, e.value);
+    const i = Gr(n, e.value);
     return {
       frameIndex: i,
       time: n.frames[i]?.time ?? 0
     };
   }
-  const t = me(e.value, 0, n.duration);
+  const t = ne(e.value, 0, n.duration);
   return {
     frameIndex: fe(n, t),
     time: t
   };
 }
-function cl(n, e, t) {
+function Hr(n, e, t) {
   if (t.time < e.time) {
     const i = n.label ? ` "${n.label}"` : "";
     throw new Error(`Playlist item${i} ends before it starts`);
   }
 }
-function hl(n) {
+function Wr(n) {
   return {
-    speed: Math.max(0.1, n.initialPlaybackRate ?? ol),
+    speed: Math.max(0.1, n.initialPlaybackRate ?? Nr),
     cameraDistanceScale: Math.max(
       0.25,
-      n.initialCameraDistanceScale ?? sl
+      n.initialCameraDistanceScale ?? Vr
     ),
-    customCameraSettings: za(n.initialCustomCameraSettings),
+    customCameraSettings: ca(n.initialCustomCameraSettings),
     cameraViewMode: n.initialCameraViewMode ?? (n.initialAttachedPlayerId ? "follow" : "free"),
     attachedPlayerId: n.initialAttachedPlayerId ?? null,
     ballCamEnabled: n.initialBallCamEnabled ?? !1,
@@ -12383,9 +11971,9 @@ function hl(n) {
     skipKickoffsEnabled: n.initialSkipKickoffsEnabled ?? !1
   };
 }
-function dl(n, e) {
-  const t = xi(e.replay, n.start), i = xi(e.replay, n.end);
-  return cl(n, t, i), {
+function Ur(n, e) {
+  const t = si(e.replay, n.start), i = si(e.replay, n.end);
+  return Hr(n, t, i), {
     source: n,
     replay: e,
     start: t,
@@ -12393,7 +11981,7 @@ function dl(n, e) {
     duration: Math.max(0, i.time - t.time)
   };
 }
-class pt extends EventTarget {
+class et extends EventTarget {
   container;
   items;
   options;
@@ -12409,24 +11997,24 @@ class pt extends EventTarget {
   loadGeneration = 0;
   boundaryGuard = !1;
   pendingLoad = Promise.resolve();
-  replayCache = new ka();
+  replayCache = new la();
   replayCacheUnsubscribe = null;
   preferences;
   preloadPolicy;
   advanceMode;
   endMode;
   static fromReplay(e, t, i = {}) {
-    return pt.fromReplaySource(
+    return et.fromReplaySource(
       e,
-      al(i.replayId ?? "replay", t),
+      Or(i.replayId ?? "replay", t),
       i
     );
   }
   static fromReplaySource(e, t, i = {}) {
-    return new pt(
+    return new et(
       e,
       [
-        nl(t, {
+        Lr(t, {
           label: i.itemLabel,
           meta: i.itemMeta
         })
@@ -12435,10 +12023,10 @@ class pt extends EventTarget {
     );
   }
   constructor(e, t, i = {}) {
-    if (super(), this.container = e, this.items = t, this.options = i, this.preferences = hl(i), this.preloadPolicy = Ea(i), this.advanceMode = _a(i), this.endMode = Ia(i), this.playbackIntent = i.autoplay ?? !1, this.replayCacheUnsubscribe = this.replayCache.subscribe(() => {
+    if (super(), this.container = e, this.items = t, this.options = i, this.preferences = Wr(i), this.preloadPolicy = na(i), this.advanceMode = oa(i), this.endMode = sa(i), this.playbackIntent = i.autoplay ?? !1, this.replayCacheUnsubscribe = this.replayCache.subscribe(() => {
       this.emitChange();
     }), t.length > 0) {
-      const a = me(i.initialItemIndex ?? 0, 0, t.length - 1);
+      const a = ne(i.initialItemIndex ?? 0, 0, t.length - 1);
       this.pendingLoad = this.loadItem(a);
       return;
     }
@@ -12470,7 +12058,7 @@ class pt extends EventTarget {
   seek(e) {
     if (!this.player || !this.currentResolvedItem)
       return;
-    const t = me(
+    const t = ne(
       this.currentResolvedItem.start.time + e,
       this.currentResolvedItem.start.time,
       this.currentResolvedItem.end.time
@@ -12496,7 +12084,7 @@ class pt extends EventTarget {
     this.preferences.cameraDistanceScale = Math.max(0.25, e), this.player?.setCameraDistanceScale(this.preferences.cameraDistanceScale), this.emitChange();
   }
   setCustomCameraSettings(e) {
-    this.preferences.customCameraSettings = za(e), this.player?.setCustomCameraSettings(this.preferences.customCameraSettings), this.emitChange();
+    this.preferences.customCameraSettings = ca(e), this.player?.setCustomCameraSettings(this.preferences.customCameraSettings), this.emitChange();
   }
   setCameraViewMode(e) {
     this.preferences.cameraViewMode = e, this.player?.setCameraViewMode(e), this.emitChange();
@@ -12532,7 +12120,7 @@ class pt extends EventTarget {
     this.endMode = e, this.emitChange();
   }
   getState() {
-    const e = this.player?.getState() ?? null, t = this.pendingItemIndex ?? this.currentItemIndex, i = this.items[t] ?? null, a = e?.currentTime ?? 0, s = e?.duration ?? this.currentResolvedItem?.replay.replay.duration ?? 0, o = this.currentResolvedItem?.start.time ?? 0, r = this.currentResolvedItem?.duration ?? 0, c = me(a - o, 0, r), h = this.currentResolvedItem !== null && c >= r - st;
+    const e = this.player?.getState() ?? null, t = this.pendingItemIndex ?? this.currentItemIndex, i = this.items[t] ?? null, a = e?.currentTime ?? 0, o = e?.duration ?? this.currentResolvedItem?.replay.replay.duration ?? 0, s = this.currentResolvedItem?.start.time ?? 0, r = this.currentResolvedItem?.duration ?? 0, c = ne(a - s, 0, r), l = this.currentResolvedItem !== null && c >= r - Xe;
     return {
       ready: this.currentResolvedItem !== null && !this.loading && this.error === null,
       loading: this.loading,
@@ -12543,12 +12131,12 @@ class pt extends EventTarget {
       item: i,
       advanceMode: this.advanceMode,
       endMode: this.endMode,
-      itemEnded: h,
-      playlistEnded: h && t >= this.items.length - 1,
+      itemEnded: l,
+      playlistEnded: l && t >= this.items.length - 1,
       currentTime: c,
       duration: r,
       replayCurrentTime: a,
-      replayDuration: s,
+      replayDuration: o,
       frameIndex: e?.frameIndex ?? this.currentResolvedItem?.start.frameIndex ?? 0,
       activeMetadata: e?.activeMetadata ?? null,
       playing: e?.playing ?? !1,
@@ -12594,52 +12182,60 @@ class pt extends EventTarget {
   async loadItem(e) {
     if (this.items.length === 0)
       return;
-    const t = me(e, 0, this.items.length - 1), i = ++this.loadGeneration, a = this.items[t];
+    const t = ne(e, 0, this.items.length - 1), i = ++this.loadGeneration, a = this.items[t];
     this.pendingItemIndex = t, this.loading = !0, this.error = null, this.emitChange();
     try {
-      const s = this.loadReplaySource(a.replay);
+      const o = this.loadReplaySource(a.replay);
       this.prefetchNearbyReplays(t);
-      const o = await s;
+      const s = await o;
       if (this.disposed || i !== this.loadGeneration)
         return;
-      const r = dl(a, o);
+      const r = Ur(a, s);
       this.currentItemIndex = t, this.pendingItemIndex = null, this.currentResolvedItem = r, this.attachPlayer(r), this.loading = !1, this.error = null, this.prefetchNearbyReplays(t), this.emitChange();
-    } catch (s) {
+    } catch (o) {
       if (this.disposed || i !== this.loadGeneration)
         return;
-      throw this.playbackIntent = !1, this.pendingItemIndex = null, this.loading = !1, this.error = ll(s), this.detachPlayer(), this.currentResolvedItem = null, this.emitChange(), s;
+      throw this.playbackIntent = !1, this.pendingItemIndex = null, this.loading = !1, this.error = $r(o), this.detachPlayer(), this.currentResolvedItem = null, this.emitChange(), o;
     }
   }
   loadReplaySource(e) {
     return this.replayCache.load(e);
   }
   prefetchNearbyReplays(e) {
-    this.replayCache.preload(Aa(this.items, e, this.preloadPolicy));
+    this.replayCache.preload(ra(this.items, e, this.preloadPolicy));
   }
   getReplayLoadStates() {
-    return ut(this.items).map((e) => this.replayCache.getState(e));
+    return Je(this.items).map((e) => this.replayCache.getState(e));
   }
   attachPlayer(e) {
     this.detachPlayer();
-    const t = e.replay.replay, i = t.players.some(
-      (a) => a.id === this.preferences.attachedPlayerId
+    const t = e.replay, { replay: i, raw: a } = t;
+    if (!a)
+      throw new Error(
+        "ReplayPlaylistPlayer requires LoadedReplay.raw; load replays with loadReplayFromBytes, createReplayBytesSource, or createReplayFileSource."
+      );
+    const o = i.players.some(
+      (s) => s.id === this.preferences.attachedPlayerId
     ) ? this.preferences.attachedPlayerId : null;
-    this.preferences.attachedPlayerId = i, i === null && this.preferences.cameraViewMode === "follow" && (this.preferences.cameraViewMode = "free"), this.player = new tl(this.container, t, {
-      fieldScale: this.options.fieldScale,
-      initialPlaybackRate: this.preferences.speed,
-      initialCameraDistanceScale: this.preferences.cameraDistanceScale,
-      initialCustomCameraSettings: this.preferences.customCameraSettings,
-      initialCameraViewMode: this.preferences.cameraViewMode,
-      initialAttachedPlayerId: i,
-      initialBallCamEnabled: this.preferences.ballCamEnabled,
-      initialBoostPickupAnimationEnabled: this.preferences.boostPickupAnimationEnabled,
-      initialHitboxWireframesEnabled: this.preferences.hitboxWireframesEnabled,
-      initialHitboxOnlyModeEnabled: this.preferences.hitboxOnlyModeEnabled,
-      initialSkipPostGoalTransitionsEnabled: this.preferences.skipPostGoalTransitionsEnabled,
-      initialSkipKickoffsEnabled: this.preferences.skipKickoffsEnabled,
-      plugins: this.options.plugins
-    }), this.player.seek(e.start.time), this.playerUnsubscribe = this.player.subscribe((a) => {
-      this.handlePlayerState(a);
+    this.preferences.attachedPlayerId = o, o === null && this.preferences.cameraViewMode === "follow" && (this.preferences.cameraViewMode = "free"), this.player = lt(
+      this.container,
+      { replay: i, raw: a },
+      {
+        initialPlaybackRate: this.preferences.speed,
+        initialCameraDistanceScale: this.preferences.cameraDistanceScale,
+        initialCustomCameraSettings: this.preferences.customCameraSettings,
+        initialCameraViewMode: this.preferences.cameraViewMode,
+        initialAttachedPlayerId: o,
+        initialBallCamEnabled: this.preferences.ballCamEnabled,
+        initialBoostPickupAnimationEnabled: this.preferences.boostPickupAnimationEnabled,
+        initialHitboxWireframesEnabled: this.preferences.hitboxWireframesEnabled,
+        initialHitboxOnlyModeEnabled: this.preferences.hitboxOnlyModeEnabled,
+        initialSkipPostGoalTransitionsEnabled: this.preferences.skipPostGoalTransitionsEnabled,
+        initialSkipKickoffsEnabled: this.preferences.skipKickoffsEnabled,
+        plugins: this.options.plugins
+      }
+    ), this.player.seek(e.start.time), this.playerUnsubscribe = this.player.subscribe((s) => {
+      this.handlePlayerState(s);
     }), this.playbackIntent && this.player.play();
   }
   detachPlayer() {
@@ -12651,11 +12247,11 @@ class pt extends EventTarget {
       return;
     }
     const t = this.currentResolvedItem.end.time;
-    if (e.playing && e.currentTime >= t - st) {
+    if (e.playing && e.currentTime >= t - Xe) {
       this.boundaryGuard = !0, this.advanceMode === "auto" && this.playbackIntent ? this.currentItemIndex < this.items.length - 1 ? this.setCurrentItemIndex(this.currentItemIndex + 1) : this.endMode === "loop" && this.items.length > 0 ? this.setCurrentItemIndex(0) : (this.playbackIntent = !1, this.player?.setState({ currentTime: t, playing: !1 })) : (this.playbackIntent = !1, this.player?.setState({ currentTime: t, playing: !1 })), this.boundaryGuard = !1, this.emitChange();
       return;
     }
-    if (e.currentTime > t + st) {
+    if (e.currentTime > t + Xe) {
       this.boundaryGuard = !0, this.player?.setState({ currentTime: t, playing: !1 }), this.playbackIntent = !1, this.boundaryGuard = !1, this.emitChange();
       return;
     }
@@ -12665,12 +12261,12 @@ class pt extends EventTarget {
     this.dispatchEvent(new CustomEvent("change", { detail: this.getState() }));
   }
 }
-const wi = "subtr-actor-replay-load-overlay-styles";
-function ml() {
-  if (document.getElementById(wi))
+const ri = "subtr-actor-replay-load-overlay-styles";
+function jr() {
+  if (document.getElementById(ri))
     return;
   const n = document.createElement("style");
-  n.id = wi, n.textContent = `
+  n.id = ri, n.textContent = `
     .sap-load-overlay {
       position: absolute;
       inset: 0;
@@ -12739,45 +12335,45 @@ function ml() {
     }
   `, document.head.append(n);
 }
-function ul(n) {
+function Kr(n) {
   const e = n.progress === void 0 ? null : Math.round(n.progress * 100);
   return n.stage === "processing" ? e === null || n.totalFrames === void 0 ? "Processing replay frames..." : `Processing replay frames... ${e}% (${n.processedFrames ?? 0}/${n.totalFrames})` : n.stage === "validating" ? "Validating replay..." : n.stage === "normalizing" ? e !== null ? `Normalizing replay data... ${e}%` : "Normalizing replay data..." : "Loading replay...";
 }
-function pl(n) {
+function Xr(n) {
   const e = n.progress ?? 0;
   return n.stage === "processing" ? n.totalFrames !== void 0 ? n.processedFrames === void 0 ? `${n.totalFrames} frames` : `${n.processedFrames}/${n.totalFrames} frames` : "Extracting frame data" : n.stage === "validating" ? "Checking replay file" : n.stage === "normalizing" ? e < 0.45 ? "Decoding structured replay data" : e < 0.65 ? "Parsing frame data" : e < 1 ? "Building playback model" : "Playback model ready" : n.stage;
 }
-function jl(n, e = {}) {
-  ml();
+function Al(n, e = {}) {
+  jr();
   let t = null;
   getComputedStyle(n).position === "static" && (t = n.style.position, n.style.position = "relative");
   const i = document.createElement("div");
   i.className = "sap-load-overlay";
   const a = document.createElement("div");
   a.className = "sap-load-overlay__panel", a.dataset.state = "loading";
-  const s = document.createElement("p");
-  s.className = "sap-load-overlay__title", s.textContent = e.title ?? "Replay Loading";
   const o = document.createElement("p");
-  o.className = "sap-load-overlay__status", o.textContent = "Loading replay...";
+  o.className = "sap-load-overlay__title", o.textContent = e.title ?? "Replay Loading";
+  const s = document.createElement("p");
+  s.className = "sap-load-overlay__status", s.textContent = "Loading replay...";
   const r = document.createElement("div");
   r.className = "sap-load-overlay__bar";
   const c = document.createElement("div");
   c.className = "sap-load-overlay__fill", r.append(c);
-  const h = document.createElement("div");
-  h.className = "sap-load-overlay__meta", h.textContent = "", a.append(s, o, r, h), i.append(a), n.append(i);
+  const l = document.createElement("div");
+  l.className = "sap-load-overlay__meta", l.textContent = "", a.append(o, s, r, l), i.append(a), n.append(i);
   const d = (m) => {
     const u = Math.max(0, Math.min(1, m ?? 0));
     c.style.width = `${Math.round(u * 100)}%`;
   };
   return {
     update(m) {
-      a.dataset.state = "loading", o.textContent = e.formatProgress?.(m) ?? ul(m), d(m.progress), h.textContent = pl(m);
+      a.dataset.state = "loading", s.textContent = e.formatProgress?.(m) ?? Kr(m), d(m.progress), l.textContent = Xr(m);
     },
     complete(m = "Replay loaded") {
-      a.dataset.state = "complete", o.textContent = m, c.style.width = "100%", h.textContent = "";
+      a.dataset.state = "complete", s.textContent = m, c.style.width = "100%", l.textContent = "";
     },
     fail(m) {
-      a.dataset.state = "error", o.textContent = m, h.textContent = "Loading failed";
+      a.dataset.state = "error", s.textContent = m, l.textContent = "Loading failed";
     },
     destroy() {
       i.remove(), t !== null && (n.style.position = t);
@@ -12785,80 +12381,86 @@ function jl(n, e = {}) {
   };
 }
 export {
-  br as BALLCHASING_API_BASE_URL,
-  Ta as BALLCHASING_BASE_URL,
-  Yl as BOOST_RAW_MAX,
-  St as DEFAULT_REPLAY_HITBOX_KIND,
-  ka as PlaylistLoadCache,
-  Kl as PlaylistSession,
-  Oa as REPLAY_HITBOX_SPECS,
-  yo as ReplayPlayer,
-  pt as ReplayPlaylistPlayer,
-  os as SubtrActorPlayer,
-  yo as ViewerPlayer,
-  Ti as boostAmountToPercent,
-  Zl as boostPercentToAmount,
-  ea as computeTimelineSegments,
-  Ll as createBallchasingOverlayPlugin,
-  Vl as createBallchasingReplaySource,
-  kl as createBoostPadOverlayPlugin,
-  _l as createBoostPadsPlugin,
-  zl as createBoostPickupAnimationPlugin,
-  wo as createCameraPlugin,
-  Dl as createCanvasRecorderPlugin,
-  Il as createFpsOverlayPlugin,
-  nl as createFullReplayPlaylistItem,
-  El as createNameTagPlugin,
-  Fl as createPlayer,
-  yr as createPlayerFromParsed,
-  $l as createReplayBytesSource,
-  Wl as createReplayFileSource,
-  jl as createReplayLoadOverlay,
-  Ul as createReplayPathSource,
-  Ue as createReplaySource,
-  al as createStaticReplaySource,
-  Bl as createTimelineOverlayPlugin,
-  Fl as createViewer,
-  yr as createViewerFromParsed,
-  Rn as ensureBindingsReady,
-  Tr as fetchBallchasingReplayBytes,
+  xr as BALLCHASING_API_BASE_URL,
+  ta as BALLCHASING_BASE_URL,
+  Dl as BOOST_RAW_MAX,
+  Sr as DEFAULT_FLOATING_NAMEPLATE_LIFT_UU,
+  ft as DEFAULT_REPLAY_HITBOX_KIND,
+  la as PlaylistLoadCache,
+  Il as PlaylistSession,
+  ba as REPLAY_HITBOX_SPECS,
+  is as ReplayPlayer,
+  et as ReplayPlaylistPlayer,
+  Gn as SubtrActorPlayer,
+  hi as boostAmountToPercent,
+  kl as boostPercentToAmount,
+  ll as capturePlayerImage,
+  ls as capturePlayerImageFromParsed,
+  cl as capturePlayerImages,
+  Ui as capturePlayerImagesFromParsed,
+  So as computeTimelineSegments,
+  Ml as createBallchasingOverlayPlugin,
+  vl as createBallchasingReplaySource,
+  pl as createBoostPadOverlayPlugin,
+  wo as createBoostPadsPlugin,
+  fl as createBoostPickupAnimationPlugin,
+  os as createCameraPlugin,
+  gl as createCanvasRecorderPlugin,
+  dl as createFpsOverlayPlugin,
+  Lr as createFullReplayPlaylistItem,
+  hl as createNameTagPlugin,
+  bl as createPlayer,
+  lt as createPlayerFromParsed,
+  _l as createReplayBytesSource,
+  Pl as createReplayFileSource,
+  Al as createReplayLoadOverlay,
+  El as createReplayPathSource,
+  ke as createReplaySource,
+  ml as createScoredTextPlugin,
+  Or as createStaticReplaySource,
+  yl as createTimelineOverlayPlugin,
+  yn as ensureBindingsReady,
+  Cr as fetchBallchasingReplayBytes,
   fe as findFrameIndexAtTime,
-  ul as formatReplayLoadProgress,
-  pl as formatReplayLoadProgressMeta,
-  Hl as frameBound,
-  Al as fromReplayPlayerPlugin,
-  ct as getActiveDemoEvent,
-  Ol as getBallchasingReplayApiFileUrl,
-  Rl as getBallchasingReplayFileName,
-  Mr as getBallchasingReplayFileUrl,
-  sa as getFrameWindow,
-  na as getKickoffCountdownMetadata,
-  ha as getKickoffSkipTargetTime,
-  da as getPostGoalTransitionSkipTargetTime,
-  Ei as getReplayHitboxSpec,
-  aa as getReplayPlaybackEndTime,
-  Qi as inferKickoffGameState,
-  Zi as inferLiveGameState,
-  _i as inferReplayHitboxKind,
-  Pi as inferReplayHitboxKindFromBodyName,
-  ue as interpolatePosition,
-  li as isBallchasingReplayId,
-  ma as isPlayerSamplePresent,
-  Nl as loadPlaylistManifestFromFile,
-  Ki as loadReplay,
-  $e as loadReplayFromBytes,
-  We as normalizeBallchasingReplayId,
-  Sl as normalizeReplayData,
-  Fn as normalizeReplayDataAsync,
-  Ga as normalizeReplayHitboxKind,
-  Br as parsePlaylistManifest,
-  Pl as parseReplay,
+  Kr as formatReplayLoadProgress,
+  Xr as formatReplayLoadProgressMeta,
+  Sl as frameBound,
+  ul as fromReplayPlayerPlugin,
+  Fo as getActiveDemoEvent,
+  wl as getBallchasingReplayApiFileUrl,
+  xl as getBallchasingReplayFileName,
+  Tr as getBallchasingReplayFileUrl,
+  Ao as getFrameWindow,
+  Io as getKickoffCountdownMetadata,
+  Bo as getKickoffSkipTargetTime,
+  Un as getPlayerAssetBase,
+  Do as getPostGoalTransitionSkipTargetTime,
+  pi as getReplayHitboxSpec,
+  Eo as getReplayPlaybackEndTime,
+  Mo as inferKickoffGameState,
+  vo as inferLiveGameState,
+  fi as inferReplayHitboxKind,
+  ui as inferReplayHitboxKindFromBodyName,
+  Ni as interpolatePosition,
+  Yt as isBallchasingReplayId,
+  ko as isPlayerSamplePresent,
+  Tl as loadPlaylistManifestFromFile,
+  Be as loadReplay,
+  ze as loadReplayFromBytes,
+  De as normalizeBallchasingReplayId,
+  ol as normalizeReplayData,
+  gn as normalizeReplayDataAsync,
+  Ma as normalizeReplayHitboxKind,
+  Fr as parsePlaylistManifest,
+  sl as parseReplay,
   U as playerIdToString,
-  ta as projectReplayTimeToTimeline,
-  ia as projectTimelineTimeToReplay,
-  dl as resolvePlaylistItem,
-  Gl as resolvePlaylistItemsFromManifest,
-  bi as timeBound,
-  sr as timelineEventSeekTime,
-  Gn as validateReplayBytes
+  _o as projectReplayTimeToTimeline,
+  Po as projectTimelineTimeToReplay,
+  G as resolvePlayerAssetUrl,
+  Ur as resolvePlaylistItem,
+  Cl as resolvePlaylistItemsFromManifest,
+  rl as setPlayerAssetBase,
+  oi as timeBound,
+  rr as timelineEventSeekTime,
+  Mn as validateReplayBytes
 };

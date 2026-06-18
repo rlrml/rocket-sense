@@ -22,6 +22,18 @@ export type TouchEvent = {
      * subtracting the Rocket League ball collision radius.
      */
     closest_approach_distance: number | null;
+    /**
+     * Ball center in the car's local hitbox coordinates at the attributed touch.
+     */
+    contact_local_ball_position?: [number, number, number] | null;
+    /**
+     * Closest point on the car hitbox to the ball center, in local hitbox coordinates.
+     */
+    contact_local_hitbox_point?: [number, number, number] | null;
+    /**
+     * Closest point on the car hitbox to the ball center, in field coordinates.
+     */
+    contact_world_hitbox_point?: [number, number, number] | null;
     dodge_contact: boolean;
 };
 //# sourceMappingURL=TouchEvent.d.ts.map

@@ -1,4 +1,7 @@
 import type { RemoteIdTs } from "./RemoteIdTs.ts";
+/**
+ * A dodge that follows and converts a flip reset.
+ */
 export type FlipResetFollowupDodgeEvent = {
     time: number;
     frame: number;
