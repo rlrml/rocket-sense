@@ -2971,23 +2971,6 @@ fn code_defined_event_types() -> Vec<EventTypeResponse> {
         }
     }
 
-    // rocket-sense splits rotation_role / ball_depth spans into per-state
-    // event types at indexing time (see processing::timeline_event_type), a
-    // convention subtr-actor's definition registry no longer carries variants
-    // for; register those keys here so the catalog stays canonical.
-    for (key, label) in [
-        ("rotation_role_first_man", "Rotation Role First Man"),
-        ("rotation_role_second_man", "Rotation Role Second Man"),
-        ("rotation_role_third_man", "Rotation Role Third Man"),
-        ("rotation_role_ambiguous", "Rotation Role Ambiguous"),
-        ("rotation_role_unknown", "Rotation Role Unknown"),
-        ("ball_depth_behind_ball", "Ball Depth Behind Ball"),
-        ("ball_depth_level_with_ball", "Ball Depth Level With Ball"),
-        ("ball_depth_ahead_of_ball", "Ball Depth Ahead Of Ball"),
-    ] {
-        insert_code_defined_event_type(&mut event_types, key, label, "positioning", None);
-    }
-
     let mut event_types = event_types.into_values().collect::<Vec<_>>();
     event_types.sort_by(|left, right| {
         left.display_name
@@ -3108,7 +3091,17 @@ fn canonical_event_type_key(event_type: &str) -> &str {
             return mechanic_key;
         }
     }
-    event_type
+    match event_type {
+        "rotation_role_first_man"
+        | "rotation_role_second_man"
+        | "rotation_role_third_man"
+        | "rotation_role_ambiguous"
+        | "rotation_role_unknown" => "rotation_role",
+        "ball_depth_behind_ball" | "ball_depth_level_with_ball" | "ball_depth_ahead_of_ball" => {
+            "ball_depth"
+        }
+        _ => event_type,
+    }
 }
 
 fn event_category_alias(category: &str) -> &'static str {

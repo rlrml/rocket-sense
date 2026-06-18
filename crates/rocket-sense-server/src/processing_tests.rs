@@ -959,7 +959,7 @@ fn remote_id_value_to_subject_id_extracts_platform_online_id_objects() {
 }
 
 #[test]
-fn build_indexed_events_indexes_rotation_role_spans_by_state() {
+fn build_indexed_events_indexes_rotation_role_spans_with_state_attribute() {
     let player = RemoteId::Steam(76561198000000001);
     let timeline = stats_timeline_with_events(timeline_events_from(vec![envelope_event(
         "rotation_role",
@@ -989,8 +989,9 @@ fn build_indexed_events_indexes_rotation_role_spans_by_state() {
         .collect::<Vec<_>>();
 
     assert_eq!(role_spans.len(), 1);
-    assert_eq!(role_spans[0].event_type_key, "rotation_role_first_man");
+    assert_eq!(role_spans[0].event_type_key, "rotation_role");
     assert_eq!(role_spans[0].category, "positioning");
+    assert_eq!(role_spans[0].attributes["state"], "first_man");
 }
 
 #[test]
@@ -1020,13 +1021,14 @@ fn build_indexed_events_indexes_ball_depth_span_durations() {
     let indexed = build_indexed_events(&timeline).expect("ball depth should index");
     let depth_rows = indexed
         .iter()
-        .filter(|event| event.event_type_key == "ball_depth_behind_ball")
+        .filter(|event| event.event_type_key == "ball_depth")
         .collect::<Vec<_>>();
 
     assert_eq!(depth_rows.len(), 1);
     let row = depth_rows[0];
     assert_eq!(row.source_stream, "ball_depth");
     assert_eq!(row.category, "positioning");
+    assert_eq!(row.attributes["state"], "behind_ball");
     assert_eq!(row.start_frame, Some(0));
     assert_eq!(row.end_frame, Some(2));
     assert_eq!(row.start_time, Some(0.0));

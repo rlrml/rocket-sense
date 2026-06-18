@@ -908,7 +908,15 @@ async fn load_rotation_duration_histogram(
                  AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
                 JOIN event_types et
                   ON et.id = event.event_type_id
-                 AND et.key IN ('rotation_first_man_stint', 'rotation_role_first_man')
+                LEFT JOIN play_event_attributes attributes
+                  ON attributes.event_id = event.id
+                WHERE (
+                    event.source_stream = 'rotation_first_man_stint'
+                    AND et.key = 'rotation_first_man_stint'
+                ) OR (
+                    event.source_stream = 'rotation_role'
+                    AND attributes.attributes->>'state' = 'first_man'
+                )
             ),
             bucketed AS (
                 SELECT floor(duration_seconds /
@@ -927,8 +935,18 @@ async fn load_rotation_duration_histogram(
                  AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
                 JOIN event_types et
                   ON et.id = event.event_type_id
-                 AND et.key IN ('rotation_first_man_stint', 'rotation_role_first_man')
+                LEFT JOIN play_event_attributes attributes
+                  ON attributes.event_id = event.id
                 WHERE r.canonical_analysis_run_id IS NOT NULL
+                  AND (
+                    (
+                        event.source_stream = 'rotation_first_man_stint'
+                        AND et.key = 'rotation_first_man_stint'
+                    ) OR (
+                        event.source_stream = 'rotation_role'
+                        AND attributes.attributes->>'state' = 'first_man'
+                    )
+                  )
             "#,
         );
         append_replay_filters(&mut query, filters, "r");
@@ -1001,7 +1019,15 @@ async fn load_teammate_rotation_duration_histogram(
              AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
             JOIN event_types et
               ON et.id = event.event_type_id
-             AND et.key IN ('rotation_first_man_stint', 'rotation_role_first_man')
+            LEFT JOIN play_event_attributes attributes
+              ON attributes.event_id = event.id
+            WHERE (
+                event.source_stream = 'rotation_first_man_stint'
+                AND et.key = 'rotation_first_man_stint'
+            ) OR (
+                event.source_stream = 'rotation_role'
+                AND attributes.attributes->>'state' = 'first_man'
+            )
         ),
         bucketed AS (
             SELECT floor(duration_seconds /

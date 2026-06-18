@@ -247,6 +247,14 @@ fn reviewed_mechanic_normalizes_to_event_type_key() {
         normalize_reviewed_event_type_key("mechanic.center").unwrap(),
         "center"
     );
+    assert_eq!(
+        normalize_reviewed_event_type_key("rotation_role_first_man").unwrap(),
+        "rotation_role"
+    );
+    assert_eq!(
+        normalize_reviewed_event_type_key("ball_depth_behind_ball").unwrap(),
+        "ball_depth"
+    );
     assert_eq!(normalize_reviewed_event_type_key("touch").unwrap(), "touch");
 }
 
@@ -261,10 +269,10 @@ fn event_type_catalog_is_code_defined_and_canonical() {
     assert!(event_type("goal_tag_air_dribble_goal").is_none());
     assert_eq!(event_type("boost_pickup").unwrap().category, "other");
     assert!(event_type("boost_pickup_both").is_none());
-    assert_eq!(
-        event_type("rotation_role_first_man").unwrap().category,
-        "positioning"
-    );
+    assert_eq!(event_type("rotation_role").unwrap().category, "positioning");
+    assert!(event_type("rotation_role_first_man").is_none());
+    assert_eq!(event_type("ball_depth").unwrap().category, "positioning");
+    assert!(event_type("ball_depth_behind_ball").is_none());
     assert_eq!(event_type("goal").unwrap().category, "core");
 
     assert!(event_type("timeline").is_none());
@@ -675,6 +683,10 @@ fn stale_event_categories_are_canonicalized_by_event_type_key() {
     assert_eq!(
         canonical_event_type_category("boost_ledger_collected", "event"),
         "boost"
+    );
+    assert_eq!(
+        canonical_event_type_category("rotation_role", "event"),
+        "positioning"
     );
     assert_eq!(
         canonical_event_type_category("rotation_role_first_man", "event"),
