@@ -26,6 +26,8 @@ a {
 }
 
 .sidebar {
+  display: flex;
+  flex-direction: column;
   background: var(--nav);
   color: #fff;
   padding: 18px 14px;
@@ -72,6 +74,20 @@ a {
   color: #fff;
 }
 
+.sidebar-logout {
+  justify-content: flex-start;
+  width: 100%;
+  margin-top: auto;
+  border-color: rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--nav-muted);
+}
+
+.sidebar-logout:hover {
+  background: rgba(255, 255, 255, 0.11);
+  color: #fff;
+}
+
 .main-panel {
   width: 100%;
   min-width: 0;
@@ -100,6 +116,13 @@ a {
 
 .page-header > div {
   min-width: 0;
+}
+
+.page-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .page-header h1 {
@@ -5491,6 +5514,11 @@ tbody tr:last-child td {
     line-height: 1;
   }
 
+  .sidebar-logout {
+    justify-content: center;
+    margin-top: 0;
+  }
+
   .main-panel {
     padding: 20px 16px;
   }
@@ -5501,6 +5529,14 @@ tbody tr:last-child td {
   .replay-list-controls {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .page-header-actions {
+    justify-content: stretch;
+  }
+
+  .page-header-actions > * {
+    flex: 1 1 160px;
   }
 
   .filter-grid {

@@ -17,6 +17,7 @@ import {
   Info,
   ListPlus,
   LogIn,
+  LogOut,
   Mail,
   Plus,
   RefreshCw,
@@ -43,6 +44,7 @@ import {
 import { siEpicgames, siSteam } from "simple-icons";
 import {
   addReplaysToGroup,
+  authChangeEvent,
   clearAccessToken,
   createDevToken,
   createReplayGroup,
@@ -70,6 +72,7 @@ import {
   listReplayFilterOptions,
   listReplayProcessingDiagnostics,
   listReplays,
+  logout,
   removeReplaysFromGroup,
   reprocessReplay,
   reprocessReplayClient,
@@ -150,10 +153,17 @@ const playerStatsSectionGroups: StatGroup[] = completedStatGroups;
 
 export function App() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const currentUser = useCurrentUser();
   const playerReplayId = replayPlayerRouteId(location.pathname);
   const warmReplayId = shouldWarmSubtrActorPlayer(location.pathname)
     ? replayContextRouteId(location.pathname)
     : null;
+
+  async function handleLogout() {
+    await logout();
+    navigate("/account");
+  }
 
   return (
     <div className="app-shell">
@@ -170,6 +180,12 @@ export function App() {
             </NavLink>
           ))}
         </nav>
+        {currentUser ? (
+          <button className="sidebar-logout" type="button" onClick={() => void handleLogout()}>
+            <LogOut size={18} />
+            <span>Log out</span>
+          </button>
+        ) : null}
       </aside>
       <main className="main-panel">
         {playerReplayId ? (
@@ -1339,6 +1355,16 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
 
 function useCurrentUser(): CurrentUserResponse | null {
   const [user, setUser] = useState<CurrentUserResponse | null>(null);
+  const [authRevision, setAuthRevision] = useState(0);
+
+  useEffect(() => {
+    function refreshAuth() {
+      setAuthRevision((revision) => revision + 1);
+    }
+
+    window.addEventListener(authChangeEvent, refreshAuth);
+    return () => window.removeEventListener(authChangeEvent, refreshAuth);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1356,7 +1382,7 @@ function useCurrentUser(): CurrentUserResponse | null {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [authRevision]);
 
   return user;
 }
@@ -4252,6 +4278,16 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
     setTokenError(null);
   }
 
+  async function logoutAccount() {
+    setTokenError(null);
+    setTokenStatus(null);
+    await logout();
+    setToken("");
+    setCopied(false);
+    setLoginOpen(false);
+    setTokenStatus("Logged out.");
+  }
+
   async function requestSessionToken() {
     setCreatingSessionToken(true);
     setTokenError(null);
@@ -4297,10 +4333,22 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
           <p className="eyebrow">Account</p>
           <h1>Account</h1>
         </div>
-        <button className="secondary-button" type="button" onClick={() => setLoginOpen(true)}>
-          <LogIn size={16} />
-          {claims ? "Switch account" : "Login"}
-        </button>
+        <div className="page-header-actions">
+          <button className="secondary-button" type="button" onClick={() => setLoginOpen(true)}>
+            <LogIn size={16} />
+            {claims ? "Switch account" : "Login"}
+          </button>
+          {claims ? (
+            <button
+              className="secondary-button is-danger"
+              type="button"
+              onClick={() => void logoutAccount()}
+            >
+              <LogOut size={16} />
+              Log out
+            </button>
+          ) : null}
+        </div>
       </header>
 
       {loginOpen ? (
