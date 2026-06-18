@@ -12,10 +12,15 @@ use axum::{
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
 const SESSION_COOKIE_MAX_AGE_SECONDS: i64 = 400 * 24 * 60 * 60;
+const STEAM_OPENID_ENDPOINT: &str = "https://steamcommunity.com/openid/login";
+const STEAM_OPENID_NS: &str = "http://specs.openid.net/auth/2.0";
+const STEAM_OPENID_IDENTIFIER_SELECT: &str = "http://specs.openid.net/auth/2.0/identifier_select";
+const STEAM_OPENID_ID_PREFIX: &str = "https://steamcommunity.com/openid/id/";
 
 #[cfg(test)]
 #[path = "auth_tests.rs"]
@@ -191,6 +196,10 @@ async fn start_oauth_login(
     let provider = oauth_provider(&state, &provider)?;
     let csrf_state = Uuid::new_v4().to_string();
     let nonce = Uuid::new_v4().to_string();
+    if provider.kind == OAuthProviderKind::Steam {
+        return start_steam_login(&provider, &csrf_state, &nonce);
+    }
+
     let redirect_uri = provider.redirect_uri();
     let mut authorize_url = url::Url::parse(authorize_url(provider.kind))
         .map_err(|_| AuthError::internal("failed to build OAuth authorize URL"))?;
@@ -216,21 +225,19 @@ async fn start_oauth_login(
         .into_response())
 }
 
-#[derive(Debug, Deserialize)]
-struct OAuthCallbackQuery {
-    code: Option<String>,
-    state: Option<String>,
-    error: Option<String>,
-}
-
 async fn finish_oauth_login(
     State(state): State<AppState>,
     Path(provider): Path<String>,
     headers: HeaderMap,
-    Query(query): Query<OAuthCallbackQuery>,
+    Query(query): Query<HashMap<String, String>>,
 ) -> Result<Response, AuthError> {
     let provider = oauth_provider(&state, &provider)?;
-    if let Some(error) = query.error {
+    if provider.kind == OAuthProviderKind::Steam {
+        let profile = finish_steam_login(&provider, &headers, &query).await?;
+        return finish_provider_login(&state, &provider, profile);
+    }
+
+    if let Some(error) = query.get("error") {
         return Ok((
             StatusCode::BAD_REQUEST,
             Html(format!(
@@ -243,18 +250,26 @@ async fn finish_oauth_login(
     }
 
     let code = query
-        .code
+        .get("code")
         .ok_or_else(|| AuthError::unauthorized("OAuth callback is missing code"))?;
     let state_param = query
-        .state
+        .get("state")
         .ok_or_else(|| AuthError::unauthorized("OAuth callback is missing state"))?;
     let (expected_state, expected_nonce) = read_oauth_state_cookie(&headers)
         .ok_or_else(|| AuthError::unauthorized("OAuth login state cookie is missing"))?;
-    if state_param != expected_state {
+    if state_param != &expected_state {
         return Err(AuthError::unauthorized("OAuth login state mismatch"));
     }
 
     let profile = exchange_oauth_code_for_profile(&provider, &code, &expected_nonce).await?;
+    finish_provider_login(&state, &provider, profile)
+}
+
+fn finish_provider_login(
+    state: &AppState,
+    provider: &OAuthProviderSettings,
+    profile: OAuthProfile,
+) -> Result<Response, AuthError> {
     let user =
         AuthUser::from_provider_identity(provider.kind.id(), &profile.subject, profile.email)?;
     let token = issue_access_token(&user, &state.app_jwt_secret)?;
@@ -268,6 +283,37 @@ async fn finish_oauth_login(
             (SET_COOKIE, session_cookie),
         ],
         Redirect::temporary("/replays"),
+    )
+        .into_response())
+}
+
+fn start_steam_login(
+    provider: &OAuthProviderSettings,
+    csrf_state: &str,
+    nonce: &str,
+) -> Result<Response, AuthError> {
+    let mut return_to = url::Url::parse(&provider.redirect_uri())
+        .map_err(|_| AuthError::internal("failed to build Steam return URL"))?;
+    return_to.query_pairs_mut().append_pair("state", csrf_state);
+
+    let mut authorize_url = url::Url::parse(STEAM_OPENID_ENDPOINT)
+        .map_err(|_| AuthError::internal("failed to build Steam OpenID URL"))?;
+    authorize_url
+        .query_pairs_mut()
+        .append_pair("openid.ns", STEAM_OPENID_NS)
+        .append_pair("openid.mode", "checkid_setup")
+        .append_pair("openid.return_to", return_to.as_str())
+        .append_pair(
+            "openid.realm",
+            provider.public_base_url.trim_end_matches('/'),
+        )
+        .append_pair("openid.identity", STEAM_OPENID_IDENTIFIER_SELECT)
+        .append_pair("openid.claimed_id", STEAM_OPENID_IDENTIFIER_SELECT);
+    let cookie = oauth_state_cookie(provider, csrf_state, nonce);
+
+    Ok((
+        [(SET_COOKIE, cookie)],
+        Redirect::temporary(authorize_url.as_str()),
     )
         .into_response())
 }
@@ -303,6 +349,7 @@ fn authorize_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/authorize",
         OAuthProviderKind::Discord => "https://discord.com/oauth2/authorize",
         OAuthProviderKind::Epic => "https://www.epicgames.com/id/authorize",
+        OAuthProviderKind::Steam => STEAM_OPENID_ENDPOINT,
     }
 }
 
@@ -312,6 +359,7 @@ fn token_url(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::GitHub => "https://github.com/login/oauth/access_token",
         OAuthProviderKind::Discord => "https://discord.com/api/oauth2/token",
         OAuthProviderKind::Epic => "https://api.epicgames.dev/epic/oauth/v2/token",
+        OAuthProviderKind::Steam => STEAM_OPENID_ENDPOINT,
     }
 }
 
@@ -321,6 +369,7 @@ fn oauth_scope(kind: OAuthProviderKind) -> &'static str {
         OAuthProviderKind::GitHub => "read:user user:email",
         OAuthProviderKind::Discord => "identify email",
         OAuthProviderKind::Epic => "basic_profile",
+        OAuthProviderKind::Steam => "",
     }
 }
 
@@ -350,6 +399,9 @@ async fn exchange_oauth_code_for_profile(
             let access_token = exchange_epic_code(provider, code).await?;
             fetch_epic_profile(&access_token).await
         }
+        OAuthProviderKind::Steam => Err(AuthError::internal(
+            "Steam uses OpenID, not OAuth code flow",
+        )),
     }
 }
 
@@ -664,6 +716,129 @@ fn synthetic_epic_email(subject: &str) -> String {
         &local_part
     };
     format!("epic+{local_part}@users.rocket-sense.invalid")
+}
+
+async fn finish_steam_login(
+    provider: &OAuthProviderSettings,
+    headers: &HeaderMap,
+    query: &HashMap<String, String>,
+) -> Result<OAuthProfile, AuthError> {
+    let state_param = query
+        .get("state")
+        .ok_or_else(|| AuthError::unauthorized("Steam callback is missing state"))?;
+    let (expected_state, _) = read_oauth_state_cookie(headers)
+        .ok_or_else(|| AuthError::unauthorized("Steam login state cookie is missing"))?;
+    if state_param != &expected_state {
+        return Err(AuthError::unauthorized("Steam login state mismatch"));
+    }
+
+    validate_steam_openid_return_to(provider, state_param, query)?;
+    let steam_id = verify_steam_openid(query).await?;
+
+    Ok(OAuthProfile {
+        email: synthetic_steam_email(&steam_id),
+        subject: steam_id,
+    })
+}
+
+fn validate_steam_openid_return_to(
+    provider: &OAuthProviderSettings,
+    state_param: &str,
+    query: &HashMap<String, String>,
+) -> Result<(), AuthError> {
+    let return_to = query
+        .get("openid.return_to")
+        .ok_or_else(|| AuthError::unauthorized("Steam callback is missing return_to"))?;
+    let mut expected_return_to = url::Url::parse(&provider.redirect_uri())
+        .map_err(|_| AuthError::internal("failed to build Steam return URL"))?;
+    expected_return_to
+        .query_pairs_mut()
+        .append_pair("state", state_param);
+
+    if return_to != expected_return_to.as_str() {
+        return Err(AuthError::unauthorized("Steam callback return_to mismatch"));
+    }
+
+    Ok(())
+}
+
+async fn verify_steam_openid(query: &HashMap<String, String>) -> Result<String, AuthError> {
+    if query.get("openid.ns").map(String::as_str) != Some(STEAM_OPENID_NS) {
+        return Err(AuthError::unauthorized("Steam OpenID namespace is invalid"));
+    }
+    if query.get("openid.mode").map(String::as_str) != Some("id_res") {
+        return Err(AuthError::unauthorized("Steam OpenID mode is invalid"));
+    }
+    if query.get("openid.op_endpoint").map(String::as_str) != Some(STEAM_OPENID_ENDPOINT) {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID provider endpoint is invalid",
+        ));
+    }
+
+    let claimed_id = query
+        .get("openid.claimed_id")
+        .ok_or_else(|| AuthError::unauthorized("Steam OpenID claimed_id is missing"))?;
+    let identity = query
+        .get("openid.identity")
+        .ok_or_else(|| AuthError::unauthorized("Steam OpenID identity is missing"))?;
+    if identity != claimed_id {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID identity does not match claimed_id",
+        ));
+    }
+    let steam_id = steam_id_from_claimed_id(claimed_id)?;
+
+    let mut verification_form: Vec<(String, String)> = query
+        .iter()
+        .filter(|(key, _)| key.starts_with("openid."))
+        .map(|(key, value)| {
+            let value = if key == "openid.mode" {
+                "check_authentication"
+            } else {
+                value
+            };
+            (key.clone(), value.to_owned())
+        })
+        .collect();
+    verification_form.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let response = reqwest::Client::new()
+        .post(STEAM_OPENID_ENDPOINT)
+        .form(&verification_form)
+        .send()
+        .await
+        .map_err(|_| AuthError::unauthorized("failed to verify Steam OpenID response"))?;
+    if !response.status().is_success() {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID verification request was rejected",
+        ));
+    }
+    let body = response
+        .text()
+        .await
+        .map_err(|_| AuthError::unauthorized("Steam OpenID verification response was invalid"))?;
+    if !body.lines().any(|line| line.trim() == "is_valid:true") {
+        return Err(AuthError::unauthorized(
+            "Steam OpenID verification response was not valid",
+        ));
+    }
+
+    Ok(steam_id)
+}
+
+fn steam_id_from_claimed_id(claimed_id: &str) -> Result<String, AuthError> {
+    let steam_id = claimed_id
+        .strip_prefix(STEAM_OPENID_ID_PREFIX)
+        .ok_or_else(|| AuthError::unauthorized("Steam OpenID claimed_id is invalid"))?;
+    if steam_id.is_empty() || !steam_id.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(AuthError::unauthorized("Steam OpenID SteamID is invalid"));
+    }
+
+    Ok(steam_id.to_owned())
+}
+
+fn synthetic_steam_email(steam_id: &str) -> String {
+    format!("steam+{steam_id}@users.rocket-sense.invalid")
 }
 
 fn oauth_state_cookie(provider: &OAuthProviderSettings, state: &str, nonce: &str) -> String {

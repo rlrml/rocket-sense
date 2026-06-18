@@ -127,12 +127,21 @@ DISCORD_OAUTH_CLIENT_ID=...
 DISCORD_OAUTH_CLIENT_SECRET=...
 EPIC_OAUTH_CLIENT_ID=...
 EPIC_OAUTH_CLIENT_SECRET=...
+STEAM_WEB_API_KEY=...
 ```
 
-Each provider only appears when both its client id and client secret are set.
+Google, GitHub, Discord, and Epic Games only appear when both their client id
+and client secret are set. Steam appears when `STEAM_WEB_API_KEY` is set.
 Provider redirect URIs are:
 
 - Google: `https://rocket-sense.duckdns.org/auth/google/callback`
 - GitHub: `https://rocket-sense.duckdns.org/auth/github/callback`
 - Discord: `https://rocket-sense.duckdns.org/auth/discord/callback`
 - Epic Games: `https://rocket-sense.duckdns.org/auth/epic/callback`
+- Steam: `https://rocket-sense.duckdns.org/auth/steam/callback`
+
+Steam login uses Steam OpenID 2.0. Create a Steam Web API key at
+`https://steamcommunity.com/dev/apikey`, set it as `STEAM_WEB_API_KEY`, and make
+sure `ROCKET_SENSE_PUBLIC_BASE_URL` matches the public origin users log in
+through. Steam returns the user's 64-bit SteamID; Rocket Sense verifies the
+OpenID response with Steam before issuing its own session cookie.

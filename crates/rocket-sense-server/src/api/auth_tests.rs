@@ -30,6 +30,10 @@ fn auth_options_reports_mode_and_configured_oauth_providers() {
         .providers
         .iter()
         .any(|provider| provider.id == "epic" && !provider.configured));
+    assert!(response
+        .providers
+        .iter()
+        .any(|provider| provider.id == "steam" && provider.label == "Steam"));
 }
 
 #[test]
@@ -37,5 +41,29 @@ fn epic_synthetic_email_is_stable_and_internal() {
     assert_eq!(
         synthetic_epic_email("abc-123.def"),
         "epic+abc123def@users.rocket-sense.invalid"
+    );
+}
+
+#[test]
+fn steam_claimed_id_extracts_steam_id() {
+    let steam_id =
+        steam_id_from_claimed_id("https://steamcommunity.com/openid/id/76561198000000001")
+            .expect("valid claimed id should parse");
+
+    assert_eq!(steam_id, "76561198000000001");
+}
+
+#[test]
+fn steam_claimed_id_rejects_non_numeric_suffix() {
+    assert!(
+        steam_id_from_claimed_id("https://steamcommunity.com/openid/id/not-a-steamid").is_err()
+    );
+}
+
+#[test]
+fn steam_synthetic_email_is_stable_and_internal() {
+    assert_eq!(
+        synthetic_steam_email("76561198000000001"),
+        "steam+76561198000000001@users.rocket-sense.invalid"
     );
 }
