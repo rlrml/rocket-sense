@@ -309,6 +309,7 @@ export function EventClipPlayer({
         trackByPlayerKeyRef.current = trackByPlayerKey;
         trackByNameRef.current = trackByName;
         player = createPlayerFromParsed(containerRef.current, loadedReplay, {
+          assetBase: "/vendor/@rlrml/player/public/",
           initialCameraViewMode: "free",
           initialPlaybackRate: 1,
           autoplay: false,
