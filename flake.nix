@@ -8,6 +8,10 @@
       url = "github:nix-community/fenix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    agenix = {
+      url = "github:ryantm/agenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     # A flake input (not flake = false) so the web build can reference the
     # submodule's js package outputs (js-wasm-pkg / js-player-pkg /
     # js-viewer-pkg) directly instead of consuming committed copies under
@@ -24,6 +28,7 @@
       nixpkgs,
       flake-utils,
       fenix,
+      agenix,
       subtr-actor-src,
       ...
     }:
@@ -46,6 +51,9 @@
           [
             rustToolchain
             fenix.packages.${system}.stable.rust-analyzer
+            # agenix: decrypts infra/secrets/*.age (see infra/bin/apply-secrets,
+            # which runs `agenix -d`) using your SSH key.
+            agenix.packages.${system}.default
             pkgs.cargo-watch
             pkgs.curl
             # gcloud + the GKE auth plugin so kubectl can authenticate to the
