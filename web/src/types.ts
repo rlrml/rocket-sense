@@ -625,9 +625,12 @@ export interface PlayerProfileResponse {
   platform: string;
   platform_player_id: string;
   display_name: string | null;
+  public_display_name: string | null;
+  current_display_name: string | null;
   names: Array<{
     name: string;
     replay_count: number;
+    first_seen_at: string | null;
     latest_seen_at: string | null;
   }>;
   replay_count: number;

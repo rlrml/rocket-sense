@@ -90,6 +90,16 @@ fn player_profile_filters_reject_invalid_sha() {
 }
 
 #[test]
+fn public_display_name_is_trimmed_and_limited() {
+    assert_eq!(
+        normalize_public_display_name("  colonelpanic8  ").unwrap(),
+        "colonelpanic8"
+    );
+    assert!(normalize_public_display_name(" ").is_err());
+    assert!(normalize_public_display_name(&"a".repeat(129)).is_err());
+}
+
+#[test]
 fn player_replay_query_uses_compact_replay_preview() {
     let identity = PlayerIdentity::new("epic".to_owned(), "abc123".to_owned()).unwrap();
     let filters = PlayerProfileFilters::default();
@@ -107,4 +117,22 @@ fn player_replay_query_uses_compact_replay_preview() {
     assert!(sql.contains("LIMIT $3"));
     assert!(!sql.contains("jsonb_agg"));
     assert!(!sql.contains("FROM replay_players player"));
+}
+
+#[test]
+fn player_name_history_query_filters_by_name_and_platform() {
+    let query = player_name_history_query(PlayerNameHistoryQuery {
+        q: Some(" Blue ".to_owned()),
+        platform: vec!["Steam".to_owned()],
+        count: Some(25),
+        offset: Some(5),
+    });
+    let sql = query.sql();
+
+    assert!(sql.contains("FROM player_display_names names"));
+    assert!(sql.contains("JOIN player_identities identities"));
+    assert!(sql.contains("names.display_name ILIKE $1"));
+    assert!(sql.contains("names.platform = ANY($2)"));
+    assert!(sql.contains("LIMIT"));
+    assert!(sql.contains("OFFSET"));
 }

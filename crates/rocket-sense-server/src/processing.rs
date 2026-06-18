@@ -2981,6 +2981,141 @@ async fn upsert_replay_search_metadata(
     Ok(replay_players)
 }
 
+pub(crate) async fn sync_player_identities_for_replay(
+    pool: &PgPool,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        WITH appearances AS (
+            SELECT
+                lower(rp.platform) AS platform,
+                rp.platform_player_id,
+                NULLIF(btrim(rp.name), '') AS display_name,
+                COALESCE(r.replay_date, r.created_at, rp.created_at, now()) AS seen_at
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE rp.replay_id = $1
+              AND rp.platform IS NOT NULL
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND btrim(rp.platform_player_id) <> ''
+        ),
+        identity_windows AS (
+            SELECT
+                platform,
+                platform_player_id,
+                MIN(seen_at) AS first_seen_at,
+                MAX(seen_at) AS last_seen_at
+            FROM appearances
+            GROUP BY platform, platform_player_id
+        ),
+        latest_names AS (
+            SELECT DISTINCT ON (platform, platform_player_id)
+                platform,
+                platform_player_id,
+                display_name AS current_display_name
+            FROM appearances
+            WHERE display_name IS NOT NULL
+            ORDER BY platform, platform_player_id, seen_at DESC, display_name
+        )
+        INSERT INTO player_identities (
+            platform,
+            platform_player_id,
+            current_display_name,
+            first_seen_at,
+            last_seen_at
+        )
+        SELECT
+            identity_windows.platform,
+            identity_windows.platform_player_id,
+            latest_names.current_display_name,
+            identity_windows.first_seen_at,
+            identity_windows.last_seen_at
+        FROM identity_windows
+        LEFT JOIN latest_names
+          ON latest_names.platform = identity_windows.platform
+         AND latest_names.platform_player_id = identity_windows.platform_player_id
+        ON CONFLICT (platform, platform_player_id)
+        DO UPDATE SET
+            current_display_name = CASE
+                WHEN EXCLUDED.current_display_name IS NOT NULL
+                 AND (
+                     player_identities.last_seen_at IS NULL
+                     OR EXCLUDED.last_seen_at >= player_identities.last_seen_at
+                 )
+                THEN EXCLUDED.current_display_name
+                ELSE player_identities.current_display_name
+            END,
+            first_seen_at = LEAST(
+                COALESCE(player_identities.first_seen_at, EXCLUDED.first_seen_at),
+                EXCLUDED.first_seen_at
+            ),
+            last_seen_at = GREATEST(
+                COALESCE(player_identities.last_seen_at, EXCLUDED.last_seen_at),
+                EXCLUDED.last_seen_at
+            ),
+            updated_at = now()
+        "#,
+    )
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to upsert player identities")?;
+
+    sqlx::query(
+        r#"
+        WITH appearances AS (
+            SELECT
+                lower(rp.platform) AS platform,
+                rp.platform_player_id,
+                NULLIF(btrim(rp.name), '') AS display_name,
+                COALESCE(r.replay_date, r.created_at, rp.created_at, now()) AS seen_at
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE rp.replay_id = $1
+              AND rp.platform IS NOT NULL
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND btrim(rp.platform_player_id) <> ''
+              AND NULLIF(btrim(rp.name), '') IS NOT NULL
+        )
+        INSERT INTO player_display_names (
+            platform,
+            platform_player_id,
+            display_name,
+            first_seen_at,
+            last_seen_at
+        )
+        SELECT
+            platform,
+            platform_player_id,
+            display_name,
+            MIN(seen_at),
+            MAX(seen_at)
+        FROM appearances
+        GROUP BY platform, platform_player_id, display_name
+        ON CONFLICT (platform, platform_player_id, display_name)
+        DO UPDATE SET
+            first_seen_at = LEAST(
+                player_display_names.first_seen_at,
+                EXCLUDED.first_seen_at
+            ),
+            last_seen_at = GREATEST(
+                player_display_names.last_seen_at,
+                EXCLUDED.last_seen_at
+            ),
+            updated_at = now()
+        "#,
+    )
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to upsert player display-name history")?;
+
+    Ok(())
+}
+
 async fn insert_analysis_run(
     pool: &PgPool,
     analysis_run_id: Uuid,

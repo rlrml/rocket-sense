@@ -321,6 +321,11 @@ pub async fn apply_rank_submissions_to_players(pool: &PgPool, replay_id: Uuid) -
     .execute(pool)
     .await
     .context("failed to apply rank submissions to replay players")?;
+
+    crate::processing::sync_player_identities_for_replay(pool, replay_id)
+        .await
+        .context("failed to sync player identities after rank submission apply")?;
+
     Ok(result.rows_affected())
 }
 
