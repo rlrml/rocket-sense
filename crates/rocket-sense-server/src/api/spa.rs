@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
         .route("/admin/processing", get(spa_index))
         .route("/assets/{*asset_path}", get(spa_asset))
         .route("/brand/{*brand_path}", get(brand_asset))
+        .route("/vendor/{*asset_path}", get(vendor_asset))
         .route("/favicon.ico", get(favicon))
         .fallback(spa_fallback)
 }
@@ -77,7 +78,7 @@ fn is_reserved_non_spa_path(path: &str) -> bool {
 
     matches!(
         first_segment,
-        "api" | "api-docs" | "assets" | "auth" | "brand" | "favicon.ico" | "subtr-actor"
+        "api" | "api-docs" | "assets" | "auth" | "brand" | "favicon.ico" | "subtr-actor" | "vendor"
     )
 }
 
@@ -107,6 +108,27 @@ async fn brand_asset(Path(brand_path): Path<String>) -> Result<Response, StatusC
         asset.bytes,
     )
         .into_response())
+}
+
+async fn vendor_asset(Path(asset_path): Path<String>) -> Result<Response, StatusCode> {
+    let asset = player_vendor_static_asset(&asset_path).ok_or(StatusCode::NOT_FOUND)?;
+    Ok((
+        [
+            (CONTENT_TYPE, asset.content_type),
+            (CACHE_CONTROL, "public, max-age=31536000, immutable"),
+        ],
+        asset.bytes,
+    )
+        .into_response())
+}
+
+fn player_vendor_static_asset(asset_path: &str) -> Option<StaticAsset> {
+    let player_asset_path = asset_path.strip_prefix("@rlrml/player/")?;
+    let public_asset_path = player_asset_path
+        .strip_prefix("public/")
+        .or_else(|| player_asset_path.strip_prefix("dist/"))?;
+
+    web_vendor_player_public_static_asset(public_asset_path)
 }
 
 async fn favicon() -> Result<Response, StatusCode> {
@@ -168,6 +190,7 @@ mod tests {
             "/brand/logo.svg",
             "/favicon.ico",
             "/subtr-actor/review/missing",
+            "/vendor/@rlrml/player/dist/models/ball/scene.gltf",
         ] {
             assert!(!should_serve_spa_fallback(&Method::GET, path, &headers));
         }
@@ -193,5 +216,39 @@ mod tests {
             "/players/steam/1/stats/mechanics",
             &json_headers
         ));
+    }
+
+    #[test]
+    fn player_vendor_assets_are_embedded_for_public_and_dist_urls() {
+        for path in [
+            "@rlrml/player/public/models/ball/scene.gltf",
+            "@rlrml/player/dist/models/ball/scene.gltf",
+        ] {
+            let asset = player_vendor_static_asset(path)
+                .unwrap_or_else(|| panic!("missing player vendor asset {path}"));
+            assert_eq!(asset.content_type, "model/gltf+json; charset=utf-8");
+            assert!(!asset.bytes.is_empty());
+        }
+
+        for path in [
+            "@rlrml/player/public/models/cars/fennec/fennec.glb",
+            "@rlrml/player/dist/models/cars/fennec/fennec.glb",
+            "@rlrml/player/public/models/wheels/Wheel_Boog.glb",
+            "@rlrml/player/dist/models/wheels/Wheel_Boog.glb",
+            "@rlrml/player/public/models/stadium/stadium.glb",
+            "@rlrml/player/dist/models/stadium/stadium.glb",
+        ] {
+            let asset = player_vendor_static_asset(path)
+                .unwrap_or_else(|| panic!("missing player vendor asset {path}"));
+            assert_eq!(asset.content_type, "model/gltf-binary");
+            assert!(!asset.bytes.is_empty());
+        }
+    }
+
+    #[test]
+    fn player_vendor_asset_route_stays_under_player_runtime_assets() {
+        assert!(player_vendor_static_asset("@rlrml/player/package.json").is_none());
+        assert!(player_vendor_static_asset("@rlrml/subtr-actor/package.json").is_none());
+        assert!(player_vendor_static_asset("@rlrml/player/dist/missing.glb").is_none());
     }
 }

@@ -242,6 +242,7 @@
           # subtr-actor static player/stats/review assets, built from the
           # submodule flake instead of committed under static/subtr-actor.
           ROCKET_SENSE_SUBTR_STATIC = subtr-actor-src.packages.${system}.js-stats-player-pages;
+          ROCKET_SENSE_PLAYER_PUBLIC_STATIC = "${subtr-actor-src.packages.${system}.js-player-pkg}/public";
           cargoArtifacts = rocketSenseServerCargoArtifacts;
           nativeBuildInputs = nativeBuildInputs ++ [ pkgs.removeReferencesTo ];
           auditable = false;

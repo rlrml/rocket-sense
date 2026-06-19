@@ -50,6 +50,16 @@ fn main() -> io::Result<()> {
     println!("cargo:rerun-if-changed={}", web_dist_root.display());
     let mut web_output = File::create(out_dir.join("web_static_assets.rs"))?;
     write_asset_function(&mut web_output, "web_static_asset", &web_dist_root)?;
+    let player_public_root = env::var_os("ROCKET_SENSE_PLAYER_PUBLIC_STATIC")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| repo_root.join("web/vendor/@rlrml/player/public"));
+    println!("cargo:rerun-if-env-changed=ROCKET_SENSE_PLAYER_PUBLIC_STATIC");
+    println!("cargo:rerun-if-changed={}", player_public_root.display());
+    write_asset_function(
+        &mut web_output,
+        "web_vendor_player_public_static_asset",
+        &player_public_root,
+    )?;
 
     Ok(())
 }
@@ -314,6 +324,9 @@ fn content_type(path: &Path) -> &'static str {
         Some("css") => "text/css; charset=utf-8",
         Some("html") => "text/html; charset=utf-8",
         Some("ico") => "image/x-icon",
+        Some("glb") => "model/gltf-binary",
+        Some("gltf") => "model/gltf+json; charset=utf-8",
+        Some("hdr") => "image/vnd.radiance",
         Some("js") | Some("mjs") => "application/javascript; charset=utf-8",
         Some("json") => "application/json; charset=utf-8",
         Some("png") => "image/png",
