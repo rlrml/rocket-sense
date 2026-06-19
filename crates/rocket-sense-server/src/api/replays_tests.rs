@@ -24,7 +24,7 @@ fn subtr_actor_review_assets_are_embedded_with_browser_content_types() {
 fn subtr_actor_viewer_runtime_assets_are_embedded_with_browser_content_types() {
     let stadium = subtr_actor_asset("models/stadium/stadium.glb")
         .expect("viewer stadium model should be embedded");
-    assert_eq!(stadium.content_type, "application/octet-stream");
+    assert_eq!(stadium.content_type, "model/gltf-binary");
     assert!(!stadium.bytes.is_empty());
 
     let draco = subtr_actor_asset("draco/draco_decoder.js")

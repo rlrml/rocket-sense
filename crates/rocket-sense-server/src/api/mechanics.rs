@@ -631,6 +631,8 @@ pub struct PlaylistItem {
     pub start: PlaylistBound,
     pub end: PlaylistBound,
     pub label: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub perspective: Option<PlaylistItemPerspective>,
     pub meta: PlaylistItemMeta,
 }
 
@@ -638,6 +640,16 @@ pub struct PlaylistItem {
 pub struct PlaylistBound {
     pub kind: &'static str,
     pub value: f64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlaylistItemPerspective {
+    pub kind: &'static str,
+    pub player_id: Option<String>,
+    pub player_name: Option<String>,
+    pub ball_cam: &'static str,
+    pub use_player_camera_settings: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -2880,6 +2892,16 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
     let (start_bound, end_bound) = playlist_playback_bounds(clip_start, clip_end);
     let event_type_label = event.event_type_label.clone();
     let mechanic_label = event_type_label.clone();
+    let player_id = event.player_id.clone();
+    let player_name = event.player_name.clone();
+    let perspective =
+        (player_id.is_some() || player_name.is_some()).then(|| PlaylistItemPerspective {
+            kind: "player",
+            player_id: player_id.clone(),
+            player_name: player_name.clone(),
+            ball_cam: "player",
+            use_player_camera_settings: true,
+        });
     let item_label = "review item";
     let label = event
         .player_name
@@ -2898,6 +2920,7 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
         start: start_bound,
         end: end_bound,
         label,
+        perspective,
         meta: PlaylistItemMeta {
             event_id: event.id,
             event_type: event.event_type,
@@ -2909,8 +2932,8 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
             detector: event.detector,
             confidence: event.confidence,
             reason: event.reason,
-            player_id: event.player_id.clone(),
-            player_name: event.player_name,
+            player_id: player_id.clone(),
+            player_name,
             team: event.team.map(|team| {
                 if team == 0 {
                     "blue".to_owned()
@@ -2927,7 +2950,7 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
             },
             target: PlaylistItemTarget {
                 kind: "event",
-                player_id: event.player_id,
+                player_id,
                 start_time: event.start_time,
                 end_time: event.end_time,
                 event_time: event.event_time,

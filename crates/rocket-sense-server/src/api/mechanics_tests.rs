@@ -586,6 +586,12 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
     assert_eq!(item.label, "Fast Player - Speed Flip review item 1");
+    let perspective = item.perspective.as_ref().expect("player perspective");
+    assert_eq!(perspective.kind, "player");
+    assert_eq!(perspective.player_id.as_deref(), Some("steam:abc123"));
+    assert_eq!(perspective.player_name.as_deref(), Some("Fast Player"));
+    assert_eq!(perspective.ball_cam, "player");
+    assert!(perspective.use_player_camera_settings);
     assert_eq!(item.meta.event_category, "mechanic");
     assert_eq!(item.meta.player_name.as_deref(), Some("Fast Player"));
     assert_eq!(item.meta.clip.start_time, 8.5);
@@ -636,6 +642,9 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
     assert_eq!(item.end.kind, "time");
     assert_eq!(item.end.value, 16.5);
     assert_eq!(item.label, "Speed Flip review item 1");
+    let perspective = item.perspective.as_ref().expect("player perspective");
+    assert_eq!(perspective.player_id.as_deref(), Some("steam:abc123"));
+    assert_eq!(perspective.player_name, None);
     assert_eq!(item.meta.target.kind, "event");
 }
 
