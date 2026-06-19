@@ -30,6 +30,7 @@ pub fn router() -> Router<AppState> {
             get(get_appearances_leaderboard),
         )
         .route("/leaderboards/event", get(get_event_leaderboard))
+        .route("/leaderboards/stat", get(get_stat_leaderboard))
 }
 
 /// Pagination shared by every leaderboard. Mirrors the `count`/`offset` cursor
@@ -434,13 +435,13 @@ fn appearances_total_query(filters: &ReplaySetFilters) -> QueryBuilder<'_, Postg
 /// metrics normalize by games played or active time so a player with fewer games
 /// can still top the board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EventSort {
+enum LeaderboardSort {
     Total,
     PerGame,
     PerMinute,
 }
 
-impl EventSort {
+impl LeaderboardSort {
     fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
         match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
             None | Some("") | Some("count") | Some("total") => Ok(Self::Total),
@@ -457,11 +458,18 @@ impl EventSort {
     /// The SQL ordering expression for this metric. A secondary sort by raw
     /// event count keeps the ranking stable when rates tie (e.g. two players at
     /// exactly 1.0/game).
-    fn order_sql(self) -> &'static str {
+    fn order_sql(
+        self,
+        total_column: &'static str,
+        per_game_column: &'static str,
+        per_minute_column: &'static str,
+    ) -> String {
         match self {
-            Self::Total => "event_count DESC",
-            Self::PerGame => "count_per_game DESC NULLS LAST, event_count DESC",
-            Self::PerMinute => "per_active_minute DESC NULLS LAST, event_count DESC",
+            Self::Total => format!("{total_column} DESC"),
+            Self::PerGame => format!("{per_game_column} DESC NULLS LAST, {total_column} DESC"),
+            Self::PerMinute => {
+                format!("{per_minute_column} DESC NULLS LAST, {total_column} DESC")
+            }
         }
     }
 }
@@ -507,7 +515,7 @@ pub struct EventLeaderboardRowResponse {
 struct EventLeaderboardFilters {
     replay: ReplaySetFilters,
     stat_terms: Vec<String>,
-    sort: EventSort,
+    sort: LeaderboardSort,
     min_games: i64,
 }
 
@@ -528,7 +536,7 @@ impl EventLeaderboardFilters {
             "stat-term",
             "stat_terms",
         ]));
-        let sort = EventSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
+        let sort = LeaderboardSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
         let min_games = params
             .first(&["min-games", "min_games"])
             .map(|value| parse_u32_filter("min-games", &value))
@@ -553,7 +561,7 @@ impl EventLeaderboardFilters {
     tag = "leaderboards",
     params(
         ("event-type" = Option<Vec<String>>, Query, description = "Event-type filter (alias stat-term); fuzzy-matches event_types key/display/category. Empty = all user-facing events"),
-        ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, or per-minute"),
+        ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, or share"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
@@ -735,7 +743,11 @@ fn event_rank_query<'args>(
     );
     builder.push_bind(filters.min_games);
     builder.push(" ORDER BY ");
-    builder.push(filters.sort.order_sql());
+    builder.push(
+        filters
+            .sort
+            .order_sql("event_count", "count_per_game", "per_active_minute"),
+    );
     builder.push(", e.platform, e.platform_player_id LIMIT ");
     builder.push_bind(i64::from(paging.count));
     builder.push(" OFFSET ");
@@ -750,6 +762,404 @@ fn event_total_query(filters: &EventLeaderboardFilters) -> QueryBuilder<'_, Post
         " SELECT COUNT(*) AS total FROM event_counts e \
          JOIN denominators d ON d.platform = e.platform AND d.platform_player_id = e.platform_player_id \
          WHERE d.replay_count >= ",
+    );
+    builder.push_bind(filters.min_games);
+    builder
+}
+
+// ---------------------------------------------------------------------------
+// Stat leaderboard: rank players by accumulated continuous stats. These are not
+// event counts; they use duration/value semantics and share active-time
+// denominators with event rate boards.
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatLeaderboardMetric {
+    BallOpponentHalf,
+    PossessionTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RelativeFieldHalf {
+    Opponent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatMetricSource {
+    BallHalfDuration { half: RelativeFieldHalf },
+    PlayerPossessionDuration,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct StatMetricDefinition {
+    metric: StatLeaderboardMetric,
+    key: &'static str,
+    aliases: &'static [&'static str],
+    display_name: &'static str,
+    description: &'static str,
+    unit: &'static str,
+    source: StatMetricSource,
+}
+
+impl StatMetricDefinition {
+    fn fact_key(self) -> &'static str {
+        match self.source {
+            StatMetricSource::BallHalfDuration { half } => match half {
+                RelativeFieldHalf::Opponent => self.key,
+            },
+            StatMetricSource::PlayerPossessionDuration => self.key,
+        }
+    }
+}
+
+const STAT_METRIC_DEFINITIONS: &[StatMetricDefinition] = &[
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BallOpponentHalf,
+        key: "ball-opponent-half",
+        aliases: &[
+            "ball_opponent_half",
+            "ball-in-opponent-half",
+            "ball_in_opponent_half",
+            "opponent-half",
+            "opponent_half",
+        ],
+        display_name: "Ball in opponent half",
+        description:
+            "Seconds the ball spent in the player's opponent half while the player appeared",
+        unit: "seconds",
+        source: StatMetricSource::BallHalfDuration {
+            half: RelativeFieldHalf::Opponent,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::PossessionTime,
+        key: "possession-time",
+        aliases: &["possession_time", "possession"],
+        display_name: "Possession time",
+        description: "Seconds the player held possession",
+        unit: "seconds",
+        source: StatMetricSource::PlayerPossessionDuration,
+    },
+];
+
+impl StatLeaderboardMetric {
+    fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
+        let Some(value) = value
+            .map(|v| v.trim().to_ascii_lowercase())
+            .filter(|value| !value.is_empty())
+        else {
+            return Ok(Self::BallOpponentHalf);
+        };
+        STAT_METRIC_DEFINITIONS
+            .iter()
+            .find(|definition| {
+                definition.key == value || definition.aliases.contains(&value.as_str())
+            })
+            .map(|definition| definition.metric)
+            .ok_or_else(|| {
+                ApiError::bad_request("stat must be one of: ball-opponent-half, possession-time")
+            })
+    }
+
+    fn definition(self) -> &'static StatMetricDefinition {
+        STAT_METRIC_DEFINITIONS
+            .iter()
+            .find(|definition| definition.metric == self)
+            .expect("all stat leaderboard metrics must have a definition")
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StatLeaderboardSort {
+    Total,
+    PerGame,
+    PerMinute,
+    Share,
+}
+
+impl StatLeaderboardSort {
+    fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
+        match value.map(|v| v.trim().to_ascii_lowercase()).as_deref() {
+            None | Some("") | Some("count") | Some("total") => Ok(Self::Total),
+            Some("per-game") | Some("per_game") | Some("game") => Ok(Self::PerGame),
+            Some("per-minute") | Some("per_minute") | Some("minute") | Some("rate") => {
+                Ok(Self::PerMinute)
+            }
+            Some("share") | Some("percentage") | Some("percent") | Some("pct") => Ok(Self::Share),
+            Some(_) => Err(ApiError::bad_request(
+                "sort must be one of: total, per-game, per-minute, share",
+            )),
+        }
+    }
+
+    fn order_sql(self) -> &'static str {
+        match self {
+            Self::Total => "value DESC",
+            Self::PerGame => "value_per_game DESC NULLS LAST, value DESC",
+            Self::PerMinute => "value_per_active_minute DESC NULLS LAST, value DESC",
+            Self::Share => "share_of_active_time DESC NULLS LAST, value DESC",
+        }
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatLeaderboardResponse {
+    pub rows: Vec<StatLeaderboardRowResponse>,
+    pub count: u32,
+    pub offset: u32,
+    pub total: u64,
+    pub next_offset: Option<u32>,
+    pub metric: LeaderboardStatMetricResponse,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct LeaderboardStatMetricResponse {
+    pub key: String,
+    pub display_name: String,
+    pub description: String,
+    pub unit: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatLeaderboardRowResponse {
+    pub rank: u32,
+    pub platform: String,
+    pub platform_player_id: String,
+    pub display_name: Option<String>,
+    pub is_pro: bool,
+    /// Accumulated metric value. Current metrics are duration-like and report
+    /// seconds.
+    pub value: f64,
+    pub replay_count: u64,
+    pub active_time_seconds: Option<f64>,
+    pub value_per_game: Option<f64>,
+    pub value_per_active_minute: Option<f64>,
+    /// Value divided by active time. For duration metrics this is a time share
+    /// suitable for percentage displays.
+    pub share_of_active_time: Option<f64>,
+}
+
+#[derive(Debug, Clone)]
+struct StatLeaderboardFilters {
+    replay: ReplaySetFilters,
+    metric: StatLeaderboardMetric,
+    sort: StatLeaderboardSort,
+    min_games: i64,
+}
+
+impl StatLeaderboardFilters {
+    fn from_query(
+        raw_query: Option<&str>,
+        auth_user_id: Option<Uuid>,
+    ) -> Result<(Self, LeaderboardPaging), ApiError> {
+        let params = QueryParams::from_raw(raw_query);
+        let paging = LeaderboardPaging::from_params(&params)?;
+        let replay = ReplaySetFilters::from_input(
+            ReplaySetFilterInput::from_query_params(&params)?,
+            auth_user_id,
+        )?;
+        let metric =
+            StatLeaderboardMetric::from_query(params.first(&["stat", "metric"]).as_deref())?;
+        let sort = StatLeaderboardSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
+        let min_games = params
+            .first(&["min-games", "min_games"])
+            .map(|value| parse_u32_filter("min-games", &value))
+            .transpose()?
+            .unwrap_or(1)
+            .max(1) as i64;
+        Ok((
+            Self {
+                replay,
+                metric,
+                sort,
+                min_games,
+            },
+            paging,
+        ))
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/leaderboards/stat",
+    tag = "leaderboards",
+    params(
+        ("stat" = Option<String>, Query, description = "Continuous stat metric: ball-opponent-half (default) or possession-time"),
+        ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, or per-minute"),
+        ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
+        ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
+        ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
+        ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
+        ("offset" = Option<u32>, Query, description = "Row offset for pagination")
+    ),
+    responses(
+        (status = 200, description = "Players ranked by an accumulated continuous stat", body = StatLeaderboardResponse),
+        (status = 400, description = "Leaderboard filters were invalid"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn get_stat_leaderboard(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<StatLeaderboardResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let (filters, paging) =
+        StatLeaderboardFilters::from_query(raw_query.as_deref(), auth_user.as_ref().map(|u| u.id))?;
+
+    let (total, rows) = tokio::try_join!(
+        load_stat_total(db, &filters),
+        load_stat_rows(db, &filters, &paging),
+    )?;
+
+    let next_offset = paging.next_offset(rows.len(), total);
+    let definition = filters.metric.definition();
+    Ok(Json(StatLeaderboardResponse {
+        rows,
+        count: paging.count,
+        offset: paging.offset,
+        total,
+        next_offset,
+        metric: LeaderboardStatMetricResponse {
+            key: definition.key.to_owned(),
+            display_name: definition.display_name.to_owned(),
+            description: definition.description.to_owned(),
+            unit: definition.unit.to_owned(),
+        },
+    }))
+}
+
+async fn load_stat_total(
+    pool: &sqlx::PgPool,
+    filters: &StatLeaderboardFilters,
+) -> Result<u64, ApiError> {
+    let total: i64 = stat_total_query(filters)
+        .build()
+        .fetch_one(pool)
+        .await
+        .map_err(ApiError::internal)?
+        .try_get("total")
+        .map_err(ApiError::internal)?;
+    Ok(total.max(0) as u64)
+}
+
+async fn load_stat_rows(
+    pool: &sqlx::PgPool,
+    filters: &StatLeaderboardFilters,
+    paging: &LeaderboardPaging,
+) -> Result<Vec<StatLeaderboardRowResponse>, ApiError> {
+    let rows = stat_rank_query(filters, paging)
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let mut entries = rows
+        .into_iter()
+        .enumerate()
+        .map(|(index, row)| {
+            let replay_count: i64 = row.try_get("replay_count")?;
+            Ok(StatLeaderboardRowResponse {
+                rank: paging.offset.saturating_add(index as u32 + 1),
+                platform: row.try_get("platform")?,
+                platform_player_id: row.try_get("platform_player_id")?,
+                display_name: None,
+                is_pro: false,
+                value: row.try_get("value")?,
+                replay_count: replay_count.max(0) as u64,
+                active_time_seconds: row.try_get("active_time_seconds")?,
+                value_per_game: row.try_get("value_per_game")?,
+                value_per_active_minute: row.try_get("value_per_active_minute")?,
+                share_of_active_time: row.try_get("share_of_active_time")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(ApiError::internal)?;
+
+    let pairs: Vec<PlayerKey> = entries
+        .iter()
+        .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
+        .collect();
+    let profiles = load_player_profiles(pool, &pairs)
+        .await
+        .map_err(ApiError::internal)?;
+    for entry in &mut entries {
+        if let Some(profile) =
+            profiles.get(&(entry.platform.clone(), entry.platform_player_id.clone()))
+        {
+            entry.display_name = profile.display_name.clone();
+            entry.is_pro = profile.is_pro;
+        }
+    }
+
+    Ok(entries)
+}
+
+fn push_stat_fact_cte<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args StatLeaderboardFilters,
+) {
+    builder.push(
+        "metric_values AS (\
+         SELECT fact.platform AS platform, fact.platform_player_id AS platform_player_id, \
+         COALESCE(SUM(fact.value), 0.0) AS value, \
+         COUNT(DISTINCT fact.replay_id) AS replay_count, \
+         SUM(fact.active_time_seconds) AS active_time_seconds, \
+         SUM(fact.denominator_value) AS denominator_value \
+         FROM player_replay_stat_facts fact \
+         JOIN replays r ON r.id = fact.replay_id AND r.canonical_analysis_run_id = fact.analysis_run_id \
+         WHERE fact.stat_key = ",
+    );
+    builder.push_bind(filters.metric.definition().fact_key());
+    append_replay_set_filters(builder, &filters.replay, "r");
+    builder.push(
+        " GROUP BY fact.platform, fact.platform_player_id \
+         HAVING COALESCE(SUM(fact.value), 0.0) > 0)",
+    );
+}
+
+fn push_stat_ctes<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args StatLeaderboardFilters,
+) {
+    builder.push("WITH ");
+    push_stat_fact_cte(builder, filters);
+}
+
+fn stat_rank_query<'args>(
+    filters: &'args StatLeaderboardFilters,
+    paging: &LeaderboardPaging,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_stat_ctes(&mut builder, filters);
+    builder.push(
+        " SELECT m.platform AS platform, m.platform_player_id AS platform_player_id, \
+         m.value AS value, m.replay_count AS replay_count, \
+         m.active_time_seconds AS active_time_seconds, \
+         (m.value / NULLIF(m.replay_count, 0)) AS value_per_game, \
+         (m.value / NULLIF(m.denominator_value, 0)) AS share_of_active_time, \
+         CASE WHEN COALESCE(m.active_time_seconds, 0) > 0 \
+         THEN m.value * 60.0 / m.active_time_seconds ELSE NULL END AS value_per_active_minute \
+         FROM metric_values m \
+         WHERE m.replay_count >= ",
+    );
+    builder.push_bind(filters.min_games);
+    builder.push(" ORDER BY ");
+    builder.push(filters.sort.order_sql());
+    builder.push(", m.platform, m.platform_player_id LIMIT ");
+    builder.push_bind(i64::from(paging.count));
+    builder.push(" OFFSET ");
+    builder.push_bind(i64::from(paging.offset));
+    builder
+}
+
+fn stat_total_query(filters: &StatLeaderboardFilters) -> QueryBuilder<'_, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_stat_ctes(&mut builder, filters);
+    builder.push(
+        " SELECT COUNT(*) AS total FROM metric_values m \
+         WHERE m.replay_count >= ",
     );
     builder.push_bind(filters.min_games);
     builder

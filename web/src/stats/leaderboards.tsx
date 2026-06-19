@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   getAppearancesLeaderboard,
   getEventLeaderboard,
+  getStatLeaderboard,
   getUploadsLeaderboard,
   listEventTypes,
 } from "../api";
@@ -11,32 +12,73 @@ import type {
   AppearancesLeaderboardRow,
   EventLeaderboardRow,
   EventTypeResponse,
+  StatLeaderboardRow,
   UploadsLeaderboardRow,
 } from "../types";
 import { StatPlayerLabel } from "./shared";
 
-type Metric = "appearances" | "uploads" | "event";
+type Metric = "appearances" | "uploads" | "event" | "stat";
 
 const PAGE_SIZE = 50;
+const RATE_WINDOW_MINUTES = 5;
 
 const metricOptions: Array<{ value: Metric; label: string }> = [
   { value: "appearances", label: "Player appearances" },
   { value: "uploads", label: "Uploads" },
   { value: "event", label: "Event" },
+  { value: "stat", label: "Stat" },
 ];
 
-const sortOptions = [
-  { value: "total", label: "Total" },
-  { value: "per-game", label: "Per game" },
-  { value: "per-minute", label: "Per 5 min" },
+const statOptions = [
+  { value: "ball-opponent-half", label: "Ball in opponent half" },
+  { value: "possession-time", label: "Possession time" },
 ];
+
+function sortOptions(rateWindowMinutes: number, includeShare = false) {
+  const options = [
+    { value: "total", label: "Total" },
+    { value: "per-game", label: "Per game" },
+    {
+      value: "per-minute",
+      label: rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`,
+    },
+  ];
+  if (includeShare) {
+    options.push({ value: "share", label: "Share" });
+  }
+  return options;
+}
 
 function formatRate(value: number | null): string {
   return value == null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function formatRatePerFiveMinutes(value: number | null): string {
-  return formatRate(value == null ? null : value * 5);
+function formatPercent(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return value.toLocaleString(undefined, {
+    maximumFractionDigits: 1,
+    style: "percent",
+  });
+}
+
+function formatDurationCompact(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  const totalSeconds = Math.max(0, Math.round(value));
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function perRateWindow(perMinute: number | null, rateWindowMinutes: number): number | null {
+  return perMinute == null ? null : perMinute * rateWindowMinutes;
+}
+
+function perDurationWindow(perMinute: number | null, rateWindowMinutes: number): string {
+  return formatDurationCompact(perRateWindow(perMinute, rateWindowMinutes));
 }
 
 // Mirrors the segmentation used everywhere else (see App.tsx); team size and
@@ -70,7 +112,7 @@ const playlistOptions = [
 
 function metricFromSearch(search: string): Metric {
   const value = new URLSearchParams(search).get("metric");
-  if (value === "uploads" || value === "event") return value;
+  if (value === "uploads" || value === "event" || value === "stat") return value;
   return "appearances";
 }
 
@@ -261,9 +303,16 @@ function UploadsLeaderboard({ filterKey }: { filterKey: string }) {
   );
 }
 
-function EventLeaderboard({ filterKey }: { filterKey: string }) {
+function EventLeaderboard({
+  filterKey,
+  rateWindowMinutes,
+}: {
+  filterKey: string;
+  rateWindowMinutes: number;
+}) {
   const { rows, total, nextOffset, loading, loadingMore, error, loadMore } =
     useLeaderboard<EventLeaderboardRow>(getEventLeaderboard, filterKey);
+  const rateColumnLabel = rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
 
   if (loading) return <div className="stat-empty">Loading leaderboard…</div>;
   if (error) return <div className="stat-empty">Failed to load leaderboard: {error}</div>;
@@ -281,7 +330,7 @@ function EventLeaderboard({ filterKey }: { filterKey: string }) {
               <th>Total</th>
               <th>Games</th>
               <th>Per game</th>
-              <th>Per 5 min</th>
+              <th>{rateColumnLabel}</th>
             </tr>
           </thead>
           <tbody>
@@ -301,7 +350,74 @@ function EventLeaderboard({ filterKey }: { filterKey: string }) {
                   <td>{row.event_count.toLocaleString()}</td>
                   <td>{row.replay_count.toLocaleString()}</td>
                   <td>{formatRate(row.count_per_game)}</td>
-                  <td>{formatRatePerFiveMinutes(row.per_active_minute)}</td>
+                  <td>{formatRate(perRateWindow(row.per_active_minute, rateWindowMinutes))}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <LoadMore
+        shown={rows.length}
+        total={total}
+        hasMore={nextOffset != null}
+        loadingMore={loadingMore}
+        onLoadMore={loadMore}
+      />
+    </>
+  );
+}
+
+function StatLeaderboard({
+  filterKey,
+  rateWindowMinutes,
+}: {
+  filterKey: string;
+  rateWindowMinutes: number;
+}) {
+  const { rows, total, nextOffset, loading, loadingMore, error, loadMore } =
+    useLeaderboard<StatLeaderboardRow>(getStatLeaderboard, filterKey);
+  const rateColumnLabel = rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
+
+  if (loading) return <div className="stat-empty">Loading leaderboard…</div>;
+  if (error) return <div className="stat-empty">Failed to load leaderboard: {error}</div>;
+  if (!rows.length)
+    return <div className="stat-empty">No players recorded this stat under these filters.</div>;
+
+  return (
+    <>
+      <div className="table-frame compact-table stat-leaderboard-table">
+        <table>
+          <thead>
+            <tr>
+              <th className="leaderboard-rank-col">#</th>
+              <th>Player</th>
+              <th>Total</th>
+              <th>Share</th>
+              <th>Games</th>
+              <th>Per game</th>
+              <th>{rateColumnLabel}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              const name = row.display_name || row.platform_player_id;
+              return (
+                <tr key={`${row.platform}:${row.platform_player_id}`}>
+                  <td className="leaderboard-rank-col">{row.rank.toLocaleString()}</td>
+                  <td>
+                    <StatPlayerLabel
+                      name={name}
+                      platform={row.platform}
+                      profilePath={playerProfilePath(row.platform, row.platform_player_id)}
+                      subtitle={row.is_pro ? "Pro" : row.platform}
+                    />
+                  </td>
+                  <td>{formatDurationCompact(row.value)}</td>
+                  <td>{formatPercent(row.share_of_active_time)}</td>
+                  <td>{row.replay_count.toLocaleString()}</td>
+                  <td>{formatDurationCompact(row.value_per_game)}</td>
+                  <td>{perDurationWindow(row.value_per_active_minute, rateWindowMinutes)}</td>
                 </tr>
               );
             })}
@@ -332,6 +448,11 @@ function isCountableEventType(eventType: EventTypeResponse): boolean {
     !NON_COUNTABLE_EVENT_CATEGORIES.has(eventType.category) &&
     !NON_COUNTABLE_EVENT_KEYS.has(eventType.key)
   );
+}
+
+function isBoostEventType(eventType: EventTypeResponse | undefined): boolean {
+  if (!eventType) return false;
+  return eventType.category === "boost" || eventType.key.startsWith("boost");
 }
 
 // Event-type options come from the live registry so the board stays in sync
@@ -401,9 +522,14 @@ export function LeaderboardsPage() {
   const gameType = params.get("game-type") ?? "";
   const playlist = params.get("playlist") ?? "";
   const eventType = params.get("event-type") ?? "";
-  const sort = params.get("sort") ?? "total";
+  const stat = params.get("stat") ?? "ball-opponent-half";
+  const eventSort = params.get("sort") ?? "total";
+  const statSort = params.get("sort") ?? "per-minute";
   const minGames = params.get("min-games") ?? "";
   const eventTypes = useEventTypes();
+  const selectedEventType = eventTypes.find((option) => option.key === eventType);
+  const eventRateWindowMinutes = isBoostEventType(selectedEventType) ? 1 : RATE_WINDOW_MINUTES;
+  const statRateWindowMinutes = RATE_WINDOW_MINUTES;
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -435,14 +561,22 @@ export function LeaderboardsPage() {
   const eventFilterKey = useMemo(() => {
     const filters = new URLSearchParams(replayFilterKey);
     if (eventType) filters.set("event-type", eventType);
-    if (sort && sort !== "total") filters.set("sort", sort);
+    if (eventSort && eventSort !== "total") filters.set("sort", eventSort);
     if (minGames) filters.set("min-games", minGames);
     return filters.toString();
-  }, [eventType, minGames, replayFilterKey, sort]);
+  }, [eventSort, eventType, minGames, replayFilterKey]);
+
+  const statFilterKey = useMemo(() => {
+    const filters = new URLSearchParams(replayFilterKey);
+    if (stat) filters.set("stat", stat);
+    if (statSort) filters.set("sort", statSort);
+    if (minGames) filters.set("min-games", minGames);
+    return filters.toString();
+  }, [minGames, replayFilterKey, stat, statSort]);
 
   return (
     <section className="page leaderboards-page">
-      <header className="page-header">
+      <header className="page-header leaderboard-page-header">
         <div>
           <p className="eyebrow">Leaderboards</p>
           <h1>Leaderboards</h1>
@@ -505,9 +639,39 @@ export function LeaderboardsPage() {
           <SegmentNav
             ariaLabel="Ranking metric"
             label="Rank by"
-            current={sort}
-            options={sortOptions}
+            current={eventSort}
+            options={sortOptions(eventRateWindowMinutes)}
             onSelect={(value) => setParam("sort", value === "total" ? "" : value)}
+          />
+          <label className="leaderboard-playlist-filter">
+            <span className="segment-bar-label">Min games</span>
+            <input
+              type="number"
+              min="1"
+              placeholder="1"
+              value={minGames}
+              onChange={(event) => setParam("min-games", event.currentTarget.value)}
+            />
+          </label>
+        </div>
+      ) : metric === "stat" ? (
+        <div className="player-segment-bar">
+          <label className="leaderboard-playlist-filter">
+            <span className="segment-bar-label">Stat</span>
+            <select value={stat} onChange={(event) => setParam("stat", event.currentTarget.value)}>
+              {statOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <SegmentNav
+            ariaLabel="Ranking metric"
+            label="Rank by"
+            current={statSort}
+            options={sortOptions(statRateWindowMinutes, true)}
+            onSelect={(value) => setParam("sort", value === "per-minute" ? "" : value)}
           />
           <label className="leaderboard-playlist-filter">
             <span className="segment-bar-label">Min games</span>
@@ -522,33 +686,43 @@ export function LeaderboardsPage() {
         </div>
       ) : null}
 
-      <div className="chart-panel">
+      <div className="chart-panel leaderboard-panel">
         <div className="chart-panel-header">
           <h2>
             {metric === "uploads"
               ? "Top uploaders"
               : metric === "event"
                 ? "Event leaderboard"
-                : "Most-seen players"}
+                : metric === "stat"
+                  ? "Stat leaderboard"
+                  : "Most-seen players"}
           </h2>
           <p className="subtle">
             {metric === "uploads"
               ? "Ranked by number of replays uploaded."
               : metric === "event"
-                ? "Ranked by a chosen event type — total, per game, or per active minute."
-                : "Ranked by number of replays a player appears in."}
+                ? `Ranked by a chosen event type — total, per game, or ${
+                    eventRateWindowMinutes === 1
+                      ? "per active minute"
+                      : `per ${eventRateWindowMinutes} active minutes`
+                  }.`
+                : metric === "stat"
+                  ? `Ranked by an accumulated stat — total time, per game, or per ${statRateWindowMinutes} active minutes.`
+                  : "Ranked by number of replays a player appears in."}
           </p>
         </div>
         {metric === "uploads" ? (
           <UploadsLeaderboard filterKey={replayFilterKey} />
         ) : metric === "event" ? (
-          <EventLeaderboard filterKey={eventFilterKey} />
+          <EventLeaderboard filterKey={eventFilterKey} rateWindowMinutes={eventRateWindowMinutes} />
+        ) : metric === "stat" ? (
+          <StatLeaderboard filterKey={statFilterKey} rateWindowMinutes={statRateWindowMinutes} />
         ) : (
           <AppearancesLeaderboard filterKey={replayFilterKey} />
         )}
       </div>
 
-      <p className="muted-text">
+      <p className="muted-text leaderboard-replay-link">
         Want the underlying games?{" "}
         <Link className="primary-link" to="/replays">
           Browse replays

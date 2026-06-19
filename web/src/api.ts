@@ -12,6 +12,7 @@ import type {
   UploadsLeaderboardResponse,
   AppearancesLeaderboardResponse,
   EventLeaderboardResponse,
+  StatLeaderboardResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
   PlayerBoostTotalsResponse,
@@ -136,6 +137,13 @@ export function getEventLeaderboard(
 ): Promise<EventLeaderboardResponse> {
   const params = new URLSearchParams(searchParams);
   return request<EventLeaderboardResponse>(`/api/v1/leaderboards/event?${params.toString()}`);
+}
+
+export function getStatLeaderboard(
+  searchParams: URLSearchParams,
+): Promise<StatLeaderboardResponse> {
+  const params = new URLSearchParams(searchParams);
+  return request<StatLeaderboardResponse>(`/api/v1/leaderboards/stat?${params.toString()}`);
 }
 
 export function createReplayGroup(body: {
