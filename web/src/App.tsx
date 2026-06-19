@@ -70,6 +70,7 @@ import {
   listReplayGroupReplays,
   listReplayEvents,
   listReplayFilterOptions,
+  listLinkedIdentities,
   listReplayProcessingDiagnostics,
   listReplays,
   logout,
@@ -80,7 +81,8 @@ import {
   uploadReplay,
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
-import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
+import { LocalReprocessProgressBar } from "./reprocessProgress";
+import { computeStatsTimelineScaffoldJson, type LocalReprocessProgress } from "./stats/replayModel";
 import { BoostProfileDetail } from "./stats/boost";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
@@ -109,6 +111,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypeResponse,
+  LinkedIdentityResponse,
   MechanicEventResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
@@ -1388,6 +1391,57 @@ function useCurrentUser(): CurrentUserResponse | null {
   return user;
 }
 
+function useLinkedIdentities(enabled: boolean): {
+  identities: LinkedIdentityResponse[];
+  loading: boolean;
+  error: string | null;
+} {
+  const [identities, setIdentities] = useState<LinkedIdentityResponse[]>([]);
+  const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState<string | null>(null);
+  const [authRevision, setAuthRevision] = useState(0);
+
+  useEffect(() => {
+    function refreshAuth() {
+      setAuthRevision((revision) => revision + 1);
+    }
+
+    window.addEventListener(authChangeEvent, refreshAuth);
+    return () => window.removeEventListener(authChangeEvent, refreshAuth);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!enabled) {
+      setIdentities([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    listLinkedIdentities()
+      .then((response) => {
+        if (!cancelled) setIdentities(response.identities);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setIdentities([]);
+        setError(err instanceof Error ? err.message : "Could not load linked identities.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [enabled, authRevision]);
+
+  return { identities, loading, error };
+}
+
 function useReplayGroups(enabled: boolean): {
   groups: ReplayGroupResponse[];
   refresh: () => void;
@@ -1636,6 +1690,8 @@ function ReplayStatsPage() {
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<RequeueResult | null>(null);
   const [reprocessingLocal, setReprocessingLocal] = useState(false);
+  const [localReprocessProgress, setLocalReprocessProgress] =
+    useState<LocalReprocessProgress | null>(null);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
@@ -1760,21 +1816,32 @@ function ReplayStatsPage() {
   // results are live as soon as the request returns.
   async function handleReprocessLocal() {
     setReprocessingLocal(true);
+    setLocalReprocessProgress(null);
     setReprocessResult({
       phase: "done",
       message: "Reprocessing locally — parsing replay in your browser…",
     });
     try {
-      const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId);
+      const scaffoldJson = await computeStatsTimelineScaffoldJson(
+        replayId,
+        setLocalReprocessProgress,
+      );
+      setLocalReprocessProgress({
+        stage: "uploading",
+        message: "Uploading regenerated analysis",
+        progress: null,
+      });
       await reprocessReplayClient(replayId, {
         subtrActorGitSha: __SUBTR_ACTOR_REV__,
         scaffoldJson,
       });
+      setLocalReprocessProgress(null);
       setReprocessResult({
         phase: "done",
         message: "Reprocessed locally — refresh to see the regenerated analysis.",
       });
     } catch (err) {
+      setLocalReprocessProgress(null);
       setReprocessResult({
         phase: "error",
         message: err instanceof Error ? err.message : "Local reprocess failed.",
@@ -1828,6 +1895,7 @@ function ReplayStatsPage() {
             Player
           </Link>
           {reprocessResult ? <RequeueResultChip result={reprocessResult} /> : null}
+          <LocalReprocessProgressBar progress={localReprocessProgress} />
           {reprocessResult?.phase === "skipped" ? (
             <button
               type="button"
@@ -4236,6 +4304,7 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
   const attemptedSessionHydration = useRef(false);
   const claims = useMemo(() => parseAccessTokenClaims(token), [token]);
   const currentUser = useCurrentUser();
+  const linkedIdentities = useLinkedIdentities(claims != null);
 
   useEffect(() => {
     if (token.trim()) return;
@@ -4436,6 +4505,42 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
               {creatingDevToken ? "Creating" : "Create dev token"}
             </button>
           </form>
+        </section>
+
+        <section className="account-panel linked-identities-panel">
+          <div>
+            <h2>Verified identities</h2>
+            <p className="muted-text">Provider accounts Rocket Sense has verified for this user.</p>
+          </div>
+          {linkedIdentities.loading ? (
+            <div className="status-line">
+              <RefreshCw size={16} className="spin" />
+              Loading identities
+            </div>
+          ) : linkedIdentities.error ? (
+            <p className="inline-status error">{linkedIdentities.error}</p>
+          ) : linkedIdentities.identities.length > 0 ? (
+            <ul className="linked-identity-list">
+              {linkedIdentities.identities.map((identity) => (
+                <li
+                  key={`${identity.provider_name}:${identity.provider_subject}`}
+                  className={`linked-identity provider-${identity.provider_name}`}
+                >
+                  <ProviderLoginIcon providerId={identity.provider_name} />
+                  <span className="linked-identity-main">
+                    <strong>{providerLabel(identity.provider_name)}</strong>
+                    <span>{identity.email ?? identity.provider_subject}</span>
+                  </span>
+                  <span className="linked-identity-meta">
+                    <span>{identity.provider_subject}</span>
+                    <time dateTime={identity.created_at}>{formatDate(identity.created_at)}</time>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="muted-text">No verified provider identities are stored for this user.</p>
+          )}
         </section>
       </div>
 

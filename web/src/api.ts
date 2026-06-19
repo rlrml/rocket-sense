@@ -6,6 +6,7 @@ import type {
   EventStatSummaryResponse,
   EventTypesResponse,
   GroupBoostTotalsResponse,
+  LinkedIdentitiesResponse,
   ListReplayGroupsResponse,
   ListReplaysResponse,
   UploadsLeaderboardResponse,
@@ -511,6 +512,10 @@ export function getAuthOptions(): Promise<AuthOptionsResponse> {
 
 export function getCurrentUser(): Promise<CurrentUserResponse> {
   return request<CurrentUserResponse>("/api/v1/me");
+}
+
+export function listLinkedIdentities(): Promise<LinkedIdentitiesResponse> {
+  return request<LinkedIdentitiesResponse>("/api/v1/me/linked-identities");
 }
 
 export function reprocessReplay(

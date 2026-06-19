@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Cpu, Info, RefreshCw, X } from "lucide-react";
 
 import { getPlayerProcessingVersions, reprocessReplay, reprocessReplayClient } from "./api";
-import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
+import { LocalReprocessProgressBar } from "./reprocessProgress";
+import { computeStatsTimelineScaffoldJson, type LocalReprocessProgress } from "./stats/replayModel";
 import type {
   ProcessingVersionBreakdownResponse,
   ReplayProcessingVersion,
@@ -219,9 +220,11 @@ function ReprocessControls({
 }) {
   const [running, setRunning] = useState<"server" | "local" | null>(null);
   const [result, setResult] = useState<{ error: boolean; message: string } | null>(null);
+  const [localProgress, setLocalProgress] = useState<LocalReprocessProgress | null>(null);
 
   async function runServer() {
     setRunning("server");
+    setLocalProgress(null);
     setResult(null);
     try {
       const response = await reprocessReplay(replayId);
@@ -243,18 +246,26 @@ function ReprocessControls({
 
   async function runLocal() {
     setRunning("local");
+    setLocalProgress(null);
     setResult({ error: false, message: "Reprocessing in your browser — parsing the replay…" });
     try {
-      const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId);
+      const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId, setLocalProgress);
+      setLocalProgress({
+        stage: "uploading",
+        message: "Uploading regenerated analysis",
+        progress: null,
+      });
       await reprocessReplayClient(replayId, {
         subtrActorGitSha: __SUBTR_ACTOR_REV__,
         scaffoldJson,
       });
+      setLocalProgress(null);
       setResult({
         error: false,
         message: "Reprocessed locally — refresh to see the regenerated analysis.",
       });
     } catch (error) {
+      setLocalProgress(null);
       setResult({
         error: true,
         message: error instanceof Error ? error.message : "Local reprocess failed.",
@@ -300,6 +311,7 @@ function ReprocessControls({
           {result.message}
         </p>
       ) : null}
+      <LocalReprocessProgressBar progress={localProgress} />
     </div>
   );
 }

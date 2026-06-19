@@ -12,7 +12,7 @@ use axum::{
 use chrono::Utc;
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 const DEV_USER_HEADER: &str = "x-dev-user";
@@ -107,6 +107,14 @@ impl AuthUser {
                 .unwrap_or_else(|| user_id.to_string()),
         })
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct LinkedAuthIdentity {
+    pub provider_name: String,
+    pub provider_subject: String,
+    pub email: Option<String>,
+    pub created_at: chrono::DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -303,7 +311,55 @@ pub async fn resolve_is_admin(
     .fetch_one(pool)
     .await?;
 
+    upsert_auth_identity(pool, user).await?;
+
     Ok(is_admin)
+}
+
+pub async fn persist_provider_login(
+    pool: &PgPool,
+    user: AuthUser,
+    admin_emails: &[String],
+) -> Result<AuthUser, sqlx::Error> {
+    let existing_identity_user_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT user_id
+        FROM auth_identities
+        WHERE issuer = $1 AND subject = $2
+        "#,
+    )
+    .bind(&user.provider_name)
+    .bind(&user.provider_subject)
+    .fetch_optional(pool)
+    .await?;
+    let existing_email_user_id = match &user.email {
+        Some(email) => {
+            sqlx::query_scalar(
+                r#"
+                SELECT id
+                FROM users
+                WHERE lower(primary_email) = lower($1)
+                ORDER BY created_at
+                LIMIT 1
+                "#,
+            )
+            .bind(email)
+            .fetch_optional(pool)
+            .await?
+        }
+        None => None,
+    };
+    let resolved_user_id = existing_identity_user_id
+        .or(existing_email_user_id)
+        .unwrap_or(user.id);
+    let resolved_user = AuthUser {
+        id: resolved_user_id,
+        ..user
+    };
+
+    resolve_is_admin(pool, &resolved_user, admin_emails).await?;
+
+    Ok(resolved_user)
 }
 
 fn stable_user_id(provider: &str, subject: &str) -> Uuid {
@@ -311,6 +367,68 @@ fn stable_user_id(provider: &str, subject: &str) -> Uuid {
         &Uuid::NAMESPACE_URL,
         format!("rocket-sense:{provider}:{subject}").as_bytes(),
     )
+}
+
+fn stable_auth_identity_id(provider: &str, subject: &str) -> Uuid {
+    Uuid::new_v5(
+        &Uuid::NAMESPACE_URL,
+        format!("rocket-sense-auth-identity:{provider}:{subject}").as_bytes(),
+    )
+}
+
+pub async fn upsert_auth_identity(pool: &PgPool, user: &AuthUser) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO auth_identities (id, user_id, issuer, subject, provider_name, email)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (issuer, subject) DO UPDATE
+        SET provider_name = EXCLUDED.provider_name,
+            email = EXCLUDED.email
+        "#,
+    )
+    .bind(stable_auth_identity_id(
+        &user.provider_name,
+        &user.provider_subject,
+    ))
+    .bind(user.id)
+    .bind(&user.provider_name)
+    .bind(&user.provider_subject)
+    .bind(&user.provider_name)
+    .bind(&user.email)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+pub async fn list_linked_auth_identities(
+    pool: &PgPool,
+    user: &AuthUser,
+) -> Result<Vec<LinkedAuthIdentity>, sqlx::Error> {
+    upsert_auth_identity(pool, user).await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT provider_name, subject, email, created_at
+        FROM auth_identities
+        WHERE user_id = $1
+        ORDER BY created_at, provider_name, subject
+        "#,
+    )
+    .bind(user.id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(LinkedAuthIdentity {
+                provider_name: row.try_get("provider_name")?,
+                provider_subject: row.try_get("subject")?,
+                email: row.try_get("email")?,
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect()
 }
 
 #[derive(Debug, Serialize)]

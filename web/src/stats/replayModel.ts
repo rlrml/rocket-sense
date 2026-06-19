@@ -1,5 +1,31 @@
 import { loadReplay, type ReplayLoadResult, type ReplayModel } from "@rlrml/player";
-import initSubtrActor, { get_stats_timeline_json } from "@rlrml/subtr-actor";
+
+export type LocalReprocessProgressStage =
+  | "initializing"
+  | "downloading"
+  | "processing"
+  | "encoding"
+  | "uploading";
+
+export interface LocalReprocessProgress {
+  stage: LocalReprocessProgressStage;
+  message: string;
+  progress: number | null;
+  loadedBytes?: number;
+  totalBytes?: number;
+}
+
+type LocalReprocessWorkerMessage =
+  | {
+      type: "progress";
+      stage: Exclude<LocalReprocessProgressStage, "uploading">;
+      message: string;
+      progress: number | null;
+      loadedBytes?: number;
+      totalBytes?: number;
+    }
+  | { type: "complete"; scaffoldJson: string }
+  | { type: "error"; message: string };
 
 // Parsing a replay is expensive, so cache the fully-decoded model per replay.
 // Every consumer in the app (the event clip player, the kickoff path diagrams)
@@ -12,17 +38,6 @@ import initSubtrActor, { get_stats_timeline_json } from "@rlrml/subtr-actor";
 // the renderer into their bundle.
 const replayLoadCache = new Map<string, Promise<ReplayLoadResult>>();
 
-// The standalone subtr-actor WASM (used for the stats-timeline scaffold below)
-// is a separate module from the one @rlrml/player drives for playback, so it
-// needs its own one-time wasm-bindgen init. Memoize it.
-let subtrActorReady: Promise<unknown> | null = null;
-function ensureSubtrActorReady(): Promise<unknown> {
-  if (!subtrActorReady) {
-    subtrActorReady = initSubtrActor();
-  }
-  return subtrActorReady;
-}
-
 // Run the subtr-actor WASM stats-timeline collector on a replay entirely in the
 // browser and return the raw JSON scaffold text (the same artifact the server
 // computes from subtr-actor). Used by the client-side reprocess flow: trusted
@@ -30,15 +45,43 @@ function ensureSubtrActorReady(): Promise<unknown> {
 // this scaffold for the server to persist without re-running subtr-actor. The
 // text is returned as a string on purpose — callers splice it straight into the
 // request body to avoid re-stringifying a multi-MB payload.
-export async function computeStatsTimelineScaffoldJson(replayId: string): Promise<string> {
-  await ensureSubtrActorReady();
-  const response = await fetch(`/api/v1/replays/${encodeURIComponent(replayId)}/file`);
-  if (!response.ok) {
-    throw new Error(`Failed to download replay (${response.status})`);
-  }
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  const scaffoldJson = get_stats_timeline_json(bytes);
-  return new TextDecoder().decode(scaffoldJson);
+export async function computeStatsTimelineScaffoldJson(
+  replayId: string,
+  onProgress?: (progress: LocalReprocessProgress) => void,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./reprocess.worker.ts", import.meta.url), {
+      type: "module",
+    });
+
+    worker.onmessage = (event: MessageEvent<LocalReprocessWorkerMessage>) => {
+      const message = event.data;
+      if (message.type === "progress") {
+        onProgress?.({
+          stage: message.stage,
+          message: message.message,
+          progress: message.progress,
+          loadedBytes: message.loadedBytes,
+          totalBytes: message.totalBytes,
+        });
+        return;
+      }
+
+      worker.terminate();
+      if (message.type === "complete") {
+        resolve(message.scaffoldJson);
+      } else {
+        reject(new Error(message.message));
+      }
+    };
+
+    worker.onerror = (event) => {
+      worker.terminate();
+      reject(new Error(event.message || "Local reprocess worker failed."));
+    };
+
+    worker.postMessage({ type: "compute", replayId });
+  });
 }
 
 export function preloadReplay(replayId: string): Promise<ReplayLoadResult> {

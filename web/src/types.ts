@@ -602,6 +602,17 @@ export interface CurrentUserResponse {
   is_admin: boolean;
 }
 
+export interface LinkedIdentityResponse {
+  provider_name: string;
+  provider_subject: string;
+  email: string | null;
+  created_at: string;
+}
+
+export interface LinkedIdentitiesResponse {
+  identities: LinkedIdentityResponse[];
+}
+
 export interface ReprocessReplayResponse {
   replay_id: string;
   enqueued: boolean;

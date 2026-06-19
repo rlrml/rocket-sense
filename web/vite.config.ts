@@ -42,6 +42,9 @@ const backendTarget = process.env.ROCKET_SENSE_WEB_API_TARGET ?? "https://rocket
 const apiProxy = {
   "/api": { target: backendTarget, changeOrigin: true },
   "/auth": { target: backendTarget, changeOrigin: true },
+  "/login": { target: backendTarget, changeOrigin: true },
+  "/events/review/open": { target: backendTarget, changeOrigin: true },
+  "/mechanics/review/open": { target: backendTarget, changeOrigin: true },
   "/subtr-actor": { target: backendTarget, changeOrigin: true },
   "/models": { target: backendTarget, changeOrigin: true },
   "/draco": { target: backendTarget, changeOrigin: true },
