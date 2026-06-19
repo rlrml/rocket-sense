@@ -5,7 +5,7 @@ import {
   createPlayerFromParsed,
   fromReplayPlayerPlugin,
   type ReplayModel,
-  type PlayerFreeCameraPreset,
+  type ReplayFreeCameraPreset,
   type ReplayPlayer,
 } from "@rlrml/player";
 import { ExternalLink } from "lucide-react";
@@ -35,7 +35,7 @@ export interface EventClipCameraControls {
     ballCam?: boolean;
   }): boolean;
   /** Switch to a free-roaming camera preset (defaults to "side"). */
-  freeCamera(preset?: PlayerFreeCameraPreset): void;
+  freeCamera(preset?: ReplayFreeCameraPreset): void;
   /** Switch to the kickoff-contact overhead view centered on the ball at a frame. */
   overheadAtFrame(frameIndex: number | null | undefined): void;
 }
@@ -269,7 +269,7 @@ export function EventClipPlayer({
       },
       overheadAtFrame(frameIndex) {
         if (frameIndex == null) {
-          player.setFreeCameraPreset("overhead", { instant: true });
+          player.setFreeCameraPreset("overhead");
           return;
         }
         const capture = contactCaptureMoment(replay, frameIndex);

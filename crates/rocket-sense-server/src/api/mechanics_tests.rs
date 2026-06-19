@@ -176,6 +176,25 @@ fn event_review_player_url_omits_cfg_without_mechanic_filters() {
 }
 
 #[test]
+fn event_review_playlist_query_sorts_most_recent_replays_first() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        count: Some(10),
+        ..MechanicEventsQuery::default()
+    })
+    .unwrap();
+
+    let builder = find_mechanic_events_query(&filters);
+    let sql = builder.sql();
+
+    assert!(
+        sql.contains(
+            "ORDER BY COALESCE(replay.replay_date, replay.created_at) DESC NULLS LAST, replay.created_at DESC, event.replay_id, COALESCE(event.event_time, event.start_time, 0), event.id"
+        ),
+        "event review playlist should default to most recent replay first, got: {sql}"
+    );
+}
+
+#[test]
 fn mechanic_events_query_accepts_repeated_event_type_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let query = MechanicEventsQuery::from_raw_query(Some(

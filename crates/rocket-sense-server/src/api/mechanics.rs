@@ -2565,6 +2565,14 @@ async fn find_mechanic_events(
     pool: &PgPool,
     filters: &MechanicEventFilters,
 ) -> Result<Vec<MechanicEventResponse>, sqlx::Error> {
+    let mut builder = find_mechanic_events_query(filters);
+    let rows = builder.build().fetch_all(pool).await?;
+    rows.into_iter().map(mechanic_event_from_row).collect()
+}
+
+fn find_mechanic_events_query<'args>(
+    filters: &'args MechanicEventFilters,
+) -> QueryBuilder<'args, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
@@ -2756,15 +2764,14 @@ async fn find_mechanic_events(
 
     builder
         .push(
-            " ORDER BY event.replay_id, COALESCE(event.event_time, event.start_time, 0), event.id",
+            " ORDER BY COALESCE(replay.replay_date, replay.created_at) DESC NULLS LAST, replay.created_at DESC, event.replay_id, COALESCE(event.event_time, event.start_time, 0), event.id",
         )
         .push(" LIMIT ")
         .push_bind(filters.count as i64)
         .push(" OFFSET ")
         .push_bind(filters.offset as i64);
 
-    let rows = builder.build().fetch_all(pool).await?;
-    rows.into_iter().map(mechanic_event_from_row).collect()
+    builder
 }
 
 fn mechanic_event_from_row(

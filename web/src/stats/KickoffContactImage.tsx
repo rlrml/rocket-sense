@@ -1,4 +1,4 @@
-import { capturePlayerImagesFromParsed } from "@rlrml/player";
+import { createPlayerFromParsed, type ReplayLoadResult, type ReplayPlayer } from "@rlrml/player";
 import { useEffect, useRef, useState } from "react";
 import {
   CONTACT_CAMERA_FOV,
@@ -28,6 +28,21 @@ interface ContactImageBatch {
   pixelRatio: number;
   requests: ContactImageRequest[];
   timer: ReturnType<typeof setTimeout>;
+}
+
+interface ContactImageCaptureRequest {
+  time: number;
+  width: number;
+  height: number;
+  pixelRatio: number;
+  camera: {
+    setup: (player: ReplayPlayer) => void;
+  };
+  settleFrames: number;
+}
+
+interface ContactImageCaptureResult {
+  dataUrl: string;
 }
 
 export interface KickoffContactImageProps {
@@ -155,7 +170,7 @@ async function flushContactImageBatch(batchKey: string): Promise<void> {
 
   try {
     const parsed = await preloadReplay(batch.replayId);
-    const images = await capturePlayerImagesFromParsed(
+    const images = await captureContactImagesFromParsed(
       parsed,
       batch.requests.map((request) => {
         const capture = contactCaptureMoment(parsed.replay, request.frame);
@@ -173,14 +188,6 @@ async function flushContactImageBatch(batchKey: string): Promise<void> {
           settleFrames: 1,
         };
       }),
-      {
-        playerOptions: {
-          assetBase: PLAYER_ASSET_BASE,
-          effects: false,
-          environment: false,
-        },
-        readyTimeoutMs: false,
-      },
     );
     batch.requests.forEach((request, index) => {
       const image = images[index];
@@ -195,4 +202,69 @@ async function flushContactImageBatch(batchKey: string): Promise<void> {
       request.reject(err);
     }
   }
+}
+
+async function captureContactImagesFromParsed(
+  parsed: ReplayLoadResult,
+  requests: ContactImageCaptureRequest[],
+): Promise<ContactImageCaptureResult[]> {
+  if (requests.length === 0) {
+    return [];
+  }
+
+  const [{ width, height, pixelRatio }] = requests;
+  const container = document.createElement("div");
+  Object.assign(container.style, {
+    position: "fixed",
+    left: "-10000px",
+    top: "0",
+    width: `${width}px`,
+    height: `${height}px`,
+    overflow: "hidden",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(container);
+
+  const player = createPlayerFromParsed(container, parsed, {
+    assetBase: PLAYER_ASSET_BASE,
+    effects: false,
+    environment: false,
+    autoplay: false,
+  });
+
+  try {
+    await player.ready;
+    const { camera, renderer } = player.sceneState;
+    renderer.setPixelRatio(pixelRatio);
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+
+    const results: ContactImageCaptureResult[] = [];
+    for (const request of requests) {
+      player.seek(request.time);
+      request.camera.setup(player);
+      await waitAnimationFrames(Math.max(1, request.settleFrames + 1));
+      results.push({ dataUrl: renderer.domElement.toDataURL("image/png") });
+    }
+    return results;
+  } finally {
+    player.destroy();
+    container.remove();
+  }
+}
+
+function waitAnimationFrames(count: number): Promise<void> {
+  return new Promise((resolve) => {
+    let remaining = count;
+    const step = () => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        resolve();
+      } else {
+        requestAnimationFrame(step);
+      }
+    };
+    requestAnimationFrame(step);
+  });
 }

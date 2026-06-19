@@ -40,7 +40,7 @@ export function setContactOverheadCamera(
   player: ReplayPlayer,
   position: ReplayPosition | null,
 ): void {
-  player.setFreeCameraPreset("overhead", { instant: true });
+  player.setFreeCameraPreset("overhead");
   if (!position) {
     return;
   }
