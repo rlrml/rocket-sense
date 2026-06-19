@@ -2337,7 +2337,7 @@ function StatRows({ title, stats }: { title: string; stats: StatAggregateRespons
               <tr>
                 <th>Stat</th>
                 <th>Count</th>
-                <th>Per active min</th>
+                <th>Per 5 active min</th>
               </tr>
             </thead>
             <tbody>
@@ -2348,7 +2348,7 @@ function StatRows({ title, stats }: { title: string; stats: StatAggregateRespons
                     <div className="subtle">{stat.category}</div>
                   </td>
                   <td>{stat.event_count.toLocaleString()}</td>
-                  <td>{formatNumber(stat.per_active_minute)}</td>
+                  <td>{formatNumber(perFiveMinutes(stat.per_active_minute))}</td>
                 </tr>
               ))}
             </tbody>
@@ -2359,6 +2359,10 @@ function StatRows({ title, stats }: { title: string; stats: StatAggregateRespons
       )}
     </section>
   );
+}
+
+function perFiveMinutes(perMinute: number | null): number | null {
+  return perMinute == null ? null : perMinute * 5;
 }
 
 function EventRows({ title, events }: { title: string; events: MechanicEventResponse[] }) {
