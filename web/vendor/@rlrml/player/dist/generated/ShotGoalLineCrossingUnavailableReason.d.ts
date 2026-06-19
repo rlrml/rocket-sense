@@ -1,0 +1,2 @@
+export type ShotGoalLineCrossingUnavailableReason = "no_ball_velocity" | "no_goalward_ball_before_save_reference" | "no_goal_line_crossing_before_save_reference" | "only_unphysical_free_flight_crossings" | "crossings_before_prediction_start" | "crossings_before_save_touch" | "crossings_before_save_stat" | "no_usable_projection";
+//# sourceMappingURL=ShotGoalLineCrossingUnavailableReason.d.ts.map

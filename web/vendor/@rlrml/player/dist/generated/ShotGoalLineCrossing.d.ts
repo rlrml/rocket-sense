@@ -1,0 +1,26 @@
+import type { ShotGoalLineCrossingPredictionKind } from "./ShotGoalLineCrossingPredictionKind.ts";
+import type { Vector3fTs } from "./Vector3fTs.ts";
+export type ShotGoalLineCrossing = {
+    /**
+     * Seconds after the shot touch when the ball is projected to cross the
+     * target goal line.
+     */
+    time_after_shot: number;
+    /**
+     * Absolute replay time used as the prediction's shot-touch reference.
+     *
+     * When absent, consumers should use the owning [`PlayerStatEvent`]'s time.
+     */
+    prediction_start_time?: number | null;
+    /**
+     * Replay frame used as the prediction's shot-touch reference.
+     *
+     * When absent, consumers should use the owning [`PlayerStatEvent`]'s frame.
+     */
+    prediction_start_frame?: number | null;
+    position: Vector3fTs;
+    velocity: Vector3fTs | null;
+    inside_goal_mouth: boolean;
+    prediction_kind: ShotGoalLineCrossingPredictionKind;
+};
+//# sourceMappingURL=ShotGoalLineCrossing.d.ts.map

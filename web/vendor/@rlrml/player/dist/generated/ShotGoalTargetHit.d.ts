@@ -1,0 +1,25 @@
+import type { ShotGoalTargetHitKind } from "./ShotGoalTargetHitKind.ts";
+import type { Vector3fTs } from "./Vector3fTs.ts";
+export type ShotGoalTargetHit = {
+    /**
+     * Seconds after the shot touch when the ball is projected to reach the
+     * goal-line plane, attacking back wall, or goal frame.
+     */
+    time_after_shot: number;
+    /**
+     * Absolute replay time used as the prediction's shot-touch reference.
+     *
+     * When absent, consumers should use the owning [`PlayerStatEvent`]'s time.
+     */
+    prediction_start_time?: number | null;
+    /**
+     * Replay frame used as the prediction's shot-touch reference.
+     *
+     * When absent, consumers should use the owning [`PlayerStatEvent`]'s frame.
+     */
+    prediction_start_frame?: number | null;
+    position: Vector3fTs;
+    velocity: Vector3fTs | null;
+    hit_kind: ShotGoalTargetHitKind;
+};
+//# sourceMappingURL=ShotGoalTargetHit.d.ts.map

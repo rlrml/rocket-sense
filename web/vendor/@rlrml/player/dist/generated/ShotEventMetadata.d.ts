@@ -1,3 +1,6 @@
+import type { ShotGoalLineCrossing } from "./ShotGoalLineCrossing.ts";
+import type { ShotGoalLineCrossingUnavailableReason } from "./ShotGoalLineCrossingUnavailableReason.ts";
+import type { ShotGoalTargetHit } from "./ShotGoalTargetHit.ts";
 import type { ShotSaveMetadata } from "./ShotSaveMetadata.ts";
 import type { Vector3fTs } from "./Vector3fTs.ts";
 export type ShotEventMetadata = {
@@ -14,6 +17,9 @@ export type ShotEventMetadata = {
     distance_to_goal_line: number;
     ball_goal_alignment: number | null;
     ball_speed_toward_goal: number | null;
+    projected_goal_line_crossing?: ShotGoalLineCrossing | null;
+    projected_goal_line_crossing_unavailable_reason?: ShotGoalLineCrossingUnavailableReason | null;
+    projected_goal_target_hit?: ShotGoalTargetHit | null;
     resulting_save?: ShotSaveMetadata | null;
 };
 //# sourceMappingURL=ShotEventMetadata.d.ts.map

@@ -1,0 +1,2 @@
+export type ShotGoalLineCrossingPredictionKind = "surface_bounces" | "free_flight" | "saved_shot_pre_save_surface_bounces" | "saved_shot_pre_save_free_flight";
+//# sourceMappingURL=ShotGoalLineCrossingPredictionKind.d.ts.map
