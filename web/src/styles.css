@@ -6842,6 +6842,56 @@ tbody tr:last-child td {
   gap: 10px;
 }
 
+.kickoff-profile-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.kickoff-summary-panel {
+  --kickoff-profile-label-width: clamp(76px, 8vw, 100px);
+  --kickoff-profile-value-width: clamp(42px, 5vw, 64px);
+}
+
+.kickoff-outcome-share,
+.kickoff-profile-bar {
+  display: grid;
+  grid-template-columns:
+    var(--kickoff-profile-label-width) minmax(0, 1fr)
+    var(--kickoff-profile-value-width);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.kickoff-outcome-share h4,
+.kickoff-profile-bar h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
+}
+
+.kickoff-outcome-share .outcome-distribution,
+.kickoff-profile-bar .outcome-distribution {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.kickoff-profile-bar .outcome-distribution-caption {
+  justify-content: flex-start;
+  color: var(--muted);
+}
+
+.kickoff-profile-bar-value {
+  grid-column: 3;
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  text-align: right;
+  white-space: nowrap;
+}
+
 .kickoff-headline-metric {
   display: grid;
   gap: 2px;

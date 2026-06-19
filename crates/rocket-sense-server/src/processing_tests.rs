@@ -821,6 +821,7 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
                 "spawn_position": "diagonal_left",
                 "start_boost": 33.0,
                 "boost_after": 12.0,
+                "boost_used": 21.0,
                 "time_to_ball": 1.05,
                 "first_touch_time": 1.45,
                 "first_touch_frame": 87,
@@ -833,6 +834,7 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
                 "spawn_position": "diagonal_right",
                 "start_boost": 33.0,
                 "boost_after": 18.0,
+                "boost_used": 15.0,
                 "time_to_ball": null,
                 "first_touch_time": null,
                 "first_touch_frame": null,
@@ -920,6 +922,7 @@ fn kickoff_detail_rows_capture_event_and_player_behavior_dimensions() {
     assert_eq!(blue_taker.taker_outcome.as_deref(), Some("touched"));
     assert_eq!(blue_taker.approach.as_deref(), Some("speed_flip"));
     assert_eq!(blue_taker.boost_after, Some(12.0));
+    assert_eq!(blue_taker.boost_used, Some(21.0));
     assert_eq!(blue_taker.time_to_ball, Some(1.05));
 
     let orange_support = player_rows

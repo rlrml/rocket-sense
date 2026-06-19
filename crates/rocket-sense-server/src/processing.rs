@@ -3873,6 +3873,7 @@ struct KickoffPlayerDetailRow {
     spawn_position: Option<String>,
     start_boost: Option<f64>,
     boost_after: Option<f64>,
+    boost_used: Option<f64>,
     time_to_ball: Option<f64>,
     first_touch_time: Option<f64>,
     first_touch_frame: Option<i32>,
@@ -4215,6 +4216,7 @@ fn kickoff_player_detail_row_from_payload(
         spawn_position: normalized_payload_field(payload, "spawn_position"),
         start_boost: float_value(payload, &["start_boost"]),
         boost_after: float_value(payload, &["boost_after"]),
+        boost_used: float_value(payload, &["boost_used"]),
         time_to_ball: float_value(payload, &["time_to_ball"]),
         first_touch_time: float_value(payload, &["first_touch_time"]),
         first_touch_frame: int_value(payload, &["first_touch_frame"]),
@@ -4537,6 +4539,7 @@ async fn insert_kickoff_player_detail_rows(
             spawn_position,
             start_boost,
             boost_after,
+            boost_used,
             time_to_ball,
             first_touch_time,
             first_touch_frame,
@@ -4558,6 +4561,7 @@ async fn insert_kickoff_player_detail_rows(
             .push_bind(&detail.spawn_position)
             .push_bind(detail.start_boost)
             .push_bind(detail.boost_after)
+            .push_bind(detail.boost_used)
             .push_bind(detail.time_to_ball)
             .push_bind(detail.first_touch_time)
             .push_bind(detail.first_touch_frame)
