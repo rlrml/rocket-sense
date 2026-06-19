@@ -3433,6 +3433,10 @@ tbody tr:last-child td {
   background: var(--boost-neutral);
 }
 
+.chart-legend .legend-boost-used::before {
+  background: var(--boost-neutral);
+}
+
 .stolen-fill {
   background: var(--boost-stolen-big);
 }
@@ -4022,6 +4026,10 @@ tbody tr:last-child td {
   background: var(--boost-other);
 }
 
+.chart-legend .legend-boost-other::before {
+  background: var(--boost-other);
+}
+
 /* Each segment exposes its player/team identity hue as --seg-color. Single-
    segment bars fill with it directly; multi-level bars derive per-level
    lightness steps from it via color-mix (see "Level shading" below), so all of
@@ -4492,8 +4500,18 @@ tbody tr:last-child td {
   background: var(--boost-level-over);
 }
 
+.boost-profile-panel .source-segment.boost-band-empty,
+.boost-profile-panel .source-segment.boost-band-low,
+.boost-profile-panel .source-segment.boost-band-medium,
+.boost-profile-panel .source-segment.boost-band-high,
+.boost-profile-panel .source-segment.boost-band-full,
+.boost-profile-panel .source-segment.boost-band-over {
+  --seg-color: var(--team-blue);
+}
+
 /* Boost ranges: a light (empty) -> saturated (over) ramp of the player's hue,
-   so each player's distribution stays in their identity color. */
+   so each player's distribution stays in their identity color. Profile rows
+   provide a stable boost hue above because they are not replay-local teams. */
 .source-segment.boost-band-over {
   background: var(--seg-color, var(--boost-level-over));
 }

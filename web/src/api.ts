@@ -13,6 +13,7 @@ import type {
   EventLeaderboardResponse,
   MechanicEventsResponse,
   PlayerProfileResponse,
+  PlayerBoostTotalsResponse,
   PlayerStatOverviewResponse,
   ProcessingVersionBreakdownResponse,
   ProcessingVersionResponse,
@@ -479,6 +480,17 @@ export function listReplayGroupBoostTotals(groupId: string): Promise<GroupBoostT
   return request<GroupBoostTotalsResponse>(
     `/api/v1/replay-groups/${encodeURIComponent(groupId)}/stats/boost-totals`,
   );
+}
+
+export function getPlayerBoostTotals(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<PlayerBoostTotalsResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  params.set("include-teammates", "true");
+  return request<PlayerBoostTotalsResponse>(`/api/v1/stats/boost-totals?${params.toString()}`);
 }
 
 export function getPlayerProfile(
