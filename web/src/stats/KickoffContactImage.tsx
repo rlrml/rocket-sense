@@ -12,7 +12,7 @@ import { preloadReplay } from "./replayModel";
 
 const CONTACT_IMAGE_WIDTH = 720;
 const CONTACT_IMAGE_HEIGHT = 450;
-const CONTACT_IMAGE_CACHE_VERSION = "v4";
+const CONTACT_IMAGE_CACHE_VERSION = "v5";
 const BATCH_DELAY_MS = 50;
 const contactImageCache = new Map<string, Promise<string>>();
 const contactImageBatches = new Map<string, ContactImageBatch>();
