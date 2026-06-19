@@ -1873,6 +1873,7 @@ tbody tr:last-child td {
   color: #334155;
 }
 
+.kickoff-card-meta,
 .kickoff-type-row {
   display: flex;
   flex-wrap: wrap;

@@ -1601,6 +1601,8 @@ function KickoffCard({
       onFocus={() => activate(false)}
       onKeyDown={onKeyDown}
     >
+      <KickoffCardMeta kickoff={kickoff} />
+
       <KickoffTakerSection
         kickoff={kickoff}
         perspectiveKey={perspectiveKey}
@@ -1628,34 +1630,6 @@ function KickoffCard({
 
       <div className="kickoff-card-body">
         <div className="kickoff-card-details">
-          <header className="kickoff-card-header">
-            <div className="kickoff-type-row">
-              <KickoffShapeIcon
-                type={kickoff.kickoffType}
-                direction={kickoff.kickoffDirection}
-                size={26}
-                className="kickoff-type-icon"
-                title={`${kickoffTypeName(kickoff.kickoffType) ?? "Other"} ${kickoffDirectionName(kickoff.kickoffDirection)} kickoff`}
-              />
-              {kickoffTypeChips(kickoff).map((chip) => (
-                <span className={`kickoff-type-pill ${chip.muted ? "muted" : ""}`} key={chip.key}>
-                  {chip.value}
-                </span>
-              ))}
-              <span className="kickoff-time-pill">{formatSeconds(kickoff.startTime)}</span>
-              <span className="kickoff-type-pill muted">
-                {kickoff.takerDelayFrames == null
-                  ? "No taker gap"
-                  : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}
-              </span>
-              {kickoff.kickoffGoal ? (
-                <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>
-                  Goal in {formatSeconds(kickoff.timeToGoal)}
-                </span>
-              ) : null}
-            </div>
-          </header>
-
           <div className="kickoff-outcome-grid">
             <KickoffFact
               icon={Trophy}
@@ -1742,6 +1716,36 @@ function KickoffCard({
           </div>
         ) : null}
       </div>
+    </div>
+  );
+}
+
+function KickoffCardMeta({ kickoff }: { kickoff: KickoffRow }) {
+  return (
+    <div className="kickoff-card-meta">
+      <KickoffShapeIcon
+        type={kickoff.kickoffType}
+        direction={kickoff.kickoffDirection}
+        size={26}
+        className="kickoff-type-icon"
+        title={`${kickoffTypeName(kickoff.kickoffType) ?? "Other"} ${kickoffDirectionName(kickoff.kickoffDirection)} kickoff`}
+      />
+      {kickoffTypeChips(kickoff).map((chip) => (
+        <span className={`kickoff-type-pill ${chip.muted ? "muted" : ""}`} key={chip.key}>
+          {chip.value}
+        </span>
+      ))}
+      <span className="kickoff-time-pill">{formatSeconds(kickoff.startTime)}</span>
+      <span className="kickoff-type-pill muted">
+        {kickoff.takerDelayFrames == null
+          ? "No taker gap"
+          : `${formatFrames(kickoff.takerDelayFrames)} taker gap`}
+      </span>
+      {kickoff.kickoffGoal ? (
+        <span className={`kickoff-goal-chip team-chip-${teamClass(kickoff.scoringTeam)}`}>
+          Goal in {formatSeconds(kickoff.timeToGoal)}
+        </span>
+      ) : null}
     </div>
   );
 }
