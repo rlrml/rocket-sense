@@ -4,6 +4,16 @@ export const CONTACT_CAMERA_HEIGHT = 700;
 export const CONTACT_CAMERA_FOV = 38;
 export const CONTACT_FRAME_LEAD_FRACTION = 0.35;
 
+type FreeCameraPreset = "overhead" | "side";
+
+interface FreeCameraPresetOptions {
+  instant?: boolean;
+}
+
+interface ReplayPlayerWithInstantPreset extends ReplayPlayer {
+  setFreeCameraPreset(preset: FreeCameraPreset, options?: FreeCameraPresetOptions): void;
+}
+
 export interface ReplayPosition {
   x: number;
   y: number;
@@ -40,7 +50,7 @@ export function setContactOverheadCamera(
   player: ReplayPlayer,
   position: ReplayPosition | null,
 ): void {
-  player.setFreeCameraPreset("overhead");
+  setFreeCameraPresetInstant(player, "overhead");
   if (!position) {
     return;
   }
@@ -56,6 +66,10 @@ export function setContactOverheadCamera(
   camera.lookAt(controls.target);
   camera.updateProjectionMatrix();
   controls.update();
+}
+
+export function setFreeCameraPresetInstant(player: ReplayPlayer, preset: FreeCameraPreset): void {
+  (player as ReplayPlayerWithInstantPreset).setFreeCameraPreset(preset, { instant: true });
 }
 
 function interpolatePosition(

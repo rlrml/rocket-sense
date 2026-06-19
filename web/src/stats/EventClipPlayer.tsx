@@ -10,7 +10,11 @@ import {
 } from "@rlrml/player";
 import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { contactCaptureMoment, setContactOverheadCamera } from "./contactCamera";
+import {
+  contactCaptureMoment,
+  setContactOverheadCamera,
+  setFreeCameraPresetInstant,
+} from "./contactCamera";
 import { PLAYER_ASSET_BASE } from "./playerAssets";
 import { preloadReplay, preloadReplayModel } from "./replayModel";
 
@@ -269,7 +273,7 @@ export function EventClipPlayer({
       },
       overheadAtFrame(frameIndex) {
         if (frameIndex == null) {
-          player.setFreeCameraPreset("overhead");
+          setFreeCameraPresetInstant(player, "overhead");
           return;
         }
         const capture = contactCaptureMoment(replay, frameIndex);
