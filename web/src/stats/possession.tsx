@@ -9,7 +9,7 @@ import {
   type StatPlayerRank,
 } from "./shared";
 
-export const possessionEventTypes = ["possession", "ball_half"];
+export const possessionEventTypes = ["possession", "player_possession", "ball_half", "ball_third"];
 
 type PossessionState = "team_zero" | "team_one" | "neutral";
 type FieldThird = "team_zero_third" | "neutral_third" | "team_one_third";
@@ -24,9 +24,28 @@ interface PossessionSpan {
   end: number;
   duration: number;
   state: PossessionState;
-  third: FieldThird | null;
   playerId: string | null;
   playerName: string | null;
+}
+
+interface PlayerPossessionSpan {
+  key: string;
+  start: number;
+  end: number;
+  duration: number;
+  playerId: string | null;
+  playerName: string | null;
+  team: number | null;
+  startThird: FieldThird | null;
+  endThird: FieldThird | null;
+}
+
+interface BallThirdSpan {
+  key: string;
+  start: number;
+  end: number;
+  duration: number;
+  third: FieldThird;
 }
 
 const possessionStates: PossessionState[] = ["team_zero", "neutral", "team_one"];
@@ -44,17 +63,32 @@ export function PossessionDetail({
   scope?: "replay" | "group";
 }) {
   const spans = useMemo(() => possessionSpans(events), [events]);
+  const playerSpans = useMemo(() => playerPossessionSpans(events, spans), [events, spans]);
+  const ballThirdSpans = useMemo(() => ballThirdSpansFromEvents(events, spans), [events, spans]);
   const ballHalfTotals = useMemo(() => ballHalfTotalsFromEvents(events), [events]);
-  const chartDuration = Math.max(1, durationSeconds ?? 0, 60, ...spans.map((span) => span.end));
+  const chartSpans = spans.length > 0 ? spans : playerPossessionTimelineSpans(playerSpans);
+  const chartDuration = Math.max(
+    1,
+    durationSeconds ?? 0,
+    60,
+    ...chartSpans.map((span) => span.end),
+  );
   const possessionTotals = possessionStateTotals(spans);
-  const ballThirdsTotals = ballThirdsStateTotals(spans);
+  const ballThirdsTotals = ballThirdsStateTotals(ballThirdSpans);
   const totalTrackedSeconds = sumObjectValues(possessionTotals);
+  const playerTrackedSeconds = sumPlayerPossessionSeconds(playerSpans);
   const ballThirdsTrackedSeconds = sumObjectValues(ballThirdsTotals);
   const ballHalfTrackedSeconds = sumObjectValues(ballHalfTotals);
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("players");
   const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
-  const playerSummaries = playerPossessionSummaries(players, spans);
-  const zoneSubjects = possessionZoneSubjects(players, spans, comparisonMode);
+  const playerSummaries = playerPossessionSummaries(players, playerSpans);
+  const zoneSubjects = possessionZoneSubjects(
+    players,
+    spans,
+    playerSpans,
+    ballThirdSpans,
+    comparisonMode,
+  );
   const hasPlayerSpans = playerSummaries.some((summary) => summary.seconds > 0);
 
   if (scope === "group") {
@@ -73,7 +107,7 @@ export function PossessionDetail({
             </header>
             <PlayerPossessionLeaderboard
               summaries={playerSummaries}
-              totalSeconds={totalTrackedSeconds}
+              totalSeconds={playerTrackedSeconds}
             />
           </section>
         ) : null}
@@ -166,12 +200,20 @@ export function PossessionDetail({
         <section className="chart-panel">
           <header className="chart-panel-header">
             <h3>{comparisonMode === "teams" ? "Possession share" : "Player possession"}</h3>
-            <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
+            <span>
+              {formatSeconds(
+                comparisonMode === "teams" ? totalTrackedSeconds : playerTrackedSeconds,
+              )}{" "}
+              tracked
+            </span>
           </header>
           {comparisonMode === "teams" ? (
             <PossessionShareChart totals={possessionTotals} totalSeconds={totalTrackedSeconds} />
           ) : (
-            <PlayerPossessionChart summaries={playerSummaries} totalSeconds={totalTrackedSeconds} />
+            <PlayerPossessionChart
+              summaries={playerSummaries}
+              totalSeconds={playerTrackedSeconds}
+            />
           )}
         </section>
 
@@ -195,7 +237,7 @@ export function PossessionDetail({
               <h3>Possession timeline</h3>
               <span>{formatSeconds(chartDuration)}</span>
             </header>
-            <PossessionTimeline spans={spans} durationSeconds={chartDuration} />
+            <PossessionTimeline spans={chartSpans} durationSeconds={chartDuration} />
           </section>
         ) : null}
       </div>
@@ -661,10 +703,85 @@ function possessionSpan(event: MechanicEventResponse, index: number): Possession
     end: Math.max(start, end),
     duration,
     state,
-    third: fieldThird(event.payload.field_third),
     playerId: event.player_id ?? stringPayload(event.payload, "player_id"),
     playerName: event.player_name ?? null,
   };
+}
+
+function playerPossessionSpans(
+  events: MechanicEventResponse[],
+  teamSpans: PossessionSpan[],
+): PlayerPossessionSpan[] {
+  const spans = events
+    .filter((event) => event.event_type === "player_possession")
+    .map((event, index) => playerPossessionSpan(event, index))
+    .filter((span): span is PlayerPossessionSpan => span != null)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+
+  return spans.length > 0 ? spans : legacyPlayerPossessionSpans(teamSpans, events);
+}
+
+function playerPossessionSpan(
+  event: MechanicEventResponse,
+  index: number,
+): PlayerPossessionSpan | null {
+  const start = event.start_time ?? numericPayload(event.payload, "start_time");
+  const end = event.end_time ?? numericPayload(event.payload, "end_time");
+  const duration = numericPayload(event.payload, "duration") ?? (end ?? 0) - (start ?? 0);
+  const playerId = event.player_id ?? playerIdPayload(event.payload, "player_id");
+  if (
+    playerId == null ||
+    start == null ||
+    end == null ||
+    duration <= 0 ||
+    !Number.isFinite(start) ||
+    !Number.isFinite(end)
+  ) {
+    return null;
+  }
+
+  return {
+    key: event.id || `player:${index}:${start}:${end}`,
+    start,
+    end: Math.max(start, end),
+    duration,
+    playerId,
+    playerName: event.player_name ?? null,
+    team: event.team ?? teamFromBoolean(booleanPayload(event.payload, "is_team_0")),
+    startThird: fieldThird(event.payload.start_field_third),
+    endThird: fieldThird(event.payload.end_field_third),
+  };
+}
+
+function legacyPlayerPossessionSpans(
+  teamSpans: PossessionSpan[],
+  events: MechanicEventResponse[],
+): PlayerPossessionSpan[] {
+  const legacyThirds = new Map<string, FieldThird | null>();
+  for (const event of events) {
+    if (event.event_type !== "possession") continue;
+    const span = possessionSpan(event, legacyThirds.size);
+    if (!span) continue;
+    legacyThirds.set(span.key, fieldThird(event.payload.field_third));
+  }
+
+  return teamSpans
+    .filter((span) => span.playerId != null)
+    .map((span): PlayerPossessionSpan => {
+      const team = possessionStateTeam(span.state);
+      const third = legacyThirds.get(span.key) ?? null;
+      return {
+        key: span.key,
+        start: span.start,
+        end: span.end,
+        duration: span.duration,
+        playerId: span.playerId,
+        playerName: span.playerName,
+        team,
+        startThird: third,
+        endThird: third,
+      };
+    });
 }
 
 function possessionStateTotals(spans: PossessionSpan[]): Record<PossessionState, number> {
@@ -675,13 +792,75 @@ function possessionStateTotals(spans: PossessionSpan[]): Record<PossessionState,
   return totals;
 }
 
-function ballThirdsStateTotals(spans: PossessionSpan[]): Record<PossessionState, number> {
+function ballThirdsStateTotals(spans: BallThirdSpan[]): Record<PossessionState, number> {
   const totals = emptyStateTotals();
   for (const span of spans) {
     const state = ballThirdsState(span.third);
-    if (state) totals[state] += span.duration;
+    totals[state] += span.duration;
   }
   return totals;
+}
+
+function ballThirdSpansFromEvents(
+  events: MechanicEventResponse[],
+  possessionSpans: PossessionSpan[],
+): BallThirdSpan[] {
+  const spans = events
+    .filter((event) => event.event_type === "ball_third")
+    .map((event, index) => ballThirdSpan(event, index))
+    .filter((span): span is BallThirdSpan => span != null)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+
+  return spans.length > 0 ? spans : legacyBallThirdSpans(events, possessionSpans);
+}
+
+function ballThirdSpan(event: MechanicEventResponse, index: number): BallThirdSpan | null {
+  if (booleanPayload(event.payload, "active") === false) return null;
+  const third = fieldThird(event.payload.field_third);
+  if (third == null) return null;
+  const start = event.start_time ?? numericPayload(event.payload, "time") ?? event.event_time ?? 0;
+  const payloadDuration = numericPayload(event.payload, "duration");
+  const end =
+    event.end_time ??
+    numericPayload(event.payload, "end_time") ??
+    (payloadDuration == null ? start : start + payloadDuration);
+  const duration = payloadDuration ?? Math.max(0, end - start);
+  if (!(duration > 0) || !Number.isFinite(start) || !Number.isFinite(end)) return null;
+
+  return {
+    key: event.id || `ball-third:${index}:${start}:${end}`,
+    start,
+    end: Math.max(start, end),
+    duration,
+    third,
+  };
+}
+
+function legacyBallThirdSpans(
+  events: MechanicEventResponse[],
+  possessionSpans: PossessionSpan[],
+): BallThirdSpan[] {
+  const eventThirds = new Map<string, FieldThird>();
+  for (const event of events) {
+    if (event.event_type !== "possession") continue;
+    const span = possessionSpan(event, eventThirds.size);
+    const third = fieldThird(event.payload.field_third);
+    if (span && third) eventThirds.set(span.key, third);
+  }
+
+  return possessionSpans.flatMap((span): BallThirdSpan[] => {
+    const third = eventThirds.get(span.key);
+    if (!third) return [];
+    return [
+      {
+        key: `legacy-third:${span.key}`,
+        start: span.start,
+        end: span.end,
+        duration: span.duration,
+        third,
+      },
+    ];
+  });
 }
 
 function ballHalfTotalsFromEvents(
@@ -715,9 +894,28 @@ function emptyStateTotals(): Record<PossessionState, number> {
   };
 }
 
+function sumPlayerPossessionSeconds(spans: PlayerPossessionSpan[]): number {
+  return spans.reduce((total, span) => total + span.duration, 0);
+}
+
+function playerPossessionTimelineSpans(spans: PlayerPossessionSpan[]): PossessionSpan[] {
+  return spans.map((span): PossessionSpan => {
+    const team = span.team === 0 || span.team === 1 ? span.team : null;
+    return {
+      key: `timeline:${span.key}`,
+      start: span.start,
+      end: span.end,
+      duration: span.duration,
+      state: team === 0 ? "team_zero" : team === 1 ? "team_one" : "neutral",
+      playerId: span.playerId,
+      playerName: span.playerName,
+    };
+  });
+}
+
 function playerPossessionSummaries(
   players: ReplayPlayer[],
-  spans: PossessionSpan[],
+  spans: PlayerPossessionSpan[],
 ): PlayerPossessionSummary[] {
   const usedSpanKeys = new Set<string>();
   const summaries = players.map((player, index) => {
@@ -765,17 +963,20 @@ function playerPossessionSummaries(
 
 function possessionZoneSubjects(
   players: ReplayPlayer[],
-  spans: PossessionSpan[],
+  teamSpans: PossessionSpan[],
+  playerSpans: PlayerPossessionSpan[],
+  ballThirdSpans: BallThirdSpan[],
   comparisonMode: PossessionComparisonMode,
 ): PossessionZoneSubject[] {
   return comparisonMode === "players"
-    ? playerPossessionZoneSubjects(players, spans)
-    : teamPossessionZoneSubjects(spans);
+    ? playerPossessionZoneSubjects(players, playerSpans, ballThirdSpans)
+    : teamPossessionZoneSubjects(teamSpans, ballThirdSpans);
 }
 
 function playerPossessionZoneSubjects(
   players: ReplayPlayer[],
-  spans: PossessionSpan[],
+  spans: PlayerPossessionSpan[],
+  ballThirdSpans: BallThirdSpan[],
 ): PossessionZoneSubject[] {
   const subjects = players.map(
     (player, index): PossessionZoneSubject => ({
@@ -791,18 +992,27 @@ function playerPossessionZoneSubjects(
   );
 
   for (const span of spans) {
-    if (span.playerId == null || span.third == null) continue;
+    if (span.playerId == null) continue;
     const playerId = span.playerId;
     const subject = subjects.find((_, index) => playerMatchesId(players[index], playerId));
     if (!subject) continue;
-    const zone = possessionZoneForTeam(span.third, subject.team);
-    if (zone) subject.zoneSeconds[zone] += span.duration;
+    addSpanZoneSeconds(
+      subject.zoneSeconds,
+      span,
+      ballThirdSpans,
+      subject.team ?? span.team,
+      span.startThird,
+      span.endThird,
+    );
   }
 
   return subjects;
 }
 
-function teamPossessionZoneSubjects(spans: PossessionSpan[]): PossessionZoneSubject[] {
+function teamPossessionZoneSubjects(
+  spans: PossessionSpan[],
+  ballThirdSpans: BallThirdSpan[],
+): PossessionZoneSubject[] {
   const subjects: PossessionZoneSubject[] = ([0, 1] as const).map((team) => ({
     key: `team:${team}`,
     name: teamLabel(team),
@@ -815,15 +1025,66 @@ function teamPossessionZoneSubjects(spans: PossessionSpan[]): PossessionZoneSubj
   }));
 
   for (const span of spans) {
-    if (span.third == null) continue;
     const team = possessionStateTeam(span.state);
     if (team == null) continue;
     const subject = subjects[team];
-    const zone = possessionZoneForTeam(span.third, team);
-    if (zone) subject.zoneSeconds[zone] += span.duration;
+    addSpanZoneSeconds(subject.zoneSeconds, span, ballThirdSpans, team, null, null);
   }
 
   return subjects;
+}
+
+function addSpanZoneSeconds(
+  zoneSeconds: Record<PossessionZone, number>,
+  span: Pick<PlayerPossessionSpan, "start" | "end" | "duration">,
+  ballThirdSpans: BallThirdSpan[],
+  team: number | null,
+  fallbackStartThird: FieldThird | null,
+  fallbackEndThird: FieldThird | null,
+) {
+  const wallDuration = Math.max(0, span.end - span.start);
+  let allocated = 0;
+
+  if (wallDuration > 0) {
+    for (const thirdSpan of ballThirdSpans) {
+      const overlap = overlapSeconds(span, thirdSpan);
+      if (overlap <= 0) continue;
+      const zone = possessionZoneForTeam(thirdSpan.third, team);
+      if (!zone) continue;
+      const seconds = Math.min(span.duration - allocated, (overlap / wallDuration) * span.duration);
+      if (seconds <= 0) continue;
+      zoneSeconds[zone] += seconds;
+      allocated += seconds;
+    }
+  }
+
+  const remaining = Math.max(0, span.duration - allocated);
+  if (remaining <= 0) return;
+  for (const [third, fraction] of fallbackThirdFractions(fallbackStartThird, fallbackEndThird)) {
+    const zone = possessionZoneForTeam(third, team);
+    if (zone) zoneSeconds[zone] += remaining * fraction;
+  }
+}
+
+function fallbackThirdFractions(
+  startThird: FieldThird | null,
+  endThird: FieldThird | null,
+): Array<[FieldThird, number]> {
+  if (startThird && endThird && startThird !== endThird) {
+    return [
+      [startThird, 0.5],
+      [endThird, 0.5],
+    ];
+  }
+  const third = startThird ?? endThird;
+  return third ? [[third, 1]] : [];
+}
+
+function overlapSeconds(
+  left: Pick<PlayerPossessionSpan, "start" | "end">,
+  right: Pick<BallThirdSpan, "start" | "end">,
+): number {
+  return Math.max(0, Math.min(left.end, right.end) - Math.max(left.start, right.start));
 }
 
 function emptyZoneSeconds(): Record<PossessionZone, number> {
@@ -847,11 +1108,10 @@ function possessionStateTeam(state: PossessionState): 0 | 1 | null {
   return null;
 }
 
-function ballThirdsState(third: FieldThird | null): PossessionState | null {
+function ballThirdsState(third: FieldThird): PossessionState {
   if (third === "team_zero_third") return "team_zero";
   if (third === "team_one_third") return "team_one";
-  if (third === "neutral_third") return "neutral";
-  return null;
+  return "neutral";
 }
 
 function fieldHalf(value: unknown): FieldHalf | null {
@@ -941,9 +1201,25 @@ function booleanPayload(payload: Record<string, unknown>, key: string): boolean 
   return typeof value === "boolean" ? value : null;
 }
 
+function teamFromBoolean(value: boolean | null): number | null {
+  if (value == null) return null;
+  return value ? 0 : 1;
+}
+
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function playerIdPayload(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  if (typeof value === "string" && value.length > 0) return value;
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length !== 1) return null;
+  const [[platform, id]] = entries;
+  if (typeof id !== "string" && typeof id !== "number") return null;
+  return `${platform.toLowerCase()}:${id}`;
 }
 
 function possessionState(value: unknown): PossessionState | null {
