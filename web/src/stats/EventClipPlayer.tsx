@@ -314,7 +314,7 @@ export function EventClipPlayer({
 
     setStatus("loading");
     preloadReplay(replayId)
-      .then((loadedReplay) => {
+      .then(async (loadedReplay) => {
         if (cancelled || !containerRef.current) {
           return;
         }
@@ -409,6 +409,10 @@ export function EventClipPlayer({
         });
         playerRef.current = player;
         (window as unknown as { __eventClip?: unknown }).__eventClip = player;
+        await player.ready;
+        if (cancelled) {
+          return;
+        }
         setStatus("ready");
         // Autoplay whatever clip is requested, the instant the player exists.
         if (clipRef.current) {
