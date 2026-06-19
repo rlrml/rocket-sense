@@ -81,6 +81,7 @@ import {
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { computeStatsTimelineScaffoldJson } from "./stats/replayModel";
+import { BoostProfileDetail } from "./stats/boost";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
@@ -3418,10 +3419,20 @@ function PlayerAggregateStatsSections({
       ) : null}
 
       {activeGroup.id === "kickoffs" ||
+      activeGroup.id === "boost" ||
       activeGroup.id === "positioning" ||
       activeGroup.id === "rotation" ? null : (
         <PlayerRateComparisonChart stats={topStats} />
       )}
+
+      {activeGroup.id === "boost" ? (
+        <BoostProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={search}
+        />
+      ) : null}
 
       {activeGroup.id === "goals" && overview ? <ScoringRatePanel overview={overview} /> : null}
       {activeGroup.id === "goals" && overview ? (

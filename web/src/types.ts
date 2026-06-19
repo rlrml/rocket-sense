@@ -691,3 +691,25 @@ export interface GroupBoostTotalsResponse {
   totals: GroupBoostTotal[];
   duration_seconds: number;
 }
+
+export interface PlayerBoostTotal {
+  boost_collected: number;
+  boost_stolen: number;
+  boost_overfill: number;
+  boost_used: number;
+  boost_used_supersonic: number;
+  boost_amount_weighted_sum: number;
+  tracked_seconds: number;
+  time_empty: number;
+  time_low: number;
+  time_medium: number;
+  time_high: number;
+  time_full: number;
+  time_over: number;
+}
+
+export interface PlayerBoostTotalsResponse {
+  player: PlayerBoostTotal;
+  teammates: PlayerBoostTotal | null;
+  opponents: PlayerBoostTotal | null;
+}

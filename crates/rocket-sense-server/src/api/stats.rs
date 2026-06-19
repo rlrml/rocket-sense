@@ -2,7 +2,9 @@ use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use sqlx::types::Json as SqlxJson;
 use sqlx::{Postgres, QueryBuilder, Row};
+use std::collections::HashSet;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
@@ -17,7 +19,7 @@ use super::{
         push_playlist_group_key_expression, PlayerStatFilter, ReplaySetFilterInput,
         ReplaySetFilters,
     },
-    replays::{require_db, ApiError},
+    replays::{require_db, ApiError, BoostTracksResponse},
 };
 
 #[cfg(test)]
@@ -27,6 +29,7 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/stats/aggregates", get(get_stat_aggregates))
+        .route("/stats/boost-totals", get(get_player_boost_totals))
         .route(
             "/stats/processing-versions",
             get(get_processing_version_breakdown),
@@ -115,6 +118,30 @@ pub struct StatAggregateResponse {
     pub teammate_count_per_game: Option<f64>,
     pub teammate_per_active_minute: Option<f64>,
     pub teammate_per_non_demo_active_minute: Option<f64>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PlayerBoostTotalResponse {
+    pub boost_collected: f64,
+    pub boost_stolen: f64,
+    pub boost_overfill: f64,
+    pub boost_used: f64,
+    pub boost_used_supersonic: f64,
+    pub boost_amount_weighted_sum: f64,
+    pub tracked_seconds: f64,
+    pub time_empty: f64,
+    pub time_low: f64,
+    pub time_medium: f64,
+    pub time_high: f64,
+    pub time_full: f64,
+    pub time_over: f64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct PlayerBoostTotalsResponse {
+    pub player: PlayerBoostTotalResponse,
+    pub teammates: Option<PlayerBoostTotalResponse>,
+    pub opponents: Option<PlayerBoostTotalResponse>,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -433,6 +460,35 @@ pub async fn get_stat_aggregates(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/stats/boost-totals",
+    tag = "stats",
+    params(StatAggregatesQuery),
+    responses(
+        (status = 200, description = "Player and teammate boost totals from accumulation tracks", body = PlayerBoostTotalsResponse),
+        (status = 400, description = "Stats filters were invalid or player-id was omitted"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn get_player_boost_totals(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<PlayerBoostTotalsResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
+    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    if filters.player.is_none() {
+        return Err(ApiError::bad_request("boost totals require player-id"));
+    }
+    let totals = load_player_boost_totals(db, &filters)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(totals))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/stats/processing-versions",
     tag = "stats",
     params(StatAggregatesQuery),
@@ -550,6 +606,255 @@ pub(crate) async fn load_stat_aggregates(
     )?;
     aggregates.groups = groups;
     Ok(aggregates)
+}
+
+async fn load_player_boost_totals(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<PlayerBoostTotalsResponse, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT DISTINCT
+                rp.replay_id,
+                rp.team,
+                concat(rp.platform, ':', rp.platform_player_id) AS target_player_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+              AND r.canonical_analysis_run_id IS NOT NULL
+        ),
+        teammate_ids AS (
+            SELECT
+                appearance.replay_id,
+                COALESCE(
+                    array_agg(DISTINCT concat(teammate.platform, ':', teammate.platform_player_id))
+                        FILTER (
+                            WHERE teammate.id IS NOT NULL
+                              AND teammate.platform IS NOT NULL
+                              AND teammate.platform_player_id IS NOT NULL
+                        ),
+                    ARRAY[]::text[]
+                ) AS teammate_player_ids
+            FROM target_appearances appearance
+            LEFT JOIN replay_players teammate
+              ON teammate.replay_id = appearance.replay_id
+             AND teammate.team = appearance.team
+             AND concat(teammate.platform, ':', teammate.platform_player_id) <> appearance.target_player_id
+            GROUP BY appearance.replay_id
+        ),
+        opponent_ids AS (
+            SELECT
+                appearance.replay_id,
+                COALESCE(
+                    array_agg(DISTINCT concat(opponent.platform, ':', opponent.platform_player_id))
+                        FILTER (
+                            WHERE opponent.id IS NOT NULL
+                              AND opponent.platform IS NOT NULL
+                              AND opponent.platform_player_id IS NOT NULL
+                        ),
+                    ARRAY[]::text[]
+                ) AS opponent_player_ids
+            FROM target_appearances appearance
+            LEFT JOIN replay_players opponent
+              ON opponent.replay_id = appearance.replay_id
+             AND opponent.team IS NOT NULL
+             AND appearance.team IS NOT NULL
+             AND opponent.team <> appearance.team
+            GROUP BY appearance.replay_id
+        )
+        SELECT
+            t.tracks AS tracks,
+            appearance.target_player_id,
+            teammate_ids.teammate_player_ids,
+            opponent_ids.opponent_player_ids
+        FROM target_appearances appearance
+        JOIN replays r ON r.id = appearance.replay_id
+        JOIN replay_boost_tracks t
+          ON t.replay_id = r.id
+         AND t.analysis_run_id = r.canonical_analysis_run_id
+        JOIN teammate_ids ON teammate_ids.replay_id = appearance.replay_id
+        JOIN opponent_ids ON opponent_ids.replay_id = appearance.replay_id
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut player = PlayerBoostAccumulator::default();
+    let mut teammates = PlayerBoostAccumulator::default();
+    let mut opponents = PlayerBoostAccumulator::default();
+    for row in rows {
+        let SqlxJson(tracks): SqlxJson<BoostTracksResponse> = row.try_get("tracks")?;
+        let target_player_id: String = row.try_get("target_player_id")?;
+        let teammate_player_ids: Vec<String> = row.try_get("teammate_player_ids")?;
+        let opponent_player_ids: Vec<String> = row.try_get("opponent_player_ids")?;
+        accumulate_player_boost_tracks(
+            &tracks,
+            &target_player_id,
+            &teammate_player_ids,
+            &opponent_player_ids,
+            &mut player,
+            &mut teammates,
+            &mut opponents,
+        );
+    }
+
+    Ok(PlayerBoostTotalsResponse {
+        player: player.into_response(),
+        teammates: (teammates.has_data()).then(|| teammates.into_response()),
+        opponents: (opponents.has_data()).then(|| opponents.into_response()),
+    })
+}
+
+#[derive(Default)]
+struct PlayerBoostAccumulator {
+    boost_collected: f64,
+    boost_stolen: f64,
+    boost_overfill: f64,
+    boost_used: f64,
+    boost_used_supersonic: f64,
+    boost_amount_weighted_sum: f64,
+    tracked_seconds: f64,
+    bands: [f64; 6],
+}
+
+impl PlayerBoostAccumulator {
+    fn has_data(&self) -> bool {
+        self.tracked_seconds > 0.0
+            || self.boost_collected > 0.0
+            || self.boost_stolen > 0.0
+            || self.boost_overfill > 0.0
+            || self.boost_used > 0.0
+            || self.boost_used_supersonic > 0.0
+    }
+
+    fn into_response(self) -> PlayerBoostTotalResponse {
+        PlayerBoostTotalResponse {
+            boost_collected: self.boost_collected,
+            boost_stolen: self.boost_stolen,
+            boost_overfill: self.boost_overfill,
+            boost_used: self.boost_used,
+            boost_used_supersonic: self.boost_used_supersonic,
+            boost_amount_weighted_sum: self.boost_amount_weighted_sum,
+            tracked_seconds: self.tracked_seconds,
+            time_empty: self.bands[0],
+            time_low: self.bands[1],
+            time_medium: self.bands[2],
+            time_high: self.bands[3],
+            time_full: self.bands[4],
+            time_over: self.bands[5],
+        }
+    }
+}
+
+fn accumulate_player_boost_tracks(
+    tracks: &BoostTracksResponse,
+    target_player_id: &str,
+    teammate_player_ids: &[String],
+    opponent_player_ids: &[String],
+    player: &mut PlayerBoostAccumulator,
+    teammates: &mut PlayerBoostAccumulator,
+    opponents: &mut PlayerBoostAccumulator,
+) {
+    let teammate_ids: HashSet<&str> = teammate_player_ids.iter().map(String::as_str).collect();
+    let opponent_ids: HashSet<&str> = opponent_player_ids.iter().map(String::as_str).collect();
+    let replay_duration = tracks
+        .tracks
+        .iter()
+        .filter(|track| track.quantity == "boost_amount")
+        .flat_map(|track| track.points.iter())
+        .filter_map(|point| point.time)
+        .fold(0.0_f64, f64::max);
+
+    for track in &tracks.tracks {
+        let Some(player_id) = track.player_id.as_deref() else {
+            continue;
+        };
+
+        if player_id == target_player_id {
+            accumulate_player_boost_track(track, replay_duration, player);
+        } else if teammate_ids.contains(player_id) {
+            accumulate_player_boost_track(track, replay_duration, teammates);
+        } else if opponent_ids.contains(player_id) {
+            accumulate_player_boost_track(track, replay_duration, opponents);
+        }
+    }
+}
+
+fn accumulate_player_boost_track(
+    track: &super::replays::BoostTrack,
+    replay_duration: f64,
+    accumulator: &mut PlayerBoostAccumulator,
+) {
+    match track.quantity.as_str() {
+        "boost_amount" => {
+            let mut samples: Vec<(f64, f64)> = track
+                .points
+                .iter()
+                .filter_map(|point| point.time.map(|time| (time, point.value)))
+                .collect();
+            samples.sort_by(|left, right| left.0.total_cmp(&right.0));
+            for index in 0..samples.len() {
+                let (time, value) = samples[index];
+                let next_time = samples.get(index + 1).map_or(replay_duration, |s| s.0);
+                let seconds = (next_time.min(replay_duration) - time.max(0.0)).max(0.0);
+                if seconds == 0.0 {
+                    continue;
+                }
+                let percent = value * 100.0 / BOOST_RAW_MAX;
+                accumulator.boost_amount_weighted_sum += percent * seconds;
+                accumulator.tracked_seconds += seconds;
+                accumulator.bands[player_boost_band_index(percent)] += seconds;
+            }
+        }
+        "boost_used" => {
+            if let Some(last) = track.points.last() {
+                accumulator.boost_used += last.value * 100.0 / BOOST_RAW_MAX;
+            }
+        }
+        "boost_collected" => {
+            if let Some(last) = track.points.last() {
+                accumulator.boost_collected += last.value * 100.0 / BOOST_RAW_MAX;
+            }
+        }
+        "boost_stolen" => {
+            if let Some(last) = track.points.last() {
+                accumulator.boost_stolen += last.value * 100.0 / BOOST_RAW_MAX;
+            }
+        }
+        "boost_overfill" => {
+            if let Some(last) = track.points.last() {
+                accumulator.boost_overfill += last.value * 100.0 / BOOST_RAW_MAX;
+            }
+        }
+        "boost_used_supersonic" => {
+            if let Some(last) = track.points.last() {
+                accumulator.boost_used_supersonic += last.value * 100.0 / BOOST_RAW_MAX;
+            }
+        }
+        _ => {}
+    }
+}
+
+const BOOST_RAW_MAX: f64 = 255.0;
+
+fn player_boost_band_index(percent: f64) -> usize {
+    if percent < 1.0 {
+        0
+    } else if percent < 25.0 {
+        1
+    } else if percent < 50.0 {
+        2
+    } else if percent < 75.0 {
+        3
+    } else if percent < 100.0 {
+        4
+    } else {
+        5
+    }
 }
 
 async fn load_stat_aggregates_base(
