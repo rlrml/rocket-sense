@@ -72,6 +72,24 @@ export class ActorManager {
     waitForBallModel(): Promise<boolean>;
     replaceBallWithModel(actorId: any): void;
     reset(): void;
+    ballTimelineCorrected: any[] | undefined;
+    playerTimelineMapCorrected: {} | undefined;
+    ballTimelineFiltered: any[] | undefined;
+    playerTimelineMapFiltered: {} | undefined;
+    timelineIndicesFiltered: {
+        ball: number;
+        players: {};
+    } | {
+        ball: number;
+        players: {};
+    } | undefined;
+    timelineIndicesCorrected: {
+        ball: number;
+        players: {};
+    } | {
+        ball: number;
+        players: {};
+    } | undefined;
     setPlayerTeams(teams: any): void;
     /**
      * Initialize actors from framework Player API (static mesh creation)
@@ -85,18 +103,6 @@ export class ActorManager {
      * @param {Object} timelines - { ballTimeline, playerTimelines } from framework
      */
     initInterpolants(timelines: Object): void;
-    ballTimelineCorrected: any[] | undefined;
-    playerTimelineMapCorrected: {} | undefined;
-    ballTimelineFiltered: any[] | undefined;
-    playerTimelineMapFiltered: {} | undefined;
-    timelineIndicesFiltered: {
-        ball: number;
-        players: {};
-    } | undefined;
-    timelineIndicesCorrected: {
-        ball: number;
-        players: {};
-    } | undefined;
     /**
      * Initialize Three.js AnimationMixer and create KeyframeTracks for all entities
      * This is the recommended approach for smooth replay playback with variable frame deltas

@@ -24,7 +24,7 @@ type FreeCameraPresetOptions = {
 export declare class ReplayPlayer extends EventTarget {
     readonly container: HTMLElement;
     /** The subtr-actor adapter — the sole data source (timelines + live entities). */
-    readonly adapter: SubtrActorPlayer;
+    adapter: SubtrActorPlayer;
     /**
      * @rlrml/player's normalized `ReplayModel` over the same raw WASM output the
      * adapter consumes (docs/player/PLAYER_PARITY.md Phase 2) — the data surface
@@ -32,7 +32,7 @@ export declare class ReplayPlayer extends EventTarget {
      * first frame) and player-id format. Null when constructed directly with an
      * adapter only; `createPlayer()` always provides it.
      */
-    readonly replay: ReplayModel | null;
+    replay: ReplayModel | null;
     readonly options: PlayerOptions;
     readonly sceneManager: any;
     readonly arenaManager: any;
@@ -58,7 +58,7 @@ export declare class ReplayPlayer extends EventTarget {
     readonly sceneState: ReplayScene;
     private readonly effectsEnabled;
     /** Resolves when async assets (arena meshes, ball model) are in the scene. */
-    readonly ready: Promise<void>;
+    ready: Promise<void>;
     private readonly plugins;
     private readonly beforeRenderCallbacks;
     private resizeObserver;
@@ -88,8 +88,8 @@ export declare class ReplayPlayer extends EventTarget {
     private skipKickoffsEnabledValue;
     /** True once view-mode/attachment was set through the parity surface. */
     private attachmentTouched;
-    private readonly liveGameState;
-    private readonly kickoffGameState;
+    private liveGameState;
+    private kickoffGameState;
     private timelineSegmentsCacheKey;
     private timelineSegmentsCache;
     constructor(container: HTMLElement, adapter: SubtrActorPlayer, options?: PlayerOptions, replay?: ReplayModel | null);
@@ -97,6 +97,17 @@ export declare class ReplayPlayer extends EventTarget {
     get camera(): THREE.PerspectiveCamera;
     get renderer(): THREE.WebGLRenderer;
     get duration(): number;
+    /**
+     * Replace the replay data feeding this player without replacing the renderer,
+     * canvas, arena, camera controls, or player instance. This is the replay-boundary
+     * path for playlist/review UIs: replay-specific actors, effects, timelines,
+     * and plugin setup are refreshed against the new adapter while the static
+     * render shell remains mounted.
+     */
+    replaceReplay(adapter: SubtrActorPlayer, replay: ReplayModel | null, options?: {
+        currentTime?: number;
+        preservePlayback?: boolean;
+    }): Promise<void>;
     /**
      * Switch the skybox environment at runtime. Accepts a built-in id (e.g.
      * `"space"`), a full `PlayerEnvironment` descriptor, or `false` for the
@@ -153,6 +164,11 @@ export declare class ReplayPlayer extends EventTarget {
     destroy(): void;
     dispose(): void;
     private setPlayingInternal;
+    private prepareReplayAssets;
+    private updateReplayGameStates;
+    private syncGoalEvents;
+    private teardownPlugins;
+    private setupPlugins;
     private seekInternal;
     /** Where playback stops: the last segment's start if skips run to the end. */
     private getPlaybackEndTime;
