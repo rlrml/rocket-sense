@@ -6450,15 +6450,14 @@ function uo() {
 }
 class po {
   constructor(e) {
-    this.carMesh = e, this.active = !1, this.particleCount = 120, this.particles = [];
+    this.carMesh = e, this.active = !1, this.particleCount = 200, this.particles = [];
     const t = new h.BufferGeometry(), i = new Float32Array(this.particleCount * 3), a = new Float32Array(this.particleCount * 3), o = new Float32Array(this.particleCount), s = new Float32Array(this.particleCount);
     for (let c = 0; c < this.particleCount; c++)
       i[c * 3] = 0, i[c * 3 + 1] = 0, i[c * 3 + 2] = 0, a[c * 3] = 1, a[c * 3 + 1] = 0.5, a[c * 3 + 2] = 0.1, o[c] = 2, s[c] = 0, this.particles.push({
         life: 0,
         maxLife: 0.5,
         velocity: new h.Vector3(),
-        active: !1,
-        initialAlpha: 0
+        active: !1
       });
     t.setAttribute("position", new h.BufferAttribute(i, 3)), t.setAttribute("color", new h.BufferAttribute(a, 3)), t.setAttribute("size", new h.BufferAttribute(o, 1)), t.setAttribute("alpha", new h.BufferAttribute(s, 1)), this.geometry = t;
     const r = new h.ShaderMaterial({
@@ -6474,7 +6473,7 @@ class po {
                     vColor = color;
                     vAlpha = alpha;
                     vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                    gl_PointSize = size * (1500.0 / -mvPosition.z);
+                    gl_PointSize = size * (2500.0 / -mvPosition.z); // Slightly larger for flame effect
                     gl_Position = projectionMatrix * mvPosition;
                 }
             `,
@@ -6486,18 +6485,17 @@ class po {
                     float dist = length(gl_PointCoord - vec2(0.5));
                     if (dist > 0.5) discard;
 
-                    // Soft halo so neighbouring sprites merge into a cohesive
-                    // flame instead of reading as separate dots.
+                    // Softer glow with hot center
                     float glow = 1.0 - (dist * 2.0);
-                    glow = pow(glow, 1.35);
+                    glow = pow(glow, 0.6); // Softer falloff for more glow
 
-                    // Hot specular core: a small white-gold center that gives the
-                    // exhaust the glossy, almost-reflective sheen of the in-game
-                    // boost flame. Concentrated near the sprite center (high power).
-                    float core = pow(clamp(1.0 - dist * 2.0, 0.0, 1.0), 6.0);
-                    vec3 col = vColor * glow + vec3(1.0, 0.92, 0.7) * core * 0.75;
+                    // Brighter center (white-hot core)
+                    vec3 flameColor = vColor;
+                    if (dist < 0.15) {
+                        flameColor = mix(vec3(1.0, 1.0, 0.9), vColor, dist / 0.15); // White-yellow core
+                    }
 
-                    gl_FragColor = vec4(col, vAlpha * glow);
+                    gl_FragColor = vec4(flameColor * glow * 1.5, vAlpha * glow);
                 }
             `,
       transparent: !0,
@@ -6511,24 +6509,24 @@ class po {
   }
   emit(e, t, i, a = 1) {
     if (!this.active) return;
-    const o = Math.floor(Math.random() * 2) + 3, s = Math.max(1, Math.round(o * a));
+    const o = Math.floor(Math.random() * 3) + 3, s = Math.max(1, Math.round(o * a));
     for (let r = 0; r < s; r++) {
       const c = this.particles[this.nextParticleIndex], l = this.geometry.attributes.position.array, d = this.geometry.attributes.alpha.array, m = this.geometry.attributes.size.array, u = this.geometry.attributes.color.array, p = this.nextParticleIndex, f = new h.Vector3(-55, 0, 0);
       f.applyQuaternion(t);
       const g = new h.Vector3(
-        (Math.random() - 0.5) * 7,
-        (Math.random() - 0.5) * 9,
-        (Math.random() - 0.5) * 9
+        (Math.random() - 0.5) * 10,
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.5) * 15
       ), y = e.clone().add(f).add(g);
       l[p * 3] = y.x, l[p * 3 + 1] = y.y, l[p * 3 + 2] = y.z;
       const x = new h.Vector3(-1, 0, 0);
-      x.applyQuaternion(t), x.multiplyScalar(95 + Math.random() * 45), c.velocity.copy(x), c.velocity.add(i.clone().multiplyScalar(0.2)), c.velocity.add(
+      x.applyQuaternion(t), x.multiplyScalar(150 + Math.random() * 80), c.velocity.copy(x), c.velocity.add(i.clone().multiplyScalar(0.2)), c.velocity.add(
         new h.Vector3(
           (Math.random() - 0.5) * 30,
           (Math.random() - 0.5) * 30,
           (Math.random() - 0.5) * 30
         )
-      ), c.life = 0, c.maxLife = 0.2 + Math.random() * 0.18, c.active = !0, c.initialAlpha = 0.52 + Math.random() * 0.18, d[p] = c.initialAlpha, m[p] = 1.5 + Math.random() * 0.9, c.initialSize = m[p], u[p * 3] = 1, u[p * 3 + 1] = 0.45 + Math.random() * 0.2, u[p * 3 + 2] = 0.12 + Math.random() * 0.12, this.nextParticleIndex = (this.nextParticleIndex + 1) % this.particleCount;
+      ), c.life = 0, c.maxLife = 0.3 + Math.random() * 0.3, c.active = !0, d[p] = 1, m[p] = 3 + Math.random() * 2, c.initialSize = m[p], u[p * 3] = 1, u[p * 3 + 1] = 0.8 + Math.random() * 0.2, u[p * 3 + 2] = 0.3 + Math.random() * 0.3, this.nextParticleIndex = (this.nextParticleIndex + 1) % this.particleCount;
     }
     this.geometry.attributes.position.needsUpdate = !0, this.geometry.attributes.alpha.needsUpdate = !0, this.geometry.attributes.size.needsUpdate = !0, this.geometry.attributes.color.needsUpdate = !0;
   }
@@ -6542,10 +6540,10 @@ class po {
         continue;
       }
       t[s * 3] += r.velocity.x * e, t[s * 3 + 1] += r.velocity.y * e, t[s * 3 + 2] += r.velocity.z * e;
-      const c = r.life / r.maxLife, l = r.initialAlpha || 0.6;
-      i[s] = l * Math.pow(1 - c, 0.75);
-      const d = r.initialSize || 3;
-      a[s] = d * (1 - c * 0.7), o[s * 3] = 1, o[s * 3 + 1] = Math.max(0.16, 0.52 - c * 0.34), o[s * 3 + 2] = Math.max(0, 0.16 - c * 0.16), r.velocity.y += 20 * e;
+      const c = r.life / r.maxLife;
+      i[s] = Math.pow(1 - c, 0.5);
+      const l = r.initialSize || 3;
+      a[s] = l * (1 - c * 0.7), o[s * 3] = 1, o[s * 3 + 1] = Math.max(0.2, 0.9 - c * 0.7), o[s * 3 + 2] = Math.max(0, 0.4 - c * 0.4), r.velocity.y += 20 * e;
     }
     this.geometry.attributes.position.needsUpdate = !0, this.geometry.attributes.alpha.needsUpdate = !0, this.geometry.attributes.size.needsUpdate = !0, this.geometry.attributes.color.needsUpdate = !0;
   }
@@ -12191,7 +12189,9 @@ class et extends EventTarget {
       if (this.disposed || i !== this.loadGeneration)
         return;
       const r = Ur(a, s);
-      this.currentItemIndex = t, this.pendingItemIndex = null, this.currentResolvedItem = r, this.attachPlayer(r), this.loading = !1, this.error = null, this.prefetchNearbyReplays(t), this.emitChange();
+      if (this.currentItemIndex = t, this.pendingItemIndex = null, this.currentResolvedItem = r, !await this.attachPlayer(r, i) || this.disposed || i !== this.loadGeneration)
+        return;
+      this.loading = !1, this.error = null, this.prefetchNearbyReplays(t), this.emitChange();
     } catch (o) {
       if (this.disposed || i !== this.loadGeneration)
         return;
@@ -12207,25 +12207,25 @@ class et extends EventTarget {
   getReplayLoadStates() {
     return Je(this.items).map((e) => this.replayCache.getState(e));
   }
-  attachPlayer(e) {
-    this.detachPlayer();
-    const t = e.replay, { replay: i, raw: a } = t;
-    if (!a)
+  async attachPlayer(e, t) {
+    const i = e.replay, { replay: a, raw: o } = i;
+    if (!o)
       throw new Error(
         "ReplayPlaylistPlayer requires LoadedReplay.raw; load replays with loadReplayFromBytes, createReplayBytesSource, or createReplayFileSource."
       );
-    const o = i.players.some(
-      (s) => s.id === this.preferences.attachedPlayerId
+    const s = a.players.some(
+      (l) => l.id === this.preferences.attachedPlayerId
     ) ? this.preferences.attachedPlayerId : null;
-    this.preferences.attachedPlayerId = o, o === null && this.preferences.cameraViewMode === "follow" && (this.preferences.cameraViewMode = "free"), this.player = lt(
+    this.preferences.attachedPlayerId = s, s === null && this.preferences.cameraViewMode === "follow" && (this.preferences.cameraViewMode = "free");
+    const r = lt(
       this.container,
-      { replay: i, raw: a },
+      { replay: a, raw: o },
       {
         initialPlaybackRate: this.preferences.speed,
         initialCameraDistanceScale: this.preferences.cameraDistanceScale,
         initialCustomCameraSettings: this.preferences.customCameraSettings,
         initialCameraViewMode: this.preferences.cameraViewMode,
-        initialAttachedPlayerId: o,
+        initialAttachedPlayerId: s,
         initialBallCamEnabled: this.preferences.ballCamEnabled,
         initialBoostPickupAnimationEnabled: this.preferences.boostPickupAnimationEnabled,
         initialHitboxWireframesEnabled: this.preferences.hitboxWireframesEnabled,
@@ -12234,9 +12234,16 @@ class et extends EventTarget {
         initialSkipKickoffsEnabled: this.preferences.skipKickoffsEnabled,
         plugins: this.options.plugins
       }
-    ), this.player.seek(e.start.time), this.playerUnsubscribe = this.player.subscribe((s) => {
-      this.handlePlayerState(s);
-    }), this.playbackIntent && this.player.play();
+    ), { style: c } = r.renderer.domElement;
+    c.visibility = "hidden", c.pointerEvents = "none", r.seek(e.start.time);
+    try {
+      await r.ready;
+    } catch (l) {
+      throw r.destroy(), l;
+    }
+    return this.disposed || t !== this.loadGeneration ? (r.destroy(), !1) : (this.detachPlayer(), c.visibility = "", c.pointerEvents = "", this.player = r, this.playerUnsubscribe = r.subscribe((l) => {
+      this.handlePlayerState(l);
+    }), this.playbackIntent && r.play(), !0);
   }
   detachPlayer() {
     this.playerUnsubscribe?.(), this.playerUnsubscribe = null, this.player?.destroy(), this.player = null;

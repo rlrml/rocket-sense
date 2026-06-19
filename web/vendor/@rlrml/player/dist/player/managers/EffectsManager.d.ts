@@ -78,7 +78,6 @@ declare class BoostTrail {
         maxLife: number;
         velocity: THREE.Vector3;
         active: boolean;
-        initialAlpha: number;
     }[];
     geometry: THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>;
     points: THREE.Points<THREE.BufferGeometry<THREE.NormalBufferAttributes, THREE.BufferGeometryEventMap>, THREE.ShaderMaterial, THREE.Object3DEventMap>;
