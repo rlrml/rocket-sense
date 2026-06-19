@@ -28,11 +28,15 @@ const metricOptions: Array<{ value: Metric; label: string }> = [
 const sortOptions = [
   { value: "total", label: "Total" },
   { value: "per-game", label: "Per game" },
-  { value: "per-minute", label: "Per minute" },
+  { value: "per-minute", label: "Per 5 min" },
 ];
 
 function formatRate(value: number | null): string {
   return value == null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function formatRatePerFiveMinutes(value: number | null): string {
+  return formatRate(value == null ? null : value * 5);
 }
 
 // Mirrors the segmentation used everywhere else (see App.tsx); team size and
@@ -277,7 +281,7 @@ function EventLeaderboard({ filterKey }: { filterKey: string }) {
               <th>Total</th>
               <th>Games</th>
               <th>Per game</th>
-              <th>Per min</th>
+              <th>Per 5 min</th>
             </tr>
           </thead>
           <tbody>
@@ -297,7 +301,7 @@ function EventLeaderboard({ filterKey }: { filterKey: string }) {
                   <td>{row.event_count.toLocaleString()}</td>
                   <td>{row.replay_count.toLocaleString()}</td>
                   <td>{formatRate(row.count_per_game)}</td>
-                  <td>{formatRate(row.per_active_minute)}</td>
+                  <td>{formatRatePerFiveMinutes(row.per_active_minute)}</td>
                 </tr>
               );
             })}

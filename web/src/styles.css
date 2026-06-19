@@ -4169,6 +4169,33 @@ tbody tr:last-child td {
   --seg-color: #eab308;
 }
 
+.source-segment.boost-profile-subject {
+  --seg-color: var(--team-blue);
+}
+
+.source-segment.boost-profile-teammates {
+  --seg-color: var(--outcome-positive);
+}
+
+.source-segment.boost-profile-opponents {
+  --seg-color: var(--outcome-negative);
+}
+
+.source-segment.boost-profile-subject.neutral-fill,
+.source-segment.boost-profile-teammates.neutral-fill,
+.source-segment.boost-profile-opponents.neutral-fill,
+.source-segment.boost-profile-subject.stolen-fill,
+.source-segment.boost-profile-teammates.stolen-fill,
+.source-segment.boost-profile-opponents.stolen-fill,
+.source-segment.boost-profile-subject.overfill-source,
+.source-segment.boost-profile-teammates.overfill-source,
+.source-segment.boost-profile-opponents.overfill-source,
+.source-segment.boost-profile-subject.supersonic-source,
+.source-segment.boost-profile-teammates.supersonic-source,
+.source-segment.boost-profile-opponents.supersonic-source {
+  background: var(--seg-color);
+}
+
 /* Collected amounts: each source is a lightness step of the player's hue —
    big pad = the base hue, small / grant / other progressively lighter. */
 .source-segment.big-pad-source {
@@ -4591,6 +4618,18 @@ tbody tr:last-child td {
 .boost-profile-panel .source-segment.boost-band-full,
 .boost-profile-panel .source-segment.boost-band-over {
   --seg-color: var(--team-blue);
+}
+
+.boost-profile-panel .source-segment.boost-profile-subject {
+  --seg-color: var(--team-blue);
+}
+
+.boost-profile-panel .source-segment.boost-profile-teammates {
+  --seg-color: var(--outcome-positive);
+}
+
+.boost-profile-panel .source-segment.boost-profile-opponents {
+  --seg-color: var(--outcome-negative);
 }
 
 /* Boost ranges: a light (empty) -> saturated (over) ramp of the player's hue,

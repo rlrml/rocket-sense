@@ -125,6 +125,7 @@ type BoostLevelDistributionRow = {
 const boostPadLocations = createBoostPadLocations();
 
 type BoostComparisonMode = "players" | "teams";
+type BoostComparisonValueMode = "totals" | "per-minute";
 type BigPadZone = "offensive" | "neutral" | "defensive";
 
 export function BoostDetail({
@@ -318,7 +319,7 @@ export function BoostProfileDetail({
     <section className="chart-panel full-span boost-profile-panel">
       <header className="chart-panel-header">
         <h3>Boost economy</h3>
-        <span>Track-derived boost usage and held-boost distribution across this replay set</span>
+        <span>Track-derived boost rates per player-minute across this replay set</span>
       </header>
       <BoostEconomyComparisonGrid
         comparisonMode="players"
@@ -326,6 +327,7 @@ export function BoostProfileDetail({
         includePadBreakdowns={false}
         levelRows={levelRows}
         profilePathForSummary={(summary) => playerProfilePath(summary)}
+        segmentColorClassNameForSummary={boostProfileSegmentColorClassName}
         showPlatformBadgeForSummary={(summary) => summary.key === "player"}
         subtitleForSummary={(summary) =>
           summary.key === "player"
@@ -335,9 +337,16 @@ export function BoostProfileDetail({
               : "Other-team players"
         }
         summaries={summaries}
+        valueMode="per-minute"
       />
     </section>
   );
+}
+
+function boostProfileSegmentColorClassName(summary: BoostPlayerSummary): string {
+  if (summary.key === "player") return "boost-profile-subject";
+  if (summary.key === "teammates") return "boost-profile-teammates";
+  return "boost-profile-opponents";
 }
 
 function BoostComparisonModeToggle({
@@ -828,9 +837,11 @@ function BoostEconomyComparisonGrid({
   levelRows,
   playerIndexByKey = new Map(),
   profilePathForSummary = playerProfilePath,
+  segmentColorClassNameForSummary = () => null,
   showPlatformBadgeForSummary = () => comparisonMode === "players",
   subtitleForSummary,
   summaries,
+  valueMode = "totals",
 }: {
   comparisonMode: BoostComparisonMode;
   durationSeconds: number;
@@ -838,13 +849,17 @@ function BoostEconomyComparisonGrid({
   levelRows: BoostLevelDistributionRow[];
   playerIndexByKey?: Map<string, number>;
   profilePathForSummary?: (summary: BoostPlayerSummary) => string | null;
+  segmentColorClassNameForSummary?: (summary: BoostPlayerSummary) => string | null;
   showPlatformBadgeForSummary?: (summary: BoostPlayerSummary) => boolean;
   subtitleForSummary?: (summary: BoostPlayerSummary) => string;
   summaries: BoostPlayerSummary[];
+  valueMode?: BoostComparisonValueMode;
 }) {
   const boostLevelsByPlayer = new Map(levelRows.map((row) => [row.key, row]));
   const summaryPlayerIndex = (summary: BoostPlayerSummary) =>
     comparisonMode === "players" ? (playerIndexByKey.get(summary.key) ?? null) : null;
+  const summaryColorClassName = (summary: BoostPlayerSummary) =>
+    comparisonMode === "players" ? segmentColorClassNameForSummary(summary) : null;
   const comparisonSummaries =
     comparisonMode === "players"
       ? summaries
@@ -852,18 +867,30 @@ function BoostEconomyComparisonGrid({
           teamBoostSummary(summaries, 0, durationSeconds),
           teamBoostSummary(summaries, 1, durationSeconds),
         ];
-  const boostAmountScaleMax = maxSummaryValue(comparisonSummaries, (summary) =>
-    Math.max(
-      summary.collected,
-      bigPadPotentialBoost(summary),
-      smallPadPotentialBoost(summary),
-      summary.stolen,
-      summary.used,
-      summary.overfill + summary.usedWhileSupersonic,
-    ),
-  );
   const durationForSummary = (summary: BoostPlayerSummary) =>
     Math.max(1, summary.trackedSeconds || durationSeconds);
+  const scaleBoostValue = (summary: BoostPlayerSummary, value: number) =>
+    scaledComparisonValue(value, durationForSummary(summary), valueMode);
+  const scaleCountValue = (summary: BoostPlayerSummary, value: number) =>
+    scaledComparisonValue(value, durationForSummary(summary), valueMode);
+  const boostValueLabel = (summary: BoostPlayerSummary, value: number) =>
+    formatBoostComparisonValue(value, durationForSummary(summary), valueMode);
+  const countValueLabel = (summary: BoostPlayerSummary, value: number) =>
+    formatCountComparisonValue(value, durationForSummary(summary), valueMode);
+  const boostSegmentTitle = (label: string, value: number, duration: number) =>
+    comparisonSegmentTitle(label, value, duration, valueMode, "boost");
+  const countSegmentTitle = (label: string, value: number, duration: number) =>
+    comparisonSegmentTitle(label, value, duration, valueMode, "count");
+  const boostAmountScaleMax = maxSummaryValue(comparisonSummaries, (summary) =>
+    Math.max(
+      scaleBoostValue(summary, summary.collected),
+      scaleBoostValue(summary, bigPadPotentialBoost(summary)),
+      scaleBoostValue(summary, smallPadPotentialBoost(summary)),
+      scaleBoostValue(summary, summary.stolen),
+      scaleBoostValue(summary, summary.used),
+      scaleBoostValue(summary, summary.overfill + summary.usedWhileSupersonic),
+    ),
+  );
   const collectedSegments = (summary: BoostPlayerSummary): BoostComparisonSegment[] => {
     const rowDuration = durationForSummary(summary);
     return includePadBreakdowns
@@ -871,34 +898,39 @@ function BoostEconomyComparisonGrid({
           {
             className: "big-pad-source",
             label: "Big",
-            value: summary.collectedBig,
-            visibleLabel: `${summary.bigPads.toLocaleString()} big / ${formatBoostWithPerMinute(summary.collectedBig, rowDuration)}`,
+            value: scaledComparisonValue(summary.collectedBig, rowDuration, valueMode),
+            visibleLabel: `${summary.bigPads.toLocaleString()} big / ${formatBoostComparisonValue(summary.collectedBig, rowDuration, valueMode)}`,
+            title: boostSegmentTitle("Big pad boost", summary.collectedBig, rowDuration),
           },
           {
             className: "small-pad-source",
             label: "Small",
-            value: summary.collectedSmall,
-            visibleLabel: `${summary.smallPads.toLocaleString()} small / ${formatBoostWithPerMinute(summary.collectedSmall, rowDuration)}`,
+            value: scaledComparisonValue(summary.collectedSmall, rowDuration, valueMode),
+            visibleLabel: `${summary.smallPads.toLocaleString()} small / ${formatBoostComparisonValue(summary.collectedSmall, rowDuration, valueMode)}`,
+            title: boostSegmentTitle("Small pad boost", summary.collectedSmall, rowDuration),
           },
           {
             className: "grant-source",
             label: "Grant",
-            value: summary.collectedGrant,
-            visibleLabel: `Grant / ${formatBoostWithPerMinute(summary.collectedGrant, rowDuration)}`,
+            value: scaledComparisonValue(summary.collectedGrant, rowDuration, valueMode),
+            visibleLabel: `Grant / ${formatBoostComparisonValue(summary.collectedGrant, rowDuration, valueMode)}`,
+            title: boostSegmentTitle("Grant boost", summary.collectedGrant, rowDuration),
           },
           {
             className: "unknown-pad-source",
             label: "Other",
-            value: summary.collectedUnknown,
-            visibleLabel: `Other / ${formatBoostWithPerMinute(summary.collectedUnknown, rowDuration)}`,
+            value: scaledComparisonValue(summary.collectedUnknown, rowDuration, valueMode),
+            visibleLabel: `Other / ${formatBoostComparisonValue(summary.collectedUnknown, rowDuration, valueMode)}`,
+            title: boostSegmentTitle("Other boost", summary.collectedUnknown, rowDuration),
           },
         ]
       : [
           {
             className: "unknown-pad-source",
             label: "Collected",
-            value: summary.collected,
-            visibleLabel: formatBoostWithPerMinute(summary.collected, rowDuration),
+            value: scaledComparisonValue(summary.collected, rowDuration, valueMode),
+            visibleLabel: formatBoostComparisonValue(summary.collected, rowDuration, valueMode),
+            title: boostSegmentTitle("Collected boost", summary.collected, rowDuration),
           },
         ];
   };
@@ -909,22 +941,25 @@ function BoostEconomyComparisonGrid({
           {
             className: "big-stolen-source",
             label: "Big",
-            value: summary.stolenBigBoost,
-            visibleLabel: `${formatBoostWithPerMinute(summary.stolenBigBoost, rowDuration)} big`,
+            value: scaledComparisonValue(summary.stolenBigBoost, rowDuration, valueMode),
+            visibleLabel: `${formatBoostComparisonValue(summary.stolenBigBoost, rowDuration, valueMode)} big`,
+            title: boostSegmentTitle("Big stolen boost", summary.stolenBigBoost, rowDuration),
           },
           {
             className: "small-stolen-source",
             label: "Small",
-            value: summary.stolenSmallBoost,
-            visibleLabel: `${formatBoostWithPerMinute(summary.stolenSmallBoost, rowDuration)} small`,
+            value: scaledComparisonValue(summary.stolenSmallBoost, rowDuration, valueMode),
+            visibleLabel: `${formatBoostComparisonValue(summary.stolenSmallBoost, rowDuration, valueMode)} small`,
+            title: boostSegmentTitle("Small stolen boost", summary.stolenSmallBoost, rowDuration),
           },
         ]
       : [
           {
             className: "stolen-fill",
             label: "Stolen",
-            value: summary.stolen,
-            visibleLabel: formatBoostWithPerMinute(summary.stolen, rowDuration),
+            value: scaledComparisonValue(summary.stolen, rowDuration, valueMode),
+            visibleLabel: formatBoostComparisonValue(summary.stolen, rowDuration, valueMode),
+            title: boostSegmentTitle("Stolen boost", summary.stolen, rowDuration),
           },
         ];
   };
@@ -947,13 +982,14 @@ function BoostEconomyComparisonGrid({
           platform: summary.platform,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
+          segmentColorClassName: summaryColorClassName(summary),
           showPlatformBadge: showPlatformBadgeForSummary(summary),
           subtitle: subtitleForSummary?.(summary),
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
-          sortValue: summary.collected,
-          total: summary.collected,
-          valueLabel: formatBoostWithPerMinute(summary.collected, durationForSummary(summary)),
+          sortValue: scaleBoostValue(summary, summary.collected),
+          total: scaleBoostValue(summary, summary.collected),
+          valueLabel: boostValueLabel(summary, summary.collected),
           segments: collectedSegments(summary),
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
@@ -970,19 +1006,21 @@ function BoostEconomyComparisonGrid({
           platform: summary.platform,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
+          segmentColorClassName: summaryColorClassName(summary),
           showPlatformBadge: showPlatformBadgeForSummary(summary),
           subtitle: subtitleForSummary?.(summary),
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
-          sortValue: summary.used,
-          total: summary.used,
-          valueLabel: formatBoostWithPerMinute(summary.used, durationForSummary(summary)),
+          sortValue: scaleBoostValue(summary, summary.used),
+          total: scaleBoostValue(summary, summary.used),
+          valueLabel: boostValueLabel(summary, summary.used),
           segments: [
             {
               className: "neutral-fill",
               label: "Used",
-              value: summary.used,
-              visibleLabel: `Used / ${formatBoostWithPerMinute(summary.used, durationForSummary(summary))}`,
+              value: scaleBoostValue(summary, summary.used),
+              visibleLabel: `Used / ${boostValueLabel(summary, summary.used)}`,
+              title: boostSegmentTitle("Boost used", summary.used, durationForSummary(summary)),
             },
           ],
         }))
@@ -996,7 +1034,9 @@ function BoostEconomyComparisonGrid({
         { className: "legend-big-pad-neutral", label: "Neutral" },
         { className: "legend-big-pad-defensive", label: "Defensive" },
       ],
-      maxValue: maxSummaryValue(comparisonSummaries, (summary) => summary.bigPads),
+      maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
+        scaleCountValue(summary, summary.bigPads),
+      ),
       rows: comparisonSummaries
         .map((summary) => {
           return {
@@ -1005,34 +1045,47 @@ function BoostEconomyComparisonGrid({
             platform: summary.platform,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
+            segmentColorClassName: summaryColorClassName(summary),
             showPlatformBadge: showPlatformBadgeForSummary(summary),
             subtitle: subtitleForSummary?.(summary),
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
-            sortValue: summary.bigPads,
-            total: summary.bigPads,
-            valueLabel: formatCountWithPerMinute(summary.bigPads, durationSeconds),
+            sortValue: scaleCountValue(summary, summary.bigPads),
+            total: scaleCountValue(summary, summary.bigPads),
+            valueLabel: countValueLabel(summary, summary.bigPads),
             segments: [
               {
                 className: "big-pad-offensive-source",
                 label: "Offensive",
-                value: summary.bigPadsOffensive,
+                value: scaleCountValue(summary, summary.bigPadsOffensive),
                 visibleLabel: `Offensive ${summary.bigPadsOffensive.toLocaleString()}`,
-                title: `Offensive corner: ${formatCountWithPerMinute(summary.bigPadsOffensive, durationSeconds)}`,
+                title: countSegmentTitle(
+                  "Offensive corner",
+                  summary.bigPadsOffensive,
+                  durationForSummary(summary),
+                ),
               },
               {
                 className: "big-pad-neutral-source",
                 label: "Neutral",
-                value: summary.bigPadsNeutral,
+                value: scaleCountValue(summary, summary.bigPadsNeutral),
                 visibleLabel: `Neutral ${summary.bigPadsNeutral.toLocaleString()}`,
-                title: `Neutral midfield: ${formatCountWithPerMinute(summary.bigPadsNeutral, durationSeconds)}`,
+                title: countSegmentTitle(
+                  "Neutral midfield",
+                  summary.bigPadsNeutral,
+                  durationForSummary(summary),
+                ),
               },
               {
                 className: "big-pad-defensive-source",
                 label: "Defensive",
-                value: summary.bigPadsDefensive,
+                value: scaleCountValue(summary, summary.bigPadsDefensive),
                 visibleLabel: `Defensive ${summary.bigPadsDefensive.toLocaleString()}`,
-                title: `Defensive corner: ${formatCountWithPerMinute(summary.bigPadsDefensive, durationSeconds)}`,
+                title: countSegmentTitle(
+                  "Defensive corner",
+                  summary.bigPadsDefensive,
+                  durationForSummary(summary),
+                ),
               },
             ],
           };
@@ -1046,7 +1099,9 @@ function BoostEconomyComparisonGrid({
         { className: "legend-small-pad-offensive", label: "Offensive half" },
         { className: "legend-small-pad-defensive", label: "Defensive half" },
       ],
-      maxValue: maxSummaryValue(comparisonSummaries, (summary) => summary.smallPads),
+      maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
+        scaleCountValue(summary, summary.smallPads),
+      ),
       rows: comparisonSummaries
         .map((summary) => {
           return {
@@ -1055,27 +1110,36 @@ function BoostEconomyComparisonGrid({
             platform: summary.platform,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
+            segmentColorClassName: summaryColorClassName(summary),
             showPlatformBadge: showPlatformBadgeForSummary(summary),
             subtitle: subtitleForSummary?.(summary),
             team: summary.team,
             playerIndex: summaryPlayerIndex(summary),
-            sortValue: summary.smallPads,
-            total: summary.smallPads,
-            valueLabel: formatCountWithPerMinute(summary.smallPads, durationSeconds),
+            sortValue: scaleCountValue(summary, summary.smallPads),
+            total: scaleCountValue(summary, summary.smallPads),
+            valueLabel: countValueLabel(summary, summary.smallPads),
             segments: [
               {
                 className: "small-pad-offensive-source",
                 label: "Offensive",
-                value: summary.smallPadsOffensive,
+                value: scaleCountValue(summary, summary.smallPadsOffensive),
                 visibleLabel: `Off. ${summary.smallPadsOffensive.toLocaleString()}`,
-                title: `Offensive half: ${formatCountWithPerMinute(summary.smallPadsOffensive, durationSeconds)}`,
+                title: countSegmentTitle(
+                  "Offensive half",
+                  summary.smallPadsOffensive,
+                  durationForSummary(summary),
+                ),
               },
               {
                 className: "small-pad-defensive-source",
                 label: "Defensive",
-                value: summary.smallPadsDefensive,
+                value: scaleCountValue(summary, summary.smallPadsDefensive),
                 visibleLabel: `Def. ${summary.smallPadsDefensive.toLocaleString()}`,
-                title: `Defensive half: ${formatCountWithPerMinute(summary.smallPadsDefensive, durationSeconds)}`,
+                title: countSegmentTitle(
+                  "Defensive half",
+                  summary.smallPadsDefensive,
+                  durationForSummary(summary),
+                ),
               },
             ],
           };
@@ -1099,13 +1163,14 @@ function BoostEconomyComparisonGrid({
           platform: summary.platform,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
+          segmentColorClassName: summaryColorClassName(summary),
           showPlatformBadge: showPlatformBadgeForSummary(summary),
           subtitle: subtitleForSummary?.(summary),
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
-          sortValue: summary.stolen,
-          total: summary.stolen,
-          valueLabel: formatBoostWithPerMinute(summary.stolen, durationForSummary(summary)),
+          sortValue: scaleBoostValue(summary, summary.stolen),
+          total: scaleBoostValue(summary, summary.stolen),
+          valueLabel: boostValueLabel(summary, summary.stolen),
           segments: stolenSegments(summary),
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
@@ -1122,19 +1187,21 @@ function BoostEconomyComparisonGrid({
           platform: summary.platform,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
+          segmentColorClassName: summaryColorClassName(summary),
           showPlatformBadge: showPlatformBadgeForSummary(summary),
           subtitle: subtitleForSummary?.(summary),
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
-          sortValue: summary.overfill,
-          total: summary.overfill,
-          valueLabel: formatBoostWithPerMinute(summary.overfill, durationForSummary(summary)),
+          sortValue: scaleBoostValue(summary, summary.overfill),
+          total: scaleBoostValue(summary, summary.overfill),
+          valueLabel: boostValueLabel(summary, summary.overfill),
           segments: [
             {
               className: "overfill-source",
               label: "Overfill",
-              value: summary.overfill,
-              visibleLabel: formatBoostWithPerMinute(summary.overfill, durationForSummary(summary)),
+              value: scaleBoostValue(summary, summary.overfill),
+              visibleLabel: boostValueLabel(summary, summary.overfill),
+              title: boostSegmentTitle("Overfill", summary.overfill, durationForSummary(summary)),
             },
           ],
         }))
@@ -1152,22 +1219,22 @@ function BoostEconomyComparisonGrid({
           platform: summary.platform,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
+          segmentColorClassName: summaryColorClassName(summary),
           showPlatformBadge: showPlatformBadgeForSummary(summary),
           subtitle: subtitleForSummary?.(summary),
           team: summary.team,
           playerIndex: summaryPlayerIndex(summary),
-          sortValue: summary.usedWhileSupersonic,
-          total: summary.usedWhileSupersonic,
-          valueLabel: formatBoostWithPerMinute(
-            summary.usedWhileSupersonic,
-            durationForSummary(summary),
-          ),
+          sortValue: scaleBoostValue(summary, summary.usedWhileSupersonic),
+          total: scaleBoostValue(summary, summary.usedWhileSupersonic),
+          valueLabel: boostValueLabel(summary, summary.usedWhileSupersonic),
           segments: [
             {
               className: "supersonic-source",
               label: "Supersonic",
-              value: summary.usedWhileSupersonic,
-              visibleLabel: formatBoostWithPerMinute(
+              value: scaleBoostValue(summary, summary.usedWhileSupersonic),
+              visibleLabel: boostValueLabel(summary, summary.usedWhileSupersonic),
+              title: boostSegmentTitle(
+                "Supersonic use",
                 summary.usedWhileSupersonic,
                 durationForSummary(summary),
               ),
@@ -1193,6 +1260,7 @@ function BoostEconomyComparisonGrid({
             platform: summary.platform,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
+            segmentColorClassName: summaryColorClassName(summary),
             showPlatformBadge: showPlatformBadgeForSummary(summary),
             subtitle: subtitleForSummary?.(summary),
             team: summary.team,
@@ -1247,6 +1315,7 @@ interface BoostComparisonRow {
   platform: string | null;
   profilePath: string | null;
   rank: StatPlayerRank | null;
+  segmentColorClassName: string | null;
   showPlatformBadge: boolean;
   subtitle?: string;
   team: number | null;
@@ -1296,6 +1365,7 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
                   {row.segments.map((segment) => (
                     <BoostSourceSegment
                       key={`${row.key}:${segment.label}`}
+                      colorClassName={row.segmentColorClassName}
                       playerIndex={usePlayerShade ? row.playerIndex : null}
                       segment={segment}
                       showLabel={showSegmentLabels}
@@ -1316,11 +1386,13 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
 }
 
 function BoostSourceSegment({
+  colorClassName,
   playerIndex,
   segment,
   showLabel,
   team,
 }: {
+  colorClassName: string | null;
   playerIndex: number | null;
   segment: BoostComparisonSegment;
   showLabel: boolean;
@@ -1331,7 +1403,7 @@ function BoostSourceSegment({
 
   return (
     <span
-      className={`source-segment ${className} ${team == null ? "" : `team-segment-${teamClass(team)}`} ${playerIndex == null ? "" : `player-shade-${playerIndex}`}`}
+      className={`source-segment ${className} ${colorClassName ?? ""} ${team == null ? "" : `team-segment-${teamClass(team)}`} ${playerIndex == null ? "" : `player-shade-${playerIndex}`}`}
       style={{ flexGrow: value }}
       title={title ?? `${label}: ${formatBoost(value)}`}
     >
@@ -2413,6 +2485,18 @@ function perMinute(value: number, durationSeconds: number): number | null {
   return durationSeconds > 0 ? value / (durationSeconds / 60) : null;
 }
 
+function scaledComparisonValue(
+  value: number,
+  durationSeconds: number,
+  valueMode: BoostComparisonValueMode,
+): number {
+  if (valueMode === "per-minute") {
+    const rate = perMinute(value, durationSeconds);
+    return rate ?? 0;
+  }
+  return value;
+}
+
 function bigPadPotentialBoost(summary: BoostPlayerSummary): number {
   return summary.bigPads * 100;
 }
@@ -2896,14 +2980,51 @@ function formatBoost(value: number | null): string {
   return Math.round(value).toLocaleString();
 }
 
-function formatBoostWithPerMinute(value: number, durationSeconds: number): string {
+function formatBoostWithRate(value: number, durationSeconds: number): string {
   const perMinuteValue = perMinute(value, durationSeconds);
   return `${formatBoost(value)} (${formatNumber(perMinuteValue)}/m)`;
 }
 
-function formatCountWithPerMinute(count: number, durationSeconds: number): string {
+function formatCountWithRate(count: number, durationSeconds: number): string {
   const perMinuteValue = perMinute(count, durationSeconds);
   return `${count.toLocaleString()} (${formatNumber(perMinuteValue)}/m)`;
+}
+
+function formatBoostComparisonValue(
+  value: number,
+  durationSeconds: number,
+  valueMode: BoostComparisonValueMode,
+): string {
+  if (valueMode === "per-minute") {
+    return `${formatNumber(perMinute(value, durationSeconds))}/m`;
+  }
+  return formatBoostWithRate(value, durationSeconds);
+}
+
+function formatCountComparisonValue(
+  count: number,
+  durationSeconds: number,
+  valueMode: BoostComparisonValueMode,
+): string {
+  if (valueMode === "per-minute") {
+    return `${formatNumber(perMinute(count, durationSeconds))}/m`;
+  }
+  return formatCountWithRate(count, durationSeconds);
+}
+
+function comparisonSegmentTitle(
+  label: string,
+  value: number,
+  durationSeconds: number,
+  valueMode: BoostComparisonValueMode,
+  valueKind: "boost" | "count",
+): string {
+  const total = valueKind === "boost" ? formatBoost(value) : value.toLocaleString();
+  if (valueMode !== "per-minute") {
+    return `${label}: ${total}`;
+  }
+  const rate = formatNumber(perMinute(value, durationSeconds));
+  return `${label}: ${rate}/m (${total} total)`;
 }
 
 function teamLabel(team: number | null): string {
