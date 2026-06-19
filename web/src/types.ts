@@ -139,6 +139,36 @@ export interface EventLeaderboardResponse {
   matched_event_types: EventLeaderboardEventType[];
 }
 
+export interface StatLeaderboardMetric {
+  key: string;
+  display_name: string;
+  description: string;
+  unit: string;
+}
+
+export interface StatLeaderboardRow {
+  rank: number;
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  is_pro: boolean;
+  value: number;
+  replay_count: number;
+  active_time_seconds: number | null;
+  value_per_game: number | null;
+  value_per_active_minute: number | null;
+  share_of_active_time: number | null;
+}
+
+export interface StatLeaderboardResponse {
+  rows: StatLeaderboardRow[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+  metric: StatLeaderboardMetric;
+}
+
 export interface ReplayProcessingVersion {
   processed_at: string | null;
   extractor_name: string | null;

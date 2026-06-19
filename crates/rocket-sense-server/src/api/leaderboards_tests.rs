@@ -205,3 +205,72 @@ fn event_total_query_counts_qualifying_players() {
     assert!(sql.contains("SELECT COUNT(*) AS total FROM event_counts e"));
     assert!(sql.contains("d.replay_count >= "));
 }
+
+fn stat_filters(raw_query: &str) -> (StatLeaderboardFilters, LeaderboardPaging) {
+    StatLeaderboardFilters::from_query(Some(raw_query), None).expect("filters should parse")
+}
+
+#[test]
+fn stat_metric_parses_aliases_and_rejects_unknown() {
+    assert_eq!(
+        StatLeaderboardMetric::from_query(None).unwrap(),
+        StatLeaderboardMetric::BallOpponentHalf
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("ball-in-opponent-half")).unwrap(),
+        StatLeaderboardMetric::BallOpponentHalf
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("possession")).unwrap(),
+        StatLeaderboardMetric::PossessionTime
+    );
+    assert!(StatLeaderboardMetric::from_query(Some("flip-reset")).is_err());
+}
+
+#[test]
+fn stat_sort_includes_share_metric() {
+    assert_eq!(
+        StatLeaderboardSort::from_query(Some("share")).unwrap(),
+        StatLeaderboardSort::Share
+    );
+    assert_eq!(
+        StatLeaderboardSort::from_query(Some("pct")).unwrap(),
+        StatLeaderboardSort::Share
+    );
+    assert!(StatLeaderboardSort::from_query(Some("sideways")).is_err());
+}
+
+#[test]
+fn stat_rank_query_reads_materialized_facts() {
+    let (filters, paging) = stat_filters("stat=ball-opponent-half&sort=per-minute&team-size=2");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("WITH metric_values AS"));
+    assert!(sql.contains("FROM player_replay_stat_facts fact"));
+    assert!(sql.contains("r.canonical_analysis_run_id = fact.analysis_run_id"));
+    assert!(sql.contains("WHERE fact.stat_key = "));
+    assert!(sql.contains("SUM(fact.denominator_value) AS denominator_value"));
+    assert!(sql.contains("team_player_count"));
+    assert!(sql.contains("share_of_active_time"));
+    assert!(sql.contains("ORDER BY value_per_active_minute DESC NULLS LAST, value DESC"));
+}
+
+#[test]
+fn stat_rank_query_can_order_by_share() {
+    let (filters, paging) = stat_filters("stat=possession-time&sort=share&min-games=5");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("FROM player_replay_stat_facts fact"));
+    assert!(sql.contains("COALESCE(SUM(fact.value), 0.0) AS value"));
+    assert!(sql.contains("ORDER BY share_of_active_time DESC NULLS LAST, value DESC"));
+    assert!(sql.contains("m.replay_count >= "));
+}
+
+#[test]
+fn stat_total_query_counts_qualifying_players() {
+    let (filters, _) = stat_filters("stat=possession-time&min-games=3");
+    let sql = stat_total_query(&filters).into_sql();
+    assert!(sql.contains("WITH metric_values AS"));
+    assert!(sql.contains("SELECT COUNT(*) AS total FROM metric_values m"));
+    assert!(sql.contains("m.replay_count >= "));
+}

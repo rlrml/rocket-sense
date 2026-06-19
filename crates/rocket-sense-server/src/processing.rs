@@ -1152,6 +1152,7 @@ async fn persist_analysis_output(
     .await?;
     insert_boost_accumulation_tracks(pool, analysis_run_id, replay_id, &output.boost_tracks)
         .await?;
+    insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -1265,6 +1266,181 @@ pub(crate) async fn process_client_scaffold(
     Ok(analysis_run_id)
 }
 
+async fn insert_player_replay_stat_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_stat_facts WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay stat facts")?;
+
+    insert_ball_opponent_half_facts(pool, analysis_run_id, replay_id).await?;
+    insert_possession_time_facts(pool, analysis_run_id, replay_id).await?;
+    Ok(())
+}
+
+async fn insert_ball_opponent_half_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            'ball-opponent-half',
+            SUM(
+                CASE
+                    WHEN COALESCE((payload.payload ->> 'active')::boolean, true)
+                     AND (
+                        (rp.team = 0 AND payload.payload ->> 'field_half' = 'team_one_side')
+                        OR (rp.team = 1 AND payload.payload ->> 'field_half' = 'team_zero_side')
+                     )
+                    THEN COALESCE(
+                        event.duration_seconds,
+                        CASE
+                            WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
+                            THEN GREATEST(event.end_time - event.start_time, 0)
+                            ELSE 0
+                        END,
+                        0
+                    )
+                    ELSE 0
+                END
+            ) AS value,
+            'seconds',
+            rp.active_time_seconds,
+            'active_time',
+            rp.active_time_seconds
+        FROM replay_players rp
+        JOIN play_events event
+          ON event.replay_id = rp.replay_id
+         AND event.analysis_run_id = $1
+         AND event.source_stream = 'ball_half'
+        JOIN play_event_payloads payload ON payload.event_id = event.id
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+          AND rp.team IN (0, 1)
+        GROUP BY rp.replay_id, rp.id, rp.platform, rp.platform_player_id, rp.team, rp.active_time_seconds
+        HAVING SUM(
+            CASE
+                WHEN COALESCE((payload.payload ->> 'active')::boolean, true)
+                 AND (
+                    (rp.team = 0 AND payload.payload ->> 'field_half' = 'team_one_side')
+                    OR (rp.team = 1 AND payload.payload ->> 'field_half' = 'team_zero_side')
+                 )
+                THEN COALESCE(
+                    event.duration_seconds,
+                    CASE
+                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
+                        THEN GREATEST(event.end_time - event.start_time, 0)
+                        ELSE 0
+                    END,
+                    0
+                )
+                ELSE 0
+            END
+        ) > 0.0
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to insert ball opponent-half stat facts")?;
+    Ok(())
+}
+
+async fn insert_possession_time_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            'possession-time',
+            SUM(detail.duration) AS value,
+            'seconds',
+            rp.active_time_seconds,
+            'active_time',
+            rp.active_time_seconds
+        FROM replay_players rp
+        JOIN play_event_player_possession_details detail ON detail.replay_player_id = rp.id
+        JOIN play_events event
+          ON event.id = detail.event_id
+         AND event.analysis_run_id = $1
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        GROUP BY rp.replay_id, rp.id, rp.platform, rp.platform_player_id, rp.team, rp.active_time_seconds
+        HAVING SUM(detail.duration) > 0.0
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to insert possession-time stat facts")?;
+    Ok(())
+}
+
 /// Delete the play events (and boost tracks) left behind by this replay's
 /// superseded analysis runs once a new run is canonical. Child event tables
 /// are removed via `ON DELETE CASCADE`; `event_reviews.event_id` becomes NULL
@@ -1278,6 +1454,21 @@ async fn prune_superseded_run_events(
     replay_id: Uuid,
     canonical_analysis_run_id: Uuid,
 ) -> Result<u64> {
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_stat_facts fact
+        USING analysis_runs run
+        WHERE run.id = fact.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay stat facts")?;
+
     sqlx::query(
         r#"
         DELETE FROM replay_boost_tracks track
