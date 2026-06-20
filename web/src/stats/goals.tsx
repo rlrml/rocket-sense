@@ -1,3 +1,4 @@
+import { ExternalLink } from "lucide-react";
 import { lazy, Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
@@ -288,6 +289,7 @@ export function GoalCard({
   active,
   onActivate,
   typeHref,
+  gameHref,
   replayId,
 }: {
   goal: GoalRow;
@@ -295,6 +297,8 @@ export function GoalCard({
   onActivate: (force: boolean) => void;
   /** When provided, goal type chips link to the matching goal playlist. */
   typeHref?: (type: GoalType) => string | undefined;
+  /** When provided, the card shows a link to the game this goal came from. */
+  gameHref?: string;
   /** When provided, the card shows a 2D buildup diagram for this goal. */
   replayId?: string;
 }) {
@@ -362,7 +366,32 @@ export function GoalCard({
               {teamLabel(goal.scoringTeam)}
             </span>
           </div>
-          <strong>{formatSeconds(goal.time)}</strong>
+          <div className="goal-card-header-right">
+            <strong>{formatSeconds(goal.time)}</strong>
+            {gameHref ? (
+              // The card itself is a <button>, so this can't be a real link;
+              // route imperatively instead and keep the card's hover/click intact.
+              <span
+                className="goal-card-game-link"
+                role="link"
+                tabIndex={0}
+                title="Open the game this goal came from"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  navigate(gameHref);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.stopPropagation();
+                    navigate(gameHref);
+                  }
+                }}
+              >
+                Game
+                <ExternalLink size={12} />
+              </span>
+            ) : null}
+          </div>
         </div>
         {goal.types.length ? (
           <div className="goal-card-types">

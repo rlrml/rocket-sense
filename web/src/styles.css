@@ -6302,8 +6302,38 @@ tbody tr:last-child td {
   width: 100%;
 }
 
-.goal-card .kickoff-card-header > strong {
+.goal-card .kickoff-card-header > strong,
+.goal-card-header-right {
   flex-shrink: 0;
+}
+
+.goal-card-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.goal-card-game-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.goal-card-game-link:hover,
+.goal-card-game-link:focus-visible {
+  background: #2563eb;
+  color: #fff;
 }
 
 .goal-card-heading h4 {
