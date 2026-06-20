@@ -97,6 +97,7 @@ export function PlayerGoalPlaylistPage() {
       contextLabel={playerName ?? platformPlayerId}
       backHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/goals`}
       typeHref={typeHref}
+      gameHref={(goal) => `/replays/${encodeURIComponent(goal.event.replay_id)}/stats/goals`}
       showReplayGroups
     />
   );
@@ -215,6 +216,7 @@ function GoalPlaylist({
   contextLabel,
   backHref,
   typeHref,
+  gameHref,
   showReplayGroups,
 }: {
   goalTypeKey: string;
@@ -224,6 +226,7 @@ function GoalPlaylist({
   contextLabel: string;
   backHref: string;
   typeHref: (type: GoalType) => string;
+  gameHref?: (goal: GoalRow) => string;
   showReplayGroups: boolean;
 }) {
   const [activeIndex, setActiveIndex] = useState(0);
@@ -420,6 +423,7 @@ function GoalPlaylist({
                         }
                       }}
                       typeHref={typeHref}
+                      gameHref={gameHref?.(goal)}
                     />
                   </Fragment>
                 );
