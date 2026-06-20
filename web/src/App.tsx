@@ -81,6 +81,7 @@ import {
   uploadReplay,
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
+import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import {
   getPreviewPlayerWarmupStatus,
@@ -167,9 +168,7 @@ export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
-  const playerReplayId = replayPlayerRouteId(location.pathname);
   const previewReplayId = replayContextRouteId(location.pathname);
-  const warmReplayId = shouldWarmSubtrActorPlayer(location.pathname) ? previewReplayId : null;
   const [previewWarmupStatus, setPreviewWarmupStatus] = useState<PreviewPlayerWarmupStatus>(
     getPreviewPlayerWarmupStatus,
   );
@@ -206,87 +205,73 @@ export function App() {
         ) : null}
       </aside>
       <main className="main-panel">
-        {playerReplayId ? (
-          <ReplayPlayerPage replayId={playerReplayId} />
-        ) : (
-          <Routes>
-            <Route path="/" element={<ReplayListPage />} />
-            <Route path="/replays" element={<ReplayListPage />} />
-            <Route path="/replay-groups" element={<ReplayGroupListPage />} />
-            <Route
-              path="/leaderboards"
-              element={
-                <Suspense fallback={<StatusLine loading error={null} />}>
-                  <LeaderboardsPage />
-                </Suspense>
-              }
-            />
-            <Route path="/replays/:replayId" element={<ReplayStatsPage />} />
-            <Route path="/replays/:replayId/stats" element={<ReplayStatsPage />} />
-            <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />
-            <Route path="/replay-groups/:groupId" element={<ReplayGroupStatsPage />} />
-            <Route path="/replay-groups/:groupId/stats" element={<ReplayGroupStatsPage />} />
-            <Route
-              path="/replay-groups/:groupId/stats/:statGroup"
-              element={<ReplayGroupStatsPage />}
-            />
-            <Route
-              path="/replays/:replayId/goals"
-              element={
-                <Suspense fallback={<StatusLine loading error={null} />}>
-                  <ReplayGoalPlaylistPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/replays/:replayId/goals/:goalType"
-              element={
-                <Suspense fallback={<StatusLine loading error={null} />}>
-                  <ReplayGoalPlaylistPage />
-                </Suspense>
-              }
-            />
-            <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
-            <Route
-              path="/players/:platform/:platformPlayerId/stats"
-              element={<PlayerStatsPage />}
-            />
-            <Route
-              path="/players/:platform/:platformPlayerId/stats/:statGroup"
-              element={<PlayerStatsPage />}
-            />
-            <Route
-              path="/players/:platform/:platformPlayerId/goals"
-              element={
-                <Suspense fallback={<StatusLine loading error={null} />}>
-                  <PlayerGoalPlaylistPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/players/:platform/:platformPlayerId/goals/:goalType"
-              element={
-                <Suspense fallback={<StatusLine loading error={null} />}>
-                  <PlayerGoalPlaylistPage />
-                </Suspense>
-              }
-            />
-            <Route path="/events/review" element={<EventsReviewPage />} />
-            <Route path="/mechanics/review" element={<EventsReviewPage />} />
-            <Route path="/admin/processing" element={<AdminProcessingPage />} />
-            <Route path="/account" element={<AccountPage />} />
-            <Route path="/login" element={<AccountPage initialLoginOpen />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="*" element={<NotFoundPage />} />
-          </Routes>
-        )}
-        {warmReplayId ? (
-          <SubtrActorPlayerFrame
-            key={warmReplayId}
-            replayId={warmReplayId}
-            visible={Boolean(playerReplayId)}
+        <Routes>
+          <Route path="/" element={<ReplayListPage />} />
+          <Route path="/replays" element={<ReplayListPage />} />
+          <Route path="/replay-groups" element={<ReplayGroupListPage />} />
+          <Route
+            path="/leaderboards"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <LeaderboardsPage />
+              </Suspense>
+            }
           />
-        ) : null}
+          <Route path="/replays/:replayId" element={<ReplayStatsPage />} />
+          <Route path="/replays/:replayId/stats" element={<ReplayStatsPage />} />
+          <Route path="/replays/:replayId/stats/:statGroup" element={<ReplayStatsPage />} />
+          <Route path="/replay-groups/:groupId" element={<ReplayGroupStatsPage />} />
+          <Route path="/replay-groups/:groupId/stats" element={<ReplayGroupStatsPage />} />
+          <Route
+            path="/replay-groups/:groupId/stats/:statGroup"
+            element={<ReplayGroupStatsPage />}
+          />
+          <Route
+            path="/replays/:replayId/goals"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <ReplayGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/replays/:replayId/goals/:goalType"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <ReplayGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
+          <Route path="/players/:platform/:platformPlayerId/stats" element={<PlayerStatsPage />} />
+          <Route
+            path="/players/:platform/:platformPlayerId/stats/:statGroup"
+            element={<PlayerStatsPage />}
+          />
+          <Route
+            path="/players/:platform/:platformPlayerId/goals"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/players/:platform/:platformPlayerId/goals/:goalType"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route path="/events/review" element={<EventsReviewPage />} />
+          <Route path="/mechanics/review" element={<EventsReviewPage />} />
+          <Route path="/admin/processing" element={<AdminProcessingPage />} />
+          <Route path="/account" element={<AccountPage />} />
+          <Route path="/login" element={<AccountPage initialLoginOpen />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
       </main>
     </div>
   );
@@ -346,19 +331,8 @@ function PreviewPlayerWarmupIndicator({ status }: { status: PreviewPlayerWarmupS
   );
 }
 
-function replayPlayerRouteId(pathname: string): string | null {
-  return /^\/replays\/([^/]+)\/player\/?$/.exec(pathname)?.[1] ?? null;
-}
-
 function replayContextRouteId(pathname: string): string | null {
-  return /^\/replays\/([^/]+)(?:\/(?:stats(?:\/[^/]+)?|player))?\/?$/.exec(pathname)?.[1] ?? null;
-}
-
-function shouldWarmSubtrActorPlayer(pathname: string): boolean {
-  // The goals detail view embeds its own replay player. Keeping the offscreen
-  // full-player iframe alive there means two WebGL replay players render at
-  // once, which can make Chrome/Wayland show a stale canvas layer.
-  return !/^\/replays\/[^/]+(?:\/stats(?:\/goals)?)?\/?$/.test(pathname);
+  return /^\/replays\/([^/]+)(?:\/stats(?:\/[^/]+)?)?\/?$/.exec(pathname)?.[1] ?? null;
 }
 
 function ReplayLink({
@@ -2011,10 +1985,10 @@ function ReplayStatsPage() {
               {reprocessingLocal ? "Reprocessing" : "Reprocess locally"}
             </button>
           ) : null}
-          <Link className="secondary-button" to={`/replays/${replayId}/player`}>
+          <a className="secondary-button" href={subtrActorPlayerUrl(replayId)}>
             <Zap size={16} />
             Player
-          </Link>
+          </a>
           {reprocessResult ? <RequeueResultChip result={reprocessResult} /> : null}
           <LocalReprocessProgressBar progress={localReprocessProgress} />
           {reprocessResult?.phase === "skipped" ? (
@@ -2378,71 +2352,6 @@ function ReplayGroupStatsPage() {
       ) : null}
     </section>
   );
-}
-
-function ReplayPlayerPage({ replayId }: { replayId: string }) {
-  const [replay, setReplay] = useState<ReplayResponse | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getReplay(replayId)
-      .then((response) => {
-        if (!cancelled) setReplay(response);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [replayId]);
-
-  return (
-    <section className="page player-page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Replay player</p>
-          <h1>{replay?.original_file_name || "Replay player"}</h1>
-        </div>
-        <div className="button-row">
-          <Link className="secondary-button" to={`/replays/${replayId}/stats`}>
-            <BarChart3 size={16} />
-            Stats
-          </Link>
-          <a className="secondary-button" href={subtrActorPlayerUrl(replayId)}>
-            <Zap size={16} />
-            Open standalone
-          </a>
-        </div>
-      </header>
-      <StatusLine loading={loading} error={error} />
-    </section>
-  );
-}
-
-function SubtrActorPlayerFrame({ replayId, visible }: { replayId: string; visible: boolean }) {
-  return (
-    <iframe
-      className={`subtr-player-frame ${visible ? "visible" : "warmup"}`}
-      title="Subtr Actor replay player"
-      src={subtrActorPlayerUrl(replayId)}
-    />
-  );
-}
-
-function replayFileUrl(replayId: string): string {
-  return `/api/v1/replays/${encodeURIComponent(replayId)}/file`;
-}
-
-function subtrActorPlayerUrl(replayId: string): string {
-  return `/subtr-actor/?replayUrl=${encodeURIComponent(replayFileUrl(replayId))}`;
 }
 
 const RATE_WINDOW_MINUTES = 5;

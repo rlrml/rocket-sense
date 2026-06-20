@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
+import { subtrActorPlayerUrl } from "../playerLink";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import type { GoalBuildupTouch, GoalPathPlayer, GoalScoringTouch } from "./GoalShapeDiagram";
@@ -157,7 +158,7 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
                     ? `Goal ${activeGoal.index + 1} · ${activeGoal.scorerName} · ${formatSeconds(activeGoal.time)}`
                     : "Loading…"
                 }
-                openHref={`/replays/${encodeURIComponent(replayId)}/player`}
+                openHref={subtrActorPlayerUrl(replayId)}
                 showDebug={false}
               />
             </Suspense>
