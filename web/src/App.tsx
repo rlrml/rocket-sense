@@ -82,7 +82,13 @@ import {
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
-import { computeStatsTimelineScaffoldJson, type LocalReprocessProgress } from "./stats/replayModel";
+import {
+  getPreviewPlayerWarmupStatus,
+  schedulePreviewPlayerWarmup,
+  subscribePreviewPlayerWarmupStatus,
+  type PreviewPlayerWarmupStatus,
+  warmPreviewPlayerForReplay,
+} from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
@@ -128,6 +134,8 @@ import type {
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "./types";
+import type { LocalReprocessProgress } from "./stats/replayModel";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 // Lazily loaded so the three.js / wasm replay player is only fetched when a
 // goal playlist page is actually opened, instead of bloating the main bundle.
@@ -160,9 +168,14 @@ export function App() {
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const playerReplayId = replayPlayerRouteId(location.pathname);
-  const warmReplayId = shouldWarmSubtrActorPlayer(location.pathname)
-    ? replayContextRouteId(location.pathname)
-    : null;
+  const previewReplayId = replayContextRouteId(location.pathname);
+  const warmReplayId = shouldWarmSubtrActorPlayer(location.pathname) ? previewReplayId : null;
+  const [previewWarmupStatus, setPreviewWarmupStatus] = useState<PreviewPlayerWarmupStatus>(
+    getPreviewPlayerWarmupStatus,
+  );
+
+  useEffect(() => schedulePreviewPlayerWarmup(previewReplayId), [previewReplayId]);
+  useEffect(() => subscribePreviewPlayerWarmupStatus(setPreviewWarmupStatus), []);
 
   async function handleLogout() {
     await logout();
@@ -184,6 +197,7 @@ export function App() {
             </NavLink>
           ))}
         </nav>
+        <PreviewPlayerWarmupIndicator status={previewWarmupStatus} />
         {currentUser ? (
           <button className="sidebar-logout" type="button" onClick={() => void handleLogout()}>
             <LogOut size={18} />
@@ -278,6 +292,60 @@ export function App() {
   );
 }
 
+function PreviewPlayerWarmupIndicator({ status }: { status: PreviewPlayerWarmupStatus }) {
+  const Icon =
+    status === "ready"
+      ? Check
+      : status === "warming-runtime" || status === "warming-player" || status === "scheduled"
+        ? RefreshCw
+        : status === "error"
+          ? AlertTriangle
+          : Zap;
+  const label =
+    status === "ready"
+      ? "Player ready"
+      : status === "runtime-ready"
+        ? "Runtime ready"
+        : status === "warming-player"
+          ? "Player warming"
+          : status === "warming-runtime"
+            ? "Runtime warming"
+            : status === "scheduled"
+              ? "Player queued"
+              : status === "error"
+                ? "Player warmup failed"
+                : "Player idle";
+  const title =
+    status === "ready"
+      ? "A hidden preview player was created from the current replay and its Three.js assets are warmed."
+      : status === "runtime-ready"
+        ? "Preview player runtime, bindings, and core assets are preloaded; open a replay route to warm an actual player."
+        : status === "warming-player"
+          ? "A hidden preview player is being created from the current replay."
+          : status === "warming-runtime"
+            ? "Preview player runtime is loading in the background."
+            : status === "scheduled"
+              ? "Preview player warmup is waiting for browser idle time."
+              : status === "error"
+                ? "Preview player warmup failed; opening a preview will retry the normal load path."
+                : "Preview player warmup has not started yet.";
+
+  return (
+    <div
+      className={`preview-player-warmup preview-player-warmup-${status}`}
+      title={title}
+      aria-live="polite"
+    >
+      <span className="preview-player-warmup-dot" aria-hidden="true" />
+      <Icon
+        size={14}
+        className={status === "warming-runtime" || status === "warming-player" ? "spin" : undefined}
+      />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function replayPlayerRouteId(pathname: string): string | null {
   return /^\/replays\/([^/]+)\/player\/?$/.exec(pathname)?.[1] ?? null;
 }
@@ -291,6 +359,58 @@ function shouldWarmSubtrActorPlayer(pathname: string): boolean {
   // full-player iframe alive there means two WebGL replay players render at
   // once, which can make Chrome/Wayland show a stale canvas layer.
   return !/^\/replays\/[^/]+(?:\/stats(?:\/goals)?)?\/?$/.test(pathname);
+}
+
+function ReplayLink({
+  replayId,
+  className,
+  children,
+}: {
+  replayId: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const navigate = useNavigate();
+  const href = `/replays/${encodeURIComponent(replayId)}`;
+
+  function warm() {
+    void warmPreviewPlayerForReplay(replayId).catch((error: unknown) => {
+      console.debug("Replay player pre-navigation warmup failed:", error);
+    });
+  }
+
+  async function onClick(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    event.preventDefault();
+    try {
+      await warmPreviewPlayerForReplay(replayId);
+    } catch (error) {
+      console.debug("Replay player pre-navigation warmup failed:", error);
+    }
+    navigate(href);
+  }
+
+  return (
+    <Link
+      className={className}
+      to={href}
+      onPointerEnter={warm}
+      onFocus={warm}
+      onTouchStart={warm}
+      onClick={(event) => void onClick(event)}
+    >
+      {children}
+    </Link>
+  );
 }
 
 function ReplayListPage() {
@@ -700,9 +820,9 @@ function ReplayListPage() {
                   />
                 ) : null}
                 <div className="replay-card-title">
-                  <Link className="primary-link" to={`/replays/${replay.id}`}>
+                  <ReplayLink className="primary-link" replayId={replay.id}>
                     {replay.original_file_name || replay.id}
-                  </Link>
+                  </ReplayLink>
                   <span className="subtle">
                     {replay.map_code ||
                       replay.summary.match_guid ||
@@ -1822,6 +1942,7 @@ function ReplayStatsPage() {
       message: "Reprocessing locally — parsing replay in your browser…",
     });
     try {
+      const { computeStatsTimelineScaffoldJson } = await import("./stats/replayModel");
       const scaffoldJson = await computeStatsTimelineScaffoldJson(
         replayId,
         setLocalReprocessProgress,
@@ -2235,9 +2356,9 @@ function ReplayGroupStatsPage() {
                   {replays.map((replay) => (
                     <tr key={replay.id}>
                       <td>
-                        <Link className="primary-link" to={`/replays/${replay.id}`}>
+                        <ReplayLink className="primary-link" replayId={replay.id}>
                           {replay.original_file_name || replay.id}
-                        </Link>
+                        </ReplayLink>
                       </td>
                       <td>{formatScore(replay)}</td>
                       <td>{playlistLabel(replay.playlist_metadata, replay.playlist)}</td>
@@ -5185,9 +5306,9 @@ function AdminProcessingPage() {
                   }
                 >
                   <td className="admin-replay-cell">
-                    <Link className="primary-link" to={`/replays/${diagnostic.replay_id}`}>
+                    <ReplayLink className="primary-link" replayId={diagnostic.replay_id}>
                       {diagnostic.original_file_name || diagnostic.replay_id}
-                    </Link>
+                    </ReplayLink>
                     <div className="subtle">{diagnostic.file_sha256.slice(0, 16)}</div>
                     <StatusBadge status={diagnostic.processing_status} />
                   </td>
