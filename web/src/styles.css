@@ -6138,6 +6138,10 @@ tbody tr:last-child td {
     width: 100%;
   }
 
+  .leaderboard-playlist-filter input {
+    max-width: none;
+  }
+
   .leaderboard-panel > .chart-panel-header {
     padding: 12px 12px 0;
   }
@@ -7499,34 +7503,56 @@ tbody tr:last-child td {
 .leaderboards-page .player-segment-bar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 12px 18px;
+  align-items: stretch;
+  gap: 10px 12px;
   padding: 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: #f8fafc;
 }
 
-.leaderboards-page .stat-group-nav {
-  align-items: flex-end;
-  flex-wrap: wrap;
-  gap: 7px;
-  padding: 6px;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
+/* Both kinds of filter group — segmented button sets and select/number
+   controls — share one card so the toolbar reads as a single, consistent
+   control surface instead of a row of mismatched native widgets. */
+.leaderboards-page .stat-group-nav,
+.leaderboards-page .leaderboard-playlist-filter {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   background: #fff;
-  padding-bottom: 0;
+  overflow: visible;
+}
+
+.leaderboards-page .stat-group-nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.leaderboards-page .leaderboard-playlist-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* One label treatment for every group: its own line above the controls. */
+.leaderboards-page .player-segment-bar .segment-bar-label {
+  min-width: 0;
+  min-height: 0;
+  margin: 0;
+  color: #5d6b80;
+  font-size: var(--text-sm);
 }
 
 .leaderboards-page .stat-group-nav .segment-bar-label {
   flex-basis: 100%;
-  min-height: 0;
-  margin-bottom: 1px;
 }
 
 .leaderboards-page .stat-group-link {
-  min-height: 34px;
-  border-color: #d8e0ea;
+  min-height: 36px;
+  border-color: var(--border-strong);
   background: #fff;
 }
 
@@ -7536,30 +7562,214 @@ tbody tr:last-child td {
   color: #fff;
 }
 
-.leaderboard-playlist-filter {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  padding: 6px;
-  border: 1px solid #e2e8f0;
-  border-radius: 7px;
-  background: #fff;
+.leaderboards-page .stat-group-link:not(.active):hover {
+  border-color: #9fb4d9;
+  background: #eaf1ff;
+  color: #1d4ed8;
 }
 
-.leaderboard-playlist-filter .segment-bar-label {
-  min-height: 0;
-}
-
+/* Native select / number input restyled to match the segmented buttons:
+   same height, radius, border, focus ring, and a custom caret. */
 .leaderboard-playlist-filter select,
 .leaderboard-playlist-filter input {
-  min-width: 12rem;
   height: 36px;
-  border-color: #d8e0ea;
+  min-width: 12rem;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
   background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  transition:
+    border-color 0.12s ease,
+    box-shadow 0.12s ease;
+}
+
+.leaderboard-playlist-filter select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235d6b80' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+
+.leaderboard-playlist-filter select:hover,
+.leaderboard-playlist-filter input:hover {
+  border-color: #9fb4d9;
+}
+
+.leaderboard-playlist-filter select:focus,
+.leaderboard-playlist-filter input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
 }
 
 .leaderboard-playlist-filter input {
   min-width: 7rem;
+  max-width: 9rem;
+}
+
+/* ---- Metric catalog ------------------------------------------------------
+   Unified, searchable picker for every leaderboard. One card holds the search
+   box, the category tabs, and the metric chips for the active category. */
+.leaderboard-catalog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: #f8fafc;
+}
+
+.leaderboard-catalog-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.leaderboard-catalog-search svg {
+  position: absolute;
+  left: 11px;
+  color: #8a98a8;
+  pointer-events: none;
+}
+
+.leaderboard-catalog-search input {
+  width: 100%;
+  height: 38px;
+  padding: 0 12px 0 34px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+}
+
+.leaderboard-catalog-search input:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
+.leaderboard-category-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Category tabs share the metric chip's button language so the catalog reads as
+   one control surface. The two selection levels are told apart by active weight:
+   the current category gets a soft-blue fill ("where you are"), while the chosen
+   metric below keeps the solid-blue fill ("what's selected"). */
+.leaderboard-category-tab {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: #fff;
+  color: #344255;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.leaderboard-category-tab:hover {
+  border-color: #9fb4d9;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.leaderboard-category-tab.active {
+  border-color: #2563eb;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.leaderboard-metric-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.leaderboard-metric-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.leaderboard-metric-group-label {
+  color: #7a8699;
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.leaderboard-metric-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.leaderboard-metric-chip {
+  height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: #fff;
+  color: #344255;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.leaderboard-metric-chip:hover {
+  border-color: #9fb4d9;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.leaderboard-metric-chip.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+/* Board header: metric name + blurb on the left, the per-metric "Rank by"
+   ranking toggle on the right. */
+.leaderboard-board-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px 16px;
+}
+
+.leaderboard-board-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.leaderboard-board-header .stat-group-nav {
+  flex: 0 0 auto;
 }
 
 .leaderboard-panel {
