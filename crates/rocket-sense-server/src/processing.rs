@@ -27,6 +27,114 @@ use uuid::Uuid;
 mod tests;
 
 pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
+const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        WITH ball_half_spans AS (
+            SELECT
+                event.replay_id,
+                event.analysis_run_id,
+                payload.payload,
+                COALESCE(event.start_time, event.event_time, event.end_time) AS start_time,
+                COALESCE(event.end_time, event.event_time, event.start_time) AS end_time
+            FROM play_events event
+            JOIN play_event_payloads payload ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream = 'ball_half'
+        ),
+        player_activity_spans AS (
+            SELECT DISTINCT
+                subject.replay_player_id,
+                COALESCE(event.start_time, event.event_time, event.end_time) AS start_time,
+                COALESCE(event.end_time, event.event_time, event.start_time) AS end_time
+            FROM play_events event
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.replay_player_id IS NOT NULL
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream = 'player_activity'
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            'ball-opponent-half',
+            SUM(
+                CASE
+                    WHEN COALESCE((ball.payload ->> 'active')::boolean, true)
+                     AND (
+                        (rp.team = 0 AND ball.payload ->> 'field_half' = 'team_one_side')
+                        OR (rp.team = 1 AND ball.payload ->> 'field_half' = 'team_zero_side')
+                     )
+                    THEN GREATEST(
+                        LEAST(ball.end_time, activity.end_time)
+                            - GREATEST(ball.start_time, activity.start_time),
+                        0.0
+                    )
+                    ELSE 0.0
+                END
+            ) AS value,
+            'seconds',
+            rp.active_time_seconds,
+            'active_time',
+            rp.active_time_seconds
+        FROM replay_players rp
+        JOIN player_activity_spans activity
+          ON activity.replay_player_id = rp.id
+         AND activity.start_time IS NOT NULL
+         AND activity.end_time IS NOT NULL
+         AND activity.end_time > activity.start_time
+        JOIN ball_half_spans ball
+          ON ball.replay_id = rp.replay_id
+         AND ball.analysis_run_id = $1
+         AND ball.start_time IS NOT NULL
+         AND ball.end_time IS NOT NULL
+         AND ball.end_time > ball.start_time
+         AND ball.end_time > activity.start_time
+         AND ball.start_time < activity.end_time
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+          AND rp.team IN (0, 1)
+        GROUP BY rp.replay_id, rp.id, rp.platform, rp.platform_player_id, rp.team, rp.active_time_seconds
+        HAVING SUM(
+            CASE
+                WHEN COALESCE((ball.payload ->> 'active')::boolean, true)
+                 AND (
+                    (rp.team = 0 AND ball.payload ->> 'field_half' = 'team_one_side')
+                    OR (rp.team = 1 AND ball.payload ->> 'field_half' = 'team_zero_side')
+                 )
+                THEN GREATEST(
+                    LEAST(ball.end_time, activity.end_time)
+                        - GREATEST(ball.start_time, activity.start_time),
+                    0.0
+                )
+                ELSE 0.0
+            END
+        ) > 0.0
+        ON CONFLICT DO NOTHING
+        "#;
 // Bumped v2 -> v3 when goal ball speed (`ball_speed_at_goal`) was corrected:
 // previously every goal recorded 0 because the explosion frame carries no ball
 // velocity. Bumping marks prior analyses stale so reprocessing re-emits the
@@ -1290,95 +1398,12 @@ async fn insert_ball_opponent_half_facts(
     analysis_run_id: Uuid,
     replay_id: Uuid,
 ) -> Result<()> {
-    sqlx::query(
-        r#"
-        INSERT INTO player_replay_stat_facts (
-            analysis_run_id,
-            replay_id,
-            replay_player_id,
-            player_subject_id,
-            platform,
-            platform_player_id,
-            team,
-            stat_key,
-            value,
-            unit,
-            active_time_seconds,
-            denominator_key,
-            denominator_value
-        )
-        SELECT
-            $1,
-            rp.replay_id,
-            rp.id,
-            concat(rp.platform, ':', rp.platform_player_id),
-            rp.platform,
-            rp.platform_player_id,
-            rp.team,
-            'ball-opponent-half',
-            SUM(
-                CASE
-                    WHEN COALESCE((payload.payload ->> 'active')::boolean, true)
-                     AND (
-                        (rp.team = 0 AND payload.payload ->> 'field_half' = 'team_one_side')
-                        OR (rp.team = 1 AND payload.payload ->> 'field_half' = 'team_zero_side')
-                     )
-                    THEN COALESCE(
-                        event.duration_seconds,
-                        CASE
-                            WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
-                            THEN GREATEST(event.end_time - event.start_time, 0)
-                            ELSE 0
-                        END,
-                        0
-                    )
-                    ELSE 0
-                END
-            ) AS value,
-            'seconds',
-            rp.active_time_seconds,
-            'active_time',
-            rp.active_time_seconds
-        FROM replay_players rp
-        JOIN play_events event
-          ON event.replay_id = rp.replay_id
-         AND event.analysis_run_id = $1
-         AND event.source_stream = 'ball_half'
-        JOIN play_event_payloads payload ON payload.event_id = event.id
-        WHERE rp.replay_id = $2
-          AND rp.platform IS NOT NULL
-          AND btrim(rp.platform) <> ''
-          AND rp.platform_player_id IS NOT NULL
-          AND btrim(rp.platform_player_id) <> ''
-          AND rp.team IN (0, 1)
-        GROUP BY rp.replay_id, rp.id, rp.platform, rp.platform_player_id, rp.team, rp.active_time_seconds
-        HAVING SUM(
-            CASE
-                WHEN COALESCE((payload.payload ->> 'active')::boolean, true)
-                 AND (
-                    (rp.team = 0 AND payload.payload ->> 'field_half' = 'team_one_side')
-                    OR (rp.team = 1 AND payload.payload ->> 'field_half' = 'team_zero_side')
-                 )
-                THEN COALESCE(
-                    event.duration_seconds,
-                    CASE
-                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
-                        THEN GREATEST(event.end_time - event.start_time, 0)
-                        ELSE 0
-                    END,
-                    0
-                )
-                ELSE 0
-            END
-        ) > 0.0
-        ON CONFLICT DO NOTHING
-        "#,
-    )
-    .bind(analysis_run_id)
-    .bind(replay_id)
-    .execute(pool)
-    .await
-    .context("failed to insert ball opponent-half stat facts")?;
+    sqlx::query(INSERT_BALL_OPPONENT_HALF_FACTS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert ball opponent-half stat facts")?;
     Ok(())
 }
 
