@@ -368,16 +368,11 @@ button:disabled {
   width: 18px;
   height: 18px;
   flex: none;
+  object-fit: contain;
 }
 
 .external-site-logo-trn {
   border-radius: 4px;
-  background: #111827;
-  color: #4cc9ff;
-  font-size: var(--text-3xs);
-  font-weight: var(--fw-heavy);
-  letter-spacing: 0;
-  line-height: 1;
 }
 
 .external-site-logo-ballchasing {

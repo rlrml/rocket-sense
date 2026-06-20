@@ -127,34 +127,24 @@ export function ballchasingPlayerUrl(
   platformPlayerId: string | null | undefined,
   playerName?: string | null,
 ): string | null {
-  const playerId = ballchasingPlayerId(platform, platformPlayerId, playerName);
-  if (playerId) {
-    return `https://ballchasing.com/?player-id=${encodeURIComponent(playerId)}`;
-  }
-
-  const trimmedName = playerName?.trim();
-  if (!trimmedName || trimmedName === "Unknown") return null;
-  return `https://ballchasing.com/?player-name=${encodeURIComponent(trimmedName)}`;
+  const platformSlug = ballchasingPlatform(platform);
+  const playerId = ballchasingPlayerIdentifier(platform, platformPlayerId, playerName);
+  if (!platformSlug || !playerId) return null;
+  return `https://ballchasing.com/player/${encodeURIComponent(platformSlug)}/${encodeURIComponent(
+    playerId,
+  )}`;
 }
 
-function ballchasingPlayerId(
+function ballchasingPlayerIdentifier(
   platform: string | null | undefined,
   platformPlayerId: string | null | undefined,
   playerName: string | null | undefined,
 ): string | null {
-  const ballchasingPlatformName = ballchasingPlatform(platform);
-  if (!ballchasingPlatformName) return null;
-
   const trimmedId = platformPlayerId?.trim() || null;
   const trimmedName = playerName?.trim() || null;
   const normalizedPlatform = normalizePlatform(platform);
-  const identifier =
-    normalizedPlatform === "steam" || normalizedPlatform === "epic"
-      ? trimmedId
-      : trimmedName && trimmedName !== "Unknown"
-        ? trimmedName
-        : null;
-  return identifier ? `${ballchasingPlatformName}:${identifier}` : null;
+  if (normalizedPlatform === "steam" || normalizedPlatform === "epic") return trimmedId;
+  return trimmedName && trimmedName !== "Unknown" ? trimmedName : null;
 }
 
 // Official brand glyph paths (24x24 viewBox), from the MIT-licensed
