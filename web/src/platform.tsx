@@ -70,6 +70,23 @@ function rlTrackerPlatform(value: string | null | undefined): string | null {
   }
 }
 
+function ballchasingPlatform(value: string | null | undefined): string | null {
+  switch (normalizePlatform(value)) {
+    case "steam":
+      return "steam";
+    case "epic":
+      return "epic";
+    case "playstation":
+      return "ps4";
+    case "xbox":
+      return "xbox";
+    case "switch":
+      return "switch";
+    default:
+      return null;
+  }
+}
+
 export function rlTrackerPlayerUrl(
   platform: string | null | undefined,
   platformPlayerId: string | null | undefined,
@@ -103,6 +120,41 @@ function rlTrackerPlayerIdentifier(
     default:
       return null;
   }
+}
+
+export function ballchasingPlayerUrl(
+  platform: string | null | undefined,
+  platformPlayerId: string | null | undefined,
+  playerName?: string | null,
+): string | null {
+  const playerId = ballchasingPlayerId(platform, platformPlayerId, playerName);
+  if (playerId) {
+    return `https://ballchasing.com/?player-id=${encodeURIComponent(playerId)}`;
+  }
+
+  const trimmedName = playerName?.trim();
+  if (!trimmedName || trimmedName === "Unknown") return null;
+  return `https://ballchasing.com/?player-name=${encodeURIComponent(trimmedName)}`;
+}
+
+function ballchasingPlayerId(
+  platform: string | null | undefined,
+  platformPlayerId: string | null | undefined,
+  playerName: string | null | undefined,
+): string | null {
+  const ballchasingPlatformName = ballchasingPlatform(platform);
+  if (!ballchasingPlatformName) return null;
+
+  const trimmedId = platformPlayerId?.trim() || null;
+  const trimmedName = playerName?.trim() || null;
+  const normalizedPlatform = normalizePlatform(platform);
+  const identifier =
+    normalizedPlatform === "steam" || normalizedPlatform === "epic"
+      ? trimmedId
+      : trimmedName && trimmedName !== "Unknown"
+        ? trimmedName
+        : null;
+  return identifier ? `${ballchasingPlatformName}:${identifier}` : null;
 }
 
 // Official brand glyph paths (24x24 viewBox), from the MIT-licensed

@@ -361,6 +361,13 @@ button:disabled {
   padding: 0;
 }
 
+.external-site-logo {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  object-fit: contain;
+}
+
 .upload-button input {
   display: none;
 }

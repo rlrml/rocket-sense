@@ -93,7 +93,7 @@ import { BoostProfileDetail } from "./stats/boost";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
-import { PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
+import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
 import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
@@ -3059,6 +3059,10 @@ function PlayerStatsPage() {
     () => rlTrackerPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
     [platform, platformPlayerId, rlTrackerPlayerName],
   );
+  const ballchasingUrl = useMemo(
+    () => ballchasingPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
+    [platform, platformPlayerId, rlTrackerPlayerName],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -3291,8 +3295,19 @@ function PlayerStatsPage() {
               target="_blank"
               rel="noopener noreferrer"
             >
-              <ExternalLink size={16} />
-              RLTracker
+              <ExternalSiteLogo site="trn" />
+              TRN
+            </a>
+          ) : null}
+          {ballchasingUrl ? (
+            <a
+              className="secondary-button"
+              href={ballchasingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalSiteLogo site="ballchasing" />
+              Ballchasing
             </a>
           ) : null}
           <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
@@ -3368,6 +3383,20 @@ function playerReplaySetParams(
   params.delete("offset");
   params.set("player-id", `${platform}:${platformPlayerId}`);
   return params;
+}
+
+function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
+  const logo =
+    site === "trn"
+      ? {
+          src: "https://rocketleague.tracker.network/favicon.ico",
+          label: "Tracker Network",
+        }
+      : {
+          src: "https://ballchasing.com/favicon.ico",
+          label: "ballchasing.com",
+        };
+  return <img className="external-site-logo" src={logo.src} alt="" title={logo.label} />;
 }
 
 function playerStatGroupPath(
