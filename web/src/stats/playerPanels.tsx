@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import type { ReactNode } from "react";
 import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
@@ -540,13 +541,8 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
 
 type KickoffSummaryRole = "taker" | "support";
 
-const kickoffTakerDimensionKeys = [
-  "approach",
-  "taker_outcome",
-  "player_result",
-  "advantage_result",
-];
-const kickoffSupportDimensionKeys = ["support_behavior", "player_result", "advantage_result"];
+const kickoffTakerDimensionKeys = ["approach", "taker_outcome", "advantage_result"];
+const kickoffSupportDimensionKeys = ["support_behavior", "advantage_result"];
 
 /** Kickoff outcome shares, headline metrics, and per-dimension distributions. */
 export function KickoffSummaryPanel({
@@ -565,7 +561,6 @@ export function KickoffSummaryPanel({
   // touch rate alongside so the conditioning is visible.
   const takerCount = metric("taker_count") ?? 0;
   const takerTouchRate = takerCount > 0 ? (metric("touched_count") ?? 0) / takerCount : null;
-  const firstTouchRate = role === "taker" ? metric("first_touch_share") : null;
   // Who the kickoff was actually good for once play settled (possession run,
   // established pressure, or kickoff goal), independent of the immediate
   // win/loss read above. Zero for replay sets processed before the advantage
@@ -574,11 +569,14 @@ export function KickoffSummaryPanel({
   const advantagesAgainst = metric("advantages_against") ?? 0;
   const noAdvantage = metric("no_advantage_count") ?? 0;
   const advantageTotal = advantagesFor + advantagesAgainst + noAdvantage;
+  const kickoffGoalsFor = metric("kickoff_goals_for") ?? 0;
+  const kickoffGoalsAgainst = metric("kickoff_goals_against") ?? 0;
   const strengthDimension = summary.dimensions.find(
     (dimension) => dimension.key === "win_strength_result",
   );
   const strengthSegments = kickoffStrengthSegments(strengthDimension);
   const strengthTotal = strengthSegments.reduce((total, segment) => total + segment.value, 0);
+  const winRateBars = kickoffWinRateBars(strengthDimension, wins, losses);
   const dimensionKeys = role === "taker" ? kickoffTakerDimensionKeys : kickoffSupportDimensionKeys;
   const dimensions = dimensionKeys
     .map((key) => summary.dimensions.find((dimension) => dimension.key === key))
@@ -597,68 +595,66 @@ export function KickoffSummaryPanel({
         </span>
       </header>
       {strengthTotal > 0 ? (
-        <div className="kickoff-outcome-share">
-          <OutcomeDistributionBar
-            ariaLabel="Kickoff win strength share"
-            colors={PLAYER_RELATIVE_OUTCOME_COLORS}
-            segments={strengthSegments}
-            total={strengthTotal}
-          />
-        </div>
-      ) : outcomeTotal > 0 ? (
-        <div className="kickoff-outcome-share">
-          <OutcomeDistributionBar
-            ariaLabel="Kickoff outcome share"
-            colors={PLAYER_RELATIVE_OUTCOME_COLORS}
-            segments={[
-              kickoffOutcomeSegment("win", "Won", wins, outcomeTotal),
-              kickoffOutcomeSegment("neutral", "Neutral", neutral, outcomeTotal),
-              kickoffOutcomeSegment("loss", "Lost", losses, outcomeTotal),
-            ]}
-            total={outcomeTotal}
-          />
-        </div>
-      ) : null}
-      {advantageTotal > 0 ? (
-        <div className="kickoff-outcome-share">
-          <OutcomeDistributionBar
-            ariaLabel="Kickoff advantage share"
-            colors={PLAYER_RELATIVE_OUTCOME_COLORS}
-            segments={[
-              kickoffOutcomeSegment("win", "Advantage gained", advantagesFor, advantageTotal),
-              kickoffOutcomeSegment("neutral", "No advantage", noAdvantage, advantageTotal),
-              kickoffOutcomeSegment(
-                "loss",
-                "Advantage conceded",
-                advantagesAgainst,
-                advantageTotal,
-              ),
-            ]}
-            total={advantageTotal}
-          />
-        </div>
-      ) : null}
-      <div className="kickoff-headline-metrics">
-        <KickoffMetric label="Kickoff goals for" value={formatCount(metric("kickoff_goals_for"))} />
-        <KickoffMetric
-          label="Kickoff goals against"
-          value={formatCount(metric("kickoff_goals_against"))}
+        <KickoffProfileOutcomeBar
+          ariaLabel="Kickoff win strength share"
+          title="By result"
+          segments={strengthSegments}
+          total={strengthTotal}
+          value={`${strengthTotal.toLocaleString()}×`}
         />
+      ) : outcomeTotal > 0 ? (
+        <KickoffProfileOutcomeBar
+          ariaLabel="Kickoff outcome share"
+          title="By result"
+          segments={[
+            kickoffOutcomeSegment("win", "Won", wins, outcomeTotal),
+            kickoffOutcomeSegment("neutral", "Neutral", neutral, outcomeTotal),
+            kickoffOutcomeSegment("loss", "Lost", losses, outcomeTotal),
+          ]}
+          total={outcomeTotal}
+          value={`${outcomeTotal.toLocaleString()}×`}
+        />
+      ) : null}
+      <KickoffWinRateBars bars={winRateBars} />
+      {advantageTotal > 0 ? (
+        <KickoffProfileOutcomeBar
+          ariaLabel="Kickoff advantage share"
+          title="Advantage"
+          segments={[
+            kickoffOutcomeSegment("win", "Advantage gained", advantagesFor, advantageTotal),
+            kickoffOutcomeSegment("neutral", "No advantage", noAdvantage, advantageTotal),
+            kickoffOutcomeSegment("loss", "Advantage conceded", advantagesAgainst, advantageTotal),
+          ]}
+          total={advantageTotal}
+          value={`${advantageTotal.toLocaleString()}×`}
+        />
+      ) : null}
+      <div className="kickoff-profile-bars">
+        <KickoffFirstTouchBar
+          firstTouches={metric("first_touch_count") ?? 0}
+          totalKickoffs={summary.event_count}
+        />
+        <KickoffGoalBar
+          goalsFor={kickoffGoalsFor}
+          goalsAgainst={kickoffGoalsAgainst}
+          totalKickoffs={summary.event_count}
+        />
+      </div>
+      <div className="kickoff-headline-metrics">
         {role === "taker" ? (
           <>
-            <KickoffMetric label="First touch" value={formatYesNoShare(firstTouchRate)} />
             <KickoffMetric label="Taker touch rate" value={formatShare(takerTouchRate)} />
             <KickoffMetric
               label="Avg time to touch"
               value={formatSecondsValue(metric("avg_taker_time_to_touch"))}
             />
+            {/* avg_boost_used arrives in raw 0-255 replay units; rescale to the 0-100 display scale. */}
+            <KickoffMetric
+              label="Avg boost used"
+              value={formatNumberValue(boostAmountToPercent(metric("avg_boost_used")))}
+            />
           </>
         ) : null}
-        {/* avg_boost_delta arrives in raw 0-255 replay units; rescale to the 0-100 display scale. */}
-        <KickoffMetric
-          label="Avg boost delta"
-          value={formatSigned(boostAmountToPercent(metric("avg_boost_delta")))}
-        />
       </div>
       {dimensions.length > 0 ? (
         <div className="kickoff-dimension-grid">
@@ -669,6 +665,219 @@ export function KickoffSummaryPanel({
       ) : null}
     </section>
   );
+}
+
+interface KickoffWinRateBarData {
+  wins: number;
+  losses: number;
+  total: number;
+}
+
+function KickoffWinRateBars({
+  bars,
+}: {
+  bars: {
+    overall: KickoffWinRateBarData;
+    clear: KickoffWinRateBarData | null;
+  };
+}) {
+  const hasClearBar = Boolean(bars.clear && bars.clear.total > 0);
+  if (bars.overall.total <= 0 && !hasClearBar) return null;
+  return (
+    <div className="kickoff-profile-bars">
+      {bars.overall.total > 0 ? <KickoffWinRateBar title="Overall" data={bars.overall} /> : null}
+      {bars.clear && bars.clear.total > 0 ? (
+        <KickoffWinRateBar title="Clear" data={bars.clear} />
+      ) : null}
+    </div>
+  );
+}
+
+function KickoffWinRateBar({ title, data }: { title: string; data: KickoffWinRateBarData }) {
+  return (
+    <KickoffProfileBar title={title} value={formatShare(shareOf(data.wins, data.total))}>
+      <OutcomeDistributionBar
+        ariaLabel={title}
+        colors={PLAYER_RELATIVE_OUTCOME_COLORS}
+        segments={[
+          kickoffProfileSegment("win", "Won", data.wins, data.total),
+          kickoffProfileSegment("loss", "Lost", data.losses, data.total),
+        ]}
+        total={data.total}
+      />
+    </KickoffProfileBar>
+  );
+}
+
+function KickoffFirstTouchBar({
+  firstTouches,
+  totalKickoffs,
+}: {
+  firstTouches: number;
+  totalKickoffs: number;
+}) {
+  const noFirstTouch = Math.max(0, totalKickoffs - firstTouches);
+  return (
+    <KickoffProfileBar
+      title="First touch"
+      value={formatShare(shareOf(firstTouches, totalKickoffs))}
+    >
+      <OutcomeDistributionBar
+        ariaLabel="First touch share"
+        colors={PLAYER_RELATIVE_OUTCOME_COLORS}
+        segments={[
+          kickoffProfileSegment("win", "First touch", firstTouches, totalKickoffs),
+          kickoffProfileSegment("loss", "No first touch", noFirstTouch, totalKickoffs),
+        ]}
+        total={totalKickoffs}
+      />
+    </KickoffProfileBar>
+  );
+}
+
+function KickoffProfileOutcomeBar({
+  ariaLabel,
+  segments,
+  title,
+  total,
+  value,
+}: {
+  ariaLabel: string;
+  segments: OutcomeDistributionSegment[];
+  title: string;
+  total: number;
+  value: ReactNode;
+}) {
+  return (
+    <div className="kickoff-outcome-share">
+      <h4>{title}</h4>
+      <OutcomeDistributionBar
+        ariaLabel={ariaLabel}
+        colors={PLAYER_RELATIVE_OUTCOME_COLORS}
+        segments={segments}
+        total={total}
+      />
+      <span className="kickoff-profile-bar-value">{value}</span>
+    </div>
+  );
+}
+
+function KickoffGoalBar({
+  goalsFor,
+  goalsAgainst,
+  totalKickoffs,
+}: {
+  goalsFor: number;
+  goalsAgainst: number;
+  totalKickoffs: number;
+}) {
+  const goalTotal = goalsFor + goalsAgainst;
+  return (
+    <KickoffProfileBar title="Goals" value={`${goalTotal.toLocaleString()}×`}>
+      <OutcomeDistributionBar
+        ariaLabel="Team kickoff goals for versus against balance"
+        colors={PLAYER_RELATIVE_OUTCOME_COLORS}
+        segments={[
+          kickoffGoalBalanceSegment("win", "For", goalsFor, goalTotal, totalKickoffs),
+          kickoffGoalBalanceSegment("loss", "Against", goalsAgainst, goalTotal, totalKickoffs),
+        ]}
+        total={goalTotal}
+      />
+    </KickoffProfileBar>
+  );
+}
+
+function KickoffProfileBar({
+  title,
+  children,
+  value,
+}: {
+  title: string;
+  children: ReactNode;
+  value?: ReactNode;
+}) {
+  return (
+    <div className="kickoff-profile-bar">
+      <h4>{title}</h4>
+      {children}
+      <span className="kickoff-profile-bar-value">{value ?? ""}</span>
+    </div>
+  );
+}
+
+function kickoffWinRateBars(
+  dimension: EventStatDimensionResponse | undefined,
+  fallbackWins: number,
+  fallbackLosses: number,
+): {
+  overall: KickoffWinRateBarData;
+  clear: KickoffWinRateBarData | null;
+} {
+  if (!dimension) {
+    const total = fallbackWins + fallbackLosses;
+    return {
+      overall: { wins: fallbackWins, losses: fallbackLosses, total },
+      clear: null,
+    };
+  }
+  const count = (key: string) => dimension.values.find((value) => value.key === key)?.count ?? 0;
+  const overallWins =
+    count("win_narrow") + count("win_clear") + count("win_strong") + count("win_unknown");
+  const overallLosses =
+    count("loss_narrow") + count("loss_clear") + count("loss_strong") + count("loss_unknown");
+  const clearWins = count("win_clear") + count("win_strong");
+  const clearLosses = count("loss_clear") + count("loss_strong");
+  return {
+    overall: {
+      wins: overallWins,
+      losses: overallLosses,
+      total: overallWins + overallLosses,
+    },
+    clear: {
+      wins: clearWins,
+      losses: clearLosses,
+      total: clearWins + clearLosses,
+    },
+  };
+}
+
+function kickoffProfileSegment(
+  id: "win" | "neutral" | "loss",
+  label: string,
+  value: number,
+  total: number,
+  showVisibleLabel = true,
+): OutcomeDistributionSegment {
+  const share = total > 0 ? value / total : 0;
+  return {
+    key: id,
+    tone: id === "win" ? "positive" : id === "loss" ? "negative" : "neutral",
+    label,
+    value,
+    visibleLabel: showVisibleLabel && value > 0 ? `${label} ${formatShare(share)}` : undefined,
+    title: statPercentWithValue(formatShare(share), value.toLocaleString(), label),
+  };
+}
+
+function kickoffGoalBalanceSegment(
+  id: "win" | "loss",
+  label: string,
+  value: number,
+  balanceTotal: number,
+  totalKickoffs: number,
+): OutcomeDistributionSegment {
+  const balanceShare = balanceTotal > 0 ? value / balanceTotal : 0;
+  const kickoffShare = totalKickoffs > 0 ? value / totalKickoffs : 0;
+  const totalKickoffShare = formatDetailedShare(kickoffShare);
+  return {
+    key: id,
+    tone: id === "win" ? "positive" : "negative",
+    label,
+    value,
+    visibleLabel:
+      value > 0 ? `${label} ${formatShare(balanceShare)} (${totalKickoffShare})` : undefined,
+    title: `${label}: ${formatShare(balanceShare)} of kickoff goals; ${totalKickoffShare} of all kickoffs (${value.toLocaleString()})`,
+  };
 }
 
 function KickoffMetric({ label, value }: { label: string; value: string }) {
@@ -728,7 +937,7 @@ function kickoffOutcomeSegment(
     tone: id === "win" ? "positive" : id === "loss" ? "negative" : "neutral",
     label,
     value,
-    visibleLabel: share >= 0.08 ? `${label}: ${formatShare(share)}` : undefined,
+    visibleLabel: value > 0 ? `${label} ${formatShare(share)}` : undefined,
     title: statPercentWithValue(formatShare(share), value.toLocaleString(), label),
   };
 }
@@ -770,7 +979,7 @@ function kickoffStrengthSegment(
     level: kickoffStrengthLevel(key),
     label,
     value,
-    visibleLabel: share >= 0.08 ? `${label}: ${formatShare(share)}` : undefined,
+    visibleLabel: value > 0 ? `${label} ${formatShare(share)}` : undefined,
     title: statPercentWithValue(formatShare(share), value.toLocaleString(), label),
   };
 }
@@ -845,9 +1054,9 @@ function formatShare(value: number | null): string {
   return `${Math.round(value * 100)}%`;
 }
 
-function formatYesNoShare(value: number | null): string {
+function formatDetailedShare(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "–";
-  return `Yes ${formatShare(value)} / No ${formatShare(1 - value)}`;
+  return `${(value * 100).toFixed(2)}%`;
 }
 
 function formatRate(value: number): string {
@@ -857,20 +1066,14 @@ function formatRate(value: number): string {
   return value.toFixed(absolute >= 10 ? 1 : 2);
 }
 
-function formatCount(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "–";
-  return Math.round(value).toLocaleString();
-}
-
 function formatSecondsValue(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "–";
   return `${value.toFixed(2)}s`;
 }
 
-function formatSigned(value: number | null): string {
+function formatNumberValue(value: number | null): string {
   if (value == null || !Number.isFinite(value)) return "–";
-  const formatted = formatRate(Math.abs(value));
-  return value >= 0 ? `+${formatted}` : `-${formatted}`;
+  return formatRate(value);
 }
 
 function formatDurationSeconds(value: number): string {

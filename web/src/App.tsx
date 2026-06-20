@@ -2324,8 +2324,14 @@ function subtrActorPlayerUrl(replayId: string): string {
   return `/subtr-actor/?replayUrl=${encodeURIComponent(replayFileUrl(replayId))}`;
 }
 
+const RATE_WINDOW_MINUTES = 5;
+
 function StatRows({ title, stats }: { title: string; stats: StatAggregateResponse[] }) {
   const rows = stats.slice(0, 12);
+  const rateWindowMinutes =
+    rows.length > 0 && rows.every(isBoostAggregateStat) ? 1 : RATE_WINDOW_MINUTES;
+  const rateColumnLabel =
+    rateWindowMinutes === 1 ? "Per active min" : `Per ${rateWindowMinutes} min`;
 
   return (
     <section className="stat-panel">
@@ -2337,7 +2343,7 @@ function StatRows({ title, stats }: { title: string; stats: StatAggregateRespons
               <tr>
                 <th>Stat</th>
                 <th>Count</th>
-                <th>Per 5 active min</th>
+                <th>{rateColumnLabel}</th>
               </tr>
             </thead>
             <tbody>
@@ -2348,7 +2354,7 @@ function StatRows({ title, stats }: { title: string; stats: StatAggregateRespons
                     <div className="subtle">{stat.category}</div>
                   </td>
                   <td>{stat.event_count.toLocaleString()}</td>
-                  <td>{formatNumber(perFiveMinutes(stat.per_active_minute))}</td>
+                  <td>{formatNumber(ratePerWindow(stat.per_active_minute, rateWindowMinutes))}</td>
                 </tr>
               ))}
             </tbody>
@@ -2359,10 +2365,6 @@ function StatRows({ title, stats }: { title: string; stats: StatAggregateRespons
       )}
     </section>
   );
-}
-
-function perFiveMinutes(perMinute: number | null): number | null {
-  return perMinute == null ? null : perMinute * 5;
 }
 
 function EventRows({ title, events }: { title: string; events: MechanicEventResponse[] }) {
@@ -5719,6 +5721,14 @@ function formatNumber(value: number | null): string {
   const absoluteValue = Math.abs(value);
   if (absoluteValue >= 100) return value.toFixed(0);
   return value.toFixed(absoluteValue >= 10 ? 1 : 2);
+}
+
+function ratePerWindow(perMinute: number | null, rateWindowMinutes: number): number | null {
+  return perMinute == null ? null : perMinute * rateWindowMinutes;
+}
+
+function isBoostAggregateStat(stat: StatAggregateResponse): boolean {
+  return stat.category === "boost" || stat.key.startsWith("boost");
 }
 
 function formatCounts(counts: Array<{ status: string; count: number }>): string {

@@ -26,6 +26,37 @@ const DEFAULT_SAMPLE_COUNT: u32 = 25;
 const MAX_SAMPLE_COUNT: u32 = 100;
 const DEFAULT_DIMENSION_LIMIT: u32 = 25;
 const MAX_DIMENSION_LIMIT: u32 = 100;
+const KICKOFF_GOALS_FOR_SUMMARY_SQL: &str =
+    "COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team = detail.team) AS kickoff_goals_for";
+const KICKOFF_GOALS_AGAINST_SUMMARY_SQL: &str =
+    "COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team IS NOT NULL AND kickoff.scoring_team <> detail.team) AS kickoff_goals_against";
+const KICKOFF_FIRST_TOUCH_SUMMARY_SQL: &str = r#"
+            COUNT(*) FILTER (
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM play_event_kickoff_player_details first_touch_taker
+                    WHERE first_touch_taker.event_id = detail.event_id
+                      AND first_touch_taker.team = detail.team
+                      AND first_touch_taker.role = 'taker'
+                      AND first_touch_taker.player_subject_id = kickoff.first_touch_subject_id
+                )
+            ) AS first_touch_count"#;
+const KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL: &str = r#"
+            AVG(
+                COALESCE(
+                    detail.boost_used,
+                    (
+                        SELECT (
+                            payload.payload -> CASE detail.team
+                                WHEN 0 THEN 'team_zero_taker'
+                                ELSE 'team_one_taker'
+                            END
+                        ) ->> 'boost_used'
+                        FROM play_event_payloads payload
+                        WHERE payload.event_id = detail.event_id
+                    )::double precision
+                )
+            ) FILTER (WHERE detail.role = 'taker') AS avg_boost_used"#;
 
 pub fn router() -> Router<AppState> {
     Router::new().route(
@@ -129,7 +160,7 @@ struct KickoffSummaryRow {
     no_advantage_count: u64,
     avg_taker_time_to_touch: Option<f64>,
     avg_boost_after: Option<f64>,
-    avg_boost_delta: Option<f64>,
+    avg_boost_used: Option<f64>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -421,14 +452,23 @@ async fn load_kickoff_summary(
             COUNT(*) FILTER (WHERE detail.role = 'taker') AS taker_count,
             COUNT(*) FILTER (WHERE detail.role = 'support') AS support_count,
             COUNT(*) FILTER (WHERE detail.taker_outcome = 'touched') AS touched_count,
-            COUNT(*) FILTER (WHERE kickoff.first_touch_subject_id = detail.player_subject_id) AS first_touch_count,
+        "#,
+    );
+    query.push(KICKOFF_FIRST_TOUCH_SUMMARY_SQL);
+    query.push(
+        r#",
             COUNT(*) FILTER (WHERE detail.taker_outcome = 'missed') AS missed_count,
             COUNT(*) FILTER (WHERE detail.taker_outcome = 'fake') AS fake_count,
             COUNT(*) FILTER (WHERE kickoff.winning_team = detail.team) AS win_count,
             COUNT(*) FILTER (WHERE kickoff.winning_team IS NOT NULL AND kickoff.winning_team <> detail.team) AS loss_count,
             COUNT(*) FILTER (WHERE kickoff.winning_team IS NULL) AS neutral_count,
-            COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team = detail.team) AS kickoff_goals_for,
-            COUNT(*) FILTER (WHERE kickoff.kickoff_goal AND kickoff.scoring_team IS NOT NULL AND kickoff.scoring_team <> detail.team) AS kickoff_goals_against,
+        "#,
+    );
+    query.push(KICKOFF_GOALS_FOR_SUMMARY_SQL);
+    query.push(",\n            ");
+    query.push(KICKOFF_GOALS_AGAINST_SUMMARY_SQL);
+    query.push(
+        r#",
             COUNT(*) FILTER (WHERE kickoff.advantage_team = detail.team) AS advantages_for,
             COUNT(*) FILTER (WHERE kickoff.advantage_team IS NOT NULL AND kickoff.advantage_team <> detail.team) AS advantages_against,
             COUNT(*) FILTER (WHERE kickoff.advantage = 'no_advantage') AS no_advantage_count,
@@ -441,9 +481,9 @@ async fn load_kickoff_summary(
                   AND detail.time_to_ball IS NOT NULL
             ) AS avg_taker_time_to_touch,
             AVG(detail.boost_after) FILTER (WHERE detail.boost_after IS NOT NULL) AS avg_boost_after,
-            AVG(detail.boost_after - detail.start_boost) FILTER (WHERE detail.boost_after IS NOT NULL AND detail.start_boost IS NOT NULL) AS avg_boost_delta
         "#,
     );
+    query.push(KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL);
     push_event_stats_from(&mut query, adapter);
     push_event_stats_filters(&mut query, adapter, filters);
 
@@ -468,7 +508,7 @@ async fn load_kickoff_summary(
         no_advantage_count: count_column(&row, "no_advantage_count")?,
         avg_taker_time_to_touch: finite_value(row.try_get("avg_taker_time_to_touch")?),
         avg_boost_after: finite_value(row.try_get("avg_boost_after")?),
-        avg_boost_delta: finite_value(row.try_get("avg_boost_delta")?),
+        avg_boost_used: finite_value(row.try_get("avg_boost_used")?),
     })
 }
 
@@ -533,6 +573,7 @@ async fn load_event_stat_samples(
             detail.support_behavior,
             detail.start_boost,
             detail.boost_after,
+            detail.boost_used,
             detail.time_to_ball,
             detail.first_touch_time,
             kickoff.outcome AS kickoff_outcome,
@@ -706,11 +747,7 @@ fn kickoff_metrics(summary: KickoffSummaryRow) -> Vec<EventStatMetricResponse> {
             "Avg boost after",
             summary.avg_boost_after,
         ),
-        average_metric(
-            "avg_boost_delta",
-            "Avg boost delta",
-            summary.avg_boost_delta,
-        ),
+        average_metric("avg_boost_used", "Avg boost used", summary.avg_boost_used),
     ]
 }
 
@@ -776,6 +813,11 @@ fn sample_from_row(row: sqlx::postgres::PgRow) -> Result<EventStatSampleResponse
         &mut fields,
         "boost_after",
         row.try_get::<Option<f64>, _>("boost_after")?,
+    );
+    insert_optional(
+        &mut fields,
+        "boost_used",
+        row.try_get::<Option<f64>, _>("boost_used")?,
     );
     insert_optional(
         &mut fields,

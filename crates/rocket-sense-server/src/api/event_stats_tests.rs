@@ -70,6 +70,33 @@ fn event_stats_adapter_accepts_kickoff_aliases() {
 }
 
 #[test]
+fn kickoff_goal_summary_sql_credits_team_goals_to_every_player_row() {
+    assert!(KICKOFF_GOALS_FOR_SUMMARY_SQL.contains("kickoff.scoring_team = detail.team"));
+    assert!(KICKOFF_GOALS_AGAINST_SUMMARY_SQL.contains("kickoff.scoring_team <> detail.team"));
+    assert!(!KICKOFF_GOALS_FOR_SUMMARY_SQL.contains("scorer"));
+    assert!(!KICKOFF_GOALS_AGAINST_SUMMARY_SQL.contains("scorer"));
+}
+
+#[test]
+fn kickoff_first_touch_summary_sql_credits_team_taker_first_touch() {
+    assert!(KICKOFF_FIRST_TOUCH_SUMMARY_SQL.contains("first_touch_taker.team = detail.team"));
+    assert!(KICKOFF_FIRST_TOUCH_SUMMARY_SQL.contains("first_touch_taker.role = 'taker'"));
+    assert!(KICKOFF_FIRST_TOUCH_SUMMARY_SQL
+        .contains("first_touch_taker.player_subject_id = kickoff.first_touch_subject_id"));
+    assert!(!KICKOFF_FIRST_TOUCH_SUMMARY_SQL
+        .contains("kickoff.first_touch_subject_id = detail.player_subject_id"));
+}
+
+#[test]
+fn kickoff_boost_used_summary_sql_reads_generated_taker_payload_value() {
+    assert!(KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL.contains("detail.boost_used"));
+    assert!(KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL.contains("play_event_payloads"));
+    assert!(KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL.contains("'boost_used'"));
+    assert!(KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL.contains("detail.role = 'taker'"));
+    assert!(!KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL.contains("start_boost - detail.boost_after"));
+}
+
+#[test]
 fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
     let metrics = kickoff_metrics(KickoffSummaryRow {
         replay_count: 1,
@@ -91,7 +118,7 @@ fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
         no_advantage_count: 0,
         avg_taker_time_to_touch: Some(2.1),
         avg_boost_after: None,
-        avg_boost_delta: None,
+        avg_boost_used: Some(12.0),
     });
 
     let time_to_touch = metrics
@@ -104,6 +131,13 @@ fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
         .find(|metric| metric.key == "first_touch_share")
         .expect("first touch percentage metric should be exposed");
     assert_eq!(first_touch_share.value, Some(1.0));
+    let boost_used = metrics
+        .iter()
+        .find(|metric| metric.key == "avg_boost_used")
+        .expect("average boost-used metric should be exposed");
+    assert_eq!(boost_used.label, "Avg boost used");
+    assert_eq!(boost_used.value, Some(12.0));
+    assert!(metrics.iter().all(|metric| metric.key != "avg_boost_delta"));
     // The old key averaged absolute replay timestamps pooled across roles.
     assert!(metrics
         .iter()
