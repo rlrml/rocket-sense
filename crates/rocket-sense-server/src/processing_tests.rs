@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn ball_opponent_half_facts_are_clipped_to_player_activity_spans() {
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("source_stream = 'player_activity'"));
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("JOIN play_event_subjects subject"));
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("activity.replay_player_id = rp.id"));
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("LEAST(ball.end_time, activity.end_time)"));
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL
+        .contains("GREATEST(ball.start_time, activity.start_time)"));
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("ball.end_time > activity.start_time"));
+    assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("ball.start_time < activity.end_time"));
+}
+
+#[test]
 fn replay_search_metadata_extracts_headers_and_players() {
     let replay_meta = ReplayMeta {
         team_zero: vec![PlayerInfo {
