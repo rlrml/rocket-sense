@@ -362,9 +362,6 @@ button:disabled {
 }
 
 .external-site-logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
   width: 18px;
   height: 18px;
   flex: none;
@@ -376,27 +373,7 @@ button:disabled {
 }
 
 .external-site-logo-ballchasing {
-  border: 2px solid #17202a;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, transparent 0 3px, #17202a 3px 4px, transparent 4px),
-    conic-gradient(
-      from 18deg,
-      #fff 0 18%,
-      #17202a 18% 24%,
-      #fff 24% 44%,
-      #17202a 44% 50%,
-      #fff 50% 70%,
-      #17202a 70% 76%,
-      #fff 76%
-    );
-}
-
-.external-site-logo-ballchasing span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: #17202a;
+  width: 28px;
 }
 
 .upload-button input {
