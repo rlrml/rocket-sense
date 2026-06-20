@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Search } from "lucide-react";
 import {
   getAppearancesLeaderboard,
   getEventLeaderboard,
@@ -17,37 +18,188 @@ import type {
 } from "../types";
 import { StatPlayerLabel } from "./shared";
 
-type Metric = "appearances" | "uploads" | "event" | "stat";
+type MetricKind = "appearances" | "uploads" | "event" | "stat";
+type Aggregation = "total" | "per-game" | "per-minute" | "share";
 
 const PAGE_SIZE = 50;
 const RATE_WINDOW_MINUTES = 5;
 const DEFAULT_MIN_GAMES = "10";
+const DEFAULT_BOARD = "event:goal";
 
-const metricOptions: Array<{ value: Metric; label: string }> = [
-  { value: "appearances", label: "Player appearances" },
-  { value: "uploads", label: "Uploads" },
-  { value: "event", label: "Event" },
-  { value: "stat", label: "Stat" },
+const EVENT_AGGREGATIONS: Aggregation[] = ["total", "per-game", "per-minute"];
+const STAT_AGGREGATIONS: Aggregation[] = ["total", "per-game", "per-minute", "share"];
+
+// A leaderboard is one METRIC ranked by an AGGREGATION within a SCOPE. Every
+// rankable thing — counted events, accumulated stats, plain activity counts —
+// is described by a single CatalogMetric, so the picker, the URL, and the table
+// never need to know which backend endpoint it came from. `category` drives the
+// grouping in the catalog; `aggregations` is empty for metrics with a single
+// natural ranking (appearances, uploads).
+interface CatalogMetric {
+  id: string;
+  kind: MetricKind;
+  label: string;
+  category: string;
+  param?: string;
+  aggregations: Aggregation[];
+  description: string;
+}
+
+// Catalog grouping is by theme, and the themes come straight from the event-type
+// registry's `category` (core / mechanic / possession / contact / boost / …). The
+// materialized stats and activity counts are slotted into the same theme list —
+// there is intentionally no "event vs derived" axis in the UI.
+//
+// CATEGORY_ORDER and CATEGORY_LABELS only *curate* the categories we know about
+// (nice label + stable position). The registry is the source of truth, so any
+// category we haven't seen is still shown: it falls back to a title-cased label
+// and is appended after the curated ones (see orderedCategories / categoryLabel).
+// That keeps the catalog correct as the backend categorizer grows.
+const CATEGORY_ORDER = [
+  "activity",
+  "core",
+  "mechanic",
+  "possession",
+  "contact",
+  "boost",
+  "movement",
+  "positioning",
+  "other",
 ];
+const CATEGORY_LABELS: Record<string, string> = {
+  activity: "Activity",
+  core: "Core",
+  mechanic: "Mechanics",
+  possession: "Possession & control",
+  contact: "Physical",
+  boost: "Boost",
+  movement: "Movement",
+  positioning: "Positioning",
+  other: "Other",
+};
+
+function categoryLabel(category: string): string {
+  if (CATEGORY_LABELS[category]) return CATEGORY_LABELS[category];
+  const words = category.replace(/[_-]+/g, " ").trim();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : category;
+}
+
+// Curated categories first (in CATEGORY_ORDER), then any others the registry
+// surfaced, alphabetically — nothing is dropped just because we didn't predefine
+// it.
+function orderedCategories(present: Iterable<string>): string[] {
+  const set = new Set(present);
+  const known = CATEGORY_ORDER.filter((category) => set.has(category));
+  const extra = [...set].filter((category) => !CATEGORY_ORDER.includes(category)).sort();
+  return [...known, ...extra];
+}
+
+const ACTIVITY_METRICS: CatalogMetric[] = [
+  {
+    id: "appearances",
+    kind: "appearances",
+    label: "Player appearances",
+    category: "activity",
+    aggregations: [],
+    description: "Ranked by number of replays a player appears in.",
+  },
+  {
+    id: "uploads",
+    kind: "uploads",
+    label: "Uploads",
+    category: "activity",
+    aggregations: [],
+    description: "Ranked by number of replays an account has uploaded.",
+  },
+];
+
+const STAT_DESCRIPTIONS: Record<string, string> = {
+  "ball-opponent-half": "Time spent with the ball in the opponent's half.",
+  "possession-time": "Time in individual possession of the ball.",
+};
 
 const statOptions = [
   { value: "ball-opponent-half", label: "Ball in opponent half" },
   { value: "possession-time", label: "Possession time" },
 ];
 
-function sortOptions(rateWindowMinutes: number, includeShare = false) {
-  const options = [
-    { value: "total", label: "Total" },
-    { value: "per-game", label: "Per game" },
-    {
-      value: "per-minute",
-      label: rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`,
-    },
-  ];
-  if (includeShare) {
-    options.push({ value: "share", label: "Share" });
+function aggregationLabel(aggregation: Aggregation, rateWindowMinutes: number): string {
+  switch (aggregation) {
+    case "total":
+      return "Total";
+    case "per-game":
+      return "Per game";
+    case "per-minute":
+      return rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
+    case "share":
+      return "Share";
   }
-  return options;
+}
+
+// Stats default to a rate ranking (raw totals just surface whoever has played
+// the most); everything else defaults to its first/total ranking.
+function defaultAggregation(metric: CatalogMetric): Aggregation | null {
+  if (!metric.aggregations.length) return null;
+  if (metric.kind === "stat" && metric.aggregations.includes("per-minute")) return "per-minute";
+  return metric.aggregations[0];
+}
+
+// Build the full metric catalog: static activity + stat metrics, plus one entry
+// per countable event type from the live registry.
+function buildCatalog(eventTypes: EventTypeResponse[]): CatalogMetric[] {
+  const statMetrics: CatalogMetric[] = statOptions.map((option) => ({
+    id: `stat:${option.value}`,
+    kind: "stat",
+    label: option.label,
+    category: "possession",
+    param: option.value,
+    aggregations: STAT_AGGREGATIONS,
+    description: STAT_DESCRIPTIONS[option.value] ?? "",
+  }));
+  const eventMetrics: CatalogMetric[] = eventTypes.map((eventType) => ({
+    id: `event:${eventType.key}`,
+    kind: "event",
+    label: eventType.display_name,
+    category: eventType.category,
+    param: eventType.key,
+    aggregations: EVENT_AGGREGATIONS,
+    description:
+      eventType.description ?? `Ranked by ${eventType.display_name.toLowerCase()} count.`,
+  }));
+  return [...ACTIVITY_METRICS, ...statMetrics, ...eventMetrics];
+}
+
+// Resolve a board id to a metric. Falls back to synthesizing an entry straight
+// from the id so deep links keep working before the event registry loads (or
+// for a key the registry no longer lists).
+function resolveBoard(id: string, catalog: CatalogMetric[]): CatalogMetric | null {
+  const found = catalog.find((metric) => metric.id === id);
+  if (found) return found;
+  if (id.startsWith("event:")) {
+    const key = id.slice("event:".length);
+    return {
+      id,
+      kind: "event",
+      label: key,
+      category: "other",
+      param: key,
+      aggregations: EVENT_AGGREGATIONS,
+      description: "",
+    };
+  }
+  if (id.startsWith("stat:")) {
+    const value = id.slice("stat:".length);
+    return {
+      id,
+      kind: "stat",
+      label: value,
+      category: "possession",
+      param: value,
+      aggregations: STAT_AGGREGATIONS,
+      description: STAT_DESCRIPTIONS[value] ?? "",
+    };
+  }
+  return ACTIVITY_METRICS.find((metric) => metric.id === id) ?? null;
 }
 function formatRate(value: number | null): string {
   return value == null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -110,10 +262,24 @@ const playlistOptions = [
   { value: "tournament", label: "Tournament" },
 ];
 
-function metricFromSearch(search: string): Metric {
-  const value = new URLSearchParams(search).get("metric");
-  if (value === "uploads" || value === "event" || value === "stat") return value;
-  return "appearances";
+// Read the selected board id, migrating the legacy metric/event-type/stat params
+// so old links and bookmarks still resolve.
+function boardFromSearch(search: string): string {
+  const params = new URLSearchParams(search);
+  const board = params.get("board");
+  if (board) return board;
+  const metric = params.get("metric");
+  if (metric === "uploads") return "uploads";
+  if (metric === "appearances") return "appearances";
+  if (metric === "event") {
+    const key = params.get("event-type");
+    return key ? `event:${key}` : DEFAULT_BOARD;
+  }
+  if (metric === "stat") {
+    const stat = params.get("stat");
+    return `stat:${stat ?? "ball-opponent-half"}`;
+  }
+  return DEFAULT_BOARD;
 }
 
 interface LeaderboardPage<T> {
@@ -512,24 +678,139 @@ function SegmentNav({
   );
 }
 
+// The metric catalog: a searchable, category-grouped picker for every
+// leaderboard. Categories are tabs; metrics within the active category are
+// chips. Typing in the search box flattens the whole catalog to matches grouped
+// by category, so a metric is reachable either by browsing or by name.
+function MetricCatalog({
+  catalog,
+  selectedId,
+  onSelect,
+}: {
+  catalog: CatalogMetric[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const selectedCategory = catalog.find((metric) => metric.id === selectedId)?.category;
+  const [activeCategory, setActiveCategory] = useState<string>(selectedCategory ?? "core");
+
+  // Follow the selection when it lands in a different category (deep link, back
+  // button, or picking from search). Browsing categories without selecting
+  // doesn't move the selection, so this leaves manual browsing untouched.
+  useEffect(() => {
+    if (selectedCategory) setActiveCategory(selectedCategory);
+  }, [selectedCategory]);
+
+  const categories = useMemo(
+    () => orderedCategories(catalog.map((metric) => metric.category)),
+    [catalog],
+  );
+
+  const query = search.trim().toLowerCase();
+  const effectiveCategory = categories.includes(activeCategory)
+    ? activeCategory
+    : (categories[0] ?? "");
+  const matches = query
+    ? catalog.filter((metric) => metric.label.toLowerCase().includes(query))
+    : catalog.filter((metric) => metric.category === effectiveCategory);
+
+  const renderChip = (metric: CatalogMetric) => (
+    <button
+      key={metric.id}
+      type="button"
+      className={`leaderboard-metric-chip ${metric.id === selectedId ? "active" : ""}`.trim()}
+      aria-pressed={metric.id === selectedId}
+      onClick={() => onSelect(metric.id)}
+    >
+      {metric.label}
+    </button>
+  );
+
+  return (
+    <div className="leaderboard-catalog">
+      <div className="leaderboard-catalog-search">
+        <Search size={16} aria-hidden />
+        <input
+          type="search"
+          placeholder="Search leaderboards…"
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+          aria-label="Search leaderboards"
+        />
+      </div>
+
+      {query ? null : (
+        <nav className="leaderboard-category-tabs" aria-label="Leaderboard categories">
+          {categories.map((category) => (
+            <button
+              key={category}
+              type="button"
+              className={`leaderboard-category-tab ${
+                category === effectiveCategory ? "active" : ""
+              }`.trim()}
+              onClick={() => setActiveCategory(category)}
+            >
+              {categoryLabel(category)}
+            </button>
+          ))}
+        </nav>
+      )}
+
+      <div className="leaderboard-metric-list">
+        {query ? (
+          categories.map((category) => {
+            const items = matches.filter((metric) => metric.category === category);
+            if (!items.length) return null;
+            return (
+              <div className="leaderboard-metric-group" key={category}>
+                <span className="leaderboard-metric-group-label">{categoryLabel(category)}</span>
+                <div className="leaderboard-metric-chips">{items.map(renderChip)}</div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="leaderboard-metric-chips">{matches.map(renderChip)}</div>
+        )}
+        {query && !matches.length ? (
+          <p className="subtle">No leaderboards match “{search}”.</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function LeaderboardsPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const params = useMemo(() => new URLSearchParams(location.search), [location.search]);
 
-  const metric = metricFromSearch(location.search);
+  const eventTypes = useEventTypes();
+  const catalog = useMemo(() => buildCatalog(eventTypes), [eventTypes]);
+
+  const boardId = boardFromSearch(location.search);
+  const metric = useMemo(
+    () => resolveBoard(boardId, catalog) ?? resolveBoard(DEFAULT_BOARD, catalog)!,
+    [boardId, catalog],
+  );
+
   const teamSize = params.get("team-size") ?? "";
   const gameType = params.get("game-type") ?? "";
   const playlist = params.get("playlist") ?? "";
-  const eventType = params.get("event-type") ?? "";
-  const stat = params.get("stat") ?? "ball-opponent-half";
-  const eventSort = params.get("sort") ?? "total";
-  const statSort = params.get("sort") ?? "per-minute";
   const minGames = params.get("min-games") ?? DEFAULT_MIN_GAMES;
-  const eventTypes = useEventTypes();
-  const selectedEventType = eventTypes.find((option) => option.key === eventType);
-  const eventRateWindowMinutes = isBoostEventType(selectedEventType) ? 1 : RATE_WINDOW_MINUTES;
-  const statRateWindowMinutes = RATE_WINDOW_MINUTES;
+
+  const selectedEventType =
+    metric.kind === "event" ? eventTypes.find((option) => option.key === metric.param) : undefined;
+  const rateWindowMinutes = isBoostEventType(selectedEventType) ? 1 : RATE_WINDOW_MINUTES;
+
+  const sortParam = params.get("sort") ?? "";
+  const activeSort: Aggregation | null =
+    metric.aggregations.length === 0
+      ? null
+      : metric.aggregations.includes(sortParam as Aggregation)
+        ? (sortParam as Aggregation)
+        : defaultAggregation(metric);
+  const showMinGames = metric.kind === "event" || metric.kind === "stat";
 
   const setParam = useCallback(
     (key: string, value: string) => {
@@ -545,9 +826,28 @@ export function LeaderboardsPage() {
     [location.pathname, location.search, navigate],
   );
 
-  // The API filter key intentionally excludes `metric` (which only picks the
-  // endpoint) so that switching metric while keeping filters reuses cached
-  // params, and so that pagination keys stay stable per filter set.
+  const selectBoard = useCallback(
+    (id: string) => {
+      const next = new URLSearchParams(location.search);
+      next.set("board", id);
+      // Drop a ranking the new metric can't honor, and clear the legacy params
+      // so the URL only ever carries the new board id.
+      const target = resolveBoard(id, catalog);
+      const sort = next.get("sort");
+      if (!target || !sort || !target.aggregations.includes(sort as Aggregation)) {
+        next.delete("sort");
+      }
+      next.delete("metric");
+      next.delete("event-type");
+      next.delete("stat");
+      const query = next.toString();
+      navigate(query ? `${location.pathname}?${query}` : location.pathname, { replace: true });
+    },
+    [catalog, location.pathname, location.search, navigate],
+  );
+
+  // Shared scope filters apply to every board. The event/stat boards layer their
+  // own metric param, ranking, and min-games threshold on top.
   const replayFilterKey = useMemo(() => {
     const filters = new URLSearchParams();
     if (teamSize) filters.set("team-size", teamSize);
@@ -556,23 +856,19 @@ export function LeaderboardsPage() {
     return filters.toString();
   }, [gameType, playlist, teamSize]);
 
-  // The event board layers its own params (event-type / sort / min-games) on
-  // top of the shared replay filters.
-  const eventFilterKey = useMemo(() => {
+  const boardFilterKey = useMemo(() => {
     const filters = new URLSearchParams(replayFilterKey);
-    if (eventType) filters.set("event-type", eventType);
-    if (eventSort && eventSort !== "total") filters.set("sort", eventSort);
-    if (minGames) filters.set("min-games", minGames);
+    if (metric.kind === "event") {
+      if (metric.param) filters.set("event-type", metric.param);
+      if (activeSort && activeSort !== "total") filters.set("sort", activeSort);
+      if (minGames) filters.set("min-games", minGames);
+    } else if (metric.kind === "stat") {
+      if (metric.param) filters.set("stat", metric.param);
+      if (activeSort) filters.set("sort", activeSort);
+      if (minGames) filters.set("min-games", minGames);
+    }
     return filters.toString();
-  }, [eventSort, eventType, minGames, replayFilterKey]);
-
-  const statFilterKey = useMemo(() => {
-    const filters = new URLSearchParams(replayFilterKey);
-    if (stat) filters.set("stat", stat);
-    if (statSort) filters.set("sort", statSort);
-    if (minGames) filters.set("min-games", minGames);
-    return filters.toString();
-  }, [minGames, replayFilterKey, stat, statSort]);
+  }, [activeSort, metric.kind, metric.param, minGames, replayFilterKey]);
 
   return (
     <section className="page leaderboards-page">
@@ -583,14 +879,9 @@ export function LeaderboardsPage() {
         </div>
       </header>
 
-      <div className="player-segment-bar">
-        <SegmentNav
-          ariaLabel="Leaderboard metric"
-          label="Board"
-          current={metric}
-          options={metricOptions}
-          onSelect={(value) => setParam("metric", value === "appearances" ? "" : value)}
-        />
+      <MetricCatalog catalog={catalog} selectedId={metric.id} onSelect={selectBoard} />
+
+      <div className="player-segment-bar leaderboard-scope-bar">
         <SegmentNav
           ariaLabel="Mode segment"
           label="Mode"
@@ -618,105 +909,45 @@ export function LeaderboardsPage() {
             ))}
           </select>
         </label>
+        {showMinGames ? (
+          <label className="leaderboard-playlist-filter">
+            <span className="segment-bar-label">Min games</span>
+            <input
+              type="number"
+              min="1"
+              placeholder={DEFAULT_MIN_GAMES}
+              value={minGames}
+              onChange={(event) => setParam("min-games", event.currentTarget.value)}
+            />
+          </label>
+        ) : null}
       </div>
 
-      {metric === "event" ? (
-        <div className="player-segment-bar">
-          <label className="leaderboard-playlist-filter">
-            <span className="segment-bar-label">Event</span>
-            <select
-              value={eventType}
-              onChange={(changeEvent) => setParam("event-type", changeEvent.currentTarget.value)}
-            >
-              <option value="">All events</option>
-              {eventTypes.map((option) => (
-                <option key={option.key} value={option.key}>
-                  {option.display_name} ({option.category})
-                </option>
-              ))}
-            </select>
-          </label>
-          <SegmentNav
-            ariaLabel="Ranking metric"
-            label="Rank by"
-            current={eventSort}
-            options={sortOptions(eventRateWindowMinutes)}
-            onSelect={(value) => setParam("sort", value === "total" ? "" : value)}
-          />
-          <label className="leaderboard-playlist-filter">
-            <span className="segment-bar-label">Min games</span>
-            <input
-              type="number"
-              min="1"
-              placeholder={DEFAULT_MIN_GAMES}
-              value={minGames}
-              onChange={(event) => setParam("min-games", event.currentTarget.value)}
-            />
-          </label>
-        </div>
-      ) : metric === "stat" ? (
-        <div className="player-segment-bar">
-          <label className="leaderboard-playlist-filter">
-            <span className="segment-bar-label">Stat</span>
-            <select value={stat} onChange={(event) => setParam("stat", event.currentTarget.value)}>
-              {statOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <SegmentNav
-            ariaLabel="Ranking metric"
-            label="Rank by"
-            current={statSort}
-            options={sortOptions(statRateWindowMinutes, true)}
-            onSelect={(value) => setParam("sort", value === "per-minute" ? "" : value)}
-          />
-          <label className="leaderboard-playlist-filter">
-            <span className="segment-bar-label">Min games</span>
-            <input
-              type="number"
-              min="1"
-              placeholder={DEFAULT_MIN_GAMES}
-              value={minGames}
-              onChange={(event) => setParam("min-games", event.currentTarget.value)}
-            />
-          </label>
-        </div>
-      ) : null}
-
       <div className="chart-panel leaderboard-panel">
-        <div className="chart-panel-header">
-          <h2>
-            {metric === "uploads"
-              ? "Top uploaders"
-              : metric === "event"
-                ? "Event leaderboard"
-                : metric === "stat"
-                  ? "Stat leaderboard"
-                  : "Most-seen players"}
-          </h2>
-          <p className="subtle">
-            {metric === "uploads"
-              ? "Ranked by number of replays uploaded."
-              : metric === "event"
-                ? `Ranked by a chosen event type — total, per game, or ${
-                    eventRateWindowMinutes === 1
-                      ? "per active minute"
-                      : `per ${eventRateWindowMinutes} active minutes`
-                  }.`
-                : metric === "stat"
-                  ? `Ranked by an accumulated stat — total time, share, per game, or per ${statRateWindowMinutes} active minutes.`
-                  : "Ranked by number of replays a player appears in."}
-          </p>
+        <div className="chart-panel-header leaderboard-board-header">
+          <div className="leaderboard-board-heading">
+            <h2>{metric.label}</h2>
+            {metric.description ? <p className="subtle">{metric.description}</p> : null}
+          </div>
+          {activeSort && metric.aggregations.length > 1 ? (
+            <SegmentNav
+              ariaLabel="Ranking metric"
+              label="Rank by"
+              current={activeSort}
+              options={metric.aggregations.map((aggregation) => ({
+                value: aggregation,
+                label: aggregationLabel(aggregation, rateWindowMinutes),
+              }))}
+              onSelect={(value) => setParam("sort", value)}
+            />
+          ) : null}
         </div>
-        {metric === "uploads" ? (
+        {metric.kind === "uploads" ? (
           <UploadsLeaderboard filterKey={replayFilterKey} />
-        ) : metric === "event" ? (
-          <EventLeaderboard filterKey={eventFilterKey} rateWindowMinutes={eventRateWindowMinutes} />
-        ) : metric === "stat" ? (
-          <StatLeaderboard filterKey={statFilterKey} rateWindowMinutes={statRateWindowMinutes} />
+        ) : metric.kind === "event" ? (
+          <EventLeaderboard filterKey={boardFilterKey} rateWindowMinutes={rateWindowMinutes} />
+        ) : metric.kind === "stat" ? (
+          <StatLeaderboard filterKey={boardFilterKey} rateWindowMinutes={rateWindowMinutes} />
         ) : (
           <AppearancesLeaderboard filterKey={replayFilterKey} />
         )}
