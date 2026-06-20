@@ -3386,17 +3386,18 @@ function playerReplaySetParams(
 }
 
 function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
-  const logo =
-    site === "trn"
-      ? {
-          src: "https://rocketleague.tracker.network/favicon.ico",
-          label: "Tracker Network",
-        }
-      : {
-          src: "https://ballchasing.com/favicon.ico",
-          label: "ballchasing.com",
-        };
-  return <img className="external-site-logo" src={logo.src} alt="" title={logo.label} />;
+  if (site === "trn") {
+    return (
+      <span className="external-site-logo external-site-logo-trn" title="Tracker Network">
+        TRN
+      </span>
+    );
+  }
+  return (
+    <span className="external-site-logo external-site-logo-ballchasing" title="ballchasing.com">
+      <span />
+    </span>
+  );
 }
 
 function playerStatGroupPath(
