@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { getPlayerProfile, getReplay, listPlayerEvents, listReplayEvents } from "../api";
 import type { MechanicEventResponse } from "../types";
 import { EventClipPlayer } from "./EventClipPlayer";
+import { subtrActorPlayerUrl } from "../playerLink";
 import {
   buildGoalClip,
   buildGoalRows,
@@ -365,7 +366,7 @@ function GoalPlaylist({
                   <a
                     className="icon-button"
                     title="Open full player"
-                    href={`/replays/${encodeURIComponent(activeGoal.event.replay_id)}/player`}
+                    href={subtrActorPlayerUrl(activeGoal.event.replay_id)}
                   >
                     <ExternalLink size={15} />
                   </a>

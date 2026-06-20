@@ -166,10 +166,6 @@ a {
   margin: 0 auto;
 }
 
-.player-page {
-  max-width: none;
-}
-
 .page-header {
   display: flex;
   align-items: center;
@@ -5686,30 +5682,6 @@ tbody tr:last-child td {
   background: #fef2f2;
 }
 
-.subtr-player-frame {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #0b1020;
-}
-
-.subtr-player-frame.visible {
-  display: block;
-  width: 100%;
-  height: calc(100dvh - 138px);
-  min-height: 360px;
-  margin-top: 18px;
-}
-
-.subtr-player-frame.warmup {
-  position: fixed;
-  left: -10000px;
-  top: -10000px;
-  width: 1px;
-  height: 1px;
-  opacity: 0;
-  pointer-events: none;
-}
-
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -6033,11 +6005,6 @@ tbody tr:last-child td {
 
   .possession-timeline {
     min-height: 120px;
-  }
-
-  .subtr-player-frame.visible {
-    height: calc(100dvh - 166px);
-    min-height: 320px;
   }
 }
 
