@@ -136,11 +136,12 @@ function aggregationLabel(aggregation: Aggregation, rateWindowMinutes: number): 
   }
 }
 
-// Stats default to a rate ranking (raw totals just surface whoever has played
-// the most); everything else defaults to its first/total ranking.
+// Default to a rate ranking whenever one exists: raw totals mostly surface
+// whoever has played the most, whereas the per-active-minute rate is the
+// skill-comparable number. Falls back to the first aggregation otherwise.
 function defaultAggregation(metric: CatalogMetric): Aggregation | null {
   if (!metric.aggregations.length) return null;
-  if (metric.kind === "stat" && metric.aggregations.includes("per-minute")) return "per-minute";
+  if (metric.aggregations.includes("per-minute")) return "per-minute";
   return metric.aggregations[0];
 }
 
@@ -601,18 +602,32 @@ function StatLeaderboard({
   );
 }
 
-// The leaderboard counts discrete per-player events, so the picker hides the
-// continuous "state" streams the backend's visibility filter excludes
-// (AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL in stats.rs) — every "positioning"
-// event plus a couple of sampled movement streams. Picking one would only ever
-// return an empty board.
+// An event type is shown in the catalog only if it passes BOTH gates below.
+// Keep the two reasons for exclusion separate so each entry's rationale stays
+// explicit and the lists are easy to audit and extend.
+//
+// Gate 1 — NOT COUNTABLE: continuous "state" streams the backend's visibility
+// filter already drops (AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL in stats.rs) —
+// every "positioning" event plus sampled movement streams. Counting one is
+// meaningless, so the board would always be empty.
 const NON_COUNTABLE_EVENT_CATEGORIES = new Set(["positioning"]);
 const NON_COUNTABLE_EVENT_KEYS = new Set(["movement", "powerslide"]);
 
-function isCountableEventType(eventType: EventTypeResponse): boolean {
+// Gate 2 — NOT A USEFUL LEADERBOARD: countable, but ranking players by it isn't
+// insightful, so it only adds noise to the catalog. Every entry needs a reason:
+//   kickoff      — everyone takes ~one kickoff per game; the ranking is just
+//                  "who played the most", which Appearances already shows.
+//   dodge        — dodges are ubiquitous and not a skill signal on their own.
+//   dodge_reset  — the raw dodge-reset event fires constantly (any wheels-up
+//                  ground contact); it is not the "flip reset" mechanic players
+//                  care about. See speedflip-diagonal-misclassification note.
+const NON_LEADERBOARD_EVENT_KEYS = new Set(["kickoff", "dodge", "dodge_reset"]);
+
+function isLeaderboardEvent(eventType: EventTypeResponse): boolean {
   return (
     !NON_COUNTABLE_EVENT_CATEGORIES.has(eventType.category) &&
-    !NON_COUNTABLE_EVENT_KEYS.has(eventType.key)
+    !NON_COUNTABLE_EVENT_KEYS.has(eventType.key) &&
+    !NON_LEADERBOARD_EVENT_KEYS.has(eventType.key)
   );
 }
 
@@ -631,7 +646,7 @@ function useEventTypes(): EventTypeResponse[] {
       .then((response) => {
         if (!cancelled) {
           const sorted = response.event_types
-            .filter(isCountableEventType)
+            .filter(isLeaderboardEvent)
             .sort((a, b) =>
               (a.category + a.display_name).localeCompare(b.category + b.display_name),
             );
