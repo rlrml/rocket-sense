@@ -1160,46 +1160,6 @@ tbody tr:last-child td {
   font-size: var(--text-xl);
 }
 
-.player-id-metric {
-  min-width: 0;
-}
-
-.player-id-value {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.player-id-text {
-  min-width: 0;
-  overflow: hidden;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: var(--text-md);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.player-id-copy {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  color: var(--muted);
-  cursor: pointer;
-}
-
-.player-id-copy:hover,
-.player-id-copy:focus-visible {
-  border-color: var(--blue);
-  color: var(--blue);
-}
-
 .match-context {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
