@@ -3,12 +3,12 @@ import { AlertTriangle, Cpu, Info, RefreshCw, X } from "lucide-react";
 
 import { getPlayerProcessingVersions, reprocessReplay, reprocessReplayClient } from "./api";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
-import { computeStatsTimelineScaffoldJson, type LocalReprocessProgress } from "./stats/replayModel";
 import type {
   ProcessingVersionBreakdownResponse,
   ReplayProcessingVersion,
   ReplayStaleness,
 } from "./types";
+import type { LocalReprocessProgress } from "./stats/replayModel";
 
 const SHORT_SHA = 7;
 const GITHUB_REPO = {
@@ -249,6 +249,7 @@ function ReprocessControls({
     setLocalProgress(null);
     setResult({ error: false, message: "Reprocessing in your browser — parsing the replay…" });
     try {
+      const { computeStatsTimelineScaffoldJson } = await import("./stats/replayModel");
       const scaffoldJson = await computeStatsTimelineScaffoldJson(replayId, setLocalProgress);
       setLocalProgress({
         stage: "uploading",
