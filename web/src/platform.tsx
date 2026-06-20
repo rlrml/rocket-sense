@@ -73,13 +73,36 @@ function rlTrackerPlatform(value: string | null | undefined): string | null {
 export function rlTrackerPlayerUrl(
   platform: string | null | undefined,
   platformPlayerId: string | null | undefined,
+  playerName?: string | null,
 ): string | null {
   const trackerPlatform = rlTrackerPlatform(platform);
-  const playerId = platformPlayerId?.trim();
+  const playerId = rlTrackerPlayerIdentifier(platform, platformPlayerId, playerName);
   if (!trackerPlatform || !playerId) return null;
   return `https://rocketleague.tracker.network/rocket-league/profile/${trackerPlatform}/${encodeURIComponent(
     playerId,
   )}/overview`;
+}
+
+function rlTrackerPlayerIdentifier(
+  platform: string | null | undefined,
+  platformPlayerId: string | null | undefined,
+  playerName: string | null | undefined,
+): string | null {
+  const normalizedPlatform = normalizePlatform(platform);
+  if (normalizedPlatform === "steam") return platformPlayerId?.trim() || null;
+
+  // RLTracker's non-Steam routes use public platform handles, not Rocket
+  // League's opaque platform ids (EOS ids, PSN ids, XUIDs, etc.).
+  const trimmedName = playerName?.trim() || null;
+  switch (normalizedPlatform) {
+    case "epic":
+    case "playstation":
+    case "xbox":
+    case "switch":
+      return trimmedName && trimmedName !== "Unknown" ? trimmedName : null;
+    default:
+      return null;
+  }
 }
 
 // Official brand glyph paths (24x24 viewBox), from the MIT-licensed
@@ -109,10 +132,12 @@ const platformPaths: Record<KnownPlatform, string> = {
 export function PlatformIcon({
   platform,
   platformPlayerId,
+  rlTrackerPlayerName,
   linkToRlTracker = false,
 }: {
   platform: string | null | undefined;
   platformPlayerId?: string | null;
+  rlTrackerPlayerName?: string | null;
   linkToRlTracker?: boolean;
 }) {
   const key = normalizePlatform(platform);
@@ -120,7 +145,9 @@ export function PlatformIcon({
   if (!key) {
     return <Chip>{label}</Chip>;
   }
-  const trackerUrl = linkToRlTracker ? rlTrackerPlayerUrl(platform, platformPlayerId) : null;
+  const trackerUrl = linkToRlTracker
+    ? rlTrackerPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName)
+    : null;
   const title = trackerUrl ? `Open ${label} profile on RLTracker` : label;
   const icon = (
     <span className="platform-icon" title={title} aria-label={title}>

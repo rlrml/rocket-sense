@@ -148,7 +148,12 @@ export function StatPlayerName({
   return (
     <strong className={`stat-player-name-line ${className}`.trim()}>
       {showPlatformBadge ? (
-        <PlatformIcon platform={platform} platformPlayerId={platformPlayerId} linkToRlTracker />
+        <PlatformIcon
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          rlTrackerPlayerName={name}
+          linkToRlTracker
+        />
       ) : null}
       <span className="stat-player-name-text">{nameNode}</span>
     </strong>

@@ -87,6 +87,7 @@ export function PlayerIdentity({
   const resolvedName = name ?? playerDisplayName(player);
   const resolvedPlatform = platform ?? player?.platform ?? null;
   const resolvedPlatformPlayerId = platformPlayerId ?? player?.platform_player_id ?? null;
+  const resolvedTrackerPlayerName = name ?? player?.name ?? null;
   const resolvedTeam = team ?? player?.team ?? null;
   const resolvedDetail = detail ?? (showTeam ? replayLocalTeamLabel(resolvedTeam) : null);
   const resolvedRank =
@@ -117,6 +118,7 @@ export function PlayerIdentity({
             <PlatformIcon
               platform={resolvedPlatform}
               platformPlayerId={resolvedPlatformPlayerId}
+              rlTrackerPlayerName={resolvedTrackerPlayerName}
               linkToRlTracker
             />
           ) : null}

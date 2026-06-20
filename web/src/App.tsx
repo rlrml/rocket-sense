@@ -3050,9 +3050,14 @@ function PlayerStatsPage() {
   const activeSupplementalReady = activeSupplementalKeys.every(
     (key) => scopedSupplementalLoaded[key],
   );
+  const rlTrackerPlayerName =
+    playerSummary?.display_name ??
+    playerSummary?.current_display_name ??
+    playerSummary?.public_display_name ??
+    null;
   const rlTrackerUrl = useMemo(
-    () => rlTrackerPlayerUrl(platform, platformPlayerId),
-    [platform, platformPlayerId],
+    () => rlTrackerPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
+    [platform, platformPlayerId, rlTrackerPlayerName],
   );
 
   useEffect(() => {
@@ -3271,6 +3276,7 @@ function PlayerStatsPage() {
               <PlatformIcon
                 platform={playerSummary.platform}
                 platformPlayerId={playerSummary.platform_player_id}
+                rlTrackerPlayerName={rlTrackerPlayerName}
                 linkToRlTracker
               />
             ) : null}
