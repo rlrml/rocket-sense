@@ -93,7 +93,7 @@ import { BoostProfileDetail } from "./stats/boost";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
-import { PlatformIcon, xboxBrandPath } from "./platform";
+import { PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
 import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
@@ -3050,6 +3050,10 @@ function PlayerStatsPage() {
   const activeSupplementalReady = activeSupplementalKeys.every(
     (key) => scopedSupplementalLoaded[key],
   );
+  const rlTrackerUrl = useMemo(
+    () => rlTrackerPlayerUrl(platform, platformPlayerId),
+    [platform, platformPlayerId],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -3263,11 +3267,28 @@ function PlayerStatsPage() {
         <div>
           <p className="eyebrow">Player stats</p>
           <h1 className="player-profile-title">
-            {playerSummary ? <PlatformIcon platform={playerSummary.platform} /> : null}
+            {playerSummary ? (
+              <PlatformIcon
+                platform={playerSummary.platform}
+                platformPlayerId={playerSummary.platform_player_id}
+                linkToRlTracker
+              />
+            ) : null}
             <span>{playerSummary?.display_name || platformPlayerId}</span>
           </h1>
         </div>
         <div className="button-row">
+          {rlTrackerUrl ? (
+            <a
+              className="secondary-button"
+              href={rlTrackerUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <ExternalLink size={16} />
+              RLTracker
+            </a>
+          ) : null}
           <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
             <FileVideo size={16} />
             Replays

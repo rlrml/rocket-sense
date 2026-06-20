@@ -144,12 +144,25 @@ export function StatPlayerName({
   showPlatformBadge?: boolean;
 }) {
   const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
+  const platformPlayerId = playerIdFromProfilePath(profilePath);
   return (
     <strong className={`stat-player-name-line ${className}`.trim()}>
-      {showPlatformBadge ? <PlatformIcon platform={platform} /> : null}
+      {showPlatformBadge ? (
+        <PlatformIcon platform={platform} platformPlayerId={platformPlayerId} linkToRlTracker />
+      ) : null}
       <span className="stat-player-name-text">{nameNode}</span>
     </strong>
   );
+}
+
+function playerIdFromProfilePath(profilePath: string | null | undefined): string | null {
+  const match = /^\/players\/[^/]+\/([^/?#]+)/.exec(profilePath ?? "");
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return match[1];
+  }
 }
 
 export function PlayerSegmentedBarRows<T>({

@@ -108,12 +108,25 @@ export function PlayerIdentity({
   ]
     .filter(Boolean)
     .join(" ");
+  const nameNode = <span className="player-name">{resolvedName}</span>;
   const content = (
     <>
       <span className="player-identity-main">
         <span className="player-name-with-platform">
-          {showPlatform ? <PlatformIcon platform={resolvedPlatform} /> : null}
-          <span className="player-name">{resolvedName}</span>
+          {showPlatform ? (
+            <PlatformIcon
+              platform={resolvedPlatform}
+              platformPlayerId={resolvedPlatformPlayerId}
+              linkToRlTracker
+            />
+          ) : null}
+          {href ? (
+            <Link className="player-identity-profile-link" to={href}>
+              {nameNode}
+            </Link>
+          ) : (
+            nameNode
+          )}
         </span>
         {suffix}
       </span>
@@ -135,14 +148,6 @@ export function PlayerIdentity({
       ) : null}
     </>
   );
-
-  if (href) {
-    return (
-      <Link className={classes} to={href}>
-        {content}
-      </Link>
-    );
-  }
 
   return <span className={classes}>{content}</span>;
 }

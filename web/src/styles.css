@@ -627,6 +627,18 @@ tbody tr:last-child td {
   color: var(--muted);
 }
 
+.platform-icon-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  color: inherit;
+  text-decoration: none;
+}
+
+.platform-icon-link:hover .platform-icon {
+  color: var(--blue);
+}
+
 /* The single chip/pill primitive. One place owns the box (height, padding,
    radius, font); tone classes below only swap colors. See <Chip> in chip.tsx. */
 .chip {
@@ -712,7 +724,14 @@ tbody tr:last-child td {
   font-size: var(--text-2xs);
 }
 
-.player-identity:hover .player-name {
+.player-identity-profile-link {
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.player-identity-profile-link:hover .player-name,
+.player-identity:hover .player-identity-profile-link .player-name {
   color: var(--blue);
   text-decoration: underline;
 }

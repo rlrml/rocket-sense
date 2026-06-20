@@ -4,7 +4,7 @@ import { Chip } from "./chip";
 
 type KnownPlatform = "steam" | "epic" | "playstation" | "xbox" | "switch" | "splitscreen" | "qq";
 
-export function platformLabel(value: string | null): string {
+export function platformLabel(value: string | null | undefined): string {
   if (!value) return "unknown";
   const key = normalizePlatform(value);
   switch (key) {
@@ -27,7 +27,7 @@ export function platformLabel(value: string | null): string {
   }
 }
 
-function normalizePlatform(value: string | null): KnownPlatform | null {
+function normalizePlatform(value: string | null | undefined): KnownPlatform | null {
   switch (value?.toLowerCase()) {
     case "steam":
       return "steam";
@@ -51,6 +51,35 @@ function normalizePlatform(value: string | null): KnownPlatform | null {
     default:
       return null;
   }
+}
+
+function rlTrackerPlatform(value: string | null | undefined): string | null {
+  switch (normalizePlatform(value)) {
+    case "steam":
+      return "steam";
+    case "epic":
+      return "epic";
+    case "playstation":
+      return "psn";
+    case "xbox":
+      return "xbl";
+    case "switch":
+      return "switch";
+    default:
+      return null;
+  }
+}
+
+export function rlTrackerPlayerUrl(
+  platform: string | null | undefined,
+  platformPlayerId: string | null | undefined,
+): string | null {
+  const trackerPlatform = rlTrackerPlatform(platform);
+  const playerId = platformPlayerId?.trim();
+  if (!trackerPlatform || !playerId) return null;
+  return `https://rocketleague.tracker.network/rocket-league/profile/${trackerPlatform}/${encodeURIComponent(
+    playerId,
+  )}/overview`;
 }
 
 // Official brand glyph paths (24x24 viewBox), from the MIT-licensed
@@ -77,17 +106,42 @@ const platformPaths: Record<KnownPlatform, string> = {
   qq: siQq.path,
 };
 
-export function PlatformIcon({ platform }: { platform: string | null }) {
+export function PlatformIcon({
+  platform,
+  platformPlayerId,
+  linkToRlTracker = false,
+}: {
+  platform: string | null | undefined;
+  platformPlayerId?: string | null;
+  linkToRlTracker?: boolean;
+}) {
   const key = normalizePlatform(platform);
   const label = platformLabel(platform);
   if (!key) {
     return <Chip>{label}</Chip>;
   }
-  return (
-    <span className="platform-icon" title={label} aria-label={label}>
+  const trackerUrl = linkToRlTracker ? rlTrackerPlayerUrl(platform, platformPlayerId) : null;
+  const title = trackerUrl ? `Open ${label} profile on RLTracker` : label;
+  const icon = (
+    <span className="platform-icon" title={title} aria-label={title}>
       <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
         <path d={platformPaths[key]} fill="currentColor" />
       </svg>
     </span>
   );
+  if (trackerUrl) {
+    return (
+      <a
+        className="platform-icon-link"
+        href={trackerUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label={title}
+        title={title}
+      >
+        {icon}
+      </a>
+    );
+  }
+  return icon;
 }
