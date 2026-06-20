@@ -21,6 +21,7 @@ type Metric = "appearances" | "uploads" | "event" | "stat";
 
 const PAGE_SIZE = 50;
 const RATE_WINDOW_MINUTES = 5;
+const DEFAULT_MIN_GAMES = "10";
 
 const metricOptions: Array<{ value: Metric; label: string }> = [
   { value: "appearances", label: "Player appearances" },
@@ -524,7 +525,7 @@ export function LeaderboardsPage() {
   const stat = params.get("stat") ?? "ball-opponent-half";
   const eventSort = params.get("sort") ?? "total";
   const statSort = params.get("sort") ?? "per-minute";
-  const minGames = params.get("min-games") ?? "";
+  const minGames = params.get("min-games") ?? DEFAULT_MIN_GAMES;
   const eventTypes = useEventTypes();
   const selectedEventType = eventTypes.find((option) => option.key === eventType);
   const eventRateWindowMinutes = isBoostEventType(selectedEventType) ? 1 : RATE_WINDOW_MINUTES;
@@ -647,7 +648,7 @@ export function LeaderboardsPage() {
             <input
               type="number"
               min="1"
-              placeholder="1"
+              placeholder={DEFAULT_MIN_GAMES}
               value={minGames}
               onChange={(event) => setParam("min-games", event.currentTarget.value)}
             />
@@ -677,7 +678,7 @@ export function LeaderboardsPage() {
             <input
               type="number"
               min="1"
-              placeholder="1"
+              placeholder={DEFAULT_MIN_GAMES}
               value={minGames}
               onChange={(event) => setParam("min-games", event.currentTarget.value)}
             />
