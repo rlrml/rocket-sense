@@ -33,6 +33,8 @@ import type {
 const tokenKey = "rocket_sense_access_token";
 const replayCacheKey = "rocket_sense_replay_cache";
 const replayEventsCacheKey = "rocket_sense_replay_events_cache";
+const maxCachedReplays = 300;
+const maxReplayCacheCharacters = 1_500_000;
 const eventPageSize = 5000;
 const maxReplayEvents = 50000;
 export const authChangeEvent = "rocket-sense-auth-change";
@@ -587,12 +589,16 @@ export function createAccountToken(
 }
 
 function cacheReplays(replays: ReplayResponse[]): void {
-  const cache = readReplayCache();
-  for (const replay of replays) {
-    cache[replay.id] = replay;
+  try {
+    const cache = readReplayCache();
+    for (const replay of replays) {
+      cache[replay.id] = replay;
+    }
+    writeReplayCache(cache);
+  } catch {
+    // Browser storage is an opportunistic cache; API calls should still succeed
+    // when the session quota is full or storage is unavailable.
   }
-  const entries = Object.entries(cache).slice(-300);
-  sessionStorage.setItem(replayCacheKey, JSON.stringify(Object.fromEntries(entries)));
 }
 
 function cacheReplay(replay: ReplayResponse): void {
@@ -609,6 +615,31 @@ function readReplayCache(): Record<string, ReplayResponse> {
     return raw ? (JSON.parse(raw) as Record<string, ReplayResponse>) : {};
   } catch {
     return {};
+  }
+}
+
+function writeReplayCache(cache: Record<string, ReplayResponse>): void {
+  const entries = Object.entries(cache).slice(-maxCachedReplays);
+  while (entries.length > 0) {
+    const serialized = JSON.stringify(Object.fromEntries(entries));
+    if (serialized.length <= maxReplayCacheCharacters && tryWriteReplayCache(serialized)) {
+      return;
+    }
+    entries.splice(0, Math.max(1, Math.ceil(entries.length / 2)));
+  }
+  try {
+    sessionStorage.removeItem(replayCacheKey);
+  } catch {
+    // Storage access itself may be disabled.
+  }
+}
+
+function tryWriteReplayCache(serialized: string): boolean {
+  try {
+    sessionStorage.setItem(replayCacheKey, serialized);
+    return true;
+  } catch {
+    return false;
   }
 }
 
