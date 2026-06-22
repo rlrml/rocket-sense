@@ -1413,7 +1413,26 @@ async fn load_replay_set_stat_count_rows(
     rows.into_iter().map(stat_count_row_from_db).collect()
 }
 
+/// Loads per-stat event counts for a single target player (and their teammates).
+///
+/// Reads the materialized `player_replay_event_counts` table when possible,
+/// falling back to the live `play_event_subjects`/`play_events` scan when a
+/// filter cannot be served from the materialization. The only such filter today
+/// is `kickoff_spawn`, a per-event-id predicate that the per-(player, type)
+/// counts cannot reproduce; the lifetime stats page never sets it, so the fast
+/// path covers that page.
 async fn load_player_stat_count_rows(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatCountRow>, sqlx::Error> {
+    if filters.kickoff_spawn.is_empty() {
+        load_player_stat_count_rows_materialized(pool, filters).await
+    } else {
+        load_player_stat_count_rows_live(pool, filters).await
+    }
+}
+
+async fn load_player_stat_count_rows_live(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<StatCountRow>, sqlx::Error> {
@@ -1546,6 +1565,148 @@ async fn load_player_stat_count_rows(
 
     let rows = query.build().fetch_all(pool).await?;
     rows.into_iter().map(stat_count_row_from_db).collect()
+}
+
+/// Materialized version of `load_player_stat_count_rows_live`, reading
+/// pre-aggregated per-(replay, player, event type) counts instead of scanning
+/// `play_event_subjects`/`play_events`. The target player's counts are exact (a
+/// single player, so the stored count equals `COUNT(DISTINCT event.id)`).
+///
+/// Teammate counts are the SUM of each teammate's own involvement count, which
+/// differs from the live query's `COUNT(DISTINCT event.id)` across the whole
+/// teammate set only for events with multiple same-team subjects (e.g. passes):
+/// such an event contributes once in the live query and once per involved
+/// teammate here. See the read-path note in the PR -- if exact parity is
+/// required, teammates need a team-level distinct-count materialization.
+async fn load_player_stat_count_rows_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatCountRow>, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized player stat counts require a player");
+
+    // The player's matching (replay, type, count) rows, restricted to canonical
+    // runs and the request's replay filters via a `replays` join. This is the
+    // only filtered scan; both target and teammate aggregates derive from it.
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_rows AS MATERIALIZED (
+            SELECT
+                counts.replay_id,
+                counts.team,
+                counts.event_type_id,
+                counts.event_count
+            FROM player_replay_event_counts counts
+            JOIN replays r
+              ON r.id = counts.replay_id
+             AND r.canonical_analysis_run_id = counts.analysis_run_id
+            WHERE counts.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND counts.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(
+        r#"
+        ),
+        target_stats AS (
+            SELECT event_type_id, SUM(event_count) AS event_count
+            FROM target_rows
+            GROUP BY event_type_id
+        )
+        "#,
+    );
+
+    if filters.include_teammates {
+        // Co-players sharing the target's (replay, team), excluding the target.
+        query.push(
+            r#"
+            ,
+            target_appearances AS (
+                SELECT DISTINCT replay_id, team FROM target_rows
+            ),
+            teammate_stats AS (
+                SELECT counts.event_type_id, SUM(counts.event_count) AS event_count
+                FROM target_appearances appearance
+                JOIN player_replay_event_counts counts
+                  ON counts.replay_id = appearance.replay_id
+                 AND counts.team = appearance.team
+                 AND NOT (
+                    counts.platform = "#,
+        );
+        query.push_bind(&player.platform);
+        query.push(" AND counts.platform_player_id = ");
+        query.push_bind(&player.platform_player_id);
+        query.push(
+            r#")
+                GROUP BY counts.event_type_id
+            )
+            SELECT
+                et.key,
+                et.display_name,
+                et.category,
+                COALESCE(target_stats.event_count, 0) AS event_count,
+                COALESCE(teammate_stats.event_count, 0) AS teammate_event_count
+            FROM target_stats
+            FULL OUTER JOIN teammate_stats
+              ON teammate_stats.event_type_id = target_stats.event_type_id
+            JOIN event_types et
+              ON et.id = COALESCE(target_stats.event_type_id, teammate_stats.event_type_id)
+            "#,
+        );
+        append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+        query.push(
+            r#"
+            ORDER BY
+                GREATEST(COALESCE(target_stats.event_count, 0), COALESCE(teammate_stats.event_count, 0)) DESC,
+                et.category,
+                et.display_name,
+                et.key
+            LIMIT
+            "#,
+        );
+    } else {
+        query.push(
+            r#"
+            SELECT
+                et.key,
+                et.display_name,
+                et.category,
+                target_stats.event_count AS event_count,
+                0::bigint AS teammate_event_count
+            FROM target_stats
+            JOIN event_types et ON et.id = target_stats.event_type_id
+            "#,
+        );
+        append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+        query.push(
+            r#"
+            ORDER BY target_stats.event_count DESC, et.category, et.display_name, et.key
+            LIMIT
+            "#,
+        );
+    }
+    query.push_bind(i64::from(filters.limit));
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter().map(stat_count_row_from_db).collect()
+}
+
+/// Applies the stat-term filter directly against the joined `event_types et`
+/// row. Equivalent to `append_stat_term_event_filter` but for reads that have
+/// already grouped by `event_type_id`, so there is no per-event subquery.
+fn append_materialized_stat_term_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    terms: &[String],
+) {
+    if terms.is_empty() {
+        return;
+    }
+    builder.push(" WHERE (");
+    append_stat_term_predicate(builder, "et", terms);
+    builder.push(")");
 }
 
 fn stat_count_row_from_db(row: sqlx::postgres::PgRow) -> Result<StatCountRow, sqlx::Error> {
