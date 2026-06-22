@@ -289,6 +289,10 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) kickoff_spawn: KickoffSpawnFilter,
     pub(crate) limit: u32,
     pub(crate) group_by: Option<StatAggregateGroupBy>,
+    /// When true, player stat counts read the materialized
+    /// `player_replay_event_counts` table instead of the live event scan. Set
+    /// from `AppState::materialized_stat_counts` by the handler; defaults false.
+    pub(crate) materialized_stat_counts: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -387,6 +391,7 @@ impl StatAggregateFilters {
                 .group_by
                 .map(|group_by| parse_stat_group_by(&group_by))
                 .transpose()?,
+            materialized_stat_counts: false,
         })
     }
 }
@@ -450,7 +455,9 @@ pub async fn get_stat_aggregates(
 ) -> Result<Json<StatAggregateSetResponse>, ApiError> {
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
-    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    let mut filters =
+        StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    filters.materialized_stat_counts = state.materialized_stat_counts;
     let aggregates = load_stat_aggregates(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -1415,17 +1422,17 @@ async fn load_replay_set_stat_count_rows(
 
 /// Loads per-stat event counts for a single target player (and their teammates).
 ///
-/// Reads the materialized `player_replay_event_counts` table when possible,
-/// falling back to the live `play_event_subjects`/`play_events` scan when a
-/// filter cannot be served from the materialization. The only such filter today
-/// is `kickoff_spawn`, a per-event-id predicate that the per-(player, type)
-/// counts cannot reproduce; the lifetime stats page never sets it, so the fast
-/// path covers that page.
+/// Reads the materialized `player_replay_event_counts` table when enabled and
+/// usable, falling back to the live `play_event_subjects`/`play_events` scan
+/// otherwise. The materialization is gated by `materialized_stat_counts` (off
+/// until the reprocess backfill is complete and parity-verified) and cannot
+/// serve the `kickoff_spawn` filter -- a per-event-id predicate the per-(player,
+/// type) counts cannot reproduce, which the lifetime stats page never sets.
 async fn load_player_stat_count_rows(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<StatCountRow>, sqlx::Error> {
-    if filters.kickoff_spawn.is_empty() {
+    if filters.materialized_stat_counts && filters.kickoff_spawn.is_empty() {
         load_player_stat_count_rows_materialized(pool, filters).await
     } else {
         load_player_stat_count_rows_live(pool, filters).await
