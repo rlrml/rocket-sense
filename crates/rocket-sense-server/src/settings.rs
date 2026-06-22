@@ -113,6 +113,11 @@ pub struct Settings {
     pub process_replays_in_background: bool,
     pub run_replay_processing_workers: bool,
     pub background_processing_concurrency: usize,
+    /// When true, the lifetime stat-count read path reads the materialized
+    /// `player_replay_event_counts` table; when false it falls back to the live
+    /// `play_event_subjects`/`play_events` scan. Default false so the page stays
+    /// correct until the reprocess backfill has populated the table.
+    pub materialized_stat_counts: bool,
     /// Normalized (trimmed, lowercased) email addresses that are automatically
     /// promoted to admin when they authenticate. Bootstraps the first admin(s);
     /// further admins are then granted through the admin API.
@@ -165,6 +170,9 @@ impl Settings {
                 .and_then(|value| value.parse::<usize>().ok())
                 .unwrap_or(1)
                 .clamp(1, 4);
+        let materialized_stat_counts = env::var("ROCKET_SENSE_MATERIALIZED_STAT_COUNTS")
+            .map(|value| value == "1" || value.to_lowercase() == "true")
+            .unwrap_or(false);
         let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
 
         Ok(Self {
@@ -179,6 +187,7 @@ impl Settings {
             process_replays_in_background,
             run_replay_processing_workers,
             background_processing_concurrency,
+            materialized_stat_counts,
             admin_emails,
         })
     }
