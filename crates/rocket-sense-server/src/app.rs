@@ -18,6 +18,9 @@ pub struct AppState {
     pub oauth_providers: Arc<[settings::OAuthProviderSettings]>,
     pub process_replays_in_background: bool,
     pub background_processing_permits: Arc<Semaphore>,
+    /// Gates the lifetime stat-count read path between the materialized
+    /// `player_replay_event_counts` table and the live event-subject scan.
+    pub materialized_stat_counts: bool,
     /// Email addresses that are auto-promoted to admin on authentication.
     pub admin_emails: Arc<[String]>,
 }
@@ -45,6 +48,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         background_processing_permits: Arc::new(Semaphore::new(
             settings.background_processing_concurrency,
         )),
+        materialized_stat_counts: settings.materialized_stat_counts,
         admin_emails: Arc::from(settings.admin_emails),
     };
 
