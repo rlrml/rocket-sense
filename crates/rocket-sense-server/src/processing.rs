@@ -27,6 +27,60 @@ use uuid::Uuid;
 mod tests;
 
 pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
+
+// Per-replay materialization of `player_replay_event_counts` for one analysis
+// run ($1) and replay ($2). Mirrors the backfill SELECT in
+// migrations/0056_player_replay_event_counts.sql -- keep the two in sync,
+// including the user-facing `source_stream` exclusion list (the same set as
+// AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL in api/stats.rs). Counts are deduped
+// per player identity (a player may hold more than one roster row in a replay),
+// matching the live query's `SELECT DISTINCT event.id`.
+const INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL: &str = r#"
+        INSERT INTO player_replay_event_counts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            event_type_id,
+            event_count
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            (array_agg(rp.id))[1],
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            MIN(rp.team),
+            event.event_type_id,
+            COUNT(DISTINCT event.id)
+        FROM replay_players rp
+        JOIN play_event_subjects subject ON subject.replay_player_id = rp.id
+        JOIN play_events event
+          ON event.id = subject.event_id
+         AND event.analysis_run_id = $1
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+          AND event.source_stream NOT IN (
+                'positioning', 'boost_state', 'boost_ledger', 'movement',
+                'rotation_player', 'rotation_role_span', 'rotation_depth_span',
+                'rotation_role', 'ball_depth', 'field_third', 'field_half',
+                'ball_proximity', 'powerslide'
+              )
+        GROUP BY
+            rp.replay_id,
+            rp.platform,
+            rp.platform_player_id,
+            event.event_type_id
+        ON CONFLICT DO NOTHING
+        "#;
+
 const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
         INSERT INTO player_replay_stat_facts (
             analysis_run_id,
@@ -1261,6 +1315,7 @@ async fn persist_analysis_output(
     insert_boost_accumulation_tracks(pool, analysis_run_id, replay_id, &output.boost_tracks)
         .await?;
     insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -1393,6 +1448,29 @@ async fn insert_player_replay_stat_facts(
     Ok(())
 }
 
+async fn insert_player_replay_event_counts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_event_counts WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay event counts")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay event counts")?;
+    Ok(())
+}
+
 async fn insert_ball_opponent_half_facts(
     pool: &PgPool,
     analysis_run_id: Uuid,
@@ -1493,6 +1571,21 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay stat facts")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_event_counts counts
+        USING analysis_runs run
+        WHERE run.id = counts.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay event counts")?;
 
     sqlx::query(
         r#"
