@@ -377,7 +377,7 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
     assert!(touch_rows
         .iter()
         .all(|event| event.source == STATS_TIMELINE_SOURCE));
-    assert!(touch_rows.iter().all(|event| event.category == "other"));
+    assert!(touch_rows.iter().all(|event| event.category == "basic"));
     assert_eq!(
         touch_rows[0]
             .primary_subject

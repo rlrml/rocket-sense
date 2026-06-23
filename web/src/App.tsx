@@ -25,6 +25,8 @@ import {
   ServerCog,
   SlidersHorizontal,
   Trophy,
+  Users,
+  UserPlus,
   X,
   Trash2,
   Search,
@@ -43,6 +45,7 @@ import {
 } from "react-router-dom";
 import { siDiscord, siEpicgames, siGithub, siGoogle, siSteam } from "simple-icons";
 import {
+  addReplayGroupManager,
   addReplaysToGroup,
   authChangeEvent,
   clearAccessToken,
@@ -68,6 +71,7 @@ import {
   listEventTypes,
   listReplayGroups,
   listReplayGroupEvents,
+  listReplayGroupManagers,
   listReplayGroupReplays,
   listReplayEvents,
   listReplayFilterOptions,
@@ -75,6 +79,7 @@ import {
   listReplayProcessingDiagnostics,
   listReplays,
   logout,
+  removeReplayGroupManager,
   removeReplaysFromGroup,
   reprocessReplay,
   reprocessReplayClient,
@@ -137,6 +142,7 @@ import type {
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
   ReplayGroupResponse,
+  ReplayGroupManagerResponse,
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
@@ -1614,9 +1620,11 @@ function GroupSelectionBar({
   onClear: () => void;
   onGroupsChanged: () => void;
 }) {
+  const currentUser = useCurrentUser();
   const [targetGroupId, setTargetGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
   const creating = targetGroupId === NEW_GROUP_OPTION;
@@ -1712,6 +1720,7 @@ function GroupSelectionBar({
             value={targetGroupId}
             onChange={(event) => {
               setTargetGroupId(event.currentTarget.value);
+              setShowMembers(false);
               setFeedback(null);
             }}
             disabled={busy}
@@ -1767,6 +1776,17 @@ function GroupSelectionBar({
             </button>
             <button
               type="button"
+              className={`secondary-button${showMembers ? " is-active" : ""}`}
+              onClick={() => setShowMembers((value) => !value)}
+              disabled={busy || !targetGroup}
+              title="Manage who can administer this group"
+              aria-pressed={showMembers}
+            >
+              <Users size={16} />
+              Members
+            </button>
+            <button
+              type="button"
               className="secondary-button is-danger"
               onClick={handleDeleteGroup}
               disabled={busy || !targetGroup}
@@ -1778,6 +1798,9 @@ function GroupSelectionBar({
           </>
         )}
       </div>
+      {showMembers && targetGroup ? (
+        <GroupManagersPanel group={targetGroup} currentUserId={currentUser?.id ?? null} />
+      ) : null}
       {feedback ? (
         <p
           className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}
@@ -1791,6 +1814,158 @@ function GroupSelectionBar({
 
 function pluralizeReplay(count: number): string {
   return count === 1 ? "replay" : "replays";
+}
+
+function managerLabel(manager: ReplayGroupManagerResponse): string {
+  return manager.display_name?.trim() || manager.email || manager.user_id;
+}
+
+function GroupManagersPanel({
+  group,
+  currentUserId,
+}: {
+  group: ReplayGroupResponse;
+  currentUserId: string | null;
+}) {
+  const [managers, setManagers] = useState<ReplayGroupManagerResponse[] | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setManagers(null);
+    setLoadError(null);
+    listReplayGroupManagers(group.id)
+      .then((response) => {
+        if (!cancelled) setManagers(response.managers);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setManagers([]);
+          setLoadError(err instanceof Error ? err.message : "Could not load members.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [group.id]);
+
+  async function withBusy(action: () => Promise<void>) {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await action();
+    } catch (err) {
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Request failed",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleInvite() {
+    const email = inviteEmail.trim();
+    if (!email) return;
+    void withBusy(async () => {
+      const response = await addReplayGroupManager(group.id, { email });
+      setManagers(response.managers);
+      setInviteEmail("");
+      setFeedback({ kind: "ok", message: `${email} can now manage this group.` });
+    });
+  }
+
+  function handleRemove(manager: ReplayGroupManagerResponse) {
+    const label = managerLabel(manager);
+    if (!window.confirm(`Remove ${label} as a manager of "${group.name}"?`)) return;
+    void withBusy(async () => {
+      const response = await removeReplayGroupManager(group.id, manager.user_id);
+      setManagers(response.managers);
+      setFeedback({ kind: "ok", message: `Removed ${label}.` });
+    });
+  }
+
+  return (
+    <div className="group-managers-panel">
+      <p className="group-managers-title">
+        <Users size={14} />
+        Managers of <strong>{group.name}</strong>
+      </p>
+      {managers === null && !loadError ? (
+        <p className="group-managers-empty">Loading members…</p>
+      ) : null}
+      {loadError ? <p className="replay-selection-feedback is-error">{loadError}</p> : null}
+      {managers && managers.length > 0 ? (
+        <ul className="group-managers-list">
+          {managers.map((manager) => (
+            <li key={manager.user_id} className="group-managers-item">
+              <span className="group-managers-identity">
+                <CircleUser size={16} />
+                <span className="group-managers-name">
+                  {managerLabel(manager)}
+                  {manager.user_id === currentUserId ? " (you)" : ""}
+                </span>
+                {manager.email && manager.email !== managerLabel(manager) ? (
+                  <span className="group-managers-email">{manager.email}</span>
+                ) : null}
+              </span>
+              {manager.is_creator ? (
+                <span className="group-managers-badge">Creator</span>
+              ) : (
+                <button
+                  type="button"
+                  className="link-button is-danger"
+                  onClick={() => handleRemove(manager)}
+                  disabled={busy}
+                  title="Remove this manager"
+                >
+                  <X size={14} />
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="group-managers-invite">
+        <input
+          type="email"
+          value={inviteEmail}
+          placeholder="Invite by email"
+          onChange={(event) => setInviteEmail(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleInvite();
+            }
+          }}
+          disabled={busy || managers === null}
+        />
+        <button
+          type="button"
+          onClick={handleInvite}
+          disabled={busy || managers === null || inviteEmail.trim() === ""}
+        >
+          <UserPlus size={16} />
+          Invite
+        </button>
+      </div>
+      <p className="group-managers-hint">
+        The person must have signed in at least once. Any manager can invite or remove others; the
+        creator can&rsquo;t be removed.
+      </p>
+      {feedback ? (
+        <p
+          className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}
+        >
+          {feedback.message}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 type RequeuePhase = "pending" | "done" | "skipped" | "error";
