@@ -9,6 +9,7 @@ import {
   statPlayerRank,
   type StatPlayerRank,
 } from "./shared";
+import { touchIntentionValue, touchPayloadValue } from "./touchTags";
 
 // Only the classified touch stream feeds this section. Each event carries two
 // independent classification axes plus how far the touch moved the ball toward
@@ -32,8 +33,7 @@ interface TouchDimension {
   id: string;
   // Filled into chart titles, e.g. "Touches by kind".
   noun: string;
-  payloadField: string;
-  tagGroups: string[];
+  value: (payload: Record<string, unknown>) => string | null;
   values: TouchDimensionValue[];
   other: TouchDimensionValue;
 }
@@ -49,8 +49,7 @@ const OTHER_VALUE: TouchDimensionValue = {
 const KIND_DIMENSION: TouchDimension = {
   id: "kind",
   noun: "kind",
-  payloadField: "kind",
-  tagGroups: ["kind"],
+  value: touchKindValue,
   values: [
     { id: "control", label: "Control", segmentClass: "touch-seg-kind-control" },
     { id: "medium_hit", label: "Medium", segmentClass: "touch-seg-kind-medium" },
@@ -66,8 +65,7 @@ const KIND_DIMENSION: TouchDimension = {
 const CATEGORY_DIMENSION: TouchDimension = {
   id: "category",
   noun: "category",
-  payloadField: "intention",
-  tagGroups: ["action", "possession"],
+  value: touchCategoryValue,
   values: [
     { id: "shot", label: "Shot", segmentClass: "touch-seg-cat-shot" },
     { id: "pass", label: "Pass", segmentClass: "touch-seg-cat-pass" },
@@ -433,27 +431,22 @@ function accumulateTouch(subject: TouchSubject, event: MechanicEventResponse) {
 }
 
 function dimensionValueId(dimension: TouchDimension, payload: Record<string, unknown>): string {
-  const raw = stringPayload(payload, dimension.payloadField) ?? touchTagValue(payload, dimension);
+  const raw = dimension.value(payload);
   if (raw && dimension.values.some((value) => value.id === raw)) return raw;
   return dimension.other.id;
 }
 
-function touchTagValue(
-  payload: Record<string, unknown>,
-  dimension: Pick<TouchDimension, "tagGroups">,
-): string | null {
-  const tags = payload.tags;
-  if (!Array.isArray(tags)) return null;
-  for (const group of dimension.tagGroups) {
-    const match = tags.find((tag) => {
-      if (!tag || typeof tag !== "object" || Array.isArray(tag)) return false;
-      return (tag as Record<string, unknown>).group === group;
-    });
-    if (match && typeof (match as Record<string, unknown>).value === "string") {
-      return (match as Record<string, unknown>).value as string;
-    }
-  }
-  return null;
+function touchKindValue(payload: Record<string, unknown>): string | null {
+  const raw = touchPayloadValue(payload, "kind");
+  if (!raw) return null;
+  if (raw === "hit" || raw === "medium") return "medium_hit";
+  if (raw === "hard") return "hard_hit";
+  if (raw === "soft" || raw === "soft_touch") return "control";
+  return raw;
+}
+
+function touchCategoryValue(payload: Record<string, unknown>): string | null {
+  return touchIntentionValue(payload);
 }
 
 function touchAdvance(payload: Record<string, unknown>): number {

@@ -9,6 +9,7 @@ import {
   statPlayerRank,
   type StatPlayerRank,
 } from "./shared";
+import { touchPayloadValue } from "./touchTags";
 
 // Every aerial panel ranks all participants on its own, so this group loads the
 // streams those rankings draw from:
@@ -284,7 +285,7 @@ function accumulate(subject: AerialSubject, event: MechanicEventResponse) {
       break;
     }
     case "touch": {
-      const band = stringPayload(event.payload, "height_band");
+      const band = touchPayloadValue(event.payload, "height_band");
       if (band && HEIGHT_VALUES.some((value) => value.id === band)) bump(subject, "height", band);
       break;
     }
