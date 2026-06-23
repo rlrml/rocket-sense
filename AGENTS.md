@@ -36,14 +36,15 @@ such. This keeps text from drifting between views.
 ## Web stats bars
 
 Every horizontal bar on the per-replay stats pages (positioning, kickoffs,
-movement, boost, ...) should render through the **one** shared track in
+movement, boost, ...) should render through the **one** shared stat bar track in
 [`web/src/stats/shared.tsx`](web/src/stats/shared.tsx). Do not hand-roll a
 bespoke `<div>` + inline-`width` bar for a new chart — reuse the component so
 height, rounding, segment borders, label color, and value placement stay
 identical across pages. The two are intentionally interchangeable:
 
-- **`ComparisonBar`** is the track itself: one fill made of `segments`, scaled by
-  `total` (and an optional cross-row `maxValue` for magnitude charts).
+- **Stat bar track / `ComparisonBar`** is the fundamental bar primitive: one fill
+  made of `segments`, scaled by `total` (and an optional cross-row `maxValue` for
+  magnitude charts).
 - **`ComparisonRows` / `PlayerComparisonChart`** lay out one `ComparisonRow` per
   player. `PlayerComparisonChart` adds its own titled panel; use `ComparisonRows`
   when the page supplies its own `.chart-panel` header (positioning does this).
@@ -70,6 +71,50 @@ Conventions baked into the component — follow them rather than adding CSS:
 If a new chart needs something the component can't express, extend the shared
 component (a new optional prop / row field) rather than forking it — keeping a
 single flexible bar is the point.
+
+## Web career stats subviews
+
+Use **career stats subviews** as the consistent name for the subsection pages
+under the career stats profile experience. Keep their look, interaction model,
+and chart behavior aligned with the established stats pages; look at nearby
+views before adding new visual patterns.
+
+Career stats aggregate across multiple games, so do not assume replay-local
+team zero / team one, Blue / Orange, or left / right team identity means the
+same thing across rows. Orient comparisons around the profile subject and the
+relationship to that subject: player, teammates, opponents, and eventually
+rank-peer averages. Keep the color assignment for those comparison groups fixed
+and centrally defined so the same relationship uses the same color in every
+career stats subview. The rank-peer average comparison is still provisional, so
+build it behind a centralized enable/disable path when it is introduced.
+
+Prefer the shared stat bar track for career stats charts as much as possible.
+Exceptions should be explicit in the request or product note: if a career stats
+subview needs a table, scatter plot, timeline, or another visualization, call
+that out directly rather than drifting away from bars by default.
+
+Use centrally defined palettes for career stats charts. Most charts should use
+monochrome ramps: same hue, different lightness, enough contrast for adjacent
+segments. Use multi-hue palettes only when there are many categories that need
+strong differentiation. Do not encode aggregate career stats with replay-local
+team colors unless the UI explicitly labels those colors as replay-local.
+
+Rates should usually be normalized as **per 5 minutes**. Boost is the common
+exception where **per minute** values can be appropriate. Be careful with
+teammate and opponent rates: their denominator is not always the profile
+player's elapsed replay time because a single game can include multiple
+teammates and multiple opponents. Put denominator calculation in shared,
+centralized code that sums the relevant replay time for each entity type
+correctly instead of recomputing it per subview.
+
+Keep career stats fast by relying on per-replay facts for most statistics. Many
+facts are already computed automatically, but add new per-replay fact extraction
+when a stat would otherwise require expensive replay-wide recomputation at view
+time.
+
+Every bar and bar segment should show numerical text whenever there is enough
+room. Keep alignment, placement, threshold behavior, and text color consistent
+through the shared stat bar track rather than per-subview CSS.
 
 ## Before committing (avoid CI failures)
 
