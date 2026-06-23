@@ -10,6 +10,7 @@ use utoipa::{
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        admin::backfill_event_counts,
         admin::backfill_profile_timing,
         admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,
@@ -63,6 +64,7 @@ use utoipa::{
             auth::AuthProviderResponse,
             auth::LinkedIdentitiesResponse,
             auth::LinkedIdentityResponse,
+            admin::BackfillEventCountsResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
             admin::GcEventStreamsRequest,
