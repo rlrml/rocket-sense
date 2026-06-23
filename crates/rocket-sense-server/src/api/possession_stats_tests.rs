@@ -5,6 +5,7 @@ fn possession_query_parses_replay_set_filters_and_player() {
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("possession query should parse");
 
@@ -16,7 +17,8 @@ fn possession_query_parses_replay_set_filters_and_player() {
 
 #[test]
 fn possession_query_allows_missing_player() {
-    let query = PossessionStatsQuery::from_raw_query(None, None).expect("empty query should parse");
+    let query =
+        PossessionStatsQuery::from_raw_query(None, None, false).expect("empty query should parse");
     assert!(query.player.is_none());
 }
 
@@ -77,6 +79,7 @@ fn controlled_play_span_query_filters_to_sustained_control() {
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("possession query should parse");
     let mut builder = QueryBuilder::<Postgres>::new("");
@@ -96,6 +99,7 @@ fn teammate_controlled_play_query_compares_same_team_appearances() {
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("possession query should parse");
     let builder = build_teammate_controlled_play_summary_query(&query)
@@ -111,7 +115,7 @@ fn teammate_controlled_play_query_compares_same_team_appearances() {
 
 #[test]
 fn teammate_controlled_play_query_requires_player_filter() {
-    let query = PossessionStatsQuery::from_raw_query(Some("team-size=2"), None)
+    let query = PossessionStatsQuery::from_raw_query(Some("team-size=2"), None, false)
         .expect("possession query should parse");
 
     assert!(build_teammate_controlled_play_summary_query(&query).is_none());
@@ -123,6 +127,7 @@ fn possession_cohort_span_query_compares_player_teammates_opponents_and_rank_pee
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("possession query should parse");
     let builder =
@@ -144,6 +149,7 @@ fn possession_cohort_span_query_omits_rank_peers_when_rank_schema_is_unavailable
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("possession query should parse");
     let builder =
