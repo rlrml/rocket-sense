@@ -464,6 +464,7 @@ async fn load_teammate_controlled_play_summary(
 fn push_possession_cohort_ctes<'args>(
     query: &mut QueryBuilder<'args, Postgres>,
     filters: &'args PossessionStatsQuery,
+    include_rank_peers: bool,
 ) {
     let player = filters
         .player
@@ -473,6 +474,13 @@ fn push_possession_cohort_ctes<'args>(
         r#"
         WITH target_appearances AS MATERIALIZED (
             SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+        "#,
+    );
+    if include_rank_peers {
+        query.push(", rp.rank_tier");
+    }
+    query.push(
+        r#"
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
             WHERE r.canonical_analysis_run_id IS NOT NULL
@@ -504,10 +512,25 @@ fn push_possession_cohort_ctes<'args>(
              AND actor.team IS NOT NULL
              AND target.team IS NOT NULL
              AND actor.team <> target.team
+        "#,
+    );
+    if include_rank_peers {
+        query.push(
+            r#"
             UNION ALL
-            SELECT 'population' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            SELECT 'rank_peers' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
             FROM target_appearances target
-            JOIN replay_players actor ON actor.replay_id = target.replay_id
+            JOIN replay_players actor
+              ON actor.replay_id = target.replay_id
+             AND actor.id <> target.id
+             AND actor.rank_tier IS NOT NULL
+             AND target.rank_tier IS NOT NULL
+             AND actor.rank_tier = target.rank_tier
+            "#,
+        );
+    }
+    query.push(
+        r#"
         )
         "#,
     );
@@ -552,9 +575,10 @@ fn push_possession_cohort_span_select(builder: &mut QueryBuilder<'_, Postgres>) 
 fn build_possession_cohort_span_summary_query<'args>(
     filters: &'args PossessionStatsQuery,
     span_filter: PossessionSpanFilter,
+    include_rank_peers: bool,
 ) -> QueryBuilder<'args, Postgres> {
     let mut query = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut query, filters);
+    push_possession_cohort_ctes(&mut query, filters, include_rank_peers);
     push_possession_cohort_span_select(&mut query);
     query.push(
         r#"
@@ -583,8 +607,10 @@ async fn load_possession_cohort_span_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
     span_filter: PossessionSpanFilter,
+    include_rank_peers: bool,
 ) -> Result<HashMap<String, (u64, PossessionSpanSummary)>, sqlx::Error> {
-    let mut query = build_possession_cohort_span_summary_query(filters, span_filter);
+    let mut query =
+        build_possession_cohort_span_summary_query(filters, span_filter, include_rank_peers);
     let rows = query.build().fetch_all(pool).await?;
     let mut summaries = HashMap::new();
     for row in rows {
@@ -599,9 +625,10 @@ async fn load_possession_cohort_span_summaries(
 async fn load_possession_cohort_touch_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
+    include_rank_peers: bool,
 ) -> Result<HashMap<String, PossessionTouchSummary>, sqlx::Error> {
     let mut query = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut query, filters);
+    push_possession_cohort_ctes(&mut query, filters, include_rank_peers);
     query.push(
         r#"
         SELECT
@@ -653,9 +680,10 @@ async fn load_possession_cohort_touch_summaries(
 async fn load_possession_cohort_location_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
+    include_rank_peers: bool,
 ) -> Result<HashMap<String, PossessionLocationSummary>, sqlx::Error> {
     let mut query = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut query, filters);
+    push_possession_cohort_ctes(&mut query, filters, include_rank_peers);
     query.push(
         r#"
         SELECT
@@ -702,18 +730,32 @@ async fn load_possession_cohort_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
 ) -> Result<Vec<PossessionCohortSummary>, sqlx::Error> {
-    let mut possessions =
-        load_possession_cohort_span_summaries(pool, filters, PossessionSpanFilter::All).await?;
+    let include_rank_peers = possession_rank_peer_cohort_available(pool).await?;
+    let mut possessions = load_possession_cohort_span_summaries(
+        pool,
+        filters,
+        PossessionSpanFilter::All,
+        include_rank_peers,
+    )
+    .await?;
     let mut controlled_plays = load_possession_cohort_span_summaries(
         pool,
         filters,
         PossessionSpanFilter::SustainedControl,
+        include_rank_peers,
     )
     .await?;
-    let mut touches = load_possession_cohort_touch_summaries(pool, filters).await?;
-    let mut locations = load_possession_cohort_location_summaries(pool, filters).await?;
+    let mut touches =
+        load_possession_cohort_touch_summaries(pool, filters, include_rank_peers).await?;
+    let mut locations =
+        load_possession_cohort_location_summaries(pool, filters, include_rank_peers).await?;
+    let cohort_order = if include_rank_peers {
+        vec!["player", "teammates", "opponents", "rank_peers"]
+    } else {
+        vec!["player", "teammates", "opponents"]
+    };
 
-    Ok(["player", "teammates", "opponents", "population"]
+    Ok(cohort_order
         .into_iter()
         .filter_map(|key| {
             let (appearance_count, possession_summary) = possessions.remove(key)?;
@@ -737,12 +779,28 @@ async fn load_possession_cohort_summaries(
         .collect())
 }
 
+async fn possession_rank_peer_cohort_available(pool: &sqlx::PgPool) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'replay_players'
+              AND column_name = 'rank_tier'
+        )
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+}
+
 fn possession_cohort_label(key: &str) -> &'static str {
     match key {
         "player" => "Player",
         "teammates" => "Teammates",
         "opponents" => "Opponents",
-        "population" => "Population",
+        "rank_peers" => "Same-rank players",
         _ => "Unknown",
     }
 }

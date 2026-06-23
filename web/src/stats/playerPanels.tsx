@@ -1097,6 +1097,12 @@ export function PossessionSummaryPanel({
   const spans = summary.possessions;
   const subjects = possessionProfileSubjects(summary, playerName);
   const comparisonCharts = possessionProfileMetricCharts(subjects);
+  const comparisonSuffix =
+    subjects.length > 1
+      ? subjects.some((subject) => subject.key === "rank_peers")
+        ? " · compared with teammates, opponents, and same-rank players"
+        : " · compared with teammates and opponents"
+      : "";
 
   return (
     <section className="chart-panel full-span possession-summary-panel">
@@ -1105,7 +1111,7 @@ export function PossessionSummaryPanel({
         <span>
           {spans.possession_count.toLocaleString()} possessions across{" "}
           {summary.replay_count.toLocaleString()} replays
-          {subjects.length > 1 ? " · compared with teammates, opponents, and population" : ""}
+          {comparisonSuffix}
         </span>
       </header>
 
@@ -1314,7 +1320,7 @@ function possessionCohortSubtitle(key: string): string {
   if (key === "player") return "Player";
   if (key === "teammates") return "Same-team players";
   if (key === "opponents") return "Other-team players";
-  if (key === "population") return "All players in set";
+  if (key === "rank_peers") return "Same-rank players";
   return "Cohort";
 }
 
@@ -1322,8 +1328,8 @@ function possessionCohortSegmentClassName(key: string): string {
   if (key === "player") return "possession-profile-subject";
   if (key === "teammates") return "possession-profile-teammates";
   if (key === "opponents") return "possession-profile-opponents";
-  if (key === "population") return "possession-profile-population";
-  return "possession-profile-population";
+  if (key === "rank_peers") return "possession-profile-rank-peers";
+  return "possession-profile-rank-peers";
 }
 
 function formatSecondsValueRequired(value: number): string {

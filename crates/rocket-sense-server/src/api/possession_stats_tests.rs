@@ -118,20 +118,41 @@ fn teammate_controlled_play_query_requires_player_filter() {
 }
 
 #[test]
-fn possession_cohort_span_query_compares_player_teammates_opponents_and_population() {
+fn possession_cohort_span_query_compares_player_teammates_opponents_and_rank_peers_when_available()
+{
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
     )
     .expect("possession query should parse");
-    let builder = build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All);
+    let builder =
+        build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All, true);
     let sql = builder.sql();
 
     assert!(sql.contains("'player' AS cohort"));
     assert!(sql.contains("'teammates' AS cohort"));
     assert!(sql.contains("'opponents' AS cohort"));
-    assert!(sql.contains("'population' AS cohort"));
+    assert!(sql.contains("'rank_peers' AS cohort"));
     assert!(sql.contains("actor.team <> target.team"));
+    assert!(sql.contains("actor.rank_tier = target.rank_tier"));
     assert!(sql.contains("detail.replay_player_id = appearance.actor_id"));
     assert!(sql.contains("GROUP BY appearance.cohort"));
+}
+
+#[test]
+fn possession_cohort_span_query_omits_rank_peers_when_rank_schema_is_unavailable() {
+    let query = PossessionStatsQuery::from_raw_query(
+        Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+    )
+    .expect("possession query should parse");
+    let builder =
+        build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All, false);
+    let sql = builder.sql();
+
+    assert!(sql.contains("'player' AS cohort"));
+    assert!(sql.contains("'teammates' AS cohort"));
+    assert!(sql.contains("'opponents' AS cohort"));
+    assert!(!sql.contains("'rank_peers' AS cohort"));
+    assert!(!sql.contains("rank_tier"));
 }
