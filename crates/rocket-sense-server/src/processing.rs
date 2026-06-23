@@ -132,6 +132,91 @@ const INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of `player_replay_positioning` for one analysis run
+// ($1) and replay ($2). One row per player, summing each positioning stream's
+// durations. Mirrors the per-event aggregation in api/positioning_stats.rs
+// (build_positioning_summary_query) but grouped per absolute player rather than
+// per target-relative cohort -- the read reconstructs cohorts by (replay, team).
+const INSERT_PLAYER_REPLAY_POSITIONING_SQL: &str = r#"
+        INSERT INTO player_replay_positioning (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            active_seconds, tracked_seconds,
+            defensive_third_seconds, neutral_third_seconds, offensive_third_seconds,
+            defensive_half_seconds, offensive_half_seconds,
+            behind_ball_seconds, level_with_ball_seconds, ahead_of_ball_seconds,
+            role_most_back_seconds, role_mid_seconds, role_most_forward_seconds,
+            role_other_seconds, role_no_teammates_seconds,
+            closest_team_seconds, closest_absolute_seconds, farthest_seconds,
+            distance_to_ball_weighted, distance_to_ball_weight,
+            distance_to_teammates_weighted, distance_to_teammates_weight
+        )
+        WITH positioning_events AS (
+            SELECT
+                actor.id AS replay_player_id,
+                actor.platform AS platform,
+                actor.platform_player_id AS platform_player_id,
+                actor.team AS team,
+                event.source_stream AS stream,
+                COALESCE(
+                    event.duration_seconds,
+                    CASE
+                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
+                        THEN GREATEST(event.end_time - event.start_time, 0)
+                        ELSE 0
+                    END,
+                    0
+                ) AS duration,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM play_events event
+            JOIN replay_players actor
+              ON actor.replay_id = event.replay_id
+             AND actor.platform IS NOT NULL
+             AND actor.platform_player_id IS NOT NULL
+             AND concat(actor.platform, ':', actor.platform_player_id) = event.primary_subject_id
+            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream IN (
+                'player_activity', 'field_third', 'field_half', 'ball_depth',
+                'depth_role', 'ball_proximity', 'positioning_distance'
+              )
+        )
+        SELECT
+            $1,
+            $2,
+            (array_agg(replay_player_id))[1],
+            concat(platform, ':', platform_player_id),
+            platform,
+            platform_player_id,
+            min(team),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'player_activity'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'defensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'neutral'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'offensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_half' AND payload->>'state' = 'defensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_half' AND payload->>'state' = 'offensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'behind_ball'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'level_with_ball'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'ahead_of_ball'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'most_back'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'mid'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'most_forward'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'other'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'no_teammates'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'closest_to_ball_team' = 'true'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'closest_to_ball_absolute' = 'true'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'farthest_from_ball' = 'true'), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_ball') = 'number' THEN (payload->>'distance_to_ball')::float8 * duration ELSE 0 END), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_ball') = 'number' THEN duration ELSE 0 END), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_teammates') = 'number' THEN (payload->>'distance_to_teammates')::float8 * duration ELSE 0 END), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_teammates') = 'number' THEN duration ELSE 0 END), 0.0)
+        FROM positioning_events
+        GROUP BY platform, platform_player_id
+        ON CONFLICT DO NOTHING
+        "#;
+
 const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
         INSERT INTO player_replay_stat_facts (
             analysis_run_id,
@@ -1304,6 +1389,7 @@ async fn persist_analysis_output(
     insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -1566,6 +1652,64 @@ pub async fn backfill_player_replay_first_man_stints(pool: &PgPool) -> Result<u6
     Ok(backfilled)
 }
 
+async fn insert_player_replay_positioning(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_positioning WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay positioning")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_POSITIONING_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay positioning")?;
+    Ok(())
+}
+
+/// Populate `player_replay_positioning` for every canonical replay missing rows,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_player_replay_positioning(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_positioning pos
+              WHERE pos.replay_id = r.id
+                AND pos.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing positioning backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay positioning backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "positioning backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "positioning backfill complete");
+    Ok(backfilled)
+}
+
 async fn insert_ball_opponent_half_facts(
     pool: &PgPool,
     analysis_run_id: Uuid,
@@ -1696,6 +1840,21 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay first-man stints")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_positioning pos
+        USING analysis_runs run
+        WHERE run.id = pos.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay positioning")?;
 
     sqlx::query(
         r#"
