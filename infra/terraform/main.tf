@@ -342,13 +342,6 @@ resource "kubernetes_deployment_v1" "server" {
             value = "server"
           }
 
-          # Serve the materialized player_replay_event_counts read path by
-          # default; per-request `?materialized=false` still forces the live scan.
-          env {
-            name  = "ROCKET_SENSE_MATERIALIZED_STAT_COUNTS"
-            value = "true"
-          }
-
           env {
             name  = "ROCKET_SENSE_LOG_FORMAT"
             value = "json"
