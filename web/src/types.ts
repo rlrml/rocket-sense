@@ -370,8 +370,32 @@ export interface StatAggregateSetResponse {
     max_seconds: number;
     count: number;
   }> | null;
+  touch_breakdown: TouchAggregateBreakdownResponse | null;
   stats: StatAggregateResponse[];
   groups: StatAggregateGroupResponse[];
+}
+
+export interface TouchAggregateBreakdownResponse {
+  cohorts: TouchAggregateCohortResponse[];
+}
+
+export interface TouchAggregateCohortResponse {
+  key: string;
+  label: string;
+  total_touch_count: number;
+  total_advance_distance: number;
+  dimensions: TouchAggregateDimensionResponse[];
+}
+
+export interface TouchAggregateDimensionResponse {
+  key: string;
+  values: TouchAggregateValueResponse[];
+}
+
+export interface TouchAggregateValueResponse {
+  key: string;
+  touch_count: number;
+  advance_distance: number;
 }
 
 export interface StatAggregateGroupResponse {

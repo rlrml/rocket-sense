@@ -74,8 +74,36 @@ pub struct StatAggregateSetResponse {
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub teammate_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
+    pub touch_breakdown: Option<TouchAggregateBreakdownResponse>,
     pub stats: Vec<StatAggregateResponse>,
     pub groups: Vec<StatAggregateGroupResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateBreakdownResponse {
+    pub cohorts: Vec<TouchAggregateCohortResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateCohortResponse {
+    pub key: String,
+    pub label: String,
+    pub total_touch_count: u64,
+    pub total_advance_distance: f64,
+    pub dimensions: Vec<TouchAggregateDimensionResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateDimensionResponse {
+    pub key: String,
+    pub values: Vec<TouchAggregateValueResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateValueResponse {
+    pub key: String,
+    pub touch_count: u64,
+    pub advance_distance: f64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -625,7 +653,7 @@ pub(crate) async fn load_stat_aggregates(
     // The base aggregate and the per-playlist breakdown are independent, so run
     // them concurrently rather than serializing the (many) underlying queries.
     let (mut aggregates, groups) = tokio::try_join!(
-        load_stat_aggregates_base(pool, filters, true),
+        load_stat_aggregates_base(pool, filters, true, true),
         load_stat_aggregate_groups(pool, filters),
     )?;
     aggregates.groups = groups;
@@ -1085,6 +1113,7 @@ async fn load_stat_aggregates_base(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
     include_rotation_histogram: bool,
+    include_touch_breakdown: bool,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
     // These queries are independent; run them concurrently against the pool.
     let teammate_fut = async {
@@ -1111,18 +1140,27 @@ async fn load_stat_aggregates_base(
             Ok::<_, sqlx::Error>(Vec::new())
         }
     };
+    let touch_breakdown_fut = async {
+        if include_touch_breakdown && filters.player.is_some() && filters.include_teammates {
+            Ok::<_, sqlx::Error>(Some(load_touch_aggregate_breakdown(pool, filters).await?))
+        } else {
+            Ok(None)
+        }
+    };
     let (
         target_denominators,
         teammate_denominators,
         rows,
         rotation_duration_histogram,
         teammate_rotation_duration_histogram,
+        touch_breakdown,
     ) = tokio::try_join!(
         load_target_denominators(pool, filters),
         teammate_fut,
         load_stat_count_rows(pool, filters),
         histogram_fut,
         teammate_histogram_fut,
+        touch_breakdown_fut,
     )?;
     let target_replay_count = target_denominators.replay_count.max(1) as f64;
     let teammate_appearance_count = teammate_denominators
@@ -1187,6 +1225,7 @@ async fn load_stat_aggregates_base(
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
         teammate_rotation_duration_histogram,
+        touch_breakdown,
         stats,
         groups: Vec::new(),
     })
@@ -1226,7 +1265,7 @@ async fn load_playlist_stat_aggregate_groups(
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
         group_filters.replay_set.playlist_group_key = Some(playlist.clone());
-        let aggregates = load_stat_aggregates_base(pool, &group_filters, false).await?;
+        let aggregates = load_stat_aggregates_base(pool, &group_filters, false, false).await?;
         Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
             display_name: playlist_label(&playlist),
@@ -1592,6 +1631,208 @@ async fn load_stat_count_rows(
         load_player_stat_count_rows(pool, filters).await
     } else {
         load_replay_set_stat_count_rows(pool, filters).await
+    }
+}
+
+#[derive(Debug, Default)]
+struct TouchAggregateCohortAccumulator {
+    kind_counts: HashMap<String, u64>,
+    kind_advance: HashMap<String, f64>,
+    category_counts: HashMap<String, u64>,
+    category_advance: HashMap<String, f64>,
+}
+
+impl TouchAggregateCohortAccumulator {
+    fn add(&mut self, dimension: String, value: String, count: u64, advance: f64) {
+        let (counts, advances) = if dimension == "kind" {
+            (&mut self.kind_counts, &mut self.kind_advance)
+        } else {
+            (&mut self.category_counts, &mut self.category_advance)
+        };
+        *counts.entry(value.clone()).or_insert(0) += count;
+        *advances.entry(value).or_insert(0.0) += advance.max(0.0);
+    }
+
+    fn total_touch_count(&self) -> u64 {
+        self.kind_counts.values().sum()
+    }
+
+    fn total_advance_distance(&self) -> f64 {
+        self.kind_advance.values().sum()
+    }
+
+    fn into_response(self, key: &str) -> TouchAggregateCohortResponse {
+        let total_touch_count = self.total_touch_count();
+        let total_advance_distance = self.total_advance_distance();
+        TouchAggregateCohortResponse {
+            key: key.to_owned(),
+            label: touch_cohort_label(key).to_owned(),
+            total_touch_count,
+            total_advance_distance,
+            dimensions: vec![
+                TouchAggregateDimensionResponse {
+                    key: "kind".to_owned(),
+                    values: touch_values_response(self.kind_counts, self.kind_advance),
+                },
+                TouchAggregateDimensionResponse {
+                    key: "category".to_owned(),
+                    values: touch_values_response(self.category_counts, self.category_advance),
+                },
+            ],
+        }
+    }
+}
+
+async fn load_touch_aggregate_breakdown(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT
+                rp.id,
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+              AND r.canonical_analysis_run_id IS NOT NULL
+        ),
+        touch_events AS MATERIALIZED (
+            SELECT
+                CASE
+                    WHEN actor.id = appearance.id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND actor.id <> appearance.id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                CASE
+                    WHEN detail.kind IN ('control', 'medium_hit', 'hard_hit') THEN detail.kind
+                    WHEN detail.kind IN ('hit', 'medium') THEN 'medium_hit'
+                    WHEN detail.kind = 'hard' THEN 'hard_hit'
+                    WHEN detail.kind IN ('soft', 'soft_touch') THEN 'control'
+                    ELSE 'other'
+                END AS kind,
+                CASE
+                    WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
+                    ELSE 'other'
+                END AS category,
+                COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
+            FROM target_appearances appearance
+            JOIN play_events event
+              ON event.replay_id = appearance.replay_id
+             AND event.analysis_run_id = appearance.run_id
+             AND event.source_stream = 'touch'
+            JOIN play_event_touch_details detail
+              ON detail.event_id = event.id
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.subject_kind = 'player'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN replay_players actor ON actor.id = subject.replay_player_id
+        ),
+        normalized AS (
+            SELECT cohort, kind, category, advance_distance
+            FROM touch_events
+            WHERE cohort IS NOT NULL
+        )
+        SELECT cohort, dimension, value, touch_count, advance_distance
+        FROM (
+            SELECT
+                cohort,
+                'kind' AS dimension,
+                kind AS value,
+                COUNT(*) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM normalized
+            GROUP BY cohort, kind
+            UNION ALL
+            SELECT
+                cohort,
+                'category' AS dimension,
+                category AS value,
+                COUNT(*) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM normalized
+            GROUP BY cohort, category
+        ) rows
+        ORDER BY
+            CASE cohort
+                WHEN 'player' THEN 0
+                WHEN 'teammates' THEN 1
+                WHEN 'opponents' THEN 2
+                ELSE 3
+            END,
+            dimension,
+            touch_count DESC,
+            value
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut cohorts: HashMap<String, TouchAggregateCohortAccumulator> = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let dimension: String = row.try_get("dimension")?;
+        let value: String = row.try_get("value")?;
+        let touch_count = count_column(&row, "touch_count")?;
+        let advance_distance: f64 = row.try_get("advance_distance")?;
+        cohorts
+            .entry(cohort)
+            .or_default()
+            .add(dimension, value, touch_count, advance_distance);
+    }
+
+    Ok(TouchAggregateBreakdownResponse {
+        cohorts: ["player", "teammates", "opponents"]
+            .into_iter()
+            .filter_map(|key| {
+                cohorts
+                    .remove(key)
+                    .filter(|cohort| cohort.total_touch_count() > 0)
+                    .map(|cohort| cohort.into_response(key))
+            })
+            .collect(),
+    })
+}
+
+fn touch_values_response(
+    counts: HashMap<String, u64>,
+    advances: HashMap<String, f64>,
+) -> Vec<TouchAggregateValueResponse> {
+    let mut values: Vec<_> = counts
+        .into_iter()
+        .map(|(key, touch_count)| TouchAggregateValueResponse {
+            advance_distance: advances.get(&key).copied().unwrap_or(0.0),
+            key,
+            touch_count,
+        })
+        .collect();
+    values.sort_by(|left, right| {
+        right
+            .touch_count
+            .cmp(&left.touch_count)
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    values
+}
+
+fn touch_cohort_label(key: &str) -> &'static str {
+    match key {
+        "player" => "You",
+        "teammates" => "Teammates",
+        "opponents" => "Opponents",
+        _ => "Unknown",
     }
 }
 

@@ -1,6 +1,15 @@
 import { useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
+  comparisonSubjectLabel,
+  StatComparisonGrid,
+  StatComparisonPanel,
+  subjectIndexByTeam,
+  subjectMagnitudeRows,
+  subjectSplitRows,
+  type SplitValue,
+} from "./comparisonPanels";
+import {
   SegmentedBar,
   StatPlayerLabel,
   statPercentWithValue,
@@ -50,6 +59,11 @@ interface BallThirdSpan {
 
 const possessionStates: PossessionState[] = ["team_zero", "neutral", "team_one"];
 const possessionZones: PossessionZone[] = ["offensive", "neutral", "defensive"];
+const possessionZoneValues: SplitValue[] = [
+  { id: "offensive", label: "Offensive", segmentClass: "possession-zone-offensive" },
+  { id: "neutral", label: "Neutral", segmentClass: "possession-zone-neutral" },
+  { id: "defensive", label: "Defensive", segmentClass: "possession-zone-defensive" },
+];
 
 export function PossessionDetail({
   events,
@@ -171,8 +185,8 @@ export function PossessionDetail({
         hasPlayerSpans={hasPlayerSpans}
         onComparisonModeChange={setComparisonMode}
       />
-      <div className="stat-section-grid">
-        <section className="chart-panel">
+      <StatComparisonGrid className="possession-comparison-grid">
+        <section className="player-comparison-chart stat-comparison-card possession-overview-card">
           <header className="chart-panel-header">
             <h3>Ball half</h3>
             <span>{formatSeconds(ballHalfTrackedSeconds)} tracked</span>
@@ -184,7 +198,7 @@ export function PossessionDetail({
           />
         </section>
 
-        <section className="chart-panel">
+        <section className="player-comparison-chart stat-comparison-card possession-overview-card">
           <header className="chart-panel-header">
             <h3>Ball thirds</h3>
             <span>{formatSeconds(ballThirdsTrackedSeconds)} tracked</span>
@@ -197,40 +211,27 @@ export function PossessionDetail({
           />
         </section>
 
-        <section className="chart-panel">
-          <header className="chart-panel-header">
-            <h3>{comparisonMode === "teams" ? "Possession share" : "Player possession"}</h3>
-            <span>
-              {formatSeconds(
-                comparisonMode === "teams" ? totalTrackedSeconds : playerTrackedSeconds,
-              )}{" "}
-              tracked
-            </span>
-          </header>
-          {comparisonMode === "teams" ? (
-            <PossessionShareChart totals={possessionTotals} totalSeconds={totalTrackedSeconds} />
-          ) : (
-            <PlayerPossessionChart
-              summaries={playerSummaries}
-              totalSeconds={playerTrackedSeconds}
-            />
-          )}
-        </section>
-
-        {possessionZones.map((zone) => (
-          <section className="chart-panel" key={zone}>
+        {comparisonMode === "teams" ? (
+          <section className="player-comparison-chart stat-comparison-card possession-overview-card">
             <header className="chart-panel-header">
-              <h3>{possessionZoneTitle(zone)}</h3>
-              <span>{formatSeconds(zoneTotal(zoneSubjects, zone))} tracked</span>
+              <h3>Possession share</h3>
+              <span>{formatSeconds(totalTrackedSeconds)} tracked</span>
             </header>
-            <PossessionZoneChart
-              comparisonMode={comparisonMode}
-              subjects={zoneSubjects}
-              zone={zone}
-            />
+            <PossessionShareChart totals={possessionTotals} totalSeconds={totalTrackedSeconds} />
           </section>
-        ))}
+        ) : (
+          <PlayerPossessionChart summaries={playerSummaries} totalSeconds={playerTrackedSeconds} />
+        )}
 
+        {hasPlayerSpans ? <PlayerPossessionStatPanels summaries={playerSummaries} /> : null}
+        <PossessionZonesPanel
+          comparisonMode={comparisonMode}
+          subjects={zoneSubjects}
+          title="Possession zones"
+        />
+      </StatComparisonGrid>
+
+      <div className="stat-section-grid">
         {scope === "replay" ? (
           <section className="chart-panel full-span">
             <header className="chart-panel-header">
@@ -434,54 +435,94 @@ function PlayerPossessionChart({
   summaries: PlayerPossessionSummary[];
   totalSeconds: number;
 }) {
-  const maxSeconds = Math.max(1, ...summaries.map((summary) => summary.seconds));
-
   if (!summaries.some((summary) => summary.seconds > 0)) {
     return (
       <div className="stat-empty">No player possession spans are available for this replay.</div>
     );
   }
 
+  const subjectIndexByKey = subjectIndexByTeam(summaries);
   return (
-    <div className="possession-player-bars">
-      {summaries.map((summary) => {
-        const percent = percentage(summary.seconds, totalSeconds);
-        return (
-          <div className="possession-player-row" key={summary.key}>
-            <StatPlayerLabel
-              className={`team-accent-${teamClass(summary.team)}`}
-              name={summary.name}
-              platform={summary.platform}
-              profilePath={playerProfilePath(summary)}
-              rank={summary.rank}
-              subtitle={teamLabel(summary.team)}
-            />
-            <SegmentedBar
-              ariaLabel={`${summary.name} possession`}
-              className="possession-player-track"
-              maxValue={maxSeconds}
-              segments={[
-                {
-                  key: summary.key,
-                  className: `team-segment-${teamClass(summary.team)}`,
-                  label: summary.name,
-                  value: summary.seconds,
-                  visibleLabel: statPercentWithValue(
-                    formatPercent(percent),
-                    formatSeconds(summary.seconds),
-                  ),
-                  title: statPercentWithValue(
-                    formatPercent(percent),
-                    formatSeconds(summary.seconds),
-                    summary.name,
-                  ),
-                },
-              ]}
-              total={summary.seconds}
-            />
-          </div>
-        );
+    <StatComparisonPanel
+      title={`Possession time · ${formatSeconds(totalSeconds)} tracked`}
+      rows={subjectMagnitudeRows(summaries, {
+        teamColored: true,
+        subjectIndexByKey,
+        groupClassName: "possession-bar-player",
+        metric: (summary) => summary.seconds,
+        format: formatSeconds,
+        label: possessionSummaryLabel,
       })}
+    />
+  );
+}
+
+function PlayerPossessionStatPanels({ summaries }: { summaries: PlayerPossessionSummary[] }) {
+  const subjectIndexByKey = subjectIndexByTeam(summaries);
+  return (
+    <>
+      <StatComparisonPanel
+        title="Possession spans"
+        rows={subjectMagnitudeRows(summaries, {
+          teamColored: true,
+          subjectIndexByKey,
+          groupClassName: "possession-bar-spans",
+          metric: (summary) => summary.spans,
+          format: formatCount,
+          label: possessionSummaryLabel,
+        })}
+      />
+      <StatComparisonPanel
+        title="Average span"
+        rows={subjectMagnitudeRows(summaries, {
+          teamColored: true,
+          subjectIndexByKey,
+          groupClassName: "possession-bar-average-span",
+          metric: (summary) => (summary.spans > 0 ? summary.seconds / summary.spans : null),
+          format: formatSeconds,
+          label: possessionSummaryLabel,
+          placeholder: "—",
+        })}
+      />
+    </>
+  );
+}
+
+function PossessionZonesPanel({
+  comparisonMode,
+  subjects,
+  title,
+}: {
+  comparisonMode: PossessionComparisonMode;
+  subjects: PossessionZoneSubject[];
+  title: string;
+}) {
+  const rows = subjectSplitRows(subjects, possessionZoneValues, {
+    amount: (subject, value) => subject.zoneSeconds[value.id as PossessionZone] ?? 0,
+    total: (subject) => sumObjectValues(subject.zoneSeconds),
+    format: formatSeconds,
+    label: possessionZoneSubjectLabel,
+    minLabelShare: 0.16,
+  });
+
+  return (
+    <StatComparisonPanel
+      emptyLabel={`No ${comparisonMode === "players" ? "player" : "team"} possession zone data is available yet.`}
+      footer={<PossessionZoneLegend />}
+      rows={rows}
+      title={title}
+    />
+  );
+}
+
+function PossessionZoneLegend() {
+  return (
+    <div className="chart-legend possession-zone-legend">
+      {possessionZoneValues.map((value) => (
+        <span className={value.segmentClass} key={value.id}>
+          {value.label}
+        </span>
+      ))}
     </div>
   );
 }
@@ -1250,6 +1291,17 @@ function playerProfilePath(player: {
   return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/possession`;
 }
 
+function possessionSummaryLabel(summary: PlayerPossessionSummary) {
+  return comparisonSubjectLabel(summary, "possession");
+}
+
+function possessionZoneSubjectLabel(subject: PossessionZoneSubject) {
+  return comparisonSubjectLabel(subject, "possession", {
+    showPlatformBadge: subject.showPlatformBadge,
+    teamSubtitle: subject.showPlatformBadge ? teamLabel(subject.team) : "Team",
+  });
+}
+
 function playerMatchesId(player: ReplayPlayer, playerId: string): boolean {
   return (
     player.platform_player_id === playerId ||
@@ -1287,6 +1339,10 @@ function formatSeconds(value: number | null): string {
 function formatPercent(value: number): string {
   if (!Number.isFinite(value)) return "0%";
   return `${Math.round(value)}%`;
+}
+
+function formatCount(value: number): string {
+  return Math.round(value).toLocaleString();
 }
 
 function formatClock(value: number): string {

@@ -1,14 +1,12 @@
 import { useMemo } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
-  type ComparisonRow,
-  ComparisonRows,
-  type SegmentedBarSegment,
-  statPercentWithValue,
-  StatPlayerLabel,
-  statPlayerRank,
-  type StatPlayerRank,
-} from "./shared";
+  comparisonSubjectLabel,
+  StatComparisonGrid,
+  StatComparisonPanel,
+  subjectSplitRows,
+} from "./comparisonPanels";
+import { statPlayerRank, type StatPlayerRank } from "./shared";
 import { touchPayloadValue } from "./touchTags";
 
 // Every aerial panel ranks all participants on its own, so this group loads the
@@ -131,11 +129,11 @@ export function AerialsDetail({
 
   return (
     <div className="aerials-detail">
-      <div className="stat-section-grid">
+      <StatComparisonGrid>
         {PANELS.map((panel) => (
           <AerialPanel key={panel.id} panel={panel} subjects={subjects} />
         ))}
-      </div>
+      </StatComparisonGrid>
     </div>
   );
 }
@@ -144,64 +142,22 @@ function AerialPanel({ panel, subjects }: { panel: AerialPanelConfig; subjects: 
   const activeValues = panel.values.filter((value) =>
     subjects.some((subject) => (subject.counts[panel.id][value.id] ?? 0) > 0),
   );
-
-  const ranked = [...subjects]
-    .map((subject) => ({ subject, total: panelTotal(subject, panel.id) }))
-    .filter((entry) => entry.total > 0)
-    .sort(
-      (left, right) =>
-        right.total - left.total || left.subject.name.localeCompare(right.subject.name),
-    );
-
-  const grandTotal = ranked.reduce((sum, entry) => sum + entry.total, 0);
-  const maxValue = Math.max(1, ...ranked.map((entry) => entry.total));
-
-  const rows: ComparisonRow[] = ranked.map(({ subject, total }) => {
-    const counts = subject.counts[panel.id];
-    const segments: SegmentedBarSegment[] = activeValues.map((value) => {
-      const amount = counts[value.id] ?? 0;
-      const share = total > 0 ? amount / total : 0;
-      return {
-        key: value.id,
-        className: value.segmentClass,
-        label: value.label,
-        value: amount,
-        visibleLabel: amount > 0 && share >= 0.16 ? formatCount(amount) : undefined,
-        title:
-          amount > 0
-            ? statPercentWithValue(`${Math.round(share * 100)}%`, formatCount(amount), value.label)
-            : undefined,
-      };
-    });
-    return {
-      key: subject.key,
-      label: (
-        <StatPlayerLabel
-          className={`team-accent-${teamClass(subject.team)}`}
-          name={subject.name}
-          platform={subject.platform}
-          profilePath={playerProfilePath(subject)}
-          rank={subject.rank}
-          subtitle={teamLabel(subject.team)}
-        />
-      ),
-      ariaLabel: `${subject.name}: ${formatCount(total)} ${panel.noun}`,
-      segments,
-      total,
-      maxValue,
-      valueLabel: formatCount(total),
-    };
+  const panelSubjects = subjects.filter((subject) => panelTotal(subject, panel.id) > 0);
+  const rows = subjectSplitRows(panelSubjects, activeValues, {
+    amount: (subject, value) => subject.counts[panel.id][value.id] ?? 0,
+    total: (subject) => panelTotal(subject, panel.id),
+    format: formatCount,
+    label: (subject) => comparisonSubjectLabel(subject, "aerials"),
+    minLabelShare: 0.16,
   });
 
   return (
-    <section className="chart-panel full-span">
-      <header className="chart-panel-header">
-        <h3>{panel.title}</h3>
-        <span>{`${grandTotal.toLocaleString()} ${panel.noun}`}</span>
-      </header>
-      <ComparisonRows rows={rows} emptyLabel={`No ${panel.noun} are available yet.`} />
-      <AerialLegend values={activeValues} />
-    </section>
+    <StatComparisonPanel
+      emptyLabel={`No ${panel.noun} are available yet.`}
+      footer={<AerialLegend values={activeValues} />}
+      rows={rows}
+      title={panel.title}
+    />
   );
 }
 
@@ -374,29 +330,9 @@ function normalizePlatform(value: string): string {
   return lower;
 }
 
-function playerProfilePath(subject: {
-  platform: string | null;
-  platformPlayerId: string | null;
-}): string | null {
-  if (!subject.platform || !subject.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(subject.platform)}/${encodeURIComponent(subject.platformPlayerId)}/stats/aerials`;
-}
-
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
   return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function teamClass(team: number | null): string {
-  if (team === 0) return "blue";
-  if (team === 1) return "orange";
-  return "unknown";
-}
-
-function teamLabel(team: number | null): string {
-  if (team === 0) return "Blue";
-  if (team === 1) return "Orange";
-  return "Unknown";
 }
 
 function formatCount(value: number): string {
