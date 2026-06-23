@@ -1145,11 +1145,22 @@ async fn load_stat_aggregates_base(
             Ok::<_, sqlx::Error>(Vec::new())
         }
     };
-    // Teammate stint distribution is temporarily disabled: it was a per-event
-    // scan over every teammate's rotation stints (with a jsonb attribute join)
-    // that dominated the profile aggregates latency (~15s for a high-volume
-    // player). Returns empty until the rotation stints are materialized.
-    let teammate_histogram_fut = async { Ok::<_, sqlx::Error>(Vec::new()) };
+    // Teammate stint distribution, from the materialized first-man stints. Only
+    // served on the materialized path: the live version was a per-event scan over
+    // every teammate's rotation stints (with a jsonb attribute join) that
+    // dominated the aggregates latency (~15s), so `materialized=false` returns
+    // empty rather than resurrecting it.
+    let teammate_histogram_fut = async {
+        if include_rotation_histogram
+            && filters.player.is_some()
+            && filters.include_teammates
+            && filters.materialized_stat_counts
+        {
+            load_teammate_rotation_duration_histogram_materialized(pool, filters).await
+        } else {
+            Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
     let touch_breakdown_fut = async {
         if include_touch_breakdown && filters.player.is_some() && filters.include_teammates {
             Ok::<_, sqlx::Error>(Some(load_touch_aggregate_breakdown(pool, filters).await?))
@@ -1457,10 +1468,108 @@ async fn load_teammate_denominators(
     })
 }
 
+/// Buckets the target player's first-man stint durations from the materialized
+/// `player_replay_first_man_stints` table instead of the live rotation-event
+/// scan. Mirrors the player branch of `load_rotation_duration_histogram`.
+async fn load_rotation_duration_histogram_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized rotation histogram requires a player");
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT floor(stint.duration_seconds / "#,
+    );
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds, COUNT(*) AS count
+        FROM player_replay_first_man_stints stint
+        JOIN replays r
+          ON r.id = stint.replay_id
+         AND r.canonical_analysis_run_id = stint.analysis_run_id
+        WHERE stint.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND stint.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(
+        r#"
+        GROUP BY bucket_start_seconds
+        ORDER BY bucket_start_seconds
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
+}
+
+/// Buckets the target player's teammates' first-man stint durations from the
+/// materialized table: the target's (replay, team) appearances joined to
+/// co-players' stints in those replays.
+async fn load_teammate_rotation_duration_histogram_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized teammate rotation histogram requires a player");
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+        )
+        SELECT floor(stint.duration_seconds / "#,
+    );
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds, COUNT(*) AS count
+        FROM target_appearances appearance
+        JOIN player_replay_first_man_stints stint
+          ON stint.replay_id = appearance.replay_id
+         AND stint.analysis_run_id = appearance.run_id
+         AND stint.team = appearance.team
+         AND NOT (
+            stint.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND stint.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#")
+        GROUP BY bucket_start_seconds
+        ORDER BY bucket_start_seconds
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
+}
+
 async fn load_rotation_duration_histogram(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    if filters.player.is_some() && filters.materialized_stat_counts {
+        return load_rotation_duration_histogram_materialized(pool, filters).await;
+    }
     let mut query = if filters.player.is_some() {
         let mut query = QueryBuilder::<Postgres>::new(
             r#"

@@ -81,6 +81,57 @@ const INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of `player_replay_first_man_stints` for one
+// analysis run ($1) and replay ($2). One row per first-man rotation stint with
+// its duration, baking in the same `state = 'first_man'` jsonb filter the live
+// histogram query applied -- keep in sync with `load_rotation_duration_histogram`
+// in api/stats.rs and the backfill in this module.
+const INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL: &str = r#"
+        INSERT INTO player_replay_first_man_stints (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            event_id,
+            duration_seconds
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            event.id,
+            event.duration_seconds
+        FROM replay_players rp
+        JOIN play_event_subjects subject
+          ON subject.replay_player_id = rp.id
+         AND subject.role = 'actor'
+        JOIN play_events event
+          ON event.id = subject.event_id
+         AND event.analysis_run_id = $1
+         AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
+        JOIN event_types et ON et.id = event.event_type_id
+        LEFT JOIN play_event_attributes attributes ON attributes.event_id = event.id
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+          AND event.duration_seconds IS NOT NULL
+          AND event.duration_seconds > 0.0
+          AND (
+                (event.source_stream = 'rotation_first_man_stint' AND et.key = 'rotation_first_man_stint')
+             OR (event.source_stream = 'rotation_role' AND attributes.attributes->>'state' = 'first_man')
+          )
+        ON CONFLICT DO NOTHING
+        "#;
+
 const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
         INSERT INTO player_replay_stat_facts (
             analysis_run_id,
@@ -1319,6 +1370,7 @@ async fn persist_analysis_output(
         .await?;
     insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -1522,6 +1574,65 @@ pub async fn backfill_player_replay_event_counts(pool: &PgPool) -> Result<u64> {
     Ok(backfilled)
 }
 
+async fn insert_player_replay_first_man_stints(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_first_man_stints WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay first-man stints")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay first-man stints")?;
+    Ok(())
+}
+
+/// Populate `player_replay_first_man_stints` for every canonical replay missing
+/// rows, from existing events (no re-parse). Resumable like the event-count
+/// backfill; returns the number of replays backfilled.
+pub async fn backfill_player_replay_first_man_stints(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_first_man_stints stint
+              WHERE stint.replay_id = r.id
+                AND stint.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing first-man stint backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay first-man stint backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "first-man stint backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "first-man stint backfill complete");
+    Ok(backfilled)
+}
+
 async fn insert_ball_opponent_half_facts(
     pool: &PgPool,
     analysis_run_id: Uuid,
@@ -1637,6 +1748,21 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay event counts")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_first_man_stints stint
+        USING analysis_runs run
+        WHERE run.id = stint.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay first-man stints")?;
 
     sqlx::query(
         r#"

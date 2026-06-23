@@ -11,6 +11,7 @@ use utoipa::{
 #[openapi(
     paths(
         admin::backfill_event_counts,
+        admin::backfill_rotation_stints,
         admin::backfill_profile_timing,
         admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,

@@ -38,6 +38,10 @@ pub fn router() -> Router<AppState> {
             "/admin/stats/backfill-event-counts",
             post(backfill_event_counts),
         )
+        .route(
+            "/admin/stats/backfill-rotation-stints",
+            post(backfill_rotation_stints),
+        )
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
@@ -524,6 +528,37 @@ pub async fn backfill_event_counts(
                 tracing::info!(backfilled, "event-counts backfill task finished")
             }
             Err(error) => tracing::error!(?error, "event-counts backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Populate `player_replay_first_man_stints` from existing events for every
+/// canonical replay missing rows. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-rotation-stints",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Rotation-stint backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_rotation_stints(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_player_replay_first_man_stints(&pool).await {
+            Ok(backfilled) => tracing::info!(backfilled, "rotation-stint backfill task finished"),
+            Err(error) => tracing::error!(?error, "rotation-stint backfill task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {
