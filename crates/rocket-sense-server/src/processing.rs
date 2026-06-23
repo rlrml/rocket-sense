@@ -459,6 +459,11 @@ struct ReplayProcessingTarget {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReplayProcessingJob {
     replay_id: Uuid,
+    /// When true the worker reprocesses even if the replay is already processed
+    /// (a queued force-reprocess). Defaults false for normal new-replay jobs and
+    /// for jobs enqueued before this field existed.
+    #[serde(default)]
+    force: bool,
 }
 
 #[derive(Clone)]
@@ -551,6 +556,24 @@ pub fn start_replay_processing_workers(
 }
 
 pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
+    enqueue_replay_processing_job_inner(pool, replay_id, false)
+        .await
+        .map(|_| ())
+}
+
+/// Enqueue a force-reprocess job: the worker reprocesses the replay even if it
+/// is already processed. Used by the durable, queue-backed reprocess path so
+/// progress survives restarts and can be drained by the worker fleet. Returns
+/// whether a new job was enqueued (false if one was already outstanding).
+pub async fn enqueue_replay_reprocessing_job(pool: &PgPool, replay_id: Uuid) -> Result<bool> {
+    enqueue_replay_processing_job_inner(pool, replay_id, true).await
+}
+
+async fn enqueue_replay_processing_job_inner(
+    pool: &PgPool,
+    replay_id: Uuid,
+    force: bool,
+) -> Result<bool> {
     // Startup re-enqueue sweeps and repeated reprocess requests would
     // otherwise pile up duplicate jobs for the same replay; one outstanding
     // job is enough since processing always reads current state.
@@ -571,15 +594,15 @@ pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Re
     .await
     .with_context(|| format!("failed to check for queued replay processing job for {replay_id}"))?;
     if already_queued {
-        return Ok(());
+        return Ok(false);
     }
 
     let mut backend = replay_processing_storage(pool);
     backend
-        .push(ReplayProcessingJob { replay_id })
+        .push(ReplayProcessingJob { replay_id, force })
         .await
         .with_context(|| format!("failed to enqueue replay processing job for {replay_id}"))?;
-    Ok(())
+    Ok(true)
 }
 
 // Producer-side handle, used only to `push` new jobs onto the queue. The
@@ -613,7 +636,8 @@ async fn process_replay_job(
     let replay_id = job.replay_id;
     tracing::info!(%replay_id, "started queued replay processing job");
 
-    let Some(target) = replay_processing_job_target(&state.pool, replay_id).await? else {
+    let Some(target) = replay_processing_job_target(&state.pool, replay_id, job.force).await?
+    else {
         tracing::info!(
             %replay_id,
             "skipping replay processing job because replay is missing or already processed"
@@ -661,21 +685,27 @@ pub async fn upsert_replay_preflight_metadata(
 
 pub async fn enqueue_replay_reprocessing(
     pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    permits: Arc<Semaphore>,
+    _storage: Arc<dyn ObjectStorage>,
+    _permits: Arc<Semaphore>,
     options: ReplayReprocessOptions,
 ) -> Result<ReplayReprocessSummary> {
     let concurrency = options.concurrency.clamp(1, 4);
     let targets = reprocess_targets(&pool, &options).await?;
-    let enqueued_replays = targets.len();
-    if !targets.is_empty() {
-        spawn_reprocess_worker(pool, storage, permits, targets, concurrency);
+    let matched_replays = targets.len();
+    // Enqueue durable force-reprocess jobs onto the apalis queue rather than
+    // running an in-process batch: progress is persisted in postgres, survives
+    // server restarts, and is drained by the worker fleet (scale to parallelize).
+    let mut enqueued_replays = 0usize;
+    for target in &targets {
+        if enqueue_replay_reprocessing_job(&pool, target.replay_id).await? {
+            enqueued_replays += 1;
+        }
     }
 
     Ok(ReplayReprocessSummary {
-        matched_replays: enqueued_replays,
+        matched_replays,
         enqueued_replays,
-        skipped_replays: 0,
+        skipped_replays: matched_replays - enqueued_replays,
         concurrency,
         force: options.force,
     })
@@ -809,106 +839,6 @@ fn spawn_profile_timing_backfill_worker(
     });
 }
 
-fn spawn_reprocess_worker(
-    pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    permits: Arc<Semaphore>,
-    targets: Vec<ReplayProcessingTarget>,
-    concurrency: usize,
-) {
-    tokio::spawn(async move {
-        let total = targets.len();
-        let mut pending = targets.into_iter();
-        let mut tasks = JoinSet::new();
-        let mut succeeded = 0usize;
-        let mut failed = 0usize;
-
-        loop {
-            while tasks.len() < concurrency {
-                let Some(target) = pending.next() else {
-                    break;
-                };
-                let pool = pool.clone();
-                let storage = storage.clone();
-                let permits = permits.clone();
-                tasks.spawn(async move {
-                    let replay_id = target.replay_id;
-                    tracing::info!(%replay_id, "queued replay reprocessing");
-                    let _permit = permits
-                        .acquire_owned()
-                        .await
-                        .context("replay reprocessing worker was cancelled before start")?;
-                    tracing::info!(%replay_id, "started replay reprocessing");
-                    let result = process_replay(
-                        pool,
-                        storage,
-                        replay_id,
-                        target.file_sha256,
-                        target.storage_key,
-                    )
-                    .await;
-                    Ok::<_, anyhow::Error>((replay_id, result))
-                });
-            }
-
-            let Some(result) = tasks.join_next().await else {
-                break;
-            };
-
-            match result {
-                Ok(Ok((replay_id, Ok(())))) => {
-                    succeeded += 1;
-                    tracing::info!(
-                        %replay_id,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing succeeded"
-                    );
-                }
-                Ok(Ok((replay_id, Err(error)))) => {
-                    failed += 1;
-                    tracing::error!(
-                        %replay_id,
-                        error = %error,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing failed"
-                    );
-                }
-                Ok(Err(error)) => {
-                    failed += 1;
-                    tracing::error!(
-                        error = %error,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing task failed before start"
-                    );
-                }
-                Err(error) => {
-                    failed += 1;
-                    tracing::error!(
-                        error = %error,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing task panicked"
-                    );
-                }
-            }
-        }
-
-        tracing::info!(
-            succeeded,
-            failed,
-            total,
-            "replay reprocessing batch finished"
-        );
-    });
-}
-
 async fn unfinished_replay_processing_targets(
     pool: &PgPool,
 ) -> Result<Vec<ReplayProcessingTarget>> {
@@ -938,6 +868,7 @@ async fn unfinished_replay_processing_targets(
 async fn replay_processing_job_target(
     pool: &PgPool,
     replay_id: Uuid,
+    force: bool,
 ) -> Result<Option<ReplayProcessingTarget>> {
     let Some(row) = sqlx::query(
         r#"
@@ -956,7 +887,9 @@ async fn replay_processing_job_target(
 
     let processing_status: String = row.try_get("processing_status")?;
     let canonical_analysis_run_id: Option<Uuid> = row.try_get("canonical_analysis_run_id")?;
-    if processing_status == "processed" && canonical_analysis_run_id.is_some() {
+    // A normal job skips an already-processed replay; a force-reprocess job
+    // proceeds regardless so it can rebuild the analysis under a new run.
+    if !force && processing_status == "processed" && canonical_analysis_run_id.is_some() {
         return Ok(None);
     }
 
