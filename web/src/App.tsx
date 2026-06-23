@@ -19,6 +19,8 @@ import {
   LogIn,
   LogOut,
   Mail,
+  Menu,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -170,7 +172,6 @@ const navItems = [
   { to: "/leaderboards", label: "Leaderboards", icon: Trophy, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/admin/processing", label: "Admin", icon: ServerCog },
-  { to: "/account", label: "Account", icon: CircleUser },
   { to: "/about", label: "About", icon: Info },
 ];
 
@@ -183,24 +184,41 @@ export function App() {
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const previewReplayId = replayContextRouteId(location.pathname);
+  const [primaryNavOpen, setPrimaryNavOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [previewWarmupStatus, setPreviewWarmupStatus] = useState<PreviewPlayerWarmupStatus>(
     getPreviewPlayerWarmupStatus,
   );
 
   useEffect(() => schedulePreviewPlayerWarmup(previewReplayId), [previewReplayId]);
   useEffect(() => subscribePreviewPlayerWarmupStatus(setPreviewWarmupStatus), []);
+  useEffect(() => setPrimaryNavOpen(false), [location.pathname]);
 
   async function handleLogout() {
     await logout();
-    navigate("/account");
+    navigate("/replays");
+  }
+
+  function acceptLoginToken(accessToken: string) {
+    setAccessToken(accessToken);
+    setLoginOpen(false);
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <Link className="brand" to="/replays">
+    <div className={`app-shell${primaryNavOpen ? " primary-nav-open" : ""}`}>
+      <header className="top-bar">
+        <button
+          className="nav-menu-button icon-button"
+          type="button"
+          aria-label={primaryNavOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-controls="primary-navigation-menu"
+          aria-expanded={primaryNavOpen}
+          onClick={() => setPrimaryNavOpen((open) => !open)}
+        >
+          {primaryNavOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <Link className="brand" to="/replays" aria-label="Rocket Sense home">
           <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
-          <span>Rocket Sense</span>
         </Link>
         <nav id="primary-navigation" className="nav-list" aria-label="Primary navigation">
           {navItems.map((item) => (
@@ -210,14 +228,53 @@ export function App() {
             </NavLink>
           ))}
         </nav>
-        <PreviewPlayerWarmupIndicator status={previewWarmupStatus} />
-        {currentUser ? (
-          <button className="sidebar-logout" type="button" onClick={() => void handleLogout()}>
-            <LogOut size={18} />
-            <span>Log out</span>
-          </button>
-        ) : null}
-      </aside>
+        <nav
+          id="primary-navigation-menu"
+          className="nav-menu-list"
+          aria-label="Primary navigation menu"
+        >
+          {navItems.map((item) => (
+            <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
+              <item.icon size={18} />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <div className="top-bar-actions">
+          <PreviewPlayerWarmupIndicator status={previewWarmupStatus} />
+          {currentUser ? (
+            <div className="top-bar-user">
+              <Link className="top-bar-user-link" to="/account">
+                <CircleUser size={20} />
+                <div className="top-bar-user-text">
+                  <span>{currentUser.display_name}</span>
+                  <small>{currentUser.email ?? providerLabel(currentUser.provider_name)}</small>
+                </div>
+              </Link>
+              <button
+                className="top-bar-logout icon-button"
+                type="button"
+                aria-label="Log out"
+                title="Log out"
+                onClick={() => void handleLogout()}
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+          ) : (
+            <button className="top-bar-login" type="button" onClick={() => setLoginOpen(true)}>
+              <LogIn size={18} />
+              <span>Login</span>
+            </button>
+          )}
+        </div>
+      </header>
+      {loginOpen ? (
+        <LoginModal
+          onClose={() => setLoginOpen(false)}
+          onAccessToken={(accessToken) => acceptLoginToken(accessToken)}
+        />
+      ) : null}
       <main className="main-panel">
         <Routes>
           <Route path="/" element={<ReplayListPage />} />
@@ -358,14 +415,18 @@ function PreviewPlayerWarmupIndicator({ status }: { status: PreviewPlayerWarmupS
     <div
       className={`preview-player-warmup preview-player-warmup-${status}`}
       title={title}
+      aria-label={label}
       aria-live="polite"
     >
-      <span className="preview-player-warmup-dot" aria-hidden="true" />
-      <Icon
-        size={14}
-        className={status === "warming-runtime" || status === "warming-player" ? "spin" : undefined}
-      />
-      <span>{label}</span>
+      <Play size={17} className="preview-player-warmup-kind" aria-hidden="true" />
+      <span className="preview-player-warmup-state" aria-hidden="true">
+        <Icon
+          size={10}
+          className={
+            status === "warming-runtime" || status === "warming-player" ? "spin" : undefined
+          }
+        />
+      </span>
     </div>
   );
 }
@@ -4641,11 +4702,12 @@ function reviewStatusLabel(value: string): string {
 }
 
 function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean }) {
+  const navigate = useNavigate();
   const [token, setToken] = useState(() => getAccessToken() ?? "");
   const [devEmail, setDevEmail] = useState("");
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(initialLoginOpen);
+  const [loginOpen, setLoginOpen] = useState(() => initialLoginOpen || getAccessToken() == null);
   const [creatingSessionToken, setCreatingSessionToken] = useState(false);
   const [creatingDevToken, setCreatingDevToken] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -4674,6 +4736,12 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!claims) {
+      setLoginOpen(true);
+    }
+  }, [claims]);
 
   function saveToken(event: FormEvent) {
     event.preventDefault();
@@ -4714,6 +4782,7 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
     setCopied(false);
     setLoginOpen(false);
     setTokenStatus("Logged out.");
+    navigate("/replays");
   }
 
   async function requestSessionToken() {
@@ -4754,6 +4823,27 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  function closeLoginModal() {
+    if (claims) {
+      setLoginOpen(false);
+    } else {
+      navigate("/replays");
+    }
+  }
+
+  if (!claims) {
+    return (
+      <section className="page account-page">
+        {loginOpen ? (
+          <LoginModal
+            onClose={closeLoginModal}
+            onAccessToken={(accessToken, message) => acceptLoginToken(accessToken, message)}
+          />
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <section className="page account-page">
       <header className="page-header">
@@ -4781,7 +4871,7 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
 
       {loginOpen ? (
         <LoginModal
-          onClose={() => setLoginOpen(false)}
+          onClose={closeLoginModal}
           onAccessToken={(accessToken, message) => acceptLoginToken(accessToken, message)}
         />
       ) : null}
