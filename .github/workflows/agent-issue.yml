@@ -1,0 +1,189 @@
+name: Agent Issue Queue
+
+on:
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: Issue number to process
+        required: true
+      backend:
+        description: Agent backend
+        required: false
+        default: auto
+        type: choice
+        options:
+          - auto
+          - codex
+          - claude
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: agent-issue-queue
+  cancel-in-progress: false
+
+jobs:
+  handle-issue:
+    name: Handle issue with local agent
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'agent:ready'
+    runs-on: [self-hosted, rocket-sense-agent]
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Load issue context
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_NUMBER_INPUT: ${{ inputs.issue_number }}
+          BACKEND_INPUT: ${{ inputs.backend }}
+        run: |
+          set -euo pipefail
+
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            gh issue view "$ISSUE_NUMBER_INPUT" \
+              --json number,title,body,url,labels \
+              --jq '{number, title, body, url, labels: [.labels[].name]}' \
+              > "$RUNNER_TEMP/issue.json"
+          else
+            jq '{number: .issue.number, title: .issue.title, body: .issue.body, url: .issue.html_url, labels: [.issue.labels[].name]}' \
+              "$GITHUB_EVENT_PATH" > "$RUNNER_TEMP/issue.json"
+          fi
+
+          number="$(jq -r .number "$RUNNER_TEMP/issue.json")"
+          title="$(jq -r .title "$RUNNER_TEMP/issue.json")"
+          labels="$(jq -r '.labels | join(",")' "$RUNNER_TEMP/issue.json")"
+
+          if [ "${BACKEND_INPUT:-auto}" != "auto" ] && [ -n "${BACKEND_INPUT:-}" ]; then
+            backend="$BACKEND_INPUT"
+          elif jq -e '.labels | index("agent:claude")' "$RUNNER_TEMP/issue.json" >/dev/null; then
+            backend="claude"
+          else
+            backend="codex"
+          fi
+
+          branch="agent/issue-${number}-${GITHUB_RUN_ID}"
+
+          {
+            echo "number=$number"
+            echo "title<<EOF"
+            echo "$title"
+            echo "EOF"
+            echo "backend=$backend"
+            echo "branch=$branch"
+            echo "labels=$labels"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prepare branch and prompt
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "${{ steps.issue.outputs.branch }}"
+
+          cat > "$RUNNER_TEMP/agent-prompt.txt" <<'PROMPT'
+          You are working in the rocket-sense repository from a GitHub issue queue.
+
+          Implement the requested change directly in this checkout.
+          Keep the change narrowly scoped to the issue.
+          Follow AGENTS.md and existing repository conventions.
+          Do not create commits, branches, pull requests, labels, or issue comments.
+          Do not edit unrelated files.
+          Run focused validation when practical, but leave final commit and PR creation to the workflow.
+
+          Issue context follows.
+          PROMPT
+
+          jq -r '"Issue #\(.number): \(.title)\nURL: \(.url)\nLabels: \(.labels | join(", "))\n\nBody:\n\(.body // "")"' \
+            "$RUNNER_TEMP/issue.json" >> "$RUNNER_TEMP/agent-prompt.txt"
+
+      - name: Comment start
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --body "Agent run started on \`${{ runner.name }}\` using \`${{ steps.issue.outputs.backend }}\`. Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+
+      - name: Run agent
+        run: |
+          set -euo pipefail
+
+          case "${{ steps.issue.outputs.backend }}" in
+            codex)
+              codex exec --cd "$GITHUB_WORKSPACE" \
+                --sandbox workspace-write \
+                -c approval_policy='"never"' \
+                - < "$RUNNER_TEMP/agent-prompt.txt"
+              ;;
+            claude)
+              claude --print --dangerously-skip-permissions \
+                "$(cat "$RUNNER_TEMP/agent-prompt.txt")"
+              ;;
+            *)
+              echo "Unknown backend: ${{ steps.issue.outputs.backend }}" >&2
+              exit 1
+              ;;
+          esac
+
+      - name: Run validation
+        id: validation
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          just check 2>&1 | tee "$RUNNER_TEMP/just-check.log"
+
+      - name: Open pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="$(jq -r .title "$RUNNER_TEMP/issue.json")"
+
+          if [ -z "$(git status --porcelain)" ]; then
+            gh issue comment "${{ steps.issue.outputs.number }}" \
+              --body "Agent run completed, but no file changes were produced."
+            exit 0
+          fi
+
+          git add --all
+          git commit -m "Handle issue #${{ steps.issue.outputs.number }}"
+          git push --set-upstream origin "${{ steps.issue.outputs.branch }}"
+
+          {
+            echo "Automated agent run for #${{ steps.issue.outputs.number }}."
+            echo
+            echo "Backend: \`${{ steps.issue.outputs.backend }}\`"
+            echo "Validation: \`${{ steps.validation.outcome }}\`"
+            echo
+            echo "Closes #${{ steps.issue.outputs.number }}"
+          } > "$RUNNER_TEMP/pr-body.md"
+
+          pr_url="$(gh pr create \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "${{ steps.issue.outputs.branch }}" \
+            --title "Handle issue #${{ steps.issue.outputs.number }}: $title" \
+            --body-file "$RUNNER_TEMP/pr-body.md")"
+
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --body "Agent run opened PR: $pr_url"
+
+      - name: Comment failure
+        if: failure() && steps.issue.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${{ steps.issue.outputs.number }}" \
+            --body "Agent run failed. Workflow: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
