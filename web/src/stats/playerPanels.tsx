@@ -1178,6 +1178,7 @@ function possessionProfileMetricCharts(
     metric: (subject: PossessionProfileSubject) => number | null;
     format: (value: number) => string;
     maxValue?: number;
+    normalizeToMax?: boolean;
   }> = [
     {
       key: "possessions-per-game",
@@ -1220,7 +1221,7 @@ function possessionProfileMetricCharts(
       title: "Own-half possession",
       metric: (subject) => possessionLocationShare(subject.cohort.locations.halves, "own_side"),
       format: formatShareRequired,
-      maxValue: 1,
+      normalizeToMax: true,
     },
     {
       key: "opponent-half-possession",
@@ -1228,21 +1229,21 @@ function possessionProfileMetricCharts(
       metric: (subject) =>
         possessionLocationShare(subject.cohort.locations.halves, "opponent_side"),
       format: formatShareRequired,
-      maxValue: 1,
+      normalizeToMax: true,
     },
     {
       key: "carry-time-share",
       title: "Carry time share",
       metric: (subject) => subject.cohort.possessions.carry_time_share,
       format: formatShareRequired,
-      maxValue: 1,
+      normalizeToMax: true,
     },
     {
       key: "first-touch-control-rate",
       title: "First-touch control rate",
       metric: (subject) => subject.cohort.touches.first_touch_control_share,
       format: formatShareRequired,
-      maxValue: 1,
+      normalizeToMax: true,
     },
     {
       key: "contested-touch-share",
@@ -1253,7 +1254,7 @@ function possessionProfileMetricCharts(
             subject.cohort.touches.classified_touch_count
           : null,
       format: formatShareRequired,
-      maxValue: 1,
+      normalizeToMax: true,
     },
   ];
 
@@ -1270,11 +1271,17 @@ function possessionMagnitudeRows(
     metric: (subject: PossessionProfileSubject) => number | null;
     format: (value: number) => string;
     maxValue?: number;
+    normalizeToMax?: boolean;
   },
 ): ComparisonRow[] {
   const values = subjects.map((subject) => definition.metric(subject));
   if (!values.some((value) => value != null)) return [];
-  const maxValue = definition.maxValue ?? Math.max(1, ...values.map((value) => value ?? 0));
+  const measuredMaxValue = Math.max(...values.map((value) => value ?? 0));
+  const maxValue =
+    definition.maxValue ??
+    (definition.normalizeToMax && measuredMaxValue > 0
+      ? measuredMaxValue
+      : Math.max(1, measuredMaxValue));
 
   return subjects.map((subject) => {
     const rawValue = definition.metric(subject);
