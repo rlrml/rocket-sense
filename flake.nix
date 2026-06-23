@@ -1,6 +1,15 @@
 {
   description = "rocket-sense development environment";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://rocket-sense.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "rocket-sense.cachix.org-1:URNAS7hJKReblHpK3kh5YiOiBFYTSyrJ5HAgawySFvU="
+    ];
+  };
+
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -69,6 +78,7 @@
             # which runs `agenix -d`) using your SSH key.
             agenix.packages.${system}.default
             pkgs.cargo-watch
+            pkgs.cachix
             pkgs.curl
             # gcloud + the GKE auth plugin so kubectl can authenticate to the
             # railbird-gke cluster (its kubeconfig user execs

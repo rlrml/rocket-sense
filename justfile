@@ -39,7 +39,7 @@ web-fix:
     cd web && npm run lint:fix && npm run format
 
 build-image:
-    nix build .#rocket-sense-server-image
+    nix build --accept-flake-config .#rocket-sense-server-image
 
 push-image: build-image
     {{nix_develop}} skopeo copy --dest-tls-verify=false docker-archive:result docker://{{railbird_registry}}/rocket-sense-server:dev
