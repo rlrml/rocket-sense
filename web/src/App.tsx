@@ -171,7 +171,7 @@ const navItems = [
   { to: "/replay-groups", label: "Groups", icon: FolderOpen, end: true },
   { to: "/leaderboards", label: "Leaderboards", icon: Trophy, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
-  { to: "/admin/processing", label: "Admin", icon: ServerCog },
+  { to: "/admin/processing", label: "Admin", icon: ServerCog, adminOnly: true },
   { to: "/about", label: "About", icon: Info },
 ];
 
@@ -189,6 +189,7 @@ export function App() {
   const [previewWarmupStatus, setPreviewWarmupStatus] = useState<PreviewPlayerWarmupStatus>(
     getPreviewPlayerWarmupStatus,
   );
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || currentUser?.is_admin);
 
   useEffect(() => schedulePreviewPlayerWarmup(previewReplayId), [previewReplayId]);
   useEffect(() => subscribePreviewPlayerWarmupStatus(setPreviewWarmupStatus), []);
@@ -221,7 +222,7 @@ export function App() {
           <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
         </Link>
         <nav id="primary-navigation" className="nav-list" aria-label="Primary navigation">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
               <item.icon size={18} />
               <span>{item.label}</span>
@@ -233,7 +234,7 @@ export function App() {
           className="nav-menu-list"
           aria-label="Primary navigation menu"
         >
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
               <item.icon size={18} />
               <span>{item.label}</span>
