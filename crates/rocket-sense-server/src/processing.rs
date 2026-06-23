@@ -224,7 +224,10 @@ const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
 // whiff/beaten-to-ball candidate detector was retuned for recall to feed the
 // event review loop, so reprocessing re-emits the now-looser whiff candidates
 // for confirm/reject labeling.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v9";
+// Bumped v9 -> v10 for subtr-actor's tag-based touch classification: touch
+// events no longer carry fixed intention/first-touch/contested fields, so
+// reprocessing derives those indexed detail columns from classification tags.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v10";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -6153,6 +6156,11 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v9",
         "Loosened whiff/beaten-to-ball detector emits more candidates; reprocess \
          to surface them for confirm/reject review.",
+    ),
+    (
+        "rocket-sense-event-stream:v10",
+        "subtr-actor touch classification now uses tags; reprocess to derive \
+         touch detail columns from action/reception/possession/contested tags.",
     ),
 ];
 

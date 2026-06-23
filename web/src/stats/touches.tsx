@@ -14,7 +14,7 @@ import {
 // independent classification axes plus how far the touch moved the ball toward
 // the attacking goal (`ball_movement.advance_distance`):
 //   - kind:      hit strength (control / medium / hard hit)
-//   - category:  intention (shot / save / clear / pass / challenge / dribble / neutral)
+//   - category:  action/possession (shot / save / clear / pass / boom / advance / dribble)
 export const touchEventTypes = ["touch"];
 
 type TouchComparisonMode = "players" | "teams";
@@ -33,6 +33,7 @@ interface TouchDimension {
   // Filled into chart titles, e.g. "Touches by kind".
   noun: string;
   payloadField: string;
+  tagGroups: string[];
   values: TouchDimensionValue[];
   other: TouchDimensionValue;
 }
@@ -49,6 +50,7 @@ const KIND_DIMENSION: TouchDimension = {
   id: "kind",
   noun: "kind",
   payloadField: "kind",
+  tagGroups: ["kind"],
   values: [
     { id: "control", label: "Control", segmentClass: "touch-seg-kind-control" },
     { id: "medium_hit", label: "Medium", segmentClass: "touch-seg-kind-medium" },
@@ -57,17 +59,21 @@ const KIND_DIMENSION: TouchDimension = {
   other: OTHER_VALUE,
 };
 
-// Intention, ordered offensive -> contest -> defensive -> neutral. subtr-actor's
-// `control` intention is a possession/dribble touch, labeled "Dribble" so it is
-// never confused with the "Control" hit kind above.
+// Category, ordered offensive -> possession -> contest -> defensive -> neutral.
+// Old payloads carry this as `intention`; new payloads split it into independent
+// `action` and `possession` tags. `control` is labeled "Dribble" so it is never
+// confused with the "Control" hit kind above.
 const CATEGORY_DIMENSION: TouchDimension = {
   id: "category",
   noun: "category",
   payloadField: "intention",
+  tagGroups: ["action", "possession"],
   values: [
     { id: "shot", label: "Shot", segmentClass: "touch-seg-cat-shot" },
     { id: "pass", label: "Pass", segmentClass: "touch-seg-cat-pass" },
+    { id: "boom", label: "Boom", segmentClass: "touch-seg-cat-boom" },
     { id: "control", label: "Dribble", segmentClass: "touch-seg-cat-dribble" },
+    { id: "advance", label: "Advance", segmentClass: "touch-seg-cat-advance" },
     { id: "challenge", label: "Challenge", segmentClass: "touch-seg-cat-challenge" },
     { id: "save", label: "Save", segmentClass: "touch-seg-cat-save" },
     { id: "clear", label: "Clear", segmentClass: "touch-seg-cat-clear" },
@@ -427,9 +433,27 @@ function accumulateTouch(subject: TouchSubject, event: MechanicEventResponse) {
 }
 
 function dimensionValueId(dimension: TouchDimension, payload: Record<string, unknown>): string {
-  const raw = stringPayload(payload, dimension.payloadField);
+  const raw = stringPayload(payload, dimension.payloadField) ?? touchTagValue(payload, dimension);
   if (raw && dimension.values.some((value) => value.id === raw)) return raw;
   return dimension.other.id;
+}
+
+function touchTagValue(
+  payload: Record<string, unknown>,
+  dimension: Pick<TouchDimension, "tagGroups">,
+): string | null {
+  const tags = payload.tags;
+  if (!Array.isArray(tags)) return null;
+  for (const group of dimension.tagGroups) {
+    const match = tags.find((tag) => {
+      if (!tag || typeof tag !== "object" || Array.isArray(tag)) return false;
+      return (tag as Record<string, unknown>).group === group;
+    });
+    if (match && typeof (match as Record<string, unknown>).value === "string") {
+      return (match as Record<string, unknown>).value as string;
+    }
+  }
+  return null;
 }
 
 function touchAdvance(payload: Record<string, unknown>): number {

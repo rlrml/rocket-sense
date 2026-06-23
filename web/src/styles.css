@@ -3149,9 +3149,19 @@ tbody tr:last-child td {
   background: var(--touch-cat-pass);
 }
 
+.source-segment.touch-seg-cat-boom,
+.chart-legend .touch-seg-cat-boom::before {
+  background: var(--touch-cat-boom);
+}
+
 .source-segment.touch-seg-cat-dribble,
 .chart-legend .touch-seg-cat-dribble::before {
   background: var(--touch-cat-dribble);
+}
+
+.source-segment.touch-seg-cat-advance,
+.chart-legend .touch-seg-cat-advance::before {
+  background: var(--touch-cat-advance);
 }
 
 .source-segment.touch-seg-cat-challenge,
