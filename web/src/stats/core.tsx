@@ -503,7 +503,7 @@ function playerKey(player: ReplayPlayer, index: number): string {
 
 function playerProfilePath(summary: CorePlayerSummary): string | null {
   if (!summary.platform || !summary.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/core`;
+  return `/players/${encodeURIComponent(summary.platform)}/id/${encodeURIComponent(summary.platformPlayerId)}/stats/core`;
 }
 
 function normalizePlatform(value: string): string {

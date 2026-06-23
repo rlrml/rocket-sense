@@ -511,7 +511,7 @@ function playerProfilePath(subject: {
   platformPlayerId: string | null;
 }): string | null {
   if (!subject.platform || !subject.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(subject.platform)}/${encodeURIComponent(subject.platformPlayerId)}/stats/touches`;
+  return `/players/${encodeURIComponent(subject.platform)}/id/${encodeURIComponent(subject.platformPlayerId)}/stats/touches`;
 }
 
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {

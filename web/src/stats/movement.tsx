@@ -695,7 +695,7 @@ function playerKey(player: ReplayPlayer, index: number): string {
 
 function playerProfilePath(summary: PlayerMovementSummary): string | null {
   if (!summary.platform || !summary.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/movement`;
+  return `/players/${encodeURIComponent(summary.platform)}/id/${encodeURIComponent(summary.platformPlayerId)}/stats/movement`;
 }
 
 function normalizePlayerKey(value: string): string {

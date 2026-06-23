@@ -510,7 +510,19 @@ export function getPlayerProfile(
   const query = searchParams.toString();
   const suffix = query ? `?${query}` : "";
   return request<PlayerProfileResponse>(
-    `/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}${suffix}`,
+    `/api/v1/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(platformPlayerId)}${suffix}`,
+  );
+}
+
+export function getPlayerProfileByRef(
+  platform: string,
+  playerRef: string,
+  searchParams: URLSearchParams,
+): Promise<PlayerProfileResponse> {
+  const query = searchParams.toString();
+  const suffix = query ? `?${query}` : "";
+  return request<PlayerProfileResponse>(
+    `/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(playerRef)}${suffix}`,
   );
 }
 

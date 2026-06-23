@@ -2915,7 +2915,7 @@ function playerProfilePath(player: {
   platformPlayerId: string | null;
 }): string | null {
   if (!player.platform || !player.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/boost`;
+  return `/players/${encodeURIComponent(player.platform)}/id/${encodeURIComponent(player.platformPlayerId)}/stats/boost`;
 }
 
 function average(values: number[]): number | null {

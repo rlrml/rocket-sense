@@ -1247,7 +1247,7 @@ function playerProfilePath(player: {
   platformPlayerId: string | null;
 }): string | null {
   if (!player.platform || !player.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/possession`;
+  return `/players/${encodeURIComponent(player.platform)}/id/${encodeURIComponent(player.platformPlayerId)}/stats/possession`;
 }
 
 function playerMatchesId(player: ReplayPlayer, playerId: string): boolean {

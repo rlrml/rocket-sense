@@ -17,6 +17,10 @@ pub fn router() -> Router<AppState> {
         .route("/profile", get(spa_index))
         .route("/replays", get(spa_index))
         .route("/replays/{*path}", get(spa_index))
+        .route(
+            "/players/{platform}/id/{platform_player_id}",
+            get(spa_index),
+        )
         .route("/players/{platform}/{platform_player_id}", get(spa_index))
         .route("/events/review", get(spa_index))
         .route("/mechanics/review", get(spa_index))
@@ -168,7 +172,12 @@ mod tests {
 
         assert!(should_serve_spa_fallback(
             &Method::GET,
-            "/players/steam/76561198856200686/stats/mechanics",
+            "/players/epic/CaleMaCar/stats/mechanics",
+            &headers
+        ));
+        assert!(should_serve_spa_fallback(
+            &Method::GET,
+            "/players/steam/id/76561198856200686/stats/mechanics",
             &headers
         ));
         assert!(should_serve_spa_fallback(
