@@ -147,7 +147,7 @@ jobs:
       - name: Open pull request
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.AGENT_GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           title="$(jq -r .title "$RUNNER_TEMP/issue.json")"
