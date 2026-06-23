@@ -332,27 +332,27 @@ fn push_materialized_span_select(builder: &mut QueryBuilder<'_, Postgres>, susta
             cohort,
             COUNT(*) AS appearance_count,
             COUNT(DISTINCT replay_id) AS replay_count,
-            SUM({p}possession_count) AS possession_count,
+            SUM({p}possession_count)::bigint AS possession_count,
             SUM({p}duration_seconds) AS total_duration,
-            SUM({p}touch_count) AS total_touch_count,
+            SUM({p}touch_count)::bigint AS total_touch_count,
             SUM({p}advance_distance) AS total_advance,
             SUM({p}retreat_distance) AS total_retreat,
             SUM({p}carry_time) AS carry_time,
             SUM({p}air_dribble_time) AS air_dribble_time,
-            SUM({sustained_count}) AS sustained_control,
-            SUM({p}with_carry_count) AS with_carry,
-            SUM({p}with_air_dribble_count) AS with_air_dribble,
-            SUM({p}with_aerial_touch_count) AS with_aerial_touch,
-            SUM({p}with_wall_touch_count) AS with_wall_touch,
-            SUM({p}duration_bucket_0) AS duration_bucket_0,
-            SUM({p}duration_bucket_1) AS duration_bucket_1,
-            SUM({p}duration_bucket_2) AS duration_bucket_2,
-            SUM({p}duration_bucket_3) AS duration_bucket_3,
-            SUM({p}duration_bucket_4) AS duration_bucket_4,
-            SUM({p}duration_seconds) / NULLIF(SUM({p}possession_count), 0) AS avg_duration,
-            SUM({p}touch_count)::float8 / NULLIF(SUM({p}possession_count), 0) AS avg_touches,
-            SUM({p}advance_distance) / NULLIF(SUM({p}possession_count), 0) AS avg_advance,
-            SUM({p}retreat_distance) / NULLIF(SUM({p}possession_count), 0) AS avg_retreat
+            SUM({sustained_count})::bigint AS sustained_control,
+            SUM({p}with_carry_count)::bigint AS with_carry,
+            SUM({p}with_air_dribble_count)::bigint AS with_air_dribble,
+            SUM({p}with_aerial_touch_count)::bigint AS with_aerial_touch,
+            SUM({p}with_wall_touch_count)::bigint AS with_wall_touch,
+            SUM({p}duration_bucket_0)::bigint AS duration_bucket_0,
+            SUM({p}duration_bucket_1)::bigint AS duration_bucket_1,
+            SUM({p}duration_bucket_2)::bigint AS duration_bucket_2,
+            SUM({p}duration_bucket_3)::bigint AS duration_bucket_3,
+            SUM({p}duration_bucket_4)::bigint AS duration_bucket_4,
+            (SUM({p}duration_seconds) / NULLIF(SUM({p}possession_count), 0))::float8 AS avg_duration,
+            (SUM({p}touch_count)::float8 / NULLIF(SUM({p}possession_count), 0))::float8 AS avg_touches,
+            (SUM({p}advance_distance) / NULLIF(SUM({p}possession_count), 0))::float8 AS avg_advance,
+            (SUM({p}retreat_distance) / NULLIF(SUM({p}possession_count), 0))::float8 AS avg_retreat
         FROM cohort_rows
         GROUP BY cohort
         "#
@@ -391,10 +391,10 @@ async fn load_possession_summary_materialized(
         q.push(
             r#"
             SELECT cohort,
-                SUM(classified_touch_count) AS classified_touch_count,
-                SUM(first_touch_count) AS first_touch_count,
-                SUM(first_touch_control_count) AS first_touch_control_count,
-                SUM(contested_touch_count) AS contested_touch_count
+                SUM(classified_touch_count)::bigint AS classified_touch_count,
+                SUM(first_touch_count)::bigint AS first_touch_count,
+                SUM(first_touch_control_count)::bigint AS first_touch_control_count,
+                SUM(contested_touch_count)::bigint AS contested_touch_count
             FROM cohort_rows GROUP BY cohort
             "#,
         );
