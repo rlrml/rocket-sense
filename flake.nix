@@ -52,6 +52,15 @@
         buildInputs = [
           pkgs.openssl
         ];
+        flakeCommitTimestamp =
+          input:
+          let
+            value = input.lastModifiedDate or "";
+          in
+          if builtins.stringLength value >= 14 then
+            "${builtins.substring 0 4 value}-${builtins.substring 4 2 value}-${builtins.substring 6 2 value}T${builtins.substring 8 2 value}:${builtins.substring 10 2 value}:${builtins.substring 12 2 value}Z"
+          else
+            "unknown";
         shellPackages =
           [
             rustToolchain
@@ -237,7 +246,9 @@
         );
         rocketSenseServer = craneLib.buildPackage (rocketSenseServerCommonArgs // {
           ROCKET_SENSE_GIT_SHA = self.rev or self.dirtyRev or "unknown";
+          ROCKET_SENSE_GIT_COMMIT_TIMESTAMP = flakeCommitTimestamp self;
           SUBTR_ACTOR_GIT_SHA = subtr-actor-src.rev or "unknown";
+          SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP = flakeCommitTimestamp subtr-actor-src;
           ROCKET_SENSE_WEB_DIST = rocketSenseWeb;
           # subtr-actor static player/stats/review assets, built from the
           # submodule flake instead of committed under static/subtr-actor.

@@ -6053,7 +6053,9 @@ pub struct CurrentProcessingVersion {
     pub subtr_actor_version: &'static str,
     /// `None` when the build did not record a sha (e.g. local dev).
     pub subtr_actor_git_sha: Option<&'static str>,
+    pub subtr_actor_git_commit_timestamp: Option<&'static str>,
     pub rocket_sense_git_sha: Option<&'static str>,
+    pub rocket_sense_git_commit_timestamp: Option<&'static str>,
 }
 
 pub fn current_processing_version() -> CurrentProcessingVersion {
@@ -6063,7 +6065,9 @@ pub fn current_processing_version() -> CurrentProcessingVersion {
         extractor_version: env!("CARGO_PKG_VERSION"),
         subtr_actor_version: subtr_actor_version(),
         subtr_actor_git_sha: option_env!("SUBTR_ACTOR_GIT_SHA"),
+        subtr_actor_git_commit_timestamp: option_env!("SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP"),
         rocket_sense_git_sha: option_env!("GIT_SHA"),
+        rocket_sense_git_commit_timestamp: option_env!("GIT_COMMIT_TIMESTAMP"),
     }
 }
 

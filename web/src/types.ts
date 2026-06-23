@@ -195,7 +195,9 @@ export interface ProcessingVersionResponse {
   extractor_version: string;
   subtr_actor_version: string;
   subtr_actor_git_sha: string | null;
+  subtr_actor_git_commit_timestamp: string | null;
   rocket_sense_git_sha: string | null;
+  rocket_sense_git_commit_timestamp: string | null;
   schema_changelog: Array<{ version: string; note: string }>;
 }
 

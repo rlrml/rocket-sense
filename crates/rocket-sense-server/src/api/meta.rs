@@ -17,7 +17,9 @@ pub struct ProcessingVersionResponse {
     pub extractor_version: String,
     pub subtr_actor_version: String,
     pub subtr_actor_git_sha: Option<String>,
+    pub subtr_actor_git_commit_timestamp: Option<String>,
     pub rocket_sense_git_sha: Option<String>,
+    pub rocket_sense_git_commit_timestamp: Option<String>,
     /// Human-readable note for each schema version, newest last.
     pub schema_changelog: Vec<SchemaChangelogEntry>,
 }
@@ -44,7 +46,13 @@ pub async fn get_processing_version() -> Json<ProcessingVersionResponse> {
         extractor_version: current.extractor_version.to_string(),
         subtr_actor_version: current.subtr_actor_version.to_string(),
         subtr_actor_git_sha: current.subtr_actor_git_sha.map(str::to_string),
+        subtr_actor_git_commit_timestamp: current
+            .subtr_actor_git_commit_timestamp
+            .map(str::to_string),
         rocket_sense_git_sha: current.rocket_sense_git_sha.map(str::to_string),
+        rocket_sense_git_commit_timestamp: current
+            .rocket_sense_git_commit_timestamp
+            .map(str::to_string),
         schema_changelog: EVENT_STREAM_SCHEMA_CHANGELOG
             .iter()
             .map(|(version, note)| SchemaChangelogEntry {
