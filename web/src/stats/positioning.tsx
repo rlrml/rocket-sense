@@ -1102,7 +1102,7 @@ function playerKey(player: ReplayPlayer, index: number): string {
 
 function playerProfilePath(summary: PlayerPositioningSummary): string | null {
   if (!summary.platform || !summary.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/positioning`;
+  return `/players/${encodeURIComponent(summary.platform)}/id/${encodeURIComponent(summary.platformPlayerId)}/stats/positioning`;
 }
 
 function remoteIdKey(value: unknown): string | null {

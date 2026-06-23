@@ -57,6 +57,7 @@ import {
   getPlayerPositioningSummary,
   getPlayerPossessionSummary,
   getPlayerProfile,
+  getPlayerProfileByRef,
   getPlayerStatAggregates,
   getPlayerStatOverview,
   getProcessingVersion,
@@ -98,7 +99,12 @@ import { StalenessChip } from "./staleness";
 import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
-import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
+import {
+  PlayerIdentity,
+  playerIdentityKey,
+  playerProfileIdPath,
+  replayLocalTeamLabel,
+} from "./playerIdentity";
 import { RankBadge } from "./rank";
 import {
   KickoffSpawnBreakdown,
@@ -244,14 +250,17 @@ export function App() {
               </Suspense>
             }
           />
-          <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
-          <Route path="/players/:platform/:platformPlayerId/stats" element={<PlayerStatsPage />} />
+          <Route path="/players/:platform/id/:platformPlayerId" element={<PlayerStatsPage />} />
           <Route
-            path="/players/:platform/:platformPlayerId/stats/:statGroup"
+            path="/players/:platform/id/:platformPlayerId/stats"
             element={<PlayerStatsPage />}
           />
           <Route
-            path="/players/:platform/:platformPlayerId/goals"
+            path="/players/:platform/id/:platformPlayerId/stats/:statGroup"
+            element={<PlayerStatsPage />}
+          />
+          <Route
+            path="/players/:platform/id/:platformPlayerId/goals"
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <PlayerGoalPlaylistPage />
@@ -259,7 +268,29 @@ export function App() {
             }
           />
           <Route
-            path="/players/:platform/:platformPlayerId/goals/:goalType"
+            path="/players/:platform/id/:platformPlayerId/goals/:goalType"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route path="/players/:platform/:playerName" element={<PlayerStatsPage />} />
+          <Route path="/players/:platform/:playerName/stats" element={<PlayerStatsPage />} />
+          <Route
+            path="/players/:platform/:playerName/stats/:statGroup"
+            element={<PlayerStatsPage />}
+          />
+          <Route
+            path="/players/:platform/:playerName/goals"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/players/:platform/:playerName/goals/:goalType"
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <PlayerGoalPlaylistPage />
@@ -2906,21 +2937,30 @@ type PlayerSupplementalLoadedState = {
 };
 
 function PlayerStatsPage() {
-  const { platform = "", platformPlayerId = "", statGroup } = useParams();
+  const { platform = "", platformPlayerId, playerName, statGroup } = useParams();
   const location = useLocation();
+  const routePlayerRef = platformPlayerId ?? playerName ?? "";
+  const routeUsesExplicitId = platformPlayerId != null;
+  const routeBasePath = routeUsesExplicitId
+    ? playerProfileIdPath(platform, routePlayerRef)
+    : `/players/${encodeURIComponent(platform)}/${encodeURIComponent(routePlayerRef)}`;
+  const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
+  const resolvedPlatform = playerSummary?.platform ?? platform;
+  const resolvedPlatformPlayerId =
+    playerSummary?.platform_player_id ?? (routeUsesExplicitId ? routePlayerRef : "");
+  const hasResolvedPlayer = resolvedPlatform.length > 0 && resolvedPlatformPlayerId.length > 0;
   const statsScope = useMemo(
-    () => `${platform}\n${platformPlayerId}\n${location.search}`,
-    [location.search, platform, platformPlayerId],
+    () => `${resolvedPlatform}\n${resolvedPlatformPlayerId}\n${location.search}`,
+    [location.search, resolvedPlatform, resolvedPlatformPlayerId],
   );
   const playerReplayParams = useMemo(
-    () => playerReplaySetParams(platform, platformPlayerId, location.search),
-    [location.search, platform, platformPlayerId],
+    () => playerReplaySetParams(resolvedPlatform, resolvedPlatformPlayerId, location.search),
+    [location.search, resolvedPlatform, resolvedPlatformPlayerId],
   );
   const activeGroup = useMemo(
     () => statGroupById(statGroup, playerStatsSectionGroups) ?? playerStatsSectionGroups[0]!,
     [statGroup],
   );
-  const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
   const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({
     scope: "",
     groups: {},
@@ -2967,19 +3007,21 @@ function PlayerStatsPage() {
     playerSummary?.public_display_name ??
     null;
   const rlTrackerUrl = useMemo(
-    () => rlTrackerPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
-    [platform, platformPlayerId, rlTrackerPlayerName],
+    () => rlTrackerPlayerUrl(resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName),
+    [resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName],
   );
   const ballchasingUrl = useMemo(
-    () => ballchasingPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
-    [platform, platformPlayerId, rlTrackerPlayerName],
+    () => ballchasingPlayerUrl(resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName),
+    [resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName],
   );
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
+    setPlayerSummary(null);
+    const request = routeUsesExplicitId ? getPlayerProfile : getPlayerProfileByRef;
+    request(platform, routePlayerRef, new URLSearchParams(location.search))
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
       })
@@ -2992,7 +3034,7 @@ function PlayerStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, platform, platformPlayerId]);
+  }, [location.search, platform, routePlayerRef, routeUsesExplicitId]);
 
   useEffect(() => {
     setStatsByGroup({ scope: statsScope, groups: {} });
@@ -3009,6 +3051,13 @@ function PlayerStatsPage() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!hasResolvedPlayer) {
+      setStatsLoading(false);
+      setStatsError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
     if (stats) {
       setStatsLoading(false);
       setStatsError(null);
@@ -3020,8 +3069,8 @@ function PlayerStatsPage() {
     setStatsLoading(true);
     setStatsError(null);
     getPlayerStatAggregates(
-      platform,
-      platformPlayerId,
+      resolvedPlatform,
+      resolvedPlatformPlayerId,
       playerAggregateSearchParams(activeGroup.id, location.search),
       activeGroup.terms,
     )
@@ -3041,10 +3090,18 @@ function PlayerStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeGroup, location.search, platform, platformPlayerId, stats, statsScope]);
+  }, [
+    activeGroup,
+    hasResolvedPlayer,
+    location.search,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
+    stats,
+    statsScope,
+  ]);
 
   useEffect(() => {
-    if (!stats || !activeSupplementalReady) return;
+    if (!hasResolvedPlayer || !stats || !activeSupplementalReady) return;
     const remainingGroups = playerStatsSectionGroups.filter(
       (group) => group.id !== activeGroup.id && scopedStatsByGroup[group.id] == null,
     );
@@ -3057,8 +3114,8 @@ function PlayerStatsPage() {
           if (cancelled) break;
           try {
             const response = await getPlayerStatAggregates(
-              platform,
-              platformPlayerId,
+              resolvedPlatform,
+              resolvedPlatformPlayerId,
               playerAggregateSearchParams(group.id, location.search),
               group.terms,
             );
@@ -3082,9 +3139,10 @@ function PlayerStatsPage() {
   }, [
     activeGroup.id,
     activeSupplementalReady,
+    hasResolvedPlayer,
     location.search,
-    platform,
-    platformPlayerId,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
     stats,
     statsScope,
   ]);
@@ -3121,11 +3179,12 @@ function PlayerStatsPage() {
 
   useEffect(() => {
     const missingKeys = activeSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
+    if (!hasResolvedPlayer) return;
     if (missingKeys.length === 0) return;
 
     let cancelled = false;
     for (const key of missingKeys) {
-      fetchPlayerSupplemental(key, platform, platformPlayerId, location.search)
+      fetchPlayerSupplemental(key, resolvedPlatform, resolvedPlatformPlayerId, location.search)
         .then((response) => {
           if (!cancelled) applySupplementalResponse(key, response);
         })
@@ -3140,15 +3199,16 @@ function PlayerStatsPage() {
     };
   }, [
     activeSupplementalKeyList,
+    hasResolvedPlayer,
     loadedSupplementalKeys,
     location.search,
-    platform,
-    platformPlayerId,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
     scopedSupplementalLoaded,
   ]);
 
   useEffect(() => {
-    if (!stats || !activeSupplementalReady) return;
+    if (!hasResolvedPlayer || !stats || !activeSupplementalReady) return;
     const remainingKeys = playerSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
     if (remainingKeys.length === 0) return;
 
@@ -3160,8 +3220,8 @@ function PlayerStatsPage() {
           try {
             const response = await fetchPlayerSupplemental(
               key,
-              platform,
-              platformPlayerId,
+              resolvedPlatform,
+              resolvedPlatformPlayerId,
               location.search,
             );
             if (cancelled) break;
@@ -3179,7 +3239,14 @@ function PlayerStatsPage() {
       cancelled = true;
       window.clearTimeout(timeout);
     };
-  }, [activeSupplementalReady, location.search, platform, platformPlayerId, stats]);
+  }, [
+    activeSupplementalReady,
+    hasResolvedPlayer,
+    location.search,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
+    stats,
+  ]);
 
   return (
     <section className="page player-stats-page">
@@ -3195,11 +3262,11 @@ function PlayerStatsPage() {
                 linkToRlTracker
               />
             ) : null}
-            <span>{playerSummary?.display_name || platformPlayerId}</span>
+            <span>{playerSummary?.display_name || routePlayerRef}</span>
           </h1>
         </div>
         <div className="button-row">
-          {rlTrackerUrl ? (
+          {hasResolvedPlayer && rlTrackerUrl ? (
             <a
               className="secondary-button"
               href={rlTrackerUrl}
@@ -3210,7 +3277,7 @@ function PlayerStatsPage() {
               TRN
             </a>
           ) : null}
-          {ballchasingUrl ? (
+          {hasResolvedPlayer && ballchasingUrl ? (
             <a
               className="secondary-button"
               href={ballchasingUrl}
@@ -3221,10 +3288,12 @@ function PlayerStatsPage() {
               Ballchasing
             </a>
           ) : null}
-          <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
-            <FileVideo size={16} />
-            Replays
-          </Link>
+          {hasResolvedPlayer ? (
+            <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
+              <FileVideo size={16} />
+              Replays
+            </Link>
+          ) : null}
         </div>
       </header>
       <StatusLine loading={loading} error={error} />
@@ -3270,9 +3339,10 @@ function PlayerStatsPage() {
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
               overview={overview}
-              platform={platform}
-              platformPlayerId={platformPlayerId}
+              platform={resolvedPlatform}
+              platformPlayerId={resolvedPlatformPlayerId}
               playerName={playerSummary?.display_name ?? ""}
+              routeBasePath={routeBasePath}
               search={location.search}
               stats={stats}
             />
@@ -3318,8 +3388,7 @@ function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
 }
 
 function playerStatGroupPath(
-  platform: string,
-  platformPlayerId: string,
+  routeBasePath: string,
   groupId: string,
   search: string,
 ): string {
@@ -3328,7 +3397,7 @@ function playerStatGroupPath(
     stripKickoffSpawnParams(params);
   }
   const query = params.toString();
-  const path = `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/${groupId}`;
+  const path = `${routeBasePath}/stats/${encodeURIComponent(groupId)}`;
   return query ? `${path}?${query}` : path;
 }
 
@@ -3490,6 +3559,7 @@ function PlayerAggregateStatsSections({
   platform,
   platformPlayerId,
   playerName,
+  routeBasePath,
   search,
   stats,
 }: {
@@ -3503,6 +3573,7 @@ function PlayerAggregateStatsSections({
   platform: string;
   platformPlayerId: string;
   playerName: string;
+  routeBasePath: string;
   search: string;
   stats: StatAggregateSetResponse;
 }) {
@@ -3540,7 +3611,7 @@ function PlayerAggregateStatsSections({
             <Link
               key={group.id}
               className={`stat-group-link ${group.id === activeGroup.id ? "active" : ""}`}
-              to={playerStatGroupPath(platform, platformPlayerId, group.id, search)}
+              to={playerStatGroupPath(routeBasePath, group.id, search)}
             >
               <GroupIcon size={16} />
               <span>{group.label}</span>
@@ -3609,9 +3680,9 @@ function PlayerAggregateStatsSections({
         <GoalTagSharePanel
           overview={overview}
           goalTypeHref={(kind) =>
-            `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals/${encodeURIComponent(kind)}`
+            `${routeBasePath}/goals/${encodeURIComponent(kind)}`
           }
-          allGoalsHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals`}
+          allGoalsHref={`${routeBasePath}/goals`}
         />
       ) : null}
       {activeGroup.id === "kickoffs" && kickoffTakerSummary ? (

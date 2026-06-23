@@ -227,7 +227,7 @@ function playerProfilePath(
   statPath: string,
 ): string | null {
   if (!subject.platform || !subject.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(subject.platform)}/${encodeURIComponent(
+  return `/players/${encodeURIComponent(subject.platform)}/id/${encodeURIComponent(
     subject.platformPlayerId,
   )}/stats/${statPath}`;
 }
