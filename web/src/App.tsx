@@ -97,12 +97,7 @@ import { StalenessChip } from "./staleness";
 import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
-import {
-  PlayerIdentity,
-  playerIdentityKey,
-  playerProfileIdPath,
-  replayLocalTeamLabel,
-} from "./playerIdentity";
+import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
 import { RankBadge } from "./rank";
 import {
   KickoffSpawnBreakdown,
@@ -278,10 +273,7 @@ export function App() {
               }
             />
             <Route path="/players/:platform/:playerName" element={<PlayerStatsPage />} />
-            <Route
-              path="/players/:platform/:playerName/stats"
-              element={<PlayerStatsPage />}
-            />
+            <Route path="/players/:platform/:playerName/stats" element={<PlayerStatsPage />} />
             <Route
               path="/players/:platform/:playerName/stats/:statGroup"
               element={<PlayerStatsPage />}
@@ -3476,11 +3468,7 @@ function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
   );
 }
 
-function playerStatGroupPath(
-  routeBasePath: string,
-  groupId: string,
-  search: string,
-): string {
+function playerStatGroupPath(routeBasePath: string, groupId: string, search: string): string {
   const params = new URLSearchParams(search);
   if (groupId !== "kickoffs") {
     stripKickoffSpawnParams(params);
@@ -3767,9 +3755,7 @@ function PlayerAggregateStatsSections({
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
-          goalTypeHref={(kind) =>
-            `${routeBasePath}/goals/${encodeURIComponent(kind)}`
-          }
+          goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
           allGoalsHref={`${routeBasePath}/goals`}
         />
       ) : null}
