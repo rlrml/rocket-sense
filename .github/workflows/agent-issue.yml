@@ -122,7 +122,7 @@ jobs:
           case "${{ steps.issue.outputs.backend }}" in
             codex)
               codex exec --cd "$GITHUB_WORKSPACE" \
-                --sandbox workspace-write \
+                --dangerously-bypass-approvals-and-sandbox \
                 -c approval_policy='"never"' \
                 - < "$RUNNER_TEMP/agent-prompt.txt"
               ;;
@@ -141,6 +141,7 @@ jobs:
         continue-on-error: true
         run: |
           set -o pipefail
+          npm --prefix web ci
           just check 2>&1 | tee "$RUNNER_TEMP/just-check.log"
 
       - name: Open pull request
