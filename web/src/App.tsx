@@ -5430,7 +5430,9 @@ function AboutPage() {
   }, []);
 
   const subtrActorSha = version?.subtr_actor_git_sha ?? null;
+  const subtrActorCommitTimestamp = version?.subtr_actor_git_commit_timestamp ?? null;
   const rocketSenseSha = version?.rocket_sense_git_sha ?? null;
+  const rocketSenseCommitTimestamp = version?.rocket_sense_git_commit_timestamp ?? null;
 
   return (
     <section className="page about-page">
@@ -5473,35 +5475,22 @@ function AboutPage() {
                 <th scope="row">subtr-actor</th>
                 <td>
                   {version.subtr_actor_version}
-                  {subtrActorSha ? (
-                    <>
-                      {" "}
-                      <a
-                        className="git-sha"
-                        href={`https://github.com/rlrml/subtr-actor/commit/${subtrActorSha}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={subtrActorSha}
-                      >
-                        {subtrActorSha.slice(0, 7)}
-                      </a>
-                    </>
-                  ) : null}
+                  <CommitMetadata
+                    sha={subtrActorSha}
+                    timestamp={subtrActorCommitTimestamp}
+                    repositoryUrl="https://github.com/rlrml/subtr-actor"
+                  />
                 </td>
               </tr>
               <tr>
                 <th scope="row">rocket-sense</th>
                 <td>
-                  {rocketSenseSha ? (
-                    <a
-                      className="git-sha"
-                      href={`https://github.com/rlrml/rocket-sense/commit/${rocketSenseSha}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={rocketSenseSha}
-                    >
-                      {rocketSenseSha.slice(0, 7)}
-                    </a>
+                  {rocketSenseSha || rocketSenseCommitTimestamp ? (
+                    <CommitMetadata
+                      sha={rocketSenseSha}
+                      timestamp={rocketSenseCommitTimestamp}
+                      repositoryUrl="https://github.com/rlrml/rocket-sense"
+                    />
                   ) : (
                     <span className="subtle">unknown</span>
                   )}
@@ -5588,6 +5577,43 @@ function AboutPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function CommitMetadata({
+  sha,
+  timestamp,
+  repositoryUrl,
+}: {
+  sha: string | null;
+  timestamp: string | null;
+  repositoryUrl: string;
+}) {
+  return (
+    <>
+      {sha ? (
+        <>
+          {" "}
+          <a
+            className="git-sha"
+            href={`${repositoryUrl}/commit/${sha}`}
+            target="_blank"
+            rel="noreferrer"
+            title={sha}
+          >
+            {sha.slice(0, 7)}
+          </a>
+        </>
+      ) : null}
+      {timestamp ? (
+        <>
+          {" "}
+          <time className="subtle" dateTime={timestamp}>
+            {formatDate(timestamp)}
+          </time>
+        </>
+      ) : null}
+    </>
   );
 }
 
