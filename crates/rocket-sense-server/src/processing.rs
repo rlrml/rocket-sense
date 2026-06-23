@@ -4312,21 +4312,54 @@ fn goal_tag_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<GoalTagDe
 }
 
 fn touch_detail_row(event_id: Uuid, event: &IndexedEvent) -> Result<TouchDetailRow> {
+    let payload = &event.payload;
     Ok(TouchDetailRow {
         event_id,
-        kind: required_string(&event.payload, "kind")?,
-        height_band: required_string(&event.payload, "height_band")?,
-        surface: required_string(&event.payload, "surface")?,
-        dodge_state: required_string(&event.payload, "dodge_state")?,
-        ball_speed_change: required_float(&event.payload, "ball_speed_change")?,
-        sample_frame: required_int(&event.payload, "sample_frame")?,
-        sample_time: required_float(&event.payload, "sample_time")?,
-        intention: normalized_payload_field(&event.payload, "intention"),
-        first_touch: bool_value(&event.payload, &["first_touch"]),
-        contested: bool_value(&event.payload, &["contested"]),
-        advance_distance: nested_float(&event.payload, "ball_movement", "advance_distance"),
-        retreat_distance: nested_float(&event.payload, "ball_movement", "retreat_distance"),
+        kind: required_touch_tag(payload, "kind")?,
+        height_band: required_touch_tag(payload, "height_band")?,
+        surface: required_touch_tag(payload, "surface")?,
+        dodge_state: required_touch_tag(payload, "dodge_state")?,
+        ball_speed_change: required_float(payload, "ball_speed_change")?,
+        sample_frame: required_int(payload, "sample_frame")?,
+        sample_time: required_float(payload, "sample_time")?,
+        intention: Some(touch_intention(payload)),
+        first_touch: touch_tag(payload, "reception").map(|value| value == "first_touch"),
+        contested: Some(touch_tag(payload, "contested").is_some()),
+        advance_distance: nested_float(payload, "ball_movement", "advance_distance"),
+        retreat_distance: nested_float(payload, "ball_movement", "retreat_distance"),
     })
+}
+
+/// Value of the single-valued touch-classification `tags` entry for `group`.
+/// The touch model carries classification as a tag set (`tags: [{group, value}]`)
+/// rather than the flat fields it used before; see subtr-actor `TouchTag`.
+fn touch_tag<'a>(payload: &'a Value, group: &str) -> Option<&'a str> {
+    payload.get("tags")?.as_array()?.iter().find_map(|tag| {
+        let object = tag.as_object()?;
+        if object.get("group")?.as_str()? == group {
+            object.get("value")?.as_str()
+        } else {
+            None
+        }
+    })
+}
+
+fn required_touch_tag(payload: &Value, group: &str) -> Result<String> {
+    touch_tag(payload, group)
+        .map(ToOwned::to_owned)
+        .with_context(|| format!("touch classification payload missing `{group}` tag"))
+}
+
+/// Reconstruct the legacy single `intention` value from the split tags. The new
+/// model separates the active `action` (shot/save/clear/boom/pass) from the
+/// retroactive `possession` outcome (control/advance); the old `intention`
+/// combined them. Action wins, then possession, then `neutral`, so existing
+/// consumers (e.g. the `intention = 'control'` possession query) keep working.
+fn touch_intention(payload: &Value) -> String {
+    let value = touch_tag(payload, "action")
+        .or_else(|| touch_tag(payload, "possession"))
+        .unwrap_or("neutral");
+    normalize_identifier(value)
 }
 
 fn nested_float(payload: &Value, parent: &str, field: &str) -> Option<f64> {
@@ -5050,6 +5083,9 @@ async fn insert_touch_event_details(
     event_id: Uuid,
     event: &IndexedEvent,
 ) -> Result<()> {
+    // Reuse the batched-path mapping so both touch-detail inserts derive the
+    // legacy columns from the classification tags identically.
+    let detail = touch_detail_row(event_id, event)?;
     sqlx::query(
         r#"
         INSERT INTO play_event_touch_details (
@@ -5071,27 +5107,19 @@ async fn insert_touch_event_details(
         ON CONFLICT DO NOTHING
         "#,
     )
-    .bind(event_id)
-    .bind(required_string(&event.payload, "kind")?)
-    .bind(required_string(&event.payload, "height_band")?)
-    .bind(required_string(&event.payload, "surface")?)
-    .bind(required_string(&event.payload, "dodge_state")?)
-    .bind(required_float(&event.payload, "ball_speed_change")?)
-    .bind(required_int(&event.payload, "sample_frame")?)
-    .bind(required_float(&event.payload, "sample_time")?)
-    .bind(normalized_payload_field(&event.payload, "intention"))
-    .bind(bool_value(&event.payload, &["first_touch"]))
-    .bind(bool_value(&event.payload, &["contested"]))
-    .bind(nested_float(
-        &event.payload,
-        "ball_movement",
-        "advance_distance",
-    ))
-    .bind(nested_float(
-        &event.payload,
-        "ball_movement",
-        "retreat_distance",
-    ))
+    .bind(detail.event_id)
+    .bind(&detail.kind)
+    .bind(&detail.height_band)
+    .bind(&detail.surface)
+    .bind(&detail.dodge_state)
+    .bind(detail.ball_speed_change)
+    .bind(detail.sample_frame)
+    .bind(detail.sample_time)
+    .bind(&detail.intention)
+    .bind(detail.first_touch)
+    .bind(detail.contested)
+    .bind(detail.advance_distance)
+    .bind(detail.retreat_distance)
     .execute(pool)
     .await
     .context("failed to insert touch event details")?;
@@ -5998,14 +6026,6 @@ fn float_value(value: &Value, keys: &[&str]) -> Option<f64> {
 fn bool_value(value: &Value, keys: &[&str]) -> Option<bool> {
     keys.iter()
         .find_map(|key| value.get(*key).and_then(Value::as_bool))
-}
-
-fn required_string(value: &Value, key: &str) -> Result<String> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .map(ToOwned::to_owned)
-        .with_context(|| format!("timeline event missing string field `{key}`"))
 }
 
 fn required_kind(value: &Value) -> Result<String> {

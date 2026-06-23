@@ -1350,7 +1350,7 @@ fn envelope_event(
             id: format!("{stream}:0"),
             stream: stream.to_owned(),
             label: stream.to_owned(),
-            scope: subtr_actor::event_stream_scope(stream),
+            scope: subtr_actor::EventScope::Match,
             timing,
             primary_player: None,
             secondary_player: None,
@@ -1392,18 +1392,25 @@ fn touch_stats_event(
         player_position: None,
         ball_position: None,
         is_team_0,
-        kind: "hit".to_owned(),
-        height_band: "ground".to_owned(),
-        surface: "floor".to_owned(),
-        dodge_state: "none".to_owned(),
+        tags: vec![
+            touch_tag("kind", "hit"),
+            touch_tag("height_band", "ground"),
+            touch_tag("surface", "floor"),
+            touch_tag("dodge_state", "none"),
+            touch_tag("reception", "continuation"),
+        ],
         ball_speed_change: 250.0,
         ball_movement: None,
-        intention: "unclear".to_owned(),
-        first_touch: false,
-        contested: false,
         role: subtr_actor::RoleState::default(),
         play_depth: subtr_actor::PlayDepthState::default(),
         touch_id: None,
+    }
+}
+
+fn touch_tag(group: &str, value: &str) -> subtr_actor::TouchTag {
+    subtr_actor::TouchTag {
+        group: group.to_owned(),
+        value: value.to_owned(),
     }
 }
 
