@@ -399,6 +399,7 @@ export interface TouchAggregateCohortResponse {
   label: string;
   total_touch_count: number;
   total_advance_distance: number;
+  active_time_seconds: number | null;
   dimensions: TouchAggregateDimensionResponse[];
 }
 

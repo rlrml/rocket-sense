@@ -261,6 +261,20 @@ fn player_boost_total_response_carries_event_derived_pad_breakdowns() {
 }
 
 #[test]
+fn touch_aggregate_cohort_response_carries_active_time_denominator() {
+    let mut accumulator = TouchAggregateCohortAccumulator::default();
+    accumulator.set_active_time_seconds(Some(900.0));
+    accumulator.add("kind".to_owned(), "control".to_owned(), 15, 120.0);
+    accumulator.add("category".to_owned(), "advance".to_owned(), 15, 120.0);
+
+    let response = accumulator.into_response("opponents");
+
+    assert_eq!(response.active_time_seconds, Some(900.0));
+    assert_eq!(response.total_touch_count, 15);
+    assert_eq!(response.total_advance_distance, 120.0);
+}
+
+#[test]
 fn aggregate_hidden_event_source_streams_cover_state_and_context_rows() {
     for source_stream in [
         "positioning",

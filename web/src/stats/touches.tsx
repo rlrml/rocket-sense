@@ -24,6 +24,8 @@ export const touchEventTypes = ["touch"];
 type TouchComparisonMode = "players" | "teams";
 type TouchMetric = "count" | "advance";
 
+const TOUCH_PROFILE_RATE_SECONDS = 5 * 60;
+
 export interface TouchDimensionValue {
   id: string;
   label: string;
@@ -187,9 +189,20 @@ export function TouchProfileComparison({
 }: {
   breakdown: TouchAggregateBreakdownResponse;
 }) {
-  const subjects = useMemo(() => touchProfileSubjects(breakdown), [breakdown]);
+  const rateWindowSeconds = profileRateWindowSeconds(breakdown);
+  const subjects = useMemo(
+    () => touchProfileSubjects(breakdown, rateWindowSeconds),
+    [breakdown, rateWindowSeconds],
+  );
   const totalTouches = subjects.reduce((sum, subject) => sum + subject.totalTouches, 0);
   const totalAdvance = subjects.reduce((sum, subject) => sum + subject.totalAdvance, 0);
+  const countContext = rateWindowSeconds
+    ? `per ${formatRateWindow(rateWindowSeconds)}`
+    : `${formatCount(totalTouches)} total touches`;
+  const advanceContext = rateWindowSeconds
+    ? `per ${formatRateWindow(rateWindowSeconds)}`
+    : `${formatDistance(totalAdvance)} advanced`;
+  const countFormat = rateWindowSeconds ? formatRateCount : formatCount;
 
   if (!subjects.length || totalTouches <= 0) {
     return null;
@@ -202,19 +215,19 @@ export function TouchProfileComparison({
           <TouchChartPanel
             key={`profile-touches-${dimension.id}`}
             title={`Touches by ${dimension.noun}`}
-            contextLabel={`${totalTouches.toLocaleString()} total touches`}
+            contextLabel={countContext}
             subjects={subjects}
             dimension={dimension}
             metric="count"
             maxValue={Math.max(1, ...subjects.map((subject) => subject.totalTouches))}
-            format={formatCount}
+            format={countFormat}
           />
         ))}
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
             key={`profile-advance-${dimension.id}`}
             title={`Ball advanced by ${dimension.noun}`}
-            contextLabel={`${formatDistance(totalAdvance)} advanced`}
+            contextLabel={advanceContext}
             subjects={subjects}
             dimension={dimension}
             metric="advance"
@@ -257,8 +270,12 @@ function TouchChartPanel({
   );
 }
 
-function touchProfileSubjects(breakdown: TouchAggregateBreakdownResponse): TouchSubject[] {
+function touchProfileSubjects(
+  breakdown: TouchAggregateBreakdownResponse,
+  rateWindowSeconds: number | null,
+): TouchSubject[] {
   return breakdown.cohorts.map((cohort) => {
+    const scale = touchProfileCohortScale(cohort, rateWindowSeconds);
     const subject = emptySubject(`touch-profile:${cohort.key}`, {
       name: cohort.label,
       platform: null,
@@ -267,21 +284,35 @@ function touchProfileSubjects(breakdown: TouchAggregateBreakdownResponse): Touch
       team: profileCohortTeam(cohort),
       showPlatformBadge: false,
     });
-    subject.totalTouches = cohort.total_touch_count;
-    subject.totalAdvance = cohort.total_advance_distance;
+    subject.totalTouches = cohort.total_touch_count * scale;
+    subject.totalAdvance = cohort.total_advance_distance * scale;
     for (const dimension of TOUCH_DIMENSIONS) {
       const source = cohort.dimensions.find((candidate) => candidate.key === dimension.id);
       if (!source) continue;
       for (const value of source.values) {
         const valueId = dimensionValueIdFromKey(dimension, value.key);
         subject.countsByDimension[dimension.id][valueId] =
-          (subject.countsByDimension[dimension.id][valueId] ?? 0) + value.touch_count;
+          (subject.countsByDimension[dimension.id][valueId] ?? 0) + value.touch_count * scale;
         subject.advanceByDimension[dimension.id][valueId] =
-          (subject.advanceByDimension[dimension.id][valueId] ?? 0) + value.advance_distance;
+          (subject.advanceByDimension[dimension.id][valueId] ?? 0) + value.advance_distance * scale;
       }
     }
     return subject;
   });
+}
+
+function profileRateWindowSeconds(breakdown: TouchAggregateBreakdownResponse): number | null {
+  return breakdown.cohorts.every((cohort) => (cohort.active_time_seconds ?? 0) > 0)
+    ? TOUCH_PROFILE_RATE_SECONDS
+    : null;
+}
+
+function touchProfileCohortScale(
+  cohort: TouchAggregateCohortResponse,
+  rateWindowSeconds: number | null,
+): number {
+  const activeSeconds = cohort.active_time_seconds ?? 0;
+  return rateWindowSeconds && activeSeconds > 0 ? rateWindowSeconds / activeSeconds : 1;
 }
 
 function profileCohortTeam(cohort: TouchAggregateCohortResponse): number | null {
@@ -587,6 +618,17 @@ function touchSubjectLabel(subject: TouchSubject) {
 
 function formatCount(value: number): string {
   return Math.round(value).toLocaleString();
+}
+
+function formatRateCount(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0";
+  if (value < 10) return value.toFixed(1);
+  return value.toFixed(1);
+}
+
+function formatRateWindow(seconds: number): string {
+  const minutes = seconds / 60;
+  return `${Number.isInteger(minutes) ? minutes.toFixed(0) : minutes.toFixed(1)} active min`;
 }
 
 function formatDistance(value: number): string {

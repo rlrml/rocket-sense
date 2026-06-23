@@ -90,6 +90,7 @@ pub struct TouchAggregateCohortResponse {
     pub label: String,
     pub total_touch_count: u64,
     pub total_advance_distance: f64,
+    pub active_time_seconds: Option<f64>,
     pub dimensions: Vec<TouchAggregateDimensionResponse>,
 }
 
@@ -1685,9 +1686,14 @@ struct TouchAggregateCohortAccumulator {
     kind_advance: HashMap<String, f64>,
     category_counts: HashMap<String, u64>,
     category_advance: HashMap<String, f64>,
+    active_time_seconds: Option<f64>,
 }
 
 impl TouchAggregateCohortAccumulator {
+    fn set_active_time_seconds(&mut self, active_time_seconds: Option<f64>) {
+        self.active_time_seconds = active_time_seconds;
+    }
+
     fn add(&mut self, dimension: String, value: String, count: u64, advance: f64) {
         let (counts, advances) = if dimension == "kind" {
             (&mut self.kind_counts, &mut self.kind_advance)
@@ -1714,6 +1720,7 @@ impl TouchAggregateCohortAccumulator {
             label: touch_cohort_label(key).to_owned(),
             total_touch_count,
             total_advance_distance,
+            active_time_seconds: self.active_time_seconds,
             dimensions: vec![
                 TouchAggregateDimensionResponse {
                     key: "kind".to_owned(),
@@ -1786,12 +1793,43 @@ async fn load_touch_aggregate_breakdown(
              AND subject.replay_player_id IS NOT NULL
             JOIN replay_players actor ON actor.id = subject.replay_player_id
         ),
+        cohort_players AS MATERIALIZED (
+            SELECT DISTINCT
+                CASE
+                    WHEN actor.id = appearance.id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND actor.id <> appearance.id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                actor.id,
+                actor.active_time_seconds
+            FROM target_appearances appearance
+            JOIN replay_players actor
+              ON actor.replay_id = appearance.replay_id
+        ),
+        cohort_denominators AS (
+            SELECT
+                cohort,
+                SUM(active_time_seconds) AS active_time_seconds
+            FROM cohort_players
+            WHERE cohort IS NOT NULL
+            GROUP BY cohort
+        ),
         normalized AS (
             SELECT cohort, kind, category, advance_distance
             FROM touch_events
             WHERE cohort IS NOT NULL
         )
-        SELECT cohort, dimension, value, touch_count, advance_distance
+        SELECT
+            rows.cohort,
+            rows.dimension,
+            rows.value,
+            rows.touch_count,
+            rows.advance_distance,
+            denominator.active_time_seconds
         FROM (
             SELECT
                 cohort,
@@ -1811,16 +1849,18 @@ async fn load_touch_aggregate_breakdown(
             FROM normalized
             GROUP BY cohort, category
         ) rows
+        LEFT JOIN cohort_denominators denominator
+          ON denominator.cohort = rows.cohort
         ORDER BY
-            CASE cohort
+            CASE rows.cohort
                 WHEN 'player' THEN 0
                 WHEN 'teammates' THEN 1
                 WHEN 'opponents' THEN 2
                 ELSE 3
             END,
-            dimension,
-            touch_count DESC,
-            value
+            rows.dimension,
+            rows.touch_count DESC,
+            rows.value
         "#,
     );
 
@@ -1832,10 +1872,10 @@ async fn load_touch_aggregate_breakdown(
         let value: String = row.try_get("value")?;
         let touch_count = count_column(&row, "touch_count")?;
         let advance_distance: f64 = row.try_get("advance_distance")?;
-        cohorts
-            .entry(cohort)
-            .or_default()
-            .add(dimension, value, touch_count, advance_distance);
+        let active_time_seconds = finite_nonnegative(row.try_get("active_time_seconds")?);
+        let cohort = cohorts.entry(cohort).or_default();
+        cohort.set_active_time_seconds(active_time_seconds);
+        cohort.add(dimension, value, touch_count, advance_distance);
     }
 
     Ok(TouchAggregateBreakdownResponse {
