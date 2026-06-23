@@ -319,12 +319,13 @@ export function BoostProfileDetail({
     <section className="chart-panel full-span boost-profile-panel">
       <header className="chart-panel-header">
         <h3>Boost economy</h3>
-        <span>Track-derived boost rates per player-minute across this replay set</span>
+        <span>Boost rates, source breakdowns, and pad pickups across this replay set</span>
       </header>
       <BoostEconomyComparisonGrid
         comparisonMode="players"
         durationSeconds={Math.max(1, ...summaries.map((summary) => summary.trackedSeconds))}
-        includePadBreakdowns={false}
+        includeCollectionBreakdownCharts
+        includePadBreakdowns
         levelRows={levelRows}
         profilePathForSummary={(summary) => playerProfilePath(summary)}
         segmentColorClassNameForSummary={boostProfileSegmentColorClassName}
@@ -420,6 +421,11 @@ function boostProfileSummary(
   identity: { platform: string | null; platformPlayerId: string | null },
 ): BoostPlayerSummary {
   const trackedSeconds = Math.max(0, total.tracked_seconds);
+  const knownCollected =
+    total.boost_collected_big + total.boost_collected_small + total.boost_collected_grant;
+  const collected = Math.max(total.boost_collected, knownCollected);
+  const knownStolen = total.boost_stolen_big + total.boost_stolen_small;
+  const stolen = Math.max(total.boost_stolen, knownStolen);
   return {
     key,
     name,
@@ -429,30 +435,30 @@ function boostProfileSummary(
     team: null,
     average:
       trackedSeconds > 0 ? total.boost_amount_weighted_sum / Math.max(1, trackedSeconds) : null,
-    bpm: trackedSeconds > 0 ? (total.boost_collected * 60) / trackedSeconds : null,
-    bcpm: trackedSeconds > 0 ? (total.boost_collected * 60) / trackedSeconds : null,
-    collected: total.boost_collected,
-    collectedBig: 0,
-    collectedSmall: 0,
-    collectedGrant: 0,
-    collectedUnknown: total.boost_collected,
+    bpm: trackedSeconds > 0 ? (collected * 60) / trackedSeconds : null,
+    bcpm: trackedSeconds > 0 ? (collected * 60) / trackedSeconds : null,
+    collected,
+    collectedBig: total.boost_collected_big,
+    collectedSmall: total.boost_collected_small,
+    collectedGrant: total.boost_collected_grant,
+    collectedUnknown: Math.max(total.boost_collected_unknown, collected - knownCollected),
     used: total.boost_used,
-    stolen: total.boost_stolen,
-    stolenBigBoost: 0,
-    stolenBig: 0,
-    stolenSmall: 0,
-    stolenSmallBoost: 0,
-    stolenCount: 0,
-    bigPads: 0,
-    bigPadsOffensive: 0,
-    bigPadsNeutral: 0,
-    bigPadsDefensive: 0,
-    smallPads: 0,
-    smallPadsOffensive: 0,
-    smallPadsDefensive: 0,
+    stolen,
+    stolenBigBoost: total.boost_stolen_big,
+    stolenBig: total.stolen_big_pads,
+    stolenSmall: total.stolen_small_pads,
+    stolenSmallBoost: total.boost_stolen_small,
+    stolenCount: total.stolen_pads,
+    bigPads: total.big_pads,
+    bigPadsOffensive: total.big_pads_offensive,
+    bigPadsNeutral: total.big_pads_neutral,
+    bigPadsDefensive: total.big_pads_defensive,
+    smallPads: total.small_pads,
+    smallPadsOffensive: total.small_pads_offensive,
+    smallPadsDefensive: total.small_pads_defensive,
     usedWhileSupersonic: total.boost_used_supersonic,
     overfill: total.boost_overfill,
-    stolenOverfill: 0,
+    stolenOverfill: total.boost_stolen_overfill,
     timeZeroBoost: total.time_empty,
     timeHundredBoost: total.time_over,
     timeBoost0To25: total.time_empty + total.time_low,
@@ -495,10 +501,15 @@ function boostTotalHasData(total: PlayerBoostTotal | null): boolean {
     total &&
     (total.tracked_seconds > 0 ||
       total.boost_collected > 0 ||
+      total.boost_collected_big > 0 ||
+      total.boost_collected_small > 0 ||
+      total.boost_collected_grant > 0 ||
       total.boost_stolen > 0 ||
       total.boost_overfill > 0 ||
       total.boost_used > 0 ||
-      total.boost_used_supersonic > 0),
+      total.boost_used_supersonic > 0 ||
+      total.big_pads > 0 ||
+      total.small_pads > 0),
   );
 }
 
@@ -506,6 +517,8 @@ function boostSummaryHasData(summary: BoostPlayerSummary): boolean {
   return (
     summary.trackedSeconds > 0 ||
     summary.collected > 0 ||
+    summary.bigPads > 0 ||
+    summary.smallPads > 0 ||
     summary.stolen > 0 ||
     summary.overfill > 0 ||
     summary.used > 0 ||
@@ -833,6 +846,7 @@ function PlayerBoostEconomyChart({
 function BoostEconomyComparisonGrid({
   comparisonMode,
   durationSeconds,
+  includeCollectionBreakdownCharts = false,
   includePadBreakdowns,
   levelRows,
   playerIndexByKey = new Map(),
@@ -845,6 +859,7 @@ function BoostEconomyComparisonGrid({
 }: {
   comparisonMode: BoostComparisonMode;
   durationSeconds: number;
+  includeCollectionBreakdownCharts?: boolean;
   includePadBreakdowns: boolean;
   levelRows: BoostLevelDistributionRow[];
   playerIndexByKey?: Map<string, number>;
@@ -934,6 +949,179 @@ function BoostEconomyComparisonGrid({
           },
         ];
   };
+  const collectionBreakdownGroups: BoostComparisonGroup[] = includeCollectionBreakdownCharts
+    ? [
+        {
+          key: "big-boost-collected",
+          title: "Big boost collected",
+          legend: [{ className: "legend-big-pad", label: "Big pad boost" }],
+          maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
+            scaleBoostValue(summary, summary.collectedBig),
+          ),
+          rows: comparisonSummaries
+            .map((summary) => ({
+              key: summary.key,
+              name: summary.name,
+              platform: summary.platform,
+              profilePath: profilePathForSummary(summary),
+              rank: summary.rank,
+              segmentColorClassName: summaryColorClassName(summary),
+              showPlatformBadge: showPlatformBadgeForSummary(summary),
+              subtitle: subtitleForSummary?.(summary),
+              team: summary.team,
+              playerIndex: summaryPlayerIndex(summary),
+              sortValue: scaleBoostValue(summary, summary.collectedBig),
+              total: scaleBoostValue(summary, summary.collectedBig),
+              valueLabel: boostValueLabel(summary, summary.collectedBig),
+              segments: [
+                {
+                  className: "big-pad-source",
+                  label: "Big",
+                  value: scaleBoostValue(summary, summary.collectedBig),
+                  visibleLabel: `${summary.bigPads.toLocaleString()} big / ${boostValueLabel(summary, summary.collectedBig)}`,
+                  title: boostSegmentTitle(
+                    "Big pad boost",
+                    summary.collectedBig,
+                    durationForSummary(summary),
+                  ),
+                },
+              ],
+            }))
+            .sort((left, right) => right.sortValue - left.sortValue),
+        },
+        {
+          key: "small-boost-collected",
+          title: "Small boost collected",
+          legend: [{ className: "legend-small-pad", label: "Small pad boost" }],
+          maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
+            scaleBoostValue(summary, summary.collectedSmall),
+          ),
+          rows: comparisonSummaries
+            .map((summary) => ({
+              key: summary.key,
+              name: summary.name,
+              platform: summary.platform,
+              profilePath: profilePathForSummary(summary),
+              rank: summary.rank,
+              segmentColorClassName: summaryColorClassName(summary),
+              showPlatformBadge: showPlatformBadgeForSummary(summary),
+              subtitle: subtitleForSummary?.(summary),
+              team: summary.team,
+              playerIndex: summaryPlayerIndex(summary),
+              sortValue: scaleBoostValue(summary, summary.collectedSmall),
+              total: scaleBoostValue(summary, summary.collectedSmall),
+              valueLabel: boostValueLabel(summary, summary.collectedSmall),
+              segments: [
+                {
+                  className: "small-pad-source",
+                  label: "Small",
+                  value: scaleBoostValue(summary, summary.collectedSmall),
+                  visibleLabel: `${summary.smallPads.toLocaleString()} small / ${boostValueLabel(summary, summary.collectedSmall)}`,
+                  title: boostSegmentTitle(
+                    "Small pad boost",
+                    summary.collectedSmall,
+                    durationForSummary(summary),
+                  ),
+                },
+              ],
+            }))
+            .sort((left, right) => right.sortValue - left.sortValue),
+        },
+        {
+          key: "grant-boost-collected",
+          title: "Grant/gather boost",
+          legend: [{ className: "legend-grant", label: "Kickoff/respawn grants" }],
+          maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
+            scaleBoostValue(summary, summary.collectedGrant),
+          ),
+          rows: comparisonSummaries
+            .map((summary) => ({
+              key: summary.key,
+              name: summary.name,
+              platform: summary.platform,
+              profilePath: profilePathForSummary(summary),
+              rank: summary.rank,
+              segmentColorClassName: summaryColorClassName(summary),
+              showPlatformBadge: showPlatformBadgeForSummary(summary),
+              subtitle: subtitleForSummary?.(summary),
+              team: summary.team,
+              playerIndex: summaryPlayerIndex(summary),
+              sortValue: scaleBoostValue(summary, summary.collectedGrant),
+              total: scaleBoostValue(summary, summary.collectedGrant),
+              valueLabel: boostValueLabel(summary, summary.collectedGrant),
+              segments: [
+                {
+                  className: "grant-source",
+                  label: "Grant",
+                  value: scaleBoostValue(summary, summary.collectedGrant),
+                  visibleLabel: boostValueLabel(summary, summary.collectedGrant),
+                  title: boostSegmentTitle(
+                    "Grant boost",
+                    summary.collectedGrant,
+                    durationForSummary(summary),
+                  ),
+                },
+              ],
+            }))
+            .sort((left, right) => right.sortValue - left.sortValue),
+        },
+        {
+          key: "boost-pads-collected",
+          title: "Boost pads collected",
+          legend: [
+            { className: "legend-big-pad", label: "Big pads" },
+            { className: "legend-small-pad", label: "Small pads" },
+          ],
+          maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
+            scaleCountValue(summary, summary.bigPads + summary.smallPads),
+          ),
+          rows: comparisonSummaries
+            .map((summary) => {
+              const pads = summary.bigPads + summary.smallPads;
+              return {
+                key: summary.key,
+                name: summary.name,
+                platform: summary.platform,
+                profilePath: profilePathForSummary(summary),
+                rank: summary.rank,
+                segmentColorClassName: summaryColorClassName(summary),
+                showPlatformBadge: showPlatformBadgeForSummary(summary),
+                subtitle: subtitleForSummary?.(summary),
+                team: summary.team,
+                playerIndex: summaryPlayerIndex(summary),
+                sortValue: scaleCountValue(summary, pads),
+                total: scaleCountValue(summary, pads),
+                valueLabel: countValueLabel(summary, pads),
+                segments: [
+                  {
+                    className: "big-pad-source",
+                    label: "Big",
+                    value: scaleCountValue(summary, summary.bigPads),
+                    visibleLabel: `${summary.bigPads.toLocaleString()} big`,
+                    title: countSegmentTitle(
+                      "Big pads",
+                      summary.bigPads,
+                      durationForSummary(summary),
+                    ),
+                  },
+                  {
+                    className: "small-pad-source",
+                    label: "Small",
+                    value: scaleCountValue(summary, summary.smallPads),
+                    visibleLabel: `${summary.smallPads.toLocaleString()} small`,
+                    title: countSegmentTitle(
+                      "Small pads",
+                      summary.smallPads,
+                      durationForSummary(summary),
+                    ),
+                  },
+                ],
+              };
+            })
+            .sort((left, right) => right.sortValue - left.sortValue),
+        },
+      ]
+    : [];
   const stolenSegments = (summary: BoostPlayerSummary): BoostComparisonSegment[] => {
     const rowDuration = durationForSummary(summary);
     return includePadBreakdowns
@@ -994,6 +1182,7 @@ function BoostEconomyComparisonGrid({
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
     },
+    ...collectionBreakdownGroups,
     {
       key: "usage",
       title: "Usage",
