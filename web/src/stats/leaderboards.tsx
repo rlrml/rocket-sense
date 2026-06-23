@@ -58,6 +58,7 @@ interface CatalogMetric {
 const CATEGORY_ORDER = [
   "activity",
   "core",
+  "basic",
   "mechanic",
   "possession",
   "contact",
@@ -69,6 +70,7 @@ const CATEGORY_ORDER = [
 const CATEGORY_LABELS: Record<string, string> = {
   activity: "Activity",
   core: "Core",
+  basic: "Basic events",
   mechanic: "Mechanics",
   possession: "Possession & control",
   contact: "Physical",

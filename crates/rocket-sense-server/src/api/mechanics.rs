@@ -3107,6 +3107,7 @@ fn registered_event_type_category(event_type: &str) -> Option<&'static str> {
 fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
     match category {
         subtr_actor::EventCategory::Core => "core",
+        subtr_actor::EventCategory::Basic => "basic",
         subtr_actor::EventCategory::Mechanic => "mechanic",
         subtr_actor::EventCategory::Positioning => "positioning",
         subtr_actor::EventCategory::Other => "other",
@@ -3144,6 +3145,7 @@ fn event_category_alias(category: &str) -> &'static str {
         "boost" => "boost",
         "contact" => "contact",
         "core" => "core",
+        "basic" => "basic",
         "mechanic" => "mechanic",
         "movement" => "movement",
         "possession" => "possession",

@@ -79,6 +79,19 @@ export interface ReplayGroupReplayUpdateResponse {
   changed_replays: number;
 }
 
+export interface ReplayGroupManagerResponse {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  is_creator: boolean;
+  added_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface ListReplayGroupManagersResponse {
+  managers: ReplayGroupManagerResponse[];
+}
+
 export interface UploadsLeaderboardRow {
   rank: number;
   user_id: string;
@@ -498,6 +511,7 @@ export interface PossessionSummaryResponse {
   possessions: PossessionSpanSummary;
   controlled_plays: PossessionSpanSummary;
   teammates: PossessionTeammateComparison | null;
+  cohorts: PossessionCohortSummary[];
   touches: PossessionTouchSummary;
   locations: PossessionLocationSummary;
 }
@@ -505,6 +519,16 @@ export interface PossessionSummaryResponse {
 export interface PossessionTeammateComparison {
   appearance_count: number;
   controlled_plays: PossessionSpanSummary;
+}
+
+export interface PossessionCohortSummary {
+  key: string;
+  label: string;
+  appearance_count: number;
+  possessions: PossessionSpanSummary;
+  controlled_plays: PossessionSpanSummary;
+  touches: PossessionTouchSummary;
+  locations: PossessionLocationSummary;
 }
 
 export interface PossessionSpanSummary {

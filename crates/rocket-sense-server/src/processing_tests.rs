@@ -377,7 +377,7 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
     assert!(touch_rows
         .iter()
         .all(|event| event.source == STATS_TIMELINE_SOURCE));
-    assert!(touch_rows.iter().all(|event| event.category == "other"));
+    assert!(touch_rows.iter().all(|event| event.category == "basic"));
     assert_eq!(
         touch_rows[0]
             .primary_subject
@@ -730,6 +730,22 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
     assert_eq!(flip_impulse.display_name, "Flip Impulse");
     assert_eq!(flip_impulse.category, "event");
     assert_eq!(flip_impulse.end_time, Some(20.18));
+
+    let touch = indexed_timeline_payload_event(
+        "touch",
+        0,
+        &serde_json::json!({
+            "time": 21.0,
+            "frame": 1260,
+            "player": { "Steam": 76561198000000001_u64 },
+            "team_is_team_0": true
+        }),
+    )
+    .expect("touch event should index");
+
+    assert_eq!(touch.event_type_key, "touch");
+    assert_eq!(touch.display_name, "Touch");
+    assert_eq!(touch.category, "basic");
 }
 
 #[test]

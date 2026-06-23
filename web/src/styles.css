@@ -560,6 +560,107 @@ tbody tr:last-child td {
   text-decoration: underline;
 }
 
+.link-button.is-danger {
+  color: var(--team-orange);
+}
+
+.secondary-button.is-active {
+  border-color: var(--team-blue);
+  color: var(--team-blue);
+}
+
+.group-managers-panel {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.group-managers-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-muted, #555);
+}
+
+.group-managers-empty {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--text-muted, #555);
+}
+
+.group-managers-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.group-managers-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.group-managers-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.group-managers-name {
+  font-weight: var(--fw-medium);
+}
+
+.group-managers-email {
+  color: var(--text-muted, #777);
+  font-size: var(--text-sm, 0.85em);
+}
+
+.group-managers-badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--team-blue);
+  color: #fff;
+  font-size: var(--text-sm, 0.78em);
+  font-weight: var(--fw-medium);
+}
+
+.group-managers-invite {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.group-managers-invite input {
+  flex: 1 1 auto;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.group-managers-hint {
+  margin: 0;
+  font-size: var(--text-sm, 0.82em);
+  color: var(--text-muted, #777);
+}
+
 .teams-cell {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1335,7 +1436,7 @@ tbody tr:last-child td {
 
 .stat-comparison-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
@@ -4785,7 +4886,7 @@ tbody tr:last-child td {
 
 .core-comparison-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  grid-template-columns: 1fr;
   gap: 16px;
 }
 
@@ -7420,6 +7521,34 @@ tbody tr:last-child td {
 }
 
 /* Career possession summary panel */
+.possession-profile-grid {
+  align-items: start;
+}
+
+.possession-profile-grid .player-comparison-row {
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) minmax(82px, max-content);
+}
+
+.possession-profile-grid .player-comparison-rows.no-value-column .player-comparison-row {
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+}
+
+.source-segment.possession-profile-subject {
+  background: #0f766e;
+}
+
+.source-segment.possession-profile-teammates {
+  background: #7c3aed;
+}
+
+.source-segment.possession-profile-opponents {
+  background: #d97706;
+}
+
+.source-segment.possession-profile-population {
+  background: #64748b;
+}
+
 .possession-summary-panel .possession-surface-share {
   margin: 0.75rem 0 0.25rem;
 }

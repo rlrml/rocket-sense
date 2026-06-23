@@ -8,6 +8,7 @@ import type {
   GroupBoostTotalsResponse,
   LinkedIdentitiesResponse,
   ListReplayGroupsResponse,
+  ListReplayGroupManagersResponse,
   ListReplaysResponse,
   UploadsLeaderboardResponse,
   AppearancesLeaderboardResponse,
@@ -184,6 +185,38 @@ export function removeReplaysFromGroup(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ replay_ids: replayIds }),
     },
+  );
+}
+
+export function listReplayGroupManagers(groupId: string): Promise<ListReplayGroupManagersResponse> {
+  return request<ListReplayGroupManagersResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/managers`,
+  );
+}
+
+// Identify the invitee by email (matched case-insensitively against an existing
+// user) or by user_id. The target must already have signed in at least once.
+export function addReplayGroupManager(
+  groupId: string,
+  target: { email: string } | { user_id: string },
+): Promise<ListReplayGroupManagersResponse> {
+  return request<ListReplayGroupManagersResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/managers`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(target),
+    },
+  );
+}
+
+export function removeReplayGroupManager(
+  groupId: string,
+  userId: string,
+): Promise<ListReplayGroupManagersResponse> {
+  return request<ListReplayGroupManagersResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/managers/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
   );
 }
 

@@ -5658,6 +5658,7 @@ fn normalized_payload_field(payload: &Value, field: &str) -> Option<String> {
 fn event_category_key(category: EventCategory) -> &'static str {
     match category {
         EventCategory::Core => "core",
+        EventCategory::Basic => "basic",
         EventCategory::Mechanic => "mechanic",
         EventCategory::Positioning => "positioning",
         EventCategory::Other => "other",
