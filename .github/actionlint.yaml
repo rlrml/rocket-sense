@@ -1,0 +1,6 @@
+self-hosted-runner:
+  labels:
+    - rocket-sense-agent
+    - nixos
+    - codex
+    - claude-code
