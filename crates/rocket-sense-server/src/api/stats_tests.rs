@@ -221,6 +221,46 @@ fn per_minute_requires_positive_denominator() {
 }
 
 #[test]
+fn player_boost_total_response_carries_event_derived_pad_breakdowns() {
+    let mut accumulator = PlayerBoostAccumulator {
+        boost_collected: 180.0,
+        boost_stolen: 90.0,
+        ..PlayerBoostAccumulator::default()
+    };
+    let event_fields = PlayerBoostEventAccumulator {
+        boost_collected_big: 100.0,
+        boost_collected_small: 36.0,
+        boost_collected_grant: 24.0,
+        boost_stolen_big: 80.0,
+        boost_stolen_small: 10.0,
+        boost_stolen_overfill: 6.0,
+        big_pads: 1,
+        big_pads_offensive: 1,
+        small_pads: 3,
+        small_pads_defensive: 2,
+        stolen_big_pads: 1,
+        stolen_small_pads: 1,
+        ..PlayerBoostEventAccumulator::default()
+    };
+
+    accumulator.merge_event_fields(Some(&event_fields));
+    let response = accumulator.into_response();
+
+    assert_eq!(response.boost_collected_big, 100.0);
+    assert_eq!(response.boost_collected_small, 36.0);
+    assert_eq!(response.boost_collected_grant, 24.0);
+    assert_eq!(response.boost_collected_unknown, 20.0);
+    assert_eq!(response.big_pads, 1);
+    assert_eq!(response.big_pads_offensive, 1);
+    assert_eq!(response.small_pads, 3);
+    assert_eq!(response.small_pads_defensive, 2);
+    assert_eq!(response.boost_stolen_big, 80.0);
+    assert_eq!(response.boost_stolen_small, 10.0);
+    assert_eq!(response.boost_stolen_overfill, 6.0);
+    assert_eq!(response.stolen_pads, 2);
+}
+
+#[test]
 fn aggregate_hidden_event_source_streams_cover_state_and_context_rows() {
     for source_stream in [
         "positioning",

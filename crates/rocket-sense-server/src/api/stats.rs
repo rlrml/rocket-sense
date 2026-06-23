@@ -4,12 +4,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
 use sqlx::{Postgres, QueryBuilder, Row};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use super::{
-    event_stats::{push_kickoff_event_spawn_filter, KickoffSpawnFilter},
+    event_stats::{count_column, push_kickoff_event_spawn_filter, KickoffSpawnFilter},
     query::{
         deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_u32_filter,
         QueryParams,
@@ -123,10 +123,27 @@ pub struct StatAggregateResponse {
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PlayerBoostTotalResponse {
     pub boost_collected: f64,
+    pub boost_collected_big: f64,
+    pub boost_collected_small: f64,
+    pub boost_collected_grant: f64,
+    pub boost_collected_unknown: f64,
     pub boost_stolen: f64,
+    pub boost_stolen_big: f64,
+    pub boost_stolen_small: f64,
     pub boost_overfill: f64,
     pub boost_used: f64,
     pub boost_used_supersonic: f64,
+    pub boost_stolen_overfill: f64,
+    pub big_pads: u64,
+    pub big_pads_offensive: u64,
+    pub big_pads_neutral: u64,
+    pub big_pads_defensive: u64,
+    pub small_pads: u64,
+    pub small_pads_offensive: u64,
+    pub small_pads_defensive: u64,
+    pub stolen_big_pads: u64,
+    pub stolen_small_pads: u64,
+    pub stolen_pads: u64,
     pub boost_amount_weighted_sum: f64,
     pub tracked_seconds: f64,
     pub time_empty: f64,
@@ -701,6 +718,10 @@ async fn load_player_boost_totals(
             &mut opponents,
         );
     }
+    let event_fields = load_player_boost_event_fields(pool, filters).await?;
+    player.merge_event_fields(event_fields.get("player"));
+    teammates.merge_event_fields(event_fields.get("teammates"));
+    opponents.merge_event_fields(event_fields.get("opponents"));
 
     Ok(PlayerBoostTotalsResponse {
         player: player.into_response(),
@@ -712,32 +733,93 @@ async fn load_player_boost_totals(
 #[derive(Default)]
 struct PlayerBoostAccumulator {
     boost_collected: f64,
+    boost_collected_big: f64,
+    boost_collected_small: f64,
+    boost_collected_grant: f64,
     boost_stolen: f64,
+    boost_stolen_big: f64,
+    boost_stolen_small: f64,
     boost_overfill: f64,
     boost_used: f64,
     boost_used_supersonic: f64,
+    boost_stolen_overfill: f64,
+    big_pads: u64,
+    big_pads_offensive: u64,
+    big_pads_neutral: u64,
+    big_pads_defensive: u64,
+    small_pads: u64,
+    small_pads_offensive: u64,
+    small_pads_defensive: u64,
+    stolen_big_pads: u64,
+    stolen_small_pads: u64,
     boost_amount_weighted_sum: f64,
     tracked_seconds: f64,
     bands: [f64; 6],
 }
 
 impl PlayerBoostAccumulator {
+    fn merge_event_fields(&mut self, fields: Option<&PlayerBoostEventAccumulator>) {
+        let Some(fields) = fields else {
+            return;
+        };
+        self.boost_collected_big += fields.boost_collected_big;
+        self.boost_collected_small += fields.boost_collected_small;
+        self.boost_collected_grant += fields.boost_collected_grant;
+        self.boost_stolen_big += fields.boost_stolen_big;
+        self.boost_stolen_small += fields.boost_stolen_small;
+        self.boost_stolen_overfill += fields.boost_stolen_overfill;
+        self.big_pads += fields.big_pads;
+        self.big_pads_offensive += fields.big_pads_offensive;
+        self.big_pads_neutral += fields.big_pads_neutral;
+        self.big_pads_defensive += fields.big_pads_defensive;
+        self.small_pads += fields.small_pads;
+        self.small_pads_offensive += fields.small_pads_offensive;
+        self.small_pads_defensive += fields.small_pads_defensive;
+        self.stolen_big_pads += fields.stolen_big_pads;
+        self.stolen_small_pads += fields.stolen_small_pads;
+    }
+
     fn has_data(&self) -> bool {
         self.tracked_seconds > 0.0
             || self.boost_collected > 0.0
+            || self.boost_collected_big > 0.0
+            || self.boost_collected_small > 0.0
+            || self.boost_collected_grant > 0.0
             || self.boost_stolen > 0.0
             || self.boost_overfill > 0.0
             || self.boost_used > 0.0
             || self.boost_used_supersonic > 0.0
+            || self.big_pads > 0
+            || self.small_pads > 0
     }
 
     fn into_response(self) -> PlayerBoostTotalResponse {
+        let known_collected =
+            self.boost_collected_big + self.boost_collected_small + self.boost_collected_grant;
+        let boost_collected_unknown = (self.boost_collected - known_collected).max(0.0);
         PlayerBoostTotalResponse {
             boost_collected: self.boost_collected,
+            boost_collected_big: self.boost_collected_big,
+            boost_collected_small: self.boost_collected_small,
+            boost_collected_grant: self.boost_collected_grant,
+            boost_collected_unknown,
             boost_stolen: self.boost_stolen,
+            boost_stolen_big: self.boost_stolen_big,
+            boost_stolen_small: self.boost_stolen_small,
             boost_overfill: self.boost_overfill,
             boost_used: self.boost_used,
             boost_used_supersonic: self.boost_used_supersonic,
+            boost_stolen_overfill: self.boost_stolen_overfill,
+            big_pads: self.big_pads,
+            big_pads_offensive: self.big_pads_offensive,
+            big_pads_neutral: self.big_pads_neutral,
+            big_pads_defensive: self.big_pads_defensive,
+            small_pads: self.small_pads,
+            small_pads_offensive: self.small_pads_offensive,
+            small_pads_defensive: self.small_pads_defensive,
+            stolen_big_pads: self.stolen_big_pads,
+            stolen_small_pads: self.stolen_small_pads,
+            stolen_pads: self.stolen_big_pads + self.stolen_small_pads,
             boost_amount_weighted_sum: self.boost_amount_weighted_sum,
             tracked_seconds: self.tracked_seconds,
             time_empty: self.bands[0],
@@ -748,6 +830,137 @@ impl PlayerBoostAccumulator {
             time_over: self.bands[5],
         }
     }
+}
+
+#[derive(Default)]
+struct PlayerBoostEventAccumulator {
+    boost_collected_big: f64,
+    boost_collected_small: f64,
+    boost_collected_grant: f64,
+    boost_stolen_big: f64,
+    boost_stolen_small: f64,
+    boost_stolen_overfill: f64,
+    big_pads: u64,
+    big_pads_offensive: u64,
+    big_pads_neutral: u64,
+    big_pads_defensive: u64,
+    small_pads: u64,
+    small_pads_offensive: u64,
+    small_pads_defensive: u64,
+    stolen_big_pads: u64,
+    stolen_small_pads: u64,
+}
+
+async fn load_player_boost_event_fields(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<HashMap<String, PlayerBoostEventAccumulator>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT DISTINCT
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id,
+                concat(rp.platform, ':', rp.platform_player_id) AS target_player_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+              AND r.canonical_analysis_run_id IS NOT NULL
+        ),
+        boost_events AS MATERIALIZED (
+            SELECT
+                CASE
+                    WHEN concat(actor.platform, ':', actor.platform_player_id) = appearance.target_player_id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND concat(actor.platform, ':', actor.platform_player_id) <> appearance.target_player_id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                et.key AS event_type,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM target_appearances appearance
+            JOIN play_events event
+              ON event.replay_id = appearance.replay_id
+             AND event.analysis_run_id = appearance.run_id
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key IN ('boost_pickup', 'boost_respawn')
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN replay_players actor ON actor.id = subject.replay_player_id
+            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
+        ),
+        normalized AS (
+            SELECT
+                cohort,
+                event_type,
+                COALESCE(payload->>'pad_type', payload->>'pad_size') AS pad_size,
+                COALESCE(payload->>'pad_zone', payload->>'big_pad_zone') AS pad_zone,
+                payload->>'field_half' AS field_half,
+                COALESCE((payload->>'is_steal')::boolean, false) AS is_steal,
+                COALESCE((payload->>'collected_amount')::double precision, 0.0) AS collected_amount,
+                COALESCE((payload->>'overfill_amount')::double precision, 0.0) AS overfill_amount,
+                COALESCE((payload->>'boost_granted')::double precision, 0.0) AS boost_granted
+            FROM boost_events
+            WHERE cohort IS NOT NULL
+        )
+        SELECT
+            cohort,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big'), 0.0) AS boost_collected_big,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small'), 0.0) AS boost_collected_small,
+            COALESCE(SUM(boost_granted) FILTER (WHERE event_type = 'boost_respawn'), 0.0) AS boost_collected_grant,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'big'), 0.0) AS boost_stolen_big,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'small'), 0.0) AS boost_stolen_small,
+            COALESCE(SUM(overfill_amount) FILTER (WHERE event_type = 'boost_pickup' AND is_steal), 0.0) AS boost_stolen_overfill,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big') AS big_pads,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big' AND (pad_zone = 'offensive' OR (pad_zone IS NULL AND field_half = 'opponent'))) AS big_pads_offensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big' AND pad_zone = 'neutral') AS big_pads_neutral,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big' AND (pad_zone = 'defensive' OR (pad_zone IS NULL AND field_half = 'own'))) AS big_pads_defensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small') AS small_pads,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small' AND (pad_zone = 'offensive' OR (pad_zone IS NULL AND field_half = 'opponent'))) AS small_pads_offensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small' AND (pad_zone = 'defensive' OR (pad_zone IS NULL AND field_half = 'own'))) AS small_pads_defensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'big') AS stolen_big_pads,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'small') AS stolen_small_pads
+        FROM normalized
+        GROUP BY cohort
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut fields = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        fields.insert(
+            cohort,
+            PlayerBoostEventAccumulator {
+                boost_collected_big: boost_raw_to_percent(row.try_get("boost_collected_big")?),
+                boost_collected_small: boost_raw_to_percent(row.try_get("boost_collected_small")?),
+                boost_collected_grant: boost_raw_to_percent(row.try_get("boost_collected_grant")?),
+                boost_stolen_big: boost_raw_to_percent(row.try_get("boost_stolen_big")?),
+                boost_stolen_small: boost_raw_to_percent(row.try_get("boost_stolen_small")?),
+                boost_stolen_overfill: boost_raw_to_percent(row.try_get("boost_stolen_overfill")?),
+                big_pads: count_column(&row, "big_pads")?,
+                big_pads_offensive: count_column(&row, "big_pads_offensive")?,
+                big_pads_neutral: count_column(&row, "big_pads_neutral")?,
+                big_pads_defensive: count_column(&row, "big_pads_defensive")?,
+                small_pads: count_column(&row, "small_pads")?,
+                small_pads_offensive: count_column(&row, "small_pads_offensive")?,
+                small_pads_defensive: count_column(&row, "small_pads_defensive")?,
+                stolen_big_pads: count_column(&row, "stolen_big_pads")?,
+                stolen_small_pads: count_column(&row, "stolen_small_pads")?,
+            },
+        );
+    }
+    Ok(fields)
 }
 
 fn accumulate_player_boost_tracks(
@@ -840,6 +1053,10 @@ fn accumulate_player_boost_track(
 }
 
 const BOOST_RAW_MAX: f64 = 255.0;
+
+fn boost_raw_to_percent(value: f64) -> f64 {
+    value * 100.0 / BOOST_RAW_MAX
+}
 
 fn player_boost_band_index(percent: f64) -> usize {
     if percent < 1.0 {

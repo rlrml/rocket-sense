@@ -738,10 +738,27 @@ export interface GroupBoostTotalsResponse {
 
 export interface PlayerBoostTotal {
   boost_collected: number;
+  boost_collected_big: number;
+  boost_collected_small: number;
+  boost_collected_grant: number;
+  boost_collected_unknown: number;
   boost_stolen: number;
+  boost_stolen_big: number;
+  boost_stolen_small: number;
   boost_overfill: number;
   boost_used: number;
   boost_used_supersonic: number;
+  boost_stolen_overfill: number;
+  big_pads: number;
+  big_pads_offensive: number;
+  big_pads_neutral: number;
+  big_pads_defensive: number;
+  small_pads: number;
+  small_pads_offensive: number;
+  small_pads_defensive: number;
+  stolen_big_pads: number;
+  stolen_small_pads: number;
+  stolen_pads: number;
   boost_amount_weighted_sum: number;
   tracked_seconds: number;
   time_empty: number;
