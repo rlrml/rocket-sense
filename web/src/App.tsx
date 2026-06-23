@@ -3387,11 +3387,7 @@ function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
   );
 }
 
-function playerStatGroupPath(
-  routeBasePath: string,
-  groupId: string,
-  search: string,
-): string {
+function playerStatGroupPath(routeBasePath: string, groupId: string, search: string): string {
   const params = new URLSearchParams(search);
   if (groupId !== "kickoffs") {
     stripKickoffSpawnParams(params);
@@ -3679,9 +3675,7 @@ function PlayerAggregateStatsSections({
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
-          goalTypeHref={(kind) =>
-            `${routeBasePath}/goals/${encodeURIComponent(kind)}`
-          }
+          goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
           allGoalsHref={`${routeBasePath}/goals`}
         />
       ) : null}
