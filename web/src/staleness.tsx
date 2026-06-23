@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, Cpu, Info, RefreshCw, X } from "lucide-react";
 
 import { getPlayerProcessingVersions, reprocessReplay, reprocessReplayClient } from "./api";
+import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import type {
   ProcessingVersionBreakdownResponse,
@@ -10,35 +11,31 @@ import type {
 } from "./types";
 import type { LocalReprocessProgress } from "./stats/replayModel";
 
-const SHORT_SHA = 7;
 const GITHUB_REPO = {
   "rocket-sense": "https://github.com/rlrml/rocket-sense",
   "subtr-actor": "https://github.com/rlrml/subtr-actor",
 } as const;
 
-function shortSha(sha?: string | null) {
-  return sha ? sha.slice(0, SHORT_SHA) : null;
-}
-
 /** subtr-actor version with its short git sha appended when known. */
 function versionWithSha(version?: string | null, sha?: string | null) {
   const v = version ?? "unknown";
-  const s = shortSha(sha);
+  const s = shortCommitSha(sha);
   return s ? `${v} (${s})` : v;
 }
 
 /** A git sha rendered as a link to its GitHub commit, short text + full title. */
 function GitSha({ repo, sha }: { repo: keyof typeof GITHUB_REPO; sha?: string | null }) {
-  if (!sha) return <span className="subtle">unknown</span>;
+  const commitSha = commitShaForUrl(sha);
+  if (!commitSha) return <span className="subtle">unknown</span>;
   return (
     <a
       className="git-sha"
-      href={`${GITHUB_REPO[repo]}/commit/${sha}`}
+      href={`${GITHUB_REPO[repo]}/commit/${commitSha}`}
       target="_blank"
       rel="noreferrer"
-      title={sha}
+      title={sha ?? commitSha}
     >
-      {shortSha(sha)}
+      {shortCommitSha(sha)}
     </a>
   );
 }

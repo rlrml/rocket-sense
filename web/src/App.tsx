@@ -81,6 +81,7 @@ import {
   uploadReplay,
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
+import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import {
@@ -5589,19 +5590,20 @@ function CommitMetadata({
   timestamp: string | null;
   repositoryUrl: string;
 }) {
+  const commitSha = commitShaForUrl(sha);
   return (
     <>
-      {sha ? (
+      {commitSha ? (
         <>
           {" "}
           <a
             className="git-sha"
-            href={`${repositoryUrl}/commit/${sha}`}
+            href={`${repositoryUrl}/commit/${commitSha}`}
             target="_blank"
             rel="noreferrer"
-            title={sha}
+            title={sha ?? commitSha}
           >
-            {sha.slice(0, 7)}
+            {shortCommitSha(sha)}
           </a>
         </>
       ) : null}
