@@ -1421,7 +1421,9 @@ fn version_fixture() -> CurrentProcessingVersion {
         extractor_version: "0.1.0",
         subtr_actor_version: "0.12.0",
         subtr_actor_git_sha: Some("aaaaaaa"),
+        subtr_actor_git_commit_timestamp: Some("2026-01-01T00:00:00Z"),
         rocket_sense_git_sha: Some("bbbbbbb"),
+        rocket_sense_git_commit_timestamp: Some("2026-01-01T00:00:00Z"),
     }
 }
 
