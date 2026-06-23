@@ -1333,6 +1333,12 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.stat-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+
 .stat-panel {
   display: grid;
   gap: 10px;
@@ -2982,6 +2988,10 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.possession-comparison-grid {
+  align-items: start;
+}
+
 .positioning-detail {
   display: grid;
   gap: 14px;
@@ -3057,6 +3067,33 @@ tbody tr:last-child td {
 
 .source-segment.movement-bar-powerslide {
   background: #475569;
+}
+
+.source-segment.possession-bar-player {
+  background: #2563eb;
+}
+
+.source-segment.possession-bar-spans {
+  background: #7c3aed;
+}
+
+.source-segment.possession-bar-average-span {
+  background: #0f766e;
+}
+
+.source-segment.possession-zone-offensive,
+.chart-legend .possession-zone-offensive::before {
+  background: #16a34a;
+}
+
+.source-segment.possession-zone-neutral,
+.chart-legend .possession-zone-neutral::before {
+  background: #64748b;
+}
+
+.source-segment.possession-zone-defensive,
+.chart-legend .possession-zone-defensive::before {
+  background: #2563eb;
 }
 
 .source-segment.movement-bar-speed-flip {

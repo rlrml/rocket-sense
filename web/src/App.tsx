@@ -114,6 +114,7 @@ import {
   ScoringRatePanel,
 } from "./stats/playerPanels";
 import { PlayerPositioningCohorts } from "./stats/positioning";
+import { TouchProfileComparison } from "./stats/touches";
 import type {
   AuthOptionsResponse,
   CurrentUserResponse,
@@ -3589,7 +3590,8 @@ function PlayerAggregateStatsSections({
       {activeGroup.id === "kickoffs" ||
       activeGroup.id === "boost" ||
       activeGroup.id === "positioning" ||
-      activeGroup.id === "rotation" ? null : (
+      activeGroup.id === "rotation" ||
+      activeGroup.id === "touches" ? null : (
         <PlayerRateComparisonChart stats={topStats} />
       )}
 
@@ -3620,6 +3622,9 @@ function PlayerAggregateStatsSections({
       ) : null}
       {activeGroup.id === "possession" && possessionSummary ? (
         <PossessionSummaryPanel summary={possessionSummary} />
+      ) : null}
+      {activeGroup.id === "touches" && stats.touch_breakdown ? (
+        <TouchProfileComparison breakdown={stats.touch_breakdown} />
       ) : null}
       {activeGroup.id === "positioning" && positioningSummary ? (
         <PlayerPositioningCohorts response={positioningSummary} playerName={playerName} />

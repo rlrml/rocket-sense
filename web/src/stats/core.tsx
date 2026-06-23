@@ -1,12 +1,12 @@
 import { type ReactNode, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
-  type ComparisonRow,
-  PlayerComparisonChart,
-  StatPlayerLabel,
-  statPlayerRank,
-  type StatPlayerRank,
-} from "./shared";
+  StatComparisonGrid,
+  StatComparisonPanel,
+  subjectIndexByTeam,
+  subjectMagnitudeRows,
+} from "./comparisonPanels";
+import { StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
 
 // Scoreboard core stats (score, goals, assists, saves, shots) are parsed onto
 // each ReplayPlayer directly — for a group they are summed across the group's
@@ -46,7 +46,6 @@ export function CoreDetail({
 }) {
   const summaries = useMemo(() => corePlayerSummaries(players, events), [players, events]);
   const teamColored = scope !== "group";
-  const playerIndexByKey = useMemo(() => teamLocalPlayerIndexByKey(players), [players]);
 
   if (!summaries.some(hasCoreData)) {
     return (
@@ -56,13 +55,7 @@ export function CoreDetail({
     );
   }
 
-  const scoreScale = Math.max(1, ...summaries.map((summary) => summary.score));
-  const goalScale = Math.max(1, ...summaries.map((summary) => summary.goals));
-  const assistScale = Math.max(1, ...summaries.map((summary) => summary.assists));
-  const saveScale = Math.max(1, ...summaries.map((summary) => summary.saves));
-  const shotScale = Math.max(1, ...summaries.map((summary) => summary.shots));
-  const demoScale = Math.max(1, ...summaries.map((summary) => summary.demos));
-  const deathScale = Math.max(1, ...summaries.map((summary) => summary.deaths));
+  const subjectIndexByKey = subjectIndexByTeam(summaries);
 
   return (
     <div className="core-detail">
@@ -70,153 +63,87 @@ export function CoreDetail({
         <CoreStatTable summaries={summaries} />
       </section>
 
-      <section className="chart-panel full-span">
-        <div className="core-comparison-grid">
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Score"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-score",
-              metric: (summary) => summary.score,
-              maxValue: scoreScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Goals"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-goals",
-              metric: (summary) => summary.goals,
-              maxValue: goalScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Assists"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-assists",
-              metric: (summary) => summary.assists,
-              maxValue: assistScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Saves"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-saves",
-              metric: (summary) => summary.saves,
-              maxValue: saveScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Shots"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-shots",
-              metric: (summary) => summary.shots,
-              maxValue: shotScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Demos"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-demos",
-              metric: (summary) => summary.demos,
-              maxValue: demoScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Deaths"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-deaths",
-              metric: (summary) => summary.deaths,
-              maxValue: deathScale,
-              format: formatCount,
-            })}
-          />
-        </div>
-      </section>
+      <StatComparisonGrid>
+        <StatComparisonPanel
+          title="Score"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-score",
+            metric: (summary) => summary.score,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Goals"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-goals",
+            metric: (summary) => summary.goals,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Assists"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-assists",
+            metric: (summary) => summary.assists,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Saves"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-saves",
+            metric: (summary) => summary.saves,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Shots"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-shots",
+            metric: (summary) => summary.shots,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Demos"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-demos",
+            metric: (summary) => summary.demos,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Deaths"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-deaths",
+            metric: (summary) => summary.deaths,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+      </StatComparisonGrid>
     </div>
   );
-}
-
-function magnitudeRows(
-  summaries: CorePlayerSummary[],
-  options: {
-    teamColored: boolean;
-    playerIndexByKey: Map<string, number>;
-    groupClassName: string;
-    metric: (summary: CorePlayerSummary) => number;
-    maxValue: number;
-    format: (value: number) => string;
-  },
-): ComparisonRow[] {
-  // Every player appears in every chart (sorted high -> low); a zero value reads
-  // as an empty track with a "0" placeholder rather than a dropped row.
-  return [...summaries]
-    .sort(
-      (left, right) =>
-        options.metric(right) - options.metric(left) || left.name.localeCompare(right.name),
-    )
-    .map((summary) => {
-      const value = options.metric(summary);
-      return {
-        key: summary.key,
-        label: corePlayerLabel(summary),
-        ariaLabel: `${summary.name}: ${options.format(value)}`,
-        segments: [
-          {
-            key: "value",
-            className: magnitudeSegmentClass(
-              summary,
-              options.teamColored,
-              options.playerIndexByKey,
-              options.groupClassName,
-            ),
-            label: summary.name,
-            value,
-          },
-        ],
-        total: value,
-        maxValue: options.maxValue,
-        valueInBar: value > 0 ? options.format(value) : undefined,
-        placeholder: value > 0 ? undefined : "0",
-      };
-    });
-}
-
-// Single game: tint by the player's team with a per-player shade. Group: there
-// is no replay-local team, so fall back to the fixed per-metric hue.
-function magnitudeSegmentClass(
-  summary: CorePlayerSummary,
-  teamColored: boolean,
-  playerIndexByKey: Map<string, number>,
-  groupClassName: string,
-): string {
-  if (!teamColored) return groupClassName;
-  return `team-segment-${teamClass(summary.team)} player-shade-${Math.min(playerIndexByKey.get(summary.key) ?? 0, 3)}`;
 }
 
 function CoreStatTable({ summaries }: { summaries: CorePlayerSummary[] }) {
@@ -482,17 +409,6 @@ function formatCount(value: number): string {
 
 function numberOr(value: number | null | undefined): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function teamLocalPlayerIndexByKey(players: ReplayPlayer[]): Map<string, number> {
-  const indexes = new Map<string, number>();
-  const counts = new Map<number | null, number>();
-  players.forEach((player, index) => {
-    const next = counts.get(player.team) ?? 0;
-    indexes.set(playerKey(player, index), next);
-    counts.set(player.team, next + 1);
-  });
-  return indexes;
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {
