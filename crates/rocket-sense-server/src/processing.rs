@@ -217,6 +217,160 @@ const INSERT_PLAYER_REPLAY_POSITIONING_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of `player_replay_possession` for one analysis run
+// ($1) and replay ($2). Aggregates each player's possession spans, classified
+// touches (with intention/surface jsonb mixes), and possession location. Mirrors
+// the per-event queries in api/possession_stats.rs; the read sums rows across a
+// player's replays and reconstructs cohorts by (replay, team).
+const INSERT_PLAYER_REPLAY_POSSESSION_SQL: &str = r#"
+        INSERT INTO player_replay_possession (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            possession_count, duration_seconds, touch_count, advance_distance, retreat_distance,
+            carry_time, air_dribble_time, sustained_control_count,
+            with_carry_count, with_air_dribble_count, with_aerial_touch_count, with_wall_touch_count,
+            duration_bucket_0, duration_bucket_1, duration_bucket_2, duration_bucket_3, duration_bucket_4,
+            sc_possession_count, sc_duration_seconds, sc_touch_count, sc_advance_distance, sc_retreat_distance,
+            sc_carry_time, sc_air_dribble_time,
+            sc_with_carry_count, sc_with_air_dribble_count, sc_with_aerial_touch_count, sc_with_wall_touch_count,
+            sc_duration_bucket_0, sc_duration_bucket_1, sc_duration_bucket_2, sc_duration_bucket_3, sc_duration_bucket_4,
+            classified_touch_count, first_touch_count, first_touch_control_count, contested_touch_count,
+            intention_mix, first_touch_intention_mix, surface_mix, location_third_seconds
+        )
+        WITH span AS (
+            SELECT
+                detail.replay_player_id AS replay_player_id,
+                COUNT(*) AS possession_count,
+                COALESCE(SUM(detail.duration), 0.0) AS duration_seconds,
+                COALESCE(SUM(detail.touch_count), 0)::bigint AS touch_count,
+                COALESCE(SUM(detail.advance_distance), 0.0) AS advance_distance,
+                COALESCE(SUM(detail.retreat_distance), 0.0) AS retreat_distance,
+                COALESCE(SUM(detail.carry_time), 0.0) AS carry_time,
+                COALESCE(SUM(detail.air_dribble_time), 0.0) AS air_dribble_time,
+                COUNT(*) FILTER (WHERE detail.sustained_control) AS sustained_control_count,
+                COUNT(*) FILTER (WHERE detail.carry_count > 0) AS with_carry_count,
+                COUNT(*) FILTER (WHERE detail.air_dribble_count > 0) AS with_air_dribble_count,
+                COUNT(*) FILTER (WHERE detail.aerial_touch_count > 0) AS with_aerial_touch_count,
+                COUNT(*) FILTER (WHERE detail.wall_touch_count > 0) AS with_wall_touch_count,
+                COUNT(*) FILTER (WHERE detail.duration >= 0.0 AND detail.duration < 1.0) AS duration_bucket_0,
+                COUNT(*) FILTER (WHERE detail.duration >= 1.0 AND detail.duration < 2.0) AS duration_bucket_1,
+                COUNT(*) FILTER (WHERE detail.duration >= 2.0 AND detail.duration < 4.0) AS duration_bucket_2,
+                COUNT(*) FILTER (WHERE detail.duration >= 4.0 AND detail.duration < 8.0) AS duration_bucket_3,
+                COUNT(*) FILTER (WHERE detail.duration >= 8.0) AS duration_bucket_4,
+                COUNT(*) FILTER (WHERE detail.sustained_control) AS sc_possession_count,
+                COALESCE(SUM(detail.duration) FILTER (WHERE detail.sustained_control), 0.0) AS sc_duration_seconds,
+                COALESCE(SUM(detail.touch_count) FILTER (WHERE detail.sustained_control), 0)::bigint AS sc_touch_count,
+                COALESCE(SUM(detail.advance_distance) FILTER (WHERE detail.sustained_control), 0.0) AS sc_advance_distance,
+                COALESCE(SUM(detail.retreat_distance) FILTER (WHERE detail.sustained_control), 0.0) AS sc_retreat_distance,
+                COALESCE(SUM(detail.carry_time) FILTER (WHERE detail.sustained_control), 0.0) AS sc_carry_time,
+                COALESCE(SUM(detail.air_dribble_time) FILTER (WHERE detail.sustained_control), 0.0) AS sc_air_dribble_time,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.carry_count > 0) AS sc_with_carry_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.air_dribble_count > 0) AS sc_with_air_dribble_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.aerial_touch_count > 0) AS sc_with_aerial_touch_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.wall_touch_count > 0) AS sc_with_wall_touch_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 0.0 AND detail.duration < 1.0) AS sc_duration_bucket_0,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 1.0 AND detail.duration < 2.0) AS sc_duration_bucket_1,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 2.0 AND detail.duration < 4.0) AS sc_duration_bucket_2,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 4.0 AND detail.duration < 8.0) AS sc_duration_bucket_3,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 8.0) AS sc_duration_bucket_4
+            FROM play_event_player_possession_details detail
+            JOIN play_events event ON event.id = detail.event_id AND event.analysis_run_id = $1
+            WHERE detail.replay_id = $2 AND detail.replay_player_id IS NOT NULL
+            GROUP BY detail.replay_player_id
+        ),
+        touch_base AS (
+            SELECT
+                subject.replay_player_id AS replay_player_id,
+                detail.intention AS intention,
+                detail.surface AS surface,
+                detail.first_touch AS first_touch,
+                detail.contested AS contested
+            FROM play_events event
+            JOIN play_event_touch_details detail
+              ON detail.event_id = event.id AND detail.intention IS NOT NULL
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.subject_kind = 'player'
+             AND subject.replay_player_id IS NOT NULL
+            WHERE event.analysis_run_id = $1 AND event.replay_id = $2 AND event.source_stream = 'touch'
+        ),
+        touch AS (
+            SELECT
+                replay_player_id,
+                COUNT(*) AS classified_touch_count,
+                COUNT(*) FILTER (WHERE first_touch) AS first_touch_count,
+                COUNT(*) FILTER (WHERE first_touch AND intention = 'control') AS first_touch_control_count,
+                COUNT(*) FILTER (WHERE contested) AS contested_touch_count
+            FROM touch_base GROUP BY replay_player_id
+        ),
+        intention_mix AS (
+            SELECT replay_player_id, jsonb_object_agg(intention, cnt) AS mix
+            FROM (SELECT replay_player_id, intention, COUNT(*) AS cnt FROM touch_base GROUP BY replay_player_id, intention) g
+            GROUP BY replay_player_id
+        ),
+        ft_intention_mix AS (
+            SELECT replay_player_id, jsonb_object_agg(intention, cnt) AS mix
+            FROM (SELECT replay_player_id, intention, COUNT(*) AS cnt FROM touch_base WHERE first_touch GROUP BY replay_player_id, intention) g
+            GROUP BY replay_player_id
+        ),
+        surface_mix AS (
+            SELECT replay_player_id, jsonb_object_agg(surface, cnt) AS mix
+            FROM (SELECT replay_player_id, surface, COUNT(*) AS cnt FROM touch_base WHERE surface IS NOT NULL GROUP BY replay_player_id, surface) g
+            GROUP BY replay_player_id
+        ),
+        location AS (
+            SELECT loc.replay_player_id AS replay_player_id,
+                jsonb_object_agg(loc.field_third, loc.seconds) AS mix
+            FROM (
+                SELECT
+                    subject.replay_player_id AS replay_player_id,
+                    payload.payload ->> 'field_third' AS field_third,
+                    SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)) AS seconds
+                FROM play_events event
+                JOIN play_event_payloads payload ON payload.event_id = event.id
+                JOIN play_event_subjects subject
+                  ON subject.event_id = event.id
+                 AND subject.subject_kind = 'player'
+                 AND subject.replay_player_id IS NOT NULL
+                WHERE event.analysis_run_id = $1 AND event.replay_id = $2 AND event.source_stream = 'possession'
+                  AND COALESCE((payload.payload ->> 'active')::boolean, true)
+                  AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
+                  AND payload.payload ->> 'field_third' IS NOT NULL
+                GROUP BY subject.replay_player_id, field_third
+            ) loc
+            GROUP BY loc.replay_player_id
+        )
+        SELECT
+            $1, $2, rp.id, concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform, rp.platform_player_id, rp.team,
+            COALESCE(span.possession_count, 0), COALESCE(span.duration_seconds, 0.0), COALESCE(span.touch_count, 0),
+            COALESCE(span.advance_distance, 0.0), COALESCE(span.retreat_distance, 0.0),
+            COALESCE(span.carry_time, 0.0), COALESCE(span.air_dribble_time, 0.0), COALESCE(span.sustained_control_count, 0),
+            COALESCE(span.with_carry_count, 0), COALESCE(span.with_air_dribble_count, 0), COALESCE(span.with_aerial_touch_count, 0), COALESCE(span.with_wall_touch_count, 0),
+            COALESCE(span.duration_bucket_0, 0), COALESCE(span.duration_bucket_1, 0), COALESCE(span.duration_bucket_2, 0), COALESCE(span.duration_bucket_3, 0), COALESCE(span.duration_bucket_4, 0),
+            COALESCE(span.sc_possession_count, 0), COALESCE(span.sc_duration_seconds, 0.0), COALESCE(span.sc_touch_count, 0),
+            COALESCE(span.sc_advance_distance, 0.0), COALESCE(span.sc_retreat_distance, 0.0),
+            COALESCE(span.sc_carry_time, 0.0), COALESCE(span.sc_air_dribble_time, 0.0),
+            COALESCE(span.sc_with_carry_count, 0), COALESCE(span.sc_with_air_dribble_count, 0), COALESCE(span.sc_with_aerial_touch_count, 0), COALESCE(span.sc_with_wall_touch_count, 0),
+            COALESCE(span.sc_duration_bucket_0, 0), COALESCE(span.sc_duration_bucket_1, 0), COALESCE(span.sc_duration_bucket_2, 0), COALESCE(span.sc_duration_bucket_3, 0), COALESCE(span.sc_duration_bucket_4, 0),
+            COALESCE(touch.classified_touch_count, 0), COALESCE(touch.first_touch_count, 0), COALESCE(touch.first_touch_control_count, 0), COALESCE(touch.contested_touch_count, 0),
+            COALESCE(intention_mix.mix, '{}'::jsonb), COALESCE(ft_intention_mix.mix, '{}'::jsonb), COALESCE(surface_mix.mix, '{}'::jsonb),
+            COALESCE(location.mix, '{}'::jsonb)
+        FROM replay_players rp
+        LEFT JOIN span ON span.replay_player_id = rp.id
+        LEFT JOIN touch ON touch.replay_player_id = rp.id
+        LEFT JOIN intention_mix ON intention_mix.replay_player_id = rp.id
+        LEFT JOIN ft_intention_mix ON ft_intention_mix.replay_player_id = rp.id
+        LEFT JOIN surface_mix ON surface_mix.replay_player_id = rp.id
+        LEFT JOIN location ON location.replay_player_id = rp.id
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> ''
+          AND (span.replay_player_id IS NOT NULL OR touch.replay_player_id IS NOT NULL OR location.replay_player_id IS NOT NULL)
+        ON CONFLICT DO NOTHING
+        "#;
+
 const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
         INSERT INTO player_replay_stat_facts (
             analysis_run_id,
@@ -1390,6 +1544,7 @@ async fn persist_analysis_output(
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -1710,6 +1865,64 @@ pub async fn backfill_player_replay_positioning(pool: &PgPool) -> Result<u64> {
     Ok(backfilled)
 }
 
+async fn insert_player_replay_possession(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_possession WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay possession")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_POSSESSION_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay possession")?;
+    Ok(())
+}
+
+/// Populate `player_replay_possession` for every canonical replay missing rows,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_player_replay_possession(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_possession poss
+              WHERE poss.replay_id = r.id
+                AND poss.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing possession backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay possession backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "possession backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "possession backfill complete");
+    Ok(backfilled)
+}
+
 async fn insert_ball_opponent_half_facts(
     pool: &PgPool,
     analysis_run_id: Uuid,
@@ -1855,6 +2068,21 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay positioning")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_possession poss
+        USING analysis_runs run
+        WHERE run.id = poss.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay possession")?;
 
     sqlx::query(
         r#"
