@@ -79,6 +79,19 @@ export interface ReplayGroupReplayUpdateResponse {
   changed_replays: number;
 }
 
+export interface ReplayGroupManagerResponse {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  is_creator: boolean;
+  added_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface ListReplayGroupManagersResponse {
+  managers: ReplayGroupManagerResponse[];
+}
+
 export interface UploadsLeaderboardRow {
   rank: number;
   user_id: string;
