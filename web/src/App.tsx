@@ -3387,11 +3387,7 @@ function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
   );
 }
 
-function playerStatGroupPath(
-  routeBasePath: string,
-  groupId: string,
-  search: string,
-): string {
+function playerStatGroupPath(routeBasePath: string, groupId: string, search: string): string {
   const params = new URLSearchParams(search);
   if (groupId !== "kickoffs") {
     stripKickoffSpawnParams(params);
@@ -3679,9 +3675,7 @@ function PlayerAggregateStatsSections({
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
-          goalTypeHref={(kind) =>
-            `${routeBasePath}/goals/${encodeURIComponent(kind)}`
-          }
+          goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
           allGoalsHref={`${routeBasePath}/goals`}
         />
       ) : null}
@@ -4281,6 +4275,7 @@ function eventCategorySortRank(category: string): number {
   const rank = [
     "mechanic",
     "mechanics",
+    "basic",
     "contact",
     "other",
     "core",
@@ -4299,6 +4294,7 @@ function eventCategoryLabel(category: string): string {
   const labels: Record<string, string> = {
     mechanic: "Mechanics",
     mechanics: "Mechanics",
+    basic: "Basic events",
     contact: "Contact",
     other: "Other",
     touch: "Touches",
