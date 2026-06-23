@@ -243,6 +243,12 @@ pub struct StatAggregatesQuery {
         deserialize_with = "deserialize_string_vec"
     )]
     pub team_sizes: Vec<String>,
+    /// Only include replays where the target player is at or above this rank tier.
+    #[serde(rename = "min-rank")]
+    pub min_rank: Option<String>,
+    /// Only include replays where the target player is at or below this rank tier.
+    #[serde(rename = "max-rank")]
+    pub max_rank: Option<String>,
     /// Filter to one or more Rocket Sense replay ids.
     #[serde(
         default,
@@ -403,6 +409,8 @@ impl StatAggregateFilters {
                 game_modes: query.game_modes,
                 game_types: query.game_types,
                 team_sizes: query.team_sizes,
+                min_rank: query.min_rank,
+                max_rank: query.max_rank,
                 replay_ids: query.replay_ids,
                 file_sha256s: query.file_sha256s,
                 group: query.group,
@@ -453,6 +461,8 @@ impl StatAggregatesQuery {
             game_modes: replay_set.game_modes,
             game_types: replay_set.game_types,
             team_sizes: replay_set.team_sizes,
+            min_rank: replay_set.min_rank,
+            max_rank: replay_set.max_rank,
             replay_ids: replay_set.replay_ids,
             file_sha256s: replay_set.file_sha256s,
             group: replay_set.group,

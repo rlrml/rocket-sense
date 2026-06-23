@@ -14,7 +14,9 @@ use uuid::Uuid;
 
 use super::{
     query::{parse_bool_filter, parse_u32_filter, QueryParams},
-    replay_set::{PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters},
+    replay_set::{
+        append_target_player_rank_exists, PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters,
+    },
     replays::{require_db, ApiError},
 };
 
@@ -638,6 +640,7 @@ fn push_event_stats_filters<'args>(
         builder.push(" = ");
         let player_subject_id = format!("{}:{}", player.platform, player.platform_player_id);
         builder.push_bind(player_subject_id);
+        append_target_player_rank_exists(builder, &filters.replay_set, "r", player);
     }
     if let (Some(role_column), Some(role)) = (adapter.role_column, &filters.role) {
         builder.push(" AND ");

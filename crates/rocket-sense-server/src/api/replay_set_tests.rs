@@ -56,6 +56,41 @@ fn team_size_filters_reject_out_of_range_values() {
 }
 
 #[test]
+fn rank_filters_parse_slugs_and_render_target_player_clauses() {
+    let player = PlayerStatFilter::new("Steam", "76561198000000000").unwrap();
+    let filters = filters_from_input(ReplaySetFilterInput {
+        min_rank: Some("diamond-1".to_owned()),
+        max_rank: Some("ssl".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("rank filters should parse");
+
+    assert_eq!(filters.min_rank_tier, Some(13));
+    assert_eq!(filters.max_rank_tier, Some(22));
+
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT r.id FROM replay_players rp JOIN replays r ON r.id = rp.replay_id",
+    );
+    append_target_player_replay_set_filters(&mut builder, &filters, &player);
+    let sql = builder.sql();
+
+    assert!(sql.contains("rp.rank_tier IS NOT NULL"));
+    assert!(sql.contains("rp.rank_tier >="));
+    assert!(sql.contains("rp.rank_tier <="));
+}
+
+#[test]
+fn rank_filters_reject_inverted_ranges() {
+    let error = filters_from_input(ReplaySetFilterInput {
+        min_rank: Some("champion-1".to_owned()),
+        max_rank: Some("diamond-1".to_owned()),
+        ..ReplaySetFilterInput::default()
+    });
+
+    assert!(error.is_err());
+}
+
+#[test]
 fn replay_set_filters_render_game_type_and_team_size_clauses() {
     let filters = filters_from_input(ReplaySetFilterInput {
         game_types: vec!["ranked".to_owned()],

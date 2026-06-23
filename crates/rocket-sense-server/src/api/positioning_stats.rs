@@ -12,7 +12,10 @@ use uuid::Uuid;
 use super::{
     event_stats::count_column,
     query::QueryParams,
-    replay_set::{PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters},
+    replay_set::{
+        append_target_player_replay_set_filter_conditions, PlayerStatFilter, ReplaySetFilterInput,
+        ReplaySetFilters,
+    },
     replays::{require_db, ApiError},
 };
 
@@ -174,11 +177,13 @@ fn build_positioning_summary_query(filters: &PositioningStatsQuery) -> QueryBuil
             WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
     );
-    query.push(" AND rp.platform = ");
-    query.push_bind(&filters.player.platform);
-    query.push(" AND rp.platform_player_id = ");
-    query.push_bind(&filters.player.platform_player_id);
-    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    append_target_player_replay_set_filter_conditions(
+        &mut query,
+        &filters.replay_set,
+        &filters.player,
+        "rp",
+        "r",
+    );
     query.push(
         r#"
         ),

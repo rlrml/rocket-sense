@@ -3679,9 +3679,16 @@ function segmentParamPath(pathname: string, search: string, key: string, value: 
 
 function PlayerStatsSegmentBar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const teamSize = params.get("team-size") ?? "";
   const gameType = params.get("game-type") ?? "";
+  const minRank = params.get("min-rank") ?? "";
+  const maxRank = params.get("max-rank") ?? "";
+
+  const setSegmentParam = (key: string, value: string) => {
+    navigate(segmentParamPath(location.pathname, location.search, key, value));
+  };
 
   return (
     <div className="player-segment-bar">
@@ -3709,6 +3716,34 @@ function PlayerStatsSegmentBar() {
           </Link>
         ))}
       </nav>
+      <div className="player-rank-filter" aria-label="Rank range filter">
+        <label>
+          <span className="segment-bar-label">Min rank</span>
+          <select
+            value={minRank}
+            onChange={(event) => setSegmentParam("min-rank", event.target.value)}
+          >
+            {rankFilterOptions.map((option) => (
+              <option key={option.value || "any"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="segment-bar-label">Max rank</span>
+          <select
+            value={maxRank}
+            onChange={(event) => setSegmentParam("max-rank", event.target.value)}
+          >
+            {rankFilterOptions.map((option) => (
+              <option key={option.value || "any"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
       {teamSize === "" ? (
         <p className="muted-text segment-bar-note">
           Showing all modes blended — rates mix 1v1/2v2/3v3 dynamics. Pick a mode for cleaner

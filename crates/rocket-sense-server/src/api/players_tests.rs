@@ -37,6 +37,28 @@ fn player_profile_filters_normalize_game_modes_sha_and_group_ids() {
 }
 
 #[test]
+fn player_profile_filters_parse_rank_range_and_apply_to_replay_preview() {
+    let identity = PlayerIdentity::new("steam".to_owned(), "76561198000000000".to_owned())
+        .expect("identity should parse");
+    let filters = PlayerProfileFilters::from_query(PlayerProfileQuery {
+        min_rank: Some("diamond-1".to_owned()),
+        max_rank: Some("grand-champion-3".to_owned()),
+        ..PlayerProfileQuery::default()
+    })
+    .expect("rank filters should parse");
+
+    assert_eq!(filters.min_rank_tier, Some(13));
+    assert_eq!(filters.max_rank_tier, Some(21));
+
+    let query = player_replays_query(&identity, &filters, 10);
+    let sql = query.sql();
+
+    assert!(sql.contains("profile_player.rank_tier IS NOT NULL"));
+    assert!(sql.contains("profile_player.rank_tier >="));
+    assert!(sql.contains("profile_player.rank_tier <="));
+}
+
+#[test]
 fn player_profile_query_accepts_html_form_array_filters() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let raw_query = format!(

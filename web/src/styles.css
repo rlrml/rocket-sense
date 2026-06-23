@@ -1353,6 +1353,47 @@ tbody tr:last-child td {
   gap: 8px;
 }
 
+.player-rank-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.player-rank-filter label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-rank-filter select {
+  min-height: 36px;
+  min-width: 12rem;
+  padding: 0 32px 0 11px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235d6b80' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.player-rank-filter select:hover,
+.player-rank-filter select:focus {
+  border-color: #9fb4d9;
+}
+
+.player-rank-filter select:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.18);
+}
+
 .segment-bar-label {
   display: inline-flex;
   align-items: center;

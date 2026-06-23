@@ -20,6 +20,8 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) game_modes: Vec<String>,
     pub(crate) game_types: Vec<String>,
     pub(crate) team_sizes: Vec<String>,
+    pub(crate) min_rank: Option<String>,
+    pub(crate) max_rank: Option<String>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group: Option<String>,
@@ -44,6 +46,8 @@ impl ReplaySetFilterInput {
             game_modes: params.values(&["game-mode", "game_modes"]),
             game_types: params.values(&["game-type", "game_types", "replay-game-type"]),
             team_sizes: params.values(&["team-size", "team_sizes"]),
+            min_rank: params.first(&["min-rank", "min_rank"]),
+            max_rank: params.first(&["max-rank", "max_rank"]),
             replay_ids: parse_uuid_values(
                 "replay-id",
                 params.values(&["replay-id", "replay_ids"]),
@@ -85,6 +89,8 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) playlists: Vec<String>,
     pub(crate) game_types: Vec<String>,
     pub(crate) team_sizes: Vec<i32>,
+    pub(crate) min_rank_tier: Option<i32>,
+    pub(crate) max_rank_tier: Option<i32>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group_id: Option<Uuid>,
@@ -132,6 +138,21 @@ impl ReplaySetFilters {
             .collect::<Result<Vec<_>, _>>()?;
         team_sizes.sort_unstable();
         team_sizes.dedup();
+        let min_rank_tier = input
+            .min_rank
+            .map(|rank| parse_rank_filter("min-rank", &rank))
+            .transpose()?;
+        let max_rank_tier = input
+            .max_rank
+            .map(|rank| parse_rank_filter("max-rank", &rank))
+            .transpose()?;
+        if let (Some(min_rank_tier), Some(max_rank_tier)) = (min_rank_tier, max_rank_tier) {
+            if min_rank_tier > max_rank_tier {
+                return Err(ApiError::bad_request(
+                    "min-rank must be less than or equal to max-rank",
+                ));
+            }
+        }
         let file_sha256s = normalize_terms(input.file_sha256s)
             .into_iter()
             .map(|value| normalize_sha256_hex(&value))
@@ -150,6 +171,8 @@ impl ReplaySetFilters {
             playlists,
             game_types,
             team_sizes,
+            min_rank_tier,
+            max_rank_tier,
             replay_ids: input.replay_ids,
             file_sha256s,
             group_id: input
@@ -186,6 +209,8 @@ impl ReplaySetFilters {
             && self.playlists.is_empty()
             && self.game_types.is_empty()
             && self.team_sizes.is_empty()
+            && self.min_rank_tier.is_none()
+            && self.max_rank_tier.is_none()
             && self.replay_ids.is_empty()
             && self.file_sha256s.is_empty()
             && self.group_id.is_none()
@@ -234,11 +259,48 @@ pub(crate) fn append_target_player_replay_set_filters<'args>(
     filters: &'args ReplaySetFilters,
     player: &'args PlayerStatFilter,
 ) {
-    builder.push(" WHERE rp.platform = ");
+    builder.push(" WHERE TRUE");
+    append_target_player_replay_set_filter_conditions(builder, filters, player, "rp", "r");
+}
+
+pub(crate) fn append_target_player_replay_set_filter_conditions<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args ReplaySetFilters,
+    player: &'args PlayerStatFilter,
+    player_alias: &str,
+    replay_alias: &str,
+) {
+    builder
+        .push(" AND ")
+        .push(player_alias)
+        .push(".platform = ");
     builder.push_bind(&player.platform);
-    builder.push(" AND rp.platform_player_id = ");
+    builder
+        .push(" AND ")
+        .push(player_alias)
+        .push(".platform_player_id = ");
     builder.push_bind(&player.platform_player_id);
-    append_replay_set_filters(builder, filters, "r");
+    append_player_rank_filters(builder, filters, player_alias);
+    append_replay_set_filters(builder, filters, replay_alias);
+}
+
+pub(crate) fn append_target_player_rank_exists<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args ReplaySetFilters,
+    replay_alias: &str,
+    player: &'args PlayerStatFilter,
+) {
+    if filters.min_rank_tier.is_none() && filters.max_rank_tier.is_none() {
+        return;
+    }
+    builder.push(" AND EXISTS (SELECT 1 FROM replay_players stats_target_rank_player WHERE stats_target_rank_player.replay_id = ");
+    builder.push(replay_alias);
+    builder.push(".id AND stats_target_rank_player.platform = ");
+    builder.push_bind(&player.platform);
+    builder.push(" AND stats_target_rank_player.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    append_player_rank_filters(builder, filters, "stats_target_rank_player");
+    builder.push(")");
 }
 
 pub(crate) fn append_replay_set_filters<'args>(
@@ -298,6 +360,13 @@ pub(crate) fn append_replay_set_filters<'args>(
         push_playlist_group_key_expression(builder, replay_alias);
         builder.push(" = ");
         builder.push_bind(playlist_group_key);
+    }
+    if filters.min_rank_tier.is_some() || filters.max_rank_tier.is_some() {
+        builder.push(" AND EXISTS (SELECT 1 FROM replay_players stats_rank_player WHERE stats_rank_player.replay_id = ");
+        builder.push(replay_alias);
+        builder.push(".id");
+        append_player_rank_filters(builder, filters, "stats_rank_player");
+        builder.push(")");
     }
     if !filters.replay_ids.is_empty() {
         builder
@@ -394,6 +463,34 @@ pub(crate) fn append_replay_set_filters<'args>(
     }
 }
 
+fn append_player_rank_filters<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args ReplaySetFilters,
+    player_alias: &str,
+) {
+    if filters.min_rank_tier.is_none() && filters.max_rank_tier.is_none() {
+        return;
+    }
+    builder
+        .push(" AND ")
+        .push(player_alias)
+        .push(".rank_tier IS NOT NULL");
+    if let Some(min_rank_tier) = filters.min_rank_tier {
+        builder
+            .push(" AND ")
+            .push(player_alias)
+            .push(".rank_tier >= ")
+            .push_bind(min_rank_tier);
+    }
+    if let Some(max_rank_tier) = filters.max_rank_tier {
+        builder
+            .push(" AND ")
+            .push(player_alias)
+            .push(".rank_tier <= ")
+            .push_bind(max_rank_tier);
+    }
+}
+
 /// Canonical playlist group key combining the two orthogonal segmentation
 /// dimensions described in `docs/stats-principles.md`: competitive context
 /// (from `replay_game_type`, with a textual-playlist fallback) and team size
@@ -474,6 +571,51 @@ fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
         .ok()
         .filter(|size| (1..=4).contains(size))
         .ok_or_else(|| ApiError::bad_request("team-size must be 1-4 (or 1v1, 2v2, 3v3, 4v4)"))
+}
+
+pub(crate) fn parse_rank_filter(name: &str, value: &str) -> Result<i32, ApiError> {
+    let normalized = value.trim().to_lowercase().replace('_', "-");
+    if normalized.is_empty() {
+        return Err(ApiError::bad_request(format!("{name} must not be empty")));
+    }
+    if let Ok(tier) = normalized.parse::<i32>() {
+        if (0..=22).contains(&tier) {
+            return Ok(tier);
+        }
+    }
+
+    let tier = match normalized.as_str() {
+        "unranked" => 0,
+        "bronze-1" | "bronze-i" => 1,
+        "bronze-2" | "bronze-ii" => 2,
+        "bronze-3" | "bronze-iii" => 3,
+        "silver-1" | "silver-i" => 4,
+        "silver-2" | "silver-ii" => 5,
+        "silver-3" | "silver-iii" => 6,
+        "gold-1" | "gold-i" => 7,
+        "gold-2" | "gold-ii" => 8,
+        "gold-3" | "gold-iii" => 9,
+        "platinum-1" | "platinum-i" => 10,
+        "platinum-2" | "platinum-ii" => 11,
+        "platinum-3" | "platinum-iii" => 12,
+        "diamond-1" | "diamond-i" => 13,
+        "diamond-2" | "diamond-ii" => 14,
+        "diamond-3" | "diamond-iii" => 15,
+        "champion-1" | "champion-i" => 16,
+        "champion-2" | "champion-ii" => 17,
+        "champion-3" | "champion-iii" => 18,
+        "grand-champion" | "grand-champion-1" | "grand-champion-i" => 19,
+        "grand-champion-2" | "grand-champion-ii" => 20,
+        "grand-champion-3" | "grand-champion-iii" => 21,
+        "supersonic-legend" | "ssl" => 22,
+        _ => {
+            return Err(ApiError::bad_request(format!(
+                "{name} must be a rank slug or tier number"
+            )))
+        }
+    };
+
+    Ok(tier)
 }
 
 pub(crate) fn normalize_terms(terms: Vec<String>) -> Vec<String> {

@@ -14,7 +14,10 @@ use uuid::Uuid;
 use super::{
     event_stats::{count_column, display_label, finite_value},
     query::QueryParams,
-    replay_set::{PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters},
+    replay_set::{
+        append_target_player_rank_exists, append_target_player_replay_set_filter_conditions,
+        PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters,
+    },
     replays::{require_db, ApiError},
 };
 
@@ -286,6 +289,7 @@ fn push_possession_from<'args>(
     if let Some(player) = &filters.player {
         builder.push(" AND detail.player_subject_id = ");
         builder.push_bind(format!("{}:{}", player.platform, player.platform_player_id));
+        append_target_player_rank_exists(builder, &filters.replay_set, "r", player);
     }
 }
 
@@ -410,11 +414,13 @@ fn build_teammate_controlled_play_summary_query<'args>(
             WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
     );
-    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
-    query.push(" AND rp.platform = ");
-    query.push_bind(&player.platform);
-    query.push(" AND rp.platform_player_id = ");
-    query.push_bind(&player.platform_player_id);
+    append_target_player_replay_set_filter_conditions(
+        &mut query,
+        &filters.replay_set,
+        player,
+        "rp",
+        "r",
+    );
     query.push(
         r#"
         ),
@@ -478,11 +484,13 @@ fn push_possession_cohort_ctes<'args>(
             WHERE r.canonical_analysis_run_id IS NOT NULL
         "#,
     );
-    super::replay_set::append_replay_set_filters(query, &filters.replay_set, "r");
-    query.push(" AND rp.platform = ");
-    query.push_bind(&player.platform);
-    query.push(" AND rp.platform_player_id = ");
-    query.push_bind(&player.platform_player_id);
+    append_target_player_replay_set_filter_conditions(
+        query,
+        &filters.replay_set,
+        player,
+        "rp",
+        "r",
+    );
     query.push(
         r#"
         ),
@@ -778,6 +786,7 @@ fn push_touch_from<'args>(
         builder.push_bind(&player.platform);
         builder.push(" AND rp.platform_player_id = ");
         builder.push_bind(&player.platform_player_id);
+        append_target_player_rank_exists(builder, &filters.replay_set, "r", player);
     }
 }
 
@@ -858,6 +867,7 @@ fn push_possession_event_from<'args>(
     if let Some(player) = &filters.player {
         builder.push(" AND subject.subject_id = ");
         builder.push_bind(format!("{}:{}", player.platform, player.platform_player_id));
+        append_target_player_rank_exists(builder, &filters.replay_set, "r", player);
     }
 }
 

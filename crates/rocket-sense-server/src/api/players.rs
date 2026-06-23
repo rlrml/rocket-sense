@@ -16,6 +16,7 @@ use super::{
         deserialize_string_vec, deserialize_uuid_vec, parse_datetime_filter, parse_uuid_values,
         QueryParams,
     },
+    replay_set::parse_rank_filter,
     replays::{require_db, ApiError},
 };
 
@@ -177,6 +178,12 @@ pub struct PlayerProfileQuery {
     /// Only include replays played before this RFC3339 timestamp.
     #[serde(rename = "replay-date-before")]
     pub replay_date_before: Option<DateTime<Utc>>,
+    /// Only include replays where this player is at or above this rank tier.
+    #[serde(rename = "min-rank")]
+    pub min_rank: Option<String>,
+    /// Only include replays where this player is at or below this rank tier.
+    #[serde(rename = "max-rank")]
+    pub max_rank: Option<String>,
 }
 
 #[utoipa::path(
@@ -347,6 +354,8 @@ struct PlayerProfileFilters {
     created_before: Option<DateTime<Utc>>,
     replay_date_after: Option<DateTime<Utc>>,
     replay_date_before: Option<DateTime<Utc>>,
+    min_rank_tier: Option<i32>,
+    max_rank_tier: Option<i32>,
 }
 
 impl PlayerProfileFilters {
@@ -359,6 +368,21 @@ impl PlayerProfileFilters {
             .into_iter()
             .map(|value| normalize_sha256_hex(&value))
             .collect::<Result<Vec<_>, _>>()?;
+        let min_rank_tier = query
+            .min_rank
+            .map(|rank| parse_rank_filter("min-rank", &rank))
+            .transpose()?;
+        let max_rank_tier = query
+            .max_rank
+            .map(|rank| parse_rank_filter("max-rank", &rank))
+            .transpose()?;
+        if let (Some(min_rank_tier), Some(max_rank_tier)) = (min_rank_tier, max_rank_tier) {
+            if min_rank_tier > max_rank_tier {
+                return Err(ApiError::bad_request(
+                    "min-rank must be less than or equal to max-rank",
+                ));
+            }
+        }
 
         Ok(Self {
             playlists,
@@ -376,6 +400,8 @@ impl PlayerProfileFilters {
             created_before: query.created_before,
             replay_date_after: query.replay_date_after,
             replay_date_before: query.replay_date_before,
+            min_rank_tier,
+            max_rank_tier,
         })
     }
 }
@@ -409,6 +435,8 @@ impl PlayerProfileQuery {
                 .first(&["replay-date-before", "replay_date_before"])
                 .map(|value| parse_datetime_filter("replay-date-before", &value))
                 .transpose()?,
+            min_rank: params.first(&["min-rank", "min_rank"]),
+            max_rank: params.first(&["max-rank", "max_rank"]),
         })
     }
 }
@@ -891,6 +919,7 @@ fn player_replays_query<'args>(
     query.push_bind(&identity.platform);
     query.push(" AND profile_player.platform_player_id = ");
     query.push_bind(&identity.platform_player_id);
+    append_player_profile_rank_filters(&mut query, filters, "profile_player");
     query.push(")");
     append_replay_filters(&mut query, filters, "r");
     query.push(
@@ -909,7 +938,36 @@ fn append_target_player_filters<'args>(
     builder.push_bind(&identity.platform);
     builder.push(" AND rp.platform_player_id = ");
     builder.push_bind(&identity.platform_player_id);
+    append_player_profile_rank_filters(builder, filters, "rp");
     append_replay_filters(builder, filters, "r");
+}
+
+fn append_player_profile_rank_filters<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args PlayerProfileFilters,
+    player_alias: &str,
+) {
+    if filters.min_rank_tier.is_none() && filters.max_rank_tier.is_none() {
+        return;
+    }
+    builder
+        .push(" AND ")
+        .push(player_alias)
+        .push(".rank_tier IS NOT NULL");
+    if let Some(min_rank_tier) = filters.min_rank_tier {
+        builder
+            .push(" AND ")
+            .push(player_alias)
+            .push(".rank_tier >= ")
+            .push_bind(min_rank_tier);
+    }
+    if let Some(max_rank_tier) = filters.max_rank_tier {
+        builder
+            .push(" AND ")
+            .push(player_alias)
+            .push(".rank_tier <= ")
+            .push_bind(max_rank_tier);
+    }
 }
 
 fn append_replay_filters<'args>(
