@@ -323,6 +323,11 @@ pub struct StatAggregatesQuery {
     /// Kickoff spawn side filter for kickoff-scoped aggregate rows.
     #[serde(rename = "kickoff-side", alias = "kickoff_side")]
     pub kickoff_side: Option<String>,
+    /// Per-request override of the server's materialized-stats default:
+    /// `materialized=false` forces the live (non-materialized) query path,
+    /// `materialized=true` forces the materialized path. Absent uses the server
+    /// default. Lets any view run a query both ways for comparison/verification.
+    pub materialized: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -478,6 +483,10 @@ impl StatAggregatesQuery {
             group_by: params.first(&["group-by", "group_by"]),
             kickoff_shape: params.first(&["kickoff-shape", "kickoff_shape"]),
             kickoff_side: params.first(&["kickoff-side", "kickoff_side"]),
+            materialized: params
+                .first(&["materialized"])
+                .map(|value| parse_bool_filter("materialized", &value))
+                .transpose()?,
         })
     }
 }
@@ -500,9 +509,13 @@ pub async fn get_stat_aggregates(
 ) -> Result<Json<StatAggregateSetResponse>, ApiError> {
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
+    // Per-request `materialized=true|false` overrides the server default, so any
+    // view can be run both ways (e.g. live-vs-materialized parity checks).
+    let materialized_override = query.materialized;
     let mut filters =
         StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
-    filters.materialized_stat_counts = state.materialized_stat_counts;
+    filters.materialized_stat_counts =
+        materialized_override.unwrap_or(state.materialized_stat_counts);
     let aggregates = load_stat_aggregates(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -1132,14 +1145,11 @@ async fn load_stat_aggregates_base(
             Ok::<_, sqlx::Error>(Vec::new())
         }
     };
-    // Teammate stint distribution, surfaced alongside the player's for comparison.
-    let teammate_histogram_fut = async {
-        if include_rotation_histogram && filters.player.is_some() && filters.include_teammates {
-            load_teammate_rotation_duration_histogram(pool, filters).await
-        } else {
-            Ok::<_, sqlx::Error>(Vec::new())
-        }
-    };
+    // Teammate stint distribution is temporarily disabled: it was a per-event
+    // scan over every teammate's rotation stints (with a jsonb attribute join)
+    // that dominated the profile aggregates latency (~15s for a high-volume
+    // player). Returns empty until the rotation stints are materialized.
+    let teammate_histogram_fut = async { Ok::<_, sqlx::Error>(Vec::new()) };
     let touch_breakdown_fut = async {
         if include_touch_breakdown && filters.player.is_some() && filters.include_teammates {
             Ok::<_, sqlx::Error>(Some(load_touch_aggregate_breakdown(pool, filters).await?))
@@ -1527,80 +1537,6 @@ async fn load_rotation_duration_histogram(
         );
         query
     };
-
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(") * ");
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(
-        r#" AS bucket_start_seconds
-        FROM rotation_events
-        WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
-    )
-    SELECT bucket_start_seconds, COUNT(*) AS count
-    FROM bucketed
-    GROUP BY bucket_start_seconds
-    ORDER BY bucket_start_seconds
-    "#,
-    );
-
-    let rows = query.build().fetch_all(pool).await?;
-    rows.into_iter()
-        .map(rotation_duration_bucket_row_from_db)
-        .collect()
-}
-
-/// First-man stint distribution for the target player's teammates, bucketed the
-/// same way as [`load_rotation_duration_histogram`] so the two can be compared.
-async fn load_teammate_rotation_duration_histogram(
-    pool: &sqlx::PgPool,
-    filters: &StatAggregateFilters,
-) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS MATERIALIZED (
-            SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-        "#,
-    );
-    append_target_player_filters(&mut query, filters);
-    query.push(
-        r#"
-        ),
-        teammate_appearances AS MATERIALIZED (
-            SELECT DISTINCT teammate.id, target.run_id
-            FROM target_appearances target
-            JOIN replay_players teammate
-              ON teammate.replay_id = target.replay_id
-             AND teammate.team = target.team
-             AND teammate.id <> target.id
-        ),
-        rotation_events AS MATERIALIZED (
-            SELECT event.duration_seconds
-            FROM teammate_appearances appearance
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-             AND subject.role = 'actor'
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = appearance.run_id
-             AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
-            JOIN event_types et
-              ON et.id = event.event_type_id
-            LEFT JOIN play_event_attributes attributes
-              ON attributes.event_id = event.id
-            WHERE (
-                event.source_stream = 'rotation_first_man_stint'
-                AND et.key = 'rotation_first_man_stint'
-            ) OR (
-                event.source_stream = 'rotation_role'
-                AND attributes.attributes->>'state' = 'first_man'
-            )
-        ),
-        bucketed AS (
-            SELECT floor(duration_seconds /
-        "#,
-    );
 
     query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
     query.push(") * ");
