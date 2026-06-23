@@ -116,3 +116,22 @@ fn teammate_controlled_play_query_requires_player_filter() {
 
     assert!(build_teammate_controlled_play_summary_query(&query).is_none());
 }
+
+#[test]
+fn possession_cohort_span_query_compares_player_teammates_opponents_and_population() {
+    let query = PossessionStatsQuery::from_raw_query(
+        Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+    )
+    .expect("possession query should parse");
+    let builder = build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All);
+    let sql = builder.sql();
+
+    assert!(sql.contains("'player' AS cohort"));
+    assert!(sql.contains("'teammates' AS cohort"));
+    assert!(sql.contains("'opponents' AS cohort"));
+    assert!(sql.contains("'population' AS cohort"));
+    assert!(sql.contains("actor.team <> target.team"));
+    assert!(sql.contains("detail.replay_player_id = appearance.actor_id"));
+    assert!(sql.contains("GROUP BY appearance.cohort"));
+}

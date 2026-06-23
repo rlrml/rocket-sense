@@ -7521,6 +7521,34 @@ tbody tr:last-child td {
 }
 
 /* Career possession summary panel */
+.possession-profile-grid {
+  align-items: start;
+}
+
+.possession-profile-grid .player-comparison-row {
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) minmax(82px, max-content);
+}
+
+.possession-profile-grid .player-comparison-rows.no-value-column .player-comparison-row {
+  grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
+}
+
+.source-segment.possession-profile-subject {
+  background: #0f766e;
+}
+
+.source-segment.possession-profile-teammates {
+  background: #7c3aed;
+}
+
+.source-segment.possession-profile-opponents {
+  background: #d97706;
+}
+
+.source-segment.possession-profile-population {
+  background: #64748b;
+}
+
 .possession-summary-panel .possession-surface-share {
   margin: 0.75rem 0 0.25rem;
 }

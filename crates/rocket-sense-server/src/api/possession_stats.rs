@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{
     extract::{RawQuery, State},
@@ -34,6 +36,7 @@ pub struct PossessionSummaryResponse {
     pub possessions: PossessionSpanSummary,
     pub controlled_plays: PossessionSpanSummary,
     pub teammates: Option<PossessionTeammateComparison>,
+    pub cohorts: Vec<PossessionCohortSummary>,
     pub touches: PossessionTouchSummary,
     pub locations: PossessionLocationSummary,
 }
@@ -42,6 +45,17 @@ pub struct PossessionSummaryResponse {
 pub struct PossessionTeammateComparison {
     pub appearance_count: u64,
     pub controlled_plays: PossessionSpanSummary,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionCohortSummary {
+    pub key: String,
+    pub label: String,
+    pub appearance_count: u64,
+    pub possessions: PossessionSpanSummary,
+    pub controlled_plays: PossessionSpanSummary,
+    pub touches: PossessionTouchSummary,
+    pub locations: PossessionLocationSummary,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -193,6 +207,11 @@ async fn load_possession_summary(
     } else {
         None
     };
+    let cohorts = if filters.player.is_some() {
+        load_possession_cohort_summaries(pool, filters).await?
+    } else {
+        Vec::new()
+    };
     let touches = load_possession_touch_summary(pool, filters).await?;
     let locations = load_possession_location_summary(pool, filters).await?;
     Ok(PossessionSummaryResponse {
@@ -200,6 +219,7 @@ async fn load_possession_summary(
         possessions,
         controlled_plays,
         teammates,
+        cohorts,
         touches,
         locations,
     })
@@ -329,6 +349,54 @@ fn possession_span_summary_from_row(
     Ok((count_column(row, "replay_count")?, summary))
 }
 
+fn empty_possession_span_summary() -> PossessionSpanSummary {
+    PossessionSpanSummary {
+        possession_count: 0,
+        total_duration_seconds: 0.0,
+        avg_duration_seconds: None,
+        total_touch_count: 0,
+        avg_touches_per_possession: None,
+        total_advance_distance: 0.0,
+        total_retreat_distance: 0.0,
+        avg_advance_distance: None,
+        avg_retreat_distance: None,
+        carry_time_seconds: 0.0,
+        air_dribble_time_seconds: 0.0,
+        carry_time_share: None,
+        air_dribble_time_share: None,
+        sustained_control_share: None,
+        with_carry_share: None,
+        with_air_dribble_share: None,
+        with_aerial_touch_share: None,
+        with_wall_touch_share: None,
+        duration_histogram: DURATION_BUCKETS
+            .iter()
+            .map(|(key, label, _, _)| PossessionDurationBucket {
+                key: (*key).to_owned(),
+                label: (*label).to_owned(),
+                count: 0,
+            })
+            .collect(),
+    }
+}
+
+fn empty_possession_touch_summary() -> PossessionTouchSummary {
+    PossessionTouchSummary {
+        classified_touch_count: 0,
+        first_touch_count: 0,
+        first_touch_control_count: 0,
+        first_touch_control_share: None,
+        contested_touch_count: 0,
+        first_touch_intentions: Vec::new(),
+        intentions: Vec::new(),
+        surfaces: Vec::new(),
+    }
+}
+
+fn empty_possession_location_summary() -> PossessionLocationSummary {
+    possession_location_summary_from_rows(Vec::new())
+}
+
 fn build_teammate_controlled_play_summary_query<'args>(
     filters: &'args PossessionStatsQuery,
 ) -> Option<QueryBuilder<'args, Postgres>> {
@@ -391,6 +459,292 @@ async fn load_teammate_controlled_play_summary(
         appearance_count: count_column(&row, "teammate_appearance_count")?,
         controlled_plays: summary,
     })
+}
+
+fn push_possession_cohort_ctes<'args>(
+    query: &mut QueryBuilder<'args, Postgres>,
+    filters: &'args PossessionStatsQuery,
+) {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("possession cohort query requires a player filter");
+    query.push(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+        "#,
+    );
+    super::replay_set::append_replay_set_filters(query, &filters.replay_set, "r");
+    query.push(" AND rp.platform = ");
+    query.push_bind(&player.platform);
+    query.push(" AND rp.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#"
+        ),
+        cohort_appearances AS MATERIALIZED (
+            SELECT 'player' AS cohort, target.id AS actor_id, target.replay_id, target.team AS actor_team, target.run_id
+            FROM target_appearances target
+            UNION ALL
+            SELECT 'teammates' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            FROM target_appearances target
+            JOIN replay_players actor
+              ON actor.replay_id = target.replay_id
+             AND actor.team = target.team
+             AND actor.id <> target.id
+            UNION ALL
+            SELECT 'opponents' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            FROM target_appearances target
+            JOIN replay_players actor
+              ON actor.replay_id = target.replay_id
+             AND actor.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND actor.team <> target.team
+            UNION ALL
+            SELECT 'population' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            FROM target_appearances target
+            JOIN replay_players actor ON actor.replay_id = target.replay_id
+        )
+        "#,
+    );
+}
+
+fn push_possession_cohort_span_select(builder: &mut QueryBuilder<'_, Postgres>) {
+    builder.push(
+        r#"
+        SELECT
+            appearance.cohort,
+            COUNT(DISTINCT appearance.actor_id) AS appearance_count,
+            COUNT(DISTINCT detail.replay_id) AS replay_count,
+            COUNT(detail.event_id) AS possession_count,
+            COALESCE(SUM(detail.duration), 0) AS total_duration,
+            AVG(detail.duration) AS avg_duration,
+            COALESCE(SUM(detail.touch_count), 0)::bigint AS total_touch_count,
+            AVG(detail.touch_count::float8) AS avg_touches,
+            COALESCE(SUM(detail.advance_distance), 0) AS total_advance,
+            COALESCE(SUM(detail.retreat_distance), 0) AS total_retreat,
+            AVG(detail.advance_distance) AS avg_advance,
+            AVG(detail.retreat_distance) AS avg_retreat,
+            COALESCE(SUM(detail.carry_time), 0) AS carry_time,
+            COALESCE(SUM(detail.air_dribble_time), 0) AS air_dribble_time,
+            COUNT(detail.event_id) FILTER (WHERE detail.sustained_control) AS sustained_control,
+            COUNT(detail.event_id) FILTER (WHERE detail.carry_count > 0) AS with_carry,
+            COUNT(detail.event_id) FILTER (WHERE detail.air_dribble_count > 0) AS with_air_dribble,
+            COUNT(detail.event_id) FILTER (WHERE detail.aerial_touch_count > 0) AS with_aerial_touch,
+            COUNT(detail.event_id) FILTER (WHERE detail.wall_touch_count > 0) AS with_wall_touch
+        "#,
+    );
+    for (index, (_, _, lower, upper)) in DURATION_BUCKETS.iter().enumerate() {
+        builder.push(format!(
+            ", COUNT(detail.event_id) FILTER (WHERE detail.duration >= {lower}"
+        ));
+        if let Some(upper) = upper {
+            builder.push(format!(" AND detail.duration < {upper}"));
+        }
+        builder.push(format!(") AS duration_bucket_{index}"));
+    }
+}
+
+fn build_possession_cohort_span_summary_query<'args>(
+    filters: &'args PossessionStatsQuery,
+    span_filter: PossessionSpanFilter,
+) -> QueryBuilder<'args, Postgres> {
+    let mut query = QueryBuilder::<Postgres>::new("");
+    push_possession_cohort_ctes(&mut query, filters);
+    push_possession_cohort_span_select(&mut query);
+    query.push(
+        r#"
+        FROM cohort_appearances appearance
+        LEFT JOIN (
+            SELECT detail.*, event.analysis_run_id
+            FROM play_event_player_possession_details detail
+            JOIN play_events event ON event.id = detail.event_id
+        "#,
+    );
+    if span_filter == PossessionSpanFilter::SustainedControl {
+        query.push(" WHERE detail.sustained_control ");
+    }
+    query.push(
+        r#"
+        ) detail
+          ON detail.replay_player_id = appearance.actor_id
+         AND detail.analysis_run_id = appearance.run_id
+        GROUP BY appearance.cohort
+        "#,
+    );
+    query
+}
+
+async fn load_possession_cohort_span_summaries(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+    span_filter: PossessionSpanFilter,
+) -> Result<HashMap<String, (u64, PossessionSpanSummary)>, sqlx::Error> {
+    let mut query = build_possession_cohort_span_summary_query(filters, span_filter);
+    let rows = query.build().fetch_all(pool).await?;
+    let mut summaries = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let appearance_count = count_column(&row, "appearance_count")?;
+        let (_, summary) = possession_span_summary_from_row(&row)?;
+        summaries.insert(cohort, (appearance_count, summary));
+    }
+    Ok(summaries)
+}
+
+async fn load_possession_cohort_touch_summaries(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<HashMap<String, PossessionTouchSummary>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new("");
+    push_possession_cohort_ctes(&mut query, filters);
+    query.push(
+        r#"
+        SELECT
+            appearance.cohort,
+            COUNT(*) AS classified_touch_count,
+            COUNT(*) FILTER (WHERE detail.first_touch) AS first_touch_count,
+            COUNT(*) FILTER (WHERE detail.first_touch AND detail.intention = 'control') AS first_touch_control_count,
+            COUNT(*) FILTER (WHERE detail.contested) AS contested_touch_count
+        FROM cohort_appearances appearance
+        JOIN play_events event
+          ON event.replay_id = appearance.replay_id
+         AND event.analysis_run_id = appearance.run_id
+         AND event.source_stream = 'touch'
+        JOIN play_event_touch_details detail
+          ON detail.event_id = event.id
+         AND detail.intention IS NOT NULL
+        JOIN play_event_subjects subject
+          ON subject.event_id = event.id
+         AND subject.role = 'actor'
+         AND subject.subject_kind = 'player'
+         AND subject.replay_player_id = appearance.actor_id
+        GROUP BY appearance.cohort
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    let mut summaries = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let first_touch_count = count_column(&row, "first_touch_count")?;
+        let first_touch_control_count = count_column(&row, "first_touch_control_count")?;
+        summaries.insert(
+            cohort,
+            PossessionTouchSummary {
+                classified_touch_count: count_column(&row, "classified_touch_count")?,
+                first_touch_count,
+                first_touch_control_count,
+                first_touch_control_share: (first_touch_count > 0)
+                    .then(|| first_touch_control_count as f64 / first_touch_count as f64),
+                contested_touch_count: count_column(&row, "contested_touch_count")?,
+                first_touch_intentions: Vec::new(),
+                intentions: Vec::new(),
+                surfaces: Vec::new(),
+            },
+        );
+    }
+    Ok(summaries)
+}
+
+async fn load_possession_cohort_location_summaries(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<HashMap<String, PossessionLocationSummary>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new("");
+    push_possession_cohort_ctes(&mut query, filters);
+    query.push(
+        r#"
+        SELECT
+            appearance.cohort,
+            payload.payload ->> 'field_third' AS field_third,
+            appearance.actor_team AS player_team,
+            COALESCE(SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)), 0) AS duration
+        FROM cohort_appearances appearance
+        JOIN play_events event
+          ON event.replay_id = appearance.replay_id
+         AND event.analysis_run_id = appearance.run_id
+         AND event.source_stream = 'possession'
+        JOIN play_event_payloads payload ON payload.event_id = event.id
+        JOIN play_event_subjects subject
+          ON subject.event_id = event.id
+         AND subject.subject_kind = 'player'
+         AND subject.replay_player_id = appearance.actor_id
+        WHERE COALESCE((payload.payload ->> 'active')::boolean, true)
+          AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
+        GROUP BY appearance.cohort, field_third, player_team
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    let mut by_cohort: HashMap<String, Vec<(String, Option<i32>, f64)>> = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let Some(field_third) = row.try_get::<Option<String>, _>("field_third")? else {
+            continue;
+        };
+        by_cohort.entry(cohort).or_default().push((
+            field_third,
+            row.try_get("player_team")?,
+            row.try_get("duration")?,
+        ));
+    }
+
+    Ok(by_cohort
+        .into_iter()
+        .map(|(cohort, rows)| (cohort, possession_location_summary_from_rows(rows)))
+        .collect())
+}
+
+async fn load_possession_cohort_summaries(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<Vec<PossessionCohortSummary>, sqlx::Error> {
+    let mut possessions =
+        load_possession_cohort_span_summaries(pool, filters, PossessionSpanFilter::All).await?;
+    let mut controlled_plays = load_possession_cohort_span_summaries(
+        pool,
+        filters,
+        PossessionSpanFilter::SustainedControl,
+    )
+    .await?;
+    let mut touches = load_possession_cohort_touch_summaries(pool, filters).await?;
+    let mut locations = load_possession_cohort_location_summaries(pool, filters).await?;
+
+    Ok(["player", "teammates", "opponents", "population"]
+        .into_iter()
+        .filter_map(|key| {
+            let (appearance_count, possession_summary) = possessions.remove(key)?;
+            Some(PossessionCohortSummary {
+                key: key.to_owned(),
+                label: possession_cohort_label(key).to_owned(),
+                appearance_count,
+                possessions: possession_summary,
+                controlled_plays: controlled_plays
+                    .remove(key)
+                    .map(|(_, summary)| summary)
+                    .unwrap_or_else(empty_possession_span_summary),
+                touches: touches
+                    .remove(key)
+                    .unwrap_or_else(empty_possession_touch_summary),
+                locations: locations
+                    .remove(key)
+                    .unwrap_or_else(empty_possession_location_summary),
+            })
+        })
+        .collect())
+}
+
+fn possession_cohort_label(key: &str) -> &'static str {
+    match key {
+        "player" => "Player",
+        "teammates" => "Teammates",
+        "opponents" => "Opponents",
+        "population" => "Population",
+        _ => "Unknown",
+    }
 }
 
 fn push_touch_from<'args>(
@@ -531,7 +885,25 @@ async fn load_possession_location_summary(
     query.push(" GROUP BY 1, 2");
 
     let rows = query.build().fetch_all(pool).await?;
-    let player_relative = filters.player.is_some();
+    let rows = rows
+        .into_iter()
+        .filter_map(|row| {
+            let field_third = row.try_get::<Option<String>, _>("field_third").ok()??;
+            Some((
+                field_third,
+                row.try_get("player_team").ok()?,
+                row.try_get("duration").ok()?,
+            ))
+        })
+        .collect();
+
+    Ok(possession_location_summary_from_rows(rows))
+}
+
+fn possession_location_summary_from_rows(
+    rows: Vec<(String, Option<i32>, f64)>,
+) -> PossessionLocationSummary {
+    let player_relative = rows.iter().any(|(_, player_team, _)| player_team.is_some());
     let mut third_seconds = possession_third_keys(player_relative)
         .into_iter()
         .map(|key| (key, 0.0))
@@ -541,14 +913,8 @@ async fn load_possession_location_summary(
         .map(|key| (key, 0.0))
         .collect::<Vec<_>>();
 
-    for row in rows {
-        let field_third: Option<String> = row.try_get("field_third")?;
-        let player_team: Option<i32> = row.try_get("player_team")?;
-        let duration: f64 = row.try_get("duration")?;
-        let Some(field_third) = field_third.as_deref() else {
-            continue;
-        };
-        let bucket_third = possession_third_key(field_third, player_team);
+    for (field_third, player_team, duration) in rows {
+        let bucket_third = possession_third_key(&field_third, player_team);
         if let Some((_, seconds)) = third_seconds
             .iter_mut()
             .find(|(key, _)| *key == bucket_third)
@@ -578,11 +944,11 @@ async fn load_possession_location_summary(
         })
         .collect();
 
-    Ok(PossessionLocationSummary {
+    PossessionLocationSummary {
         total_duration_seconds,
         halves,
         thirds,
-    })
+    }
 }
 
 fn possession_time_bucket(

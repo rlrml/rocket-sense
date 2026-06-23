@@ -511,6 +511,7 @@ export interface PossessionSummaryResponse {
   possessions: PossessionSpanSummary;
   controlled_plays: PossessionSpanSummary;
   teammates: PossessionTeammateComparison | null;
+  cohorts: PossessionCohortSummary[];
   touches: PossessionTouchSummary;
   locations: PossessionLocationSummary;
 }
@@ -518,6 +519,16 @@ export interface PossessionSummaryResponse {
 export interface PossessionTeammateComparison {
   appearance_count: number;
   controlled_plays: PossessionSpanSummary;
+}
+
+export interface PossessionCohortSummary {
+  key: string;
+  label: string;
+  appearance_count: number;
+  possessions: PossessionSpanSummary;
+  controlled_plays: PossessionSpanSummary;
+  touches: PossessionTouchSummary;
+  locations: PossessionLocationSummary;
 }
 
 export interface PossessionSpanSummary {

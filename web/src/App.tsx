@@ -3831,6 +3831,7 @@ function PlayerAggregateStatsSections({
 
       {activeGroup.id === "kickoffs" ||
       activeGroup.id === "boost" ||
+      activeGroup.id === "possession" ||
       activeGroup.id === "positioning" ||
       activeGroup.id === "rotation" ||
       activeGroup.id === "touches" ? null : (
@@ -3861,7 +3862,7 @@ function PlayerAggregateStatsSections({
         <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} />
       ) : null}
       {activeGroup.id === "possession" && possessionSummary ? (
-        <PossessionSummaryPanel summary={possessionSummary} />
+        <PossessionSummaryPanel playerName={playerName} summary={possessionSummary} />
       ) : null}
       {activeGroup.id === "touches" && stats.touch_breakdown ? (
         <TouchProfileComparison breakdown={stats.touch_breakdown} />

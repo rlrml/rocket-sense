@@ -4,10 +4,8 @@ import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
   PlayerStatOverviewResponse,
-  PossessionMixValue,
-  PossessionSpanSummary,
+  PossessionCohortSummary,
   PossessionSummaryResponse,
-  PossessionTeammateComparison,
   PossessionTimeBucket,
   RotationTimeShareResponse,
   StatAggregateResponse,
@@ -17,11 +15,12 @@ import { boostAmountToPercent } from "./boostUnits";
 import {
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
-  SegmentedBar,
+  PlayerComparisonChart,
+  StatPlayerLabel,
   statPercentWithValue,
+  type ComparisonRow,
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
-  type SegmentedBarSegment,
 } from "./shared";
 
 const rateChartStatLimit = 12;
@@ -1083,38 +1082,21 @@ function formatDurationSeconds(value: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-const possessionSurfaceClasses: Record<string, string> = {
-  ground: "possession-surface-segment-ground",
-  air: "possession-surface-segment-air",
-  wall: "possession-surface-segment-wall",
-};
-
 /**
  * Career possession summary: how often and how long the player holds the
  * ball, what they do with it (advance, carry, take it airborne or up the
  * wall), and how their first touches resolve.
  */
-export function PossessionSummaryPanel({ summary }: { summary: PossessionSummaryResponse }) {
+export function PossessionSummaryPanel({
+  playerName = "Player",
+  summary,
+}: {
+  playerName?: string;
+  summary: PossessionSummaryResponse;
+}) {
   const spans = summary.possessions;
-  const controlledPlays = summary.controlled_plays;
-  const touches = summary.touches;
-  const locations = summary.locations;
-  const possessionsPerGame =
-    summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
-  const possessionTimePerGame =
-    summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
-  const ownHalfPossessionShare = possessionLocationShare(locations.halves, "own_side");
-  const opponentHalfPossessionShare = possessionLocationShare(locations.halves, "opponent_side");
-  const surfaceTotal = touches.surfaces.reduce((sum, value) => sum + value.count, 0);
-  const histogramTotal = spans.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
-  const histogramMax = Math.max(...spans.duration_histogram.map((bucket) => bucket.count), 1);
-  const playStyles = [
-    { key: "sustained_control", label: "Sustained control", share: spans.sustained_control_share },
-    { key: "carry", label: "Ball carry", share: spans.with_carry_share },
-    { key: "air_dribble", label: "Air dribble", share: spans.with_air_dribble_share },
-    { key: "aerial_touch", label: "Aerial touch", share: spans.with_aerial_touch_share },
-    { key: "wall_touch", label: "Wall touch", share: spans.with_wall_touch_share },
-  ].filter((style) => style.share != null);
+  const subjects = possessionProfileSubjects(summary, playerName);
+  const comparisonCharts = possessionProfileMetricCharts(subjects);
 
   return (
     <section className="chart-panel full-span possession-summary-panel">
@@ -1123,192 +1105,204 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
         <span>
           {spans.possession_count.toLocaleString()} possessions across{" "}
           {summary.replay_count.toLocaleString()} replays
+          {subjects.length > 1 ? " · compared with teammates, opponents, and population" : ""}
         </span>
       </header>
-      <div className="kickoff-headline-metrics">
-        <PossessionMetric
-          label="Possessions per game"
-          value={possessionsPerGame != null ? formatRate(possessionsPerGame) : "—"}
-        />
-        <PossessionMetric
-          label="Possession time per game"
-          value={possessionTimePerGame != null ? formatDurationSeconds(possessionTimePerGame) : "—"}
-        />
-        <PossessionMetric
-          label="Avg possession length"
-          value={formatSecondsValue(spans.avg_duration_seconds)}
-        />
-        <PossessionMetric
-          label="Avg touches per possession"
-          value={
-            spans.avg_touches_per_possession != null
-              ? formatRate(spans.avg_touches_per_possession)
-              : "—"
-          }
-        />
-        <PossessionMetric
-          label="Ball advanced per possession"
-          value={formatDistance(spans.avg_advance_distance)}
-        />
-        <PossessionMetric label="Own-half possession" value={formatShare(ownHalfPossessionShare)} />
-        <PossessionMetric
-          label="Opponent-half possession"
-          value={formatShare(opponentHalfPossessionShare)}
-        />
-        <PossessionMetric label="Carry time share" value={formatShare(spans.carry_time_share)} />
-        <PossessionMetric
-          label="First-touch control rate"
-          value={formatShare(touches.first_touch_control_share)}
-        />
-        <PossessionMetric
-          label="Contested touch share"
-          value={formatShare(
-            touches.classified_touch_count > 0
-              ? touches.contested_touch_count / touches.classified_touch_count
-              : null,
-          )}
-        />
-      </div>
 
-      <ControlledPlayComparison
-        player={controlledPlays}
-        replayCount={summary.replay_count}
-        teammates={summary.teammates}
-      />
-
-      {surfaceTotal > 0 ? (
-        <div className="possession-surface-share">
-          <h4>Touch surfaces</h4>
-          <SegmentedBar
-            ariaLabel="Touch surface share"
-            className="positioning-track"
-            segments={touches.surfaces.map((value) =>
-              possessionSurfaceSegment(value, surfaceTotal),
-            )}
-            total={surfaceTotal}
-          />
-        </div>
-      ) : null}
-
-      {locations.total_duration_seconds > 0 ? (
-        <div className="possession-location-grid">
-          <PossessionLocationBreakdown
-            ariaLabel="Possession time by field halves"
-            buckets={locations.halves}
-            title="Possession by halves"
-            totalSeconds={locations.total_duration_seconds}
-          />
-          <PossessionLocationBreakdown
-            ariaLabel="Possession time by field thirds"
-            buckets={locations.thirds}
-            title="Possession by thirds"
-            totalSeconds={locations.total_duration_seconds}
-          />
-        </div>
-      ) : null}
-
-      <div className="kickoff-dimension-grid possession-breakdown-grid">
-        {playStyles.length > 0 ? (
-          <div className="kickoff-dimension">
-            <h4>Possessions including…</h4>
-            <div className="rate-chart-rows">
-              {playStyles.map((style) => (
-                <div className="rate-chart-row kickoff-dimension-row" key={style.key}>
-                  <div className="rate-chart-label" title={style.label}>
-                    {style.label}
-                  </div>
-                  <div
-                    className="rate-chart-track"
-                    aria-label={`Possessions including ${style.label}`}
-                  >
-                    <span
-                      className="rate-chart-fill kickoff-dimension-fill"
-                      style={{ width: `${Math.max(0, Math.min(100, (style.share ?? 0) * 100))}%` }}
-                      title={`${style.label}: ${formatShare(style.share)}`}
-                    />
-                  </div>
-                  <div className="rate-chart-value">
-                    <strong>{formatShare(style.share)}</strong>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {histogramTotal > 0 ? (
-          <div className="kickoff-dimension">
-            <h4>Possession length</h4>
-            <div className="rate-chart-rows">
-              {spans.duration_histogram.map((bucket) => (
-                <div className="rate-chart-row kickoff-dimension-row" key={bucket.key}>
-                  <div className="rate-chart-label" title={bucket.label}>
-                    {bucket.label}
-                  </div>
-                  <div
-                    className="rate-chart-track"
-                    aria-label={`Possession length ${bucket.label}`}
-                  >
-                    <span
-                      className="rate-chart-fill kickoff-dimension-fill"
-                      style={{ width: `${barPercent(bucket.count, histogramMax)}%` }}
-                      title={shareTitle(
-                        bucket.label,
-                        histogramTotal > 0 ? bucket.count / histogramTotal : null,
-                        bucket.count,
-                      )}
-                    />
-                  </div>
-                  <div className="rate-chart-value">
-                    <strong>
-                      {formatShare(histogramTotal > 0 ? bucket.count / histogramTotal : null)}
-                    </strong>
-                    <span className="subtle"> {bucket.count.toLocaleString()}×</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <PossessionMixList title="First-touch intentions" values={touches.first_touch_intentions} />
-        <PossessionMixList title="All touch intentions" values={touches.intentions} />
+      <div className="stat-comparison-grid possession-profile-grid">
+        {comparisonCharts.map((chart) => (
+          <PlayerComparisonChart key={chart.key} rows={chart.rows} title={chart.title} />
+        ))}
       </div>
     </section>
   );
 }
 
-function PossessionLocationBreakdown({
-  ariaLabel,
-  buckets,
-  title,
-  totalSeconds,
-}: {
-  ariaLabel: string;
-  buckets: PossessionTimeBucket[];
+interface PossessionProfileSubject {
+  key: string;
+  name: string;
+  subtitle: string;
+  appearances: number;
+  cohort: PossessionCohortSummary;
+  segmentClassName: string;
+}
+
+interface PossessionProfileChart {
+  key: string;
   title: string;
-  totalSeconds: number;
-}) {
+  rows: ComparisonRow[];
+}
+
+function possessionProfileSubjects(
+  summary: PossessionSummaryResponse,
+  playerName: string,
+): PossessionProfileSubject[] {
+  const responseCohorts = summary.cohorts ?? [];
+  const cohorts: PossessionCohortSummary[] =
+    responseCohorts.length > 0
+      ? responseCohorts
+      : [
+          {
+            key: "player",
+            label: playerName,
+            appearance_count: summary.replay_count,
+            possessions: summary.possessions,
+            controlled_plays: summary.controlled_plays,
+            touches: summary.touches,
+            locations: summary.locations,
+          },
+        ];
+
+  return cohorts.map((cohort) => ({
+    key: cohort.key,
+    name: cohort.key === "player" ? playerName : cohort.label,
+    subtitle: possessionCohortSubtitle(cohort.key),
+    appearances: cohort.appearance_count,
+    cohort,
+    segmentClassName: possessionCohortSegmentClassName(cohort.key),
+  }));
+}
+
+function possessionProfileMetricCharts(
+  subjects: PossessionProfileSubject[],
+): PossessionProfileChart[] {
+  const definitions: Array<{
+    key: string;
+    title: string;
+    metric: (subject: PossessionProfileSubject) => number | null;
+    format: (value: number) => string;
+    maxValue?: number;
+  }> = [
+    {
+      key: "possessions-per-game",
+      title: "Possessions per game",
+      metric: (subject) =>
+        subject.appearances > 0
+          ? subject.cohort.possessions.possession_count / subject.appearances
+          : null,
+      format: formatRate,
+    },
+    {
+      key: "possession-time-per-game",
+      title: "Possession time per game",
+      metric: (subject) =>
+        subject.appearances > 0
+          ? subject.cohort.possessions.total_duration_seconds / subject.appearances
+          : null,
+      format: formatDurationSeconds,
+    },
+    {
+      key: "average-possession-length",
+      title: "Avg possession length",
+      metric: (subject) => subject.cohort.possessions.avg_duration_seconds,
+      format: formatSecondsValueRequired,
+    },
+    {
+      key: "touches-per-possession",
+      title: "Avg touches per possession",
+      metric: (subject) => subject.cohort.possessions.avg_touches_per_possession,
+      format: formatRate,
+    },
+    {
+      key: "advance-per-possession",
+      title: "Ball advanced per possession",
+      metric: (subject) => subject.cohort.possessions.avg_advance_distance,
+      format: formatDistanceRequired,
+    },
+    {
+      key: "own-half-possession",
+      title: "Own-half possession",
+      metric: (subject) => possessionLocationShare(subject.cohort.locations.halves, "own_side"),
+      format: formatShareRequired,
+      maxValue: 1,
+    },
+    {
+      key: "opponent-half-possession",
+      title: "Opponent-half possession",
+      metric: (subject) =>
+        possessionLocationShare(subject.cohort.locations.halves, "opponent_side"),
+      format: formatShareRequired,
+      maxValue: 1,
+    },
+    {
+      key: "carry-time-share",
+      title: "Carry time share",
+      metric: (subject) => subject.cohort.possessions.carry_time_share,
+      format: formatShareRequired,
+      maxValue: 1,
+    },
+    {
+      key: "first-touch-control-rate",
+      title: "First-touch control rate",
+      metric: (subject) => subject.cohort.touches.first_touch_control_share,
+      format: formatShareRequired,
+      maxValue: 1,
+    },
+    {
+      key: "contested-touch-share",
+      title: "Contested touch share",
+      metric: (subject) =>
+        subject.cohort.touches.classified_touch_count > 0
+          ? subject.cohort.touches.contested_touch_count /
+            subject.cohort.touches.classified_touch_count
+          : null,
+      format: formatShareRequired,
+      maxValue: 1,
+    },
+  ];
+
+  return definitions.flatMap((definition) => {
+    const rows = possessionMagnitudeRows(subjects, definition);
+    return rows.length > 0 ? [{ key: definition.key, title: definition.title, rows }] : [];
+  });
+}
+
+function possessionMagnitudeRows(
+  subjects: PossessionProfileSubject[],
+  definition: {
+    key: string;
+    metric: (subject: PossessionProfileSubject) => number | null;
+    format: (value: number) => string;
+    maxValue?: number;
+  },
+): ComparisonRow[] {
+  const values = subjects.map((subject) => definition.metric(subject));
+  if (!values.some((value) => value != null)) return [];
+  const maxValue = definition.maxValue ?? Math.max(1, ...values.map((value) => value ?? 0));
+
+  return subjects.map((subject) => {
+    const rawValue = definition.metric(subject);
+    const value = rawValue ?? 0;
+    const formatted = rawValue == null ? "—" : definition.format(value);
+    return {
+      key: `${definition.key}:${subject.key}`,
+      label: possessionSubjectLabel(subject),
+      ariaLabel: `${subject.name}: ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: subject.segmentClassName,
+          label: subject.name,
+          value,
+        },
+      ],
+      total: value,
+      maxValue,
+      valueInBar: rawValue != null && value > 0 ? formatted : undefined,
+      placeholder: rawValue != null && value > 0 ? undefined : formatted,
+    };
+  });
+}
+
+function possessionSubjectLabel(subject: PossessionProfileSubject) {
   return (
-    <div className="possession-location-breakdown">
-      <h4>{title}</h4>
-      <SegmentedBar
-        ariaLabel={ariaLabel}
-        className="possession-location-track"
-        segments={buckets.map((bucket) => possessionLocationSegment(bucket, totalSeconds))}
-        total={totalSeconds}
-      />
-      <div className="possession-location-list">
-        {buckets.map((bucket) => (
-          <div
-            className={`possession-location-row ${possessionLocationClass(bucket.key)}`}
-            key={bucket.key}
-          >
-            <span>{bucket.label}</span>
-            <strong>{formatShare(bucket.share)}</strong>
-            <span>{formatDurationSeconds(bucket.duration_seconds)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
+    <StatPlayerLabel
+      className={`possession-profile-label possession-profile-label-${subject.key}`}
+      name={subject.name}
+      platform={null}
+      showPlatformBadge={false}
+      subtitle={`${subject.subtitle} · ${subject.appearances.toLocaleString()} appearances`}
+    />
   );
 }
 
@@ -1316,248 +1310,32 @@ function possessionLocationShare(buckets: PossessionTimeBucket[], key: string): 
   return buckets.find((bucket) => bucket.key === key)?.share ?? null;
 }
 
-function ControlledPlayComparison({
-  player,
-  replayCount,
-  teammates,
-}: {
-  player: PossessionSpanSummary;
-  replayCount: number;
-  teammates: PossessionTeammateComparison | null;
-}) {
-  const teammateControlledPlays = teammates?.controlled_plays ?? null;
-  const hasPlayer = player.possession_count > 0;
-  const hasTeammates = (teammateControlledPlays?.possession_count ?? 0) > 0;
-  if (!hasPlayer && !hasTeammates) return null;
-
-  const playerPerGame = replayCount > 0 ? player.possession_count / replayCount : null;
-  const teammatePerGame =
-    teammates && teammates.appearance_count > 0
-      ? teammates.controlled_plays.possession_count / teammates.appearance_count
-      : null;
-  const metrics = [
-    {
-      key: "count",
-      label: "Controlled plays per game",
-      playerValue: playerPerGame,
-      teammateValue: teammatePerGame,
-      formatter: (value: number | null) => (value != null ? formatRate(value) : "—"),
-    },
-    {
-      key: "duration",
-      label: "Avg controlled length",
-      playerValue: player.avg_duration_seconds,
-      teammateValue: teammateControlledPlays?.avg_duration_seconds ?? null,
-      formatter: formatSecondsValue,
-    },
-    {
-      key: "touches",
-      label: "Touches per controlled play",
-      playerValue: player.avg_touches_per_possession,
-      teammateValue: teammateControlledPlays?.avg_touches_per_possession ?? null,
-      formatter: (value: number | null) => (value != null ? formatRate(value) : "—"),
-    },
-    {
-      key: "advance",
-      label: "Advance per controlled play",
-      playerValue: player.avg_advance_distance,
-      teammateValue: teammateControlledPlays?.avg_advance_distance ?? null,
-      formatter: formatDistance,
-    },
-  ];
-  const maxMetric = Math.max(
-    1,
-    ...metrics.flatMap((metric) => [metric.playerValue ?? 0, metric.teammateValue ?? 0]),
-  );
-
-  return (
-    <div className="controlled-play-comparison">
-      <div className="kickoff-dimension-grid possession-breakdown-grid">
-        <div className="kickoff-dimension">
-          <h4>Controlled plays{hasTeammates ? " vs teammates" : ""}</h4>
-          <div className="rate-chart-rows">
-            {metrics.map((metric) => (
-              <div className="rate-chart-row kickoff-dimension-row" key={metric.key}>
-                <div className="rate-chart-label" title={metric.label}>
-                  {metric.label}
-                </div>
-                <div className="rate-chart-track" aria-label={metric.label}>
-                  <span
-                    className="rate-chart-fill kickoff-dimension-fill"
-                    style={{ width: `${barPercent(metric.playerValue ?? 0, maxMetric)}%` }}
-                    title={`Player: ${metric.formatter(metric.playerValue)}`}
-                  />
-                  {metric.teammateValue != null ? (
-                    <span
-                      className="rate-chart-teammate-marker"
-                      style={{ left: `${barPercent(metric.teammateValue, maxMetric)}%` }}
-                      title={`Teammates: ${metric.formatter(metric.teammateValue)}`}
-                    />
-                  ) : null}
-                </div>
-                <div className="rate-chart-value">
-                  <strong>{metric.formatter(metric.playerValue)}</strong>
-                  {metric.teammateValue != null ? (
-                    <span className="subtle"> vs {metric.formatter(metric.teammateValue)}</span>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-          {hasTeammates ? (
-            <p className="rate-chart-legend subtle">
-              <span className="rate-chart-legend-fill" /> player
-              <span className="rate-chart-legend-marker" /> teammate average
-            </p>
-          ) : null}
-        </div>
-        <ControlledPlayHistogram player={player} teammates={teammateControlledPlays} />
-      </div>
-    </div>
-  );
+function possessionCohortSubtitle(key: string): string {
+  if (key === "player") return "Player";
+  if (key === "teammates") return "Same-team players";
+  if (key === "opponents") return "Other-team players";
+  if (key === "population") return "All players in set";
+  return "Cohort";
 }
 
-function ControlledPlayHistogram({
-  player,
-  teammates,
-}: {
-  player: PossessionSpanSummary;
-  teammates: PossessionSpanSummary | null;
-}) {
-  const playerTotal = player.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
-  const teammateTotal =
-    teammates?.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0) ?? 0;
-  if (playerTotal === 0 && teammateTotal === 0) return null;
-
-  const teammateCountFor = (key: string) =>
-    teammates?.duration_histogram.find((bucket) => bucket.key === key)?.count ?? 0;
-  const rows = player.duration_histogram.map((bucket) => {
-    const teammateCount = teammateCountFor(bucket.key);
-    return {
-      bucket,
-      playerShare: playerTotal > 0 ? bucket.count / playerTotal : 0,
-      teammateShare: teammateTotal > 0 ? teammateCount / teammateTotal : 0,
-      teammateCount,
-    };
-  });
-  const maxShare = Math.max(0.01, ...rows.flatMap((row) => [row.playerShare, row.teammateShare]));
-
-  return (
-    <div className="kickoff-dimension">
-      <h4>Controlled length{teammateTotal > 0 ? " vs teammates" : ""}</h4>
-      <div className="rate-chart-rows">
-        {rows.map(({ bucket, playerShare, teammateShare, teammateCount }) => (
-          <div className="rate-chart-row kickoff-dimension-row" key={bucket.key}>
-            <div className="rate-chart-label" title={bucket.label}>
-              {bucket.label}
-            </div>
-            <div className="rate-chart-track" aria-label={`Controlled length ${bucket.label}`}>
-              <span
-                className="rate-chart-fill kickoff-dimension-fill"
-                style={{ width: `${barPercent(playerShare, maxShare)}%` }}
-                title={shareTitle(bucket.label, playerShare, bucket.count)}
-              />
-              {teammateTotal > 0 ? (
-                <span
-                  className="rate-chart-teammate-marker"
-                  style={{ left: `${barPercent(teammateShare, maxShare)}%` }}
-                  title={`Teammates: ${formatShare(teammateShare)} (${teammateCount.toLocaleString()})`}
-                />
-              ) : null}
-            </div>
-            <div className="rate-chart-value">
-              <strong>{formatShare(playerShare)}</strong>
-              {teammateTotal > 0 ? (
-                <span className="subtle"> vs {formatShare(teammateShare)}</span>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function possessionCohortSegmentClassName(key: string): string {
+  if (key === "player") return "possession-profile-subject";
+  if (key === "teammates") return "possession-profile-teammates";
+  if (key === "opponents") return "possession-profile-opponents";
+  if (key === "population") return "possession-profile-population";
+  return "possession-profile-population";
 }
 
-function PossessionMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="kickoff-headline-metric">
-      <span className="subtle">{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
+function formatSecondsValueRequired(value: number): string {
+  return formatSecondsValue(value);
 }
 
-function PossessionMixList({ title, values }: { title: string; values: PossessionMixValue[] }) {
-  const total = values.reduce((sum, value) => sum + value.count, 0);
-  if (total === 0) return null;
-  return (
-    <div className="kickoff-dimension">
-      <h4>{title}</h4>
-      <div className="rate-chart-rows">
-        {values.map((value) => (
-          <div className="rate-chart-row kickoff-dimension-row" key={value.key ?? "unknown"}>
-            <div className="rate-chart-label" title={value.display_name}>
-              {value.display_name}
-            </div>
-            <div className="rate-chart-track" aria-label={`${title}: ${value.display_name}`}>
-              <span
-                className="rate-chart-fill kickoff-dimension-fill"
-                style={{ width: `${barPercent(value.count, total)}%` }}
-                title={shareTitle(
-                  value.display_name,
-                  total > 0 ? value.count / total : null,
-                  value.count,
-                )}
-              />
-            </div>
-            <div className="rate-chart-value">
-              <strong>{formatShare(total > 0 ? value.count / total : null)}</strong>
-              <span className="subtle"> {value.count.toLocaleString()}×</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+function formatDistanceRequired(value: number): string {
+  return formatDistance(value);
 }
 
-function possessionSurfaceSegment(value: PossessionMixValue, total: number): SegmentedBarSegment {
-  const share = total > 0 ? value.count / total : 0;
-  return {
-    key: value.key ?? "unknown",
-    className: possessionSurfaceClasses[value.key ?? ""] ?? "possession-surface-segment-other",
-    label: value.display_name,
-    value: value.count,
-    visibleLabel: share >= 0.08 ? `${value.display_name} ${formatShare(share)}` : undefined,
-    title: shareTitle(value.display_name, share, value.count),
-  };
-}
-
-function possessionLocationSegment(
-  bucket: PossessionTimeBucket,
-  totalSeconds: number,
-): SegmentedBarSegment {
-  const share = totalSeconds > 0 ? bucket.duration_seconds / totalSeconds : 0;
-  return {
-    key: bucket.key,
-    className: possessionLocationClass(bucket.key),
-    label: bucket.label,
-    value: bucket.duration_seconds,
-    visibleLabel: share >= 0.08 ? `${bucket.label}: ${formatShare(share)}` : undefined,
-    title: statPercentWithValue(
-      formatShare(share),
-      formatDurationSeconds(bucket.duration_seconds),
-      bucket.label,
-    ),
-  };
-}
-
-function possessionLocationClass(key: string): string {
-  if (key.includes("own")) return "possession-location-team-zero";
-  if (key.includes("team_zero")) return "possession-location-team-zero";
-  if (key.includes("opponent")) return "possession-location-team-one";
-  if (key.includes("team_one")) return "possession-location-team-one";
-  return "possession-location-neutral";
+function formatShareRequired(value: number): string {
+  return formatShare(value);
 }
 
 function formatDistance(value: number | null): string {
