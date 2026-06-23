@@ -34,6 +34,10 @@ pub fn router() -> Router<AppState> {
             "/admin/replays/backfill-profile-timing",
             post(backfill_profile_timing),
         )
+        .route(
+            "/admin/stats/backfill-event-counts",
+            post(backfill_event_counts),
+        )
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
@@ -487,6 +491,46 @@ pub async fn set_user_admin(
 
 /// Resolve the requester's admin status (persisting any bootstrap promotion) and
 /// reject the request with `403 Forbidden` when they are not an admin.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct BackfillEventCountsResponse {
+    /// Always "started": the backfill runs in the background; watch server logs
+    /// for `player replay event-count backfill complete`.
+    pub status: String,
+}
+
+/// Populate `player_replay_event_counts` from existing events for every
+/// canonical replay missing rows. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-event-counts",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Event-count backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_event_counts(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_player_replay_event_counts(&pool).await {
+            Ok(backfilled) => {
+                tracing::info!(backfilled, "event-counts backfill task finished")
+            }
+            Err(error) => tracing::error!(?error, "event-counts backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
 async fn require_admin(state: &AppState, auth_user: &AuthUser) -> Result<(), ApiError> {
     let pool = require_db(state)?;
     let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)

@@ -1474,6 +1474,54 @@ async fn insert_player_replay_event_counts(
     Ok(())
 }
 
+/// Populate `player_replay_event_counts` for every canonical replay that is
+/// missing rows, reusing the per-replay writer (delete+reinsert) so the result
+/// matches what live processing produces. Skips replays that already have counts
+/// (so it is resumable and cheap to re-run), and materializes from the existing
+/// `play_events`/`play_event_subjects` -- no replay re-parsing -- so it is the
+/// fast path to populate the table without waiting on a full reprocess. Returns
+/// the number of replays backfilled.
+pub async fn backfill_player_replay_event_counts(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_event_counts counts
+              WHERE counts.replay_id = r.id
+                AND counts.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing event-count backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay event-count backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(
+                backfilled,
+                total,
+                "player replay event-count backfill progress"
+            );
+        }
+    }
+    tracing::info!(
+        backfilled,
+        total,
+        "player replay event-count backfill complete"
+    );
+    Ok(backfilled)
+}
+
 async fn insert_ball_opponent_half_facts(
     pool: &PgPool,
     analysis_run_id: Uuid,
