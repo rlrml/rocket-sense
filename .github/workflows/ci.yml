@@ -7,6 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CACHIX_CACHE_NAME: rocket-sense
 
 jobs:
   ci:
@@ -32,6 +33,12 @@ jobs:
       # vendor/subtr-actor submodule flake (not committed), so CI needs Nix to
       # build them before npm can resolve the file: deps.
       - uses: DeterminateSystems/nix-installer-action@main
+
+      - uses: cachix/cachix-action@v17
+        with:
+          name: ${{ env.CACHIX_CACHE_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          signingKey: ${{ secrets.CACHIX_SIGNING_KEY }}
 
       - name: Generate vendored @rlrml packages
         run: scripts/ensure-subtr-vendor
@@ -70,3 +77,6 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      - name: Build Nix deploy image
+        run: nix build --accept-flake-config .#rocket-sense-server-image --print-build-logs
