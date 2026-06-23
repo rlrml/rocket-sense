@@ -7723,16 +7723,6 @@ tbody tr:last-child td {
   background: #64748b;
 }
 
-.possession-summary-panel .possession-surface-share {
-  margin: 0.75rem 0 0.25rem;
-}
-
-.possession-summary-panel .possession-surface-share h4 {
-  margin: 0 0 0.5rem;
-  font-size: var(--text-base);
-  color: var(--muted);
-}
-
 .possession-location-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

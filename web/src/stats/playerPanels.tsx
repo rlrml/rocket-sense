@@ -1094,33 +1094,18 @@ export function PossessionSummaryPanel({
   playerName?: string;
   summary: PossessionSummaryResponse;
 }) {
-  const spans = summary.possessions;
   const subjects = possessionProfileSubjects(summary, playerName);
   const comparisonCharts = possessionProfileMetricCharts(subjects);
-  const comparisonSuffix =
-    subjects.length > 1
-      ? subjects.some((subject) => subject.key === "rank_peers")
-        ? " · compared with teammates, opponents, and same-rank players"
-        : " · compared with teammates and opponents"
-      : "";
 
   return (
-    <section className="chart-panel full-span possession-summary-panel">
-      <header className="chart-panel-header">
-        <h3>Possession</h3>
-        <span>
-          {spans.possession_count.toLocaleString()} possessions across{" "}
-          {summary.replay_count.toLocaleString()} replays
-          {comparisonSuffix}
-        </span>
-      </header>
-
-      <div className="stat-comparison-grid possession-profile-grid">
-        {comparisonCharts.map((chart) => (
-          <PlayerComparisonChart key={chart.key} rows={chart.rows} title={chart.title} />
-        ))}
-      </div>
-    </section>
+    <div
+      className="stat-comparison-grid possession-profile-grid"
+      aria-label="Possession comparisons"
+    >
+      {comparisonCharts.map((chart) => (
+        <PlayerComparisonChart key={chart.key} rows={chart.rows} title={chart.title} />
+      ))}
+    </div>
   );
 }
 
