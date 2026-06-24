@@ -197,6 +197,7 @@ fn materialized_touch_breakdown_uses_touch_breakdown_table() {
     let materialized = &source[materialized_start..materialized_end];
 
     assert!(materialized.contains("player_replay_touch_breakdowns"));
+    assert!(materialized.contains("SUM(touch_count)::bigint AS touch_count"));
     assert!(!materialized.contains("play_events"));
     assert!(!materialized.contains("play_event_subjects"));
     assert!(!materialized.contains("play_event_touch_details"));

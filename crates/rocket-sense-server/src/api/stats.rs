@@ -2252,7 +2252,7 @@ async fn load_touch_aggregate_breakdown_materialized(
                 cohort,
                 dimension,
                 value,
-                SUM(touch_count) AS touch_count,
+                SUM(touch_count)::bigint AS touch_count,
                 COALESCE(SUM(advance_distance), 0.0) AS advance_distance
             FROM cohort_breakdowns
             GROUP BY cohort, dimension, value
