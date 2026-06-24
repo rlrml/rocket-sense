@@ -244,7 +244,7 @@
           version = "0.1.0";
           src = sourceWithSubtrActor;
           cargoExtraArgs = "-p rocket-sense-server";
-          RUST_MIN_STACK = "268435456";
+          RUST_MIN_STACK = "536870912";
           strictDeps = true;
           inherit nativeBuildInputs buildInputs;
         };
