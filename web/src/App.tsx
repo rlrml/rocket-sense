@@ -3778,11 +3778,7 @@ function fetchPlayerSupplemental(
     // This summary powers the spawn-shape controls. Keep it role-neutral so
     // support appearances still contribute to the available kickoff types; the
     // taker/support panels above fetch their own role-scoped summaries.
-    return getPlayerKickoffSummary(
-      platform,
-      platformPlayerId,
-      stripKickoffSpawnParams(params),
-    );
+    return getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(params));
   }
   if (key === "positioningSummary") {
     return getPlayerPositioningSummary(platform, platformPlayerId, params);
