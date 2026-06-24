@@ -17,6 +17,7 @@ mod replay_set;
 mod replays;
 mod spa;
 mod stats;
+mod users;
 
 /// Boost materialization helpers reused by `crate::processing` to populate
 /// `player_replay_boost` with the same band/last-value accumulation as the live
@@ -62,6 +63,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(players::router())
         .merge(replays::router())
         .merge(stats::router())
+        .merge(users::router())
         .with_state(state)
 }
 
