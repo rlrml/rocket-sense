@@ -778,6 +778,7 @@ function PossessionZoneChart({
               className={`team-accent-${teamClass(subject.team)}`}
               name={subject.name}
               platform={subject.platform}
+              platformPlayerId={subject.platformPlayerId}
               profilePath={playerProfilePath(subject)}
               rank={subject.rank}
               showPlatformBadge={subject.showPlatformBadge}
@@ -849,6 +850,7 @@ function PlayerPossessionLeaderboard({
                   className={`team-accent-${teamClass(summary.team)}`}
                   name={summary.name}
                   platform={summary.platform}
+                  platformPlayerId={summary.platformPlayerId}
                   profilePath={playerProfilePath(summary)}
                   rank={summary.rank}
                   subtitle={summary.team == null ? "Mixed colors" : teamLabel(summary.team)}

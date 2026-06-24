@@ -57,6 +57,7 @@ export function StatPlayerLabel({
   inline = false,
   name,
   platform,
+  platformPlayerId,
   profilePath,
   rank,
   showPlatformBadge = true,
@@ -66,6 +67,7 @@ export function StatPlayerLabel({
   inline?: boolean;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath?: string | null;
   rank?: StatPlayerRank | null;
   showPlatformBadge?: boolean;
@@ -76,6 +78,7 @@ export function StatPlayerLabel({
       <StatPlayerName
         name={name}
         platform={platform}
+        platformPlayerId={platformPlayerId}
         profilePath={profilePath}
         showPlatformBadge={showPlatformBadge}
       />
@@ -134,17 +137,18 @@ export function StatPlayerName({
   className = "",
   name,
   platform,
+  platformPlayerId,
   profilePath,
   showPlatformBadge = true,
 }: {
   className?: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath?: string | null;
   showPlatformBadge?: boolean;
 }) {
   const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
-  const platformPlayerId = playerIdFromProfilePath(profilePath);
   return (
     <strong className={`stat-player-name-line ${className}`.trim()}>
       {showPlatformBadge ? (
@@ -158,16 +162,6 @@ export function StatPlayerName({
       <span className="stat-player-name-text">{nameNode}</span>
     </strong>
   );
-}
-
-function playerIdFromProfilePath(profilePath: string | null | undefined): string | null {
-  const match = /^\/players\/[^/]+\/([^/?#]+)/.exec(profilePath ?? "");
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
 
 export function PlayerSegmentedBarRows<T>({

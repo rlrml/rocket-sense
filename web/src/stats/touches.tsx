@@ -626,6 +626,7 @@ function touchSubjectLabel(subject: TouchSubject) {
         className={careerCohortClassName(subject.careerCohort)}
         name={subject.name}
         platform={null}
+        platformPlayerId={null}
         profilePath={null}
         rank={null}
         showPlatformBadge={false}

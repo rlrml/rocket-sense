@@ -200,6 +200,7 @@ export function possessionAdvancedCohortLabel({
       className={`possession-profile-label ${className}`}
       name={name}
       platform={null}
+      platformPlayerId={null}
       showPlatformBadge={false}
       subtitle={`${subtitle} · ${appearanceCount.toLocaleString()} appearances`}
     />

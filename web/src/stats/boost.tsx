@@ -965,6 +965,7 @@ function BoostEconomyComparisonGrid({
               key: summary.key,
               name: summary.name,
               platform: summary.platform,
+              platformPlayerId: summary.platformPlayerId,
               profilePath: profilePathForSummary(summary),
               rank: summary.rank,
               segmentColorClassName: summaryColorClassName(summary),
@@ -1003,6 +1004,7 @@ function BoostEconomyComparisonGrid({
               key: summary.key,
               name: summary.name,
               platform: summary.platform,
+              platformPlayerId: summary.platformPlayerId,
               profilePath: profilePathForSummary(summary),
               rank: summary.rank,
               segmentColorClassName: summaryColorClassName(summary),
@@ -1041,6 +1043,7 @@ function BoostEconomyComparisonGrid({
               key: summary.key,
               name: summary.name,
               platform: summary.platform,
+              platformPlayerId: summary.platformPlayerId,
               profilePath: profilePathForSummary(summary),
               rank: summary.rank,
               segmentColorClassName: summaryColorClassName(summary),
@@ -1084,6 +1087,7 @@ function BoostEconomyComparisonGrid({
                 key: summary.key,
                 name: summary.name,
                 platform: summary.platform,
+                platformPlayerId: summary.platformPlayerId,
                 profilePath: profilePathForSummary(summary),
                 rank: summary.rank,
                 segmentColorClassName: summaryColorClassName(summary),
@@ -1170,6 +1174,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1195,6 +1200,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1234,6 +1240,7 @@ function BoostEconomyComparisonGrid({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            platformPlayerId: summary.platformPlayerId,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
             segmentColorClassName: summaryColorClassName(summary),
@@ -1299,6 +1306,7 @@ function BoostEconomyComparisonGrid({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            platformPlayerId: summary.platformPlayerId,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
             segmentColorClassName: summaryColorClassName(summary),
@@ -1352,6 +1360,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1376,6 +1385,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1408,6 +1418,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1449,6 +1460,7 @@ function BoostEconomyComparisonGrid({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            platformPlayerId: summary.platformPlayerId,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
             segmentColorClassName: summaryColorClassName(summary),
@@ -1504,6 +1516,7 @@ interface BoostComparisonRow {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath: string | null;
   rank: StatPlayerRank | null;
   segmentColorClassName: string | null;
@@ -1538,6 +1551,7 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
           className={`comparison-player-label ${rowIdentityClassName}`}
           name={row.name}
           platform={row.platform}
+          platformPlayerId={row.platformPlayerId}
           profilePath={row.profilePath}
           rank={row.rank}
           showPlatformBadge={row.showPlatformBadge}
@@ -1598,6 +1612,7 @@ interface PickupMapSubject {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath: string | null;
   rank: StatPlayerRank | null;
   team: number | null;
@@ -1638,6 +1653,7 @@ function PadPickupMaps({
             key,
             name: player.name || player.platform_player_id || "Unknown",
             platform: player.platform,
+            platformPlayerId: player.platform_player_id,
             profilePath: playerProfilePath({
               platform: player.platform,
               platformPlayerId: player.platform_player_id,
@@ -1669,6 +1685,7 @@ function PadPickupMaps({
           <StatPlayerLabel
             name={subject.name}
             platform={subject.platform}
+            platformPlayerId={subject.platformPlayerId}
             profilePath={subject.profilePath}
             rank={subject.rank}
             showPlatformBadge={subject.playerIndex != null}
@@ -1966,6 +1983,7 @@ function teamPickupMapSubjects(points: BoostPickupMapPoint[]): PickupMapSubject[
     key: `team:${team}`,
     name: `${teamLabel(team)} team`,
     platform: null,
+    platformPlayerId: null,
     profilePath: null,
     rank: null,
     team,
@@ -2117,6 +2135,7 @@ const boostStatColumns: Array<{
         className={`boost-table-player team-accent-${teamClass(summary.team)}`}
         name={summary.name}
         platform={summary.platform}
+        platformPlayerId={summary.platformPlayerId}
         profilePath={playerProfilePath(summary)}
         rank={summary.rank}
         subtitle={teamLabel(summary.team)}

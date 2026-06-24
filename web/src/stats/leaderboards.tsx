@@ -547,6 +547,7 @@ function AppearancesLeaderboard({ filterKey }: { filterKey: string }) {
                     <StatPlayerLabel
                       name={name}
                       platform={row.platform}
+                      platformPlayerId={row.platform_player_id}
                       profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                       subtitle={row.is_pro ? "Pro" : row.platform}
                     />
@@ -650,6 +651,7 @@ function EventLeaderboard({
                     <StatPlayerLabel
                       name={name}
                       platform={row.platform}
+                      platformPlayerId={row.platform_player_id}
                       profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                       subtitle={row.is_pro ? "Pro" : row.platform}
                     />
@@ -721,6 +723,7 @@ function StatLeaderboard({
                       <StatPlayerLabel
                         name={name}
                         platform={row.platform}
+                        platformPlayerId={row.platform_player_id}
                         profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                         subtitle={row.is_pro ? "Pro" : row.platform}
                       />
@@ -756,6 +759,7 @@ function StatLeaderboard({
                       <StatPlayerLabel
                         name={name}
                         platform={row.platform}
+                        platformPlayerId={row.platform_player_id}
                         profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                         subtitle={row.is_pro ? "Pro" : row.platform}
                       />

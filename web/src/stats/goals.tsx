@@ -223,6 +223,7 @@ function GoalScorerLeaderboard({ goals, players }: { goals: GoalRow[]; players: 
                 <StatPlayerLabel
                   name={row.name}
                   platform={row.player?.platform ?? null}
+                  platformPlayerId={row.player?.platform_player_id ?? null}
                   profilePath={playerProfilePath(
                     row.player?.platform,
                     row.player?.platform_player_id,

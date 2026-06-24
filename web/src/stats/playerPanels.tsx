@@ -134,6 +134,7 @@ function playerRateComparisonRow({
         className={careerCohortClassName(cohortKey)}
         name={careerCohortLabel(cohortKey, playerName)}
         platform={null}
+        platformPlayerId={null}
         profilePath={null}
         rank={null}
         showPlatformBadge={false}
@@ -470,6 +471,7 @@ function percentageComparisonRow({
         className={careerCohortClassName(cohortKey)}
         name={careerCohortLabel(cohortKey, playerName)}
         platform={null}
+        platformPlayerId={null}
         profilePath={null}
         rank={null}
         showPlatformBadge={false}

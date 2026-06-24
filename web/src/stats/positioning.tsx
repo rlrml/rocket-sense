@@ -739,6 +739,7 @@ function cohortLabel(summary: PlayerPositioningSummary, appearances: number | nu
       className={cohort ? careerCohortClassName(cohort) : `team-accent-${teamClass(summary.team)}`}
       name={summary.name}
       platform={null}
+      platformPlayerId={null}
       profilePath={null}
       rank={null}
       showPlatformBadge={false}
@@ -759,6 +760,7 @@ function positioningPlayerLabel(summary: PlayerPositioningSummary) {
       className={`team-accent-${teamClass(summary.team)}`}
       name={summary.name}
       platform={summary.platform}
+      platformPlayerId={summary.platformPlayerId}
       profilePath={playerProfilePath(summary)}
       rank={summary.rank}
       subtitle={teamLabel(summary.team)}

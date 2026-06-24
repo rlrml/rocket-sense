@@ -258,6 +258,7 @@ function corePlayerLabel(summary: CorePlayerSummary) {
       className={`core-table-player team-accent-${teamClass(summary.team)}`}
       name={summary.name}
       platform={summary.platform}
+      platformPlayerId={summary.platformPlayerId}
       profilePath={playerProfilePath(summary)}
       rank={summary.rank}
       subtitle={teamLabel(summary.team)}

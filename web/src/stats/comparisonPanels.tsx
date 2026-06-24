@@ -177,6 +177,7 @@ export function comparisonSubjectLabel(
       className={`team-accent-${teamClass(subject.team)}`}
       name={subject.name}
       platform={subject.platform}
+      platformPlayerId={subject.platformPlayerId}
       profilePath={playerProfilePath(subject, statPath)}
       rank={subject.rank}
       showPlatformBadge={options.showPlatformBadge ?? subject.showPlatformBadge ?? true}

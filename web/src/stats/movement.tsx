@@ -482,6 +482,7 @@ function movementCohortLabel(summary: CareerMovementSummary): ReactNode {
       className={careerCohortClassName(summary.careerCohort)}
       name={summary.name}
       platform={null}
+      platformPlayerId={null}
       profilePath={null}
       rank={null}
       showPlatformBadge={false}
