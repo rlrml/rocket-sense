@@ -3149,6 +3149,16 @@ function ApiNotice({ label, message }: { label: string; message: string }) {
   );
 }
 
+function SupplementalLoadingNotice({ label }: { label: string }) {
+  return (
+    <div className="api-notice loading">
+      <RefreshCw size={16} className="spin" />
+      <strong>{label}</strong>
+      <span>Loading</span>
+    </div>
+  );
+}
+
 function friendlyApiMessage(message: string): string {
   if (message.includes("missing bearer token")) {
     return "This production endpoint needs a bearer token. Save one on the Account page to populate this section locally.";
@@ -3175,6 +3185,16 @@ type PlayerSupplementalKey = (typeof playerSupplementalKeys)[number];
 type PlayerSupplementalLoadedState = {
   scope: string;
   loaded: Partial<Record<PlayerSupplementalKey, boolean>>;
+};
+
+type PlayerSupplementalLoadingState = {
+  scope: string;
+  loading: Partial<Record<PlayerSupplementalKey, boolean>>;
+};
+
+type PlayerSupplementalErrorState = {
+  scope: string;
+  errors: Partial<Record<PlayerSupplementalKey, string>>;
 };
 
 function PlayerStatsPage() {
@@ -3226,6 +3246,14 @@ function PlayerStatsPage() {
     scope: "",
     loaded: {},
   });
+  const [supplementalLoading, setSupplementalLoading] = useState<PlayerSupplementalLoadingState>({
+    scope: "",
+    loading: {},
+  });
+  const [supplementalErrors, setSupplementalErrors] = useState<PlayerSupplementalErrorState>({
+    scope: "",
+    errors: {},
+  });
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -3234,6 +3262,10 @@ function PlayerStatsPage() {
   const stats = scopedStatsByGroup[activeGroup.id] ?? null;
   const scopedSupplementalLoaded =
     supplementalLoaded.scope === statsScope ? supplementalLoaded.loaded : {};
+  const scopedSupplementalLoading =
+    supplementalLoading.scope === statsScope ? supplementalLoading.loading : {};
+  const scopedSupplementalErrors =
+    supplementalErrors.scope === statsScope ? supplementalErrors.errors : {};
   const loadedSupplementalKeys = Object.keys(scopedSupplementalLoaded).sort().join("|");
   const activeSupplementalKeys = useMemo(
     () => playerSupplementalKeysForGroup(activeGroup.id),
@@ -3243,6 +3275,11 @@ function PlayerStatsPage() {
   const activeSupplementalReady = activeSupplementalKeys.every(
     (key) => scopedSupplementalLoaded[key],
   );
+  const activeSupplementalLoading = activeSupplementalKeys.some(
+    (key) => scopedSupplementalLoading[key],
+  );
+  const activeSupplementalError =
+    activeSupplementalKeys.map((key) => scopedSupplementalErrors[key]).find(Boolean) ?? null;
   const rlTrackerPlayerName =
     playerSummary?.display_name ??
     playerSummary?.current_display_name ??
@@ -3281,6 +3318,8 @@ function PlayerStatsPage() {
   useEffect(() => {
     setStatsByGroup({ scope: statsScope, groups: {} });
     setSupplementalLoaded({ scope: statsScope, loaded: {} });
+    setSupplementalLoading({ scope: statsScope, loading: {} });
+    setSupplementalErrors({ scope: statsScope, errors: {} });
     setStatsError(null);
     setStatsLoading(true);
     setOverview(null);
@@ -3423,20 +3462,57 @@ function PlayerStatsPage() {
     });
   }
 
+  function markSupplementalLoading(key: PlayerSupplementalKey, loading: boolean) {
+    setSupplementalLoading((current) => {
+      const currentLoading = current.scope === statsScope ? current.loading : {};
+      return {
+        scope: statsScope,
+        loading: { ...currentLoading, [key]: loading },
+      };
+    });
+  }
+
+  function markSupplementalError(key: PlayerSupplementalKey, message: string | null) {
+    setSupplementalErrors((current) => {
+      const errors = current.scope === statsScope ? current.errors : {};
+      const nextErrors = { ...errors };
+      if (message) {
+        nextErrors[key] = message;
+      } else {
+        delete nextErrors[key];
+      }
+      return { scope: statsScope, errors: nextErrors };
+    });
+  }
+
   useEffect(() => {
-    const missingKeys = activeSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
+    const missingKeys = activeSupplementalKeys.filter(
+      (key) => !scopedSupplementalLoaded[key] && !scopedSupplementalLoading[key],
+    );
     if (!hasResolvedPlayer) return;
     if (missingKeys.length === 0) return;
 
     let cancelled = false;
     for (const key of missingKeys) {
+      markSupplementalLoading(key, true);
+      markSupplementalError(key, null);
       fetchPlayerSupplemental(key, resolvedPlatform, resolvedPlatformPlayerId, location.search)
         .then((response) => {
           if (!cancelled) applySupplementalResponse(key, response);
         })
-        .catch(() => {})
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            markSupplementalError(
+              key,
+              err instanceof Error ? err.message : "Failed to load supplemental stats.",
+            );
+          }
+        })
         .finally(() => {
-          if (!cancelled) markSupplementalLoaded(key);
+          if (!cancelled) {
+            markSupplementalLoaded(key);
+            markSupplementalLoading(key, false);
+          }
         });
     }
 
@@ -3450,12 +3526,14 @@ function PlayerStatsPage() {
     location.search,
     resolvedPlatform,
     resolvedPlatformPlayerId,
-    scopedSupplementalLoaded,
+    statsScope,
   ]);
 
   useEffect(() => {
     if (!hasResolvedPlayer || !stats || !activeSupplementalReady) return;
-    const remainingKeys = playerSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
+    const remainingKeys = playerSupplementalKeys.filter(
+      (key) => !scopedSupplementalLoaded[key] && !scopedSupplementalLoading[key],
+    );
     if (remainingKeys.length === 0) return;
 
     let cancelled = false;
@@ -3464,6 +3542,8 @@ function PlayerStatsPage() {
         for (const key of remainingKeys) {
           if (cancelled) break;
           try {
+            markSupplementalLoading(key, true);
+            markSupplementalError(key, null);
             const response = await fetchPlayerSupplemental(
               key,
               resolvedPlatform,
@@ -3472,10 +3552,19 @@ function PlayerStatsPage() {
             );
             if (cancelled) break;
             applySupplementalResponse(key, response);
-          } catch {
+          } catch (err) {
+            if (!cancelled) {
+              markSupplementalError(
+                key,
+                err instanceof Error ? err.message : "Failed to load supplemental stats.",
+              );
+            }
             // Background supplemental panels are optional.
           } finally {
-            if (!cancelled) markSupplementalLoaded(key);
+            if (!cancelled) {
+              markSupplementalLoaded(key);
+              markSupplementalLoading(key, false);
+            }
           }
         }
       })();
@@ -3488,10 +3577,12 @@ function PlayerStatsPage() {
   }, [
     activeSupplementalReady,
     hasResolvedPlayer,
+    loadedSupplementalKeys,
     location.search,
     resolvedPlatform,
     resolvedPlatformPlayerId,
     stats,
+    statsScope,
   ]);
 
   return (
@@ -3585,6 +3676,8 @@ function PlayerStatsPage() {
               movementSummary={movementSummary}
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
+              supplementalError={activeSupplementalError}
+              supplementalLoading={activeSupplementalLoading}
               overview={overview}
               platform={resolvedPlatform}
               platformPlayerId={resolvedPlatformPlayerId}
@@ -3816,6 +3909,8 @@ function PlayerAggregateStatsSections({
   routeBasePath,
   search,
   stats,
+  supplementalError,
+  supplementalLoading,
 }: {
   activeGroup: StatGroup;
   kickoffFilterSummary: EventStatSummaryResponse | null;
@@ -3831,6 +3926,8 @@ function PlayerAggregateStatsSections({
   routeBasePath: string;
   search: string;
   stats: StatAggregateSetResponse;
+  supplementalError: string | null;
+  supplementalLoading: boolean;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
@@ -3940,6 +4037,12 @@ function PlayerAggregateStatsSections({
       {activeGroup.id === "movement" && movementSummary ? (
         <PlayerMovementCohorts response={movementSummary} playerName={playerName} />
       ) : null}
+      {activeGroup.id === "movement" && supplementalLoading ? (
+        <SupplementalLoadingNotice label="Movement comparisons" />
+      ) : null}
+      {activeGroup.id === "movement" && supplementalError ? (
+        <ApiNotice label="Movement comparisons" message={supplementalError} />
+      ) : null}
 
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
@@ -3957,6 +4060,12 @@ function PlayerAggregateStatsSections({
       ) : null}
       {activeGroup.id === "possession" && possessionSummary ? (
         <PossessionSummaryPanel playerName={playerName} summary={possessionSummary} />
+      ) : null}
+      {activeGroup.id === "possession" && supplementalLoading ? (
+        <SupplementalLoadingNotice label="Possession comparisons" />
+      ) : null}
+      {activeGroup.id === "possession" && supplementalError ? (
+        <ApiNotice label="Possession comparisons" message={supplementalError} />
       ) : null}
       {activeGroup.id === "touches" && stats.touch_breakdown ? (
         <TouchProfileComparison breakdown={stats.touch_breakdown} />
