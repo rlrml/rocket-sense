@@ -766,6 +766,8 @@ fn event_total_query(filters: &EventLeaderboardFilters) -> QueryBuilder<'_, Post
 enum StatLeaderboardMetric {
     BallOpponentHalf,
     PossessionTime,
+    HighAerialTouchCount,
+    ControlTouchCount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -777,6 +779,7 @@ enum RelativeFieldHalf {
 enum StatMetricSource {
     BallHalfDuration { half: RelativeFieldHalf },
     PlayerPossessionDuration,
+    TouchCount,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -797,7 +800,12 @@ impl StatMetricDefinition {
                 half: RelativeFieldHalf::Opponent,
             } => self.key,
             StatMetricSource::PlayerPossessionDuration => self.key,
+            StatMetricSource::TouchCount => self.key,
         }
+    }
+
+    fn supports_share(self) -> bool {
+        self.unit == "seconds"
     }
 }
 
@@ -829,6 +837,36 @@ const STAT_METRIC_DEFINITIONS: &[StatMetricDefinition] = &[
         unit: "seconds",
         source: StatMetricSource::PlayerPossessionDuration,
     },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::HighAerialTouchCount,
+        key: "high-aerial-touch-count",
+        aliases: &[
+            "high_aerial_touch_count",
+            "high-aerial-touches",
+            "high_aerial_touches",
+            "high-aerial-touch",
+            "high_aerial_touch",
+        ],
+        display_name: "High aerial touches",
+        description: "Touches classified as high aerial contacts",
+        unit: "count",
+        source: StatMetricSource::TouchCount,
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::ControlTouchCount,
+        key: "control-touch-count",
+        aliases: &[
+            "control_touch_count",
+            "control-touches",
+            "control_touches",
+            "control-touch",
+            "control_touch",
+        ],
+        display_name: "Control touches",
+        description: "Touches classified as controlled contacts",
+        unit: "count",
+        source: StatMetricSource::TouchCount,
+    },
 ];
 
 impl StatLeaderboardMetric {
@@ -846,7 +884,9 @@ impl StatLeaderboardMetric {
             })
             .map(|definition| definition.metric)
             .ok_or_else(|| {
-                ApiError::bad_request("stat must be one of: ball-opponent-half, possession-time")
+                ApiError::bad_request(
+                    "stat must be one of: ball-opponent-half, possession-time, high-aerial-touch-count, control-touch-count",
+                )
             })
     }
 
@@ -946,6 +986,11 @@ impl StatLeaderboardFilters {
         let metric =
             StatLeaderboardMetric::from_query(params.first(&["stat", "metric"]).as_deref())?;
         let sort = StatLeaderboardSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
+        if sort == StatLeaderboardSort::Share && !metric.definition().supports_share() {
+            return Err(ApiError::bad_request(
+                "share sorting is only available for second-based stats",
+            ));
+        }
         let min_games = params
             .first(&["min-games", "min_games"])
             .map(|value| parse_u32_filter("min-games", &value))
@@ -969,7 +1014,7 @@ impl StatLeaderboardFilters {
     path = "/api/v1/leaderboards/stat",
     tag = "leaderboards",
     params(
-        ("stat" = Option<String>, Query, description = "Continuous stat metric: ball-opponent-half (default) or possession-time"),
+        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, high-aerial-touch-count, or control-touch-count"),
         ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, or share"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),

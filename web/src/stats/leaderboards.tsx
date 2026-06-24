@@ -41,6 +41,7 @@ interface CatalogMetric {
   label: string;
   category: string;
   param?: string;
+  unit?: "seconds" | "count";
   aggregations: Aggregation[];
   description: string;
 }
@@ -115,15 +116,51 @@ const ACTIVITY_METRICS: CatalogMetric[] = [
   },
 ];
 
-const STAT_DESCRIPTIONS: Record<string, string> = {
-  "ball-opponent-half": "Time spent with the ball in the opponent's half.",
-  "possession-time": "Time in individual possession of the ball.",
-};
-
-const statOptions = [
-  { value: "ball-opponent-half", label: "Ball in opponent half" },
-  { value: "possession-time", label: "Possession time" },
+const statOptions: Array<{
+  value: string;
+  label: string;
+  category: string;
+  unit: "seconds" | "count";
+  aggregations: Aggregation[];
+  description: string;
+}> = [
+  {
+    value: "ball-opponent-half",
+    label: "Ball in opponent half",
+    category: "possession",
+    unit: "seconds",
+    aggregations: STAT_AGGREGATIONS,
+    description: "Time spent with the ball in the opponent's half.",
+  },
+  {
+    value: "possession-time",
+    label: "Possession time",
+    category: "possession",
+    unit: "seconds",
+    aggregations: STAT_AGGREGATIONS,
+    description: "Time in individual possession of the ball.",
+  },
+  {
+    value: "high-aerial-touch-count",
+    label: "High aerial touches",
+    category: "mechanic",
+    unit: "count",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Touches classified as high aerial contacts.",
+  },
+  {
+    value: "control-touch-count",
+    label: "Control touches",
+    category: "possession",
+    unit: "count",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Touches classified as controlled contacts.",
+  },
 ];
+
+function statOption(value: string): (typeof statOptions)[number] | undefined {
+  return statOptions.find((option) => option.value === value);
+}
 
 function aggregationLabel(aggregation: Aggregation, rateWindowMinutes: number): string {
   switch (aggregation) {
@@ -154,10 +191,11 @@ function buildCatalog(eventTypes: EventTypeResponse[]): CatalogMetric[] {
     id: `stat:${option.value}`,
     kind: "stat",
     label: option.label,
-    category: "possession",
+    category: option.category,
     param: option.value,
-    aggregations: STAT_AGGREGATIONS,
-    description: STAT_DESCRIPTIONS[option.value] ?? "",
+    unit: option.unit,
+    aggregations: option.aggregations,
+    description: option.description,
   }));
   const eventMetrics: CatalogMetric[] = eventTypes.map((eventType) => ({
     id: `event:${eventType.key}`,
@@ -192,14 +230,16 @@ function resolveBoard(id: string, catalog: CatalogMetric[]): CatalogMetric | nul
   }
   if (id.startsWith("stat:")) {
     const value = id.slice("stat:".length);
+    const option = statOption(value);
     return {
       id,
       kind: "stat",
-      label: value,
-      category: "possession",
+      label: option?.label ?? value,
+      category: option?.category ?? "possession",
       param: value,
-      aggregations: STAT_AGGREGATIONS,
-      description: STAT_DESCRIPTIONS[value] ?? "",
+      unit: option?.unit ?? "seconds",
+      aggregations: option?.aggregations ?? STAT_AGGREGATIONS,
+      description: option?.description ?? "",
     };
   }
   return ACTIVITY_METRICS.find((metric) => metric.id === id) ?? null;
@@ -234,6 +274,21 @@ function perRateWindow(perMinute: number | null, rateWindowMinutes: number): num
 
 function perDurationWindow(perMinute: number | null, rateWindowMinutes: number): string {
   return formatDurationCompact(perRateWindow(perMinute, rateWindowMinutes));
+}
+
+function formatStatValue(value: number | null, unit: CatalogMetric["unit"]): string {
+  if (unit === "seconds") return formatDurationCompact(value);
+  return formatRate(value);
+}
+
+function perStatWindow(
+  perMinute: number | null,
+  rateWindowMinutes: number,
+  unit: CatalogMetric["unit"],
+): string {
+  return unit === "seconds"
+    ? perDurationWindow(perMinute, rateWindowMinutes)
+    : formatRate(perRateWindow(perMinute, rateWindowMinutes));
 }
 
 // Mirrors the segmentation used everywhere else (see App.tsx); team size and
@@ -540,13 +595,16 @@ function EventLeaderboard({
 function StatLeaderboard({
   filterKey,
   rateWindowMinutes,
+  unit,
 }: {
   filterKey: string;
   rateWindowMinutes: number;
+  unit: CatalogMetric["unit"];
 }) {
   const { rows, total, nextOffset, loading, loadingMore, error, loadMore } =
     useLeaderboard<StatLeaderboardRow>(getStatLeaderboard, filterKey);
   const rateColumnLabel = rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
+  const showShare = unit === "seconds";
 
   if (loading) return <div className="stat-empty">Loading leaderboard…</div>;
   if (error) return <div className="stat-empty">Failed to load leaderboard: {error}</div>;
@@ -562,7 +620,7 @@ function StatLeaderboard({
               <th className="leaderboard-rank-col">#</th>
               <th>Player</th>
               <th>Total</th>
-              <th>Share</th>
+              {showShare ? <th>Share</th> : null}
               <th>Games</th>
               <th>Per game</th>
               <th>{rateColumnLabel}</th>
@@ -582,11 +640,11 @@ function StatLeaderboard({
                       subtitle={row.is_pro ? "Pro" : row.platform}
                     />
                   </td>
-                  <td>{formatDurationCompact(row.value)}</td>
-                  <td>{formatPercent(row.share_of_active_time)}</td>
+                  <td>{formatStatValue(row.value, unit)}</td>
+                  {showShare ? <td>{formatPercent(row.share_of_active_time)}</td> : null}
                   <td>{row.replay_count.toLocaleString()}</td>
-                  <td>{formatDurationCompact(row.value_per_game)}</td>
-                  <td>{perDurationWindow(row.value_per_active_minute, rateWindowMinutes)}</td>
+                  <td>{formatStatValue(row.value_per_game, unit)}</td>
+                  <td>{perStatWindow(row.value_per_active_minute, rateWindowMinutes, unit)}</td>
                 </tr>
               );
             })}
@@ -964,7 +1022,11 @@ export function LeaderboardsPage() {
         ) : metric.kind === "event" ? (
           <EventLeaderboard filterKey={boardFilterKey} rateWindowMinutes={rateWindowMinutes} />
         ) : metric.kind === "stat" ? (
-          <StatLeaderboard filterKey={boardFilterKey} rateWindowMinutes={rateWindowMinutes} />
+          <StatLeaderboard
+            filterKey={boardFilterKey}
+            rateWindowMinutes={rateWindowMinutes}
+            unit={metric.unit}
+          />
         ) : (
           <AppearancesLeaderboard filterKey={replayFilterKey} />
         )}
