@@ -3275,7 +3275,6 @@ function PlayerStatsPage() {
     supplementalLoading.scope === statsScope ? supplementalLoading.loading : {};
   const scopedSupplementalErrors =
     supplementalErrors.scope === statsScope ? supplementalErrors.errors : {};
-  const loadedSupplementalKeys = Object.keys(scopedSupplementalLoaded).sort().join("|");
   const activeSupplementalKeys = useMemo(
     () => playerSupplementalKeysForGroup(activeGroup.id),
     [activeGroup.id],
@@ -3497,7 +3496,6 @@ function PlayerStatsPage() {
     activeGroup.id,
     activeSupplementalKeyList,
     hasResolvedPlayer,
-    loadedSupplementalKeys,
     playerStatsSearch,
     resolvedPlatform,
     resolvedPlatformPlayerId,
@@ -3777,11 +3775,13 @@ function fetchPlayerSupplemental(
     return getPlayerKickoffSummary(platform, platformPlayerId, params, "support");
   }
   if (key === "kickoffFilter") {
+    // This summary powers the spawn-shape controls. Keep it role-neutral so
+    // support appearances still contribute to the available kickoff types; the
+    // taker/support panels above fetch their own role-scoped summaries.
     return getPlayerKickoffSummary(
       platform,
       platformPlayerId,
       stripKickoffSpawnParams(params),
-      "taker",
     );
   }
   if (key === "positioningSummary") {
@@ -3959,9 +3959,13 @@ function PlayerAggregateStatsSections({
   const requestSearch = playerStatsRequestSearchParams(search).toString();
   const kickoffShapeFilter = kickoffShapeFilterFromSearch(search);
   const kickoffSideFilter = kickoffSideFilterFromSearch(search);
-  const kickoffSpawnDimension = kickoffFilterSummary?.dimensions.find(
-    (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
-  );
+  const kickoffSpawnDimension =
+    kickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "kickoff_type" && dimension.values.length > 0,
+    ) ??
+    kickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
+    );
   const setKickoffFilter = (key: "kickoff-shape" | "kickoff-side", value: string) => {
     const params = new URLSearchParams(location.search);
     if (value === "all") {

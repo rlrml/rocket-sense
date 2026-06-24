@@ -57,6 +57,34 @@ const KICKOFF_TAKER_BOOST_USED_SUMMARY_SQL: &str = r#"
                     )::double precision
                 )
             ) FILTER (WHERE detail.role = 'taker') AS avg_boost_used"#;
+const KICKOFF_TYPE_DIMENSION_SQL: &str = r#"
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM play_event_kickoff_player_details taker
+                    WHERE taker.event_id = detail.event_id
+                      AND taker.role = 'taker'
+                      AND taker.spawn_position LIKE 'diagonal_%'
+                )
+                    THEN 'diagonal'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM play_event_kickoff_player_details taker
+                    WHERE taker.event_id = detail.event_id
+                      AND taker.role = 'taker'
+                      AND taker.spawn_position LIKE 'off_center_%'
+                )
+                    THEN 'center_offset'
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM play_event_kickoff_player_details taker
+                    WHERE taker.event_id = detail.event_id
+                      AND taker.role = 'taker'
+                      AND taker.spawn_position = 'center'
+                )
+                    THEN 'center'
+                ELSE NULL
+            END"#;
 
 pub fn router() -> Router<AppState> {
     Router::new().route(
@@ -272,6 +300,11 @@ const KICKOFF_DIMENSIONS: &[EventStatsDimension] = &[
         key: "role",
         label: "Role",
         expression: "detail.role",
+    },
+    EventStatsDimension {
+        key: "kickoff_type",
+        label: "Kickoff type",
+        expression: KICKOFF_TYPE_DIMENSION_SQL,
     },
     EventStatsDimension {
         key: "spawn_position",
