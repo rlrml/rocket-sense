@@ -125,6 +125,33 @@ fn stat_aggregate_query_accepts_repeated_stat_terms() {
 }
 
 #[test]
+fn stat_aggregate_query_can_skip_rotation_histograms() {
+    let default_query = StatAggregatesQuery::from_raw_query(Some(
+        "player-id=Steam:76561198000000000&include-teammates=true",
+    ))
+    .expect("default query should parse");
+    let default_filters =
+        StatAggregateFilters::from_query(default_query, None).expect("filters should parse");
+    assert!(default_filters.include_rotation_histogram);
+
+    let opt_out_query = StatAggregatesQuery::from_raw_query(Some(
+        "player-id=Steam:76561198000000000&include-rotation-histogram=false",
+    ))
+    .expect("opt-out query should parse");
+    let opt_out_filters =
+        StatAggregateFilters::from_query(opt_out_query, None).expect("filters should parse");
+    assert!(!opt_out_filters.include_rotation_histogram);
+
+    let alias_query = StatAggregatesQuery::from_raw_query(Some(
+        "player-id=Steam:76561198000000000&include_rotation_histogram=true",
+    ))
+    .expect("alias query should parse");
+    let alias_filters =
+        StatAggregateFilters::from_query(alias_query, None).expect("filters should parse");
+    assert!(alias_filters.include_rotation_histogram);
+}
+
+#[test]
 fn stat_aggregate_query_parses_game_type_and_team_size_filters() {
     let raw_query = "game-type=ranked&game-type=tournament&team-size=2v2&team-size=3";
     let query = StatAggregatesQuery::from_raw_query(Some(raw_query))
@@ -251,6 +278,23 @@ fn contact_event_type_seed_migration_covers_demo_death_aliases() {
     assert!(migration.contains("('kill', 'Kill'"));
     assert!(migration.contains("('death', 'Death'"));
     assert!(migration.contains("ON CONFLICT (key) DO NOTHING"));
+}
+
+#[test]
+fn player_replay_event_counts_backfill_uses_canonical_materialized_shape() {
+    let migration =
+        include_str!("../../../../migrations/0065_backfill_player_replay_event_counts.sql");
+
+    assert!(migration.contains("INSERT INTO player_replay_event_counts"));
+    assert!(migration.contains("event.analysis_run_id"));
+    assert!(migration.contains("r.canonical_analysis_run_id"));
+    assert!(migration.contains("source_event_type.key = 'demolition'"));
+    assert!(migration.contains("subject.role = 'victim'"));
+    assert!(migration.contains("subject.role NOT IN ('attacker', 'victim')"));
+    assert!(migration.contains("event.source_stream NOT IN"));
+    assert!(migration.contains("'movement'"));
+    assert!(migration.contains("COUNT(DISTINCT event_id)"));
+    assert!(migration.contains("ON CONFLICT DO NOTHING"));
 }
 
 #[test]

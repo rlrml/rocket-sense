@@ -318,12 +318,21 @@ export function getPlayerStatAggregates(
   platformPlayerId: string,
   searchParams: URLSearchParams,
   statTerms: readonly string[] = [],
+  options: {
+    includeRotationHistogram?: boolean;
+    groupBy?: "playlist" | null;
+  } = {},
 ): Promise<StatAggregateSetResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
   params.set("include-teammates", "true");
-  params.set("group-by", "playlist");
   params.set("count", "200");
+  if (options.groupBy) {
+    params.set("group-by", options.groupBy);
+  }
+  if (options.includeRotationHistogram != null) {
+    params.set("include-rotation-histogram", String(options.includeRotationHistogram));
+  }
   for (const term of statTerms) {
     params.append("stat-term", term);
   }

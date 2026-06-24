@@ -318,6 +318,13 @@ pub struct StatAggregatesQuery {
     /// Optional aggregate grouping. Currently supports `playlist`.
     #[serde(rename = "group-by", alias = "group_by")]
     pub group_by: Option<String>,
+    /// Include first-man stint histograms. Defaults to true for compatibility,
+    /// but expensive lifetime views can opt out when they do not render them.
+    #[serde(
+        rename = "include-rotation-histogram",
+        alias = "include_rotation_histogram"
+    )]
+    pub include_rotation_histogram: Option<bool>,
     /// Kickoff spawn shape filter for kickoff-scoped aggregate rows.
     #[serde(rename = "kickoff-shape", alias = "kickoff_shape")]
     pub kickoff_shape: Option<String>,
@@ -337,12 +344,13 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) player: Option<PlayerStatFilter>,
     pub(crate) stat_terms: Vec<String>,
     pub(crate) include_teammates: bool,
+    pub(crate) include_rotation_histogram: bool,
     pub(crate) kickoff_spawn: KickoffSpawnFilter,
     pub(crate) limit: u32,
     pub(crate) group_by: Option<StatAggregateGroupBy>,
     /// When true, player stat counts read the materialized
     /// `player_replay_event_counts` table instead of the live event scan. Set
-    /// from `AppState::materialized_stat_counts` by the handler; defaults false.
+    /// from `AppState::materialized_stat_counts` by the handler.
     pub(crate) materialized_stat_counts: bool,
 }
 
@@ -433,6 +441,7 @@ impl StatAggregateFilters {
                 .transpose()?,
             stat_terms: normalize_stat_terms(query.stat_terms),
             include_teammates: query.include_teammates.unwrap_or(false),
+            include_rotation_histogram: query.include_rotation_histogram.unwrap_or(true),
             kickoff_spawn: KickoffSpawnFilter::from_values(
                 query.kickoff_shape,
                 query.kickoff_side,
@@ -482,6 +491,10 @@ impl StatAggregatesQuery {
                 .map(|value| parse_u32_filter("count", &value))
                 .transpose()?,
             group_by: params.first(&["group-by", "group_by"]),
+            include_rotation_histogram: params
+                .first(&["include-rotation-histogram", "include_rotation_histogram"])
+                .map(|value| parse_bool_filter("include-rotation-histogram", &value))
+                .transpose()?,
             kickoff_shape: params.first(&["kickoff-shape", "kickoff_shape"]),
             kickoff_side: params.first(&["kickoff-side", "kickoff_side"]),
             materialized: params
@@ -1399,7 +1412,7 @@ async fn load_stat_aggregates_base(
     // The rotation histogram is only surfaced on the top-level response, not on
     // per-playlist groups, so skip the (expensive) query when grouping.
     let histogram_fut = async {
-        if include_rotation_histogram {
+        if include_rotation_histogram && filters.include_rotation_histogram {
             load_rotation_duration_histogram(pool, filters).await
         } else {
             Ok::<_, sqlx::Error>(Vec::new())
@@ -1412,6 +1425,7 @@ async fn load_stat_aggregates_base(
     // empty rather than resurrecting it.
     let teammate_histogram_fut = async {
         if include_rotation_histogram
+            && filters.include_rotation_histogram
             && filters.player.is_some()
             && filters.include_teammates
             && filters.materialized_stat_counts
@@ -2226,10 +2240,10 @@ async fn load_replay_set_stat_count_rows(
 ///
 /// Reads the materialized `player_replay_event_counts` table when enabled and
 /// usable, falling back to the live `play_event_subjects`/`play_events` scan
-/// otherwise. The materialization is gated by `materialized_stat_counts` (off
-/// until the reprocess backfill is complete and parity-verified) and cannot
-/// serve the `kickoff_spawn` filter -- a per-event-id predicate the per-(player,
-/// type) counts cannot reproduce, which the lifetime stats page never sets.
+/// otherwise. The materialization is gated by `materialized_stat_counts` and
+/// cannot serve the `kickoff_spawn` filter -- a per-event-id predicate the
+/// per-(player, type) counts cannot reproduce, which the lifetime stats page
+/// never sets.
 async fn load_player_stat_count_rows(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,

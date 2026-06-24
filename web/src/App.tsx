@@ -3171,16 +3171,14 @@ type PlayerStatsByGroupState = {
   groups: Partial<Record<string, StatAggregateSetResponse>>;
 };
 
-const playerSupplementalKeys = [
-  "overview",
-  "kickoffTaker",
-  "kickoffSupport",
-  "kickoffFilter",
-  "movementSummary",
-  "possession",
-  "positioningSummary",
-] as const;
-type PlayerSupplementalKey = (typeof playerSupplementalKeys)[number];
+type PlayerSupplementalKey =
+  | "overview"
+  | "kickoffTaker"
+  | "kickoffSupport"
+  | "kickoffFilter"
+  | "movementSummary"
+  | "possession"
+  | "positioningSummary";
 
 type PlayerSupplementalLoadedState = {
   scope: string;
@@ -3272,9 +3270,6 @@ function PlayerStatsPage() {
     [activeGroup.id],
   );
   const activeSupplementalKeyList = activeSupplementalKeys.join("|");
-  const activeSupplementalReady = activeSupplementalKeys.every(
-    (key) => scopedSupplementalLoaded[key],
-  );
   const activeSupplementalLoading = activeSupplementalKeys.some(
     (key) => scopedSupplementalLoading[key],
   );
@@ -3360,6 +3355,7 @@ function PlayerStatsPage() {
       resolvedPlatformPlayerId,
       playerAggregateSearchParams(activeGroup.id, location.search),
       activeGroup.terms,
+      playerAggregateRequestOptions(activeGroup.id),
     )
       .then((response) => {
         if (cancelled) return;
@@ -3379,53 +3375,6 @@ function PlayerStatsPage() {
     };
   }, [
     activeGroup,
-    hasResolvedPlayer,
-    location.search,
-    resolvedPlatform,
-    resolvedPlatformPlayerId,
-    stats,
-    statsScope,
-  ]);
-
-  useEffect(() => {
-    if (!hasResolvedPlayer || !stats || !activeSupplementalReady) return;
-    const remainingGroups = playerStatsSectionGroups.filter(
-      (group) => group.id !== activeGroup.id && scopedStatsByGroup[group.id] == null,
-    );
-    if (remainingGroups.length === 0) return;
-
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      void (async () => {
-        for (const group of remainingGroups) {
-          if (cancelled) break;
-          try {
-            const response = await getPlayerStatAggregates(
-              resolvedPlatform,
-              resolvedPlatformPlayerId,
-              playerAggregateSearchParams(group.id, location.search),
-              group.terms,
-            );
-            if (cancelled) break;
-            setStatsByGroup((current) => {
-              const groups = current.scope === statsScope ? current.groups : {};
-              if (groups[group.id]) return current;
-              return { scope: statsScope, groups: { ...groups, [group.id]: response } };
-            });
-          } catch {
-            // Background tab hydration should not interrupt the visible section.
-          }
-        }
-      })();
-    }, 100);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [
-    activeGroup.id,
-    activeSupplementalReady,
     hasResolvedPlayer,
     location.search,
     resolvedPlatform,
@@ -3531,62 +3480,6 @@ function PlayerStatsPage() {
     location.search,
     resolvedPlatform,
     resolvedPlatformPlayerId,
-    statsScope,
-  ]);
-
-  useEffect(() => {
-    if (!hasResolvedPlayer || !stats || !activeSupplementalReady) return;
-    const remainingKeys = playerSupplementalKeys.filter(
-      (key) => !scopedSupplementalLoaded[key] && !scopedSupplementalLoading[key],
-    );
-    if (remainingKeys.length === 0) return;
-
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      void (async () => {
-        for (const key of remainingKeys) {
-          if (cancelled) break;
-          try {
-            markSupplementalLoading(key, true);
-            markSupplementalError(key, null);
-            const response = await fetchPlayerSupplemental(
-              key,
-              resolvedPlatform,
-              resolvedPlatformPlayerId,
-              location.search,
-            );
-            if (cancelled) break;
-            applySupplementalResponse(key, response);
-          } catch (err) {
-            if (!cancelled) {
-              markSupplementalError(
-                key,
-                err instanceof Error ? err.message : "Failed to load supplemental stats.",
-              );
-            }
-            // Background supplemental panels are optional.
-          } finally {
-            if (!cancelled) {
-              markSupplementalLoaded(key);
-              markSupplementalLoading(key, false);
-            }
-          }
-        }
-      })();
-    }, 100);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [
-    activeSupplementalReady,
-    hasResolvedPlayer,
-    loadedSupplementalKeys,
-    location.search,
-    resolvedPlatform,
-    resolvedPlatformPlayerId,
-    stats,
     statsScope,
   ]);
 
@@ -3753,6 +3646,14 @@ function stripKickoffSpawnParams(params: URLSearchParams): URLSearchParams {
 function playerAggregateSearchParams(groupId: string, search: string): URLSearchParams {
   const params = new URLSearchParams(search);
   return groupId === "kickoffs" ? params : stripKickoffSpawnParams(params);
+}
+
+function playerAggregateRequestOptions(groupId: string): {
+  includeRotationHistogram: boolean;
+} {
+  return {
+    includeRotationHistogram: groupId === "positioning" || groupId === "rotation",
+  };
 }
 
 function kickoffShapeFilterFromSearch(search: string): KickoffShapeFilter {
