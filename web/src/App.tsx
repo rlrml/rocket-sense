@@ -3172,8 +3172,10 @@ type PlayerStatsByGroupState = {
   groups: Partial<Record<string, StatAggregateSetResponse>>;
 };
 
+type PlayerOverviewSupplementalKey = "overviewCore" | "overviewGoalTags" | "overviewRotation";
+
 type PlayerSupplementalKey =
-  | "overview"
+  | PlayerOverviewSupplementalKey
   | "kickoffTaker"
   | "kickoffSupport"
   | "kickoffFilter"
@@ -3230,7 +3232,9 @@ function PlayerStatsPage() {
     scope: "",
     groups: {},
   });
-  const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
+  const [overviews, setOverviews] = useState<
+    Partial<Record<PlayerOverviewSupplementalKey, PlayerStatOverviewResponse>>
+  >({});
   const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(
     null,
   );
@@ -3264,6 +3268,7 @@ function PlayerStatsPage() {
   const [statsError, setStatsError] = useState<string | null>(null);
   const scopedStatsByGroup = statsByGroup.scope === statsScope ? statsByGroup.groups : {};
   const stats = scopedStatsByGroup[activeGroup.id] ?? null;
+  const overview = playerOverviewForGroup(activeGroup.id, overviews);
   const scopedSupplementalLoaded =
     supplementalLoaded.scope === statsScope ? supplementalLoaded.loaded : {};
   const scopedSupplementalLoading =
@@ -3328,7 +3333,7 @@ function PlayerStatsPage() {
     setSupplementalErrors({ scope: statsScope, errors: {} });
     setStatsError(null);
     setStatsLoading(true);
-    setOverview(null);
+    setOverviews({});
     setKickoffTakerSummary(null);
     setKickoffSupportSummary(null);
     setKickoffFilterSummary(null);
@@ -3398,8 +3403,11 @@ function PlayerStatsPage() {
       | PossessionSummaryResponse
       | PositioningSummaryResponse,
   ) {
-    if (key === "overview") {
-      setOverview(response as PlayerStatOverviewResponse);
+    if (isPlayerOverviewSupplementalKey(key)) {
+      setOverviews((current) => ({
+        ...current,
+        [key]: response as PlayerStatOverviewResponse,
+      }));
     } else if (key === "kickoffTaker") {
       setKickoffTakerSummary(response as EventStatSummaryResponse);
     } else if (key === "kickoffSupport") {
@@ -3679,9 +3687,49 @@ function kickoffSideFilterFromSearch(search: string): KickoffSideFilter {
   return value === "left" || value === "right" ? value : "all";
 }
 
-function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
+const playerOverviewSupplementalKeys = [
+  "overviewCore",
+  "overviewGoalTags",
+  "overviewRotation",
+] as const;
+
+function isPlayerOverviewSupplementalKey(
+  key: PlayerSupplementalKey,
+): key is PlayerOverviewSupplementalKey {
+  return (playerOverviewSupplementalKeys as readonly string[]).includes(key);
+}
+
+function overviewSupplementalKeyForGroup(groupId: string): PlayerOverviewSupplementalKey | null {
+  if (groupId === "goals") {
+    return "overviewGoalTags";
+  }
+  if (groupId === "positioning" || groupId === "rotation") {
+    return "overviewRotation";
+  }
   if (groupId === "core") {
-    return ["overview"];
+    return "overviewCore";
+  }
+  return null;
+}
+
+function playerOverviewForGroup(
+  groupId: string,
+  overviews: Partial<Record<PlayerOverviewSupplementalKey, PlayerStatOverviewResponse>>,
+): PlayerStatOverviewResponse | null {
+  const key = overviewSupplementalKeyForGroup(groupId);
+  if (!key) return null;
+  if (key === "overviewCore") {
+    return (
+      overviews.overviewCore ?? overviews.overviewGoalTags ?? overviews.overviewRotation ?? null
+    );
+  }
+  return overviews[key] ?? null;
+}
+
+function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
+  const overviewKey = overviewSupplementalKeyForGroup(groupId);
+  if (groupId === "core" && overviewKey) {
+    return [overviewKey];
   }
   if (groupId === "movement") {
     return ["movementSummary"];
@@ -3689,10 +3737,10 @@ function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[
   if (groupId === "positioning") {
     // overview backs the rotation time-share panel; positioningSummary backs the
     // You/Teammates/Opponents comparison graphs.
-    return ["overview", "positioningSummary"];
+    return overviewKey ? [overviewKey, "positioningSummary"] : ["positioningSummary"];
   }
-  if (groupId === "goals" || groupId === "rotation") {
-    return ["overview"];
+  if ((groupId === "goals" || groupId === "rotation") && overviewKey) {
+    return [overviewKey];
   }
   if (groupId === "kickoffs") {
     return ["kickoffTaker", "kickoffSupport", "kickoffFilter"];
@@ -3705,7 +3753,7 @@ function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[
 
 function fetchPlayerSupplemental(
   key: PlayerSupplementalKey,
-  groupId: string,
+  _groupId: string,
   platform: string,
   platformPlayerId: string,
   search: string,
@@ -3717,9 +3765,9 @@ function fetchPlayerSupplemental(
   | PositioningSummaryResponse
 > {
   const params = new URLSearchParams(search);
-  if (key === "overview") {
-    params.set("include-goal-tags", String(groupId === "goals"));
-    params.set("include-rotation", String(groupId === "positioning" || groupId === "rotation"));
+  if (isPlayerOverviewSupplementalKey(key)) {
+    params.set("include-goal-tags", String(key === "overviewGoalTags"));
+    params.set("include-rotation", String(key === "overviewRotation"));
     return getPlayerStatOverview(platform, platformPlayerId, params);
   }
   if (key === "kickoffTaker") {
@@ -4023,6 +4071,12 @@ function PlayerAggregateStatsSections({
           goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
           allGoalsHref={`${routeBasePath}/goals`}
         />
+      ) : null}
+      {activeGroup.id === "goals" && supplementalLoading ? (
+        <SupplementalLoadingNotice label="Goal types" />
+      ) : null}
+      {activeGroup.id === "goals" && supplementalError ? (
+        <ApiNotice label="Goal types" message={supplementalError} />
       ) : null}
       {activeGroup.id === "kickoffs" && kickoffTakerSummary ? (
         <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} />
