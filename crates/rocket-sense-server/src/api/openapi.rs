@@ -1,5 +1,5 @@
 use super::{
-    admin, auth, ballchasing, health, leaderboards, meta, player_overview, players,
+    admin, auth, ballchasing, health, leaderboards, meta, movement_stats, player_overview, players,
     positioning_stats, possession_stats, replays, stats,
 };
 use utoipa::{
@@ -34,6 +34,7 @@ use utoipa::{
         leaderboards::get_event_leaderboard,
         leaderboards::get_stat_leaderboard,
         meta::get_processing_version,
+        movement_stats::get_movement_summary,
         players::search_player_name_history,
         players::get_player_profile,
         players::set_player_public_display_name,
@@ -103,6 +104,8 @@ use utoipa::{
             leaderboards::LeaderboardStatMetricResponse,
             meta::ProcessingVersionResponse,
             meta::SchemaChangelogEntry,
+            movement_stats::MovementSummaryResponse,
+            movement_stats::MovementCohortSummary,
             players::PlayerNameHistoryEntryResponse,
             players::PlayerNameHistoryResponse,
             players::SetPlayerPublicDisplayNameRequest,

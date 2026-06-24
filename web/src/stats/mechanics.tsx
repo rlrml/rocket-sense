@@ -6,7 +6,6 @@ export const mechanicEventTypes = [
   "ceiling_shot",
   "backboard_bounce",
   "wall_aerial",
-  "wall_aerial_shot",
   "center",
   "flick",
   "musty_flick",

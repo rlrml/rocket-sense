@@ -22,6 +22,12 @@ import type {
 } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
 import {
+  careerCohortKey,
+  careerCohortSegmentClassName,
+  careerCohortSubtitle,
+  type ComparisonRow,
+  PlayerComparisonChart,
+  type CareerCohortKey,
   SegmentedBar,
   type SegmentedBarSegment,
   statPercentWithValue,
@@ -330,13 +336,7 @@ export function BoostProfileDetail({
         profilePathForSummary={(summary) => playerProfilePath(summary)}
         segmentColorClassNameForSummary={boostProfileSegmentColorClassName}
         showPlatformBadgeForSummary={(summary) => summary.key === "player"}
-        subtitleForSummary={(summary) =>
-          summary.key === "player"
-            ? "Player"
-            : summary.key === "teammates"
-              ? "Same-team players"
-              : "Other-team players"
-        }
+        subtitleForSummary={(summary) => careerCohortSubtitle(boostProfileCohort(summary))}
         summaries={summaries}
         valueMode="per-minute"
       />
@@ -345,9 +345,11 @@ export function BoostProfileDetail({
 }
 
 function boostProfileSegmentColorClassName(summary: BoostPlayerSummary): string {
-  if (summary.key === "player") return "boost-profile-subject";
-  if (summary.key === "teammates") return "boost-profile-teammates";
-  return "boost-profile-opponents";
+  return careerCohortSegmentClassName(boostProfileCohort(summary));
+}
+
+function boostProfileCohort(summary: BoostPlayerSummary): CareerCohortKey {
+  return careerCohortKey(summary.key) ?? "opponents";
 }
 
 function BoostComparisonModeToggle({
@@ -1524,83 +1526,61 @@ interface BoostComparisonSegment {
 }
 
 function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
-  const useTeamColoredBars = true;
-  // Every comparison group is per-player: each segment takes the player's
-  // identity hue (--seg-color), and multi-level bars step that hue's lightness
-  // per level (pad zones, sources, boost ranges, stolen) — see styles.css.
-  const usePlayerShade = true;
+  const rows = group.rows.map((row): ComparisonRow => {
+    const rowWidthPercent = row.total > 0 ? (row.total / Math.max(1, group.maxValue)) * 100 : 0;
+    const showSegmentLabels = group.key === "boost-ranges" || rowWidthPercent >= 24;
+    const rowIdentityClassName = row.segmentColorClassName ?? `team-accent-${teamClass(row.team)}`;
+
+    return {
+      key: row.key,
+      label: (
+        <StatPlayerLabel
+          className={`comparison-player-label ${rowIdentityClassName}`}
+          name={row.name}
+          platform={row.platform}
+          profilePath={row.profilePath}
+          rank={row.rank}
+          showPlatformBadge={row.showPlatformBadge}
+          subtitle={row.subtitle ?? teamLabel(row.team)}
+        />
+      ),
+      ariaLabel: `${row.name}: ${row.valueLabel}`,
+      segments: row.segments.map((segment) => ({
+        key: `${row.key}:${segment.label}`,
+        className: boostComparisonSegmentClassName(row, segment),
+        label: segment.label,
+        value: segment.value,
+        visibleLabel: showSegmentLabels ? segment.visibleLabel : undefined,
+        title: segment.title,
+      })),
+      total: row.total,
+      maxValue: group.maxValue,
+      valueLabel: row.valueLabel,
+    };
+  });
 
   return (
-    <section className="boost-comparison-group">
-      <div className="boost-comparison-title">{group.title}</div>
-      <div className="boost-comparison-rows">
-        {group.rows.map((row) => {
-          const rowWidthPercent = barWidthPercent(row.total, group.maxValue);
-          const showSegmentLabels = group.key === "boost-ranges" || rowWidthPercent >= 24;
-
-          return (
-            <div className="boost-comparison-row" key={row.key}>
-              <StatPlayerLabel
-                className={`comparison-player-label team-accent-${teamClass(row.team)}`}
-                name={row.name}
-                platform={row.platform}
-                profilePath={row.profilePath}
-                rank={row.rank}
-                showPlatformBadge={row.showPlatformBadge}
-                subtitle={row.subtitle ?? teamLabel(row.team)}
-              />
-              <div className="metric-bar-track source-bar-track comparison-track">
-                <span className="source-bar-fill" style={{ width: `${rowWidthPercent}%` }}>
-                  {row.segments.map((segment) => (
-                    <BoostSourceSegment
-                      key={`${row.key}:${segment.label}`}
-                      colorClassName={row.segmentColorClassName}
-                      playerIndex={usePlayerShade ? row.playerIndex : null}
-                      segment={segment}
-                      showLabel={showSegmentLabels}
-                      team={useTeamColoredBars ? row.team : null}
-                    />
-                  ))}
-                </span>
-              </div>
-              <strong className="metric-value comparison-value">
-                <span>{row.valueLabel}</span>
-              </strong>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+    <PlayerComparisonChart
+      className="boost-comparison-group"
+      emptyLabel="No boost comparison data yet."
+      rows={rows}
+      title={group.title}
+    />
   );
 }
 
-function BoostSourceSegment({
-  colorClassName,
-  playerIndex,
-  segment,
-  showLabel,
-  team,
-}: {
-  colorClassName: string | null;
-  playerIndex: number | null;
-  segment: BoostComparisonSegment;
-  showLabel: boolean;
-  team: number | null;
-}) {
-  const { className, label, title, value, visibleLabel } = segment;
-  if (value < 0.5) return null;
-
-  return (
-    <span
-      className={`source-segment ${className} ${colorClassName ?? ""} ${team == null ? "" : `team-segment-${teamClass(team)}`} ${playerIndex == null ? "" : `player-shade-${playerIndex}`}`}
-      style={{ flexGrow: value }}
-      title={title ?? `${label}: ${formatBoost(value)}`}
-    >
-      {showLabel && visibleLabel ? (
-        <span className="source-segment-label">{visibleLabel}</span>
-      ) : null}
-    </span>
-  );
+function boostComparisonSegmentClassName(
+  row: BoostComparisonRow,
+  segment: BoostComparisonSegment,
+): string {
+  return [
+    segment.className,
+    row.segmentColorClassName,
+    row.team == null ? null : `team-segment-${teamClass(row.team)}`,
+    row.playerIndex == null ? null : `player-shade-${row.playerIndex}`,
+  ]
+    .filter((className): className is string => Boolean(className))
+    .join(" ");
 }
 
 function maxSummaryValue(
@@ -1608,11 +1588,6 @@ function maxSummaryValue(
   selector: (summary: BoostPlayerSummary) => number,
 ): number {
   return Math.max(1, ...summaries.map(selector));
-}
-
-function barWidthPercent(value: number, maxValue: number): number {
-  if (value <= 0) return 0;
-  return Math.max(2, (value / Math.max(1, maxValue)) * 100);
 }
 
 function percentOf(value: number, total: number): number {

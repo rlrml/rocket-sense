@@ -27,15 +27,15 @@ export interface SplitValue {
 export function StatComparisonGrid({
   children,
   className = "",
+  contained = true,
 }: {
   children: ReactNode;
   className?: string;
+  contained?: boolean;
 }) {
-  return (
-    <section className="chart-panel full-span">
-      <div className={`stat-comparison-grid ${className}`.trim()}>{children}</div>
-    </section>
-  );
+  const grid = <div className={`stat-comparison-grid ${className}`.trim()}>{children}</div>;
+  if (!contained) return grid;
+  return <section className="chart-panel full-span">{grid}</section>;
 }
 
 export function StatComparisonPanel({

@@ -93,6 +93,21 @@ Exceptions should be explicit in the request or product note: if a career stats
 subview needs a table, scatter plot, timeline, or another visualization, call
 that out directly rather than drifting away from bars by default.
 
+In career stats subviews, a bar-chart card should focus on **one statistic**.
+The rows/bars inside that card are for comparing the profile subject against
+the relevant cohorts (player, teammates, opponents, and any enabled rank-peer
+average), not for listing unrelated stats in the same card. A single-stat card
+may still have a segmented bar when that one statistic is itself a distribution
+(for example, speed bands or aerial type mix), but do not use one card as a
+leaderboard-style list of many different metrics. If a view currently has many
+metrics, render multiple single-stat cards.
+
+Avoid double card framing. If the whole subview already sits in one containing
+card/surface, render the individual bar charts as unframed sections inside that
+surface. If the page does not have a page-level containing card, single-stat
+bar-chart cards are fine. Do not wrap every chart in both its own card and a
+second all-charts card unless there is a specific layout reason.
+
 Use centrally defined palettes for career stats charts. Most charts should use
 monochrome ramps: same hue, different lightness, enough contrast for adjacent
 segments. Use multi-hue palettes only when there are many categories that need
@@ -116,6 +131,11 @@ Every bar and bar segment should show numerical text whenever there is enough
 room. Keep alignment, placement, threshold behavior, and text color consistent
 through the shared stat bar track rather than per-subview CSS.
 
+Do not hide an expected chart just because its current values are zero. A
+subview should keep its full chart set visible, with zero-value rows/labels or
+an in-chart empty state, so the page layout and available statistics remain
+predictable across players and replay sets.
+
 ## Before committing (avoid CI failures)
 
 CI fails on format/lint/compile issues far more often than on test logic. To
@@ -123,9 +143,8 @@ catch those locally without running the whole suite:
 
 - **Always run `just check` clean before committing.** It is the fast gate that
   mirrors CI's blocking checks: migration-version uniqueness
-  (`check-migration-versions.sh`), `npm run typecheck` (web), `cargo fmt --
-  --check`, and `cargo clippy --workspace -- -D warnings`. If it is not clean, do
-  not commit.
+  (`check-migration-versions.sh`), `npm run typecheck` (web), `just fmt-check`,
+  and `just clippy`. If it is not clean, do not commit.
 - Clippy runs with `-D warnings` over the whole workspace, so a lint in a test
   or any crate fails CI even though a plain `cargo build` passes. Prefer the
   `just clippy` / `just fmt-check` recipes over bare `cargo` — they use CI's

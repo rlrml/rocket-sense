@@ -54,6 +54,7 @@ pub struct PossessionCohortSummary {
     pub key: String,
     pub label: String,
     pub appearance_count: u64,
+    pub active_time_seconds: Option<f64>,
     pub possessions: PossessionSpanSummary,
     pub controlled_plays: PossessionSpanSummary,
     pub touches: PossessionTouchSummary,
@@ -841,7 +842,12 @@ fn push_possession_cohort_ctes<'args>(
     query.push(
         r#"
         WITH target_appearances AS MATERIALIZED (
-            SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            SELECT
+                rp.id,
+                rp.replay_id,
+                rp.team,
+                rp.active_time_seconds,
+                r.canonical_analysis_run_id AS run_id
         "#,
     );
     if include_rank_peers {
@@ -863,17 +869,17 @@ fn push_possession_cohort_ctes<'args>(
         r#"
         ),
         cohort_appearances AS MATERIALIZED (
-            SELECT 'player' AS cohort, target.id AS actor_id, target.replay_id, target.team AS actor_team, target.run_id
+            SELECT 'player' AS cohort, target.id AS actor_id, target.replay_id, target.team AS actor_team, target.active_time_seconds, target.run_id
             FROM target_appearances target
             UNION ALL
-            SELECT 'teammates' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            SELECT 'teammates' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, actor.active_time_seconds, target.run_id
             FROM target_appearances target
             JOIN replay_players actor
               ON actor.replay_id = target.replay_id
              AND actor.team = target.team
              AND actor.id <> target.id
             UNION ALL
-            SELECT 'opponents' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            SELECT 'opponents' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, actor.active_time_seconds, target.run_id
             FROM target_appearances target
             JOIN replay_players actor
               ON actor.replay_id = target.replay_id
@@ -886,7 +892,7 @@ fn push_possession_cohort_ctes<'args>(
         query.push(
             r#"
             UNION ALL
-            SELECT 'rank_peers' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, target.run_id
+            SELECT 'rank_peers' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, actor.active_time_seconds, target.run_id
             FROM target_appearances target
             JOIN replay_players actor
               ON actor.replay_id = target.replay_id
@@ -910,6 +916,7 @@ fn push_possession_cohort_span_select(builder: &mut QueryBuilder<'_, Postgres>) 
         SELECT
             appearance.cohort,
             COUNT(DISTINCT appearance.actor_id) AS appearance_count,
+            denominator.active_time_seconds,
             COUNT(DISTINCT detail.replay_id) AS replay_count,
             COUNT(detail.event_id) AS possession_count,
             COALESCE(SUM(detail.duration), 0) AS total_duration,
@@ -952,6 +959,12 @@ fn build_possession_cohort_span_summary_query<'args>(
         r#"
         FROM cohort_appearances appearance
         LEFT JOIN (
+            SELECT cohort, SUM(active_time_seconds) AS active_time_seconds
+            FROM cohort_appearances
+            GROUP BY cohort
+        ) denominator
+          ON denominator.cohort = appearance.cohort
+        LEFT JOIN (
             SELECT detail.*, event.analysis_run_id
             FROM play_event_player_possession_details detail
             JOIN play_events event ON event.id = detail.event_id
@@ -963,12 +976,18 @@ fn build_possession_cohort_span_summary_query<'args>(
     query.push(
         r#"
         ) detail
-          ON detail.replay_player_id = appearance.actor_id
-         AND detail.analysis_run_id = appearance.run_id
-        GROUP BY appearance.cohort
+         ON detail.replay_player_id = appearance.actor_id
+        AND detail.analysis_run_id = appearance.run_id
+        GROUP BY appearance.cohort, denominator.active_time_seconds
         "#,
     );
     query
+}
+
+struct PossessionCohortSpanAggregate {
+    appearance_count: u64,
+    active_time_seconds: Option<f64>,
+    summary: PossessionSpanSummary,
 }
 
 async fn load_possession_cohort_span_summaries(
@@ -976,7 +995,7 @@ async fn load_possession_cohort_span_summaries(
     filters: &PossessionStatsQuery,
     span_filter: PossessionSpanFilter,
     include_rank_peers: bool,
-) -> Result<HashMap<String, (u64, PossessionSpanSummary)>, sqlx::Error> {
+) -> Result<HashMap<String, PossessionCohortSpanAggregate>, sqlx::Error> {
     let mut query =
         build_possession_cohort_span_summary_query(filters, span_filter, include_rank_peers);
     let rows = query.build().fetch_all(pool).await?;
@@ -984,8 +1003,16 @@ async fn load_possession_cohort_span_summaries(
     for row in rows {
         let cohort: String = row.try_get("cohort")?;
         let appearance_count = count_column(&row, "appearance_count")?;
+        let active_time_seconds = finite_nonnegative(row.try_get("active_time_seconds")?);
         let (_, summary) = possession_span_summary_from_row(&row)?;
-        summaries.insert(cohort, (appearance_count, summary));
+        summaries.insert(
+            cohort,
+            PossessionCohortSpanAggregate {
+                appearance_count,
+                active_time_seconds,
+                summary,
+            },
+        );
     }
     Ok(summaries)
 }
@@ -1126,15 +1153,16 @@ async fn load_possession_cohort_summaries(
     Ok(cohort_order
         .into_iter()
         .filter_map(|key| {
-            let (appearance_count, possession_summary) = possessions.remove(key)?;
+            let possession = possessions.remove(key)?;
             Some(PossessionCohortSummary {
                 key: key.to_owned(),
                 label: possession_cohort_label(key).to_owned(),
-                appearance_count,
-                possessions: possession_summary,
+                appearance_count: possession.appearance_count,
+                active_time_seconds: possession.active_time_seconds,
+                possessions: possession.summary,
                 controlled_plays: controlled_plays
                     .remove(key)
-                    .map(|(_, summary)| summary)
+                    .map(|aggregate| aggregate.summary)
                     .unwrap_or_else(empty_possession_span_summary),
                 touches: touches
                     .remove(key)
@@ -1375,6 +1403,10 @@ fn possession_location_summary_from_rows(
         halves,
         thirds,
     }
+}
+
+fn finite_nonnegative(value: Option<f64>) -> Option<f64> {
+    value.filter(|value| value.is_finite() && *value >= 0.0)
 }
 
 fn possession_time_bucket(

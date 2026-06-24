@@ -6,6 +6,10 @@ import type {
   ReplayPlayer,
 } from "../types";
 import {
+  careerCohortClassName,
+  careerCohortSegmentClassName,
+  careerCohortSubtitle,
+  type CareerCohortKey,
   type ComparisonRow,
   ComparisonRows,
   type OutcomeDistributionColors,
@@ -56,6 +60,7 @@ interface PlayerPositioningSummary {
   platformPlayerId: string | null;
   rank: StatPlayerRank | null;
   team: number | null;
+  careerCohort?: CareerCohortKey | null;
   activeSeconds: number;
   trackedSeconds: number;
   defensiveThirdSeconds: number;
@@ -592,9 +597,11 @@ function PositioningDistanceChart({
   const rows: ComparisonRow[] = ordered.map((summary) => {
     const metric = value(summary) ?? 0;
     const shade = Math.min(indexByKey.get(summary.key) ?? 0, 3);
-    const className = colors
-      ? outcomeSegmentClassName(teamOutcomeTone(summary.team), DISTANCE_LEVELS[shade] ?? "clear")
-      : `team-segment-${teamClass(summary.team)} player-shade-${shade}`;
+    const className = summary.careerCohort
+      ? careerCohortSegmentClassName(summary.careerCohort)
+      : colors
+        ? outcomeSegmentClassName(teamOutcomeTone(summary.team), DISTANCE_LEVELS[shade] ?? "clear")
+        : `team-segment-${teamClass(summary.team)} player-shade-${shade}`;
     return {
       key: summary.key,
       label: label(summary),
@@ -638,8 +645,9 @@ function teamLocalIndexByKey(summaries: PlayerPositioningSummary[]): Map<string,
 // Player profile: compare the player's own positioning against the pooled
 // teammate and opponent cohorts that shared their games. The cohorts come from
 // a server-side aggregate (career-scale span data can't be re-summed in the
-// browser) and map onto the same summary rows the per-game view renders. Self +
-// teammates paint as one team color, opponents the other; row order is fixed.
+// browser) and map onto the same summary rows the per-game view renders. Row
+// identity is profile-relative (player, teammates, opponents), not replay-local
+// team color; row order is fixed.
 export function PlayerPositioningCohorts({
   response,
   playerName,
@@ -648,13 +656,17 @@ export function PlayerPositioningCohorts({
   playerName: string;
 }) {
   const summaries: PlayerPositioningSummary[] = [
-    cohortSummary("cohort-self", playerName || "You", 0, response.player),
+    cohortSummary("cohort-self", "player", playerName || "You", 0, response.player),
   ];
   if (response.teammates) {
-    summaries.push(cohortSummary("cohort-teammates", "Teammates", 0, response.teammates));
+    summaries.push(
+      cohortSummary("cohort-teammates", "teammates", "Teammates", 0, response.teammates),
+    );
   }
   if (response.opponents) {
-    summaries.push(cohortSummary("cohort-opponents", "Opponents", 1, response.opponents));
+    summaries.push(
+      cohortSummary("cohort-opponents", "opponents", "Opponents", 1, response.opponents),
+    );
   }
 
   return (
@@ -670,6 +682,7 @@ export function PlayerPositioningCohorts({
 
 function cohortSummary(
   key: string,
+  careerCohort: CareerCohortKey,
   name: string,
   team: number,
   cohort: PositioningCohortSummary,
@@ -681,6 +694,7 @@ function cohortSummary(
     platformPlayerId: null,
     rank: null,
     team,
+    careerCohort,
     activeSeconds: cohort.active_seconds,
     trackedSeconds: cohort.tracked_seconds,
     defensiveThirdSeconds: cohort.defensive_third_seconds,
@@ -719,15 +733,22 @@ function cohortAppearances(key: string, response: PositioningSummaryResponse): n
 
 function cohortLabel(summary: PlayerPositioningSummary, appearances: number | null): ReactNode {
   const suffix = summary.key === "cohort-self" ? "games" : "appearances";
+  const cohort = summary.careerCohort;
   return (
     <StatPlayerLabel
-      className={`team-accent-${teamClass(summary.team)}`}
+      className={cohort ? careerCohortClassName(cohort) : `team-accent-${teamClass(summary.team)}`}
       name={summary.name}
       platform={null}
       profilePath={null}
       rank={null}
       showPlatformBadge={false}
-      subtitle={appearances != null ? `${appearances.toLocaleString()} ${suffix}` : ""}
+      subtitle={
+        appearances != null && cohort
+          ? `${careerCohortSubtitle(cohort)} · ${appearances.toLocaleString()} ${suffix}`
+          : appearances != null
+            ? `${appearances.toLocaleString()} ${suffix}`
+            : ""
+      }
     />
   );
 }

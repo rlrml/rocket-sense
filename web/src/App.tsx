@@ -59,6 +59,7 @@ import {
   getAuthOptions,
   getCurrentUser,
   getPlayerKickoffSummary,
+  getPlayerMovementSummary,
   getPlayerPositioningSummary,
   getPlayerPossessionSummary,
   getPlayerProfile,
@@ -122,10 +123,11 @@ import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
   PossessionSummaryPanel,
+  CoreProfileComparison,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
-  ScoringRatePanel,
 } from "./stats/playerPanels";
+import { PlayerMovementCohorts } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
 import { TouchProfileComparison } from "./stats/touches";
 import type {
@@ -135,6 +137,7 @@ import type {
   EventTypeResponse,
   LinkedIdentityResponse,
   MechanicEventResponse,
+  MovementSummaryResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
   PositioningSummaryResponse,
@@ -3162,6 +3165,7 @@ const playerSupplementalKeys = [
   "kickoffTaker",
   "kickoffSupport",
   "kickoffFilter",
+  "movementSummary",
   "possession",
   "positioningSummary",
 ] as const;
@@ -3210,6 +3214,7 @@ function PlayerStatsPage() {
   const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(
     null,
   );
+  const [movementSummary, setMovementSummary] = useState<MovementSummaryResponse | null>(null);
   const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(
     null,
   );
@@ -3281,6 +3286,7 @@ function PlayerStatsPage() {
     setKickoffTakerSummary(null);
     setKickoffSupportSummary(null);
     setKickoffFilterSummary(null);
+    setMovementSummary(null);
     setPossessionSummary(null);
     setPositioningSummary(null);
   }, [statsScope]);
@@ -3388,6 +3394,7 @@ function PlayerStatsPage() {
     response:
       | PlayerStatOverviewResponse
       | EventStatSummaryResponse
+      | MovementSummaryResponse
       | PossessionSummaryResponse
       | PositioningSummaryResponse,
   ) {
@@ -3399,6 +3406,8 @@ function PlayerStatsPage() {
       setKickoffSupportSummary(response as EventStatSummaryResponse);
     } else if (key === "kickoffFilter") {
       setKickoffFilterSummary(response as EventStatSummaryResponse);
+    } else if (key === "movementSummary") {
+      setMovementSummary(response as MovementSummaryResponse);
     } else if (key === "possession") {
       setPossessionSummary(response as PossessionSummaryResponse);
     } else {
@@ -3572,6 +3581,7 @@ function PlayerStatsPage() {
               kickoffFilterSummary={kickoffFilterSummary}
               kickoffSupportSummary={kickoffSupportSummary}
               kickoffTakerSummary={kickoffTakerSummary}
+              movementSummary={movementSummary}
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
               overview={overview}
@@ -3657,6 +3667,12 @@ function kickoffSideFilterFromSearch(search: string): KickoffSideFilter {
 }
 
 function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
+  if (groupId === "core") {
+    return ["overview"];
+  }
+  if (groupId === "movement") {
+    return ["movementSummary"];
+  }
   if (groupId === "positioning") {
     // overview backs the rotation time-share panel; positioningSummary backs the
     // You/Teammates/Opponents comparison graphs.
@@ -3682,6 +3698,7 @@ function fetchPlayerSupplemental(
 ): Promise<
   | PlayerStatOverviewResponse
   | EventStatSummaryResponse
+  | MovementSummaryResponse
   | PossessionSummaryResponse
   | PositioningSummaryResponse
 > {
@@ -3705,6 +3722,9 @@ function fetchPlayerSupplemental(
   }
   if (key === "positioningSummary") {
     return getPlayerPositioningSummary(platform, platformPlayerId, params);
+  }
+  if (key === "movementSummary") {
+    return getPlayerMovementSummary(platform, platformPlayerId, params);
   }
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
@@ -3786,6 +3806,7 @@ function PlayerAggregateStatsSections({
   kickoffSupportSummary,
   kickoffTakerSummary,
   overview,
+  movementSummary,
   possessionSummary,
   positioningSummary,
   platform,
@@ -3800,6 +3821,7 @@ function PlayerAggregateStatsSections({
   kickoffSupportSummary: EventStatSummaryResponse | null;
   kickoffTakerSummary: EventStatSummaryResponse | null;
   overview: PlayerStatOverviewResponse | null;
+  movementSummary: MovementSummaryResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
   platform: string;
@@ -3892,11 +3914,14 @@ function PlayerAggregateStatsSections({
 
       {activeGroup.id === "kickoffs" ||
       activeGroup.id === "boost" ||
+      activeGroup.id === "core" ||
+      activeGroup.id === "goals" ||
+      activeGroup.id === "movement" ||
       activeGroup.id === "possession" ||
       activeGroup.id === "positioning" ||
       activeGroup.id === "rotation" ||
       activeGroup.id === "touches" ? null : (
-        <PlayerRateComparisonChart stats={topStats} />
+        <PlayerRateComparisonChart playerName={playerName} stats={topStats} />
       )}
 
       {activeGroup.id === "boost" ? (
@@ -3908,10 +3933,18 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
 
-      {activeGroup.id === "goals" && overview ? <ScoringRatePanel overview={overview} /> : null}
+      {activeGroup.id === "core" && overview ? (
+        <CoreProfileComparison overview={overview} playerName={playerName} stats={sectionStats} />
+      ) : null}
+
+      {activeGroup.id === "movement" && movementSummary ? (
+        <PlayerMovementCohorts response={movementSummary} playerName={playerName} />
+      ) : null}
+
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
+          playerName={playerName}
           goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
           allGoalsHref={`${routeBasePath}/goals`}
         />
@@ -4481,7 +4514,6 @@ const mechanicEventTypeKeys = new Set([
   "pass",
   "speed_flip",
   "wall_aerial",
-  "wall_aerial_shot",
   "wavedash",
   "post_wall_dodge",
   "flip_reset_followup_dodge",

@@ -247,6 +247,59 @@ export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
   "negative-unknown": "#ddd6fe",
 };
 
+export type CareerCohortKey = "player" | "teammates" | "opponents" | "rank_peers";
+
+export function careerCohortKey(value: string | null | undefined): CareerCohortKey | null {
+  if (!value) return null;
+  if (value === "player" || value === "self" || value === "cohort-self") return "player";
+  if (value === "teammate" || value === "teammates" || value === "cohort-teammates")
+    return "teammates";
+  if (value === "opponent" || value === "opponents" || value === "cohort-opponents")
+    return "opponents";
+  if (value === "rank_peer" || value === "rank_peers" || value === "cohort-rank-peers")
+    return "rank_peers";
+  return null;
+}
+
+export function careerCohortLabel(key: CareerCohortKey, playerName = "Player"): string {
+  if (key === "player") return playerName;
+  if (key === "teammates") return "Teammates";
+  if (key === "opponents") return "Opponents";
+  return "Rank peers";
+}
+
+export function careerCohortSubtitle(key: CareerCohortKey): string {
+  if (key === "player") return "Player";
+  if (key === "teammates") return "Teammates";
+  if (key === "opponents") return "Opponents";
+  return "Same-rank players";
+}
+
+export function careerCohortClassName(key: CareerCohortKey): string {
+  return `career-cohort-${key.replace("_", "-")}`;
+}
+
+export function careerCohortSegmentClassName(key: CareerCohortKey): string {
+  return careerCohortClassName(key);
+}
+
+export const CAREER_RATE_WINDOW_SECONDS = 5 * 60;
+
+export function careerRateValue(
+  value: number,
+  activeSeconds: number | null | undefined,
+  windowSeconds = CAREER_RATE_WINDOW_SECONDS,
+): number | null {
+  if (!Number.isFinite(value) || value < 0) return null;
+  if (activeSeconds == null || !Number.isFinite(activeSeconds) || activeSeconds <= 0) return null;
+  return (value * windowSeconds) / activeSeconds;
+}
+
+export function careerRateWindowLabel(windowSeconds = CAREER_RATE_WINDOW_SECONDS): string {
+  const minutes = windowSeconds / 60;
+  return `per ${Number.isInteger(minutes) ? minutes.toFixed(0) : minutes.toFixed(1)} active min`;
+}
+
 // Team-colored ramp for OutcomeDistributionBar / comparison distribution rows:
 // blue maps to the positive tone, orange to negative, and the level tiers a
 // single team color from light (unknown) -> base (clear) -> dark (strong).
@@ -386,8 +439,18 @@ export interface ComparisonRow {
   valueInBar?: ReactNode;
   /** Extra CSS vars for the track, e.g. outcomeDistributionColorStyle(colors). */
   style?: CSSProperties;
+  /** Optional point markers on the same scale, e.g. a teammate/rank-peer average. */
+  markers?: ComparisonMarker[];
   /** Shown on the track when there are no filled segments (e.g. a zero value). */
   placeholder?: ReactNode;
+}
+
+export interface ComparisonMarker {
+  key: string;
+  label: string;
+  value: number;
+  className?: string;
+  title?: string;
 }
 
 /**
@@ -425,6 +488,7 @@ export function ComparisonRows({
             total={row.total}
             maxValue={row.maxValue}
             style={row.style}
+            markers={row.markers}
             placeholder={row.placeholder}
             valueInBar={row.valueInBar}
           />
@@ -470,6 +534,7 @@ export function ComparisonBar({
   total,
   maxValue,
   style,
+  markers = [],
   placeholder,
   valueInBar,
 }: {
@@ -478,6 +543,7 @@ export function ComparisonBar({
   total: number;
   maxValue?: number;
   style?: CSSProperties;
+  markers?: ComparisonMarker[];
   placeholder?: ReactNode;
   /** Value floated at the bar's end: inside the fill when nearly full, in the
    *  empty track otherwise, so it stays readable on bars of any length. */
@@ -519,6 +585,18 @@ export function ComparisonBar({
           {valueInBar}
         </span>
       ) : null}
+      {markers.map((marker) => {
+        const leftPercent =
+          scaleMax > 0 ? Math.max(0, Math.min(100, (marker.value / scaleMax) * 100)) : 0;
+        return (
+          <span
+            className={`player-comparison-marker ${marker.className ?? ""}`.trim()}
+            key={marker.key}
+            style={{ left: `${leftPercent}%` }}
+            title={marker.title ?? `${marker.label}: ${marker.value.toLocaleString()}`}
+          />
+        );
+      })}
       {visible.length === 0 && placeholder != null ? (
         <span className="player-comparison-placeholder">{placeholder}</span>
       ) : null}

@@ -462,6 +462,7 @@ export interface PlayerStatOverviewResponse {
   goals_scored: number;
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
+  shots?: ScoringRateResponse;
   goal_tags: GoalTagAggregateResponse[];
   rotation_roles: RotationTimeShareResponse[];
   rotation_depths: RotationTimeShareResponse[];
@@ -472,6 +473,32 @@ export interface EventStatMetricResponse {
   label: string;
   value: number | null;
   kind: string;
+}
+
+export interface MovementSummaryResponse {
+  replay_count: number;
+  player: MovementCohortSummary;
+  teammates: MovementCohortSummary | null;
+  opponents: MovementCohortSummary | null;
+}
+
+export interface MovementCohortSummary {
+  appearance_count: number;
+  active_seconds: number;
+  total_distance: number;
+  speed_weighted: number;
+  speed_weight: number;
+  slow_seconds: number;
+  boost_seconds: number;
+  supersonic_seconds: number;
+  ground_seconds: number;
+  low_air_seconds: number;
+  high_air_seconds: number;
+  powerslide_count: number;
+  powerslide_seconds: number;
+  speed_flips: number;
+  wavedashes: number;
+  half_flips: number;
 }
 
 export interface EventStatDimensionValueResponse {
@@ -526,6 +553,7 @@ export interface PossessionCohortSummary {
   key: string;
   label: string;
   appearance_count: number;
+  active_time_seconds: number | null;
   possessions: PossessionSpanSummary;
   controlled_plays: PossessionSpanSummary;
   touches: PossessionTouchSummary;
