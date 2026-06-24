@@ -765,6 +765,7 @@ fn event_total_query(filters: &EventLeaderboardFilters) -> QueryBuilder<'_, Post
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StatLeaderboardMetric {
     BallOpponentHalf,
+    BallAdvance,
     PossessionTime,
     TouchesPerPossession,
     AvgPossessionDuration,
@@ -782,6 +783,7 @@ enum StatMetricSource {
     BallHalfDuration {
         half: RelativeFieldHalf,
     },
+    PlayerPossessionAdvance,
     PlayerPossessionDuration,
     PlayerPossessionAverage {
         numerator: PossessionAverageNumerator,
@@ -812,6 +814,7 @@ impl StatMetricDefinition {
             StatMetricSource::BallHalfDuration {
                 half: RelativeFieldHalf::Opponent,
             } => self.key,
+            StatMetricSource::PlayerPossessionAdvance => self.key,
             StatMetricSource::PlayerPossessionDuration => self.key,
             StatMetricSource::PlayerPossessionAverage { .. } => self.key,
             StatMetricSource::TouchCount => self.key,
@@ -857,6 +860,22 @@ const STAT_METRIC_DEFINITIONS: &[StatMetricDefinition] = &[
         description: "Seconds the player held possession",
         unit: "seconds",
         source: StatMetricSource::PlayerPossessionDuration,
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BallAdvance,
+        key: "ball-advance",
+        aliases: &[
+            "ball_advance",
+            "ball-advanced",
+            "ball_advanced",
+            "advance",
+            "advance-distance",
+            "advance_distance",
+        ],
+        display_name: "Ball advance",
+        description: "Unreal units the player advanced the ball during possessions",
+        unit: "uu",
+        source: StatMetricSource::PlayerPossessionAdvance,
     },
     StatMetricDefinition {
         metric: StatLeaderboardMetric::TouchesPerPossession,
@@ -942,7 +961,7 @@ impl StatLeaderboardMetric {
             .map(|definition| definition.metric)
             .ok_or_else(|| {
                 ApiError::bad_request(
-                    "stat must be one of: ball-opponent-half, possession-time, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count",
+                    "stat must be one of: ball-opponent-half, possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count",
                 )
             })
     }
@@ -1076,7 +1095,7 @@ impl StatLeaderboardFilters {
     path = "/api/v1/leaderboards/stat",
     tag = "leaderboards",
     params(
-        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, touches-per-possession, avg-possession-duration, high-aerial-touch-count, or control-touch-count"),
+        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, or control-touch-count"),
         ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, share, or average"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),

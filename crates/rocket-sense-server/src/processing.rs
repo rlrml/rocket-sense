@@ -1853,6 +1853,7 @@ async fn insert_player_replay_stat_facts(
     .context("failed to clear player replay stat facts")?;
 
     insert_ball_opponent_half_facts(pool, analysis_run_id, replay_id).await?;
+    insert_ball_advance_facts(pool, analysis_run_id, replay_id).await?;
     insert_possession_time_facts(pool, analysis_run_id, replay_id).await?;
     insert_touch_count_facts(pool, analysis_run_id, replay_id).await?;
     Ok(())
@@ -2410,6 +2411,65 @@ async fn insert_ball_opponent_half_facts(
         .execute(pool)
         .await
         .context("failed to insert ball opponent-half stat facts")?;
+    Ok(())
+}
+
+async fn insert_ball_advance_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            'ball-advance',
+            SUM(detail.advance_distance) AS value,
+            'uu',
+            rp.active_time_seconds,
+            'active_time',
+            rp.active_time_seconds
+        FROM replay_players rp
+        JOIN play_event_player_possession_details detail ON detail.replay_player_id = rp.id
+        JOIN play_events event
+          ON event.id = detail.event_id
+         AND event.analysis_run_id = $1
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        GROUP BY rp.replay_id, rp.id, rp.platform, rp.platform_player_id, rp.team, rp.active_time_seconds
+        HAVING SUM(detail.advance_distance) > 0.0
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to insert ball-advance stat facts")?;
     Ok(())
 }
 

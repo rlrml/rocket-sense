@@ -42,7 +42,7 @@ interface CatalogMetric {
   label: string;
   category: string;
   param?: string;
-  unit?: "seconds" | "count";
+  unit?: "seconds" | "count" | "uu";
   aggregations: Aggregation[];
   description: string;
 }
@@ -121,7 +121,7 @@ const statOptions: Array<{
   value: string;
   label: string;
   category: string;
-  unit: "seconds" | "count";
+  unit: NonNullable<CatalogMetric["unit"]>;
   aggregations: Aggregation[];
   description: string;
 }> = [
@@ -140,6 +140,14 @@ const statOptions: Array<{
     unit: "seconds",
     aggregations: STAT_AGGREGATIONS,
     description: "Time in individual possession of the ball.",
+  },
+  {
+    value: "ball-advance",
+    label: "Ball advance",
+    category: "possession",
+    unit: "uu",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Distance the player advanced the ball during possessions.",
   },
   {
     value: "touches-per-possession",
@@ -312,8 +320,14 @@ function perDurationWindow(perMinute: number | null, rateWindowMinutes: number):
   return formatDurationCompact(perRateWindow(perMinute, rateWindowMinutes));
 }
 
+function formatDistance(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  return `${Math.round(value).toLocaleString()} uu`;
+}
+
 function formatStatValue(value: number | null, unit: CatalogMetric["unit"]): string {
   if (unit === "seconds") return formatDurationCompact(value);
+  if (unit === "uu") return formatDistance(value);
   return formatRate(value);
 }
 
@@ -322,6 +336,7 @@ function perStatWindow(
   rateWindowMinutes: number,
   unit: CatalogMetric["unit"],
 ): string {
+  if (unit === "uu") return formatDistance(perRateWindow(perMinute, rateWindowMinutes));
   return unit === "seconds"
     ? perDurationWindow(perMinute, rateWindowMinutes)
     : formatRate(perRateWindow(perMinute, rateWindowMinutes));

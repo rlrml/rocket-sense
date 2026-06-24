@@ -225,6 +225,10 @@ fn stat_metric_parses_aliases_and_rejects_unknown() {
         StatLeaderboardMetric::PossessionTime
     );
     assert_eq!(
+        StatLeaderboardMetric::from_query(Some("advance-distance")).unwrap(),
+        StatLeaderboardMetric::BallAdvance
+    );
+    assert_eq!(
         StatLeaderboardMetric::from_query(Some("touches-per-posession")).unwrap(),
         StatLeaderboardMetric::TouchesPerPossession
     );
@@ -290,6 +294,18 @@ fn stat_rank_query_can_read_touch_count_facts() {
 
     assert!(sql.contains("FROM player_replay_stat_facts fact"));
     assert!(sql.contains("WHERE fact.stat_key = "));
+    assert!(sql.contains("ORDER BY value_per_game DESC NULLS LAST, value DESC"));
+}
+
+#[test]
+fn stat_rank_query_supports_ball_advance_metric() {
+    let (filters, paging) = stat_filters("stat=ball-advance&sort=per-game");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert_eq!(filters.metric, StatLeaderboardMetric::BallAdvance);
+    assert_eq!(filters.metric.definition().fact_key(), "ball-advance");
+    assert_eq!(filters.metric.definition().unit, "uu");
+    assert!(sql.contains("FROM player_replay_stat_facts fact"));
     assert!(sql.contains("ORDER BY value_per_game DESC NULLS LAST, value DESC"));
 }
 
