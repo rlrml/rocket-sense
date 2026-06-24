@@ -1,14 +1,22 @@
-import { useMemo, useState } from "react";
-import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import { useEffect, useMemo, useState } from "react";
+import { getPlayerPossessionSummary } from "../api";
+import type {
+  MechanicEventResponse,
+  PossessionCohortSummary,
+  PossessionSummaryResponse,
+  ReplayPlayer,
+} from "../types";
 import {
   comparisonSubjectLabel,
   StatComparisonGrid,
   StatComparisonPanel,
   subjectIndexByTeam,
   subjectMagnitudeRows,
+  subjectMagnitudeSegmentClass,
   subjectSplitRows,
   type SplitValue,
 } from "./comparisonPanels";
+import { PossessionAdvancedCharts, type PossessionAdvancedSubject } from "./possessionAdvanced";
 import {
   SegmentedBar,
   StatPlayerLabel,
@@ -69,11 +77,13 @@ export function PossessionDetail({
   events,
   players,
   durationSeconds,
+  replayId,
   scope = "replay",
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
+  replayId?: string;
   scope?: "replay" | "group";
 }) {
   const spans = useMemo(() => possessionSpans(events), [events]);
@@ -96,6 +106,15 @@ export function PossessionDetail({
   const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("players");
   const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
   const playerSummaries = playerPossessionSummaries(players, playerSpans);
+  const {
+    error: advancedError,
+    loading: advancedLoading,
+    summaries: advancedSummaries,
+  } = useReplayPossessionSummaries(scope === "replay" ? replayId : undefined, players);
+  const advancedSubjects = useMemo(
+    () => replayPossessionAdvancedSubjects(playerSummaries, players, advancedSummaries),
+    [advancedSummaries, playerSummaries, players],
+  );
   const zoneSubjects = possessionZoneSubjects(
     players,
     spans,
@@ -224,6 +243,11 @@ export function PossessionDetail({
         )}
 
         {hasPlayerSpans ? <PlayerPossessionStatPanels summaries={playerSummaries} /> : null}
+        <ReplayPossessionAdvancedPanels
+          error={advancedError}
+          loading={advancedLoading}
+          subjects={advancedSubjects}
+        />
         <PossessionZonesPanel
           comparisonMode={comparisonMode}
           subjects={zoneSubjects}
@@ -244,6 +268,101 @@ export function PossessionDetail({
       </div>
     </div>
   );
+}
+
+type ReplayPossessionSummaryMap = Record<string, PossessionSummaryResponse>;
+
+function useReplayPossessionSummaries(
+  replayId: string | undefined,
+  players: ReplayPlayer[],
+): {
+  error: string | null;
+  loading: boolean;
+  summaries: ReplayPossessionSummaryMap;
+} {
+  const [state, setState] = useState<{
+    error: string | null;
+    loading: boolean;
+    replayId: string | null;
+    summaries: ReplayPossessionSummaryMap;
+  }>({
+    error: null,
+    loading: false,
+    replayId: null,
+    summaries: {},
+  });
+  const playerRequests = useMemo(
+    () =>
+      players
+        .map((player, index) => ({
+          key: playerKey(player, index),
+          player,
+        }))
+        .filter(({ player }) => Boolean(player.platform) && Boolean(player.platform_player_id)),
+    [players],
+  );
+  const requestKey = useMemo(
+    () =>
+      playerRequests
+        .map(({ key, player }) => `${key}:${player.platform}:${player.platform_player_id}`)
+        .join("|"),
+    [playerRequests],
+  );
+
+  useEffect(() => {
+    if (!replayId || playerRequests.length === 0) {
+      setState({ error: null, loading: false, replayId: replayId ?? null, summaries: {} });
+      return;
+    }
+
+    let cancelled = false;
+    setState((current) => ({
+      error: null,
+      loading: true,
+      replayId,
+      summaries: current.replayId === replayId ? current.summaries : {},
+    }));
+    void Promise.all(
+      playerRequests.map(async ({ key, player }) => {
+        const params = new URLSearchParams();
+        params.set("replay-id", replayId);
+        const summary = await getPlayerPossessionSummary(
+          player.platform!,
+          player.platform_player_id!,
+          params,
+        );
+        return [key, summary] as const;
+      }),
+    )
+      .then((entries) => {
+        if (cancelled) return;
+        setState({
+          error: null,
+          loading: false,
+          replayId,
+          summaries: Object.fromEntries(entries),
+        });
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setState({
+          error: err.message,
+          loading: false,
+          replayId,
+          summaries: {},
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [playerRequests, replayId, requestKey]);
+
+  return {
+    error: state.error,
+    loading: state.loading,
+    summaries: state.replayId === replayId ? state.summaries : {},
+  };
 }
 
 function GroupPossessionViewToggle({
@@ -486,6 +605,100 @@ function PlayerPossessionStatPanels({ summaries }: { summaries: PlayerPossession
       />
     </>
   );
+}
+
+function ReplayPossessionAdvancedPanels({
+  error,
+  loading,
+  subjects,
+}: {
+  error: string | null;
+  loading: boolean;
+  subjects: PossessionAdvancedSubject[];
+}) {
+  if (subjects.length > 0) {
+    return <PossessionAdvancedCharts subjects={subjects} />;
+  }
+
+  if (loading) {
+    return (
+      <section className="player-comparison-chart stat-comparison-card">
+        <div className="player-comparison-title">Advanced possession</div>
+        <div className="stat-empty">Loading advanced possession stats...</div>
+      </section>
+    );
+  }
+
+  if (error) {
+    return (
+      <section className="player-comparison-chart stat-comparison-card">
+        <div className="player-comparison-title">Advanced possession</div>
+        <div className="stat-empty">Advanced possession stats are unavailable: {error}</div>
+      </section>
+    );
+  }
+
+  return null;
+}
+
+function replayPossessionAdvancedSubjects(
+  summaries: PlayerPossessionSummary[],
+  players: ReplayPlayer[],
+  advancedSummaries: ReplayPossessionSummaryMap,
+): PossessionAdvancedSubject[] {
+  const playersByKey = new Map(players.map((player, index) => [playerKey(player, index), player]));
+  const subjectIndexByKey = subjectIndexByTeam(summaries);
+
+  return summaries.flatMap((summary): PossessionAdvancedSubject[] => {
+    const advanced = advancedSummaries[summary.key];
+    if (!advanced) return [];
+    const player = playersByKey.get(summary.key);
+    const cohort = replayPlayerPossessionCohort(
+      advanced,
+      summary.name,
+      player?.active_time_seconds ?? null,
+    );
+    return [
+      {
+        key: summary.key,
+        name: summary.name,
+        label: comparisonSubjectLabel(summary, "possession"),
+        activeTimeSeconds: cohort.active_time_seconds,
+        cohort,
+        segmentClassName: subjectMagnitudeSegmentClass(
+          summary,
+          true,
+          subjectIndexByKey,
+          "possession-bar-player",
+        ),
+      },
+    ];
+  });
+}
+
+function replayPlayerPossessionCohort(
+  summary: PossessionSummaryResponse,
+  playerName: string,
+  activeTimeSeconds: number | null,
+): PossessionCohortSummary {
+  const playerCohort = summary.cohorts.find((cohort) => cohort.key === "player");
+  if (playerCohort) {
+    return {
+      ...playerCohort,
+      active_time_seconds: playerCohort.active_time_seconds ?? activeTimeSeconds,
+    };
+  }
+
+  return {
+    key: "player",
+    label: playerName,
+    appearance_count: summary.replay_count,
+    active_time_seconds: activeTimeSeconds,
+    possessions: summary.possessions,
+    controlled_plays: summary.controlled_plays,
+    touches: summary.touches,
+    locations: summary.locations,
+  };
 }
 
 function PossessionZonesPanel({

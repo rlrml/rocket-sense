@@ -545,25 +545,23 @@ export function ComparisonBar({
   style?: CSSProperties;
   markers?: ComparisonMarker[];
   placeholder?: ReactNode;
-  /** Value floated at the bar's end: inside the fill when nearly full, in the
-   *  empty track otherwise, so it stays readable on bars of any length. */
+  /** Value floated inside the fill at the bar's end. */
   valueInBar?: ReactNode;
 }) {
   const visible = segments.filter((segment) => segment.value > 0);
+  const hasInBarValue = valueInBar != null && visible.length > 0;
   const scaleMax = maxValue ?? total;
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
-  // The value hugs the right tip of its own bar (white, right-aligned inside the
-  // fill's end) so every row reads the same way regardless of bar length. Only a
-  // bar too short to hold the text at all falls back to dark text just past the
-  // fill, since there is no room to place it inside.
-  const valueInside = fillPercent > 10;
   return (
     <div
       className="metric-bar-track source-bar-track player-comparison-track"
       style={style}
       aria-label={ariaLabel}
     >
-      <span className="source-bar-fill" style={{ width: `${fillPercent}%` }}>
+      <span
+        className={`source-bar-fill${hasInBarValue ? " has-inbar-value" : ""}`}
+        style={{ width: `${fillPercent}%` }}
+      >
         {visible.map((segment) => (
           <span
             className={`source-segment ${segment.className}`}
@@ -576,15 +574,10 @@ export function ComparisonBar({
             ) : null}
           </span>
         ))}
+        {hasInBarValue ? (
+          <span className="player-comparison-inbar-value inside">{valueInBar}</span>
+        ) : null}
       </span>
-      {valueInBar != null && visible.length > 0 ? (
-        <span
-          className={`player-comparison-inbar-value${valueInside ? " inside" : ""}`}
-          style={valueInside ? { right: `${100 - fillPercent}%` } : { left: `${fillPercent}%` }}
-        >
-          {valueInBar}
-        </span>
-      ) : null}
       {markers.map((marker) => {
         const leftPercent =
           scaleMax > 0 ? Math.max(0, Math.min(100, (marker.value / scaleMax) * 100)) : 0;
