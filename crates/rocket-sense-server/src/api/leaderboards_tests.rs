@@ -240,6 +240,22 @@ fn stat_metric_parses_aliases_and_rejects_unknown() {
         StatLeaderboardMetric::from_query(Some("control_touches")).unwrap(),
         StatLeaderboardMetric::ControlTouchCount
     );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("big-pads")).unwrap(),
+        StatLeaderboardMetric::BigBoostPadCount
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("small_boost_count")).unwrap(),
+        StatLeaderboardMetric::SmallBoostPadCount
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("boost-collected-big")).unwrap(),
+        StatLeaderboardMetric::BigBoostAmount
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("amount-from-small-boosts")).unwrap(),
+        StatLeaderboardMetric::SmallBoostAmount
+    );
     assert!(StatLeaderboardMetric::from_query(Some("flip-reset")).is_err());
 }
 
@@ -291,6 +307,31 @@ fn stat_rank_query_can_read_touch_count_facts() {
     assert!(sql.contains("FROM player_replay_stat_facts fact"));
     assert!(sql.contains("WHERE fact.stat_key = "));
     assert!(sql.contains("ORDER BY value_per_game DESC NULLS LAST, value DESC"));
+}
+
+#[test]
+fn stat_rank_query_can_read_boost_count_materialization() {
+    let (filters, paging) = stat_filters("stat=big-boost-pad-count&sort=per-minute&team-size=2");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("FROM player_replay_boost boost"));
+    assert!(sql.contains("SUM(boost.big_pads"));
+    assert!(sql.contains("r.canonical_analysis_run_id = boost.analysis_run_id"));
+    assert!(sql.contains("SUM(boost.tracked_seconds) AS active_time_seconds"));
+    assert!(sql.contains("NULL::float8 AS denominator_value"));
+    assert!(sql.contains("team_player_count"));
+    assert!(sql.contains("ORDER BY value_per_active_minute DESC NULLS LAST, value DESC"));
+}
+
+#[test]
+fn stat_rank_query_can_read_boost_amount_materialization() {
+    let (filters, paging) = stat_filters("stat=small-boost-amount&sort=per-minute");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("FROM player_replay_boost boost"));
+    assert!(sql.contains("SUM(boost.boost_collected_small"));
+    assert!(sql.contains("COUNT(DISTINCT boost.replay_id) AS replay_count"));
+    assert!(sql.contains("ORDER BY value_per_active_minute DESC NULLS LAST, value DESC"));
 }
 
 #[test]
