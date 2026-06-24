@@ -116,6 +116,123 @@ fn replay_search_player_extracts_scoreboard_stats_from_header() {
 }
 
 #[test]
+fn replay_search_metadata_backfills_missing_scoreboard_stats_from_core_events() {
+    let steam_player = RemoteId::Steam(76561198000000001);
+    let epic_player = RemoteId::Epic("orange-epic-id".to_owned());
+    let timeline = subtr_actor::ReplayStatsTimelineScaffold {
+        config: subtr_actor::default_stats_timeline_config(),
+        replay_meta: ReplayMeta {
+            team_zero: vec![PlayerInfo {
+                remote_id: steam_player.clone(),
+                stats: None,
+                name: "Blue Player".to_owned(),
+                car_body_id: None,
+                car_body_name: None,
+                camera_settings: None,
+                car_hitbox_family: None,
+            }],
+            team_one: vec![PlayerInfo {
+                remote_id: epic_player.clone(),
+                stats: Some(
+                    [
+                        ("Score".to_owned(), HeaderProp::Int(999)),
+                        ("Goals".to_owned(), HeaderProp::Int(3)),
+                        ("Assists".to_owned(), HeaderProp::Int(2)),
+                        ("Saves".to_owned(), HeaderProp::Int(1)),
+                        ("Shots".to_owned(), HeaderProp::Int(7)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                name: "Orange Player".to_owned(),
+                car_body_id: None,
+                car_body_name: None,
+                camera_settings: None,
+                car_hitbox_family: None,
+            }],
+            all_headers: vec![],
+            game_type: subtr_actor::ReplayGameTypeDetails::default(),
+            season: None,
+        },
+        events: timeline_events_from(vec![
+            moment_event(
+                "core_player",
+                60,
+                1.0,
+                subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                    time: 1.0,
+                    frame: 60,
+                    player: steam_player.clone(),
+                    player_position: None,
+                    is_team_0: true,
+                    score_delta: 100,
+                    goals_delta: 1,
+                    assists_delta: 0,
+                    saves_delta: 0,
+                    shots_delta: 1,
+                }),
+            ),
+            moment_event(
+                "core_player",
+                120,
+                2.0,
+                subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                    time: 2.0,
+                    frame: 120,
+                    player: steam_player.clone(),
+                    player_position: None,
+                    is_team_0: true,
+                    score_delta: 50,
+                    goals_delta: 0,
+                    assists_delta: 1,
+                    saves_delta: 2,
+                    shots_delta: 1,
+                }),
+            ),
+            moment_event(
+                "core_player",
+                180,
+                3.0,
+                subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                    time: 3.0,
+                    frame: 180,
+                    player: epic_player,
+                    player_position: None,
+                    is_team_0: false,
+                    score_delta: 10,
+                    goals_delta: 1,
+                    assists_delta: 0,
+                    saves_delta: 0,
+                    shots_delta: 1,
+                }),
+            ),
+        ]),
+        frames: vec![],
+        positioning_summary: vec![],
+        accumulation_tracks: vec![],
+    };
+
+    let typed = replay_search_metadata(&timeline);
+    let scaffold_json = serde_json::to_value(&timeline).expect("serialize scaffold");
+    let from_json = replay_search_metadata_from_scaffold_json(&scaffold_json);
+    assert_eq!(typed, from_json);
+
+    let blue = &typed.players[0];
+    assert_eq!(blue.score, Some(150));
+    assert_eq!(blue.goals, Some(1));
+    assert_eq!(blue.assists, Some(1));
+    assert_eq!(blue.saves, Some(2));
+    assert_eq!(blue.shots, Some(2));
+
+    let orange = &typed.players[1];
+    assert_eq!(orange.score, Some(999));
+    assert_eq!(orange.goals, Some(3));
+    assert_eq!(orange.assists, Some(2));
+    assert_eq!(orange.saves, Some(1));
+    assert_eq!(orange.shots, Some(7));
+}
+
+#[test]
 fn replay_search_metadata_prefers_specific_playlist_name_over_online_match_type() {
     let replay_meta = ReplayMeta {
         team_zero: vec![],

@@ -8,16 +8,17 @@ import {
 } from "./comparisonPanels";
 import { StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
 
-// Scoreboard core stats (score, goals, assists, saves, shots) are parsed onto
-// each ReplayPlayer directly — for a group they are summed across the group's
-// replays — so this page reads them off `players`. Demolitions are not on the
-// scoreboard, so they are counted from indexed events. The current subtr-actor
-// emits one "demolition" event carrying both sides — the attacker (top-level
-// `player_id`) takes a demo inflicted and `payload.victim` takes a death. Older
-// replays (indexed before that merge) instead have separate "kill" (demolisher)
-// and "death" (victim) events; both shapes are tallied so the page works without
+// Scoreboard core stats (score, goals, assists, saves, shots) are usually
+// parsed onto each ReplayPlayer directly. Some replay formats lack those header
+// stats, so the Core tab also loads subtr-actor's scoreboard delta stream and
+// reconstructs the totals as a fallback. Demolitions are not on the scoreboard,
+// so they are counted from indexed events. The current subtr-actor emits one
+// "demolition" event carrying both sides — the attacker (top-level `player_id`)
+// takes a demo inflicted and `payload.victim` takes a death. Older replays
+// (indexed before that merge) instead have separate "kill" (demolisher) and
+// "death" (victim) events; both shapes are tallied so the page works without
 // reprocessing.
-export const coreEventTypes: string[] = ["demolition", "kill", "death"];
+export const coreEventTypes: string[] = ["core_player_scoreboard", "demolition", "kill", "death"];
 
 interface CorePlayerSummary {
   key: string;
@@ -277,8 +278,10 @@ function corePlayerSummaries(
   events: MechanicEventResponse[],
 ): CorePlayerSummary[] {
   const { inflicted, taken } = demoCountsByPlayerKey(players, events);
+  const scoreboardTotals = scoreboardTotalsByPlayerKey(players, events);
   return players.map((player, index) => {
     const key = playerKey(player, index);
+    const fallback = scoreboardTotals.get(key);
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
@@ -286,15 +289,55 @@ function corePlayerSummaries(
       platformPlayerId: player.platform_player_id,
       rank: statPlayerRank(player),
       team: player.team,
-      score: numberOr(player.score),
-      goals: numberOr(player.goals),
-      assists: numberOr(player.assists),
-      saves: numberOr(player.saves),
-      shots: numberOr(player.shots),
+      score: numberOr(player.score, fallback?.score),
+      goals: numberOr(player.goals, fallback?.goals),
+      assists: numberOr(player.assists, fallback?.assists),
+      saves: numberOr(player.saves, fallback?.saves),
+      shots: numberOr(player.shots, fallback?.shots),
       demos: inflicted.get(key) ?? 0,
       deaths: taken.get(key) ?? 0,
     };
   });
+}
+
+type ScoreboardTotals = Pick<CorePlayerSummary, "score" | "goals" | "assists" | "saves" | "shots">;
+
+function scoreboardTotalsByPlayerKey(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): Map<string, ScoreboardTotals> {
+  const totals = new Map<string, ScoreboardTotals>();
+  const increment = (
+    event: MechanicEventResponse,
+    field: keyof ScoreboardTotals,
+    value: unknown,
+  ) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return;
+    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+    if (index < 0) return;
+    const key = playerKey(players[index], index);
+    const current = totals.get(key) ?? {
+      score: 0,
+      goals: 0,
+      assists: 0,
+      saves: 0,
+      shots: 0,
+    };
+    current[field] += value;
+    totals.set(key, current);
+  };
+
+  for (const event of events) {
+    if (event.event_type !== "core_player_scoreboard") continue;
+    const payload = event.payload;
+    increment(event, "score", payload.score_delta);
+    increment(event, "goals", payload.goals_delta);
+    increment(event, "assists", payload.assists_delta);
+    increment(event, "saves", payload.saves_delta);
+    increment(event, "shots", payload.shots_delta);
+  }
+
+  return totals;
 }
 
 // Demolitions come in two indexed shapes. The current "demolition" event carries
@@ -407,8 +450,9 @@ function formatCount(value: number): string {
   return value.toLocaleString();
 }
 
-function numberOr(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+function numberOr(value: number | null | undefined, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return typeof fallback === "number" && Number.isFinite(fallback) ? fallback : 0;
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {

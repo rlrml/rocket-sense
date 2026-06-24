@@ -671,7 +671,11 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
 // Bumped v9 -> v10 for subtr-actor's tag-based touch classification: touch
 // events no longer carry fixed intention/first-touch/contested fields, so
 // reprocessing derives those indexed detail columns from classification tags.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v10";
+// Bumped v10 -> v11 to backfill replay-player scoreboard metadata from
+// `core_player_scoreboard` deltas when the replay header lacks `PlayerStats`.
+// Reprocessing fills score/goals/assists/saves/shots for replay cards, group
+// participants, and Core stats.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v11";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -3253,6 +3257,7 @@ fn replay_search_metadata_from_scaffold_json(scaffold: &Value) -> ReplaySearchMe
                 .map(|player| replay_search_player_json(player, 1)),
         )
         .collect::<Vec<_>>();
+    apply_player_scoreboard_metadata_json(&mut players, scaffold);
     apply_player_timing_metadata_json(&mut players, scaffold);
     let has_pro_player = players.iter().any(|player| player.is_pro);
 
@@ -3386,6 +3391,69 @@ fn team_score_from_events_json(scaffold: &Value, is_team_0: bool) -> i32 {
                 .and_then(|n| i32::try_from(n).ok())
         })
         .sum()
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PlayerScoreboardMetadata {
+    score: i32,
+    goals: i32,
+    assists: i32,
+    saves: i32,
+    shots: i32,
+}
+
+impl PlayerScoreboardMetadata {
+    fn apply_missing_to(self, player: &mut ReplaySearchPlayer) {
+        player.score.get_or_insert(self.score);
+        player.goals.get_or_insert(self.goals);
+        player.assists.get_or_insert(self.assists);
+        player.saves.get_or_insert(self.saves);
+        player.shots.get_or_insert(self.shots);
+    }
+}
+
+/// JSON twin of [`apply_player_scoreboard_metadata`].
+fn apply_player_scoreboard_metadata_json(players: &mut [ReplaySearchPlayer], scaffold: &Value) {
+    let mut scoreboard_by_key = HashMap::<String, PlayerScoreboardMetadata>::new();
+    let mut saw_scoreboard_events = false;
+
+    for inner in scaffold_event_inner_payloads(scaffold, "core_player") {
+        saw_scoreboard_events = true;
+        let (platform, platform_player_id) =
+            remote_id_parts_json(inner.get("player").unwrap_or(&Value::Null));
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let scoreboard = scoreboard_by_key.entry(key).or_default();
+        scoreboard.score += scoreboard_delta_json(inner, "score_delta");
+        scoreboard.goals += scoreboard_delta_json(inner, "goals_delta");
+        scoreboard.assists += scoreboard_delta_json(inner, "assists_delta");
+        scoreboard.saves += scoreboard_delta_json(inner, "saves_delta");
+        scoreboard.shots += scoreboard_delta_json(inner, "shots_delta");
+    }
+
+    if !saw_scoreboard_events {
+        return;
+    }
+
+    for player in players {
+        let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
+            continue;
+        };
+        scoreboard_by_key
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            .apply_missing_to(player);
+    }
+}
+
+fn scoreboard_delta_json(inner: &Value, key: &str) -> i32 {
+    inner
+        .get(key)
+        .and_then(Value::as_i64)
+        .and_then(|n| i32::try_from(n).ok())
+        .unwrap_or(0)
 }
 
 /// Iterate the inner typed payloads of timeline events whose payload `kind`
@@ -3580,6 +3648,7 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
                 .map(|player| replay_search_player(player, 1)),
         )
         .collect::<Vec<_>>();
+    apply_player_scoreboard_metadata(&mut players, timeline);
     apply_player_timing_metadata(&mut players, timeline);
     let has_pro_player = players.iter().any(|player| player.is_pro);
 
@@ -3735,6 +3804,51 @@ fn team_score_from_events(timeline: &ReplayStatsTimelineScaffold, is_team_0: boo
         .filter(|event| event.is_team_0 == is_team_0)
         .map(|event| event.goals_delta)
         .sum()
+}
+
+fn apply_player_scoreboard_metadata(
+    players: &mut [ReplaySearchPlayer],
+    timeline: &ReplayStatsTimelineScaffold,
+) {
+    let mut scoreboard_by_key = HashMap::<String, PlayerScoreboardMetadata>::new();
+    let mut saw_scoreboard_events = false;
+
+    for event in timeline
+        .events
+        .events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            subtr_actor::EventPayload::CorePlayer(event) => Some(event),
+            _ => None,
+        })
+    {
+        saw_scoreboard_events = true;
+        let (platform, platform_player_id) = remote_id_parts(&event.player);
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let scoreboard = scoreboard_by_key.entry(key).or_default();
+        scoreboard.score += event.score_delta;
+        scoreboard.goals += event.goals_delta;
+        scoreboard.assists += event.assists_delta;
+        scoreboard.saves += event.saves_delta;
+        scoreboard.shots += event.shots_delta;
+    }
+
+    if !saw_scoreboard_events {
+        return;
+    }
+
+    for player in players {
+        let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
+            continue;
+        };
+        scoreboard_by_key
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            .apply_missing_to(player);
+    }
 }
 
 fn apply_player_timing_metadata(
