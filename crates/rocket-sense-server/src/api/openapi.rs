@@ -1,6 +1,6 @@
 use super::{
     admin, auth, ballchasing, health, leaderboards, meta, movement_stats, player_overview, players,
-    positioning_stats, possession_stats, replays, stats,
+    positioning_stats, possession_stats, replays, stats, users,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -68,6 +68,7 @@ use utoipa::{
         replays::reprocess_replay,
         replays::reprocess_replay_client,
         replays::set_replay_ranks,
+        users::get_user_profile,
     ),
     components(
         schemas(
@@ -165,6 +166,7 @@ use utoipa::{
             crate::ranks::RankSubmission,
             crate::ranks::SubmittedRank,
             crate::ranks::SkillSnapshot,
+            users::UserProfileResponse,
         )
     ),
     tags(
@@ -175,6 +177,7 @@ use utoipa::{
         (name = "leaderboards", description = "Cross-replay leaderboard endpoints"),
         (name = "meta", description = "Service metadata endpoints"),
         (name = "players", description = "Player profile endpoints"),
+        (name = "users", description = "Rocket Sense user (uploader) profile endpoints"),
         (name = "stats", description = "Aggregate replay statistics endpoints"),
         (name = "replays", description = "Replay upload and metadata endpoints"),
         (name = "replay-groups", description = "Replay group endpoints")
