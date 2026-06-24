@@ -595,7 +595,7 @@ function ReplayListPage() {
   function updateReplayOrder(order: ReplayOrder) {
     const [sortBy, sortDir] = order.split(":");
     const params = new URLSearchParams(location.search);
-    if (sortBy === "upload-date") {
+    if (sortBy === "replay-date") {
       params.delete("sort-by");
     } else {
       params.set("sort-by", sortBy);
@@ -955,10 +955,10 @@ interface ReplayFilterForm {
 const pageSizeOptions = [25, 50, 100, 200];
 
 const replayOrderOptions: Array<{ value: ReplayOrder; label: string }> = [
-  { value: "upload-date:desc", label: "Newest uploaded" },
   { value: "replay-date:desc", label: "Newest played" },
-  { value: "upload-date:asc", label: "Oldest uploaded" },
   { value: "replay-date:asc", label: "Oldest played" },
+  { value: "upload-date:desc", label: "Newest uploaded" },
+  { value: "upload-date:asc", label: "Oldest uploaded" },
 ];
 
 const replayStatusOptions = [
@@ -1279,7 +1279,7 @@ function positiveIntegerParam(params: URLSearchParams, key: string, fallback: nu
 }
 
 function replayOrderFromParams(params: URLSearchParams): ReplayOrder {
-  const sortBy = params.get("sort-by") === "replay-date" ? "replay-date" : "upload-date";
+  const sortBy = params.get("sort-by") === "upload-date" ? "upload-date" : "replay-date";
   const sortDir = params.get("sort-dir") === "asc" ? "asc" : "desc";
   return `${sortBy}:${sortDir}` as ReplayOrder;
 }

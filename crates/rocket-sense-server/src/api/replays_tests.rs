@@ -397,12 +397,30 @@ fn replay_list_query_pages_replay_ids_before_hydrating_rows() {
 fn replay_list_sort_uses_index_friendly_nulls_ordering() {
     use sqlx::Execute;
 
-    // Default sort is upload-date (created_at). created_at is NOT NULL and the
+    // Default sort is replay-date. replay_date is nullable and its index is
+    // `(replay_date DESC NULLS LAST, id DESC)`, so this sort MUST keep
+    // `NULLS LAST` to match the index.
+    let default_sort =
+        ReplayFilters::from_query(ListReplaysQuery::default(), None).expect("filters should parse");
+    let mut builder = find_replays_query(&default_sort);
+    let sql = builder.build().sql().to_owned();
+    assert!(
+        sql.contains("ORDER BY r.replay_date DESC NULLS LAST, r.id DESC"),
+        "default replay-date sort must keep NULLS LAST to match replays_replay_date_id_idx, got: {sql}"
+    );
+
+    // Explicit upload-date sort uses created_at. created_at is NOT NULL and the
     // backing index `replays_created_at_id_idx` is `(created_at DESC, id DESC)`
     // (NULLS FIRST), so the ORDER BY must NOT emit `NULLS LAST` or the planner
     // falls back to a full Seq Scan + Sort instead of an index scan.
-    let upload_sort =
-        ReplayFilters::from_query(ListReplaysQuery::default(), None).expect("filters should parse");
+    let upload_sort = ReplayFilters::from_query(
+        ListReplaysQuery {
+            sort_by: Some("upload-date".to_owned()),
+            ..ListReplaysQuery::default()
+        },
+        None,
+    )
+    .expect("filters should parse");
     let mut builder = find_replays_query(&upload_sort);
     let sql = builder.build().sql().to_owned();
     assert!(
@@ -412,23 +430,6 @@ fn replay_list_sort_uses_index_friendly_nulls_ordering() {
     assert!(
         !sql.contains("r.created_at DESC NULLS LAST"),
         "upload-date sort must not emit NULLS LAST (defeats replays_created_at_id_idx)"
-    );
-
-    // replay_date is nullable and its index is `(replay_date DESC NULLS LAST,
-    // id DESC)`, so this sort MUST keep `NULLS LAST` to match the index.
-    let replay_sort = ReplayFilters::from_query(
-        ListReplaysQuery {
-            sort_by: Some("replay-date".to_owned()),
-            ..ListReplaysQuery::default()
-        },
-        None,
-    )
-    .expect("filters should parse");
-    let mut builder = find_replays_query(&replay_sort);
-    let sql = builder.build().sql().to_owned();
-    assert!(
-        sql.contains("ORDER BY r.replay_date DESC NULLS LAST, r.id DESC"),
-        "replay-date sort must keep NULLS LAST to match replays_replay_date_id_idx, got: {sql}"
     );
 }
 
