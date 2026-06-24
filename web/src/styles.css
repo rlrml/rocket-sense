@@ -5209,6 +5209,16 @@ tbody tr:last-child td {
   color: #7f1d1d;
 }
 
+.api-notice.loading {
+  border-color: var(--border);
+  background: #fff;
+  color: var(--muted);
+}
+
+.api-notice.loading strong {
+  color: var(--text);
+}
+
 .stat-empty {
   min-height: 96px;
   padding: 14px;

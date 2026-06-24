@@ -42,7 +42,7 @@ interface CatalogMetric {
   label: string;
   category: string;
   param?: string;
-  unit?: "seconds" | "count" | "uu";
+  unit?: "seconds" | "count" | "uu" | "boost";
   aggregations: Aggregation[];
   description: string;
 }
@@ -180,6 +180,38 @@ const statOptions: Array<{
     unit: "count",
     aggregations: ["total", "per-game", "per-minute"],
     description: "Touches classified as controlled contacts.",
+  },
+  {
+    value: "big-boost-pad-count",
+    label: "Big boost pad count",
+    category: "boost",
+    unit: "count",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Big boost pads collected by the player.",
+  },
+  {
+    value: "small-boost-pad-count",
+    label: "Small boost pad count",
+    category: "boost",
+    unit: "count",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Small boost pads collected by the player.",
+  },
+  {
+    value: "big-boost-amount",
+    label: "Boost from big pads",
+    category: "boost",
+    unit: "boost",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Boost amount collected from big pads.",
+  },
+  {
+    value: "small-boost-amount",
+    label: "Boost from small pads",
+    category: "boost",
+    unit: "boost",
+    aggregations: ["total", "per-game", "per-minute"],
+    description: "Boost amount collected from small pads.",
   },
 ];
 

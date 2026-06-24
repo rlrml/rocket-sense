@@ -771,6 +771,10 @@ enum StatLeaderboardMetric {
     AvgPossessionDuration,
     HighAerialTouchCount,
     ControlTouchCount,
+    BigBoostPadCount,
+    SmallBoostPadCount,
+    BigBoostAmount,
+    SmallBoostAmount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -789,12 +793,34 @@ enum StatMetricSource {
         numerator: PossessionAverageNumerator,
     },
     TouchCount,
+    Boost {
+        column: BoostMetricColumn,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum PossessionAverageNumerator {
     Touches,
     DurationSeconds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoostMetricColumn {
+    BigPads,
+    SmallPads,
+    BigAmount,
+    SmallAmount,
+}
+
+impl BoostMetricColumn {
+    fn sql(self) -> &'static str {
+        match self {
+            Self::BigPads => "boost.big_pads",
+            Self::SmallPads => "boost.small_pads",
+            Self::BigAmount => "boost.boost_collected_big",
+            Self::SmallAmount => "boost.boost_collected_small",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -818,6 +844,7 @@ impl StatMetricDefinition {
             StatMetricSource::PlayerPossessionDuration => self.key,
             StatMetricSource::PlayerPossessionAverage { .. } => self.key,
             StatMetricSource::TouchCount => self.key,
+            StatMetricSource::Boost { .. } => self.key,
         }
     }
 
@@ -943,7 +970,85 @@ const STAT_METRIC_DEFINITIONS: &[StatMetricDefinition] = &[
         unit: "count",
         source: StatMetricSource::TouchCount,
     },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BigBoostPadCount,
+        key: "big-boost-pad-count",
+        aliases: &[
+            "big_boost_pad_count",
+            "big-boost-count",
+            "big_boost_count",
+            "big-pads",
+            "big_pads",
+            "big-boost-pads",
+            "big_boost_pads",
+        ],
+        display_name: "Big boost pad count",
+        description: "Big boost pads collected by the player",
+        unit: "count",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::BigPads,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::SmallBoostPadCount,
+        key: "small-boost-pad-count",
+        aliases: &[
+            "small_boost_pad_count",
+            "small-boost-count",
+            "small_boost_count",
+            "small-pads",
+            "small_pads",
+            "small-boost-pads",
+            "small_boost_pads",
+        ],
+        display_name: "Small boost pad count",
+        description: "Small boost pads collected by the player",
+        unit: "count",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::SmallPads,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BigBoostAmount,
+        key: "big-boost-amount",
+        aliases: &[
+            "big_boost_amount",
+            "amount-from-big-boosts",
+            "amount_from_big_boosts",
+            "boost-from-big-boosts",
+            "boost_from_big_boosts",
+            "boost-collected-big",
+            "boost_collected_big",
+        ],
+        display_name: "Boost from big pads",
+        description: "Boost amount collected from big pads, in normal 0-100 boost units",
+        unit: "boost",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::BigAmount,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::SmallBoostAmount,
+        key: "small-boost-amount",
+        aliases: &[
+            "small_boost_amount",
+            "amount-from-small-boosts",
+            "amount_from_small_boosts",
+            "boost-from-small-boosts",
+            "boost_from_small_boosts",
+            "boost-collected-small",
+            "boost_collected_small",
+        ],
+        display_name: "Boost from small pads",
+        description: "Boost amount collected from small pads, in normal 0-100 boost units",
+        unit: "boost",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::SmallAmount,
+        },
+    },
 ];
+
+const STAT_METRIC_KEYS: &str = "ball-opponent-half, possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count, big-boost-pad-count, small-boost-pad-count, big-boost-amount, small-boost-amount";
 
 impl StatLeaderboardMetric {
     fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
@@ -960,9 +1065,7 @@ impl StatLeaderboardMetric {
             })
             .map(|definition| definition.metric)
             .ok_or_else(|| {
-                ApiError::bad_request(
-                    "stat must be one of: ball-opponent-half, possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count",
-                )
+                ApiError::bad_request(format!("stat must be one of: {STAT_METRIC_KEYS}"))
             })
     }
 
@@ -1095,7 +1198,7 @@ impl StatLeaderboardFilters {
     path = "/api/v1/leaderboards/stat",
     tag = "leaderboards",
     params(
-        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, or control-touch-count"),
+        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count, big-boost-pad-count, small-boost-pad-count, big-boost-amount, or small-boost-amount"),
         ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, share, or average"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
@@ -1245,6 +1348,36 @@ fn push_stat_fact_cte<'args>(
             " GROUP BY possession.platform, possession.platform_player_id \
              HAVING SUM(possession.possession_count) > 0)",
         );
+        return;
+    }
+
+    if let StatMetricSource::Boost { column } = definition.source {
+        builder.push(
+            "WITH metric_values AS (\
+             SELECT boost.platform AS platform, boost.platform_player_id AS platform_player_id, \
+             COALESCE(SUM(",
+        );
+        builder.push(column.sql());
+        builder.push(
+            "), 0.0)::float8 AS value, \
+             COUNT(DISTINCT boost.replay_id) AS replay_count, \
+             SUM(boost.tracked_seconds) AS active_time_seconds, \
+             NULL::float8 AS denominator_value, \
+             NULL::bigint AS sample_count \
+             FROM player_replay_boost boost \
+             JOIN replays r ON r.id = boost.replay_id \
+             AND r.canonical_analysis_run_id = boost.analysis_run_id \
+             WHERE boost.platform IS NOT NULL AND btrim(boost.platform) <> '' \
+             AND boost.platform_player_id IS NOT NULL \
+             AND btrim(boost.platform_player_id) <> ''",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(
+            " GROUP BY boost.platform, boost.platform_player_id \
+             HAVING COALESCE(SUM(",
+        );
+        builder.push(column.sql());
+        builder.push("), 0.0) > 0)");
         return;
     }
 
