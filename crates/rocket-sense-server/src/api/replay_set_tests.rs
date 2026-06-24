@@ -73,6 +73,33 @@ fn replay_set_filters_render_game_type_and_team_size_clauses() {
 }
 
 #[test]
+fn player_outcome_filter_requires_target_player() {
+    let error = filters_from_input(ReplaySetFilterInput {
+        player_outcome: Some("win".to_owned()),
+        ..ReplaySetFilterInput::default()
+    });
+    assert!(error.is_err());
+}
+
+#[test]
+fn player_outcome_filter_renders_score_predicate() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        target_player_id: Some("steam:abc123".to_owned()),
+        player_outcome: Some("loss".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("player outcome should parse");
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("outcome_player.platform"));
+    assert!(sql.contains("r.team_zero_score < r.team_one_score"));
+    assert!(sql.contains("r.team_zero_score > r.team_one_score"));
+}
+
+#[test]
 fn playlist_group_key_combines_context_and_team_size() {
     let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
     push_playlist_group_key_expression(&mut builder, "r");
