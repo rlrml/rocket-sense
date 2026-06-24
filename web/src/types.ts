@@ -26,12 +26,27 @@ export interface ReplayPlayer {
   time_most_forward_seconds: number | null;
 }
 
+export interface ReplayUploaderResponse {
+  id: string;
+  primary_email: string | null;
+  display_name: string | null;
+}
+
+export interface UserProfileResponse {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  upload_count: number;
+}
+
 export interface ReplayResponse {
   id: string;
   file_sha256: string;
   byte_size: number;
   project_id: string | null;
   uploaded_by_user_id: string | null;
+  uploaded_by: ReplayUploaderResponse | null;
   storage_key: string;
   original_file_name: string | null;
   external_replay_id: string | null;
