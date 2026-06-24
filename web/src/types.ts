@@ -461,6 +461,7 @@ export interface ScoringRateResponse {
 export interface PlayerStatOverviewResponse {
   replay_count: number;
   goals_scored: number;
+  score: ScoringRateResponse;
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
   shots?: ScoringRateResponse;

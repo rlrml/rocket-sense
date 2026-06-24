@@ -34,6 +34,7 @@ interface CorePlayerSummary {
   shots: number;
   demos: number;
   deaths: number;
+  teamGoals: number;
 }
 
 export function CoreDetail({
@@ -96,6 +97,18 @@ export function CoreDetail({
             metric: (summary) => summary.assists,
             format: formatCount,
             label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Assist %"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-assist-percentage",
+            metric: assistPercentage,
+            format: formatPercentage,
+            label: corePlayerLabel,
+            placeholder: "0%",
           })}
         />
         <StatComparisonPanel
@@ -202,6 +215,7 @@ type CoreStatSortKey =
   | "shots"
   | "demos"
   | "deaths"
+  | "assistPercentage"
   | "shooting";
 
 type CoreStatSort = {
@@ -222,6 +236,11 @@ const coreStatColumns: Array<{
   { key: "score", label: "Score", render: (summary) => formatCount(summary.score) },
   { key: "goals", label: "Goals", render: (summary) => formatCount(summary.goals) },
   { key: "assists", label: "Assists", render: (summary) => formatCount(summary.assists) },
+  {
+    key: "assistPercentage",
+    label: "Assist %",
+    render: (summary) => formatAssistPercentage(summary),
+  },
   { key: "saves", label: "Saves", render: (summary) => formatCount(summary.saves) },
   { key: "shots", label: "Shots", render: (summary) => formatCount(summary.shots) },
   { key: "demos", label: "Demos", render: (summary) => formatCount(summary.demos) },
@@ -266,6 +285,8 @@ function coreStatSortValue(summary: CorePlayerSummary, key: CoreStatSortKey): nu
   switch (key) {
     case "name":
       return 0;
+    case "assistPercentage":
+      return assistPercentage(summary) ?? Number.NEGATIVE_INFINITY;
     case "shooting":
       return shootingPercentage(summary) ?? Number.NEGATIVE_INFINITY;
     default:
@@ -279,7 +300,7 @@ function corePlayerSummaries(
 ): CorePlayerSummary[] {
   const { inflicted, taken } = demoCountsByPlayerKey(players, events);
   const scoreboardTotals = scoreboardTotalsByPlayerKey(players, events);
-  return players.map((player, index) => {
+  const summaries = players.map((player, index) => {
     const key = playerKey(player, index);
     const fallback = scoreboardTotals.get(key);
     return {
@@ -296,8 +317,19 @@ function corePlayerSummaries(
       shots: numberOr(player.shots, fallback?.shots),
       demos: inflicted.get(key) ?? 0,
       deaths: taken.get(key) ?? 0,
+      teamGoals: 0,
     };
   });
+  const totalGoals = summaries.reduce((total, summary) => total + summary.goals, 0);
+  const goalsByTeam = new Map<number, number>();
+  for (const summary of summaries) {
+    if (summary.team == null) continue;
+    goalsByTeam.set(summary.team, (goalsByTeam.get(summary.team) ?? 0) + summary.goals);
+  }
+  return summaries.map((summary) => ({
+    ...summary,
+    teamGoals: summary.team == null ? totalGoals : (goalsByTeam.get(summary.team) ?? 0),
+  }));
 }
 
 type ScoreboardTotals = Pick<CorePlayerSummary, "score" | "goals" | "assists" | "saves" | "shots">;
@@ -440,10 +472,24 @@ function shootingPercentage(summary: CorePlayerSummary): number | null {
   return summary.shots > 0 ? (summary.goals / summary.shots) * 100 : null;
 }
 
+function assistPercentage(summary: CorePlayerSummary): number | null {
+  return summary.teamGoals > 0 ? (summary.assists / summary.teamGoals) * 100 : null;
+}
+
+function formatPercentage(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+function formatAssistPercentage(summary: CorePlayerSummary): string {
+  const value = assistPercentage(summary);
+  if (value == null) return "—";
+  return formatPercentage(value);
+}
+
 function formatShootingPercentage(summary: CorePlayerSummary): string {
   const value = shootingPercentage(summary);
   if (value == null) return "—";
-  return `${Math.round(value)}%`;
+  return formatPercentage(value);
 }
 
 function formatCount(value: number): string {

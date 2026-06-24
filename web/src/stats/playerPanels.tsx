@@ -236,10 +236,12 @@ export function CoreProfileComparison({
 }) {
   const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
   const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
+  const score = scoringRateOrZero(overview.score);
   const goals = scoringRateOrZero(overview.goals);
   const assists = scoringRateOrZero(overview.assists);
   const shots = scoringRateOrZero(overview.shots);
   const cards = [
+    rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
     rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
     rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
     rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
@@ -257,6 +259,11 @@ export function CoreProfileComparison({
       key: "shooting-percentage",
       title: "Shooting percentage (%)",
       rows: shootingPercentageRows(goals, shots, playerName),
+    },
+    {
+      key: "assist-percentage",
+      title: "Assist percentage (%)",
+      rows: assistPercentageRows(goals, assists, playerName),
     },
   ];
 
@@ -394,6 +401,45 @@ function shootingPercentageRows(
   return rows;
 }
 
+function assistPercentageRows(
+  goals: ScoringRateLike,
+  assists: ScoringRateLike,
+  playerName: string,
+): ComparisonRow[] {
+  const teamGoals = goals.count + goals.teammate_count;
+  const playerPercentage = percentage(assists.count, teamGoals);
+  const teammatePercentage = percentage(assists.teammate_count, teamGoals);
+  const rows: ComparisonRow[] = [
+    percentageComparisonRow({
+      cohortKey: "player",
+      denominator: teamGoals,
+      label: formatPercentage(playerPercentage),
+      maxValue: 100,
+      numerator: assists.count,
+      playerName,
+      statName: "Assist percentage",
+      totalName: "assists/team goals",
+      value: playerPercentage ?? 0,
+    }),
+  ];
+  if (teammatePercentage != null || assists.teammate_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "teammates",
+        denominator: teamGoals,
+        label: formatPercentage(teammatePercentage),
+        maxValue: 100,
+        numerator: assists.teammate_count,
+        playerName,
+        statName: "Assist percentage",
+        totalName: "assists/team goals",
+        value: teammatePercentage ?? 0,
+      }),
+    );
+  }
+  return rows;
+}
+
 function percentageComparisonRow({
   cohortKey,
   denominator,
@@ -401,6 +447,8 @@ function percentageComparisonRow({
   maxValue,
   numerator,
   playerName,
+  statName = "Shooting percentage",
+  totalName = "goals/shots",
   value,
 }: {
   cohortKey: CareerCohortKey;
@@ -409,6 +457,8 @@ function percentageComparisonRow({
   maxValue: number;
   numerator: number;
   playerName: string;
+  statName?: string;
+  totalName?: string;
   value: number;
 }): ComparisonRow {
   const totalKind = cohortKey === "player" ? "total" : "pooled total";
@@ -429,17 +479,17 @@ function percentageComparisonRow({
     ariaLabel: `${careerCohortLabel(cohortKey, playerName)}: ${label}`,
     segments: [
       {
-        key: "shooting-percentage",
+        key: statName.toLowerCase().replaceAll(" ", "-"),
         className: careerCohortSegmentClassName(cohortKey),
-        label: "Shooting percentage",
+        label: statName,
         value,
         visibleLabel: value > 0 ? label : undefined,
-        title: `${label} (${totalLabel} goals/shots ${totalKind})`,
+        title: `${label} (${totalLabel} ${totalName} ${totalKind})`,
       },
     ],
     total: value,
     maxValue,
-    valueLabel: <span title={`${totalLabel} goals/shots ${totalKind}`}>{totalLabel} total</span>,
+    valueLabel: <span title={`${totalLabel} ${totalName} ${totalKind}`}>{totalLabel} total</span>,
     placeholder: label,
   };
 }
