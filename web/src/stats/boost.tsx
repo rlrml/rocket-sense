@@ -10,8 +10,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getPlayerBoostTotals, listBoostTracks, listReplayGroupBoostTotals } from "../api";
+import {
+  getPlayerBoostPadControl,
+  getPlayerBoostTotals,
+  listBoostTracks,
+  listReplayGroupBoostTotals,
+} from "../api";
 import type {
+  BoostPadControlPoint,
+  BoostPadControlResponse,
   BoostTrack,
   GroupBoostTotal,
   GroupBoostTotalsResponse,
@@ -273,8 +280,11 @@ export function BoostProfileDetail({
   search: string;
 }) {
   const [totals, setTotals] = useState<PlayerBoostTotalsResponse | null>(null);
+  const [padControl, setPadControl] = useState<BoostPadControlResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [padControlLoading, setPadControlLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [padControlError, setPadControlError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -290,6 +300,26 @@ export function BoostProfileDetail({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, platformPlayerId, search]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPadControlLoading(true);
+    setPadControlError(null);
+    setPadControl(null);
+    getPlayerBoostPadControl(platform, platformPlayerId, new URLSearchParams(search))
+      .then((response) => {
+        if (!cancelled) setPadControl(response);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setPadControlError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setPadControlLoading(false);
       });
     return () => {
       cancelled = true;
@@ -340,6 +370,11 @@ export function BoostProfileDetail({
         summaries={summaries}
         valueMode="per-minute"
       />
+      <BoostProfilePadControlMap
+        error={padControlError}
+        loading={padControlLoading}
+        points={padControl?.points ?? []}
+      />
     </section>
   );
 }
@@ -383,6 +418,212 @@ function BoostComparisonModeToggle({
       </div>
     </div>
   );
+}
+
+function BoostProfilePadControlMap({
+  error,
+  loading,
+  points,
+}: {
+  error: string | null;
+  loading: boolean;
+  points: BoostPadControlPoint[];
+}) {
+  const maxTotal = Math.max(1, ...points.map(boostPadControlTotal));
+
+  return (
+    <section className="boost-comparison-group boost-profile-control-map">
+      <div className="boost-control-heading">
+        <div className="player-comparison-title">Boost control</div>
+        <div className="boost-control-note">Center % = team control</div>
+      </div>
+      {loading ? (
+        <div className="stat-empty">Loading boost control...</div>
+      ) : error ? (
+        <div className="stat-empty">Boost control is unavailable: {error}</div>
+      ) : points.length === 0 ? (
+        <div className="stat-empty">No boost-control pickup locations are available yet.</div>
+      ) : (
+        <>
+          <svg
+            className="pickup-map boost-control-map"
+            viewBox="0 0 100 125"
+            role="img"
+            aria-label="Lifetime boost pad control map"
+          >
+            <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
+            <path
+              className="boost-control-half-shade opponent"
+              d="M 7 4 H 93 Q 96 4 96 7 V 62.5 H 4 V 7 Q 4 4 7 4 Z"
+            />
+            <path
+              className="boost-control-half-shade own"
+              d="M 4 62.5 H 96 V 118 Q 96 121 93 121 H 7 Q 4 121 4 118 Z"
+            />
+            <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
+            <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
+            <circle className="field-line-fillless" cx="50" cy="62.5" r="10" />
+            <rect className="field-line-fillless" x="24" y="4" width="52" height="20" />
+            <rect className="field-line-fillless" x="24" y="101" width="52" height="20" />
+            <text className="boost-control-half-label opponent" x="50" y="9.6">
+              Opponent half
+            </text>
+            <text className="boost-control-half-label own" x="50" y="117.4">
+              Own half
+            </text>
+            {boostPadLocations.map((pad) => {
+              const projected = projectFieldPosition(pad.x, pad.y);
+              return (
+                <circle
+                  className={`pad-location-dot ${pad.size}`}
+                  cx={projected.x}
+                  cy={projected.y}
+                  key={pad.id}
+                  r={pad.size === "big" ? 2.1 : 1.15}
+                />
+              );
+            })}
+            {points.map((point) => {
+              const projected = projectFieldPosition(point.x, point.y);
+              const total = boostPadControlTotal(point);
+              const teamControlPercent = boostPadTeamControlPercent(point);
+              const radius =
+                point.pad_size === "big"
+                  ? 3.4 + (total / maxTotal) * 3.2
+                  : 2.1 + (total / maxTotal) * 2.4;
+              const showLabel = point.pad_size === "big" || total >= 3;
+              const slices = boostPadControlPieSlices(point);
+              const onlySlice = slices.length === 1 ? slices[0] : null;
+
+              return (
+                <g className="boost-control-marker" key={point.pad_id}>
+                  <title>{boostPadControlTitle(point)}</title>
+                  {onlySlice ? (
+                    <circle
+                      className={`boost-control-slice boost-control-slice-${onlySlice.key}`}
+                      cx={projected.x}
+                      cy={projected.y}
+                      r={radius}
+                    />
+                  ) : (
+                    slices.map((slice) => (
+                      <path
+                        className={`boost-control-slice boost-control-slice-${slice.key}`}
+                        d={pieSlicePath(
+                          projected.x,
+                          projected.y,
+                          radius,
+                          slice.startAngle,
+                          slice.endAngle,
+                        )}
+                        key={slice.key}
+                      />
+                    ))
+                  )}
+                  <circle
+                    className={`boost-control-ring ${point.pad_size}`}
+                    cx={projected.x}
+                    cy={projected.y}
+                    r={radius}
+                  />
+                  {showLabel ? (
+                    <text className="boost-control-count" x={projected.x} y={projected.y + 1.4}>
+                      {teamControlPercent == null ? "" : `${Math.round(teamControlPercent)}%`}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+          </svg>
+          <div className="chart-legend compact-legend pickup-map-legend">
+            <span className="legend-boost-control-player">Player</span>
+            <span className="legend-boost-control-teammates">Rest of team</span>
+            <span className="legend-boost-control-opponents">Opponents</span>
+            <span className="legend-boost-control-count">Center % = team control</span>
+            <span className="legend-boost-control-size">Marker size = pickup volume</span>
+            <span className="legend-big-pad">Big pad</span>
+            <span className="legend-small-pad">Small pad</span>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function boostPadControlTotal(point: BoostPadControlPoint): number {
+  return point.player_count + point.teammate_count + point.opponent_count;
+}
+
+function boostPadTeamControlPercent(point: BoostPadControlPoint): number | null {
+  const total = boostPadControlTotal(point);
+  if (total <= 0) return null;
+  return ((point.player_count + point.teammate_count) / total) * 100;
+}
+
+function boostPadControlTitle(point: BoostPadControlPoint): string {
+  const teamControlPercent = boostPadTeamControlPercent(point);
+  return [
+    `${point.pad_size === "big" ? "Big" : "Small"} pad`,
+    teamControlPercent == null
+      ? "Team control: n/a"
+      : `Team control: ${Math.round(teamControlPercent)}%`,
+    `Total: ${boostPadControlTotal(point).toLocaleString()}`,
+    `Player: ${point.player_count.toLocaleString()}`,
+    `Teammates: ${point.teammate_count.toLocaleString()}`,
+    `Opponents: ${point.opponent_count.toLocaleString()}`,
+  ].join(" | ");
+}
+
+type BoostPadControlPieSlice = {
+  key: "player" | "teammates" | "opponents";
+  value: number;
+  startAngle: number;
+  endAngle: number;
+};
+
+function boostPadControlPieSlices(point: BoostPadControlPoint): BoostPadControlPieSlice[] {
+  const total = boostPadControlTotal(point);
+  if (total <= 0) return [];
+  const rawValues: Array<Omit<BoostPadControlPieSlice, "startAngle" | "endAngle">> = [
+    { key: "player", value: point.player_count },
+    { key: "teammates", value: point.teammate_count },
+    { key: "opponents", value: point.opponent_count },
+  ];
+  const values = rawValues.filter((slice) => slice.value > 0);
+
+  let startAngle = -Math.PI / 2;
+  return values.map((slice, index) => {
+    const isLast = index === values.length - 1;
+    const endAngle = isLast ? Math.PI * 1.5 : startAngle + (slice.value / total) * Math.PI * 2;
+    const pieSlice = { ...slice, startAngle, endAngle };
+    startAngle = endAngle;
+    return pieSlice;
+  });
+}
+
+function pieSlicePath(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+): string {
+  const start = polarPoint(centerX, centerY, radius, startAngle);
+  const end = polarPoint(centerX, centerY, radius, endAngle);
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  return [
+    `M ${centerX} ${centerY}`,
+    `L ${start.x} ${start.y}`,
+    `A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function polarPoint(centerX: number, centerY: number, radius: number, angle: number) {
+  return {
+    x: centerX + Math.cos(angle) * radius,
+    y: centerY + Math.sin(angle) * radius,
+  };
 }
 
 function boostProfileData(
@@ -1032,45 +1273,6 @@ function BoostEconomyComparisonGrid({
             .sort((left, right) => right.sortValue - left.sortValue),
         },
         {
-          key: "grant-boost-collected",
-          title: "Grant/gather boost",
-          legend: [{ className: "legend-grant", label: "Kickoff/respawn grants" }],
-          maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
-            scaleBoostValue(summary, summary.collectedGrant),
-          ),
-          rows: comparisonSummaries
-            .map((summary) => ({
-              key: summary.key,
-              name: summary.name,
-              platform: summary.platform,
-              platformPlayerId: summary.platformPlayerId,
-              profilePath: profilePathForSummary(summary),
-              rank: summary.rank,
-              segmentColorClassName: summaryColorClassName(summary),
-              showPlatformBadge: showPlatformBadgeForSummary(summary),
-              subtitle: subtitleForSummary?.(summary),
-              team: summary.team,
-              playerIndex: summaryPlayerIndex(summary),
-              sortValue: scaleBoostValue(summary, summary.collectedGrant),
-              total: scaleBoostValue(summary, summary.collectedGrant),
-              valueLabel: boostValueLabel(summary, summary.collectedGrant),
-              segments: [
-                {
-                  className: "grant-source",
-                  label: "Grant",
-                  value: scaleBoostValue(summary, summary.collectedGrant),
-                  visibleLabel: boostValueLabel(summary, summary.collectedGrant),
-                  title: boostSegmentTitle(
-                    "Grant boost",
-                    summary.collectedGrant,
-                    durationForSummary(summary),
-                  ),
-                },
-              ],
-            }))
-            .sort((left, right) => right.sortValue - left.sortValue),
-        },
-        {
           key: "boost-pads-collected",
           title: "Boost pads collected",
           legend: [
@@ -1189,7 +1391,6 @@ function BoostEconomyComparisonGrid({
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
     },
-    ...collectionBreakdownGroups,
     {
       key: "usage",
       title: "Usage",
@@ -1487,6 +1688,7 @@ function BoostEconomyComparisonGrid({
         })
         .sort((left, right) => right.sortValue - left.sortValue),
     },
+    ...collectionBreakdownGroups,
   ];
 
   return (
