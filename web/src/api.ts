@@ -31,6 +31,7 @@ import type {
   StatAggregateSetResponse,
   PossessionSummaryResponse,
   PositioningSummaryResponse,
+  UserProfileResponse,
 } from "./types";
 
 const tokenKey = "rocket_sense_access_token";
@@ -111,6 +112,10 @@ export function listReplays(searchParams: URLSearchParams): Promise<ListReplaysR
     cacheReplays(response.replays);
     return response;
   });
+}
+
+export function getUserProfile(userId: string): Promise<UserProfileResponse> {
+  return request<UserProfileResponse>(`/api/v1/users/${encodeURIComponent(userId)}`);
 }
 
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {

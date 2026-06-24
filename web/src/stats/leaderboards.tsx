@@ -593,7 +593,11 @@ function UploadsLeaderboard({ filterKey }: { filterKey: string }) {
             {rows.map((row) => (
               <tr key={row.user_id}>
                 <td className="leaderboard-rank-col">{row.rank.toLocaleString()}</td>
-                <td>{row.display_name || "Unnamed uploader"}</td>
+                <td>
+                  <Link to={`/users/${encodeURIComponent(row.user_id)}`}>
+                    {row.display_name || "Unnamed uploader"}
+                  </Link>
+                </td>
                 <td>{row.upload_count.toLocaleString()}</td>
               </tr>
             ))}

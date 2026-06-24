@@ -169,6 +169,9 @@ const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
 const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
 );
+const UserProfilePage = lazyWithChunkLoadRecovery(() =>
+  import("./UserProfilePage").then((module) => ({ default: module.UserProfilePage })),
+);
 
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
@@ -294,6 +297,14 @@ export function App() {
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <LeaderboardsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/users/:userId"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <UserProfilePage />
               </Suspense>
             }
           />
