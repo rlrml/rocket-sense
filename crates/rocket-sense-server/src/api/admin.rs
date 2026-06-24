@@ -50,6 +50,7 @@ pub fn router() -> Router<AppState> {
             "/admin/stats/backfill-possession",
             post(backfill_possession),
         )
+        .route("/admin/stats/backfill-boost", post(backfill_boost))
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
@@ -629,6 +630,37 @@ pub async fn backfill_possession(
         match crate::processing::backfill_player_replay_possession(&pool).await {
             Ok(backfilled) => tracing::info!(backfilled, "possession backfill task finished"),
             Err(error) => tracing::error!(?error, "possession backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Populate `player_replay_boost` from existing tracks + events for every
+/// canonical replay missing rows. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-boost",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Boost backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_boost(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_player_replay_boost(&pool).await {
+            Ok(backfilled) => tracing::info!(backfilled, "boost backfill task finished"),
+            Err(error) => tracing::error!(?error, "boost backfill task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {

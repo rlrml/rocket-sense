@@ -17,6 +17,16 @@ mod replays;
 mod spa;
 mod stats;
 
+/// Boost materialization helpers reused by `crate::processing` to populate
+/// `player_replay_boost` with the same band/last-value accumulation as the live
+/// boost-totals read, without widening the whole `stats`/`replays` modules.
+pub(crate) mod boost_materialization {
+    pub(crate) use super::replays::BoostTracksResponse;
+    pub(crate) use super::stats::{
+        accumulate_player_boost_track, boost_track_replay_duration, PlayerBoostAccumulator,
+    };
+}
+
 use crate::app::AppState;
 use axum::{routing::get, Json, Router};
 pub use openapi::ApiDoc;
