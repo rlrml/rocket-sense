@@ -224,6 +224,14 @@ fn stat_metric_parses_aliases_and_rejects_unknown() {
         StatLeaderboardMetric::from_query(Some("possession")).unwrap(),
         StatLeaderboardMetric::PossessionTime
     );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("high-aerial-touches")).unwrap(),
+        StatLeaderboardMetric::HighAerialTouchCount
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("control_touches")).unwrap(),
+        StatLeaderboardMetric::ControlTouchCount
+    );
     assert!(StatLeaderboardMetric::from_query(Some("flip-reset")).is_err());
 }
 
@@ -241,6 +249,14 @@ fn stat_sort_includes_share_metric() {
 }
 
 #[test]
+fn stat_filters_reject_share_for_count_metrics() {
+    assert!(
+        StatLeaderboardFilters::from_query(Some("stat=control-touch-count&sort=share"), None,)
+            .is_err()
+    );
+}
+
+#[test]
 fn stat_rank_query_reads_materialized_facts() {
     let (filters, paging) = stat_filters("stat=ball-opponent-half&sort=per-minute&team-size=2");
     let sql = stat_rank_query(&filters, &paging).into_sql();
@@ -253,6 +269,16 @@ fn stat_rank_query_reads_materialized_facts() {
     assert!(sql.contains("team_player_count"));
     assert!(sql.contains("share_of_active_time"));
     assert!(sql.contains("ORDER BY value_per_active_minute DESC NULLS LAST, value DESC"));
+}
+
+#[test]
+fn stat_rank_query_can_read_touch_count_facts() {
+    let (filters, paging) = stat_filters("stat=high-aerial-touch-count&sort=per-game");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("FROM player_replay_stat_facts fact"));
+    assert!(sql.contains("WHERE fact.stat_key = "));
+    assert!(sql.contains("ORDER BY value_per_game DESC NULLS LAST, value DESC"));
 }
 
 #[test]

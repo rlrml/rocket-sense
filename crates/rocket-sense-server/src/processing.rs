@@ -538,6 +538,101 @@ const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
         ) > 0.0
         ON CONFLICT DO NOTHING
         "#;
+
+const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        WITH player_touch_counts AS (
+            SELECT
+                subject.replay_player_id,
+                COUNT(DISTINCT event.id) FILTER (WHERE detail.height_band = 'high_air') AS high_aerial_touch_count,
+                COUNT(DISTINCT event.id) FILTER (WHERE detail.kind = 'control') AS control_touch_count
+            FROM play_events event
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.subject_kind = 'player'
+             AND subject.role = 'actor'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN play_event_touch_details detail ON detail.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream = 'touch'
+            GROUP BY subject.replay_player_id
+        ),
+        touch_counts AS (
+            SELECT
+                rp.replay_id,
+                rp.id AS replay_player_id,
+                concat(rp.platform, ':', rp.platform_player_id) AS player_subject_id,
+                rp.platform,
+                rp.platform_player_id,
+                rp.team,
+                rp.active_time_seconds,
+                COALESCE(counts.high_aerial_touch_count, 0) AS high_aerial_touch_count,
+                COALESCE(counts.control_touch_count, 0) AS control_touch_count
+            FROM replay_players rp
+            LEFT JOIN player_touch_counts counts ON counts.replay_player_id = rp.id
+            WHERE rp.replay_id = $2
+              AND rp.platform IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform_player_id) <> ''
+        ),
+        facts AS (
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                'high-aerial-touch-count'::text AS stat_key,
+                high_aerial_touch_count::double precision AS value,
+                active_time_seconds
+            FROM touch_counts
+            UNION ALL
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                'control-touch-count'::text AS stat_key,
+                control_touch_count::double precision AS value,
+                active_time_seconds
+            FROM touch_counts
+        )
+        SELECT
+            $1,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            'count',
+            active_time_seconds,
+            'active_time',
+            active_time_seconds
+        FROM facts
+        ON CONFLICT DO NOTHING
+        "#;
 // Bumped v2 -> v3 when goal ball speed (`ball_speed_at_goal`) was corrected:
 // previously every goal recorded 0 because the explosion frame carries no ball
 // velocity. Bumping marks prior analyses stale so reprocessing re-emits the
@@ -1734,6 +1829,7 @@ async fn insert_player_replay_stat_facts(
 
     insert_ball_opponent_half_facts(pool, analysis_run_id, replay_id).await?;
     insert_possession_time_facts(pool, analysis_run_id, replay_id).await?;
+    insert_touch_count_facts(pool, analysis_run_id, replay_id).await?;
     Ok(())
 }
 
@@ -2348,6 +2444,20 @@ async fn insert_possession_time_facts(
     .execute(pool)
     .await
     .context("failed to insert possession-time stat facts")?;
+    Ok(())
+}
+
+async fn insert_touch_count_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(INSERT_TOUCH_COUNT_FACTS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert touch-count stat facts")?;
     Ok(())
 }
 
