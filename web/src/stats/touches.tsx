@@ -197,13 +197,15 @@ export function TouchesDetail({
 
 export function TouchProfileComparison({
   breakdown,
+  playerName = "Player",
 }: {
   breakdown: TouchAggregateBreakdownResponse;
+  playerName?: string;
 }) {
   const rateWindowSeconds = profileRateWindowSeconds(breakdown);
   const subjects = useMemo(
-    () => touchProfileSubjects(breakdown, rateWindowSeconds),
-    [breakdown, rateWindowSeconds],
+    () => touchProfileSubjects(breakdown, rateWindowSeconds, playerName),
+    [breakdown, playerName, rateWindowSeconds],
   );
   const totalTouches = subjects.reduce((sum, subject) => sum + subject.totalTouches, 0);
   const totalAdvance = subjects.reduce((sum, subject) => sum + subject.totalAdvance, 0);
@@ -284,12 +286,13 @@ function TouchChartPanel({
 function touchProfileSubjects(
   breakdown: TouchAggregateBreakdownResponse,
   rateWindowSeconds: number | null,
+  playerName: string,
 ): TouchSubject[] {
   return breakdown.cohorts.map((cohort) => {
     const scale = touchProfileCohortScale(cohort, rateWindowSeconds);
     const cohortKey = careerCohortKey(cohort.key);
     const subject = emptySubject(`touch-profile:${cohort.key}`, {
-      name: cohortKey ? careerCohortLabel(cohortKey, cohort.label) : cohort.label,
+      name: cohortKey ? careerCohortLabel(cohortKey, playerName) : cohort.label,
       platform: null,
       platformPlayerId: null,
       rank: null,

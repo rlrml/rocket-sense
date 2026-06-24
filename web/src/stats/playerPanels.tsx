@@ -167,6 +167,7 @@ function RateComparisonBar({
   ariaLabel,
   maxValue,
   playerLabel,
+  playerName = "Player",
   playerRate,
   playerTitle,
   teammateRate,
@@ -175,6 +176,7 @@ function RateComparisonBar({
   ariaLabel: string;
   maxValue: number;
   playerLabel: string;
+  playerName?: string;
   playerRate: number;
   playerTitle?: string;
   teammateRate: number | null;
@@ -191,7 +193,7 @@ function RateComparisonBar({
           label: "Player",
           value: Math.max(0, playerRate),
           visibleLabel: playerRate > 0 ? playerLabel : undefined,
-          title: playerTitle ?? `You: ${playerLabel} per ${rateWindowMinutes} min`,
+          title: playerTitle ?? `${playerName}: ${playerLabel} per ${rateWindowMinutes} min`,
         },
       ]}
       total={Math.max(0, playerRate)}
@@ -477,7 +479,13 @@ function formatPercentage(value: number | null): string {
 }
 
 /** Headline goal and assist rates, player vs pooled teammate average. */
-export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewResponse }) {
+export function ScoringRatePanel({
+  overview,
+  playerName = "Player",
+}: {
+  overview: PlayerStatOverviewResponse;
+  playerName?: string;
+}) {
   const rows = [
     { label: "Goals", rate: overview.goals },
     { label: "Assists", rate: overview.assists },
@@ -513,6 +521,7 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
                 ariaLabel={`${label} per ${rateWindowMinutes} minutes`}
                 maxValue={maxRate}
                 playerLabel={formatRate(playerRate)}
+                playerName={playerName}
                 playerRate={playerRate}
                 teammateRate={teammateRate}
               />
@@ -612,9 +621,11 @@ const rotationDepthOrder = ["behind_play", "level_with_play", "ahead_of_play", "
 /** Rotation role/depth time shares plus most-back/forward comparison and stint histogram. */
 export function RotationTimeSharePanel({
   overview,
+  playerName = "Player",
   stats,
 }: {
   overview: PlayerStatOverviewResponse;
+  playerName?: string;
   stats: StatAggregateSetResponse;
 }) {
   const depths = orderTimeSharesBySuffix(overview.rotation_depths, depthSuffix, rotationDepthOrder);
@@ -628,7 +639,7 @@ export function RotationTimeSharePanel({
       <div className="rotation-share-grid">
         <RotationDepthTugOfWar depths={depths} />
         <MostBackForwardBlock stats={stats} />
-        <FirstManStintHistogram stats={stats} />
+        <FirstManStintHistogram playerName={playerName} stats={stats} />
       </div>
     </section>
   );
@@ -738,7 +749,13 @@ function depthSuffix(key: string): string {
 }
 
 /** First-man stint length distribution, player overlaid against teammate average. */
-function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) {
+function FirstManStintHistogram({
+  playerName,
+  stats,
+}: {
+  playerName: string;
+  stats: StatAggregateSetResponse;
+}) {
   const histogram = stats.rotation_duration_histogram;
   const teammateHistogram = stats.teammate_rotation_duration_histogram ?? [];
   if (histogram.length === 0) return null;
@@ -794,7 +811,7 @@ function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) 
       </div>
       {hasTeammates ? (
         <p className="rotation-histogram-legend subtle">
-          <span className="rotation-histogram-legend-fill" /> you
+          <span className="rotation-histogram-legend-fill" /> {playerName}
           <span className="rotation-histogram-legend-marker" /> teammate average
         </p>
       ) : null}

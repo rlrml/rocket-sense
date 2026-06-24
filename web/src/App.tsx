@@ -3285,6 +3285,11 @@ function PlayerStatsPage() {
     playerSummary?.current_display_name ??
     playerSummary?.public_display_name ??
     null;
+  const resolvedPlayerDisplayName =
+    playerSummary?.display_name ??
+    playerSummary?.current_display_name ??
+    playerSummary?.public_display_name ??
+    routePlayerRef;
   const rlTrackerUrl = useMemo(
     () => rlTrackerPlayerUrl(resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName),
     [resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName],
@@ -3599,7 +3604,7 @@ function PlayerStatsPage() {
                 linkToRlTracker
               />
             ) : null}
-            <span>{playerSummary?.display_name || routePlayerRef}</span>
+            <span>{resolvedPlayerDisplayName}</span>
           </h1>
         </div>
         <div className="button-row">
@@ -3681,7 +3686,7 @@ function PlayerStatsPage() {
               overview={overview}
               platform={resolvedPlatform}
               platformPlayerId={resolvedPlatformPlayerId}
-              playerName={playerSummary?.display_name ?? ""}
+              playerName={resolvedPlayerDisplayName}
               routeBasePath={routeBasePath}
               search={location.search}
               stats={stats}
@@ -4068,13 +4073,13 @@ function PlayerAggregateStatsSections({
         <ApiNotice label="Possession comparisons" message={supplementalError} />
       ) : null}
       {activeGroup.id === "touches" && stats.touch_breakdown ? (
-        <TouchProfileComparison breakdown={stats.touch_breakdown} />
+        <TouchProfileComparison breakdown={stats.touch_breakdown} playerName={playerName} />
       ) : null}
       {activeGroup.id === "positioning" && positioningSummary ? (
         <PlayerPositioningCohorts response={positioningSummary} playerName={playerName} />
       ) : null}
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
-        <RotationTimeSharePanel overview={overview} stats={stats} />
+        <RotationTimeSharePanel overview={overview} playerName={playerName} stats={stats} />
       ) : null}
     </section>
   );
