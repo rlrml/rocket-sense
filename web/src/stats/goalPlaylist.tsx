@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import {
   getPlayerProfile,
   getPlayerProfileByRef,
@@ -69,6 +69,7 @@ export function ReplayGoalPlaylistPage() {
 /** Playlist of every goal of one type scored by a player, across their replays. */
 export function PlayerGoalPlaylistPage() {
   const { platform = "", platformPlayerId, playerName, goalType = "" } = useParams();
+  const { search } = useLocation();
   const routePlayerRef = platformPlayerId ?? playerName ?? "";
   const routeUsesExplicitId = platformPlayerId != null;
   const routeBasePath = routeUsesExplicitId
@@ -77,10 +78,14 @@ export function PlayerGoalPlaylistPage() {
   const [resolvedPlayerId, setResolvedPlayerId] = useState<string | null>(
     routeUsesExplicitId ? `${platform}:${routePlayerRef}` : null,
   );
+  // Carry the stats filter context (playlist, game mode, dates, …) through to
+  // the events request so the playlist matches the rates that linked here.
+  const filterParams = useMemo(() => new URLSearchParams(search), [search]);
   const { events, loading, error } = useGoalEvents(
     useCallback(
-      () => (resolvedPlayerId ? listPlayerEvents(resolvedPlayerId, goalEventTypes) : null),
-      [resolvedPlayerId],
+      () =>
+        resolvedPlayerId ? listPlayerEvents(resolvedPlayerId, goalEventTypes, filterParams) : null,
+      [resolvedPlayerId, filterParams],
     ),
   );
   const [resolvedPlayerName, setResolvedPlayerName] = useState<string | null>(null);
@@ -108,8 +113,8 @@ export function PlayerGoalPlaylistPage() {
 
   const goals = useMemo(() => playlistGoals(events, goalType), [events, goalType]);
   const typeHref = useCallback(
-    (type: GoalType) => `${routeBasePath}/goals/${encodeURIComponent(type.key)}`,
-    [routeBasePath],
+    (type: GoalType) => `${routeBasePath}/goals/${encodeURIComponent(type.key)}${search}`,
+    [routeBasePath, search],
   );
 
   return (
@@ -119,7 +124,7 @@ export function PlayerGoalPlaylistPage() {
       loading={loading || (!resolvedPlayerId && !resolveError)}
       error={resolveError ?? error}
       contextLabel={resolvedPlayerName ?? routePlayerRef}
-      backHref={`${routeBasePath}/stats/goals`}
+      backHref={`${routeBasePath}/stats/goals${search}`}
       typeHref={typeHref}
       gameHref={(goal) => `/replays/${encodeURIComponent(goal.event.replay_id)}/stats/goals`}
       showReplayGroups
