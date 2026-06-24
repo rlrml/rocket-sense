@@ -3209,13 +3209,18 @@ function PlayerStatsPage() {
   const resolvedPlatformPlayerId =
     playerSummary?.platform_player_id ?? (routeUsesExplicitId ? routePlayerRef : "");
   const hasResolvedPlayer = resolvedPlatform.length > 0 && resolvedPlatformPlayerId.length > 0;
+  const playerStatsSearchParams = useMemo(
+    () => playerStatsRequestSearchParams(location.search),
+    [location.search],
+  );
+  const playerStatsSearch = playerStatsSearchParams.toString();
   const statsScope = useMemo(
-    () => `${resolvedPlatform}\n${resolvedPlatformPlayerId}\n${location.search}`,
-    [location.search, resolvedPlatform, resolvedPlatformPlayerId],
+    () => `${resolvedPlatform}\n${resolvedPlatformPlayerId}\n${playerStatsSearch}`,
+    [playerStatsSearch, resolvedPlatform, resolvedPlatformPlayerId],
   );
   const playerReplayParams = useMemo(
-    () => playerReplaySetParams(resolvedPlatform, resolvedPlatformPlayerId, location.search),
-    [location.search, resolvedPlatform, resolvedPlatformPlayerId],
+    () => playerReplaySetParams(resolvedPlatform, resolvedPlatformPlayerId, playerStatsSearch),
+    [playerStatsSearch, resolvedPlatform, resolvedPlatformPlayerId],
   );
   const activeGroup = useMemo(
     () => statGroupById(statGroup, playerStatsSectionGroups) ?? playerStatsSectionGroups[0]!,
@@ -3301,7 +3306,7 @@ function PlayerStatsPage() {
     setError(null);
     setPlayerSummary(null);
     const request = routeUsesExplicitId ? getPlayerProfile : getPlayerProfileByRef;
-    request(platform, routePlayerRef, new URLSearchParams(location.search))
+    request(platform, routePlayerRef, playerStatsSearchParams)
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
       })
@@ -3314,7 +3319,7 @@ function PlayerStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, platform, routePlayerRef, routeUsesExplicitId]);
+  }, [platform, playerStatsSearchParams, routePlayerRef, routeUsesExplicitId]);
 
   useEffect(() => {
     setStatsByGroup({ scope: statsScope, groups: {} });
@@ -3354,7 +3359,7 @@ function PlayerStatsPage() {
     getPlayerStatAggregates(
       resolvedPlatform,
       resolvedPlatformPlayerId,
-      playerAggregateSearchParams(activeGroup.id, location.search),
+      playerAggregateSearchParams(activeGroup.id, playerStatsSearch),
       activeGroup.terms,
       playerAggregateRequestOptions(activeGroup.id),
     )
@@ -3377,7 +3382,7 @@ function PlayerStatsPage() {
   }, [
     activeGroup,
     hasResolvedPlayer,
-    location.search,
+    playerStatsSearch,
     resolvedPlatform,
     resolvedPlatformPlayerId,
     stats,
@@ -3456,7 +3461,7 @@ function PlayerStatsPage() {
         activeGroup.id,
         resolvedPlatform,
         resolvedPlatformPlayerId,
-        location.search,
+        playerStatsSearch,
       )
         .then((response) => {
           if (!cancelled) applySupplementalResponse(key, response);
@@ -3485,7 +3490,7 @@ function PlayerStatsPage() {
     activeSupplementalKeyList,
     hasResolvedPlayer,
     loadedSupplementalKeys,
-    location.search,
+    playerStatsSearch,
     resolvedPlatform,
     resolvedPlatformPlayerId,
     statsScope,
@@ -3743,6 +3748,11 @@ function fetchPlayerSupplemental(
 // Top-level career segmentation: team size and competitive context are
 // orthogonal dimensions (see docs/stats-principles.md) and govern every
 // panel on the player stats page through the shared replay-set params.
+const defaultPlayerTeamSize = "2";
+const defaultPlayerGameType = "ranked";
+const allPlayerTeamSizes = "all";
+const anyPlayerGameType = "any";
+
 const teamSizeSegmentOptions = [
   { value: "", label: "All modes" },
   { value: "1", label: "1v1" },
@@ -3758,12 +3768,46 @@ const gameTypeSegmentOptions = [
   { value: "tournament", label: "Tournament" },
 ];
 
-function segmentParamPath(pathname: string, search: string, key: string, value: string): string {
+function playerStatsRequestSearchParams(search: string): URLSearchParams {
   const params = new URLSearchParams(search);
-  if (value) {
-    params.set(key, value);
+  const teamSize = params.get("team-size");
+  if (teamSize == null) {
+    params.set("team-size", defaultPlayerTeamSize);
+  } else if (teamSize === "" || teamSize === allPlayerTeamSizes) {
+    params.delete("team-size");
+  }
+
+  const gameType = params.get("game-type");
+  if (gameType == null) {
+    params.set("game-type", defaultPlayerGameType);
+  } else if (gameType === "" || gameType === anyPlayerGameType) {
+    params.delete("game-type");
+  }
+
+  return params;
+}
+
+function playerSegmentValue(params: URLSearchParams, key: "team-size" | "game-type"): string {
+  const value = params.get(key);
+  if (key === "team-size") {
+    if (value == null) return defaultPlayerTeamSize;
+    return value === allPlayerTeamSizes ? "" : value;
+  }
+  if (value == null) return defaultPlayerGameType;
+  return value === anyPlayerGameType ? "" : value;
+}
+
+function playerSegmentParamPath(
+  pathname: string,
+  search: string,
+  key: "team-size" | "game-type",
+  value: string,
+): string {
+  const params = new URLSearchParams(search);
+  if (value === "") {
+    params.set(key, key === "team-size" ? allPlayerTeamSizes : anyPlayerGameType);
   } else {
-    params.delete(key);
+    params.set(key, value);
   }
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
@@ -3772,8 +3816,8 @@ function segmentParamPath(pathname: string, search: string, key: string, value: 
 function PlayerStatsSegmentBar() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
-  const teamSize = params.get("team-size") ?? "";
-  const gameType = params.get("game-type") ?? "";
+  const teamSize = playerSegmentValue(params, "team-size");
+  const gameType = playerSegmentValue(params, "game-type");
 
   return (
     <div className="player-segment-bar">
@@ -3783,7 +3827,12 @@ function PlayerStatsSegmentBar() {
           <Link
             key={option.value || "all"}
             className={`stat-group-link ${teamSize === option.value ? "active" : ""}`}
-            to={segmentParamPath(location.pathname, location.search, "team-size", option.value)}
+            to={playerSegmentParamPath(
+              location.pathname,
+              location.search,
+              "team-size",
+              option.value,
+            )}
           >
             {option.label}
           </Link>
@@ -3795,7 +3844,12 @@ function PlayerStatsSegmentBar() {
           <Link
             key={option.value || "all"}
             className={`stat-group-link ${gameType === option.value ? "active" : ""}`}
-            to={segmentParamPath(location.pathname, location.search, "game-type", option.value)}
+            to={playerSegmentParamPath(
+              location.pathname,
+              location.search,
+              "game-type",
+              option.value,
+            )}
           >
             {option.label}
           </Link>
@@ -3854,6 +3908,7 @@ function PlayerAggregateStatsSections({
   const topStats = sectionStats.slice(0, 20);
   const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
   const Icon = activeGroup.icon;
+  const requestSearch = playerStatsRequestSearchParams(search).toString();
   const kickoffShapeFilter = kickoffShapeFilterFromSearch(search);
   const kickoffSideFilter = kickoffSideFilterFromSearch(search);
   const kickoffSpawnDimension = kickoffFilterSummary?.dimensions.find(
@@ -3943,7 +3998,7 @@ function PlayerAggregateStatsSections({
           platform={platform}
           platformPlayerId={platformPlayerId}
           playerName={playerName}
-          search={search}
+          search={requestSearch}
         />
       ) : null}
 
