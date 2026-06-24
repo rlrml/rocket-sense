@@ -1,5 +1,4 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
 import type { ReactNode } from "react";
 import type {
   EventStatDimensionResponse,
@@ -1469,48 +1468,13 @@ export function PossessionSummaryPanel({
   playerName?: string;
   summary: PossessionSummaryResponse;
 }) {
-  const allSubjects = possessionProfileSubjects(summary, playerName);
-  const hasRankPeers = allSubjects.some((subject) => subject.cohortKey === "rank_peers");
-  const [showRankPeers, setShowRankPeers] = useState(true);
-  const subjects =
-    hasRankPeers && !showRankPeers
-      ? allSubjects.filter((subject) => subject.cohortKey !== "rank_peers")
-      : allSubjects;
+  const subjects = possessionProfileSubjects(summary, playerName);
 
   return (
-    <>
-      {hasRankPeers ? (
-        <div className="possession-profile-controls">
-          <span>Same-rank comparison</span>
-          <div
-            className="boost-comparison-tabs possession-rank-peer-toggle"
-            role="group"
-            aria-label="Rank peer comparison"
-          >
-            <button
-              className={showRankPeers ? "active" : ""}
-              onClick={() => setShowRankPeers(true)}
-              type="button"
-              aria-pressed={showRankPeers}
-            >
-              Show
-            </button>
-            <button
-              className={showRankPeers ? "" : "active"}
-              onClick={() => setShowRankPeers(false)}
-              type="button"
-              aria-pressed={!showRankPeers}
-            >
-              Hide
-            </button>
-          </div>
-        </div>
-      ) : null}
-      <PossessionAdvancedComparisonGrid
-        className="possession-profile-grid"
-        subjects={subjects.map(possessionAdvancedProfileSubject)}
-      />
-    </>
+    <PossessionAdvancedComparisonGrid
+      className="possession-profile-grid"
+      subjects={subjects.map(possessionAdvancedProfileSubject)}
+    />
   );
 }
 
@@ -1547,7 +1511,7 @@ function possessionProfileSubjects(
         ];
 
   return cohorts.map((cohort) => {
-    const cohortKey = careerCohortKey(cohort.key) ?? "rank_peers";
+    const cohortKey = careerCohortKey(cohort.key) ?? "opponents";
     return {
       key: cohort.key,
       cohortKey,

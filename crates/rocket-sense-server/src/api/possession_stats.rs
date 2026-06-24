@@ -241,9 +241,8 @@ async fn load_possession_summary(
 }
 
 /// Pushes `WITH target_appearances, cohort_rows AS (...)` reconstructing the
-/// player / teammates / opponents / rank_peers cohorts from the materialized
-/// `player_replay_possession` rows in the target's replays. rank_peers joins
-/// `replay_players` for current rank_tier (rank can change after processing).
+/// player / teammates / opponents cohorts from the materialized
+/// `player_replay_possession` rows in the target's replays.
 fn push_materialized_possession_cohorts<'a>(
     builder: &mut QueryBuilder<'a, Postgres>,
     filters: &'a PossessionStatsQuery,
@@ -255,13 +254,9 @@ fn push_materialized_possession_cohorts<'a>(
     builder.push(
         r#"
         WITH target_appearances AS MATERIALIZED (
-            SELECT poss.replay_id, poss.team AS target_team, poss.analysis_run_id AS run_id,
-                   tp.rank_tier AS target_rank_tier
+            SELECT poss.replay_id, poss.team AS target_team, poss.analysis_run_id AS run_id
             FROM player_replay_possession poss
             JOIN replays r ON r.id = poss.replay_id AND r.canonical_analysis_run_id = poss.analysis_run_id
-            LEFT JOIN replay_players tp
-              ON tp.replay_id = poss.replay_id AND tp.platform = poss.platform
-             AND tp.platform_player_id = poss.platform_player_id
             WHERE poss.platform = "#,
     );
     builder.push_bind(&player.platform);
@@ -303,16 +298,6 @@ fn push_materialized_possession_cohorts<'a>(
               ON poss.replay_id = ta.replay_id AND poss.analysis_run_id = ta.run_id
              AND poss.team IS NOT NULL AND ta.target_team IS NOT NULL
              AND poss.team <> ta.target_team
-            UNION ALL
-            SELECT 'rank_peers'::text AS cohort, poss.*
-            FROM target_appearances ta
-            JOIN player_replay_possession poss
-              ON poss.replay_id = ta.replay_id AND poss.analysis_run_id = ta.run_id
-            JOIN replay_players actor
-              ON actor.replay_id = poss.replay_id AND actor.platform = poss.platform
-             AND actor.platform_player_id = poss.platform_player_id
-            WHERE actor.rank_tier IS NOT NULL AND ta.target_rank_tier IS NOT NULL
-              AND actor.rank_tier = ta.target_rank_tier
         )
         "#,
     );
@@ -367,7 +352,7 @@ fn build_materialized_cohort_appearances_query<'a>(
     filters: &'a PossessionStatsQuery,
 ) -> QueryBuilder<'a, Postgres> {
     let mut q = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut q, filters, true);
+    push_possession_cohort_ctes(&mut q, filters);
     q.push(
         r#"
         SELECT cohort,
@@ -501,7 +486,7 @@ async fn load_possession_summary_materialized(
         load_materialized_target_touch_mixes(pool, filters).await?;
 
     let cohort_label = possession_cohort_label;
-    let cohorts: Vec<PossessionCohortSummary> = ["player", "teammates", "opponents", "rank_peers"]
+    let cohorts: Vec<PossessionCohortSummary> = ["player", "teammates", "opponents"]
         .into_iter()
         .filter_map(|key| {
             let (_, possessions) = span_all.get(key)?.clone();
@@ -886,7 +871,6 @@ async fn load_teammate_controlled_play_summary(
 fn push_possession_cohort_ctes<'args>(
     query: &mut QueryBuilder<'args, Postgres>,
     filters: &'args PossessionStatsQuery,
-    include_rank_peers: bool,
 ) {
     let player = filters
         .player
@@ -901,13 +885,6 @@ fn push_possession_cohort_ctes<'args>(
                 rp.team,
                 rp.active_time_seconds,
                 r.canonical_analysis_run_id AS run_id
-        "#,
-    );
-    if include_rank_peers {
-        query.push(", rp.rank_tier");
-    }
-    query.push(
-        r#"
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
             WHERE r.canonical_analysis_run_id IS NOT NULL
@@ -941,21 +918,6 @@ fn push_possession_cohort_ctes<'args>(
              AND actor.team <> target.team
         "#,
     );
-    if include_rank_peers {
-        query.push(
-            r#"
-            UNION ALL
-            SELECT 'rank_peers' AS cohort, actor.id AS actor_id, actor.replay_id, actor.team AS actor_team, actor.active_time_seconds, target.run_id
-            FROM target_appearances target
-            JOIN replay_players actor
-              ON actor.replay_id = target.replay_id
-             AND actor.id <> target.id
-             AND actor.rank_tier IS NOT NULL
-             AND target.rank_tier IS NOT NULL
-             AND actor.rank_tier = target.rank_tier
-            "#,
-        );
-    }
     query.push(
         r#"
         )
@@ -1003,10 +965,9 @@ fn push_possession_cohort_span_select(builder: &mut QueryBuilder<'_, Postgres>) 
 fn build_possession_cohort_span_summary_query<'args>(
     filters: &'args PossessionStatsQuery,
     span_filter: PossessionSpanFilter,
-    include_rank_peers: bool,
 ) -> QueryBuilder<'args, Postgres> {
     let mut query = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut query, filters, include_rank_peers);
+    push_possession_cohort_ctes(&mut query, filters);
     push_possession_cohort_span_select(&mut query);
     query.push(
         r#"
@@ -1047,10 +1008,8 @@ async fn load_possession_cohort_span_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
     span_filter: PossessionSpanFilter,
-    include_rank_peers: bool,
 ) -> Result<HashMap<String, PossessionCohortSpanAggregate>, sqlx::Error> {
-    let mut query =
-        build_possession_cohort_span_summary_query(filters, span_filter, include_rank_peers);
+    let mut query = build_possession_cohort_span_summary_query(filters, span_filter);
     let rows = query.build().fetch_all(pool).await?;
     let mut summaries = HashMap::new();
     for row in rows {
@@ -1073,10 +1032,9 @@ async fn load_possession_cohort_span_summaries(
 async fn load_possession_cohort_touch_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
-    include_rank_peers: bool,
 ) -> Result<HashMap<String, PossessionTouchSummary>, sqlx::Error> {
     let mut query = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut query, filters, include_rank_peers);
+    push_possession_cohort_ctes(&mut query, filters);
     query.push(
         r#"
         SELECT
@@ -1128,10 +1086,9 @@ async fn load_possession_cohort_touch_summaries(
 async fn load_possession_cohort_location_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
-    include_rank_peers: bool,
 ) -> Result<HashMap<String, PossessionLocationSummary>, sqlx::Error> {
     let mut query = QueryBuilder::<Postgres>::new("");
-    push_possession_cohort_ctes(&mut query, filters, include_rank_peers);
+    push_possession_cohort_ctes(&mut query, filters);
     query.push(
         r#"
         SELECT
@@ -1178,30 +1135,17 @@ async fn load_possession_cohort_summaries(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
 ) -> Result<Vec<PossessionCohortSummary>, sqlx::Error> {
-    let include_rank_peers = possession_rank_peer_cohort_available(pool).await?;
-    let mut possessions = load_possession_cohort_span_summaries(
-        pool,
-        filters,
-        PossessionSpanFilter::All,
-        include_rank_peers,
-    )
-    .await?;
+    let mut possessions =
+        load_possession_cohort_span_summaries(pool, filters, PossessionSpanFilter::All).await?;
     let mut controlled_plays = load_possession_cohort_span_summaries(
         pool,
         filters,
         PossessionSpanFilter::SustainedControl,
-        include_rank_peers,
     )
     .await?;
-    let mut touches =
-        load_possession_cohort_touch_summaries(pool, filters, include_rank_peers).await?;
-    let mut locations =
-        load_possession_cohort_location_summaries(pool, filters, include_rank_peers).await?;
-    let cohort_order = if include_rank_peers {
-        vec!["player", "teammates", "opponents", "rank_peers"]
-    } else {
-        vec!["player", "teammates", "opponents"]
-    };
+    let mut touches = load_possession_cohort_touch_summaries(pool, filters).await?;
+    let mut locations = load_possession_cohort_location_summaries(pool, filters).await?;
+    let cohort_order = ["player", "teammates", "opponents"];
 
     Ok(cohort_order
         .into_iter()
@@ -1228,28 +1172,11 @@ async fn load_possession_cohort_summaries(
         .collect())
 }
 
-async fn possession_rank_peer_cohort_available(pool: &sqlx::PgPool) -> Result<bool, sqlx::Error> {
-    sqlx::query_scalar(
-        r#"
-        SELECT EXISTS (
-            SELECT 1
-            FROM information_schema.columns
-            WHERE table_schema = 'public'
-              AND table_name = 'replay_players'
-              AND column_name = 'rank_tier'
-        )
-        "#,
-    )
-    .fetch_one(pool)
-    .await
-}
-
 fn possession_cohort_label(key: &str) -> &'static str {
     match key {
         "player" => "Player",
         "teammates" => "Teammates",
         "opponents" => "Opponents",
-        "rank_peers" => "Same-rank players",
         _ => "Unknown",
     }
 }

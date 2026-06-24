@@ -122,45 +122,43 @@ fn teammate_controlled_play_query_requires_player_filter() {
 }
 
 #[test]
-fn possession_cohort_span_query_compares_player_teammates_opponents_and_rank_peers_when_available()
-{
+fn possession_cohort_span_query_compares_player_teammates_and_opponents() {
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
         false,
     )
     .expect("possession query should parse");
-    let builder =
-        build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All, true);
+    let builder = build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All);
     let sql = builder.sql();
 
     assert!(sql.contains("'player' AS cohort"));
     assert!(sql.contains("'teammates' AS cohort"));
     assert!(sql.contains("'opponents' AS cohort"));
-    assert!(sql.contains("'rank_peers' AS cohort"));
+    assert!(!sql.contains("'rank_peers' AS cohort"));
     assert!(sql.contains("rp.active_time_seconds"));
     assert!(sql.contains("SUM(active_time_seconds) AS active_time_seconds"));
     assert!(sql.contains("actor.team <> target.team"));
-    assert!(sql.contains("actor.rank_tier = target.rank_tier"));
+    assert!(!sql.contains("rank_tier"));
     assert!(sql.contains("detail.replay_player_id = appearance.actor_id"));
     assert!(sql.contains("GROUP BY appearance.cohort, denominator.active_time_seconds"));
 }
 
 #[test]
-fn possession_cohort_span_query_omits_rank_peers_when_rank_schema_is_unavailable() {
+fn materialized_possession_cohort_query_omits_rank_peers() {
     let query = PossessionStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
-        false,
+        true,
     )
     .expect("possession query should parse");
-    let builder =
-        build_possession_cohort_span_summary_query(&query, PossessionSpanFilter::All, false);
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_materialized_possession_cohorts(&mut builder, &query);
     let sql = builder.sql();
 
-    assert!(sql.contains("'player' AS cohort"));
-    assert!(sql.contains("'teammates' AS cohort"));
-    assert!(sql.contains("'opponents' AS cohort"));
+    assert!(sql.contains("'player'::text AS cohort"));
+    assert!(sql.contains("'teammates'::text AS cohort"));
+    assert!(sql.contains("'opponents'::text AS cohort"));
     assert!(!sql.contains("'rank_peers' AS cohort"));
     assert!(!sql.contains("rank_tier"));
 }
