@@ -6985,6 +6985,12 @@ tbody tr:last-child td {
   margin-bottom: 14px;
 }
 
+.player-outcome-split-section {
+  display: grid;
+  grid-column: 1 / -1;
+  gap: 14px;
+}
+
 .rate-chart-rows {
   display: grid;
   gap: 8px;

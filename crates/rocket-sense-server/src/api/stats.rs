@@ -287,6 +287,9 @@ pub struct StatAggregatesQuery {
     /// Optional player focus in `platform:id` form.
     #[serde(rename = "player-id")]
     pub player_id: Option<String>,
+    /// Restrict the replay set to games the focused player won or lost.
+    #[serde(rename = "player-outcome", alias = "player_outcome")]
+    pub player_outcome: Option<String>,
     /// Restrict aggregate event counts to event types matching one or more
     /// search terms. Denominators still cover the full filtered replay set.
     #[serde(
@@ -429,6 +432,8 @@ impl StatAggregateFilters {
                 created_before: query.created_before,
                 replay_date_after: query.replay_date_after,
                 replay_date_before: query.replay_date_before,
+                target_player_id: query.player_id.clone(),
+                player_outcome: query.player_outcome,
             },
             auth_user_id,
         )?;
@@ -477,6 +482,7 @@ impl StatAggregatesQuery {
             uploader: replay_set.uploader,
             status: replay_set.status,
             player_id: params.first(&["player-id", "player_id"]),
+            player_outcome: params.first(&["player-outcome", "player_outcome"]),
             stat_terms: params.values(&["stat-term", "stat_terms"]),
             include_teammates: params
                 .first(&["include-teammates", "include_teammates"])

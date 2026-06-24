@@ -3793,6 +3793,181 @@ function fetchPlayerSupplemental(
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
 
+type PlayerStatsOutcomeKey = "wins" | "losses";
+
+type PlayerStatsOutcomeBundle = {
+  key: PlayerStatsOutcomeKey;
+  label: string;
+  stats: StatAggregateSetResponse | null;
+  overview: PlayerStatOverviewResponse | null;
+  kickoffTakerSummary: EventStatSummaryResponse | null;
+  kickoffSupportSummary: EventStatSummaryResponse | null;
+  kickoffFilterSummary: EventStatSummaryResponse | null;
+  movementSummary: MovementSummaryResponse | null;
+  possessionSummary: PossessionSummaryResponse | null;
+  positioningSummary: PositioningSummaryResponse | null;
+  search: string;
+};
+
+type PlayerStatsOutcomeLoadState = {
+  bundles: PlayerStatsOutcomeBundle[];
+  loading: boolean;
+  error: string | null;
+};
+
+const playerOutcomeOptions: Array<{
+  key: PlayerStatsOutcomeKey;
+  label: string;
+  queryValue: "win" | "loss";
+}> = [
+  { key: "wins", label: "Wins", queryValue: "win" },
+  { key: "losses", label: "Losses", queryValue: "loss" },
+];
+
+function emptyPlayerStatsOutcomeBundle(
+  key: PlayerStatsOutcomeKey,
+  label: string,
+  search: string,
+): PlayerStatsOutcomeBundle {
+  return {
+    key,
+    label,
+    stats: null,
+    overview: null,
+    kickoffTakerSummary: null,
+    kickoffSupportSummary: null,
+    kickoffFilterSummary: null,
+    movementSummary: null,
+    possessionSummary: null,
+    positioningSummary: null,
+    search,
+  };
+}
+
+function bundleWithSupplementalResponse(
+  bundle: PlayerStatsOutcomeBundle,
+  key: PlayerSupplementalKey,
+  response:
+    | PlayerStatOverviewResponse
+    | EventStatSummaryResponse
+    | MovementSummaryResponse
+    | PossessionSummaryResponse
+    | PositioningSummaryResponse,
+): PlayerStatsOutcomeBundle {
+  if (isPlayerOverviewSupplementalKey(key)) {
+    return { ...bundle, overview: response as PlayerStatOverviewResponse };
+  }
+  if (key === "kickoffTaker") {
+    return { ...bundle, kickoffTakerSummary: response as EventStatSummaryResponse };
+  }
+  if (key === "kickoffSupport") {
+    return { ...bundle, kickoffSupportSummary: response as EventStatSummaryResponse };
+  }
+  if (key === "kickoffFilter") {
+    return { ...bundle, kickoffFilterSummary: response as EventStatSummaryResponse };
+  }
+  if (key === "movementSummary") {
+    return { ...bundle, movementSummary: response as MovementSummaryResponse };
+  }
+  if (key === "possession") {
+    return { ...bundle, possessionSummary: response as PossessionSummaryResponse };
+  }
+  return { ...bundle, positioningSummary: response as PositioningSummaryResponse };
+}
+
+function usePlayerOutcomeStatBundles({
+  activeGroup,
+  enabled,
+  platform,
+  platformPlayerId,
+  search,
+}: {
+  activeGroup: StatGroup;
+  enabled: boolean;
+  platform: string;
+  platformPlayerId: string;
+  search: string;
+}): PlayerStatsOutcomeLoadState {
+  const [state, setState] = useState<PlayerStatsOutcomeLoadState>({
+    bundles: [],
+    loading: false,
+    error: null,
+  });
+  const supplementalKeys = useMemo(
+    () => playerSupplementalKeysForGroup(activeGroup.id),
+    [activeGroup.id],
+  );
+  const supplementalKeyList = supplementalKeys.join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!enabled) {
+      setState({ bundles: [], loading: false, error: null });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setState({ bundles: [], loading: true, error: null });
+    Promise.all(
+      playerOutcomeOptions.map(async (option) => {
+        const outcomeSearch = searchWithPlayerOutcome(search, option.queryValue);
+        let bundle = emptyPlayerStatsOutcomeBundle(option.key, option.label, outcomeSearch);
+        const stats = await getPlayerStatAggregates(
+          platform,
+          platformPlayerId,
+          playerAggregateSearchParams(activeGroup.id, outcomeSearch),
+          activeGroup.terms,
+          playerAggregateRequestOptions(activeGroup.id),
+        );
+        bundle = { ...bundle, stats };
+        const supplementalResponses = await Promise.all(
+          supplementalKeys.map(async (key) => ({
+            key,
+            response: await fetchPlayerSupplemental(
+              key,
+              activeGroup.id,
+              platform,
+              platformPlayerId,
+              outcomeSearch,
+            ),
+          })),
+        );
+        for (const { key, response } of supplementalResponses) {
+          bundle = bundleWithSupplementalResponse(bundle, key, response);
+        }
+        return bundle;
+      }),
+    )
+      .then((bundles) => {
+        if (!cancelled) setState({ bundles, loading: false, error: null });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setState({
+            bundles: [],
+            loading: false,
+            error: err instanceof Error ? err.message : "Failed to load win/loss stats.",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeGroup,
+    enabled,
+    platform,
+    platformPlayerId,
+    search,
+    supplementalKeyList,
+    supplementalKeys,
+  ]);
+
+  return state;
+}
+
 // Top-level career segmentation: team size and competitive context are
 // orthogonal dimensions (see docs/stats-principles.md) and govern every
 // panel on the player stats page through the shared replay-set params.
@@ -3861,11 +4036,37 @@ function playerSegmentParamPath(
   return query ? `${pathname}?${query}` : pathname;
 }
 
+function outcomeSplitParamPath(pathname: string, search: string, enabled: boolean): string {
+  const params = new URLSearchParams(search);
+  params.delete("player-outcome");
+  if (enabled) {
+    params.set("split-outcome", "true");
+  } else {
+    params.delete("split-outcome");
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+function playerOutcomeSplitEnabled(search: string): boolean {
+  const value = new URLSearchParams(search).get("split-outcome");
+  return value === "true" || value === "1" || value === "wins-losses";
+}
+
+function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): string {
+  const params = playerStatsRequestSearchParams(search);
+  params.delete("split-outcome");
+  params.set("player-outcome", outcome);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 function PlayerStatsSegmentBar() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
   const teamSize = playerSegmentValue(params, "team-size");
   const gameType = playerSegmentValue(params, "game-type");
+  const splitOutcome = playerOutcomeSplitEnabled(location.search);
 
   return (
     <div className="player-segment-bar">
@@ -3902,6 +4103,21 @@ function PlayerStatsSegmentBar() {
             {option.label}
           </Link>
         ))}
+      </nav>
+      <nav className="stat-group-nav" aria-label="Outcome split">
+        <span className="segment-bar-label">Outcome</span>
+        <Link
+          className={`stat-group-link ${splitOutcome ? "" : "active"}`}
+          to={outcomeSplitParamPath(location.pathname, location.search, false)}
+        >
+          Combined
+        </Link>
+        <Link
+          className={`stat-group-link ${splitOutcome ? "active" : ""}`}
+          to={outcomeSplitParamPath(location.pathname, location.search, true)}
+        >
+          Wins / losses
+        </Link>
       </nav>
       {teamSize === "" ? (
         <p className="muted-text segment-bar-note">
@@ -3953,7 +4169,6 @@ function PlayerAggregateStatsSections({
   const sectionStats = filterStatsForGroup(stats.stats, activeGroup)
     .slice()
     .sort(comparePlayerStatRates);
-  const topStats = sectionStats.slice(0, 20);
   const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
   const Icon = activeGroup.icon;
   const requestSearch = playerStatsRequestSearchParams(search).toString();
@@ -3972,6 +4187,147 @@ function PlayerAggregateStatsSections({
     const query = params.toString();
     navigate(query ? `${location.pathname}?${query}` : location.pathname);
   };
+  const splitOutcome = playerOutcomeSplitEnabled(search);
+  const outcomeState = usePlayerOutcomeStatBundles({
+    activeGroup,
+    enabled: splitOutcome,
+    platform,
+    platformPlayerId,
+    search,
+  });
+
+  function renderStatsContent({
+    contentKickoffFilterSummary,
+    contentKickoffSupportSummary,
+    contentKickoffTakerSummary,
+    contentMovementSummary,
+    contentOverview,
+    contentPossessionSummary,
+    contentPositioningSummary,
+    contentSearch,
+    contentStats,
+    contentSupplementalError,
+    contentSupplementalLoading,
+  }: {
+    contentKickoffFilterSummary: EventStatSummaryResponse | null;
+    contentKickoffSupportSummary: EventStatSummaryResponse | null;
+    contentKickoffTakerSummary: EventStatSummaryResponse | null;
+    contentMovementSummary: MovementSummaryResponse | null;
+    contentOverview: PlayerStatOverviewResponse | null;
+    contentPossessionSummary: PossessionSummaryResponse | null;
+    contentPositioningSummary: PositioningSummaryResponse | null;
+    contentSearch: string;
+    contentStats: StatAggregateSetResponse;
+    contentSupplementalError: string | null;
+    contentSupplementalLoading: boolean;
+  }) {
+    const contentSectionStats = filterStatsForGroup(contentStats.stats, activeGroup)
+      .slice()
+      .sort(comparePlayerStatRates);
+    const contentTopStats = contentSectionStats.slice(0, 20);
+    const contentKickoffSpawnDimension = contentKickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
+    );
+
+    return (
+      <>
+        {activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome ? (
+          <KickoffSpawnBreakdown
+            dimension={contentKickoffSpawnDimension}
+            shapeFilter={kickoffShapeFilter}
+            sideFilter={kickoffSideFilter}
+            onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
+            onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
+          />
+        ) : null}
+
+        {activeGroup.id === "kickoffs" ||
+        activeGroup.id === "boost" ||
+        activeGroup.id === "core" ||
+        activeGroup.id === "goals" ||
+        activeGroup.id === "movement" ||
+        activeGroup.id === "possession" ||
+        activeGroup.id === "positioning" ||
+        activeGroup.id === "rotation" ||
+        activeGroup.id === "touches" ? null : (
+          <PlayerRateComparisonChart playerName={playerName} stats={contentTopStats} />
+        )}
+
+        {activeGroup.id === "boost" ? (
+          <BoostProfileDetail
+            platform={platform}
+            platformPlayerId={platformPlayerId}
+            playerName={playerName}
+            search={contentSearch}
+          />
+        ) : null}
+
+        {activeGroup.id === "core" && contentOverview ? (
+          <CoreProfileComparison
+            overview={contentOverview}
+            playerName={playerName}
+            stats={contentSectionStats}
+          />
+        ) : null}
+
+        {activeGroup.id === "movement" && contentMovementSummary ? (
+          <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />
+        ) : null}
+        {activeGroup.id === "movement" && contentSupplementalLoading ? (
+          <SupplementalLoadingNotice label="Movement comparisons" />
+        ) : null}
+        {activeGroup.id === "movement" && contentSupplementalError ? (
+          <ApiNotice label="Movement comparisons" message={contentSupplementalError} />
+        ) : null}
+
+        {activeGroup.id === "goals" && contentOverview ? (
+          <GoalTagSharePanel
+            overview={contentOverview}
+            playerName={playerName}
+            goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
+            allGoalsHref={`${routeBasePath}/goals`}
+          />
+        ) : null}
+        {activeGroup.id === "goals" && contentSupplementalLoading ? (
+          <SupplementalLoadingNotice label="Goal types" />
+        ) : null}
+        {activeGroup.id === "goals" && contentSupplementalError ? (
+          <ApiNotice label="Goal types" message={contentSupplementalError} />
+        ) : null}
+        {activeGroup.id === "kickoffs" && contentKickoffTakerSummary ? (
+          <KickoffSummaryPanel role="taker" summary={contentKickoffTakerSummary} />
+        ) : null}
+        {activeGroup.id === "kickoffs" && contentKickoffSupportSummary ? (
+          <KickoffSummaryPanel role="support" summary={contentKickoffSupportSummary} />
+        ) : null}
+        {activeGroup.id === "possession" && contentPossessionSummary ? (
+          <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />
+        ) : null}
+        {activeGroup.id === "possession" && contentSupplementalLoading ? (
+          <SupplementalLoadingNotice label="Possession comparisons" />
+        ) : null}
+        {activeGroup.id === "possession" && contentSupplementalError ? (
+          <ApiNotice label="Possession comparisons" message={contentSupplementalError} />
+        ) : null}
+        {activeGroup.id === "touches" && contentStats.touch_breakdown ? (
+          <TouchProfileComparison
+            breakdown={contentStats.touch_breakdown}
+            playerName={playerName}
+          />
+        ) : null}
+        {activeGroup.id === "positioning" && contentPositioningSummary ? (
+          <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />
+        ) : null}
+        {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview ? (
+          <RotationTimeSharePanel
+            overview={contentOverview}
+            playerName={playerName}
+            stats={contentStats}
+          />
+        ) : null}
+      </>
+    );
+  }
 
   return (
     <section className="stat-detail player-aggregate-stats">
@@ -4019,7 +4375,7 @@ function PlayerAggregateStatsSections({
         )}
       </header>
 
-      {activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
+      {!splitOutcome && activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
         <KickoffSpawnBreakdown
           dimension={kickoffSpawnDimension}
           shapeFilter={kickoffShapeFilter}
@@ -4029,79 +4385,51 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
 
-      {activeGroup.id === "kickoffs" ||
-      activeGroup.id === "boost" ||
-      activeGroup.id === "core" ||
-      activeGroup.id === "goals" ||
-      activeGroup.id === "movement" ||
-      activeGroup.id === "possession" ||
-      activeGroup.id === "positioning" ||
-      activeGroup.id === "rotation" ||
-      activeGroup.id === "touches" ? null : (
-        <PlayerRateComparisonChart playerName={playerName} stats={topStats} />
+      {splitOutcome ? (
+        <>
+          <StatusLine loading={outcomeState.loading} error={outcomeState.error} />
+          {outcomeState.bundles.map((bundle) =>
+            bundle.stats ? (
+              <section className="player-outcome-split-section" key={bundle.key}>
+                <header className="chart-panel-header">
+                  <h3>{bundle.label}</h3>
+                  <span>
+                    {bundle.stats.replay_count.toLocaleString()}{" "}
+                    {bundle.stats.replay_count === 1 ? "game" : "games"}
+                  </span>
+                </header>
+                {renderStatsContent({
+                  contentKickoffFilterSummary: bundle.kickoffFilterSummary,
+                  contentKickoffSupportSummary: bundle.kickoffSupportSummary,
+                  contentKickoffTakerSummary: bundle.kickoffTakerSummary,
+                  contentMovementSummary: bundle.movementSummary,
+                  contentOverview: bundle.overview,
+                  contentPossessionSummary: bundle.possessionSummary,
+                  contentPositioningSummary: bundle.positioningSummary,
+                  contentSearch: bundle.search,
+                  contentStats: bundle.stats,
+                  contentSupplementalError: null,
+                  contentSupplementalLoading: false,
+                })}
+              </section>
+            ) : null,
+          )}
+        </>
+      ) : (
+        renderStatsContent({
+          contentKickoffFilterSummary: kickoffFilterSummary,
+          contentKickoffSupportSummary: kickoffSupportSummary,
+          contentKickoffTakerSummary: kickoffTakerSummary,
+          contentMovementSummary: movementSummary,
+          contentOverview: overview,
+          contentPossessionSummary: possessionSummary,
+          contentPositioningSummary: positioningSummary,
+          contentSearch: requestSearch,
+          contentStats: stats,
+          contentSupplementalError: supplementalError,
+          contentSupplementalLoading: supplementalLoading,
+        })
       )}
-
-      {activeGroup.id === "boost" ? (
-        <BoostProfileDetail
-          platform={platform}
-          platformPlayerId={platformPlayerId}
-          playerName={playerName}
-          search={requestSearch}
-        />
-      ) : null}
-
-      {activeGroup.id === "core" && overview ? (
-        <CoreProfileComparison overview={overview} playerName={playerName} stats={sectionStats} />
-      ) : null}
-
-      {activeGroup.id === "movement" && movementSummary ? (
-        <PlayerMovementCohorts response={movementSummary} playerName={playerName} />
-      ) : null}
-      {activeGroup.id === "movement" && supplementalLoading ? (
-        <SupplementalLoadingNotice label="Movement comparisons" />
-      ) : null}
-      {activeGroup.id === "movement" && supplementalError ? (
-        <ApiNotice label="Movement comparisons" message={supplementalError} />
-      ) : null}
-
-      {activeGroup.id === "goals" && overview ? (
-        <GoalTagSharePanel
-          overview={overview}
-          playerName={playerName}
-          goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
-          allGoalsHref={`${routeBasePath}/goals`}
-        />
-      ) : null}
-      {activeGroup.id === "goals" && supplementalLoading ? (
-        <SupplementalLoadingNotice label="Goal types" />
-      ) : null}
-      {activeGroup.id === "goals" && supplementalError ? (
-        <ApiNotice label="Goal types" message={supplementalError} />
-      ) : null}
-      {activeGroup.id === "kickoffs" && kickoffTakerSummary ? (
-        <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} />
-      ) : null}
-      {activeGroup.id === "kickoffs" && kickoffSupportSummary ? (
-        <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} />
-      ) : null}
-      {activeGroup.id === "possession" && possessionSummary ? (
-        <PossessionSummaryPanel playerName={playerName} summary={possessionSummary} />
-      ) : null}
-      {activeGroup.id === "possession" && supplementalLoading ? (
-        <SupplementalLoadingNotice label="Possession comparisons" />
-      ) : null}
-      {activeGroup.id === "possession" && supplementalError ? (
-        <ApiNotice label="Possession comparisons" message={supplementalError} />
-      ) : null}
-      {activeGroup.id === "touches" && stats.touch_breakdown ? (
-        <TouchProfileComparison breakdown={stats.touch_breakdown} playerName={playerName} />
-      ) : null}
-      {activeGroup.id === "positioning" && positioningSummary ? (
-        <PlayerPositioningCohorts response={positioningSummary} playerName={playerName} />
-      ) : null}
-      {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
-        <RotationTimeSharePanel overview={overview} playerName={playerName} stats={stats} />
-      ) : null}
     </section>
   );
 }
