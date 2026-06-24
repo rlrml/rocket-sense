@@ -451,6 +451,313 @@ const INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of `player_replay_kickoff` for one analysis run ($1)
+// and replay ($2). Mirrors api/event_stats.rs::load_kickoff_summary and
+// load_event_stat_dimensions: each player's kickoff appearances are aggregated to
+// the (role, event-taker-spawn-set) grain the read path still filters on, with
+// summary counts, average sum/count pairs, and per-dimension {value: count}
+// jsonb mixes (NULL value keyed as ''). The read sums matching rows across the
+// player's replays.
+const INSERT_PLAYER_REPLAY_KICKOFF_SQL: &str = r#"
+        INSERT INTO player_replay_kickoff (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            role,
+            taker_spawns,
+            row_count,
+            touched_count,
+            first_touch_count,
+            missed_count,
+            fake_count,
+            win_count,
+            loss_count,
+            neutral_count,
+            kickoff_goals_for,
+            kickoff_goals_against,
+            advantages_for,
+            advantages_against,
+            no_advantage_count,
+            time_to_ball_sum,
+            time_to_ball_count,
+            boost_after_sum,
+            boost_after_count,
+            boost_used_sum,
+            boost_used_count,
+            spawn_position_mix,
+            approach_mix,
+            taker_outcome_mix,
+            support_behavior_mix,
+            kickoff_outcome_mix,
+            player_result_mix,
+            win_strength_result_mix,
+            advantage_result_mix
+        )
+        WITH kickoff_rows AS (
+            SELECT
+                detail.event_id,
+                detail.replay_id,
+                detail.replay_player_id,
+                detail.player_subject_id,
+                detail.team,
+                detail.role,
+                detail.spawn_position,
+                detail.boost_after,
+                detail.boost_used,
+                detail.time_to_ball,
+                detail.taker_outcome,
+                detail.approach,
+                detail.support_behavior,
+                kickoff.outcome AS kickoff_outcome,
+                kickoff.winning_team,
+                kickoff.win_strength_band,
+                kickoff.kickoff_goal,
+                kickoff.scoring_team,
+                kickoff.advantage,
+                kickoff.advantage_team,
+                kickoff.first_touch_subject_id
+            FROM play_event_kickoff_player_details detail
+            JOIN play_events event
+              ON event.id = detail.event_id
+             AND event.analysis_run_id = $1
+             AND event.replay_id = $2
+            JOIN play_event_kickoff_details kickoff
+              ON kickoff.event_id = detail.event_id
+        ),
+        event_takers AS (
+            SELECT
+                event_id,
+                COALESCE(
+                    array_agg(DISTINCT spawn_position ORDER BY spawn_position)
+                        FILTER (WHERE spawn_position IS NOT NULL),
+                    ARRAY[]::text[]
+                ) AS taker_spawns
+            FROM kickoff_rows
+            WHERE role = 'taker'
+            GROUP BY event_id
+        ),
+        enriched AS (
+            SELECT
+                kr.replay_id,
+                kr.replay_player_id,
+                kr.player_subject_id,
+                kr.team,
+                kr.role,
+                COALESCE(et.taker_spawns, ARRAY[]::text[]) AS taker_spawns,
+                kr.spawn_position,
+                kr.boost_after,
+                kr.time_to_ball,
+                kr.taker_outcome,
+                kr.approach,
+                kr.support_behavior,
+                kr.kickoff_outcome,
+                kr.winning_team,
+                kr.win_strength_band,
+                kr.kickoff_goal,
+                kr.scoring_team,
+                kr.advantage,
+                kr.advantage_team,
+                COALESCE(
+                    kr.boost_used,
+                    (
+                        SELECT (
+                            payload.payload -> CASE kr.team
+                                WHEN 0 THEN 'team_zero_taker'
+                                ELSE 'team_one_taker'
+                            END
+                        ) ->> 'boost_used'
+                        FROM play_event_payloads payload
+                        WHERE payload.event_id = kr.event_id
+                    )::double precision
+                ) AS eff_boost_used,
+                EXISTS (
+                    SELECT 1
+                    FROM kickoff_rows taker
+                    WHERE taker.event_id = kr.event_id
+                      AND taker.team = kr.team
+                      AND taker.role = 'taker'
+                      AND taker.player_subject_id = kr.first_touch_subject_id
+                ) AS team_taker_first_touch
+            FROM kickoff_rows kr
+            LEFT JOIN event_takers et ON et.event_id = kr.event_id
+        ),
+        agg AS (
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                team,
+                role,
+                taker_spawns,
+                COUNT(*) AS row_count,
+                COUNT(*) FILTER (WHERE taker_outcome = 'touched') AS touched_count,
+                COUNT(*) FILTER (WHERE team_taker_first_touch) AS first_touch_count,
+                COUNT(*) FILTER (WHERE taker_outcome = 'missed') AS missed_count,
+                COUNT(*) FILTER (WHERE taker_outcome = 'fake') AS fake_count,
+                COUNT(*) FILTER (WHERE winning_team = team) AS win_count,
+                COUNT(*) FILTER (WHERE winning_team IS NOT NULL AND winning_team <> team) AS loss_count,
+                COUNT(*) FILTER (WHERE winning_team IS NULL) AS neutral_count,
+                COUNT(*) FILTER (WHERE kickoff_goal AND scoring_team = team) AS kickoff_goals_for,
+                COUNT(*) FILTER (
+                    WHERE kickoff_goal AND scoring_team IS NOT NULL AND scoring_team <> team
+                ) AS kickoff_goals_against,
+                COUNT(*) FILTER (WHERE advantage_team = team) AS advantages_for,
+                COUNT(*) FILTER (
+                    WHERE advantage_team IS NOT NULL AND advantage_team <> team
+                ) AS advantages_against,
+                COUNT(*) FILTER (WHERE advantage = 'no_advantage') AS no_advantage_count,
+                COALESCE(
+                    SUM(time_to_ball) FILTER (WHERE role = 'taker' AND time_to_ball IS NOT NULL),
+                    0.0
+                ) AS time_to_ball_sum,
+                COUNT(*) FILTER (WHERE role = 'taker' AND time_to_ball IS NOT NULL) AS time_to_ball_count,
+                COALESCE(SUM(boost_after) FILTER (WHERE boost_after IS NOT NULL), 0.0) AS boost_after_sum,
+                COUNT(*) FILTER (WHERE boost_after IS NOT NULL) AS boost_after_count,
+                COALESCE(
+                    SUM(eff_boost_used) FILTER (WHERE role = 'taker' AND eff_boost_used IS NOT NULL),
+                    0.0
+                ) AS boost_used_sum,
+                COUNT(*) FILTER (WHERE role = 'taker' AND eff_boost_used IS NOT NULL) AS boost_used_count
+            FROM enriched
+            GROUP BY replay_id, replay_player_id, player_subject_id, team, role, taker_spawns
+        ),
+        dim_counts AS (
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'spawn_position'::text AS dimension, COALESCE(spawn_position, '') AS value, COUNT(*) AS cnt
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(spawn_position, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'approach', COALESCE(approach, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(approach, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'taker_outcome', COALESCE(taker_outcome, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(taker_outcome, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'support_behavior', COALESCE(support_behavior, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(support_behavior, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'kickoff_outcome', COALESCE(kickoff_outcome, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(kickoff_outcome, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'player_result',
+                CASE
+                    WHEN winning_team IS NULL THEN 'neutral'
+                    WHEN winning_team = team THEN 'win'
+                    ELSE 'loss'
+                END,
+                COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns,
+                CASE WHEN winning_team IS NULL THEN 'neutral' WHEN winning_team = team THEN 'win' ELSE 'loss' END
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'win_strength_result',
+                CASE
+                    WHEN winning_team IS NULL THEN 'neutral'
+                    WHEN winning_team = team THEN concat('win_', COALESCE(win_strength_band, 'unknown'))
+                    ELSE concat('loss_', COALESCE(win_strength_band, 'unknown'))
+                END,
+                COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns,
+                CASE
+                    WHEN winning_team IS NULL THEN 'neutral'
+                    WHEN winning_team = team THEN concat('win_', COALESCE(win_strength_band, 'unknown'))
+                    ELSE concat('loss_', COALESCE(win_strength_band, 'unknown'))
+                END
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'advantage_result',
+                CASE
+                    WHEN advantage IS NULL THEN ''
+                    WHEN advantage_team IS NULL THEN advantage
+                    ELSE concat(
+                        CASE WHEN advantage_team = team THEN 'won_' ELSE 'lost_' END,
+                        regexp_replace(advantage, '^team_(zero|one)_', '')
+                    )
+                END,
+                COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns,
+                CASE
+                    WHEN advantage IS NULL THEN ''
+                    WHEN advantage_team IS NULL THEN advantage
+                    ELSE concat(
+                        CASE WHEN advantage_team = team THEN 'won_' ELSE 'lost_' END,
+                        regexp_replace(advantage, '^team_(zero|one)_', '')
+                    )
+                END
+        ),
+        mixes AS (
+            SELECT
+                replay_id,
+                player_subject_id,
+                role,
+                taker_spawns,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'spawn_position'), '{}'::jsonb) AS spawn_position_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'approach'), '{}'::jsonb) AS approach_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'taker_outcome'), '{}'::jsonb) AS taker_outcome_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'support_behavior'), '{}'::jsonb) AS support_behavior_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'kickoff_outcome'), '{}'::jsonb) AS kickoff_outcome_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'player_result'), '{}'::jsonb) AS player_result_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'win_strength_result'), '{}'::jsonb) AS win_strength_result_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'advantage_result'), '{}'::jsonb) AS advantage_result_mix
+            FROM dim_counts
+            GROUP BY replay_id, player_subject_id, role, taker_spawns
+        )
+        SELECT
+            $1,
+            agg.replay_id,
+            agg.replay_player_id,
+            agg.player_subject_id,
+            split_part(agg.player_subject_id, ':', 1),
+            substr(agg.player_subject_id, length(split_part(agg.player_subject_id, ':', 1)) + 2),
+            agg.team,
+            agg.role,
+            agg.taker_spawns,
+            agg.row_count,
+            agg.touched_count,
+            agg.first_touch_count,
+            agg.missed_count,
+            agg.fake_count,
+            agg.win_count,
+            agg.loss_count,
+            agg.neutral_count,
+            agg.kickoff_goals_for,
+            agg.kickoff_goals_against,
+            agg.advantages_for,
+            agg.advantages_against,
+            agg.no_advantage_count,
+            agg.time_to_ball_sum,
+            agg.time_to_ball_count,
+            agg.boost_after_sum,
+            agg.boost_after_count,
+            agg.boost_used_sum,
+            agg.boost_used_count,
+            mixes.spawn_position_mix,
+            mixes.approach_mix,
+            mixes.taker_outcome_mix,
+            mixes.support_behavior_mix,
+            mixes.kickoff_outcome_mix,
+            mixes.player_result_mix,
+            mixes.win_strength_result_mix,
+            mixes.advantage_result_mix
+        FROM agg
+        JOIN mixes
+          ON mixes.replay_id = agg.replay_id
+         AND mixes.player_subject_id = agg.player_subject_id
+         AND mixes.role = agg.role
+         AND mixes.taker_spawns = agg.taker_spawns
+        WHERE split_part(agg.player_subject_id, ':', 1) <> ''
+          AND substr(agg.player_subject_id, length(split_part(agg.player_subject_id, ':', 1)) + 2) <> ''
+        ON CONFLICT DO NOTHING
+        "#;
+
 // Per-replay materialization of `player_replay_possession` for one analysis run
 // ($1) and replay ($2). Aggregates each player's possession spans, classified
 // touches (with intention/surface jsonb mixes), and possession location. Mirrors
@@ -1940,6 +2247,7 @@ async fn persist_analysis_output(
     insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -2381,6 +2689,71 @@ pub async fn backfill_player_replay_touch_breakdowns(pool: &PgPool) -> Result<u6
         }
     }
     tracing::info!(backfilled, total, "touch breakdown backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_kickoff(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query("DELETE FROM player_replay_kickoff WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear player replay kickoff")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_KICKOFF_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay kickoff")?;
+    Ok(())
+}
+
+/// Populate `player_replay_kickoff` for every canonical replay missing rows, from
+/// existing kickoff detail rows (no re-parse). Resumable; returns replays
+/// backfilled.
+pub async fn backfill_player_replay_kickoff(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM play_event_kickoff_player_details detail
+              JOIN play_events event
+                ON event.id = detail.event_id
+               AND event.analysis_run_id = r.canonical_analysis_run_id
+              WHERE detail.replay_id = r.id
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_kickoff kickoff
+              WHERE kickoff.replay_id = r.id
+                AND kickoff.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing kickoff backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay kickoff backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "kickoff backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "kickoff backfill complete");
     Ok(backfilled)
 }
 

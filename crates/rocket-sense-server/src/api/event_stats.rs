@@ -8,7 +8,8 @@ use axum::{
 use serde::Serialize;
 use serde_json::{json, Value};
 use sqlx::{Postgres, QueryBuilder, Row};
-use std::collections::BTreeMap;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -147,6 +148,7 @@ struct EventStatsQuery {
     sample_count: u32,
     dimension_limit: u32,
     include_samples: bool,
+    materialized: bool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -386,6 +388,7 @@ pub async fn get_event_stat_summary(
     let query = EventStatsQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
+        state.materialized_stat_counts,
     )?;
     let response = load_event_stat_summary(db, adapter, &query)
         .await
@@ -408,6 +411,7 @@ impl EventStatsQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
+        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -443,6 +447,11 @@ impl EventStatsQuery {
                 .map(|value| parse_bool_filter("include-samples", &value))
                 .transpose()?
                 .unwrap_or(true),
+            materialized: params
+                .first(&["materialized"])
+                .map(|value| parse_bool_filter("materialized", &value))
+                .transpose()?
+                .unwrap_or(materialized_default),
         })
     }
 }
@@ -452,8 +461,13 @@ async fn load_event_stat_summary(
     adapter: &EventStatsAdapter,
     filters: &EventStatsQuery,
 ) -> Result<EventStatSummaryResponse, sqlx::Error> {
-    let summary = load_kickoff_summary(pool, adapter, filters).await?;
-    let dimensions = load_event_stat_dimensions(pool, adapter, filters).await?;
+    let (summary, dimensions) = if filters.materialized && filters.player.is_some() {
+        load_kickoff_materialized(pool, filters).await?
+    } else {
+        let summary = load_kickoff_summary(pool, adapter, filters).await?;
+        let dimensions = load_event_stat_dimensions(pool, adapter, filters).await?;
+        (summary, dimensions)
+    };
     let samples = if filters.include_samples && filters.sample_count > 0 {
         load_event_stat_samples(pool, adapter, filters).await?
     } else {
@@ -543,6 +557,298 @@ async fn load_kickoff_summary(
         avg_boost_after: finite_value(row.try_get("avg_boost_after")?),
         avg_boost_used: finite_value(row.try_get("avg_boost_used")?),
     })
+}
+
+// Materialized kickoff read: fetch this player's pre-aggregated per-(replay,
+// role, event-taker-spawn-set) rows from `player_replay_kickoff` and reconstruct
+// the same summary + dimension responses the live scans produce, applying the
+// replay-set / role / spawn filters at read time so every filter change still
+// re-aggregates from the stored rows. Only valid when a player filter is set.
+async fn load_kickoff_materialized(
+    pool: &sqlx::PgPool,
+    filters: &EventStatsQuery,
+) -> Result<(KickoffSummaryRow, Vec<EventStatDimensionResponse>), sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized kickoff read requires a player filter");
+    let player_subject_id = format!("{}:{}", player.platform, player.platform_player_id);
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            k.replay_id,
+            k.role,
+            k.team,
+            k.taker_spawns,
+            k.row_count,
+            k.touched_count,
+            k.first_touch_count,
+            k.missed_count,
+            k.fake_count,
+            k.win_count,
+            k.loss_count,
+            k.neutral_count,
+            k.kickoff_goals_for,
+            k.kickoff_goals_against,
+            k.advantages_for,
+            k.advantages_against,
+            k.no_advantage_count,
+            k.time_to_ball_sum,
+            k.time_to_ball_count,
+            k.boost_after_sum,
+            k.boost_after_count,
+            k.boost_used_sum,
+            k.boost_used_count,
+            k.spawn_position_mix,
+            k.approach_mix,
+            k.taker_outcome_mix,
+            k.support_behavior_mix,
+            k.kickoff_outcome_mix,
+            k.player_result_mix,
+            k.win_strength_result_mix,
+            k.advantage_result_mix
+        FROM player_replay_kickoff k
+        JOIN replays r
+          ON r.id = k.replay_id
+         AND r.canonical_analysis_run_id = k.analysis_run_id
+        WHERE k.player_subject_id = "#,
+    );
+    query.push_bind(player_subject_id);
+    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    if let Some(role) = &filters.role {
+        query.push(" AND k.role = ");
+        query.push_bind(role.clone());
+    }
+    if !filters.kickoff_spawn.is_empty() {
+        // The live spawn filter keeps events where ANY taker spawned in the
+        // selected set; `taker_spawns` carries that set so array-overlap (&&)
+        // reproduces it (an empty selection -> overlaps nothing -> no rows).
+        let positions: Vec<String> = filters
+            .kickoff_spawn
+            .spawn_positions()
+            .into_iter()
+            .map(|spawn| spawn.to_owned())
+            .collect();
+        query.push(" AND k.taker_spawns && ");
+        query.push_bind(positions);
+    }
+
+    let rows = query.build().fetch_all(pool).await?;
+
+    let mut summary = MaterializedKickoffSummary::default();
+    // dimension key -> (value -> count); '' jsonb key already mapped to None.
+    let mut dimension_counts: HashMap<&'static str, HashMap<Option<String>, u64>> = HashMap::new();
+
+    for row in &rows {
+        let role: String = row.try_get("role")?;
+        let taker_spawns: Vec<String> = row.try_get("taker_spawns")?;
+        let row_count = count_column(row, "row_count")?;
+
+        summary
+            .replay_ids
+            .insert(row.try_get::<Uuid, _>("replay_id")?);
+        summary.row_count += row_count;
+        if role == "taker" {
+            summary.taker_count += row_count;
+        } else if role == "support" {
+            summary.support_count += row_count;
+        }
+        summary.touched_count += count_column(row, "touched_count")?;
+        summary.first_touch_count += count_column(row, "first_touch_count")?;
+        summary.missed_count += count_column(row, "missed_count")?;
+        summary.fake_count += count_column(row, "fake_count")?;
+        summary.win_count += count_column(row, "win_count")?;
+        summary.loss_count += count_column(row, "loss_count")?;
+        summary.neutral_count += count_column(row, "neutral_count")?;
+        summary.kickoff_goals_for += count_column(row, "kickoff_goals_for")?;
+        summary.kickoff_goals_against += count_column(row, "kickoff_goals_against")?;
+        summary.advantages_for += count_column(row, "advantages_for")?;
+        summary.advantages_against += count_column(row, "advantages_against")?;
+        summary.no_advantage_count += count_column(row, "no_advantage_count")?;
+        summary.time_to_ball_sum += row.try_get::<f64, _>("time_to_ball_sum")?;
+        summary.time_to_ball_count += count_column(row, "time_to_ball_count")?;
+        summary.boost_after_sum += row.try_get::<f64, _>("boost_after_sum")?;
+        summary.boost_after_count += count_column(row, "boost_after_count")?;
+        summary.boost_used_sum += row.try_get::<f64, _>("boost_used_sum")?;
+        summary.boost_used_count += count_column(row, "boost_used_count")?;
+
+        // role + kickoff_type are recoverable from the grain columns.
+        *dimension_counts
+            .entry("role")
+            .or_default()
+            .entry(Some(role.clone()))
+            .or_default() += row_count;
+        *dimension_counts
+            .entry("kickoff_type")
+            .or_default()
+            .entry(classify_kickoff_type(&taker_spawns))
+            .or_default() += row_count;
+
+        for (dimension_key, column) in MATERIALIZED_KICKOFF_DIMENSION_MIXES {
+            let mix: Value = row.try_get(*column)?;
+            merge_mix_counts(dimension_counts.entry(dimension_key).or_default(), &mix);
+        }
+    }
+
+    let dimensions = KICKOFF_DIMENSIONS
+        .iter()
+        .map(|dimension| {
+            let counts = dimension_counts.remove(dimension.key).unwrap_or_default();
+            dimension_response_from_counts(
+                dimension.key,
+                dimension.label,
+                counts,
+                filters.dimension_limit,
+            )
+        })
+        .collect();
+
+    Ok((summary.into_row(), dimensions))
+}
+
+// Dimension key -> the `player_replay_kickoff` jsonb mix column that stores its
+// {value: count} distribution. `role` and `kickoff_type` are derived from the
+// grain columns instead and are handled separately.
+const MATERIALIZED_KICKOFF_DIMENSION_MIXES: &[(&str, &str)] = &[
+    ("spawn_position", "spawn_position_mix"),
+    ("approach", "approach_mix"),
+    ("taker_outcome", "taker_outcome_mix"),
+    ("support_behavior", "support_behavior_mix"),
+    ("kickoff_outcome", "kickoff_outcome_mix"),
+    ("player_result", "player_result_mix"),
+    ("win_strength_result", "win_strength_result_mix"),
+    ("advantage_result", "advantage_result_mix"),
+];
+
+#[derive(Default)]
+struct MaterializedKickoffSummary {
+    replay_ids: std::collections::HashSet<Uuid>,
+    row_count: u64,
+    taker_count: u64,
+    support_count: u64,
+    touched_count: u64,
+    first_touch_count: u64,
+    missed_count: u64,
+    fake_count: u64,
+    win_count: u64,
+    loss_count: u64,
+    neutral_count: u64,
+    kickoff_goals_for: u64,
+    kickoff_goals_against: u64,
+    advantages_for: u64,
+    advantages_against: u64,
+    no_advantage_count: u64,
+    time_to_ball_sum: f64,
+    time_to_ball_count: u64,
+    boost_after_sum: f64,
+    boost_after_count: u64,
+    boost_used_sum: f64,
+    boost_used_count: u64,
+}
+
+impl MaterializedKickoffSummary {
+    fn into_row(self) -> KickoffSummaryRow {
+        let average = |sum: f64, count: u64| (count > 0).then(|| sum / count as f64);
+        KickoffSummaryRow {
+            replay_count: self.replay_ids.len() as u64,
+            // Each player appears once per kickoff event, so their distinct event
+            // count equals their summed row count.
+            event_count: self.row_count,
+            row_count: self.row_count,
+            taker_count: self.taker_count,
+            support_count: self.support_count,
+            touched_count: self.touched_count,
+            first_touch_count: self.first_touch_count,
+            missed_count: self.missed_count,
+            fake_count: self.fake_count,
+            win_count: self.win_count,
+            loss_count: self.loss_count,
+            neutral_count: self.neutral_count,
+            kickoff_goals_for: self.kickoff_goals_for,
+            kickoff_goals_against: self.kickoff_goals_against,
+            advantages_for: self.advantages_for,
+            advantages_against: self.advantages_against,
+            no_advantage_count: self.no_advantage_count,
+            avg_taker_time_to_touch: average(self.time_to_ball_sum, self.time_to_ball_count),
+            avg_boost_after: average(self.boost_after_sum, self.boost_after_count),
+            avg_boost_used: average(self.boost_used_sum, self.boost_used_count),
+        }
+    }
+}
+
+// Coarse kickoff type from the event's taker spawn set, matching the priority of
+// KICKOFF_TYPE_DIMENSION_SQL (diagonal > center_offset > center).
+fn classify_kickoff_type(taker_spawns: &[String]) -> Option<String> {
+    if taker_spawns
+        .iter()
+        .any(|spawn| spawn.starts_with("diagonal_"))
+    {
+        Some("diagonal".to_owned())
+    } else if taker_spawns
+        .iter()
+        .any(|spawn| spawn.starts_with("off_center_"))
+    {
+        Some("center_offset".to_owned())
+    } else if taker_spawns.iter().any(|spawn| spawn == "center") {
+        Some("center".to_owned())
+    } else {
+        None
+    }
+}
+
+// Fold a stored {value: count} jsonb mix into the running per-value totals,
+// mapping the '' sentinel key back to a NULL (None) dimension value.
+fn merge_mix_counts(counts: &mut HashMap<Option<String>, u64>, mix: &Value) {
+    let Some(object) = mix.as_object() else {
+        return;
+    };
+    for (key, value) in object {
+        let count = value.as_u64().or_else(|| value.as_f64().map(|v| v as u64));
+        let Some(count) = count else {
+            continue;
+        };
+        let dimension_value = if key.is_empty() {
+            None
+        } else {
+            Some(key.clone())
+        };
+        *counts.entry(dimension_value).or_default() += count;
+    }
+}
+
+fn dimension_response_from_counts(
+    key: &str,
+    label: &str,
+    counts: HashMap<Option<String>, u64>,
+    limit: u32,
+) -> EventStatDimensionResponse {
+    let mut values: Vec<EventStatDimensionValueResponse> = counts
+        .into_iter()
+        .map(|(value, count)| EventStatDimensionValueResponse {
+            display_name: value
+                .as_deref()
+                .map(display_label)
+                .unwrap_or_else(|| "Unknown".to_owned()),
+            key: value,
+            count,
+        })
+        .collect();
+    // Mirror the live `ORDER BY COUNT(*) DESC, key NULLS LAST`.
+    values.sort_by(|a, b| {
+        b.count.cmp(&a.count).then_with(|| match (&a.key, &b.key) {
+            (Some(left), Some(right)) => left.cmp(right),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        })
+    });
+    values.truncate(limit as usize);
+    EventStatDimensionResponse {
+        key: key.to_owned(),
+        label: label.to_owned(),
+        values,
+    }
 }
 
 async fn load_event_stat_dimensions(
