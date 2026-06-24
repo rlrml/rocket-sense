@@ -32,7 +32,13 @@ const rateWindowMinutes = 5;
  * one row per stat, player rate as a filled bar with the teammate average
  * rendered as a marker on the same scale.
  */
-export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateResponse[] }) {
+export function PlayerRateComparisonChart({
+  playerName,
+  stats,
+}: {
+  playerName: string;
+  stats: StatAggregateResponse[];
+}) {
   const rows = stats
     .filter((stat) => stat.per_active_minute != null)
     .slice(0, rateChartStatLimit)
@@ -72,7 +78,7 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
               <span
                 className="rate-chart-fill"
                 style={{ width: `${barPercent(playerRate, maxRate)}%` }}
-                title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
+                title={`${playerName}: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
               />
               {teammateRate != null ? (
                 <span
@@ -100,7 +106,13 @@ export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateRespo
 }
 
 /** Headline goal and assist rates, player vs pooled teammate average. */
-export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewResponse }) {
+export function ScoringRatePanel({
+  overview,
+  playerName,
+}: {
+  overview: PlayerStatOverviewResponse;
+  playerName: string;
+}) {
   const rows = [
     { label: "Goals", rate: overview.goals },
     { label: "Assists", rate: overview.assists },
@@ -135,7 +147,7 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
               <span
                 className="rate-chart-fill"
                 style={{ width: `${barPercent(playerRate, maxRate)}%` }}
-                title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
+                title={`${playerName}: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
               />
               {teammateRate != null ? (
                 <span
@@ -165,11 +177,13 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
 
 /** Goal tag proportions over the player's goals. */
 export function GoalTagSharePanel({
-  overview,
-  goalTypeHref,
   allGoalsHref,
+  goalTypeHref,
+  overview,
+  playerName,
 }: {
   overview: PlayerStatOverviewResponse;
+  playerName: string;
   /** When provided, each goal type row links to a playlist of those goals. */
   goalTypeHref?: (kind: string) => string;
   /** When provided, the header links to a playlist of every goal. */
@@ -220,7 +234,7 @@ export function GoalTagSharePanel({
                   <span
                     className="rate-chart-fill goal-tag-fill"
                     style={{ width: `${barPercent(playerRate, maxRate)}%` }}
-                    title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min · ${shareTitle(tag.display_name, tag.share_of_goals, tag.count)}`}
+                    title={`${playerName}: ${formatRate(playerRate)} per ${rateWindowMinutes} min · ${shareTitle(tag.display_name, tag.share_of_goals, tag.count)}`}
                   />
                   {teammateRate != null ? (
                     <span
@@ -269,9 +283,11 @@ const rotationDepthOrder = ["behind_play", "level_with_play", "ahead_of_play", "
 /** Rotation role/depth time shares plus most-back/forward comparison and stint histogram. */
 export function RotationTimeSharePanel({
   overview,
+  playerName,
   stats,
 }: {
   overview: PlayerStatOverviewResponse;
+  playerName: string;
   stats: StatAggregateSetResponse;
 }) {
   const depths = orderTimeSharesBySuffix(overview.rotation_depths, depthSuffix, rotationDepthOrder);
@@ -285,7 +301,7 @@ export function RotationTimeSharePanel({
       <div className="rotation-share-grid">
         <RotationDepthTugOfWar depths={depths} />
         <MostBackForwardBlock stats={stats} />
-        <FirstManStintHistogram stats={stats} />
+        <FirstManStintHistogram playerName={playerName} stats={stats} />
       </div>
     </section>
   );
@@ -395,7 +411,13 @@ function depthSuffix(key: string): string {
 }
 
 /** First-man stint length distribution, player overlaid against teammate average. */
-function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) {
+function FirstManStintHistogram({
+  playerName,
+  stats,
+}: {
+  playerName: string;
+  stats: StatAggregateSetResponse;
+}) {
   const histogram = stats.rotation_duration_histogram;
   const teammateHistogram = stats.teammate_rotation_duration_histogram ?? [];
   if (histogram.length === 0) return null;
@@ -451,7 +473,7 @@ function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) 
       </div>
       {hasTeammates ? (
         <p className="rotation-histogram-legend subtle">
-          <span className="rotation-histogram-legend-fill" /> you
+          <span className="rotation-histogram-legend-fill" /> {playerName}
           <span className="rotation-histogram-legend-marker" /> teammate average
         </p>
       ) : null}
@@ -1094,7 +1116,13 @@ const possessionSurfaceClasses: Record<string, string> = {
  * ball, what they do with it (advance, carry, take it airborne or up the
  * wall), and how their first touches resolve.
  */
-export function PossessionSummaryPanel({ summary }: { summary: PossessionSummaryResponse }) {
+export function PossessionSummaryPanel({
+  playerName,
+  summary,
+}: {
+  playerName: string;
+  summary: PossessionSummaryResponse;
+}) {
   const spans = summary.possessions;
   const controlledPlays = summary.controlled_plays;
   const touches = summary.touches;
@@ -1172,6 +1200,7 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
 
       <ControlledPlayComparison
         player={controlledPlays}
+        playerName={playerName}
         replayCount={summary.replay_count}
         teammates={summary.teammates}
       />
@@ -1318,10 +1347,12 @@ function possessionLocationShare(buckets: PossessionTimeBucket[], key: string): 
 
 function ControlledPlayComparison({
   player,
+  playerName,
   replayCount,
   teammates,
 }: {
   player: PossessionSpanSummary;
+  playerName: string;
   replayCount: number;
   teammates: PossessionTeammateComparison | null;
 }) {
@@ -1385,7 +1416,7 @@ function ControlledPlayComparison({
                   <span
                     className="rate-chart-fill kickoff-dimension-fill"
                     style={{ width: `${barPercent(metric.playerValue ?? 0, maxMetric)}%` }}
-                    title={`Player: ${metric.formatter(metric.playerValue)}`}
+                    title={`${playerName}: ${metric.formatter(metric.playerValue)}`}
                   />
                   {metric.teammateValue != null ? (
                     <span
@@ -1406,7 +1437,7 @@ function ControlledPlayComparison({
           </div>
           {hasTeammates ? (
             <p className="rate-chart-legend subtle">
-              <span className="rate-chart-legend-fill" /> player
+              <span className="rate-chart-legend-fill" /> {playerName}
               <span className="rate-chart-legend-marker" /> teammate average
             </p>
           ) : null}

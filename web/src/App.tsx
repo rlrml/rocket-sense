@@ -3087,6 +3087,11 @@ function PlayerStatsPage() {
     playerSummary?.current_display_name ??
     playerSummary?.public_display_name ??
     null;
+  const resolvedPlayerDisplayName =
+    playerSummary?.display_name ??
+    playerSummary?.current_display_name ??
+    playerSummary?.public_display_name ??
+    routePlayerRef;
   const rlTrackerUrl = useMemo(
     () => rlTrackerPlayerUrl(resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName),
     [resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName],
@@ -3343,7 +3348,7 @@ function PlayerStatsPage() {
                 linkToRlTracker
               />
             ) : null}
-            <span>{playerSummary?.display_name || routePlayerRef}</span>
+            <span>{resolvedPlayerDisplayName}</span>
           </h1>
         </div>
         <div className="button-row">
@@ -3422,7 +3427,7 @@ function PlayerStatsPage() {
               overview={overview}
               platform={resolvedPlatform}
               platformPlayerId={resolvedPlatformPlayerId}
-              playerName={playerSummary?.display_name ?? ""}
+              playerName={resolvedPlayerDisplayName}
               routeBasePath={routeBasePath}
               search={location.search}
               stats={stats}
@@ -3739,7 +3744,7 @@ function PlayerAggregateStatsSections({
       activeGroup.id === "boost" ||
       activeGroup.id === "positioning" ||
       activeGroup.id === "rotation" ? null : (
-        <PlayerRateComparisonChart stats={topStats} />
+        <PlayerRateComparisonChart stats={topStats} playerName={playerName} />
       )}
 
       {activeGroup.id === "boost" ? (
@@ -3751,10 +3756,13 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
 
-      {activeGroup.id === "goals" && overview ? <ScoringRatePanel overview={overview} /> : null}
+      {activeGroup.id === "goals" && overview ? (
+        <ScoringRatePanel overview={overview} playerName={playerName} />
+      ) : null}
       {activeGroup.id === "goals" && overview ? (
         <GoalTagSharePanel
           overview={overview}
+          playerName={playerName}
           goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
           allGoalsHref={`${routeBasePath}/goals`}
         />
@@ -3766,13 +3774,13 @@ function PlayerAggregateStatsSections({
         <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} />
       ) : null}
       {activeGroup.id === "possession" && possessionSummary ? (
-        <PossessionSummaryPanel summary={possessionSummary} />
+        <PossessionSummaryPanel playerName={playerName} summary={possessionSummary} />
       ) : null}
       {activeGroup.id === "positioning" && positioningSummary ? (
         <PlayerPositioningCohorts response={positioningSummary} playerName={playerName} />
       ) : null}
       {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
-        <RotationTimeSharePanel overview={overview} stats={stats} />
+        <RotationTimeSharePanel overview={overview} playerName={playerName} stats={stats} />
       ) : null}
     </section>
   );
