@@ -238,6 +238,144 @@ const INSERT_PLAYER_REPLAY_POSITIONING_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of `player_replay_movement` for one analysis run
+// ($1) and replay ($2). One row per rostered player, with zero-valued movement
+// columns when the player has no movement events; the profile read depends on
+// those rows for correct cohort appearance counts.
+const INSERT_PLAYER_REPLAY_MOVEMENT_SQL: &str = r#"
+        INSERT INTO player_replay_movement (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            active_seconds,
+            total_distance,
+            speed_weighted,
+            speed_weight,
+            slow_seconds,
+            boost_seconds,
+            supersonic_seconds,
+            ground_seconds,
+            low_air_seconds,
+            high_air_seconds,
+            powerslide_count,
+            powerslide_seconds,
+            speed_flips,
+            wavedashes,
+            half_flips
+        )
+        WITH movement_events AS (
+            SELECT
+                event.primary_subject_id AS player_subject_id,
+                event_type.key AS event_type,
+                COALESCE(
+                    event.duration_seconds,
+                    CASE
+                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
+                        THEN GREATEST(event.end_time - event.start_time, 0)
+                        ELSE 0
+                    END,
+                    0
+                ) AS duration,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM play_events event
+            JOIN event_types event_type
+              ON event_type.id = event.event_type_id
+            LEFT JOIN play_event_payloads payload
+              ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.primary_subject_id IS NOT NULL
+              AND (
+                    event.source_stream IN ('movement', 'powerslide')
+                 OR event_type.key IN ('speed_flip', 'wavedash', 'half_flip')
+              )
+        ),
+        event_aggregates AS (
+            SELECT
+                player_subject_id,
+                COALESCE(SUM(
+                    CASE WHEN event_type = 'movement' THEN
+                        COALESCE(
+                            CASE WHEN jsonb_typeof(payload->'total_distance') = 'number' THEN (payload->>'total_distance')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'distance') = 'number' THEN (payload->>'distance')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'distance_traveled') = 'number' THEN (payload->>'distance_traveled')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'distance_uu') = 'number' THEN (payload->>'distance_uu')::float8 END,
+                            0.0
+                        )
+                    ELSE 0 END
+                ), 0.0) AS total_distance,
+                COALESCE(SUM(
+                    CASE WHEN event_type = 'movement' THEN
+                        COALESCE(
+                            CASE WHEN jsonb_typeof(payload->'avg_speed') = 'number' THEN (payload->>'avg_speed')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'average_speed') = 'number' THEN (payload->>'average_speed')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'speed') = 'number' THEN (payload->>'speed')::float8 END,
+                            0.0
+                        ) * NULLIF(duration, 0)
+                    ELSE 0 END
+                ), 0.0) AS speed_weighted,
+                COALESCE(SUM(
+                    CASE WHEN event_type = 'movement'
+                           AND COALESCE(
+                               CASE WHEN jsonb_typeof(payload->'avg_speed') = 'number' THEN (payload->>'avg_speed')::float8 END,
+                               CASE WHEN jsonb_typeof(payload->'average_speed') = 'number' THEN (payload->>'average_speed')::float8 END,
+                               CASE WHEN jsonb_typeof(payload->'speed') = 'number' THEN (payload->>'speed')::float8 END
+                           ) IS NOT NULL
+                           AND duration > 0
+                         THEN duration ELSE 0 END
+                ), 0.0) AS speed_weight,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_slow_speed', 'slow_speed_seconds', 'slow_speed_time_seconds', 'time_slow_speed_seconds'], ARRAY['slow_speed', 'slow']) ELSE 0 END), 0.0) AS slow_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_boost_speed', 'boost_speed_seconds', 'boost_speed_time_seconds', 'time_boost_speed_seconds'], ARRAY['boost_speed', 'boost']) ELSE 0 END), 0.0) AS boost_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_supersonic_speed', 'supersonic_seconds', 'supersonic_speed_time_seconds', 'time_supersonic_speed_seconds'], ARRAY['supersonic_speed', 'supersonic']) ELSE 0 END), 0.0) AS supersonic_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_ground', 'ground_seconds', 'ground_time_seconds', 'time_on_ground'], ARRAY['ground', 'on_ground']) ELSE 0 END), 0.0) AS ground_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_low_air', 'low_air_seconds', 'low_air_time_seconds'], ARRAY['low_air', 'low']) ELSE 0 END), 0.0) AS low_air_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_high_air', 'high_air_seconds', 'high_air_time_seconds'], ARRAY['high_air', 'high']) ELSE 0 END), 0.0) AS high_air_seconds,
+                COUNT(*) FILTER (WHERE event_type = 'powerslide') AS powerslide_count,
+                COALESCE(SUM(duration) FILTER (WHERE event_type = 'powerslide'), 0.0) AS powerslide_seconds,
+                COUNT(*) FILTER (WHERE event_type = 'speed_flip') AS speed_flips,
+                COUNT(*) FILTER (WHERE event_type = 'wavedash') AS wavedashes,
+                COUNT(*) FILTER (WHERE event_type = 'half_flip') AS half_flips
+            FROM movement_events
+            GROUP BY player_subject_id
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            GREATEST(COALESCE(rp.active_time_seconds, 0.0), 0.0),
+            COALESCE(events.total_distance, 0.0),
+            COALESCE(events.speed_weighted, 0.0),
+            COALESCE(events.speed_weight, 0.0),
+            COALESCE(events.slow_seconds, 0.0),
+            COALESCE(events.boost_seconds, 0.0),
+            COALESCE(events.supersonic_seconds, 0.0),
+            COALESCE(events.ground_seconds, 0.0),
+            COALESCE(events.low_air_seconds, 0.0),
+            COALESCE(events.high_air_seconds, 0.0),
+            COALESCE(events.powerslide_count, 0),
+            COALESCE(events.powerslide_seconds, 0.0),
+            COALESCE(events.speed_flips, 0),
+            COALESCE(events.wavedashes, 0),
+            COALESCE(events.half_flips, 0)
+        FROM replay_players rp
+        LEFT JOIN event_aggregates events
+          ON events.player_subject_id = concat(rp.platform, ':', rp.platform_player_id)
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        ON CONFLICT DO NOTHING
+        "#;
+
 // Per-replay materialization of `player_replay_possession` for one analysis run
 // ($1) and replay ($2). Aggregates each player's possession spans, classified
 // touches (with intention/surface jsonb mixes), and possession location. Mirrors
@@ -1723,6 +1861,7 @@ async fn persist_analysis_output(
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
@@ -2044,6 +2183,62 @@ pub async fn backfill_player_replay_positioning(pool: &PgPool) -> Result<u64> {
         }
     }
     tracing::info!(backfilled, total, "positioning backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_movement(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query("DELETE FROM player_replay_movement WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear player replay movement")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_MOVEMENT_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay movement")?;
+    Ok(())
+}
+
+/// Populate `player_replay_movement` for every canonical replay missing rows,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_player_replay_movement(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_movement movement
+              WHERE movement.replay_id = r.id
+                AND movement.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing movement backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay movement backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "movement backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "movement backfill complete");
     Ok(backfilled)
 }
 
@@ -2618,6 +2813,21 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay positioning")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_movement movement
+        USING analysis_runs run
+        WHERE run.id = movement.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay movement")?;
 
     sqlx::query(
         r#"

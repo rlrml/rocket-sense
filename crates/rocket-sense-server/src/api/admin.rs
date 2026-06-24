@@ -46,6 +46,7 @@ pub fn router() -> Router<AppState> {
             "/admin/stats/backfill-positioning",
             post(backfill_positioning),
         )
+        .route("/admin/stats/backfill-movement", post(backfill_movement))
         .route(
             "/admin/stats/backfill-possession",
             post(backfill_possession),
@@ -599,6 +600,37 @@ pub async fn backfill_positioning(
         match crate::processing::backfill_player_replay_positioning(&pool).await {
             Ok(backfilled) => tracing::info!(backfilled, "positioning backfill task finished"),
             Err(error) => tracing::error!(?error, "positioning backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Populate `player_replay_movement` from existing events for every canonical
+/// replay missing rows. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-movement",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Movement backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_movement(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_player_replay_movement(&pool).await {
+            Ok(backfilled) => tracing::info!(backfilled, "movement backfill task finished"),
+            Err(error) => tracing::error!(?error, "movement backfill task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {

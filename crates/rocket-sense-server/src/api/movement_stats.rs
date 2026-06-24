@@ -11,8 +11,10 @@ use uuid::Uuid;
 
 use super::{
     event_stats::{count_column, finite_value},
-    query::QueryParams,
-    replay_set::{PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters},
+    query::{parse_bool_filter, QueryParams},
+    replay_set::{
+        append_replay_set_filters, PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters,
+    },
     replays::{require_db, ApiError},
 };
 
@@ -59,12 +61,16 @@ pub struct MovementCohortSummary {
 struct MovementStatsQuery {
     replay_set: ReplaySetFilters,
     player: PlayerStatFilter,
+    /// Whether to read the materialized `player_replay_movement` table.
+    /// Resolved from the server default with a per-request `?materialized=` override.
+    materialized: bool,
 }
 
 impl MovementStatsQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
+        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -74,7 +80,16 @@ impl MovementStatsQuery {
             .map(|player_id| PlayerStatFilter::from_query(&player_id))
             .transpose()?
             .ok_or_else(|| ApiError::bad_request("movement summary requires a player-id filter"))?;
-        Ok(Self { replay_set, player })
+        let materialized = params
+            .first(&["materialized"])
+            .map(|value| parse_bool_filter("materialized", &value))
+            .transpose()?
+            .unwrap_or(materialized_default);
+        Ok(Self {
+            replay_set,
+            player,
+            materialized,
+        })
     }
 }
 
@@ -97,6 +112,7 @@ pub async fn get_movement_summary(
     let query = MovementStatsQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
+        state.materialized_stat_counts,
     )?;
     let response = load_movement_summary(db, &query)
         .await
@@ -108,7 +124,11 @@ async fn load_movement_summary(
     pool: &sqlx::PgPool,
     filters: &MovementStatsQuery,
 ) -> Result<MovementSummaryResponse, sqlx::Error> {
-    let mut query = build_movement_summary_query(filters);
+    let mut query = if filters.materialized {
+        build_movement_summary_query_materialized(filters)
+    } else {
+        build_movement_summary_query(filters)
+    };
     let rows = query.build().fetch_all(pool).await?;
 
     let mut player = None;
@@ -355,6 +375,92 @@ fn build_movement_summary_query(filters: &MovementStatsQuery) -> QueryBuilder<'_
             COALESCE(events.half_flips, 0) AS half_flips
         FROM appearance_aggregates appearances
         LEFT JOIN event_aggregates events USING (cohort)
+        "#,
+    );
+    query
+}
+
+/// Materialized variant: sum per-(replay, player) movement rows from
+/// `player_replay_movement` and split into self/teammate/opponent cohorts by
+/// joining the target's (replay, team) appearances. Produces the same columns as
+/// `build_movement_summary_query` so the row parser is shared.
+fn build_movement_summary_query_materialized(
+    filters: &MovementStatsQuery,
+) -> QueryBuilder<'_, Postgres> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT movement.replay_id, movement.team AS target_team, movement.analysis_run_id AS run_id
+            FROM player_replay_movement movement
+            JOIN replays r
+              ON r.id = movement.replay_id
+             AND r.canonical_analysis_run_id = movement.analysis_run_id
+            WHERE movement.platform = "#,
+    );
+    query.push_bind(&filters.player.platform);
+    query.push(" AND movement.platform_player_id = ");
+    query.push_bind(&filters.player.platform_player_id);
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(
+        r#"
+        ),
+        cohort AS (
+            SELECT 'self'::text AS cohort, movement.*
+            FROM target_appearances ta
+            JOIN player_replay_movement movement
+              ON movement.replay_id = ta.replay_id
+             AND movement.analysis_run_id = ta.run_id
+             AND movement.platform = "#,
+    );
+    query.push_bind(&filters.player.platform);
+    query.push(" AND movement.platform_player_id = ");
+    query.push_bind(&filters.player.platform_player_id);
+    query.push(
+        r#"
+            UNION ALL
+            SELECT 'teammate'::text AS cohort, movement.*
+            FROM target_appearances ta
+            JOIN player_replay_movement movement
+              ON movement.replay_id = ta.replay_id
+             AND movement.analysis_run_id = ta.run_id
+             AND movement.team = ta.target_team
+             AND NOT (movement.platform = "#,
+    );
+    query.push_bind(&filters.player.platform);
+    query.push(" AND movement.platform_player_id = ");
+    query.push_bind(&filters.player.platform_player_id);
+    query.push(
+        r#")
+            UNION ALL
+            SELECT 'opponent'::text AS cohort, movement.*
+            FROM target_appearances ta
+            JOIN player_replay_movement movement
+              ON movement.replay_id = ta.replay_id
+             AND movement.analysis_run_id = ta.run_id
+             AND movement.team IS NOT NULL
+             AND ta.target_team IS NOT NULL
+             AND movement.team <> ta.target_team
+        )
+        SELECT
+            cohort,
+            COUNT(*) AS appearance_count,
+            COALESCE(SUM(active_seconds), 0.0) AS active_seconds,
+            COALESCE(SUM(total_distance), 0.0) AS total_distance,
+            COALESCE(SUM(speed_weighted), 0.0) AS speed_weighted,
+            COALESCE(SUM(speed_weight), 0.0) AS speed_weight,
+            COALESCE(SUM(slow_seconds), 0.0) AS slow_seconds,
+            COALESCE(SUM(boost_seconds), 0.0) AS boost_seconds,
+            COALESCE(SUM(supersonic_seconds), 0.0) AS supersonic_seconds,
+            COALESCE(SUM(ground_seconds), 0.0) AS ground_seconds,
+            COALESCE(SUM(low_air_seconds), 0.0) AS low_air_seconds,
+            COALESCE(SUM(high_air_seconds), 0.0) AS high_air_seconds,
+            COALESCE(SUM(powerslide_count), 0)::bigint AS powerslide_count,
+            COALESCE(SUM(powerslide_seconds), 0.0) AS powerslide_seconds,
+            COALESCE(SUM(speed_flips), 0)::bigint AS speed_flips,
+            COALESCE(SUM(wavedashes), 0)::bigint AS wavedashes,
+            COALESCE(SUM(half_flips), 0)::bigint AS half_flips
+        FROM cohort
+        GROUP BY cohort
         "#,
     );
     query
