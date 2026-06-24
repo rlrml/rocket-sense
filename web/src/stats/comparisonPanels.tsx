@@ -73,7 +73,8 @@ export function subjectMagnitudeRows<T extends ComparisonSubject>(
     ariaSuffix?: string;
   },
 ): ComparisonRow[] {
-  const maxValue = Math.max(1, ...subjects.map((subject) => options.metric(subject) ?? 0));
+  const measuredMaxValue = Math.max(...subjects.map((subject) => options.metric(subject) ?? 0));
+  const maxValue = measuredMaxValue > 0 ? measuredMaxValue : 1;
   return [...subjects]
     .sort(
       (left, right) =>

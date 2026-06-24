@@ -5,9 +5,7 @@ import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
   PlayerStatOverviewResponse,
-  PossessionCohortSummary,
   PossessionSummaryResponse,
-  PossessionTimeBucket,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
@@ -19,7 +17,6 @@ import {
   careerCohortLabel,
   careerCohortSegmentClassName,
   careerCohortSubtitle,
-  careerRateValue,
   careerRateWindowLabel,
   type CareerCohortKey,
   ComparisonBar,
@@ -32,6 +29,11 @@ import {
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
 } from "./shared";
+import {
+  PossessionAdvancedComparisonGrid,
+  possessionAdvancedCohortLabel,
+  type PossessionAdvancedSubject,
+} from "./possessionAdvanced";
 
 const rateChartStatLimit = 12;
 const rateWindowMinutes = 5;
@@ -1457,7 +1459,6 @@ export function PossessionSummaryPanel({
     hasRankPeers && !showRankPeers
       ? allSubjects.filter((subject) => subject.cohortKey !== "rank_peers")
       : allSubjects;
-  const comparisonCharts = possessionProfileMetricCharts(subjects);
 
   return (
     <>
@@ -1488,14 +1489,10 @@ export function PossessionSummaryPanel({
           </div>
         </div>
       ) : null}
-      <div
-        className="stat-comparison-grid possession-profile-grid"
-        aria-label="Possession comparisons"
-      >
-        {comparisonCharts.map((chart) => (
-          <PlayerComparisonChart key={chart.key} rows={chart.rows} title={chart.title} />
-        ))}
-      </div>
+      <PossessionAdvancedComparisonGrid
+        className="possession-profile-grid"
+        subjects={subjects.map(possessionAdvancedProfileSubject)}
+      />
     </>
   );
 }
@@ -1507,14 +1504,8 @@ interface PossessionProfileSubject {
   subtitle: string;
   appearances: number;
   activeTimeSeconds: number | null;
-  cohort: PossessionCohortSummary;
+  cohort: PossessionSummaryResponse["cohorts"][number];
   segmentClassName: string;
-}
-
-interface PossessionProfileChart {
-  key: string;
-  title: string;
-  rows: ComparisonRow[];
 }
 
 function possessionProfileSubjects(
@@ -1522,7 +1513,7 @@ function possessionProfileSubjects(
   playerName: string,
 ): PossessionProfileSubject[] {
   const responseCohorts = summary.cohorts ?? [];
-  const cohorts: PossessionCohortSummary[] =
+  const cohorts: PossessionSummaryResponse["cohorts"] =
     responseCohorts.length > 0
       ? responseCohorts
       : [
@@ -1553,172 +1544,20 @@ function possessionProfileSubjects(
   });
 }
 
-function possessionProfileMetricCharts(
-  subjects: PossessionProfileSubject[],
-): PossessionProfileChart[] {
-  const definitions: Array<{
-    key: string;
-    title: string;
-    metric: (subject: PossessionProfileSubject) => number | null;
-    format: (value: number) => string;
-    maxValue?: number;
-    normalizeToMax?: boolean;
-  }> = [
-    {
-      key: "possessions-per-5-active-min",
-      title: `Possessions ${careerRateWindowLabel()}`,
-      metric: (subject) =>
-        careerRateValue(subject.cohort.possessions.possession_count, subject.activeTimeSeconds),
-      format: formatRate,
-    },
-    {
-      key: "possession-time-per-5-active-min",
-      title: `Possession time ${careerRateWindowLabel()}`,
-      metric: (subject) =>
-        careerRateValue(
-          subject.cohort.possessions.total_duration_seconds,
-          subject.activeTimeSeconds,
-        ),
-      format: formatDurationSeconds,
-    },
-    {
-      key: "average-possession-length",
-      title: "Avg possession length",
-      metric: (subject) => subject.cohort.possessions.avg_duration_seconds,
-      format: formatSecondsValueRequired,
-    },
-    {
-      key: "touches-per-possession",
-      title: "Avg touches per possession",
-      metric: (subject) => subject.cohort.possessions.avg_touches_per_possession,
-      format: formatRate,
-    },
-    {
-      key: "advance-per-possession",
-      title: "Ball advanced per possession",
-      metric: (subject) => subject.cohort.possessions.avg_advance_distance,
-      format: formatDistanceRequired,
-    },
-    {
-      key: "own-half-possession",
-      title: "Own-half possession",
-      metric: (subject) => possessionLocationShare(subject.cohort.locations.halves, "own_side"),
-      format: formatShareRequired,
-      normalizeToMax: true,
-    },
-    {
-      key: "opponent-half-possession",
-      title: "Opponent-half possession",
-      metric: (subject) =>
-        possessionLocationShare(subject.cohort.locations.halves, "opponent_side"),
-      format: formatShareRequired,
-      normalizeToMax: true,
-    },
-    {
-      key: "carry-time-share",
-      title: "Carry time share",
-      metric: (subject) => subject.cohort.possessions.carry_time_share,
-      format: formatShareRequired,
-      normalizeToMax: true,
-    },
-    {
-      key: "first-touch-control-rate",
-      title: "First-touch control rate",
-      metric: (subject) => subject.cohort.touches.first_touch_control_share,
-      format: formatShareRequired,
-      normalizeToMax: true,
-    },
-    {
-      key: "contested-touch-share",
-      title: "Contested touch share",
-      metric: (subject) =>
-        subject.cohort.touches.classified_touch_count > 0
-          ? subject.cohort.touches.contested_touch_count /
-            subject.cohort.touches.classified_touch_count
-          : null,
-      format: formatShareRequired,
-      normalizeToMax: true,
-    },
-  ];
-
-  return definitions.flatMap((definition) => {
-    const rows = possessionMagnitudeRows(subjects, definition);
-    return rows.length > 0 ? [{ key: definition.key, title: definition.title, rows }] : [];
-  });
-}
-
-function possessionMagnitudeRows(
-  subjects: PossessionProfileSubject[],
-  definition: {
-    key: string;
-    metric: (subject: PossessionProfileSubject) => number | null;
-    format: (value: number) => string;
-    maxValue?: number;
-    normalizeToMax?: boolean;
-  },
-): ComparisonRow[] {
-  const values = subjects.map((subject) => definition.metric(subject));
-  if (!values.some((value) => value != null)) return [];
-  const measuredMaxValue = Math.max(...values.map((value) => value ?? 0));
-  const maxValue =
-    definition.maxValue ??
-    (definition.normalizeToMax && measuredMaxValue > 0
-      ? measuredMaxValue
-      : Math.max(1, measuredMaxValue));
-
-  return subjects.map((subject) => {
-    const rawValue = definition.metric(subject);
-    const value = rawValue ?? 0;
-    const formatted = rawValue == null ? "—" : definition.format(value);
-    return {
-      key: `${definition.key}:${subject.key}`,
-      label: possessionSubjectLabel(subject),
-      ariaLabel: `${subject.name}: ${formatted}`,
-      segments: [
-        {
-          key: "value",
-          className: subject.segmentClassName,
-          label: subject.name,
-          value,
-        },
-      ],
-      total: value,
-      maxValue,
-      valueInBar: rawValue != null && value > 0 ? formatted : undefined,
-      placeholder: rawValue != null && value > 0 ? undefined : formatted,
-    };
-  });
-}
-
-function possessionSubjectLabel(subject: PossessionProfileSubject) {
-  return (
-    <StatPlayerLabel
-      className={`possession-profile-label ${careerCohortClassName(subject.cohortKey)}`}
-      name={subject.name}
-      platform={null}
-      showPlatformBadge={false}
-      subtitle={`${subject.subtitle} · ${subject.appearances.toLocaleString()} appearances`}
-    />
-  );
-}
-
-function possessionLocationShare(buckets: PossessionTimeBucket[], key: string): number | null {
-  return buckets.find((bucket) => bucket.key === key)?.share ?? null;
-}
-
-function formatSecondsValueRequired(value: number): string {
-  return formatSecondsValue(value);
-}
-
-function formatDistanceRequired(value: number): string {
-  return formatDistance(value);
-}
-
-function formatShareRequired(value: number): string {
-  return formatShare(value);
-}
-
-function formatDistance(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${Math.round(value).toLocaleString()} uu`;
+function possessionAdvancedProfileSubject(
+  subject: PossessionProfileSubject,
+): PossessionAdvancedSubject {
+  return {
+    key: subject.key,
+    name: subject.name,
+    label: possessionAdvancedCohortLabel({
+      appearanceCount: subject.appearances,
+      className: careerCohortClassName(subject.cohortKey),
+      name: subject.name,
+      subtitle: subject.subtitle,
+    }),
+    activeTimeSeconds: subject.activeTimeSeconds,
+    cohort: subject.cohort,
+    segmentClassName: subject.segmentClassName,
+  };
 }

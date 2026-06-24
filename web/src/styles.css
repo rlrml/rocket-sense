@@ -4045,29 +4045,39 @@ tbody tr:last-child td {
   height: 18px;
 }
 
-/* Magnitude value floated at the bar's end. Default sits just past the fill in
-   the empty track (dark); `.inside` right-aligns within a nearly-full fill (white). */
+.player-comparison-track .source-bar-fill {
+  position: relative;
+}
+
+/* Keep magnitude values inside the colored fill. The minimum is capped by the
+   track, so very small values stay readable without escaping the bar. */
+.player-comparison-track .source-bar-fill.has-inbar-value {
+  min-width: min(100%, 6.5em);
+}
+
 .player-comparison-inbar-value {
   position: absolute;
   top: 0;
   right: 0;
   bottom: 0;
+  width: max-content;
+  max-width: 100%;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   padding: 0 6px;
+  box-sizing: border-box;
   color: var(--text-strong);
   font-size: var(--bar-text-font-size);
   font-weight: var(--bar-text-font-weight);
+  line-height: 1;
   white-space: nowrap;
   pointer-events: none;
   overflow: hidden;
 }
 
 .player-comparison-inbar-value.inside {
-  left: 0;
-  justify-content: flex-end;
-  color: #fff;
-  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.35);
+  text-align: right;
 }
 
 .player-comparison-marker {
