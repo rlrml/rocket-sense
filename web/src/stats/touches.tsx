@@ -11,7 +11,19 @@ import {
   StatComparisonPanel,
   subjectSplitRows,
 } from "./comparisonPanels";
-import { statPlayerRank, type StatPlayerRank } from "./shared";
+import {
+  careerCohortClassName,
+  careerCohortKey,
+  careerCohortLabel,
+  careerCohortSubtitle,
+  CAREER_RATE_WINDOW_SECONDS,
+  careerRateValue,
+  careerRateWindowLabel,
+  StatPlayerLabel,
+  statPlayerRank,
+  type CareerCohortKey,
+  type StatPlayerRank,
+} from "./shared";
 import { touchIntentionValue, touchPayloadValue } from "./touchTags";
 
 // Only the classified touch stream feeds this section. Each event carries two
@@ -23,8 +35,6 @@ export const touchEventTypes = ["touch"];
 
 type TouchComparisonMode = "players" | "teams";
 type TouchMetric = "count" | "advance";
-
-const TOUCH_PROFILE_RATE_SECONDS = 5 * 60;
 
 export interface TouchDimensionValue {
   id: string;
@@ -95,6 +105,7 @@ interface TouchSubject {
   rank: StatPlayerRank | null;
   team: number | null;
   showPlatformBadge: boolean;
+  careerCohort?: CareerCohortKey | null;
   totalTouches: number;
   totalAdvance: number;
   // dimension id -> (value id -> touch count / summed advance distance)
@@ -197,10 +208,10 @@ export function TouchProfileComparison({
   const totalTouches = subjects.reduce((sum, subject) => sum + subject.totalTouches, 0);
   const totalAdvance = subjects.reduce((sum, subject) => sum + subject.totalAdvance, 0);
   const countContext = rateWindowSeconds
-    ? `per ${formatRateWindow(rateWindowSeconds)}`
+    ? careerRateWindowLabel(rateWindowSeconds)
     : `${formatCount(totalTouches)} total touches`;
   const advanceContext = rateWindowSeconds
-    ? `per ${formatRateWindow(rateWindowSeconds)}`
+    ? careerRateWindowLabel(rateWindowSeconds)
     : `${formatDistance(totalAdvance)} advanced`;
   const countFormat = rateWindowSeconds ? formatRateCount : formatCount;
 
@@ -276,13 +287,15 @@ function touchProfileSubjects(
 ): TouchSubject[] {
   return breakdown.cohorts.map((cohort) => {
     const scale = touchProfileCohortScale(cohort, rateWindowSeconds);
+    const cohortKey = careerCohortKey(cohort.key);
     const subject = emptySubject(`touch-profile:${cohort.key}`, {
-      name: cohort.label,
+      name: cohortKey ? careerCohortLabel(cohortKey, cohort.label) : cohort.label,
       platform: null,
       platformPlayerId: null,
       rank: null,
-      team: profileCohortTeam(cohort),
+      team: null,
       showPlatformBadge: false,
+      careerCohort: cohortKey,
     });
     subject.totalTouches = cohort.total_touch_count * scale;
     subject.totalAdvance = cohort.total_advance_distance * scale;
@@ -303,7 +316,7 @@ function touchProfileSubjects(
 
 function profileRateWindowSeconds(breakdown: TouchAggregateBreakdownResponse): number | null {
   return breakdown.cohorts.every((cohort) => (cohort.active_time_seconds ?? 0) > 0)
-    ? TOUCH_PROFILE_RATE_SECONDS
+    ? CAREER_RATE_WINDOW_SECONDS
     : null;
 }
 
@@ -311,14 +324,8 @@ function touchProfileCohortScale(
   cohort: TouchAggregateCohortResponse,
   rateWindowSeconds: number | null,
 ): number {
-  const activeSeconds = cohort.active_time_seconds ?? 0;
-  return rateWindowSeconds && activeSeconds > 0 ? rateWindowSeconds / activeSeconds : 1;
-}
-
-function profileCohortTeam(cohort: TouchAggregateCohortResponse): number | null {
-  if (cohort.key === "player" || cohort.key === "teammates") return 0;
-  if (cohort.key === "opponents") return 1;
-  return null;
+  if (rateWindowSeconds == null) return 1;
+  return careerRateValue(1, cohort.active_time_seconds, rateWindowSeconds) ?? 1;
 }
 
 function TouchComparisonModeToggle({
@@ -610,6 +617,19 @@ function teamLabel(team: number | null): string {
 }
 
 function touchSubjectLabel(subject: TouchSubject) {
+  if (subject.careerCohort) {
+    return (
+      <StatPlayerLabel
+        className={careerCohortClassName(subject.careerCohort)}
+        name={subject.name}
+        platform={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={careerCohortSubtitle(subject.careerCohort)}
+      />
+    );
+  }
   return comparisonSubjectLabel(subject, "touches", {
     showPlatformBadge: subject.showPlatformBadge,
     teamSubtitle: subject.showPlatformBadge ? teamLabel(subject.team) : "Cohort",
@@ -624,11 +644,6 @@ function formatRateCount(value: number): string {
   if (!Number.isFinite(value) || value <= 0) return "0";
   if (value < 10) return value.toFixed(1);
   return value.toFixed(1);
-}
-
-function formatRateWindow(seconds: number): string {
-  const minutes = seconds / 60;
-  return `${Number.isInteger(minutes) ? minutes.toFixed(0) : minutes.toFixed(1)} active min`;
 }
 
 function formatDistance(value: number): string {

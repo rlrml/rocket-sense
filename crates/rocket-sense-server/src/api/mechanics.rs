@@ -362,7 +362,6 @@ fn mechanic_timeline_kind(event_type: &str) -> Option<String> {
             | "pass"
             | "speed_flip"
             | "wall_aerial"
-            | "wall_aerial_shot"
             | "wavedash"
     )
     .then(|| event_type.to_owned())

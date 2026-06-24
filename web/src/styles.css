@@ -1555,6 +1555,10 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.full-span {
+  grid-column: 1 / -1;
+}
+
 .stat-comparison-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -3932,19 +3936,7 @@ tbody tr:last-child td {
   background: var(--surface);
 }
 
-.boost-comparison-title {
-  color: var(--muted);
-  font-size: var(--text-sm);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-}
-
-.boost-comparison-rows {
-  display: grid;
-  gap: 4px;
-}
-
-.boost-comparison-row {
+.boost-comparison-group .player-comparison-row {
   display: grid;
   grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) 86px;
   align-items: center;
@@ -3957,17 +3949,11 @@ tbody tr:last-child td {
   padding-left: 9px;
 }
 
-.comparison-track {
+.boost-comparison-group .player-comparison-track {
   height: 16px;
 }
 
-.comparison-value {
-  color: var(--text-strong);
-  font-size: var(--text-sm);
-  line-height: 1.2;
-  min-width: 0;
-  overflow-wrap: normal;
-  text-align: right;
+.boost-comparison-group .player-comparison-value {
   white-space: normal;
 }
 
@@ -4038,7 +4024,7 @@ tbody tr:last-child td {
 
 .player-comparison-row {
   display: grid;
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) 70px;
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr) minmax(86px, max-content);
   align-items: center;
   gap: 10px;
   min-width: 0;
@@ -4077,6 +4063,20 @@ tbody tr:last-child td {
   justify-content: flex-end;
   color: #fff;
   text-shadow: 0 1px 1px rgba(15, 23, 42, 0.35);
+}
+
+.player-comparison-marker {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--career-cohort-color, var(--text-strong));
+  box-shadow:
+    0 0 0 1px var(--surface),
+    0 0 0 2px rgba(15, 23, 42, 0.16);
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
 /* Shown when a bar has no filled segments (e.g. a zero value) so it still reads. */
@@ -4230,6 +4230,37 @@ tbody tr:last-child td {
 
 .team-accent-unknown {
   border-left-color: var(--team-unknown);
+}
+
+.career-cohort-player {
+  --career-cohort-color: #0f766e;
+  --seg-color: var(--career-cohort-color);
+  border-left-color: var(--career-cohort-color);
+}
+
+.career-cohort-teammates {
+  --career-cohort-color: #7c3aed;
+  --seg-color: var(--career-cohort-color);
+  border-left-color: var(--career-cohort-color);
+}
+
+.career-cohort-opponents {
+  --career-cohort-color: #d97706;
+  --seg-color: var(--career-cohort-color);
+  border-left-color: var(--career-cohort-color);
+}
+
+.career-cohort-rank-peers {
+  --career-cohort-color: #64748b;
+  --seg-color: var(--career-cohort-color);
+  border-left-color: var(--career-cohort-color);
+}
+
+.source-segment.career-cohort-player,
+.source-segment.career-cohort-teammates,
+.source-segment.career-cohort-opponents,
+.source-segment.career-cohort-rank-peers {
+  background: var(--seg-color);
 }
 
 .player-bar-label strong {
@@ -4492,30 +4523,22 @@ tbody tr:last-child td {
   --seg-color: #eab308;
 }
 
-.source-segment.boost-profile-subject {
-  --seg-color: var(--team-blue);
-}
-
-.source-segment.boost-profile-teammates {
-  --seg-color: var(--outcome-positive);
-}
-
-.source-segment.boost-profile-opponents {
-  --seg-color: var(--outcome-negative);
-}
-
-.source-segment.boost-profile-subject.neutral-fill,
-.source-segment.boost-profile-teammates.neutral-fill,
-.source-segment.boost-profile-opponents.neutral-fill,
-.source-segment.boost-profile-subject.stolen-fill,
-.source-segment.boost-profile-teammates.stolen-fill,
-.source-segment.boost-profile-opponents.stolen-fill,
-.source-segment.boost-profile-subject.overfill-source,
-.source-segment.boost-profile-teammates.overfill-source,
-.source-segment.boost-profile-opponents.overfill-source,
-.source-segment.boost-profile-subject.supersonic-source,
-.source-segment.boost-profile-teammates.supersonic-source,
-.source-segment.boost-profile-opponents.supersonic-source {
+.source-segment.career-cohort-player.neutral-fill,
+.source-segment.career-cohort-teammates.neutral-fill,
+.source-segment.career-cohort-opponents.neutral-fill,
+.source-segment.career-cohort-rank-peers.neutral-fill,
+.source-segment.career-cohort-player.stolen-fill,
+.source-segment.career-cohort-teammates.stolen-fill,
+.source-segment.career-cohort-opponents.stolen-fill,
+.source-segment.career-cohort-rank-peers.stolen-fill,
+.source-segment.career-cohort-player.overfill-source,
+.source-segment.career-cohort-teammates.overfill-source,
+.source-segment.career-cohort-opponents.overfill-source,
+.source-segment.career-cohort-rank-peers.overfill-source,
+.source-segment.career-cohort-player.supersonic-source,
+.source-segment.career-cohort-teammates.supersonic-source,
+.source-segment.career-cohort-opponents.supersonic-source,
+.source-segment.career-cohort-rank-peers.supersonic-source {
   background: var(--seg-color);
 }
 
@@ -4941,18 +4964,6 @@ tbody tr:last-child td {
 .boost-profile-panel .source-segment.boost-band-full,
 .boost-profile-panel .source-segment.boost-band-over {
   --seg-color: var(--team-blue);
-}
-
-.boost-profile-panel .source-segment.boost-profile-subject {
-  --seg-color: var(--team-blue);
-}
-
-.boost-profile-panel .source-segment.boost-profile-teammates {
-  --seg-color: var(--outcome-positive);
-}
-
-.boost-profile-panel .source-segment.boost-profile-opponents {
-  --seg-color: var(--outcome-negative);
 }
 
 /* Boost ranges: a light (empty) -> saturated (over) ramp of the player's hue,
@@ -6245,7 +6256,7 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 
-  .boost-comparison-row {
+  .boost-comparison-group .player-comparison-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "label value"
@@ -6259,12 +6270,12 @@ tbody tr:last-child td {
     grid-area: label;
   }
 
-  .comparison-track {
+  .boost-comparison-group .player-comparison-track {
     grid-area: track;
     height: 18px;
   }
 
-  .comparison-value {
+  .boost-comparison-group .player-comparison-value {
     grid-area: value;
     align-self: end;
   }
@@ -6494,7 +6505,7 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 
-  .boost-comparison-row {
+  .boost-comparison-group .player-comparison-row {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas:
       "label"
@@ -6503,7 +6514,7 @@ tbody tr:last-child td {
     align-items: stretch;
   }
 
-  .comparison-value {
+  .boost-comparison-group .player-comparison-value {
     text-align: left;
   }
 
@@ -6971,38 +6982,16 @@ tbody tr:last-child td {
 }
 
 .rate-chart-track {
-  position: relative;
-  height: 18px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-subtle);
-}
-
-.rate-chart-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  display: block;
-  border-radius: 5px;
-  background: #2563eb;
-}
-
-.goal-tag-fill {
-  background: #16a34a;
+  min-width: 0;
 }
 
 .kickoff-dimension-fill {
   background: var(--kickoff-detail-fill);
 }
 
-.rate-chart-teammate-marker {
-  position: absolute;
-  top: -2px;
-  bottom: -2px;
-  width: 3px;
-  margin-left: -1.5px;
-  border-radius: 2px;
-  background: #0f172a;
+.rate-chart-track .player-comparison-track {
+  height: 18px;
+  border-radius: 6px;
 }
 
 .rate-chart-value {
@@ -7023,7 +7012,7 @@ tbody tr:last-child td {
   width: 18px;
   height: 10px;
   border-radius: 3px;
-  background: #2563eb;
+  background: #0f766e;
 }
 
 .rate-chart-legend-marker {
@@ -7032,7 +7021,7 @@ tbody tr:last-child td {
   height: 14px;
   margin-left: 10px;
   border-radius: 2px;
-  background: #0f172a;
+  background: #7c3aed;
 }
 
 .rotation-share-grid {
@@ -7517,21 +7506,24 @@ tbody tr:last-child td {
 
 .kickoff-spawn-share-track,
 .kickoff-spawn-mini-track {
-  position: relative;
-  overflow: hidden;
+  min-width: 0;
+}
+
+.kickoff-spawn-share-track .player-comparison-track {
+  height: 8px;
+  border: 0;
   border-radius: 999px;
   background: #e2e8f0;
 }
 
-.kickoff-spawn-share-track {
-  height: 8px;
+.kickoff-spawn-mini-track .player-comparison-track {
+  height: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: #e2e8f0;
 }
 
-.kickoff-spawn-share-track span,
-.kickoff-spawn-mini-track span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
+.source-segment.kickoff-spawn-fill {
   background: #0f766e;
 }
 
@@ -7595,14 +7587,36 @@ tbody tr:last-child td {
   color: #fff;
 }
 
-.goal-tag-row-link {
-  color: inherit;
-  text-decoration: none;
-  border-radius: 8px;
+.goal-tag-share-panel {
+  display: grid;
+  gap: 14px;
 }
 
-.goal-tag-row-link:hover .rate-chart-label,
-.goal-tag-row-link:focus-visible .rate-chart-label {
+.goal-tag-share-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.goal-tag-share-header h3 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--text-lg);
+}
+
+.goal-tag-share-header span {
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.goal-tag-card-title {
+  color: inherit;
+  text-decoration: none;
+}
+
+.goal-tag-card-title:hover,
+.goal-tag-card-title:focus-visible {
   color: #2563eb;
   text-decoration: underline;
 }
@@ -7699,6 +7713,24 @@ tbody tr:last-child td {
   align-items: start;
 }
 
+.possession-profile-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.possession-profile-controls > span {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
+}
+
+.possession-rank-peer-toggle {
+  justify-self: end;
+  margin-left: auto;
+}
+
 .possession-profile-grid .player-comparison-row {
   grid-template-columns: minmax(120px, 180px) minmax(0, 1fr) minmax(82px, max-content);
 }
@@ -7707,20 +7739,14 @@ tbody tr:last-child td {
   grid-template-columns: minmax(120px, 180px) minmax(0, 1fr);
 }
 
-.source-segment.possession-profile-subject {
-  background: #0f766e;
+.possession-summary-panel .possession-surface-share {
+  margin: 0.75rem 0 0.25rem;
 }
 
-.source-segment.possession-profile-teammates {
-  background: #7c3aed;
-}
-
-.source-segment.possession-profile-opponents {
-  background: #d97706;
-}
-
-.source-segment.possession-profile-rank-peers {
-  background: #64748b;
+.possession-summary-panel .possession-surface-share h4 {
+  margin: 0 0 0.5rem;
+  font-size: var(--text-base);
+  color: var(--muted);
 }
 
 .possession-location-grid {

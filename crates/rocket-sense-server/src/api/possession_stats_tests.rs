@@ -138,10 +138,12 @@ fn possession_cohort_span_query_compares_player_teammates_opponents_and_rank_pee
     assert!(sql.contains("'teammates' AS cohort"));
     assert!(sql.contains("'opponents' AS cohort"));
     assert!(sql.contains("'rank_peers' AS cohort"));
+    assert!(sql.contains("rp.active_time_seconds"));
+    assert!(sql.contains("SUM(active_time_seconds) AS active_time_seconds"));
     assert!(sql.contains("actor.team <> target.team"));
     assert!(sql.contains("actor.rank_tier = target.rank_tier"));
     assert!(sql.contains("detail.replay_player_id = appearance.actor_id"));
-    assert!(sql.contains("GROUP BY appearance.cohort"));
+    assert!(sql.contains("GROUP BY appearance.cohort, denominator.active_time_seconds"));
 }
 
 #[test]

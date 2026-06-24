@@ -129,7 +129,7 @@ export function AerialsDetail({
 
   return (
     <div className="aerials-detail">
-      <StatComparisonGrid>
+      <StatComparisonGrid contained={false}>
         {PANELS.map((panel) => (
           <AerialPanel key={panel.id} panel={panel} subjects={subjects} />
         ))}
@@ -139,11 +139,7 @@ export function AerialsDetail({
 }
 
 function AerialPanel({ panel, subjects }: { panel: AerialPanelConfig; subjects: AerialSubject[] }) {
-  const activeValues = panel.values.filter((value) =>
-    subjects.some((subject) => (subject.counts[panel.id][value.id] ?? 0) > 0),
-  );
-  const panelSubjects = subjects.filter((subject) => panelTotal(subject, panel.id) > 0);
-  const rows = subjectSplitRows(panelSubjects, activeValues, {
+  const rows = subjectSplitRows(subjects, panel.values, {
     amount: (subject, value) => subject.counts[panel.id][value.id] ?? 0,
     total: (subject) => panelTotal(subject, panel.id),
     format: formatCount,
@@ -154,7 +150,7 @@ function AerialPanel({ panel, subjects }: { panel: AerialPanelConfig; subjects: 
   return (
     <StatComparisonPanel
       emptyLabel={`No ${panel.noun} are available yet.`}
-      footer={<AerialLegend values={activeValues} />}
+      footer={<AerialLegend values={panel.values} />}
       rows={rows}
       title={panel.title}
     />
@@ -195,7 +191,7 @@ function aerialSubjects(players: ReplayPlayer[], events: MechanicEventResponse[]
     if (subject) accumulate(subject, event);
   }
 
-  return subjects.filter((subject) => PANELS.some((panel) => panelTotal(subject, panel.id) > 0));
+  return subjects;
 }
 
 function emptySubject(player: ReplayPlayer, index: number): AerialSubject {
