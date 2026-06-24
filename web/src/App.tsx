@@ -4014,6 +4014,45 @@ function playerStatsRequestSearchParams(search: string): URLSearchParams {
   return params;
 }
 
+// Link a goal-tag panel to the embedded goal playlist, carrying the active stats
+// filter context (playlist, game mode, dates, …) so the in-page player shows the
+// same goals the rates were computed from. The playlist itself filters by the
+// goal `kind` client-side, so only the replay/match filters need to ride along.
+function playerGoalPlaylistHref(
+  routeBasePath: string,
+  search: string,
+  options: { goalTag?: string } = {},
+): string {
+  const source = stripKickoffSpawnParams(new URLSearchParams(search));
+  const params = new URLSearchParams();
+  for (const key of [
+    "q",
+    "title",
+    "playlist",
+    "game-mode",
+    "game-type",
+    "team-size",
+    "map",
+    "pro",
+    "uploader",
+    "group",
+    "project",
+    "created-after",
+    "created-before",
+    "replay-date-after",
+    "replay-date-before",
+  ]) {
+    for (const value of source.getAll(key)) {
+      if (value) params.append(key, value);
+    }
+  }
+  const base = options.goalTag
+    ? `${routeBasePath}/goals/${encodeURIComponent(options.goalTag)}`
+    : `${routeBasePath}/goals`;
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 function playerSegmentValue(params: URLSearchParams, key: "team-size" | "game-type"): string {
   const value = params.get(key);
   if (key === "team-size") {
@@ -4288,8 +4327,10 @@ function PlayerAggregateStatsSections({
           <GoalTagSharePanel
             overview={contentOverview}
             playerName={playerName}
-            goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
-            allGoalsHref={`${routeBasePath}/goals`}
+            goalTypeHref={(kind) =>
+              playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
+            }
+            allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
           />
         ) : null}
         {activeGroup.id === "goals" && contentSupplementalLoading ? (
