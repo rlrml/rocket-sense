@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn player_replay_event_counts_role_map_demolition_subjects() {
+    assert!(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL.contains("death_event_type.key = 'death'"));
+    assert!(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL
+        .contains("source_event_type.key = 'demolition' AND subject.role = 'victim'"));
+    assert!(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL
+        .contains("subject.role NOT IN ('attacker', 'victim')"));
+}
+
+#[test]
 fn ball_opponent_half_facts_are_clipped_to_player_activity_spans() {
     assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("source_stream = 'player_activity'"));
     assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("JOIN play_event_subjects subject"));

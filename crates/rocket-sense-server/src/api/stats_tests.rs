@@ -221,6 +221,39 @@ fn per_minute_requires_positive_denominator() {
 }
 
 #[test]
+fn player_stat_aggregates_role_map_demolition_subjects_before_stat_term_filtering() {
+    let source = include_str!("stats.rs");
+
+    assert!(source.contains("death_event_type.key = 'death'"));
+    assert!(source.contains("source_event_type.key = 'demolition' AND subject.role = 'victim'"));
+    assert!(source.contains("subject.role NOT IN ('attacker', 'victim')"));
+
+    let target_events = source
+        .find("target_events AS MATERIALIZED")
+        .expect("target events CTE should exist");
+    let target_stats = source
+        .find("target_stats AS")
+        .expect("target stats CTE should exist");
+    let stat_term_filter = source
+        .find("append_materialized_stat_term_filter(&mut query, &filters.stat_terms);")
+        .expect("mapped stat term filter should exist");
+    assert!(
+        target_events < target_stats && target_stats < stat_term_filter,
+        "stat-term filtering must happen after role-mapped event_type_id selection"
+    );
+}
+
+#[test]
+fn contact_event_type_seed_migration_covers_demo_death_aliases() {
+    let migration = include_str!("../../../../migrations/0063_seed_contact_event_types.sql");
+
+    assert!(migration.contains("('demolition', 'Demolition'"));
+    assert!(migration.contains("('kill', 'Kill'"));
+    assert!(migration.contains("('death', 'Death'"));
+    assert!(migration.contains("ON CONFLICT (key) DO NOTHING"));
+}
+
+#[test]
 fn player_boost_total_response_carries_event_derived_pad_breakdowns() {
     let mut accumulator = PlayerBoostAccumulator {
         boost_collected: 180.0,

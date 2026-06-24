@@ -2269,20 +2269,33 @@ async fn load_player_stat_count_rows_live(
         r#"
         ),
         target_events AS MATERIALIZED (
-            SELECT DISTINCT event.id, event.event_type_id
+            SELECT DISTINCT
+                event.id,
+                CASE
+                    WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                        THEN death_event_type.id
+                    ELSE event.event_type_id
+                END AS event_type_id
             FROM target_appearances appearance
             JOIN play_event_subjects subject
               ON subject.replay_player_id = appearance.id
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = appearance.run_id
+            JOIN event_types source_event_type
+              ON source_event_type.id = event.event_type_id
+            JOIN event_types death_event_type
+              ON death_event_type.key = 'death'
             "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
-    append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
     append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
     query.push(
         r#"
+              AND NOT (
+                    source_event_type.key = 'demolition'
+                    AND subject.role NOT IN ('attacker', 'victim')
+                  )
         ),
         target_stats AS (
             SELECT
@@ -2292,6 +2305,11 @@ async fn load_player_stat_count_rows_live(
                 COUNT(*) AS event_count
             FROM target_events
             JOIN event_types et ON et.id = target_events.event_type_id
+            "#,
+    );
+    append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+    query.push(
+        r#"
             GROUP BY et.key, et.display_name, et.category
         )
         "#,
@@ -2313,20 +2331,33 @@ async fn load_player_stat_count_rows_live(
                  AND teammate.id <> target.id
             ),
             teammate_events AS MATERIALIZED (
-                SELECT DISTINCT event.id, event.event_type_id
+                SELECT DISTINCT
+                    event.id,
+                    CASE
+                        WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                            THEN death_event_type.id
+                        ELSE event.event_type_id
+                    END AS event_type_id
                 FROM teammate_appearances appearance
                 JOIN play_event_subjects subject
                   ON subject.replay_player_id = appearance.id
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = appearance.run_id
+                JOIN event_types source_event_type
+                  ON source_event_type.id = event.event_type_id
+                JOIN event_types death_event_type
+                  ON death_event_type.key = 'death'
                 "#,
         );
         append_user_facing_stat_event_join_filter(&mut query, "event");
-        append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
         append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
         query.push(
             r#"
+                  AND NOT (
+                        source_event_type.key = 'demolition'
+                        AND subject.role NOT IN ('attacker', 'victim')
+                      )
             ),
             teammate_stats AS (
                 SELECT
@@ -2336,6 +2367,11 @@ async fn load_player_stat_count_rows_live(
                     COUNT(*) AS event_count
                 FROM teammate_events
                 JOIN event_types et ON et.id = teammate_events.event_type_id
+                "#,
+        );
+        append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+        query.push(
+            r#"
                 GROUP BY et.key, et.display_name, et.category
             )
             SELECT

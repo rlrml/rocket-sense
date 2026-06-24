@@ -29,13 +29,49 @@ mod tests;
 pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 
 // Per-replay materialization of `player_replay_event_counts` for one analysis
-// run ($1) and replay ($2). Mirrors the backfill SELECT in
-// migrations/0056_player_replay_event_counts.sql -- keep the two in sync,
-// including the user-facing `source_stream` exclusion list (the same set as
+// run ($1) and replay ($2). Keep this in sync with the user-facing
+// `source_stream` exclusion list (the same set as
 // AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL in api/stats.rs). Counts are deduped
 // per player identity (a player may hold more than one roster row in a replay),
-// matching the live query's `SELECT DISTINCT event.id`.
+// matching the live query's `SELECT DISTINCT event.id`. Modern demolition events
+// are role-mapped so attackers contribute to demos and victims to deaths.
 const INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL: &str = r#"
+        WITH counted_subjects AS (
+            SELECT
+                rp.replay_id,
+                rp.id AS replay_player_id,
+                rp.platform,
+                rp.platform_player_id,
+                rp.team,
+                CASE
+                    WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                        THEN death_event_type.id
+                    ELSE event.event_type_id
+                END AS event_type_id,
+                event.id AS event_id
+            FROM replay_players rp
+            JOIN play_event_subjects subject ON subject.replay_player_id = rp.id
+            JOIN play_events event
+              ON event.id = subject.event_id
+             AND event.analysis_run_id = $1
+            JOIN event_types source_event_type ON source_event_type.id = event.event_type_id
+            JOIN event_types death_event_type ON death_event_type.key = 'death'
+            WHERE rp.replay_id = $2
+              AND rp.platform IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform_player_id) <> ''
+              AND event.source_stream NOT IN (
+                    'positioning', 'boost_state', 'boost_ledger', 'movement',
+                    'rotation_player', 'rotation_role_span', 'rotation_depth_span',
+                    'rotation_role', 'ball_depth', 'field_third', 'field_half',
+                    'ball_proximity', 'powerslide'
+                  )
+              AND NOT (
+                    source_event_type.key = 'demolition'
+                    AND subject.role NOT IN ('attacker', 'victim')
+                  )
+        )
         INSERT INTO player_replay_event_counts (
             analysis_run_id,
             replay_id,
@@ -49,35 +85,20 @@ const INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL: &str = r#"
         )
         SELECT
             $1,
-            rp.replay_id,
-            (array_agg(rp.id))[1],
-            concat(rp.platform, ':', rp.platform_player_id),
-            rp.platform,
-            rp.platform_player_id,
-            MIN(rp.team),
-            event.event_type_id,
-            COUNT(DISTINCT event.id)
-        FROM replay_players rp
-        JOIN play_event_subjects subject ON subject.replay_player_id = rp.id
-        JOIN play_events event
-          ON event.id = subject.event_id
-         AND event.analysis_run_id = $1
-        WHERE rp.replay_id = $2
-          AND rp.platform IS NOT NULL
-          AND btrim(rp.platform) <> ''
-          AND rp.platform_player_id IS NOT NULL
-          AND btrim(rp.platform_player_id) <> ''
-          AND event.source_stream NOT IN (
-                'positioning', 'boost_state', 'boost_ledger', 'movement',
-                'rotation_player', 'rotation_role_span', 'rotation_depth_span',
-                'rotation_role', 'ball_depth', 'field_third', 'field_half',
-                'ball_proximity', 'powerslide'
-              )
+            counted_subjects.replay_id,
+            (array_agg(counted_subjects.replay_player_id))[1],
+            concat(counted_subjects.platform, ':', counted_subjects.platform_player_id),
+            counted_subjects.platform,
+            counted_subjects.platform_player_id,
+            MIN(counted_subjects.team),
+            counted_subjects.event_type_id,
+            COUNT(DISTINCT counted_subjects.event_id)
+        FROM counted_subjects
         GROUP BY
-            rp.replay_id,
-            rp.platform,
-            rp.platform_player_id,
-            event.event_type_id
+            counted_subjects.replay_id,
+            counted_subjects.platform,
+            counted_subjects.platform_player_id,
+            counted_subjects.event_type_id
         ON CONFLICT DO NOTHING
         "#;
 
