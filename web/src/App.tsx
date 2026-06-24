@@ -179,9 +179,13 @@ const navItems = [
   { to: "/about", label: "About", icon: Info },
 ];
 
-// Mirror the per-replay game stats: only show completed groups (Mechanics /
-// Touches / Rotation are hidden pending a rewrite — see stats/registry.tsx).
-const playerStatsSectionGroups: StatGroup[] = completedStatGroups;
+const replayStatsSectionGroups: StatGroup[] = completedStatGroups;
+const aggregateStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
+  (group) => group.id !== "shot-map",
+);
+// Mirror the aggregate-safe game stats: only show completed groups (Mechanics /
+// Rotation are hidden pending a rewrite — see stats/registry.tsx).
+const playerStatsSectionGroups: StatGroup[] = aggregateStatsSectionGroups;
 
 export function App() {
   const location = useLocation();
@@ -2071,7 +2075,7 @@ function ReplayStatsPage() {
   const [eventsError, setEventsError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
-    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, replayStatsSectionGroups) ?? replayStatsSectionGroups[0],
     [statGroup],
   );
 
@@ -2302,7 +2306,7 @@ function ReplayStatsPage() {
           </div>
 
           <nav className="stat-group-nav" aria-label="Stat groups">
-            {completedStatGroups.map((group) => {
+            {replayStatsSectionGroups.map((group) => {
               const Icon = group.icon;
               return (
                 <Link
@@ -2366,7 +2370,7 @@ function ReplayStatsPage() {
 function ReplayGroupStatsPage() {
   const { groupId = "", statGroup } = useParams();
   const activeGroup = useMemo(
-    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, aggregateStatsSectionGroups) ?? aggregateStatsSectionGroups[0],
     [statGroup],
   );
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
@@ -2525,7 +2529,7 @@ function ReplayGroupStatsPage() {
           ) : null}
 
           <nav className="stat-group-nav" aria-label="Group stat sections">
-            {completedStatGroups.map((section) => {
+            {aggregateStatsSectionGroups.map((section) => {
               const Icon = section.icon;
               return (
                 <Link

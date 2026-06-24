@@ -769,12 +769,13 @@ function goalScoringTouch(payload: Record<string, unknown>): GoalScoringTouch | 
 function fieldPoint(
   payload: Record<string, unknown>,
   key: string,
-): { x: number; y: number } | null {
+): { x: number; y: number; z?: number } | null {
   const point = objectField(payload, key);
   if (!point) return null;
   const x = numberField(point, "x");
   const y = numberField(point, "y");
-  return x != null && y != null ? { x, y } : null;
+  const z = numberField(point, "z");
+  return x != null && y != null ? { x, y, ...(z == null ? {} : { z }) } : null;
 }
 
 function objectField(

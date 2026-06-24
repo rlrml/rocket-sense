@@ -6929,6 +6929,124 @@ tbody tr:last-child td {
   height: 100%;
 }
 
+.scoring-touch-heatmap {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.scoring-touch-heatmap-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.scoring-touch-heatmap-header h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.scoring-touch-heatmap-header span {
+  color: var(--muted);
+  font-size: var(--text-base);
+}
+
+.scoring-touch-heatmap-viewport {
+  position: relative;
+  overflow: hidden;
+  min-height: 360px;
+  height: clamp(360px, 48vw, 620px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.scoring-touch-heatmap-viewport canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.scoring-touch-heatmap-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
+  pointer-events: none;
+}
+
+.scoring-touch-heatmap-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 2px;
+  min-width: 132px;
+  padding: 8px 10px;
+  border: 1px solid rgba(15, 23, 42, 0.16);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.16);
+  color: var(--text);
+  font-size: var(--text-sm);
+  transform: translate(12px, -50%);
+  pointer-events: none;
+}
+
+.scoring-touch-heatmap-tooltip strong {
+  font-weight: var(--fw-bold);
+}
+
+.scoring-touch-heatmap-tooltip span {
+  color: var(--muted);
+}
+
+.scoring-touch-heatmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scoring-touch-heatmap-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.scoring-touch-heatmap-legend li > span {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.scoring-touch-heatmap-legend strong {
+  overflow: hidden;
+  max-width: 160px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-semibold);
+}
+
+.scoring-touch-heatmap-legend em {
+  color: var(--muted);
+  font-style: normal;
+  font-weight: var(--fw-semibold);
+}
+
 /* Leave room so the docked picture-in-picture preview never permanently hides
    the last goal cards. */
 /* Picture-in-picture event preview: one floating player that loops whichever
