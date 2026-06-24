@@ -8215,3 +8215,62 @@ tbody tr:last-child td {
 .leaderboard-replay-link {
   margin: 0;
 }
+
+@media (max-width: 720px) {
+  .player-comparison-row,
+  .possession-profile-grid .player-comparison-row,
+  .player-comparison-chart.core-chart .player-comparison-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label value"
+      "track track";
+    align-items: start;
+    gap: 6px 10px;
+  }
+
+  .player-comparison-rows.no-value-column .player-comparison-row,
+  .possession-profile-grid .player-comparison-rows.no-value-column .player-comparison-row {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "label"
+      "track";
+  }
+
+  .player-comparison-row > :first-child {
+    grid-area: label;
+  }
+
+  .player-comparison-track {
+    grid-area: track;
+    width: 100%;
+  }
+
+  .player-comparison-value {
+    grid-area: value;
+    justify-self: end;
+  }
+
+  .rate-chart-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "label value"
+      "track track";
+    align-items: start;
+    gap: 6px 10px;
+  }
+
+  .rate-chart-label {
+    grid-area: label;
+  }
+
+  .rate-chart-track {
+    grid-area: track;
+    width: 100%;
+  }
+
+  .rate-chart-value {
+    grid-area: value;
+    justify-self: end;
+    text-align: right;
+  }
+}
