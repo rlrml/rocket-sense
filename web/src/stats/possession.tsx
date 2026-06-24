@@ -185,7 +185,7 @@ export function PossessionDetail({
         hasPlayerSpans={hasPlayerSpans}
         onComparisonModeChange={setComparisonMode}
       />
-      <StatComparisonGrid className="possession-comparison-grid">
+      <StatComparisonGrid className="possession-comparison-grid" contained={false}>
         <section className="player-comparison-chart stat-comparison-card possession-overview-card">
           <header className="chart-panel-header">
             <h3>Ball half</h3>
