@@ -4846,6 +4846,107 @@ tbody tr:last-child td {
   text-anchor: middle;
 }
 
+.boost-control-map {
+  max-height: min(70vh, 620px);
+}
+
+.boost-control-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+}
+
+.boost-control-note {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.boost-control-half-shade {
+  pointer-events: none;
+}
+
+.boost-control-half-shade.opponent {
+  fill: rgba(217, 119, 6, 0.08);
+}
+
+.boost-control-half-shade.own {
+  fill: rgba(15, 118, 110, 0.08);
+}
+
+.boost-control-slice {
+  opacity: 0.88;
+}
+
+.boost-control-slice-player {
+  fill: #0f766e;
+}
+
+.boost-control-slice-teammates {
+  fill: #5eead4;
+}
+
+.boost-control-slice-opponents {
+  fill: #d97706;
+}
+
+.boost-control-ring {
+  fill: none;
+  stroke: rgba(15, 23, 42, 0.66);
+  stroke-width: 0.54;
+}
+
+.boost-control-ring.big {
+  stroke-width: 0.74;
+}
+
+.boost-control-half-label {
+  fill: rgba(15, 23, 42, 0.52);
+  /* SVG user-unit size (see .pickup-count) — intentionally off the type scale. */
+  font-size: 2.7px;
+  font-weight: var(--fw-bold);
+  letter-spacing: 0;
+  pointer-events: none;
+  text-anchor: middle;
+}
+
+.chart-legend .legend-boost-control-player::before {
+  background: #0f766e;
+}
+
+.chart-legend .legend-boost-control-teammates::before {
+  background: #5eead4;
+}
+
+.chart-legend .legend-boost-control-opponents::before {
+  background: #d97706;
+}
+
+.chart-legend .legend-boost-control-count::before {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(15, 23, 42, 0.66);
+  border-radius: 999px;
+  background: transparent;
+}
+
+.chart-legend .legend-boost-control-size::before {
+  width: 18px;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(15, 23, 42, 0.22), rgba(15, 23, 42, 0.55));
+}
+
+.boost-control-count {
+  fill: #0f172a;
+  /* SVG user-unit size (see .pickup-count) — intentionally off the type scale. */
+  font-size: 3.8px;
+  font-weight: var(--fw-heavy);
+  pointer-events: none;
+  text-anchor: middle;
+}
+
 .pickup-map-legend {
   grid-column: 1 / -1;
 }

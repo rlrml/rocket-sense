@@ -855,3 +855,17 @@ export interface PlayerBoostTotalsResponse {
   teammates: PlayerBoostTotal | null;
   opponents: PlayerBoostTotal | null;
 }
+
+export interface BoostPadControlPoint {
+  pad_id: string;
+  x: number;
+  y: number;
+  pad_size: "big" | "small";
+  player_count: number;
+  teammate_count: number;
+  opponent_count: number;
+}
+
+export interface BoostPadControlResponse {
+  points: BoostPadControlPoint[];
+}

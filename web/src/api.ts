@@ -1,6 +1,7 @@
 import type {
   AccessTokenResponse,
   AuthOptionsResponse,
+  BoostPadControlResponse,
   BoostTracksResponse,
   CurrentUserResponse,
   EventStatSummaryResponse,
@@ -562,6 +563,17 @@ export function getPlayerBoostTotals(
   params.set("player-id", `${platform}:${platformPlayerId}`);
   params.set("include-teammates", "true");
   return request<PlayerBoostTotalsResponse>(`/api/v1/stats/boost-totals?${params.toString()}`);
+}
+
+export function getPlayerBoostPadControl(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<BoostPadControlResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  params.set("include-teammates", "true");
+  return request<BoostPadControlResponse>(`/api/v1/stats/boost-pad-control?${params.toString()}`);
 }
 
 export function getPlayerProfile(
