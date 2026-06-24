@@ -1587,3 +1587,117 @@ fn client_scaffold_json_matches_typed_analysis() {
     assert!(!typed.indexed_events.is_empty(), "expected indexed events");
     assert!(!typed.metadata.players.is_empty(), "expected players");
 }
+
+/// End-to-end check that a full reprocess (the exact `process_replay` path the
+/// queue worker runs) populates EVERY per-(replay, player) materialized table,
+/// including the boost table added on this branch. Guards against a regression
+/// where a writer is silently dropped from `persist_analysis_output` or a new
+/// subtr-actor output shape stops feeding one of the aggregations.
+///
+/// Requires a throwaway Postgres: set `RS_REPROCESS_TEST_DATABASE_URL` to a
+/// FRESH, EMPTY database (migrations run against it). Skipped otherwise, so CI
+/// (no DB) still compiles it. Run with:
+///   RS_REPROCESS_TEST_DATABASE_URL=postgres://... cargo test -p rocket-sense-server \
+///     reprocess_populates_all_materialized_tables -- --ignored --nocapture
+#[tokio::test]
+#[ignore = "requires RS_REPROCESS_TEST_DATABASE_URL"]
+async fn reprocess_populates_all_materialized_tables() {
+    use std::sync::Arc;
+
+    let Ok(database_url) = std::env::var("RS_REPROCESS_TEST_DATABASE_URL") else {
+        eprintln!("skipping: RS_REPROCESS_TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let pool = rocket_sense_db::connect(&database_url)
+        .await
+        .expect("connect to test db");
+    rocket_sense_db::run_migrations(&pool)
+        .await
+        .expect("run migrations");
+
+    // A normal ranked-standard replay: exercises boost, possession, positioning,
+    // rotation stints, and event counts for a full roster.
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../vendor/subtr-actor/assets/recent-ranked-standard-2026-03-10-b.replay"
+    );
+    let bytes = std::fs::read(fixture).expect("read replay fixture");
+    let file_sha256 = sha256_hex(&bytes);
+
+    let storage_root = std::env::temp_dir().join(format!("rs-reprocess-check-{}", Uuid::now_v7()));
+    std::fs::create_dir_all(&storage_root).expect("create storage root");
+    let storage: Arc<dyn rocket_sense_storage::ObjectStorage> = Arc::new(
+        rocket_sense_storage::LocalStorage::new(storage_root.clone()),
+    );
+    let storage_key = format!("replays/{file_sha256}.replay");
+    let stored = storage
+        .put(&storage_key, bytes::Bytes::from(bytes.clone()), None)
+        .await
+        .expect("store replay bytes");
+
+    let replay_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO replays (
+            id, uploaded_by_user_id, file_sha256, original_file_name,
+            byte_size, storage_key, storage_encoding, storage_byte_size
+        )
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(replay_id)
+    .bind(&file_sha256)
+    .bind("reprocess-check.replay")
+    .bind(bytes.len() as i64)
+    .bind(&stored.key)
+    .bind(stored.storage_encoding.to_string())
+    .bind(stored.storage_byte_size as i64)
+    .execute(&pool)
+    .await
+    .expect("insert replays row");
+
+    // The real worker path: analyze + persist (all writers, prune, GC).
+    process_replay(
+        pool.clone(),
+        storage,
+        replay_id,
+        file_sha256,
+        stored.key.clone(),
+    )
+    .await
+    .expect("process_replay succeeds");
+
+    // Every per-(replay, player) materialized table must have rows for this
+    // replay's canonical run.
+    let tables = [
+        "player_replay_stat_facts",
+        "player_replay_event_counts",
+        "player_replay_first_man_stints",
+        "player_replay_positioning",
+        "player_replay_possession",
+        "player_replay_boost",
+    ];
+    let mut summary = Vec::new();
+    for table in tables {
+        let sql = format!(
+            "SELECT count(*) FROM {table} m \
+             JOIN replays r ON r.id = m.replay_id \
+             AND r.canonical_analysis_run_id = m.analysis_run_id \
+             WHERE m.replay_id = $1"
+        );
+        let count: i64 = sqlx::query_scalar(&sql)
+            .bind(replay_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("count {table}: {e}"));
+        eprintln!("{table}: {count} rows");
+        summary.push((table, count));
+    }
+
+    let _ = std::fs::remove_dir_all(&storage_root);
+
+    for (table, count) in summary {
+        assert!(count > 0, "{table} had no rows after reprocess");
+    }
+}

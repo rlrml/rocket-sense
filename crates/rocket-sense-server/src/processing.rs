@@ -2162,7 +2162,7 @@ async fn insert_player_replay_boost(
         return Ok(());
     }
     // Deterministic order keeps batched inserts stable across runs.
-    emit.sort_by(|left, right| left.replay_player_id.cmp(&right.replay_player_id));
+    emit.sort_by_key(|row| row.replay_player_id);
 
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"

@@ -341,7 +341,7 @@ fn materialized_boost_query_reconstructs_cohorts_by_replay_and_team() {
         "player-id=Steam:76561198000000000&team-size=2&game-type=ranked",
         true,
     );
-    let mut builder = build_materialized_boost_query(&filters);
+    let builder = build_materialized_boost_query(&filters);
     let sql = builder.sql();
 
     // Reads the materialized table, not the live tracks/event scan.
@@ -361,7 +361,7 @@ fn materialized_boost_query_reconstructs_cohorts_by_replay_and_team() {
 #[test]
 fn materialized_boost_query_casts_pad_count_sums_to_bigint() {
     let filters = boost_filters_with_player("player-id=Steam:76561198000000000", true);
-    let mut builder = build_materialized_boost_query(&filters);
+    let builder = build_materialized_boost_query(&filters);
     let sql = builder.sql();
 
     // Postgres SUM(bigint) returns NUMERIC; every pad-count sum must be cast back
