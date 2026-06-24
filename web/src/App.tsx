@@ -3451,7 +3451,13 @@ function PlayerStatsPage() {
     for (const key of missingKeys) {
       markSupplementalLoading(key, true);
       markSupplementalError(key, null);
-      fetchPlayerSupplemental(key, resolvedPlatform, resolvedPlatformPlayerId, location.search)
+      fetchPlayerSupplemental(
+        key,
+        activeGroup.id,
+        resolvedPlatform,
+        resolvedPlatformPlayerId,
+        location.search,
+      )
         .then((response) => {
           if (!cancelled) applySupplementalResponse(key, response);
         })
@@ -3475,6 +3481,7 @@ function PlayerStatsPage() {
       cancelled = true;
     };
   }, [
+    activeGroup.id,
     activeSupplementalKeyList,
     hasResolvedPlayer,
     loadedSupplementalKeys,
@@ -3693,6 +3700,7 @@ function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[
 
 function fetchPlayerSupplemental(
   key: PlayerSupplementalKey,
+  groupId: string,
   platform: string,
   platformPlayerId: string,
   search: string,
@@ -3705,6 +3713,8 @@ function fetchPlayerSupplemental(
 > {
   const params = new URLSearchParams(search);
   if (key === "overview") {
+    params.set("include-goal-tags", String(groupId === "goals"));
+    params.set("include-rotation", String(groupId === "positioning" || groupId === "rotation"));
     return getPlayerStatOverview(platform, platformPlayerId, params);
   }
   if (key === "kickoffTaker") {

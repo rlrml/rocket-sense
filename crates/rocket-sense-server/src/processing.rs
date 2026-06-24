@@ -376,6 +376,81 @@ const INSERT_PLAYER_REPLAY_MOVEMENT_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of the profile Touches breakdown. One row per
+// (player, dimension, value), where dimensions are the two UI distributions:
+// hit kind and intention category.
+const INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL: &str = r#"
+        INSERT INTO player_replay_touch_breakdowns (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            dimension,
+            value,
+            touch_count,
+            advance_distance
+        )
+        WITH touch_events AS (
+            SELECT
+                subject.replay_player_id,
+                CASE
+                    WHEN detail.kind IN ('control', 'medium_hit', 'hard_hit') THEN detail.kind
+                    WHEN detail.kind IN ('hit', 'medium') THEN 'medium_hit'
+                    WHEN detail.kind = 'hard' THEN 'hard_hit'
+                    WHEN detail.kind IN ('soft', 'soft_touch') THEN 'control'
+                    ELSE 'other'
+                END AS kind,
+                CASE
+                    WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
+                    ELSE 'other'
+                END AS category,
+                COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
+            FROM play_events event
+            JOIN play_event_touch_details detail
+              ON detail.event_id = event.id
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.subject_kind = 'player'
+             AND subject.replay_player_id IS NOT NULL
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream = 'touch'
+        ),
+        breakdowns AS (
+            SELECT replay_player_id, 'kind'::text AS dimension, kind AS value, COUNT(*) AS touch_count, COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM touch_events
+            GROUP BY replay_player_id, kind
+            UNION ALL
+            SELECT replay_player_id, 'category'::text AS dimension, category AS value, COUNT(*) AS touch_count, COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM touch_events
+            GROUP BY replay_player_id, category
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            breakdowns.dimension,
+            breakdowns.value,
+            breakdowns.touch_count,
+            breakdowns.advance_distance
+        FROM breakdowns
+        JOIN replay_players rp ON rp.id = breakdowns.replay_player_id
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        ON CONFLICT DO NOTHING
+        "#;
+
 // Per-replay materialization of `player_replay_possession` for one analysis run
 // ($1) and replay ($2). Aggregates each player's possession spans, classified
 // touches (with intention/surface jsonb mixes), and possession location. Mirrors
@@ -1862,6 +1937,7 @@ async fn persist_analysis_output(
     insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
@@ -2239,6 +2315,72 @@ pub async fn backfill_player_replay_movement(pool: &PgPool) -> Result<u64> {
         }
     }
     tracing::info!(backfilled, total, "movement backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_touch_breakdowns(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_touch_breakdowns WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay touch breakdowns")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay touch breakdowns")?;
+    Ok(())
+}
+
+/// Populate `player_replay_touch_breakdowns` for every canonical replay missing
+/// rows, from existing touch detail rows (no re-parse). Resumable; returns
+/// replays backfilled.
+pub async fn backfill_player_replay_touch_breakdowns(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM play_events event
+              WHERE event.replay_id = r.id
+                AND event.analysis_run_id = r.canonical_analysis_run_id
+                AND event.source_stream = 'touch'
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_touch_breakdowns touch
+              WHERE touch.replay_id = r.id
+                AND touch.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing touch breakdown backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay touch breakdown backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "touch breakdown backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "touch breakdown backfill complete");
     Ok(backfilled)
 }
 
@@ -2828,6 +2970,21 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay movement")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_touch_breakdowns touch
+        USING analysis_runs run
+        WHERE run.id = touch.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay touch breakdowns")?;
 
     sqlx::query(
         r#"

@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::{
     event_stats::{count_column, display_label, finite_value},
-    query::QueryParams,
+    query::{parse_bool_filter, QueryParams},
     replay_set::{
         append_target_player_replay_set_filters, PlayerStatFilter, ReplaySetFilterInput,
         ReplaySetFilters,
@@ -86,12 +86,16 @@ pub struct RotationTimeShareResponse {
 struct PlayerOverviewQuery {
     replay_set: ReplaySetFilters,
     player: PlayerStatFilter,
+    include_goal_tags: bool,
+    include_rotation: bool,
+    materialized: bool,
 }
 
 impl PlayerOverviewQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
+        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -100,8 +104,29 @@ impl PlayerOverviewQuery {
             .first(&["player-id", "player_id"])
             .ok_or_else(|| ApiError::bad_request("player-id is required"))
             .and_then(|player_id| PlayerStatFilter::from_query(&player_id))?;
+        let include_goal_tags = params
+            .first(&["include-goal-tags", "include_goal_tags"])
+            .map(|value| parse_bool_filter("include-goal-tags", &value))
+            .transpose()?
+            .unwrap_or(true);
+        let include_rotation = params
+            .first(&["include-rotation", "include_rotation"])
+            .map(|value| parse_bool_filter("include-rotation", &value))
+            .transpose()?
+            .unwrap_or(true);
+        let materialized = params
+            .first(&["materialized"])
+            .map(|value| parse_bool_filter("materialized", &value))
+            .transpose()?
+            .unwrap_or(materialized_default);
 
-        Ok(Self { replay_set, player })
+        Ok(Self {
+            replay_set,
+            player,
+            include_goal_tags,
+            include_rotation,
+            materialized,
+        })
     }
 }
 
@@ -124,6 +149,7 @@ pub async fn get_player_stat_overview(
     let query = PlayerOverviewQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
+        state.materialized_stat_counts,
     )?;
     let response = load_player_stat_overview(db, &query)
         .await
@@ -144,8 +170,20 @@ async fn load_player_stat_overview(
         counters,
     ) = tokio::try_join!(
         load_goal_totals(pool, query),
-        load_goal_tag_aggregates(pool, query),
-        load_rotation_time_shares(pool, query),
+        async {
+            if query.include_goal_tags {
+                load_goal_tag_aggregates(pool, query).await
+            } else {
+                Ok(Vec::new())
+            }
+        },
+        async {
+            if query.include_rotation {
+                load_rotation_time_shares(pool, query).await
+            } else {
+                Ok((Vec::new(), Vec::new()))
+            }
+        },
         load_goal_rate_denominators(pool, query),
         load_scoring_counters(pool, query),
     )?;
@@ -230,12 +268,11 @@ async fn load_goal_totals(
 ) -> Result<(u64, u64), sqlx::Error> {
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
-    push_goal_events_cte(&mut builder);
     builder.push(
         r#"
         SELECT
             (SELECT COUNT(DISTINCT replay_id) FROM target_appearances) AS replay_count,
-            (SELECT COUNT(*) FROM goal_events) AS goals_scored
+            (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS goals_scored
         "#,
     );
 
@@ -455,6 +492,10 @@ async fn load_rotation_time_shares(
     ),
     sqlx::Error,
 > {
+    if query.materialized {
+        return load_rotation_time_shares_materialized(pool, query).await;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
     builder.push(
@@ -519,6 +560,77 @@ async fn load_rotation_time_shares(
     }
 
     Ok((roles, depths))
+}
+
+async fn load_rotation_time_shares_materialized(
+    pool: &sqlx::PgPool,
+    query: &PlayerOverviewQuery,
+) -> Result<
+    (
+        Vec<RotationTimeShareResponse>,
+        Vec<RotationTimeShareResponse>,
+    ),
+    sqlx::Error,
+> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT *
+        FROM (
+            SELECT 'ball_depth_behind_ball'::text AS key, 'Behind Ball'::text AS display_name, COALESCE(SUM(pos.behind_ball_seconds), 0.0) AS seconds, COUNT(*) FILTER (WHERE pos.behind_ball_seconds > 0.0) AS span_count
+            FROM player_replay_positioning pos
+            JOIN replays r ON r.id = pos.replay_id AND r.canonical_analysis_run_id = pos.analysis_run_id
+            WHERE pos.platform = "#,
+    );
+    builder.push_bind(&query.player.platform);
+    builder.push(" AND pos.platform_player_id = ");
+    builder.push_bind(&query.player.platform_player_id);
+    super::replay_set::append_replay_set_filters(&mut builder, &query.replay_set, "r");
+    builder.push(
+        r#"
+            UNION ALL
+            SELECT 'ball_depth_level_with_ball'::text, 'Level With Ball'::text, COALESCE(SUM(pos.level_with_ball_seconds), 0.0), COUNT(*) FILTER (WHERE pos.level_with_ball_seconds > 0.0)
+            FROM player_replay_positioning pos
+            JOIN replays r ON r.id = pos.replay_id AND r.canonical_analysis_run_id = pos.analysis_run_id
+            WHERE pos.platform = "#,
+    );
+    builder.push_bind(&query.player.platform);
+    builder.push(" AND pos.platform_player_id = ");
+    builder.push_bind(&query.player.platform_player_id);
+    super::replay_set::append_replay_set_filters(&mut builder, &query.replay_set, "r");
+    builder.push(
+        r#"
+            UNION ALL
+            SELECT 'ball_depth_ahead_of_ball'::text, 'Ahead Of Ball'::text, COALESCE(SUM(pos.ahead_of_ball_seconds), 0.0), COUNT(*) FILTER (WHERE pos.ahead_of_ball_seconds > 0.0)
+            FROM player_replay_positioning pos
+            JOIN replays r ON r.id = pos.replay_id AND r.canonical_analysis_run_id = pos.analysis_run_id
+            WHERE pos.platform = "#,
+    );
+    builder.push_bind(&query.player.platform);
+    builder.push(" AND pos.platform_player_id = ");
+    builder.push_bind(&query.player.platform_player_id);
+    super::replay_set::append_replay_set_filters(&mut builder, &query.replay_set, "r");
+    builder.push(
+        r#"
+        ) rows
+        WHERE seconds > 0.0
+        ORDER BY seconds DESC, key
+        "#,
+    );
+
+    let rows = builder.build().fetch_all(pool).await?;
+    let depths = rows
+        .into_iter()
+        .map(|row| {
+            let seconds: Option<f64> = row.try_get("seconds")?;
+            Ok(RotationTimeShareResponse {
+                key: row.try_get("key")?,
+                display_name: display_label(&row.try_get::<String, _>("display_name")?),
+                seconds: finite_value(seconds).unwrap_or(0.0).max(0.0),
+                span_count: count_column(&row, "span_count")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    Ok((Vec::new(), depths))
 }
 
 fn goal_tag_label(kind: &str) -> String {

@@ -48,6 +48,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/stats/backfill-movement", post(backfill_movement))
         .route(
+            "/admin/stats/backfill-touch-breakdowns",
+            post(backfill_touch_breakdowns),
+        )
+        .route(
             "/admin/stats/backfill-possession",
             post(backfill_possession),
         )
@@ -631,6 +635,39 @@ pub async fn backfill_movement(
         match crate::processing::backfill_player_replay_movement(&pool).await {
             Ok(backfilled) => tracing::info!(backfilled, "movement backfill task finished"),
             Err(error) => tracing::error!(?error, "movement backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Populate `player_replay_touch_breakdowns` from existing touch details for
+/// every canonical replay missing rows. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-touch-breakdowns",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Touch-breakdown backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_touch_breakdowns(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_player_replay_touch_breakdowns(&pool).await {
+            Ok(backfilled) => {
+                tracing::info!(backfilled, "touch-breakdown backfill task finished")
+            }
+            Err(error) => tracing::error!(?error, "touch-breakdown backfill task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {

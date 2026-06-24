@@ -185,6 +185,35 @@ fn stat_aggregate_touch_breakdown_runs_only_for_touch_terms() {
 }
 
 #[test]
+fn materialized_touch_breakdown_uses_touch_breakdown_table() {
+    let source = include_str!("stats.rs");
+    let materialized_start = source
+        .find("async fn load_touch_aggregate_breakdown_materialized")
+        .expect("materialized touch breakdown loader should exist");
+    let materialized_end = source[materialized_start..]
+        .find("fn touch_aggregate_breakdown_from_rows")
+        .map(|offset| materialized_start + offset)
+        .expect("materialized loader should end before row parser");
+    let materialized = &source[materialized_start..materialized_end];
+
+    assert!(materialized.contains("player_replay_touch_breakdowns"));
+    assert!(!materialized.contains("play_events"));
+    assert!(!materialized.contains("play_event_subjects"));
+    assert!(!materialized.contains("play_event_touch_details"));
+}
+
+#[test]
+fn touch_breakdown_materialization_migration_creates_indexed_table() {
+    let migration = include_str!("../../../../migrations/0067_player_replay_touch_breakdowns.sql");
+
+    assert!(migration.contains("CREATE TABLE player_replay_touch_breakdowns"));
+    assert!(migration.contains("dimension IN ('kind', 'category')"));
+    assert!(migration.contains("player_replay_touch_breakdowns_player_idx"));
+    assert!(migration.contains("player_replay_touch_breakdowns_replay_idx"));
+    assert!(!migration.contains("INSERT INTO player_replay_touch_breakdowns"));
+}
+
+#[test]
 fn stat_aggregate_query_parses_game_type_and_team_size_filters() {
     let raw_query = "game-type=ranked&game-type=tournament&team-size=2v2&team-size=3";
     let query = StatAggregatesQuery::from_raw_query(Some(raw_query))

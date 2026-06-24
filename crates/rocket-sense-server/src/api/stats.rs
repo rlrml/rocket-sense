@@ -2020,6 +2020,10 @@ async fn load_touch_aggregate_breakdown(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
+    if filters.materialized_stat_counts {
+        return load_touch_aggregate_breakdown_materialized(pool, filters).await;
+    }
+
     let mut query = QueryBuilder::<Postgres>::new(
         r#"
         WITH target_appearances AS MATERIALIZED (
@@ -2146,6 +2150,135 @@ async fn load_touch_aggregate_breakdown(
     );
 
     let rows = query.build().fetch_all(pool).await?;
+    touch_aggregate_breakdown_from_rows(rows)
+}
+
+async fn load_touch_aggregate_breakdown_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized touch breakdown requires player");
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT
+                rp.id,
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE rp.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND rp.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    append_replay_filters(&mut query, filters, "r");
+    query.push(
+        r#"
+        ),
+        cohort_breakdowns AS MATERIALIZED (
+            SELECT 'player'::text AS cohort, touch.dimension, touch.value, touch.touch_count, touch.advance_distance
+            FROM target_appearances appearance
+            JOIN player_replay_touch_breakdowns touch
+              ON touch.replay_id = appearance.replay_id
+             AND touch.analysis_run_id = appearance.run_id
+             AND touch.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND touch.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#"
+            UNION ALL
+            SELECT 'teammates'::text AS cohort, touch.dimension, touch.value, touch.touch_count, touch.advance_distance
+            FROM target_appearances appearance
+            JOIN player_replay_touch_breakdowns touch
+              ON touch.replay_id = appearance.replay_id
+             AND touch.analysis_run_id = appearance.run_id
+             AND touch.team = appearance.team
+             AND NOT (touch.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND touch.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#")
+            UNION ALL
+            SELECT 'opponents'::text AS cohort, touch.dimension, touch.value, touch.touch_count, touch.advance_distance
+            FROM target_appearances appearance
+            JOIN player_replay_touch_breakdowns touch
+              ON touch.replay_id = appearance.replay_id
+             AND touch.analysis_run_id = appearance.run_id
+             AND touch.team IS NOT NULL
+             AND appearance.team IS NOT NULL
+             AND touch.team <> appearance.team
+        ),
+        cohort_players AS MATERIALIZED (
+            SELECT DISTINCT
+                CASE
+                    WHEN actor.id = appearance.id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND actor.id <> appearance.id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                actor.id,
+                actor.active_time_seconds
+            FROM target_appearances appearance
+            JOIN replay_players actor
+              ON actor.replay_id = appearance.replay_id
+        ),
+        cohort_denominators AS (
+            SELECT cohort, SUM(active_time_seconds) AS active_time_seconds
+            FROM cohort_players
+            WHERE cohort IS NOT NULL
+            GROUP BY cohort
+        )
+        SELECT
+            rows.cohort,
+            rows.dimension,
+            rows.value,
+            rows.touch_count,
+            rows.advance_distance,
+            denominator.active_time_seconds
+        FROM (
+            SELECT
+                cohort,
+                dimension,
+                value,
+                SUM(touch_count) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM cohort_breakdowns
+            GROUP BY cohort, dimension, value
+        ) rows
+        LEFT JOIN cohort_denominators denominator
+          ON denominator.cohort = rows.cohort
+        ORDER BY
+            CASE rows.cohort
+                WHEN 'player' THEN 0
+                WHEN 'teammates' THEN 1
+                WHEN 'opponents' THEN 2
+                ELSE 3
+            END,
+            rows.dimension,
+            rows.touch_count DESC,
+            rows.value
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    touch_aggregate_breakdown_from_rows(rows)
+}
+
+fn touch_aggregate_breakdown_from_rows(
+    rows: Vec<sqlx::postgres::PgRow>,
+) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
     let mut cohorts: HashMap<String, TouchAggregateCohortAccumulator> = HashMap::new();
     for row in rows {
         let cohort: String = row.try_get("cohort")?;
