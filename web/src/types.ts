@@ -168,6 +168,7 @@ export interface StatLeaderboardRow {
   value: number;
   replay_count: number;
   active_time_seconds: number | null;
+  sample_count: number | null;
   value_per_game: number | null;
   value_per_active_minute: number | null;
   share_of_active_time: number | null;

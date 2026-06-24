@@ -19,7 +19,7 @@ import type {
 import { StatPlayerLabel } from "./shared";
 
 type MetricKind = "appearances" | "uploads" | "event" | "stat";
-type Aggregation = "total" | "per-game" | "per-minute" | "share";
+type Aggregation = "total" | "per-game" | "per-minute" | "share" | "average";
 
 const PAGE_SIZE = 50;
 const RATE_WINDOW_MINUTES = 5;
@@ -28,6 +28,7 @@ const DEFAULT_BOARD = "event:goal";
 
 const EVENT_AGGREGATIONS: Aggregation[] = ["total", "per-game", "per-minute"];
 const STAT_AGGREGATIONS: Aggregation[] = ["total", "per-game", "per-minute", "share"];
+const AVERAGE_STAT_AGGREGATIONS: Aggregation[] = ["average"];
 
 // A leaderboard is one METRIC ranked by an AGGREGATION within a SCOPE. Every
 // rankable thing — counted events, accumulated stats, plain activity counts —
@@ -118,11 +119,27 @@ const ACTIVITY_METRICS: CatalogMetric[] = [
 const STAT_DESCRIPTIONS: Record<string, string> = {
   "ball-opponent-half": "Time spent with the ball in the opponent's half.",
   "possession-time": "Time in individual possession of the ball.",
+  "touches-per-possession": "Average touches recorded in each individual possession.",
+  "avg-possession-duration": "Average duration of each individual possession.",
 };
 
-const statOptions = [
+const statOptions: Array<{
+  value: string;
+  label: string;
+  aggregations?: Aggregation[];
+}> = [
   { value: "ball-opponent-half", label: "Ball in opponent half" },
   { value: "possession-time", label: "Possession time" },
+  {
+    value: "touches-per-possession",
+    label: "Touches per possession",
+    aggregations: AVERAGE_STAT_AGGREGATIONS,
+  },
+  {
+    value: "avg-possession-duration",
+    label: "Average possession duration",
+    aggregations: AVERAGE_STAT_AGGREGATIONS,
+  },
 ];
 
 function aggregationLabel(aggregation: Aggregation, rateWindowMinutes: number): string {
@@ -135,6 +152,8 @@ function aggregationLabel(aggregation: Aggregation, rateWindowMinutes: number): 
       return rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
     case "share":
       return "Share";
+    case "average":
+      return "Average";
   }
 }
 
@@ -156,7 +175,7 @@ function buildCatalog(eventTypes: EventTypeResponse[]): CatalogMetric[] {
     label: option.label,
     category: "possession",
     param: option.value,
-    aggregations: STAT_AGGREGATIONS,
+    aggregations: option.aggregations ?? STAT_AGGREGATIONS,
     description: STAT_DESCRIPTIONS[option.value] ?? "",
   }));
   const eventMetrics: CatalogMetric[] = eventTypes.map((eventType) => ({
@@ -192,13 +211,14 @@ function resolveBoard(id: string, catalog: CatalogMetric[]): CatalogMetric | nul
   }
   if (id.startsWith("stat:")) {
     const value = id.slice("stat:".length);
+    const option = statOptions.find((candidate) => candidate.value === value);
     return {
       id,
       kind: "stat",
-      label: value,
+      label: option?.label ?? value,
       category: "possession",
       param: value,
-      aggregations: STAT_AGGREGATIONS,
+      aggregations: option?.aggregations ?? STAT_AGGREGATIONS,
       description: STAT_DESCRIPTIONS[value] ?? "",
     };
   }
@@ -226,6 +246,23 @@ function formatDurationCompact(value: number | null): string {
   const hours = Math.floor(minutes / 60);
   const remainingMinutes = minutes % 60;
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
+}
+
+function formatAverageDuration(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "-";
+  if (value < 60) {
+    return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}s`;
+  }
+  return formatDurationCompact(value);
+}
+
+function isAverageStat(statKey: string | undefined): boolean {
+  return statKey === "touches-per-possession" || statKey === "avg-possession-duration";
+}
+
+function formatAverageStatValue(statKey: string | undefined, value: number | null): string {
+  if (statKey === "avg-possession-duration") return formatAverageDuration(value);
+  return formatRate(value);
 }
 
 function perRateWindow(perMinute: number | null, rateWindowMinutes: number): number | null {
@@ -540,13 +577,16 @@ function EventLeaderboard({
 function StatLeaderboard({
   filterKey,
   rateWindowMinutes,
+  statKey,
 }: {
   filterKey: string;
   rateWindowMinutes: number;
+  statKey?: string;
 }) {
   const { rows, total, nextOffset, loading, loadingMore, error, loadMore } =
     useLeaderboard<StatLeaderboardRow>(getStatLeaderboard, filterKey);
   const rateColumnLabel = rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
+  const averageStat = isAverageStat(statKey);
 
   if (loading) return <div className="stat-empty">Loading leaderboard…</div>;
   if (error) return <div className="stat-empty">Failed to load leaderboard: {error}</div>;
@@ -556,42 +596,77 @@ function StatLeaderboard({
   return (
     <>
       <div className="table-frame compact-table stat-leaderboard-table">
-        <table>
-          <thead>
-            <tr>
-              <th className="leaderboard-rank-col">#</th>
-              <th>Player</th>
-              <th>Total</th>
-              <th>Share</th>
-              <th>Games</th>
-              <th>Per game</th>
-              <th>{rateColumnLabel}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => {
-              const name = row.display_name || row.platform_player_id;
-              return (
-                <tr key={`${row.platform}:${row.platform_player_id}`}>
-                  <td className="leaderboard-rank-col">{row.rank.toLocaleString()}</td>
-                  <td>
-                    <StatPlayerLabel
-                      name={name}
-                      platform={row.platform}
-                      profilePath={playerProfilePath(row.platform, row.platform_player_id)}
-                      subtitle={row.is_pro ? "Pro" : row.platform}
-                    />
-                  </td>
-                  <td>{formatDurationCompact(row.value)}</td>
-                  <td>{formatPercent(row.share_of_active_time)}</td>
-                  <td>{row.replay_count.toLocaleString()}</td>
-                  <td>{formatDurationCompact(row.value_per_game)}</td>
-                  <td>{perDurationWindow(row.value_per_active_minute, rateWindowMinutes)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        {averageStat ? (
+          <table>
+            <thead>
+              <tr>
+                <th className="leaderboard-rank-col">#</th>
+                <th>Player</th>
+                <th>Average</th>
+                <th>Possessions</th>
+                <th>Games</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const name = row.display_name || row.platform_player_id;
+                return (
+                  <tr key={`${row.platform}:${row.platform_player_id}`}>
+                    <td className="leaderboard-rank-col">{row.rank.toLocaleString()}</td>
+                    <td>
+                      <StatPlayerLabel
+                        name={name}
+                        platform={row.platform}
+                        profilePath={playerProfilePath(row.platform, row.platform_player_id)}
+                        subtitle={row.is_pro ? "Pro" : row.platform}
+                      />
+                    </td>
+                    <td>{formatAverageStatValue(statKey, row.value)}</td>
+                    <td>{row.sample_count?.toLocaleString() ?? "-"}</td>
+                    <td>{row.replay_count.toLocaleString()}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        ) : (
+          <table>
+            <thead>
+              <tr>
+                <th className="leaderboard-rank-col">#</th>
+                <th>Player</th>
+                <th>Total</th>
+                <th>Share</th>
+                <th>Games</th>
+                <th>Per game</th>
+                <th>{rateColumnLabel}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const name = row.display_name || row.platform_player_id;
+                return (
+                  <tr key={`${row.platform}:${row.platform_player_id}`}>
+                    <td className="leaderboard-rank-col">{row.rank.toLocaleString()}</td>
+                    <td>
+                      <StatPlayerLabel
+                        name={name}
+                        platform={row.platform}
+                        profilePath={playerProfilePath(row.platform, row.platform_player_id)}
+                        subtitle={row.is_pro ? "Pro" : row.platform}
+                      />
+                    </td>
+                    <td>{formatDurationCompact(row.value)}</td>
+                    <td>{formatPercent(row.share_of_active_time)}</td>
+                    <td>{row.replay_count.toLocaleString()}</td>
+                    <td>{formatDurationCompact(row.value_per_game)}</td>
+                    <td>{perDurationWindow(row.value_per_active_minute, rateWindowMinutes)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
       <LoadMore
         shown={rows.length}
@@ -964,7 +1039,11 @@ export function LeaderboardsPage() {
         ) : metric.kind === "event" ? (
           <EventLeaderboard filterKey={boardFilterKey} rateWindowMinutes={rateWindowMinutes} />
         ) : metric.kind === "stat" ? (
-          <StatLeaderboard filterKey={boardFilterKey} rateWindowMinutes={rateWindowMinutes} />
+          <StatLeaderboard
+            filterKey={boardFilterKey}
+            rateWindowMinutes={rateWindowMinutes}
+            statKey={metric.param}
+          />
         ) : (
           <AppearancesLeaderboard filterKey={replayFilterKey} />
         )}

@@ -224,11 +224,19 @@ fn stat_metric_parses_aliases_and_rejects_unknown() {
         StatLeaderboardMetric::from_query(Some("possession")).unwrap(),
         StatLeaderboardMetric::PossessionTime
     );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("touches-per-posession")).unwrap(),
+        StatLeaderboardMetric::TouchesPerPossession
+    );
+    assert_eq!(
+        StatLeaderboardMetric::from_query(Some("average-possession-duration")).unwrap(),
+        StatLeaderboardMetric::AvgPossessionDuration
+    );
     assert!(StatLeaderboardMetric::from_query(Some("flip-reset")).is_err());
 }
 
 #[test]
-fn stat_sort_includes_share_metric() {
+fn stat_sort_includes_share_and_average_metrics() {
     assert_eq!(
         StatLeaderboardSort::from_query(Some("share")).unwrap(),
         StatLeaderboardSort::Share
@@ -236,6 +244,10 @@ fn stat_sort_includes_share_metric() {
     assert_eq!(
         StatLeaderboardSort::from_query(Some("pct")).unwrap(),
         StatLeaderboardSort::Share
+    );
+    assert_eq!(
+        StatLeaderboardSort::from_query(Some("avg")).unwrap(),
+        StatLeaderboardSort::Average
     );
     assert!(StatLeaderboardSort::from_query(Some("sideways")).is_err());
 }
@@ -273,4 +285,32 @@ fn stat_total_query_counts_qualifying_players() {
     assert!(sql.contains("WITH metric_values AS"));
     assert!(sql.contains("SELECT COUNT(*) AS total FROM metric_values m"));
     assert!(sql.contains("m.replay_count >= "));
+}
+
+#[test]
+fn stat_rank_query_reads_possession_average_materialization() {
+    let (filters, paging) =
+        stat_filters("stat=touches-per-possession&sort=average&team-size=2&min-games=4");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("FROM player_replay_possession possession"));
+    assert!(sql.contains("SUM(possession.touch_count)::float8"));
+    assert!(sql.contains("NULLIF(SUM(possession.possession_count), 0)"));
+    assert!(sql.contains("SUM(possession.possession_count)::bigint AS sample_count"));
+    assert!(sql.contains("r.canonical_analysis_run_id = possession.analysis_run_id"));
+    assert!(sql.contains("SELECT MAX(team_player_count)::integer"));
+    assert!(sql.contains(") = ANY("));
+    assert!(sql.contains("NULL::float8 AS value_per_game"));
+    assert!(sql.contains("ORDER BY value DESC"));
+    assert!(sql.contains("m.replay_count >= "));
+}
+
+#[test]
+fn stat_rank_query_reads_average_possession_duration() {
+    let (filters, paging) = stat_filters("stat=avg-possession-duration&sort=average");
+    let sql = stat_rank_query(&filters, &paging).into_sql();
+
+    assert!(sql.contains("FROM player_replay_possession possession"));
+    assert!(sql.contains("SUM(possession.duration_seconds)::float8"));
+    assert!(sql.contains("ORDER BY value DESC"));
 }
