@@ -8,6 +8,7 @@ fn event_stats_query_reuses_replay_set_filters_and_parses_event_options() {
             "replay-id={replay_id}&playlist=Online&player-id=Steam:76561198000000000&role=taker&sample-count=250&dimension-limit=250&include-samples=false"
         )),
         None,
+        false,
     )
     .expect("event stats query should parse");
 
@@ -26,9 +27,12 @@ fn event_stats_query_reuses_replay_set_filters_and_parses_event_options() {
 
 #[test]
 fn event_stats_query_parses_kickoff_shape_and_side_filters() {
-    let query =
-        EventStatsQuery::from_raw_query(Some("kickoff-shape=diagonal&kickoff-side=left"), None)
-            .expect("kickoff filters should parse");
+    let query = EventStatsQuery::from_raw_query(
+        Some("kickoff-shape=diagonal&kickoff-side=left"),
+        None,
+        false,
+    )
+    .expect("kickoff filters should parse");
 
     assert_eq!(query.kickoff_spawn.shape, Some(KickoffSpawnShape::Diagonal));
     assert_eq!(query.kickoff_spawn.side, Some(KickoffSpawnSide::Left));
@@ -162,4 +166,100 @@ fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
     assert!(metrics
         .iter()
         .all(|metric| metric.key != "avg_first_touch_time"));
+}
+
+#[test]
+fn event_stats_query_parses_materialized_flag_and_defaults() {
+    let defaulted_on = EventStatsQuery::from_raw_query(Some("role=taker"), None, true)
+        .expect("query should parse");
+    assert!(defaulted_on.materialized);
+
+    let defaulted_off = EventStatsQuery::from_raw_query(Some("role=taker"), None, false)
+        .expect("query should parse");
+    assert!(!defaulted_off.materialized);
+
+    let overridden = EventStatsQuery::from_raw_query(Some("materialized=false"), None, true)
+        .expect("query should parse");
+    assert!(!overridden.materialized);
+}
+
+#[test]
+fn classify_kickoff_type_matches_dimension_priority() {
+    assert_eq!(
+        classify_kickoff_type(&["center".to_owned(), "diagonal_left".to_owned()]),
+        Some("diagonal".to_owned())
+    );
+    assert_eq!(
+        classify_kickoff_type(&["center".to_owned(), "off_center_right".to_owned()]),
+        Some("center_offset".to_owned())
+    );
+    assert_eq!(
+        classify_kickoff_type(&["center".to_owned()]),
+        Some("center".to_owned())
+    );
+    assert_eq!(classify_kickoff_type(&[]), None);
+}
+
+#[test]
+fn merge_mix_counts_sums_values_and_maps_empty_key_to_null() {
+    let mut counts: HashMap<Option<String>, u64> = HashMap::new();
+    merge_mix_counts(&mut counts, &json!({ "diagonal_left": 2, "": 1 }));
+    merge_mix_counts(&mut counts, &json!({ "diagonal_left": 3 }));
+
+    assert_eq!(counts.get(&Some("diagonal_left".to_owned())), Some(&5));
+    assert_eq!(counts.get(&None), Some(&1));
+}
+
+#[test]
+fn dimension_response_orders_by_count_then_key_with_nulls_last_and_limits() {
+    let mut counts: HashMap<Option<String>, u64> = HashMap::new();
+    counts.insert(Some("alpha".to_owned()), 5);
+    counts.insert(Some("bravo".to_owned()), 5);
+    counts.insert(None, 9);
+    counts.insert(Some("charlie".to_owned()), 1);
+
+    let response = dimension_response_from_counts("spawn_position", "Spawn position", counts, 3);
+
+    assert_eq!(response.key, "spawn_position");
+    let keys: Vec<Option<&str>> = response
+        .values
+        .iter()
+        .map(|value| value.key.as_deref())
+        .collect();
+    // NULL has the highest count; ties (alpha/bravo at 5) break by key ascending;
+    // the limit drops the lowest-count entry (charlie).
+    assert_eq!(keys, [None, Some("alpha"), Some("bravo")]);
+    let null_value = &response.values[0];
+    assert_eq!(null_value.display_name, "Unknown");
+    assert_eq!(null_value.count, 9);
+}
+
+#[test]
+fn materialized_summary_derives_counts_and_averages() {
+    let mut summary = MaterializedKickoffSummary {
+        row_count: 4,
+        taker_count: 3,
+        support_count: 1,
+        first_touch_count: 2,
+        time_to_ball_sum: 6.0,
+        time_to_ball_count: 3,
+        boost_after_sum: 0.0,
+        boost_after_count: 0,
+        boost_used_sum: 30.0,
+        boost_used_count: 3,
+        ..Default::default()
+    };
+    let replay = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    summary.replay_ids.insert(replay);
+    summary.replay_ids.insert(replay);
+
+    let row = summary.into_row();
+    assert_eq!(row.replay_count, 1);
+    assert_eq!(row.event_count, 4);
+    assert_eq!(row.taker_count, 3);
+    assert_eq!(row.support_count, 1);
+    assert_eq!(row.avg_taker_time_to_touch, Some(2.0));
+    assert_eq!(row.avg_boost_used, Some(10.0));
+    // No non-null boost-after samples -> no average.
+    assert_eq!(row.avg_boost_after, None);
 }
