@@ -361,6 +361,11 @@ export interface StatAggregateResponse {
   teammate_count_per_game: number | null;
   teammate_per_active_minute: number | null;
   teammate_per_non_demo_active_minute: number | null;
+  opponent_event_count: number;
+  opponent_appearance_count: number;
+  opponent_count_per_game: number | null;
+  opponent_per_active_minute: number | null;
+  opponent_per_non_demo_active_minute: number | null;
 }
 
 export interface StatAggregateSetResponse {
@@ -375,6 +380,11 @@ export interface StatAggregateSetResponse {
   teammate_non_demo_active_time_seconds: number | null;
   teammate_time_most_back_seconds: number | null;
   teammate_time_most_forward_seconds: number | null;
+  opponent_appearance_count: number | null;
+  opponent_active_time_seconds: number | null;
+  opponent_non_demo_active_time_seconds: number | null;
+  opponent_time_most_back_seconds: number | null;
+  opponent_time_most_forward_seconds: number | null;
   rotation_duration_bucket_seconds: number;
   rotation_duration_histogram: Array<{
     min_seconds: number;
@@ -382,6 +392,11 @@ export interface StatAggregateSetResponse {
     count: number;
   }>;
   teammate_rotation_duration_histogram: Array<{
+    min_seconds: number;
+    max_seconds: number;
+    count: number;
+  }> | null;
+  opponent_rotation_duration_histogram: Array<{
     min_seconds: number;
     max_seconds: number;
     count: number;
@@ -430,6 +445,11 @@ export interface StatAggregateGroupResponse {
   teammate_non_demo_active_time_seconds: number | null;
   teammate_time_most_back_seconds: number | null;
   teammate_time_most_forward_seconds: number | null;
+  opponent_appearance_count: number | null;
+  opponent_active_time_seconds: number | null;
+  opponent_non_demo_active_time_seconds: number | null;
+  opponent_time_most_back_seconds: number | null;
+  opponent_time_most_forward_seconds: number | null;
   stats: StatAggregateResponse[];
 }
 
@@ -441,6 +461,8 @@ export interface GoalTagAggregateResponse {
   per_active_minute: number | null;
   teammate_count: number;
   teammate_per_active_minute: number | null;
+  opponent_count: number;
+  opponent_per_active_minute: number | null;
   avg_confidence: number | null;
 }
 
@@ -456,6 +478,8 @@ export interface ScoringRateResponse {
   per_active_minute: number | null;
   teammate_count: number;
   teammate_per_active_minute: number | null;
+  opponent_count: number;
+  opponent_per_active_minute: number | null;
 }
 
 export interface PlayerStatOverviewResponse {
