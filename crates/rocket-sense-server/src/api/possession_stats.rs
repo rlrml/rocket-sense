@@ -332,6 +332,7 @@ fn push_materialized_span_select(builder: &mut QueryBuilder<'_, Postgres>, susta
         SELECT
             cohort,
             COUNT(*) AS appearance_count,
+            SUM(active_time_seconds) AS active_time_seconds,
             COUNT(DISTINCT replay_id) AS replay_count,
             SUM({p}possession_count)::bigint AS possession_count,
             SUM({p}duration_seconds) AS total_duration,
@@ -367,6 +368,7 @@ async fn load_possession_summary_materialized(
     // Per-cohort span summaries (all + sustained), reusing the live row builder.
     let mut span_all: HashMap<String, (u64, PossessionSpanSummary)> = HashMap::new();
     let mut span_appearance: HashMap<String, u64> = HashMap::new();
+    let mut span_active_time: HashMap<String, Option<f64>> = HashMap::new();
     let mut span_sc: HashMap<String, PossessionSpanSummary> = HashMap::new();
     for sustained in [false, true] {
         let mut q = QueryBuilder::<Postgres>::new("");
@@ -379,6 +381,10 @@ async fn load_possession_summary_materialized(
                 span_sc.insert(cohort, summary);
             } else {
                 span_appearance.insert(cohort.clone(), count_column(&row, "appearance_count")?);
+                span_active_time.insert(
+                    cohort.clone(),
+                    finite_nonnegative(row.try_get("active_time_seconds")?),
+                );
                 span_all.insert(cohort, (replay_count, summary));
             }
         }
@@ -457,6 +463,7 @@ async fn load_possession_summary_materialized(
                 key: key.to_owned(),
                 label: cohort_label(key).to_owned(),
                 appearance_count: span_appearance.get(key).copied().unwrap_or(0),
+                active_time_seconds: span_active_time.get(key).copied().flatten(),
                 possessions,
                 controlled_plays: span_sc
                     .get(key)
