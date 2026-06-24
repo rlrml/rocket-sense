@@ -56,8 +56,9 @@ export const statGroups: StatGroup[] = [
     id: "core",
     label: "Core",
     icon: Trophy,
-    description: "Scoreboard core stats: score, goals, assists, saves, shots, and shooting %.",
-    terms: ["score", "goal", "assist", "save", "shot", "shooting"],
+    description:
+      "Scoreboard core stats: score, goals, assists, saves, shots, shooting %, demos, and deaths.",
+    terms: ["score", "goal", "assist", "save", "shot", "shooting", "demo", "death"],
     completed: true,
     usesAggregateStats: false,
     eventTypes: coreEventTypes,
@@ -104,12 +105,10 @@ export const statGroups: StatGroup[] = [
     label: "Movement",
     icon: Gauge,
     description:
-      "Speed, aerial movement, ground movement, powerslides, speed flips, wavedashes, and half flips.",
+      "Speed, air/ground movement, powerslides, speed flips, wavedashes, and half flips.",
     terms: [
       "speed",
       "movement",
-      "aerial",
-      "air",
       "ground",
       "powerslide",
       "dodge",

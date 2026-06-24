@@ -5,6 +5,7 @@ fn positioning_query_parses_replay_set_filters_and_player() {
     let query = PositioningStatsQuery::from_raw_query(
         Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("positioning query should parse");
 
@@ -17,7 +18,7 @@ fn positioning_query_parses_replay_set_filters_and_player() {
 fn positioning_query_requires_player() {
     // Cohorts are defined relative to a target player, so a missing player-id is
     // a client error rather than an empty 200.
-    assert!(PositioningStatsQuery::from_raw_query(Some("team-size=2"), None).is_err());
+    assert!(PositioningStatsQuery::from_raw_query(Some("team-size=2"), None, false).is_err());
 }
 
 #[test]
@@ -25,6 +26,7 @@ fn positioning_summary_query_splits_cohorts_over_filtered_replays() {
     let query = PositioningStatsQuery::from_raw_query(
         Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
         None,
+        false,
     )
     .expect("positioning query should parse");
     let builder = build_positioning_summary_query(&query);

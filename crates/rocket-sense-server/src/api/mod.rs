@@ -6,6 +6,7 @@ mod health;
 mod leaderboards;
 mod mechanics;
 mod meta;
+mod movement_stats;
 mod openapi;
 mod player_overview;
 mod players;
@@ -44,6 +45,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(leaderboards::router())
         .merge(mechanics::router())
         .merge(meta::router())
+        .merge(movement_stats::router())
         .merge(player_overview::router())
         .merge(positioning_stats::router())
         .merge(possession_stats::router())

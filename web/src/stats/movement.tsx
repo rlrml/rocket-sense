@@ -1,4 +1,10 @@
-import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import type { ReactNode } from "react";
+import type {
+  MechanicEventResponse,
+  MovementCohortSummary,
+  MovementSummaryResponse,
+  ReplayPlayer,
+} from "../types";
 import {
   comparisonSubjectLabel,
   StatComparisonGrid,
@@ -7,12 +13,19 @@ import {
   subjectMagnitudeRows,
 } from "./comparisonPanels";
 import {
+  careerCohortClassName,
+  careerCohortSegmentClassName,
+  careerCohortSubtitle,
+  careerRateValue,
+  type CareerCohortKey,
   type ComparisonRow,
   type OutcomeDistributionColors,
   type OutcomeDistributionLevel,
   outcomeDistributionColorStyle,
   outcomeSegmentClassName,
+  PlayerComparisonChart,
   type SegmentedBarSegment,
+  StatPlayerLabel,
   statPercentWithValue,
   statPlayerRank,
   type StatPlayerRank,
@@ -125,9 +138,9 @@ export function MovementDetail({
 
   return (
     <div className="movement-detail">
-      <StatComparisonGrid bare>
+      <StatComparisonGrid contained={false}>
         <StatComparisonPanel
-          title="Average speed"
+          title="Average speed (uu/s)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -139,7 +152,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Distance covered"
+          title="Distance covered (uu)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -150,7 +163,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Speed bands"
+          title="Speed bands (seconds)"
           rows={distributionRows(summaries, speedBands, {
             teamColored,
             subjectSubtitle,
@@ -160,7 +173,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Ground & air"
+          title="Ground & air (seconds)"
           rows={distributionRows(summaries, heightBands, {
             teamColored,
             subjectSubtitle,
@@ -170,7 +183,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Powerslide time"
+          title="Powerslide time (seconds)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -181,7 +194,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Powerslide count"
+          title="Powerslide count (count)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -192,7 +205,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Speed flips"
+          title="Speed flips (count)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -203,7 +216,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Wavedashes"
+          title="Wavedashes (count)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -214,7 +227,7 @@ export function MovementDetail({
           })}
         />
         <StatComparisonPanel
-          title="Half flips"
+          title="Half flips (count)"
           rows={subjectMagnitudeRows(summaries, {
             teamColored,
             subjectIndexByKey,
@@ -226,6 +239,254 @@ export function MovementDetail({
         />
       </StatComparisonGrid>
     </div>
+  );
+}
+
+type CareerMovementSummary = PlayerMovementSummary & {
+  careerCohort: CareerCohortKey;
+  appearanceCount: number;
+};
+
+export function PlayerMovementCohorts({
+  response,
+  playerName,
+}: {
+  response: MovementSummaryResponse;
+  playerName: string;
+}) {
+  const summaries: CareerMovementSummary[] = [
+    movementCohortSummary("cohort-self", "player", playerName || "Player", response.player),
+  ];
+  if (response.teammates) {
+    summaries.push(
+      movementCohortSummary("cohort-teammates", "teammates", "Teammates", response.teammates),
+    );
+  }
+  if (response.opponents) {
+    summaries.push(
+      movementCohortSummary("cohort-opponents", "opponents", "Opponents", response.opponents),
+    );
+  }
+
+  const speedBands: MovementBand[] = [
+    { id: "slow", label: "Slow", level: "unknown", value: (summary) => summary.slowSeconds },
+    { id: "boost", label: "Boost", level: "clear", value: (summary) => summary.boostSeconds },
+    {
+      id: "supersonic",
+      label: "Supersonic",
+      level: "strong",
+      value: (summary) => summary.supersonicSeconds,
+    },
+  ];
+  const heightBands: MovementBand[] = [
+    { id: "ground", label: "Ground", level: "unknown", value: (summary) => summary.groundSeconds },
+    { id: "low_air", label: "Low air", level: "clear", value: (summary) => summary.lowAirSeconds },
+    {
+      id: "high_air",
+      label: "High air",
+      level: "strong",
+      value: (summary) => summary.highAirSeconds,
+    },
+  ];
+
+  const cards = [
+    {
+      key: "average-speed",
+      title: "Average speed (uu/s)",
+      rows: careerMovementMagnitudeRows(summaries, averageSpeed, formatSpeed),
+    },
+    {
+      key: "distance-covered",
+      title: "Distance covered (uu / 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.totalDistance, summary.activeSeconds),
+        formatDistanceRate,
+      ),
+    },
+    {
+      key: "speed-bands",
+      title: "Speed bands (% tracked time)",
+      rows: careerMovementDistributionRows(summaries, speedBands, speedBandTotal),
+    },
+    {
+      key: "ground-air",
+      title: "Ground & air (% tracked time)",
+      rows: careerMovementDistributionRows(summaries, heightBands, movementTimeTotal),
+    },
+    {
+      key: "powerslide-time",
+      title: "Powerslide time (s / 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.powerslideSeconds, summary.activeSeconds),
+        formatSecondsRate,
+      ),
+    },
+    {
+      key: "powerslide-count",
+      title: "Powerslide count (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.powerslideCount, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+    {
+      key: "speed-flips",
+      title: "Speed flips (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.speedFlips, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+    {
+      key: "wavedashes",
+      title: "Wavedashes (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.wavedashes, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+    {
+      key: "half-flips",
+      title: "Half flips (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.halfFlips, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+  ];
+
+  return (
+    <section className="movement-profile-detail full-span">
+      <div className="stat-comparison-grid player-rate-comparison-grid">
+        {cards.map((card) => (
+          <PlayerComparisonChart
+            className="career-rate-card"
+            key={card.key}
+            rows={card.rows}
+            title={card.title}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function movementCohortSummary(
+  key: string,
+  careerCohort: CareerCohortKey,
+  name: string,
+  cohort: MovementCohortSummary,
+): CareerMovementSummary {
+  return {
+    key,
+    name,
+    platform: null,
+    platformPlayerId: null,
+    rank: null,
+    team: null,
+    careerCohort,
+    appearanceCount: cohort.appearance_count,
+    activeSeconds: cohort.active_seconds,
+    totalDistance: cohort.total_distance,
+    speedWeighted: cohort.speed_weighted,
+    speedWeight: cohort.speed_weight,
+    slowSeconds: cohort.slow_seconds,
+    boostSeconds: cohort.boost_seconds,
+    supersonicSeconds: cohort.supersonic_seconds,
+    groundSeconds: cohort.ground_seconds,
+    lowAirSeconds: cohort.low_air_seconds,
+    highAirSeconds: cohort.high_air_seconds,
+    powerslideCount: cohort.powerslide_count,
+    powerslideSeconds: cohort.powerslide_seconds,
+    speedFlips: cohort.speed_flips,
+    wavedashes: cohort.wavedashes,
+    halfFlips: cohort.half_flips,
+  };
+}
+
+function careerMovementMagnitudeRows(
+  summaries: CareerMovementSummary[],
+  value: (summary: CareerMovementSummary) => number | null,
+  format: (value: number) => string,
+): ComparisonRow[] {
+  const maxValue = Math.max(1, ...summaries.map((summary) => value(summary) ?? 0));
+  return summaries.map((summary) => {
+    const metric = value(summary);
+    const total = metric ?? 0;
+    const formatted = format(total);
+    return {
+      key: summary.key,
+      label: movementCohortLabel(summary),
+      ariaLabel: `${summary.name}: ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: careerCohortSegmentClassName(summary.careerCohort),
+          label: summary.name,
+          value: total,
+        },
+      ],
+      total,
+      maxValue,
+      valueInBar: metric != null && total > 0 ? formatted : undefined,
+      placeholder: metric != null && total > 0 ? undefined : formatted,
+    };
+  });
+}
+
+function careerMovementDistributionRows(
+  summaries: CareerMovementSummary[],
+  bands: MovementBand[],
+  totalFor: (summary: CareerMovementSummary) => number,
+): ComparisonRow[] {
+  return summaries.map((summary) => {
+    const total = totalFor(summary);
+    const segments: SegmentedBarSegment[] = bands.map((band, index) => {
+      const value = band.value(summary);
+      const share = total > 0 ? value / total : 0;
+      return {
+        key: band.id,
+        className: outcomeSegmentClassName(GROUP_BAND_TONES[index], "clear"),
+        label: band.label,
+        value,
+        visibleLabel:
+          value > 0 && share >= 0.12 ? `${band.label} ${Math.round(share * 100)}%` : undefined,
+        title:
+          value > 0
+            ? statPercentWithValue(`${Math.round(share * 100)}%`, formatSeconds(value), band.label)
+            : undefined,
+      };
+    });
+    return {
+      key: summary.key,
+      label: movementCohortLabel(summary),
+      ariaLabel: `${summary.name}: ${bands.map((band) => band.label).join(" / ")}`,
+      segments,
+      total,
+      style: outcomeDistributionColorStyle(BAND_COLORS),
+      placeholder: total > 0 ? undefined : "0%",
+    };
+  });
+}
+
+function movementCohortLabel(summary: CareerMovementSummary): ReactNode {
+  const suffix = summary.careerCohort === "player" ? "games" : "appearances";
+  return (
+    <StatPlayerLabel
+      className={careerCohortClassName(summary.careerCohort)}
+      name={summary.name}
+      platform={null}
+      profilePath={null}
+      rank={null}
+      showPlatformBadge={false}
+      subtitle={`${careerCohortSubtitle(summary.careerCohort)} · ${summary.appearanceCount.toLocaleString()} ${suffix}`}
+    />
   );
 }
 
@@ -608,11 +869,27 @@ function formatDistanceShort(value: number): string {
   return `${Math.round(value).toLocaleString()} uu`;
 }
 
+function formatDistanceRate(value: number): string {
+  return `${Math.round(value).toLocaleString()} uu/5m`;
+}
+
 function formatSeconds(value: number): string {
   if (value > 0 && value < 10) return `${value.toFixed(1)}s`;
   return `${Math.round(value).toLocaleString()}s`;
 }
 
+function formatSecondsRate(value: number): string {
+  if (value > 0 && value < 10) return `${value.toFixed(1)}s/5m`;
+  return `${Math.round(value).toLocaleString()}s/5m`;
+}
+
 function formatCount(value: number): string {
   return Math.round(value).toLocaleString();
+}
+
+function formatRate(value: number): string {
+  if (!Number.isFinite(value)) return "0/5m";
+  const absolute = Math.abs(value);
+  const formatted = absolute >= 100 ? value.toFixed(0) : value.toFixed(absolute >= 10 ? 1 : 2);
+  return `${formatted}/5m`;
 }

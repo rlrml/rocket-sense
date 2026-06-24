@@ -15,6 +15,7 @@ import type {
   EventLeaderboardResponse,
   StatLeaderboardResponse,
   MechanicEventsResponse,
+  MovementSummaryResponse,
   PlayerProfileResponse,
   PlayerBoostTotalsResponse,
   PlayerStatOverviewResponse,
@@ -394,6 +395,16 @@ export function getPlayerPositioningSummary(
   return request<PositioningSummaryResponse>(
     `/api/v1/stats/positioning/summary?${params.toString()}`,
   );
+}
+
+export function getPlayerMovementSummary(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<MovementSummaryResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<MovementSummaryResponse>(`/api/v1/stats/movement/summary?${params.toString()}`);
 }
 
 export async function listReplayEvents(
