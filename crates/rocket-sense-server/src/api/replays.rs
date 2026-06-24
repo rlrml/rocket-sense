@@ -442,7 +442,7 @@ pub struct ListReplaysQuery {
     pub count: Option<u32>,
     /// Number of rows to skip.
     pub offset: Option<u32>,
-    /// Supported values: `upload-date`, `replay-date`.
+    /// Supported values: `replay-date` (default), `upload-date`.
     #[serde(rename = "sort-by")]
     pub sort_by: Option<String>,
     /// Supported values: `asc`, `desc`.
@@ -1788,7 +1788,7 @@ enum SortBy {
 
 impl SortBy {
     fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
-        match value.unwrap_or("upload-date") {
+        match value.unwrap_or("replay-date") {
             "upload-date" | "created_at" => Ok(Self::UploadDate),
             "replay-date" | "replay_date" => Ok(Self::ReplayDate),
             other => Err(ApiError::bad_request(format!(
