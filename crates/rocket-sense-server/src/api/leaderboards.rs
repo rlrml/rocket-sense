@@ -467,6 +467,13 @@ impl EventSort {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventCountSource {
+    Scoreboard { column: &'static str },
+    SubjectRole { role: &'static str },
+    AnySubject,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EventLeaderboardResponse {
     pub rows: Vec<EventLeaderboardRowResponse>,
@@ -545,6 +552,26 @@ impl EventLeaderboardFilters {
             },
             paging,
         ))
+    }
+
+    fn event_count_source(&self) -> EventCountSource {
+        let [term] = self.stat_terms.as_slice() else {
+            return EventCountSource::AnySubject;
+        };
+        match term.as_str() {
+            "goal" | "goals" | "core.goal" => EventCountSource::Scoreboard { column: "goals" },
+            "assist" | "assists" | "core.assist" => {
+                EventCountSource::Scoreboard { column: "assists" }
+            }
+            "save" | "saves" | "core.save" => EventCountSource::Scoreboard { column: "saves" },
+            "shot" | "shots" | "core.shot" => EventCountSource::Scoreboard { column: "shots" },
+            "bump" | "bumps" => EventCountSource::SubjectRole { role: "initiator" },
+            "demolition" | "demolitions" | "demo" | "demos" => {
+                EventCountSource::SubjectRole { role: "attacker" }
+            }
+            "pass" | "passes" => EventCountSource::SubjectRole { role: "passer" },
+            _ => EventCountSource::AnySubject,
+        }
     }
 }
 
@@ -682,6 +709,45 @@ fn push_event_ctes<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     filters: &'args EventLeaderboardFilters,
 ) {
+    if let EventCountSource::Scoreboard { column } = filters.event_count_source() {
+        builder.push(
+            "WITH event_counts AS (\
+             SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
+             COALESCE(SUM(rp.",
+        );
+        builder.push(column);
+        builder.push(
+            "), 0)::bigint AS event_count \
+             FROM replay_players rp \
+             JOIN replays r ON r.id = rp.replay_id \
+             WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
+             AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
+             AND r.canonical_analysis_run_id IS NOT NULL",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(
+            " GROUP BY rp.platform, rp.platform_player_id \
+             HAVING COALESCE(SUM(rp.",
+        );
+        builder.push(column);
+        builder.push(
+            "), 0) > 0), \
+             denominators AS (\
+             SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
+             COUNT(DISTINCT rp.replay_id) AS replay_count, \
+             SUM(rp.active_time_seconds) AS active_time_seconds \
+             FROM replay_players rp \
+             JOIN replays r ON r.id = rp.replay_id \
+             WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
+             AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
+             AND r.canonical_analysis_run_id IS NOT NULL \
+             AND (rp.platform, rp.platform_player_id) IN (SELECT platform, platform_player_id FROM event_counts)",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
+        return;
+    }
+
     builder.push(
         "WITH event_counts AS (\
          SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
@@ -689,7 +755,15 @@ fn push_event_ctes<'args>(
          FROM replay_players rp \
          JOIN replays r ON r.id = rp.replay_id \
          JOIN play_event_subjects subject ON subject.replay_player_id = rp.id \
-         JOIN play_events event ON event.id = subject.event_id \
+         ",
+    );
+    if let EventCountSource::SubjectRole { role } = filters.event_count_source() {
+        builder.push("AND subject.role = ");
+        builder.push_bind(role);
+        builder.push(" ");
+    }
+    builder.push(
+        "JOIN play_events event ON event.id = subject.event_id \
          AND event.analysis_run_id = r.canonical_analysis_run_id",
     );
     append_user_facing_stat_event_join_filter(builder, "event");

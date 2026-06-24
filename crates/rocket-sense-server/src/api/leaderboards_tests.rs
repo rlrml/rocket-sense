@@ -191,9 +191,70 @@ fn event_rank_query_builds_ctes_and_metric_order() {
 }
 
 #[test]
+fn event_rank_query_counts_goals_from_scoreboard() {
+    let (filters, paging) = event_filters("event-type=goal&sort=per-minute&team-size=2");
+    let sql = event_rank_query(&filters, &paging).into_sql();
+
+    assert_eq!(
+        filters.event_count_source(),
+        EventCountSource::Scoreboard { column: "goals" }
+    );
+    assert!(sql.contains("COALESCE(SUM(rp.goals), 0)::bigint AS event_count"));
+    assert!(sql.contains("HAVING COALESCE(SUM(rp.goals), 0) > 0"));
+    assert!(sql.contains("team_player_count"));
+    assert!(!sql.contains("JOIN play_event_subjects subject"));
+    assert!(!sql.contains("event.event_type_id IN"));
+    assert!(sql.contains("ORDER BY per_active_minute DESC NULLS LAST, event_count DESC"));
+}
+
+#[test]
+fn event_rank_query_counts_core_scoreboard_stats_from_scoreboard() {
+    for (query, column) in [
+        ("event-type=assist", "assists"),
+        ("event-type=save", "saves"),
+        ("event-type=shot", "shots"),
+    ] {
+        let (filters, paging) = event_filters(query);
+        let sql = event_rank_query(&filters, &paging).into_sql();
+
+        assert_eq!(
+            filters.event_count_source(),
+            EventCountSource::Scoreboard { column }
+        );
+        assert!(sql.contains(&format!(
+            "COALESCE(SUM(rp.{column}), 0)::bigint AS event_count"
+        )));
+        assert!(!sql.contains("JOIN play_event_subjects subject"));
+    }
+}
+
+#[test]
+fn event_rank_query_filters_directional_events_to_credit_role() {
+    for (query, role) in [
+        ("event-type=bump", "initiator"),
+        ("event-type=demolition", "attacker"),
+        ("event-type=pass", "passer"),
+    ] {
+        let (filters, paging) = event_filters(query);
+        let sql = event_rank_query(&filters, &paging).into_sql();
+
+        assert_eq!(
+            filters.event_count_source(),
+            EventCountSource::SubjectRole { role }
+        );
+        assert!(
+            sql.contains("JOIN play_event_subjects subject ON subject.replay_player_id = rp.id")
+        );
+        assert!(sql.contains("AND subject.role = "));
+        assert!(sql.contains("event.event_type_id IN"));
+    }
+}
+
+#[test]
 fn event_rank_query_orders_by_total_by_default() {
     let (filters, paging) = event_filters("event-type=air_dribble");
     let sql = event_rank_query(&filters, &paging).into_sql();
+    assert_eq!(filters.event_count_source(), EventCountSource::AnySubject);
     assert!(sql.contains("ORDER BY event_count DESC, e.platform, e.platform_player_id"));
 }
 
