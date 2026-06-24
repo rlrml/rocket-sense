@@ -145,7 +145,7 @@ fn build_movement_summary_query(filters: &MovementStatsQuery) -> QueryBuilder<'_
         ],
     );
     let avg_speed = json_number_expr("payload", &["avg_speed", "average_speed", "speed"]);
-    let duration = "COALESCE(event.duration_seconds, CASE WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL THEN GREATEST(event.end_time - event.start_time, 0) ELSE 0 END, 0)";
+    let duration = "duration";
     let slow_seconds = seconds_expr(
         "payload",
         &[

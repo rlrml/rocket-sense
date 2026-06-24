@@ -36,6 +36,7 @@ fn movement_summary_query_splits_cohorts_and_reads_movement_facets() {
     assert!(sql.contains("total_distance"));
     assert!(sql.contains("avg_speed"));
     assert!(sql.contains("time_ground"));
+    assert!(sql.contains("THEN duration ELSE 0 END"));
     assert!(sql.contains("speed_flip"));
     assert!(sql.contains("GROUP BY cohort"));
 }
