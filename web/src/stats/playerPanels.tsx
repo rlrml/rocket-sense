@@ -83,7 +83,11 @@ function playerRateComparisonRows(
     stat.teammate_per_active_minute != null
       ? stat.teammate_per_active_minute * rateWindowMinutes
       : null;
-  const maxValue = Math.max(1, playerRate, teammateRate ?? 0);
+  const opponentRate =
+    stat.opponent_per_active_minute != null
+      ? stat.opponent_per_active_minute * rateWindowMinutes
+      : null;
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0);
   const rows: ComparisonRow[] = [
     playerRateComparisonRow({
       cohortKey: "player",
@@ -102,6 +106,18 @@ function playerRateComparisonRows(
         maxValue,
         playerName,
         rate: teammateRate,
+        statName: stat.display_name,
+      }),
+    );
+  }
+  if (opponentRate != null) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "opponents",
+        count: stat.opponent_event_count,
+        maxValue,
+        playerName,
+        rate: opponentRate,
         statName: stat.display_name,
       }),
     );
@@ -170,6 +186,8 @@ function RateComparisonBar({
   playerName = "Player",
   playerRate,
   playerTitle,
+  opponentRate,
+  opponentTitle,
   teammateRate,
   teammateTitle,
 }: {
@@ -179,9 +197,31 @@ function RateComparisonBar({
   playerName?: string;
   playerRate: number;
   playerTitle?: string;
+  opponentRate?: number | null;
+  opponentTitle?: string;
   teammateRate: number | null;
   teammateTitle?: string;
 }) {
+  const markers = [];
+  if (teammateRate != null) {
+    markers.push({
+      key: "teammates",
+      className: careerCohortClassName("teammates"),
+      label: "Teammates",
+      value: Math.max(0, teammateRate),
+      title: teammateTitle ?? `Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min`,
+    });
+  }
+  if (opponentRate != null) {
+    markers.push({
+      key: "opponents",
+      className: careerCohortClassName("opponents"),
+      label: "Opponents",
+      value: Math.max(0, opponentRate),
+      title: opponentTitle ?? `Opponents: ${formatRate(opponentRate)} per ${rateWindowMinutes} min`,
+    });
+  }
+
   return (
     <ComparisonBar
       ariaLabel={ariaLabel}
@@ -197,21 +237,7 @@ function RateComparisonBar({
         },
       ]}
       total={Math.max(0, playerRate)}
-      markers={
-        teammateRate == null
-          ? []
-          : [
-              {
-                key: "teammates",
-                className: careerCohortClassName("teammates"),
-                label: "Teammates",
-                value: Math.max(0, teammateRate),
-                title:
-                  teammateTitle ??
-                  `Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min`,
-              },
-            ]
-      }
+      markers={markers}
       placeholder={playerLabel}
     />
   );
@@ -224,6 +250,8 @@ interface ProfileRateStat {
   perActiveMinute: number | null;
   teammateEventCount: number;
   teammatePerActiveMinute: number | null;
+  opponentEventCount: number;
+  opponentPerActiveMinute: number | null;
 }
 
 export function CoreProfileComparison({
@@ -297,6 +325,8 @@ function rateCardFromOverview(
     perActiveMinute: rate.per_active_minute,
     teammateEventCount: rate.teammate_count,
     teammatePerActiveMinute: rate.teammate_per_active_minute,
+    opponentEventCount: rate.opponent_count,
+    opponentPerActiveMinute: rate.opponent_per_active_minute,
   };
   return { key, title, rows: profileRateComparisonRows(stat, playerName) };
 }
@@ -306,6 +336,8 @@ interface ScoringRateLike {
   per_active_minute: number | null;
   teammate_count: number;
   teammate_per_active_minute: number | null;
+  opponent_count: number;
+  opponent_per_active_minute: number | null;
 }
 
 function scoringRateOrZero(rate: ScoringRateLike | null | undefined): ScoringRateLike {
@@ -314,6 +346,8 @@ function scoringRateOrZero(rate: ScoringRateLike | null | undefined): ScoringRat
     per_active_minute: rate?.per_active_minute ?? null,
     teammate_count: rate?.teammate_count ?? 0,
     teammate_per_active_minute: rate?.teammate_per_active_minute ?? null,
+    opponent_count: rate?.opponent_count ?? 0,
+    opponent_per_active_minute: rate?.opponent_per_active_minute ?? null,
   };
 }
 
@@ -326,6 +360,7 @@ function aggregateProfileRateStat(
   const matches = stats.filter(predicate);
   const eventCount = matches.reduce((total, stat) => total + stat.event_count, 0);
   const teammateEventCount = matches.reduce((total, stat) => total + stat.teammate_event_count, 0);
+  const opponentEventCount = matches.reduce((total, stat) => total + stat.opponent_event_count, 0);
   return {
     key,
     displayName,
@@ -335,6 +370,10 @@ function aggregateProfileRateStat(
     teammatePerActiveMinute: sumNullableRates(
       matches.map((stat) => stat.teammate_per_active_minute),
     ),
+    opponentEventCount,
+    opponentPerActiveMinute: sumNullableRates(
+      matches.map((stat) => stat.opponent_per_active_minute),
+    ),
   };
 }
 
@@ -342,7 +381,9 @@ function profileRateComparisonRows(stat: ProfileRateStat, playerName: string): C
   const playerRate = (stat.perActiveMinute ?? 0) * rateWindowMinutes;
   const teammateRate =
     stat.teammatePerActiveMinute != null ? stat.teammatePerActiveMinute * rateWindowMinutes : null;
-  const maxValue = Math.max(1, playerRate, teammateRate ?? 0);
+  const opponentRate =
+    stat.opponentPerActiveMinute != null ? stat.opponentPerActiveMinute * rateWindowMinutes : null;
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0);
   const rows = [
     playerRateComparisonRow({
       cohortKey: "player",
@@ -365,6 +406,18 @@ function profileRateComparisonRows(stat: ProfileRateStat, playerName: string): C
       }),
     );
   }
+  if (opponentRate != null || stat.opponentEventCount > 0) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "opponents",
+        count: stat.opponentEventCount,
+        maxValue,
+        playerName,
+        rate: opponentRate ?? 0,
+        statName: stat.displayName,
+      }),
+    );
+  }
   return rows;
 }
 
@@ -375,6 +428,7 @@ function shootingPercentageRows(
 ): ComparisonRow[] {
   const playerPercentage = percentage(goals.count, shots.count);
   const teammatePercentage = percentage(goals.teammate_count, shots.teammate_count);
+  const opponentPercentage = percentage(goals.opponent_count, shots.opponent_count);
   const rows: ComparisonRow[] = [
     percentageComparisonRow({
       cohortKey: "player",
@@ -399,6 +453,19 @@ function shootingPercentageRows(
       }),
     );
   }
+  if (opponentPercentage != null || shots.opponent_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "opponents",
+        denominator: shots.opponent_count,
+        label: formatPercentage(opponentPercentage),
+        maxValue: 100,
+        numerator: goals.opponent_count,
+        playerName,
+        value: opponentPercentage ?? 0,
+      }),
+    );
+  }
   return rows;
 }
 
@@ -408,8 +475,10 @@ function assistPercentageRows(
   playerName: string,
 ): ComparisonRow[] {
   const teamGoals = goals.count + goals.teammate_count;
+  const opponentTeamGoals = goals.opponent_count;
   const playerPercentage = percentage(assists.count, teamGoals);
   const teammatePercentage = percentage(assists.teammate_count, teamGoals);
+  const opponentPercentage = percentage(assists.opponent_count, opponentTeamGoals);
   const rows: ComparisonRow[] = [
     percentageComparisonRow({
       cohortKey: "player",
@@ -435,6 +504,21 @@ function assistPercentageRows(
         statName: "Assist percentage",
         totalName: "assists/team goals",
         value: teammatePercentage ?? 0,
+      }),
+    );
+  }
+  if (opponentPercentage != null || assists.opponent_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "opponents",
+        denominator: opponentTeamGoals,
+        label: formatPercentage(opponentPercentage),
+        maxValue: 100,
+        numerator: assists.opponent_count,
+        playerName,
+        statName: "Assist percentage",
+        totalName: "assists/team goals",
+        value: opponentPercentage ?? 0,
       }),
     );
   }
@@ -548,9 +632,13 @@ export function ScoringRatePanel({
       rate.teammate_per_active_minute != null
         ? rate.teammate_per_active_minute * rateWindowMinutes
         : null,
+    opponentRate:
+      rate.opponent_per_active_minute != null
+        ? rate.opponent_per_active_minute * rateWindowMinutes
+        : null,
   }));
   const maxRate = rows.reduce(
-    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
+    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0, row.opponentRate ?? 0),
     0,
   );
 
@@ -558,10 +646,10 @@ export function ScoringRatePanel({
     <section className="chart-panel scoring-rate-panel">
       <header className="chart-panel-header">
         <h3>Goals &amp; assists</h3>
-        <span>Per {rateWindowMinutes} minutes vs teammate average</span>
+        <span>Per {rateWindowMinutes} minutes vs teammate and opponent averages</span>
       </header>
       <div className="rate-chart-rows">
-        {rows.map(({ label, count, playerRate, teammateRate }) => (
+        {rows.map(({ label, count, playerRate, teammateRate, opponentRate }) => (
           <div className="rate-chart-row" key={label}>
             <div className="rate-chart-label">{label}</div>
             <div
@@ -574,6 +662,7 @@ export function ScoringRatePanel({
                 playerLabel={formatRate(playerRate)}
                 playerName={playerName}
                 playerRate={playerRate}
+                opponentRate={opponentRate}
                 teammateRate={teammateRate}
               />
             </div>
@@ -581,6 +670,9 @@ export function ScoringRatePanel({
               <strong>{formatRate(playerRate)}</strong>
               {teammateRate != null ? (
                 <span className="subtle"> vs {formatRate(teammateRate)}</span>
+              ) : null}
+              {opponentRate != null ? (
+                <span className="subtle"> / {formatRate(opponentRate)} opp</span>
               ) : null}
               <span className="subtle"> · {count.toLocaleString()}</span>
             </div>
@@ -590,6 +682,7 @@ export function ScoringRatePanel({
       <p className="rate-chart-legend subtle">
         <span className="rate-chart-legend-fill" /> player
         <span className="rate-chart-legend-marker" /> teammate average
+        <span className="rate-chart-legend-marker" /> opponent average
       </p>
     </section>
   );
@@ -618,6 +711,8 @@ export function GoalTagSharePanel({
         perActiveMinute: tag.per_active_minute,
         teammateEventCount: tag.teammate_count,
         teammatePerActiveMinute: tag.teammate_per_active_minute,
+        opponentEventCount: tag.opponent_count,
+        opponentPerActiveMinute: tag.opponent_per_active_minute,
       },
       playerName,
     );
@@ -641,7 +736,7 @@ export function GoalTagSharePanel({
         <h3>Goal types</h3>
         <span>
           {overview.goals_scored.toLocaleString()} goals tagged by the analyzer — per{" "}
-          {rateWindowMinutes} minutes vs teammate average.
+          {rateWindowMinutes} minutes vs teammate and opponent averages.
         </span>
         {allGoalsHref ? (
           <Link className="goal-tag-watch-all" to={allGoalsHref}>
@@ -809,61 +904,93 @@ function FirstManStintHistogram({
 }) {
   const histogram = stats.rotation_duration_histogram;
   const teammateHistogram = stats.teammate_rotation_duration_histogram ?? [];
+  const opponentHistogram = stats.opponent_rotation_duration_histogram ?? [];
   if (histogram.length === 0) return null;
 
   const teammateCountFor = (minSeconds: number) =>
     teammateHistogram.find((bucket) => bucket.min_seconds === minSeconds)?.count ?? 0;
+  const opponentCountFor = (minSeconds: number) =>
+    opponentHistogram.find((bucket) => bucket.min_seconds === minSeconds)?.count ?? 0;
   const playerTotal = histogram.reduce((sum, bucket) => sum + bucket.count, 0);
   const teammateTotal = teammateHistogram.reduce((sum, bucket) => sum + bucket.count, 0);
+  const opponentTotal = opponentHistogram.reduce((sum, bucket) => sum + bucket.count, 0);
   const hasTeammates = teammateTotal > 0;
+  const hasOpponents = opponentTotal > 0;
 
-  // Compare share-of-stints so player and teammate distributions are on the same scale.
+  // Compare share-of-stints so every cohort distribution is on the same scale.
   const rows = histogram.map((bucket) => {
     const teammateCount = teammateCountFor(bucket.min_seconds);
+    const opponentCount = opponentCountFor(bucket.min_seconds);
     return {
       bucket,
       playerShare: playerTotal > 0 ? bucket.count / playerTotal : 0,
       teammateShare: teammateTotal > 0 ? teammateCount / teammateTotal : 0,
+      opponentShare: opponentTotal > 0 ? opponentCount / opponentTotal : 0,
       teammateCount,
+      opponentCount,
     };
   });
-  const maxShare = rows.reduce((max, row) => Math.max(max, row.playerShare, row.teammateShare), 0);
+  const maxShare = rows.reduce(
+    (max, row) => Math.max(max, row.playerShare, row.teammateShare, row.opponentShare),
+    0,
+  );
 
   return (
     <div className="rotation-share-block rotation-histogram-block">
-      <h4>First man stint lengths{hasTeammates ? " vs teammates" : ""}</h4>
+      <h4>First man stint lengths{hasTeammates || hasOpponents ? " vs cohorts" : ""}</h4>
       <div className="rotation-histogram" role="img" aria-label="First man stint length histogram">
-        {rows.map(({ bucket, playerShare, teammateShare, teammateCount }) => (
-          <div
-            className="rotation-histogram-bar"
-            key={bucket.min_seconds}
-            title={
-              `${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints (${formatShare(playerShare)})` +
-              (hasTeammates
-                ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})`
-                : "")
-            }
-          >
-            <div className="rotation-histogram-plot">
-              <span
-                className="rotation-histogram-fill"
-                style={{ height: `${barPercent(playerShare, maxShare)}%` }}
-              />
-              {hasTeammates ? (
+        {rows.map(
+          ({ bucket, playerShare, teammateShare, opponentShare, teammateCount, opponentCount }) => (
+            <div
+              className="rotation-histogram-bar"
+              key={bucket.min_seconds}
+              title={
+                `${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints (${formatShare(playerShare)})` +
+                (hasTeammates
+                  ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})`
+                  : "") +
+                (hasOpponents
+                  ? ` · opponents ${opponentCount.toLocaleString()} (${formatShare(opponentShare)})`
+                  : "")
+              }
+            >
+              <div className="rotation-histogram-plot">
                 <span
-                  className="rotation-histogram-teammate-marker"
-                  style={{ bottom: `${barPercent(teammateShare, maxShare)}%` }}
+                  className="rotation-histogram-fill"
+                  style={{ height: `${barPercent(playerShare, maxShare)}%` }}
                 />
-              ) : null}
+                {hasTeammates ? (
+                  <span
+                    className="rotation-histogram-teammate-marker"
+                    style={{ bottom: `${barPercent(teammateShare, maxShare)}%` }}
+                  />
+                ) : null}
+                {hasOpponents ? (
+                  <span
+                    className="rotation-histogram-teammate-marker career-cohort-opponents"
+                    style={{ bottom: `${barPercent(opponentShare, maxShare)}%` }}
+                  />
+                ) : null}
+              </div>
+              <span className="rotation-histogram-label">{bucket.min_seconds}s</span>
             </div>
-            <span className="rotation-histogram-label">{bucket.min_seconds}s</span>
-          </div>
-        ))}
+          ),
+        )}
       </div>
-      {hasTeammates ? (
+      {hasTeammates || hasOpponents ? (
         <p className="rotation-histogram-legend subtle">
           <span className="rotation-histogram-legend-fill" /> {playerName}
-          <span className="rotation-histogram-legend-marker" /> teammate average
+          {hasTeammates ? (
+            <>
+              <span className="rotation-histogram-legend-marker" /> teammate average
+            </>
+          ) : null}
+          {hasOpponents ? (
+            <>
+              <span className="rotation-histogram-legend-marker career-cohort-opponents" /> opponent
+              average
+            </>
+          ) : null}
         </p>
       ) : null}
     </div>
@@ -886,10 +1013,22 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
     stats.teammate_time_most_forward_seconds,
     stats.teammate_active_time_seconds,
   );
+  const opponentBack = shareOf(
+    stats.opponent_time_most_back_seconds,
+    stats.opponent_active_time_seconds,
+  );
+  const opponentForward = shareOf(
+    stats.opponent_time_most_forward_seconds,
+    stats.opponent_active_time_seconds,
+  );
   const hasTeammates = teammateBack != null || teammateForward != null;
+  const hasOpponents = opponentBack != null || opponentForward != null;
   const teammateBackPosition = teammateBack == null ? null : barPercent(teammateBack, 1);
   const teammateForwardPosition =
     teammateForward == null ? null : 100 - barPercent(teammateForward, 1);
+  const opponentBackPosition = opponentBack == null ? null : barPercent(opponentBack, 1);
+  const opponentForwardPosition =
+    opponentForward == null ? null : 100 - barPercent(opponentForward, 1);
 
   return (
     <div className="rotation-share-block field-position-tug-block">
@@ -929,6 +1068,20 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
               title={`Teammates most forward: ${formatShare(teammateForward)}`}
             />
           ) : null}
+          {opponentBackPosition != null ? (
+            <span
+              className="field-position-teammate-marker back career-cohort-opponents"
+              style={{ left: `${opponentBackPosition}%` }}
+              title={`Opponents most back: ${formatShare(opponentBack)}`}
+            />
+          ) : null}
+          {opponentForwardPosition != null ? (
+            <span
+              className="field-position-teammate-marker forward career-cohort-opponents"
+              style={{ left: `${opponentForwardPosition}%` }}
+              title={`Opponents most forward: ${formatShare(opponentForward)}`}
+            />
+          ) : null}
         </div>
         <div className="rotation-depth-tug-labels field-position-tug-labels">
           <span className="rotation-depth-tug-label">
@@ -936,8 +1089,8 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
             Most back
             <strong>{formatShare(mostBack)}</strong>
           </span>
-          {hasTeammates ? (
-            <span className="field-position-teammate-label">Markers show teammate averages</span>
+          {hasTeammates || hasOpponents ? (
+            <span className="field-position-teammate-label">Markers show cohort averages</span>
           ) : null}
           <span className="rotation-depth-tug-label rotation-depth-tug-label-right">
             <strong>{formatShare(mostForward)}</strong>
