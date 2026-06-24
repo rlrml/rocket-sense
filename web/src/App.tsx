@@ -35,7 +35,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -46,6 +46,7 @@ import {
   useParams,
 } from "react-router-dom";
 import { siDiscord, siEpicgames, siGithub, siGoogle, siSteam } from "simple-icons";
+import { lazyWithChunkLoadRecovery } from "./chunkLoadRecovery";
 import {
   addReplayGroupManager,
   addReplaysToGroup,
@@ -159,13 +160,13 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 // Lazily loaded so the three.js / wasm replay player is only fetched when a
 // goal playlist page is actually opened, instead of bloating the main bundle.
-const ReplayGoalPlaylistPage = lazy(() =>
+const ReplayGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.ReplayGoalPlaylistPage })),
 );
-const PlayerGoalPlaylistPage = lazy(() =>
+const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.PlayerGoalPlaylistPage })),
 );
-const LeaderboardsPage = lazy(() =>
+const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
 );
 

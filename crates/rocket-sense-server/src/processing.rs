@@ -6684,7 +6684,7 @@ fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetad
     // Categories follow subtr-actor's event definitions; entries here are
     // rocket-sense-specific overrides only. The former controlled_play and
     // kickoff overrides were dropped when subtr-actor retired the Possession
-    // category (controlled_play is now a mechanic, kickoff is core).
+    // category; the vendored registry now owns those categories.
     let (id, label, category) = match id {
         "core_player_scoreboard" => (
             "core_player_scoreboard",
