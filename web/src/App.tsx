@@ -3684,7 +3684,7 @@ function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[
   if (groupId === "kickoffs") {
     return ["kickoffTaker", "kickoffSupport", "kickoffFilter"];
   }
-  if (groupId === "possession-territory") {
+  if (groupId === "possession" || groupId === "possession-territory") {
     return ["possession"];
   }
   return [];
