@@ -145,6 +145,12 @@ fn build_movement_summary_query(filters: &MovementStatsQuery) -> QueryBuilder<'_
         ],
     );
     let avg_speed = json_number_expr("payload", &["avg_speed", "average_speed", "speed"]);
+    // These per-state second expressions are summed in `event_aggregates`, which
+    // is `FROM movement_events` -- a CTE that already projects the resolved
+    // per-event `duration` as a column. Reference that column, NOT the raw
+    // `event.*` columns: those are only in scope inside `movement_events` itself,
+    // so embedding them here produced `missing FROM-clause entry for table
+    // "event"` and 500'd the whole movement summary.
     let duration = "duration";
     let slow_seconds = seconds_expr(
         "payload",

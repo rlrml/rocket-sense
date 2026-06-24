@@ -768,6 +768,8 @@ enum StatLeaderboardMetric {
     PossessionTime,
     TouchesPerPossession,
     AvgPossessionDuration,
+    HighAerialTouchCount,
+    ControlTouchCount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -784,6 +786,7 @@ enum StatMetricSource {
     PlayerPossessionAverage {
         numerator: PossessionAverageNumerator,
     },
+    TouchCount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -811,6 +814,7 @@ impl StatMetricDefinition {
             } => self.key,
             StatMetricSource::PlayerPossessionDuration => self.key,
             StatMetricSource::PlayerPossessionAverage { .. } => self.key,
+            StatMetricSource::TouchCount => self.key,
         }
     }
 
@@ -819,6 +823,10 @@ impl StatMetricDefinition {
             self.source,
             StatMetricSource::PlayerPossessionAverage { .. }
         )
+    }
+
+    fn supports_share(self) -> bool {
+        self.unit == "seconds" && !self.is_average()
     }
 }
 
@@ -886,6 +894,36 @@ const STAT_METRIC_DEFINITIONS: &[StatMetricDefinition] = &[
             numerator: PossessionAverageNumerator::DurationSeconds,
         },
     },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::HighAerialTouchCount,
+        key: "high-aerial-touch-count",
+        aliases: &[
+            "high_aerial_touch_count",
+            "high-aerial-touches",
+            "high_aerial_touches",
+            "high-aerial-touch",
+            "high_aerial_touch",
+        ],
+        display_name: "High aerial touches",
+        description: "Touches classified as high aerial contacts",
+        unit: "count",
+        source: StatMetricSource::TouchCount,
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::ControlTouchCount,
+        key: "control-touch-count",
+        aliases: &[
+            "control_touch_count",
+            "control-touches",
+            "control_touches",
+            "control-touch",
+            "control_touch",
+        ],
+        display_name: "Control touches",
+        description: "Touches classified as controlled contacts",
+        unit: "count",
+        source: StatMetricSource::TouchCount,
+    },
 ];
 
 impl StatLeaderboardMetric {
@@ -904,7 +942,7 @@ impl StatLeaderboardMetric {
             .map(|definition| definition.metric)
             .ok_or_else(|| {
                 ApiError::bad_request(
-                    "stat must be one of: ball-opponent-half, possession-time, touches-per-possession, avg-possession-duration",
+                    "stat must be one of: ball-opponent-half, possession-time, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count",
                 )
             })
     }
@@ -1010,6 +1048,11 @@ impl StatLeaderboardFilters {
         let metric =
             StatLeaderboardMetric::from_query(params.first(&["stat", "metric"]).as_deref())?;
         let sort = StatLeaderboardSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
+        if sort == StatLeaderboardSort::Share && !metric.definition().supports_share() {
+            return Err(ApiError::bad_request(
+                "share sorting is only available for second-based stats",
+            ));
+        }
         let min_games = params
             .first(&["min-games", "min_games"])
             .map(|value| parse_u32_filter("min-games", &value))
@@ -1033,7 +1076,7 @@ impl StatLeaderboardFilters {
     path = "/api/v1/leaderboards/stat",
     tag = "leaderboards",
     params(
-        ("stat" = Option<String>, Query, description = "Continuous stat metric: ball-opponent-half (default) or possession-time"),
+        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, touches-per-possession, avg-possession-duration, high-aerial-touch-count, or control-touch-count"),
         ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, share, or average"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),

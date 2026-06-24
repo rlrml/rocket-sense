@@ -380,6 +380,9 @@ export function getPlayerPossessionSummary(
 ): Promise<PossessionSummaryResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
+  // The materialized possession read path currently returns 500s for player
+  // summaries; use the live path so the lifetime possession panel renders.
+  params.set("materialized", "false");
   return request<PossessionSummaryResponse>(
     `/api/v1/stats/possession/summary?${params.toString()}`,
   );

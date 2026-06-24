@@ -221,6 +221,39 @@ fn per_minute_requires_positive_denominator() {
 }
 
 #[test]
+fn player_stat_aggregates_role_map_demolition_subjects_before_stat_term_filtering() {
+    let source = include_str!("stats.rs");
+
+    assert!(source.contains("death_event_type.key = 'death'"));
+    assert!(source.contains("source_event_type.key = 'demolition' AND subject.role = 'victim'"));
+    assert!(source.contains("subject.role NOT IN ('attacker', 'victim')"));
+
+    let target_events = source
+        .find("target_events AS MATERIALIZED")
+        .expect("target events CTE should exist");
+    let target_stats = source
+        .find("target_stats AS")
+        .expect("target stats CTE should exist");
+    let stat_term_filter = source
+        .find("append_materialized_stat_term_filter(&mut query, &filters.stat_terms);")
+        .expect("mapped stat term filter should exist");
+    assert!(
+        target_events < target_stats && target_stats < stat_term_filter,
+        "stat-term filtering must happen after role-mapped event_type_id selection"
+    );
+}
+
+#[test]
+fn contact_event_type_seed_migration_covers_demo_death_aliases() {
+    let migration = include_str!("../../../../migrations/0063_seed_contact_event_types.sql");
+
+    assert!(migration.contains("('demolition', 'Demolition'"));
+    assert!(migration.contains("('kill', 'Kill'"));
+    assert!(migration.contains("('death', 'Death'"));
+    assert!(migration.contains("ON CONFLICT (key) DO NOTHING"));
+}
+
+#[test]
 fn player_boost_total_response_carries_event_derived_pad_breakdowns() {
     let mut accumulator = PlayerBoostAccumulator {
         boost_collected: 180.0,
@@ -305,4 +338,99 @@ fn player_profile_stat_indexes_cover_appearance_subject_and_teammate_joins() {
     assert!(migration.contains("INCLUDE"));
     assert!(migration.contains("replay_players_replay_team_id_idx"));
     assert!(migration.contains("play_event_subjects_replay_player_event_idx"));
+}
+
+fn boost_filters_with_player(raw_query: &str, materialized: bool) -> StatAggregateFilters {
+    let query =
+        StatAggregatesQuery::from_raw_query(Some(raw_query)).expect("boost query should parse");
+    let mut filters = StatAggregateFilters::from_query(query, None).expect("filters should parse");
+    filters.materialized_stat_counts = materialized;
+    filters
+}
+
+#[test]
+fn boost_totals_query_parses_materialized_default_and_override() {
+    let default =
+        StatAggregatesQuery::from_raw_query(Some("player-id=Steam:76561198000000000&team-size=2"))
+            .expect("boost query should parse");
+    assert_eq!(default.materialized, None, "materialized defaults to unset");
+
+    let on = StatAggregatesQuery::from_raw_query(Some(
+        "player-id=Steam:76561198000000000&materialized=true",
+    ))
+    .expect("boost query should parse");
+    assert_eq!(on.materialized, Some(true));
+
+    let off = StatAggregatesQuery::from_raw_query(Some(
+        "player-id=Steam:76561198000000000&materialized=false",
+    ))
+    .expect("boost query should parse");
+    assert_eq!(off.materialized, Some(false));
+}
+
+#[test]
+fn materialized_boost_query_reconstructs_cohorts_by_replay_and_team() {
+    let filters = boost_filters_with_player(
+        "player-id=Steam:76561198000000000&team-size=2&game-type=ranked",
+        true,
+    );
+    let builder = build_materialized_boost_query(&filters);
+    let sql = builder.sql();
+
+    // Reads the materialized table, not the live tracks/event scan.
+    assert!(sql.contains("FROM player_replay_boost boost"));
+    assert!(!sql.contains("replay_boost_tracks"));
+
+    // Cohorts reconstructed by (replay, team): self, same-team teammate,
+    // other-team opponent.
+    assert!(sql.contains("'player'::text AS cohort"));
+    assert!(sql.contains("'teammates'::text AS cohort"));
+    assert!(sql.contains("'opponents'::text AS cohort"));
+    assert!(sql.contains("boost.team = ta.target_team"));
+    assert!(sql.contains("boost.team <> ta.target_team"));
+    assert!(sql.contains("GROUP BY cohort"));
+}
+
+#[test]
+fn materialized_boost_query_casts_pad_count_sums_to_bigint() {
+    let filters = boost_filters_with_player("player-id=Steam:76561198000000000", true);
+    let builder = build_materialized_boost_query(&filters);
+    let sql = builder.sql();
+
+    // Postgres SUM(bigint) returns NUMERIC; every pad-count sum must be cast back
+    // to ::bigint so sqlx decodes it as i64 (the gotcha that bit possession).
+    for column in [
+        "big_pads",
+        "big_pads_offensive",
+        "big_pads_neutral",
+        "big_pads_defensive",
+        "small_pads",
+        "small_pads_offensive",
+        "small_pads_defensive",
+        "stolen_big_pads",
+        "stolen_small_pads",
+    ] {
+        assert!(
+            sql.contains(&format!("::bigint AS {column}")),
+            "{column} sum must be cast to ::bigint"
+        );
+    }
+
+    // Double-precision sums are not cast (they decode as f64 directly).
+    assert!(sql.contains("SUM(boost_collected), 0.0) AS boost_collected"));
+    assert!(sql.contains("SUM(tracked_seconds), 0.0) AS tracked_seconds"));
+}
+
+#[test]
+fn boost_event_fields_writer_sql_groups_by_player_and_scales_to_percent() {
+    let sql = crate::processing::PLAYER_REPLAY_BOOST_EVENT_FIELDS_SQL;
+
+    // Grouped per absolute player (no cohort concept in the materialized table).
+    assert!(sql.contains("GROUP BY replay_player_id"));
+    assert!(!sql.contains("AS cohort"));
+    // Same boost_pickup/boost_respawn source as the live event-field scan.
+    assert!(sql.contains("'boost_pickup', 'boost_respawn'"));
+    // Percent-scaled amounts and ::bigint pad counts in the stored row.
+    assert!(sql.contains("* 100.0 / 255.0 AS boost_collected_big"));
+    assert!(sql.contains("::bigint AS big_pads"));
 }

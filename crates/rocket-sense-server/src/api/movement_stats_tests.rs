@@ -42,6 +42,34 @@ fn movement_summary_query_splits_cohorts_and_reads_movement_facets() {
 }
 
 #[test]
+fn movement_aggregate_references_duration_column_not_raw_event_columns() {
+    // Regression: the per-state second expressions are summed in event_aggregates,
+    // which is FROM movement_events -- a CTE that projects a `duration` column.
+    // They must reference that column, not event.duration_seconds / event.start_time
+    // (only in scope inside movement_events), or Postgres rejects the whole query
+    // with "missing FROM-clause entry for table \"event\"" and the movement tab 500s.
+    let query = MovementStatsQuery::from_raw_query(
+        Some("team-size=3&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+    )
+    .expect("movement query should parse");
+    let sql = build_movement_summary_query(&query).sql().to_owned();
+
+    // The `event` table (play_events) is only joined inside movement_events. From
+    // event_aggregates onward the query reads movement_events' projected columns
+    // (duration, event_type, payload), so no `event.` table reference may appear
+    // there -- one is what 500'd the tab with "missing FROM-clause entry".
+    let aggregate_start = sql
+        .find("event_aggregates AS")
+        .expect("query should define event_aggregates");
+    let after = &sql[aggregate_start..];
+    assert!(
+        !after.contains("event."),
+        "event_aggregates (FROM movement_events) must not reference the `event` table:\n{after}"
+    );
+}
+
+#[test]
 fn movement_summary_streams_cover_movement_spans() {
     let streams = movement_summary_streams();
     assert!(streams.iter().any(|stream| stream == "movement"));

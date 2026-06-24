@@ -542,13 +542,25 @@ pub async fn get_player_boost_totals(
 ) -> Result<Json<PlayerBoostTotalsResponse>, ApiError> {
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
-    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    // Per-request `materialized=true|false` overrides the server default, so the
+    // boost panel can run live-vs-materialized parity checks.
+    let materialized_override = query.materialized;
+    let mut filters =
+        StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    filters.materialized_stat_counts =
+        materialized_override.unwrap_or(state.materialized_stat_counts);
     if filters.player.is_none() {
         return Err(ApiError::bad_request("boost totals require player-id"));
     }
-    let totals = load_player_boost_totals(db, &filters)
-        .await
-        .map_err(ApiError::internal)?;
+    let totals = if filters.materialized_stat_counts {
+        load_player_boost_totals_materialized(db, &filters)
+            .await
+            .map_err(ApiError::internal)?
+    } else {
+        load_player_boost_totals(db, &filters)
+            .await
+            .map_err(ApiError::internal)?
+    };
 
     Ok(Json(totals))
 }
@@ -779,18 +791,258 @@ async fn load_player_boost_totals(
     })
 }
 
+/// Pushes `WITH target_appearances, cohort_rows AS (...)` reconstructing the
+/// player / teammates / opponents cohorts from the materialized
+/// `player_replay_boost` rows in the target's filtered replays, joined by
+/// (replay, team) -- mirrors possession's `push_materialized_possession_cohorts`.
+fn push_materialized_boost_cohorts<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    filters: &'a StatAggregateFilters,
+) {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized boost requires player");
+    builder.push(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT boost.replay_id, boost.team AS target_team, boost.analysis_run_id AS run_id
+            FROM player_replay_boost boost
+            JOIN replays r ON r.id = boost.replay_id AND r.canonical_analysis_run_id = boost.analysis_run_id
+            WHERE boost.platform = "#,
+    );
+    builder.push_bind(&player.platform);
+    builder.push(" AND boost.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    append_replay_set_filters(builder, &filters.replay_set, "r");
+    builder.push(
+        r#"
+        ),
+        cohort_rows AS (
+            SELECT 'player'::text AS cohort, boost.*
+            FROM target_appearances ta
+            JOIN player_replay_boost boost
+              ON boost.replay_id = ta.replay_id AND boost.analysis_run_id = ta.run_id
+             AND boost.platform = "#,
+    );
+    builder.push_bind(&player.platform);
+    builder.push(" AND boost.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    builder.push(
+        r#"
+            UNION ALL
+            SELECT 'teammates'::text AS cohort, boost.*
+            FROM target_appearances ta
+            JOIN player_replay_boost boost
+              ON boost.replay_id = ta.replay_id AND boost.analysis_run_id = ta.run_id
+             AND boost.team = ta.target_team
+             AND NOT (boost.platform = "#,
+    );
+    builder.push_bind(&player.platform);
+    builder.push(" AND boost.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    builder.push(
+        r#")
+            UNION ALL
+            SELECT 'opponents'::text AS cohort, boost.*
+            FROM target_appearances ta
+            JOIN player_replay_boost boost
+              ON boost.replay_id = ta.replay_id AND boost.analysis_run_id = ta.run_id
+             AND boost.team IS NOT NULL AND ta.target_team IS NOT NULL
+             AND boost.team <> ta.target_team
+        )
+        "#,
+    );
+}
+
+/// Pushes the per-cohort SUM select over `cohort_rows`. The double-precision
+/// sums decode as f64; every bigint pad-count sum is cast `::bigint` (Postgres
+/// `SUM(bigint)` returns NUMERIC, which sqlx will not decode as i64).
+fn push_materialized_boost_sum_select(builder: &mut QueryBuilder<'_, Postgres>) {
+    builder.push(
+        r#"
+        SELECT
+            cohort,
+            COALESCE(SUM(boost_collected), 0.0) AS boost_collected,
+            COALESCE(SUM(boost_stolen), 0.0) AS boost_stolen,
+            COALESCE(SUM(boost_used), 0.0) AS boost_used,
+            COALESCE(SUM(boost_used_supersonic), 0.0) AS boost_used_supersonic,
+            COALESCE(SUM(boost_overfill), 0.0) AS boost_overfill,
+            COALESCE(SUM(boost_amount_weighted_sum), 0.0) AS boost_amount_weighted_sum,
+            COALESCE(SUM(tracked_seconds), 0.0) AS tracked_seconds,
+            COALESCE(SUM(time_empty), 0.0) AS time_empty,
+            COALESCE(SUM(time_low), 0.0) AS time_low,
+            COALESCE(SUM(time_medium), 0.0) AS time_medium,
+            COALESCE(SUM(time_high), 0.0) AS time_high,
+            COALESCE(SUM(time_full), 0.0) AS time_full,
+            COALESCE(SUM(time_over), 0.0) AS time_over,
+            COALESCE(SUM(boost_collected_big), 0.0) AS boost_collected_big,
+            COALESCE(SUM(boost_collected_small), 0.0) AS boost_collected_small,
+            COALESCE(SUM(boost_collected_grant), 0.0) AS boost_collected_grant,
+            COALESCE(SUM(boost_stolen_big), 0.0) AS boost_stolen_big,
+            COALESCE(SUM(boost_stolen_small), 0.0) AS boost_stolen_small,
+            COALESCE(SUM(boost_stolen_overfill), 0.0) AS boost_stolen_overfill,
+            COALESCE(SUM(big_pads), 0)::bigint AS big_pads,
+            COALESCE(SUM(big_pads_offensive), 0)::bigint AS big_pads_offensive,
+            COALESCE(SUM(big_pads_neutral), 0)::bigint AS big_pads_neutral,
+            COALESCE(SUM(big_pads_defensive), 0)::bigint AS big_pads_defensive,
+            COALESCE(SUM(small_pads), 0)::bigint AS small_pads,
+            COALESCE(SUM(small_pads_offensive), 0)::bigint AS small_pads_offensive,
+            COALESCE(SUM(small_pads_defensive), 0)::bigint AS small_pads_defensive,
+            COALESCE(SUM(stolen_big_pads), 0)::bigint AS stolen_big_pads,
+            COALESCE(SUM(stolen_small_pads), 0)::bigint AS stolen_small_pads
+        FROM cohort_rows
+        GROUP BY cohort
+        "#,
+    );
+}
+
+fn build_materialized_boost_query<'a>(
+    filters: &'a StatAggregateFilters,
+) -> QueryBuilder<'a, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_materialized_boost_cohorts(&mut builder, filters);
+    push_materialized_boost_sum_select(&mut builder);
+    builder
+}
+
+/// Read `player_replay_boost` for the target's filtered replay set and
+/// reconstruct the player/teammates/opponents cohorts by (replay, team). Derives
+/// `boost_collected_unknown` and `stolen_pads` on read (they are not stored).
+async fn load_player_boost_totals_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<PlayerBoostTotalsResponse, sqlx::Error> {
+    let mut builder = build_materialized_boost_query(filters);
+    let rows = builder.build().fetch_all(pool).await?;
+    let mut cohorts: HashMap<String, PlayerBoostTotalResponse> = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        cohorts.insert(cohort, materialized_boost_response_from_row(&row)?);
+    }
+    let cohort_has_data = |response: &PlayerBoostTotalResponse| -> bool {
+        response.tracked_seconds > 0.0
+            || response.boost_collected > 0.0
+            || response.boost_collected_big > 0.0
+            || response.boost_collected_small > 0.0
+            || response.boost_collected_grant > 0.0
+            || response.boost_stolen > 0.0
+            || response.boost_overfill > 0.0
+            || response.boost_used > 0.0
+            || response.boost_used_supersonic > 0.0
+            || response.big_pads > 0
+            || response.small_pads > 0
+    };
+    let player = cohorts
+        .remove("player")
+        .unwrap_or_else(empty_player_boost_total_response);
+    let teammates = cohorts.remove("teammates").filter(cohort_has_data);
+    let opponents = cohorts.remove("opponents").filter(cohort_has_data);
+    Ok(PlayerBoostTotalsResponse {
+        player,
+        teammates,
+        opponents,
+    })
+}
+
+fn materialized_boost_response_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PlayerBoostTotalResponse, sqlx::Error> {
+    let boost_collected: f64 = row.try_get("boost_collected")?;
+    let boost_collected_big: f64 = row.try_get("boost_collected_big")?;
+    let boost_collected_small: f64 = row.try_get("boost_collected_small")?;
+    let boost_collected_grant: f64 = row.try_get("boost_collected_grant")?;
+    let known_collected = boost_collected_big + boost_collected_small + boost_collected_grant;
+    let boost_collected_unknown = (boost_collected - known_collected).max(0.0);
+    let stolen_big_pads = count_column(row, "stolen_big_pads")?;
+    let stolen_small_pads = count_column(row, "stolen_small_pads")?;
+    Ok(PlayerBoostTotalResponse {
+        boost_collected,
+        boost_collected_big,
+        boost_collected_small,
+        boost_collected_grant,
+        boost_collected_unknown,
+        boost_stolen: row.try_get("boost_stolen")?,
+        boost_stolen_big: row.try_get("boost_stolen_big")?,
+        boost_stolen_small: row.try_get("boost_stolen_small")?,
+        boost_overfill: row.try_get("boost_overfill")?,
+        boost_used: row.try_get("boost_used")?,
+        boost_used_supersonic: row.try_get("boost_used_supersonic")?,
+        boost_stolen_overfill: row.try_get("boost_stolen_overfill")?,
+        big_pads: count_column(row, "big_pads")?,
+        big_pads_offensive: count_column(row, "big_pads_offensive")?,
+        big_pads_neutral: count_column(row, "big_pads_neutral")?,
+        big_pads_defensive: count_column(row, "big_pads_defensive")?,
+        small_pads: count_column(row, "small_pads")?,
+        small_pads_offensive: count_column(row, "small_pads_offensive")?,
+        small_pads_defensive: count_column(row, "small_pads_defensive")?,
+        stolen_big_pads,
+        stolen_small_pads,
+        stolen_pads: stolen_big_pads + stolen_small_pads,
+        boost_amount_weighted_sum: row.try_get("boost_amount_weighted_sum")?,
+        tracked_seconds: row.try_get("tracked_seconds")?,
+        time_empty: row.try_get("time_empty")?,
+        time_low: row.try_get("time_low")?,
+        time_medium: row.try_get("time_medium")?,
+        time_high: row.try_get("time_high")?,
+        time_full: row.try_get("time_full")?,
+        time_over: row.try_get("time_over")?,
+    })
+}
+
+fn empty_player_boost_total_response() -> PlayerBoostTotalResponse {
+    PlayerBoostTotalResponse {
+        boost_collected: 0.0,
+        boost_collected_big: 0.0,
+        boost_collected_small: 0.0,
+        boost_collected_grant: 0.0,
+        boost_collected_unknown: 0.0,
+        boost_stolen: 0.0,
+        boost_stolen_big: 0.0,
+        boost_stolen_small: 0.0,
+        boost_overfill: 0.0,
+        boost_used: 0.0,
+        boost_used_supersonic: 0.0,
+        boost_stolen_overfill: 0.0,
+        big_pads: 0,
+        big_pads_offensive: 0,
+        big_pads_neutral: 0,
+        big_pads_defensive: 0,
+        small_pads: 0,
+        small_pads_offensive: 0,
+        small_pads_defensive: 0,
+        stolen_big_pads: 0,
+        stolen_small_pads: 0,
+        stolen_pads: 0,
+        boost_amount_weighted_sum: 0.0,
+        tracked_seconds: 0.0,
+        time_empty: 0.0,
+        time_low: 0.0,
+        time_medium: 0.0,
+        time_high: 0.0,
+        time_full: 0.0,
+        time_over: 0.0,
+    }
+}
+
+/// Accumulates one player's boost totals over a replay set (live read) or a
+/// single replay (the materialization writer). The track-derived fields
+/// (`boost_collected`/`boost_stolen`/`boost_used`/`boost_used_supersonic`/
+/// `boost_overfill`/`boost_amount_weighted_sum`/`tracked_seconds`/`bands`) come
+/// from [`accumulate_player_boost_track`]; the event-derived fields come from
+/// [`PlayerBoostEventAccumulator`]/[`PlayerBoostAccumulator::merge_event_fields`].
 #[derive(Default)]
-struct PlayerBoostAccumulator {
-    boost_collected: f64,
+pub(crate) struct PlayerBoostAccumulator {
+    pub(crate) boost_collected: f64,
     boost_collected_big: f64,
     boost_collected_small: f64,
     boost_collected_grant: f64,
-    boost_stolen: f64,
+    pub(crate) boost_stolen: f64,
     boost_stolen_big: f64,
     boost_stolen_small: f64,
-    boost_overfill: f64,
-    boost_used: f64,
-    boost_used_supersonic: f64,
+    pub(crate) boost_overfill: f64,
+    pub(crate) boost_used: f64,
+    pub(crate) boost_used_supersonic: f64,
     boost_stolen_overfill: f64,
     big_pads: u64,
     big_pads_offensive: u64,
@@ -801,9 +1053,9 @@ struct PlayerBoostAccumulator {
     small_pads_defensive: u64,
     stolen_big_pads: u64,
     stolen_small_pads: u64,
-    boost_amount_weighted_sum: f64,
-    tracked_seconds: f64,
-    bands: [f64; 6],
+    pub(crate) boost_amount_weighted_sum: f64,
+    pub(crate) tracked_seconds: f64,
+    pub(crate) bands: [f64; 6],
 }
 
 impl PlayerBoostAccumulator {
@@ -1012,6 +1264,19 @@ async fn load_player_boost_event_fields(
     Ok(fields)
 }
 
+/// Replay duration used to time-weight boost-amount samples: the max sample
+/// time over all `boost_amount` tracks. Shared by the live read and the
+/// materialization writer so both bound the last sample's weight identically.
+pub(crate) fn boost_track_replay_duration(tracks: &BoostTracksResponse) -> f64 {
+    tracks
+        .tracks
+        .iter()
+        .filter(|track| track.quantity == "boost_amount")
+        .flat_map(|track| track.points.iter())
+        .filter_map(|point| point.time)
+        .fold(0.0_f64, f64::max)
+}
+
 fn accumulate_player_boost_tracks(
     tracks: &BoostTracksResponse,
     target_player_id: &str,
@@ -1023,13 +1288,7 @@ fn accumulate_player_boost_tracks(
 ) {
     let teammate_ids: HashSet<&str> = teammate_player_ids.iter().map(String::as_str).collect();
     let opponent_ids: HashSet<&str> = opponent_player_ids.iter().map(String::as_str).collect();
-    let replay_duration = tracks
-        .tracks
-        .iter()
-        .filter(|track| track.quantity == "boost_amount")
-        .flat_map(|track| track.points.iter())
-        .filter_map(|point| point.time)
-        .fold(0.0_f64, f64::max);
+    let replay_duration = boost_track_replay_duration(tracks);
 
     for track in &tracks.tracks {
         let Some(player_id) = track.player_id.as_deref() else {
@@ -1046,7 +1305,7 @@ fn accumulate_player_boost_tracks(
     }
 }
 
-fn accumulate_player_boost_track(
+pub(crate) fn accumulate_player_boost_track(
     track: &super::replays::BoostTrack,
     replay_duration: f64,
     accumulator: &mut PlayerBoostAccumulator,
@@ -1101,13 +1360,13 @@ fn accumulate_player_boost_track(
     }
 }
 
-const BOOST_RAW_MAX: f64 = 255.0;
+pub(crate) const BOOST_RAW_MAX: f64 = 255.0;
 
-fn boost_raw_to_percent(value: f64) -> f64 {
+pub(crate) fn boost_raw_to_percent(value: f64) -> f64 {
     value * 100.0 / BOOST_RAW_MAX
 }
 
-fn player_boost_band_index(percent: f64) -> usize {
+pub(crate) fn player_boost_band_index(percent: f64) -> usize {
     if percent < 1.0 {
         0
     } else if percent < 25.0 {
@@ -2010,20 +2269,33 @@ async fn load_player_stat_count_rows_live(
         r#"
         ),
         target_events AS MATERIALIZED (
-            SELECT DISTINCT event.id, event.event_type_id
+            SELECT DISTINCT
+                event.id,
+                CASE
+                    WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                        THEN death_event_type.id
+                    ELSE event.event_type_id
+                END AS event_type_id
             FROM target_appearances appearance
             JOIN play_event_subjects subject
               ON subject.replay_player_id = appearance.id
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = appearance.run_id
+            JOIN event_types source_event_type
+              ON source_event_type.id = event.event_type_id
+            JOIN event_types death_event_type
+              ON death_event_type.key = 'death'
             "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
-    append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
     append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
     query.push(
         r#"
+              AND NOT (
+                    source_event_type.key = 'demolition'
+                    AND subject.role NOT IN ('attacker', 'victim')
+                  )
         ),
         target_stats AS (
             SELECT
@@ -2033,6 +2305,11 @@ async fn load_player_stat_count_rows_live(
                 COUNT(*) AS event_count
             FROM target_events
             JOIN event_types et ON et.id = target_events.event_type_id
+            "#,
+    );
+    append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+    query.push(
+        r#"
             GROUP BY et.key, et.display_name, et.category
         )
         "#,
@@ -2054,20 +2331,33 @@ async fn load_player_stat_count_rows_live(
                  AND teammate.id <> target.id
             ),
             teammate_events AS MATERIALIZED (
-                SELECT DISTINCT event.id, event.event_type_id
+                SELECT DISTINCT
+                    event.id,
+                    CASE
+                        WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                            THEN death_event_type.id
+                        ELSE event.event_type_id
+                    END AS event_type_id
                 FROM teammate_appearances appearance
                 JOIN play_event_subjects subject
                   ON subject.replay_player_id = appearance.id
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = appearance.run_id
+                JOIN event_types source_event_type
+                  ON source_event_type.id = event.event_type_id
+                JOIN event_types death_event_type
+                  ON death_event_type.key = 'death'
                 "#,
         );
         append_user_facing_stat_event_join_filter(&mut query, "event");
-        append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
         append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
         query.push(
             r#"
+                  AND NOT (
+                        source_event_type.key = 'demolition'
+                        AND subject.role NOT IN ('attacker', 'victim')
+                      )
             ),
             teammate_stats AS (
                 SELECT
@@ -2077,6 +2367,11 @@ async fn load_player_stat_count_rows_live(
                     COUNT(*) AS event_count
                 FROM teammate_events
                 JOIN event_types et ON et.id = teammate_events.event_type_id
+                "#,
+        );
+        append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+        query.push(
+            r#"
                 GROUP BY et.key, et.display_name, et.category
             )
             SELECT

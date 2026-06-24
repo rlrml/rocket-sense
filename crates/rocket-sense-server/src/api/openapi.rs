@@ -14,6 +14,7 @@ use utoipa::{
         admin::backfill_rotation_stints,
         admin::backfill_positioning,
         admin::backfill_possession,
+        admin::backfill_boost,
         admin::backfill_profile_timing,
         admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,

@@ -164,3 +164,38 @@ fn possession_cohort_span_query_omits_rank_peers_when_rank_schema_is_unavailable
     assert!(!sql.contains("'rank_peers' AS cohort"));
     assert!(!sql.contains("rank_tier"));
 }
+
+#[test]
+fn materialized_appearance_count_uses_full_roster_not_sparse_rows() {
+    // Regression: the materialized possession table only has rows for players who
+    // recorded possession events, so counting those rows undercounts cohort
+    // appearances (a teammate with zero possessions was missed -> 448 vs 449).
+    // Appearance counts must come from the roster (replay_players) via the same
+    // cohort_appearances CTE + COUNT(DISTINCT actor_id) the live path uses.
+    let query = PossessionStatsQuery::from_raw_query(
+        Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+        true,
+    )
+    .expect("possession query should parse");
+    let builder = build_materialized_cohort_appearances_query(&query);
+    let sql = builder.sql();
+
+    // Roster-based: the live cohort CTEs over replay_players, counted by distinct
+    // appearance (actor_id) with the active-time denominator summed, NOT the
+    // sparse player_replay_possession rows.
+    assert!(sql.contains("FROM replay_players rp"));
+    assert!(sql.contains("cohort_appearances"));
+    assert!(sql.contains("COUNT(DISTINCT actor_id)::bigint AS appearance_count"));
+    assert!(sql.contains("SUM(active_time_seconds) AS active_time_seconds"));
+    assert!(!sql.contains("player_replay_possession"));
+
+    // The materialized span select must reference NEITHER appearance_count NOR
+    // active_time_seconds: player_replay_possession has no active_time_seconds
+    // column (the SUM over it 500'd in prod), and appearances are undercounted on
+    // the sparse table. Both now come exclusively from the roster query above.
+    let mut span = QueryBuilder::<Postgres>::new("");
+    push_materialized_span_select(&mut span, false);
+    assert!(!span.sql().contains("appearance_count"));
+    assert!(!span.sql().contains("active_time_seconds"));
+}
