@@ -97,6 +97,26 @@ fn kickoff_boost_used_summary_sql_reads_generated_taker_payload_value() {
 }
 
 #[test]
+fn kickoff_type_dimension_reads_event_taker_spawn_not_player_row_spawn() {
+    let kickoff_type = KICKOFF_DIMENSIONS
+        .iter()
+        .find(|dimension| dimension.key == "kickoff_type")
+        .expect("kickoff type dimension should be exposed");
+
+    assert_eq!(kickoff_type.label, "Kickoff type");
+    assert!(kickoff_type.expression.contains("taker.role = 'taker'"));
+    assert!(kickoff_type
+        .expression
+        .contains("taker.event_id = detail.event_id"));
+    assert!(kickoff_type.expression.contains("'diagonal'"));
+    assert!(kickoff_type.expression.contains("'center_offset'"));
+    assert!(kickoff_type.expression.contains("'center'"));
+    assert!(!kickoff_type
+        .expression
+        .contains("THEN detail.spawn_position"));
+}
+
+#[test]
 fn kickoff_metrics_expose_taker_time_to_touch_not_absolute_first_touch() {
     let metrics = kickoff_metrics(KickoffSummaryRow {
         replay_count: 1,

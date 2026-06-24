@@ -73,6 +73,7 @@ export function KickoffSpawnBreakdown({
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
   const cards = buildSpawnCards(buckets, shapeFilter, sideFilter);
   const filteredCount = cards.reduce((sum, card) => sum + card.count, 0);
+  const hasSideBuckets = buckets.some((bucket) => bucket.side != null);
 
   const selectShape = (value: KickoffShapeFilter) => {
     if (onShapeFilterChange) {
@@ -112,15 +113,17 @@ export function KickoffSpawnBreakdown({
           selected={shapeFilter}
           onSelect={(value) => selectShape(value as KickoffShapeFilter)}
         />
-        <KickoffFilterGroup
-          label="Side"
-          options={sideOptions.map((option) => ({
-            ...option,
-            count: countBuckets(buckets, shapeFilter, option.key),
-          }))}
-          selected={sideFilter}
-          onSelect={(value) => selectSide(value as KickoffSideFilter)}
-        />
+        {hasSideBuckets ? (
+          <KickoffFilterGroup
+            label="Side"
+            options={sideOptions.map((option) => ({
+              ...option,
+              count: countBuckets(buckets, shapeFilter, option.key),
+            }))}
+            selected={sideFilter}
+            onSelect={(value) => selectSide(value as KickoffSideFilter)}
+          />
+        ) : null}
       </div>
       <div className="kickoff-spawn-card-grid">
         {cards.map((card) => (
@@ -273,6 +276,16 @@ function parseSpawnValue(
   value: EventStatDimensionValueResponse,
 ): Omit<KickoffSpawnBucket, "count" | "values"> {
   switch (value.key) {
+    case "diagonal":
+      return { key: "diagonal", label: "Diagonal", shape: "diagonal", side: null };
+    case "center_offset":
+    case "off_center":
+      return {
+        key: "center_offset",
+        label: "Center offset",
+        shape: "center_offset",
+        side: null,
+      };
     case "diagonal_left":
       return { key: "diagonal_left", label: "Diagonal left", shape: "diagonal", side: "left" };
     case "diagonal_right":
