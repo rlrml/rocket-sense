@@ -2461,7 +2461,7 @@ function ReplayGroupStatsPage() {
     activeGroup.id === "goals" ||
     activeGroup.id === "mechanics" ||
     activeGroup.id === "positioning" ||
-    activeGroup.id === "possession-territory";
+    activeGroup.id === "possession";
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -3685,7 +3685,7 @@ function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[
   if (groupId === "kickoffs") {
     return ["kickoffTaker", "kickoffSupport", "kickoffFilter"];
   }
-  if (groupId === "possession-territory") {
+  if (groupId === "possession") {
     return ["possession"];
   }
   return [];
