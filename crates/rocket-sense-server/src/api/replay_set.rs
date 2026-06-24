@@ -428,7 +428,7 @@ pub(crate) fn push_playlist_group_key_expression<'args>(
 /// active time of zero (e.g. spectating referees in private/RLCS lobbies that
 /// still appear on a team roster) are excluded; players with no recorded
 /// active time (legacy rows) are counted.
-fn push_replay_team_size_expression<'args>(
+pub(crate) fn push_replay_team_size_expression<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     replay_alias: &str,
 ) {

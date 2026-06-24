@@ -27,10 +27,16 @@ export interface SplitValue {
 export function StatComparisonGrid({
   children,
   className = "",
+  bare = false,
 }: {
   children: ReactNode;
   className?: string;
+  bare?: boolean;
 }) {
+  if (bare) {
+    return <div className={`stat-comparison-grid ${className}`.trim()}>{children}</div>;
+  }
+
   return (
     <section className="chart-panel full-span">
       <div className={`stat-comparison-grid ${className}`.trim()}>{children}</div>

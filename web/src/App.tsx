@@ -71,6 +71,7 @@ import {
   getReplayGroupStatAggregates,
   getReplayStatAggregates,
   listEventTypes,
+  listPlayerEvents,
   listReplayGroups,
   listReplayGroupEvents,
   listReplayGroupManagers,
@@ -100,6 +101,7 @@ import {
   warmPreviewPlayerForReplay,
 } from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
+import { MovementDetail } from "./stats/movement";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
@@ -3202,6 +3204,9 @@ function PlayerStatsPage() {
     scope: "",
     groups: {},
   });
+  const [movementEvents, setMovementEvents] = useState<MechanicEventResponse[]>([]);
+  const [movementEventsLoading, setMovementEventsLoading] = useState(false);
+  const [movementEventsError, setMovementEventsError] = useState<string | null>(null);
   const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
   const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(
     null,
@@ -3278,6 +3283,9 @@ function PlayerStatsPage() {
     setSupplementalLoaded({ scope: statsScope, loaded: {} });
     setStatsError(null);
     setStatsLoading(true);
+    setMovementEvents([]);
+    setMovementEventsLoading(false);
+    setMovementEventsError(null);
     setOverview(null);
     setKickoffTakerSummary(null);
     setKickoffSupportSummary(null);
@@ -3335,6 +3343,47 @@ function PlayerStatsPage() {
     resolvedPlatformPlayerId,
     stats,
     statsScope,
+  ]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!hasResolvedPlayer || activeGroup.id !== "movement") {
+      setMovementEventsLoading(false);
+      setMovementEventsError(null);
+      if (activeGroup.id !== "movement") {
+        setMovementEvents([]);
+      }
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setMovementEventsLoading(true);
+    setMovementEventsError(null);
+    listPlayerEvents(
+      `${resolvedPlatform}:${resolvedPlatformPlayerId}`,
+      eventTypesForGroup(activeGroup.id),
+      playerAggregateSearchParams(activeGroup.id, location.search),
+    )
+      .then((response) => {
+        if (!cancelled) setMovementEvents(response.events);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setMovementEventsError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setMovementEventsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeGroup.id,
+    hasResolvedPlayer,
+    location.search,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
   ]);
 
   useEffect(() => {
@@ -3573,11 +3622,15 @@ function PlayerStatsPage() {
               kickoffFilterSummary={kickoffFilterSummary}
               kickoffSupportSummary={kickoffSupportSummary}
               kickoffTakerSummary={kickoffTakerSummary}
+              movementEvents={movementEvents}
+              movementEventsError={movementEventsError}
+              movementEventsLoading={movementEventsLoading}
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
               overview={overview}
               platform={resolvedPlatform}
               platformPlayerId={resolvedPlatformPlayerId}
+              playerIsPro={playerSummary.is_pro}
               playerName={playerSummary?.display_name ?? ""}
               routeBasePath={routeBasePath}
               search={location.search}
@@ -3599,6 +3652,33 @@ function playerReplaySetParams(
   params.delete("offset");
   params.set("player-id", `${platform}:${platformPlayerId}`);
   return params;
+}
+
+function playerProfileReplayPlayer({
+  activeSeconds,
+  isPro,
+  name,
+  platform,
+  platformPlayerId,
+}: {
+  activeSeconds: number | null;
+  isPro: boolean;
+  name: string;
+  platform: string;
+  platformPlayerId: string;
+}): ReplayPlayer {
+  return {
+    name: name || platformPlayerId,
+    platform,
+    platform_player_id: platformPlayerId,
+    team: null,
+    is_pro: isPro,
+    active_time_seconds: activeSeconds,
+    time_demolished_seconds: null,
+    non_demo_active_time_seconds: activeSeconds,
+    time_most_back_seconds: null,
+    time_most_forward_seconds: null,
+  };
 }
 
 function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
@@ -3786,11 +3866,15 @@ function PlayerAggregateStatsSections({
   kickoffFilterSummary,
   kickoffSupportSummary,
   kickoffTakerSummary,
+  movementEvents,
+  movementEventsError,
+  movementEventsLoading,
   overview,
   possessionSummary,
   positioningSummary,
   platform,
   platformPlayerId,
+  playerIsPro,
   playerName,
   routeBasePath,
   search,
@@ -3800,11 +3884,15 @@ function PlayerAggregateStatsSections({
   kickoffFilterSummary: EventStatSummaryResponse | null;
   kickoffSupportSummary: EventStatSummaryResponse | null;
   kickoffTakerSummary: EventStatSummaryResponse | null;
+  movementEvents: MechanicEventResponse[];
+  movementEventsError: string | null;
+  movementEventsLoading: boolean;
   overview: PlayerStatOverviewResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
   platform: string;
   platformPlayerId: string;
+  playerIsPro: boolean;
   playerName: string;
   routeBasePath: string;
   search: string;
@@ -3823,6 +3911,13 @@ function PlayerAggregateStatsSections({
   const kickoffSpawnDimension = kickoffFilterSummary?.dimensions.find(
     (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
   );
+  const profileMovementPlayer = playerProfileReplayPlayer({
+    activeSeconds: stats.active_time_seconds,
+    isPro: playerIsPro,
+    name: playerName,
+    platform,
+    platformPlayerId,
+  });
 
   const setKickoffFilter = (key: "kickoff-shape" | "kickoff-side", value: string) => {
     const params = new URLSearchParams(location.search);
@@ -3896,9 +3991,28 @@ function PlayerAggregateStatsSections({
       activeGroup.id === "possession" ||
       activeGroup.id === "positioning" ||
       activeGroup.id === "rotation" ||
-      activeGroup.id === "touches" ? null : (
+      activeGroup.id === "touches" ||
+      activeGroup.id === "movement" ? null : (
         <PlayerRateComparisonChart stats={topStats} />
       )}
+
+      {activeGroup.id === "movement" ? (
+        <>
+          {movementEventsError ? (
+            <ApiNotice label="Movement data" message={movementEventsError} />
+          ) : null}
+          {movementEventsLoading ? <StatusLine loading error={null} /> : null}
+          {!movementEventsLoading ? (
+            <MovementDetail
+              durationSeconds={stats.active_time_seconds}
+              events={movementEvents}
+              players={[profileMovementPlayer]}
+              scope="group"
+              subjectSubtitle="Career"
+            />
+          ) : null}
+        </>
+      ) : null}
 
       {activeGroup.id === "boost" ? (
         <BoostProfileDetail

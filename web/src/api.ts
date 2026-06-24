@@ -476,8 +476,17 @@ export async function listReplayGroupEvents(
 export async function listPlayerEvents(
   playerId: string,
   eventTypes: string[] = [],
+  searchParams: URLSearchParams = new URLSearchParams(),
 ): Promise<MechanicEventsResponse> {
-  const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes, null);
+  const scopedParams = new URLSearchParams(searchParams);
+  scopedParams.set("player-id", playerId);
+  scopedParams.delete("count");
+  scopedParams.delete("offset");
+  const cacheKey = replayEventsKey(
+    `player:${playerId}?${scopedParams.toString()}`,
+    eventTypes,
+    null,
+  );
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
 
@@ -486,11 +495,9 @@ export async function listPlayerEvents(
   let nextOffset: number | null = 0;
 
   while (nextOffset != null && events.length < maxReplayEvents) {
-    const params = new URLSearchParams({
-      "player-id": playerId,
-      count: String(eventPageSize),
-      offset: String(offset),
-    });
+    const params = new URLSearchParams(scopedParams);
+    params.set("count", String(eventPageSize));
+    params.set("offset", String(offset));
     for (const eventType of eventTypes) {
       params.append("event-type", eventType);
     }

@@ -82,11 +82,13 @@ export function MovementDetail({
   players,
   durationSeconds,
   scope = "replay",
+  subjectSubtitle,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   scope?: "replay" | "group";
+  subjectSubtitle?: string;
 }) {
   const summaries = playerMovementSummaries(players, events, durationSeconds);
 
@@ -123,7 +125,7 @@ export function MovementDetail({
 
   return (
     <div className="movement-detail">
-      <StatComparisonGrid>
+      <StatComparisonGrid bare>
         <StatComparisonPanel
           title="Average speed"
           rows={subjectMagnitudeRows(summaries, {
@@ -132,7 +134,7 @@ export function MovementDetail({
             groupClassName: "movement-bar-speed",
             metric: averageSpeed,
             format: formatSpeed,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
             placeholder: "—",
           })}
         />
@@ -144,13 +146,15 @@ export function MovementDetail({
             groupClassName: "movement-bar-distance",
             metric: (summary) => summary.totalDistance,
             format: formatDistanceShort,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
           })}
         />
         <StatComparisonPanel
           title="Speed bands"
           rows={distributionRows(summaries, speedBands, {
             teamColored,
+            subjectSubtitle,
+            scope,
             sortKey: (summary) => summary.boostSeconds + summary.supersonicSeconds,
             format: formatSeconds,
           })}
@@ -159,6 +163,8 @@ export function MovementDetail({
           title="Ground & air"
           rows={distributionRows(summaries, heightBands, {
             teamColored,
+            subjectSubtitle,
+            scope,
             sortKey: (summary) => summary.lowAirSeconds + summary.highAirSeconds,
             format: formatSeconds,
           })}
@@ -171,7 +177,7 @@ export function MovementDetail({
             groupClassName: "movement-bar-powerslide",
             metric: (summary) => summary.powerslideSeconds,
             format: formatSeconds,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
           })}
         />
         <StatComparisonPanel
@@ -182,7 +188,7 @@ export function MovementDetail({
             groupClassName: "movement-bar-powerslide",
             metric: (summary) => summary.powerslideCount,
             format: formatCount,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
           })}
         />
         <StatComparisonPanel
@@ -193,7 +199,7 @@ export function MovementDetail({
             groupClassName: "movement-bar-speed-flip",
             metric: (summary) => summary.speedFlips,
             format: formatCount,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
           })}
         />
         <StatComparisonPanel
@@ -204,7 +210,7 @@ export function MovementDetail({
             groupClassName: "movement-bar-wavedash",
             metric: (summary) => summary.wavedashes,
             format: formatCount,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
           })}
         />
         <StatComparisonPanel
@@ -215,7 +221,7 @@ export function MovementDetail({
             groupClassName: "movement-bar-half-flip",
             metric: (summary) => summary.halfFlips,
             format: formatCount,
-            label: movementPlayerLabel,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
           })}
         />
       </StatComparisonGrid>
@@ -228,6 +234,8 @@ function distributionRows(
   bands: MovementBand[],
   options: {
     teamColored: boolean;
+    scope: "replay" | "group";
+    subjectSubtitle?: string;
     sortKey: (summary: PlayerMovementSummary) => number;
     format: (value: number) => string;
   },
@@ -265,7 +273,7 @@ function distributionRows(
       });
       return {
         key: summary.key,
-        label: movementPlayerLabel(summary),
+        label: movementPlayerLabel(summary, options.scope, options.subjectSubtitle),
         ariaLabel: `${summary.name} ${bands.map((band) => band.label).join(" / ")}`,
         segments,
         total,
@@ -275,8 +283,16 @@ function distributionRows(
     });
 }
 
-function movementPlayerLabel(summary: PlayerMovementSummary) {
-  return comparisonSubjectLabel(summary, "movement");
+function movementPlayerLabel(
+  summary: PlayerMovementSummary,
+  scope: "replay" | "group",
+  subjectSubtitle?: string,
+) {
+  return comparisonSubjectLabel(
+    summary,
+    "movement",
+    scope === "group" ? { teamSubtitle: subjectSubtitle ?? "Player" } : {},
+  );
 }
 
 function playerMovementSummaries(

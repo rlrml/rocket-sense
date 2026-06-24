@@ -33,6 +33,7 @@ export interface StatDetailProps {
   replayId?: string;
   groupId?: string;
   scope?: "replay" | "group";
+  subjectSubtitle?: string;
 }
 
 export interface StatGroup {
