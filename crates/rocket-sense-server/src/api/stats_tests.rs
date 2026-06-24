@@ -152,6 +152,39 @@ fn stat_aggregate_query_can_skip_rotation_histograms() {
 }
 
 #[test]
+fn stat_aggregate_touch_breakdown_runs_only_for_touch_terms() {
+    let movement = StatAggregateFilters::from_query(
+        StatAggregatesQuery::from_raw_query(Some(
+            "player-id=Steam:76561198000000000&include-teammates=true&stat-term=movement&stat-term=powerslide",
+        ))
+        .expect("movement query should parse"),
+        None,
+    )
+    .expect("movement filters should parse");
+    assert!(!should_include_touch_breakdown(&movement));
+
+    let touches = StatAggregateFilters::from_query(
+        StatAggregatesQuery::from_raw_query(Some(
+            "player-id=Steam:76561198000000000&include-teammates=true&stat-term=touch&stat-term=ball",
+        ))
+        .expect("touch query should parse"),
+        None,
+    )
+    .expect("touch filters should parse");
+    assert!(should_include_touch_breakdown(&touches));
+
+    let unfiltered = StatAggregateFilters::from_query(
+        StatAggregatesQuery::from_raw_query(Some(
+            "player-id=Steam:76561198000000000&include-teammates=true",
+        ))
+        .expect("unfiltered query should parse"),
+        None,
+    )
+    .expect("unfiltered filters should parse");
+    assert!(should_include_touch_breakdown(&unfiltered));
+}
+
+#[test]
 fn stat_aggregate_query_parses_game_type_and_team_size_filters() {
     let raw_query = "game-type=ranked&game-type=tournament&team-size=2v2&team-size=3";
     let query = StatAggregatesQuery::from_raw_query(Some(raw_query))

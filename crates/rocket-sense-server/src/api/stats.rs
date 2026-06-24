@@ -1436,7 +1436,11 @@ async fn load_stat_aggregates_base(
         }
     };
     let touch_breakdown_fut = async {
-        if include_touch_breakdown && filters.player.is_some() && filters.include_teammates {
+        if include_touch_breakdown
+            && filters.player.is_some()
+            && filters.include_teammates
+            && should_include_touch_breakdown(filters)
+        {
             Ok::<_, sqlx::Error>(Some(load_touch_aggregate_breakdown(pool, filters).await?))
         } else {
             Ok(None)
@@ -1524,6 +1528,10 @@ async fn load_stat_aggregates_base(
         stats,
         groups: Vec::new(),
     })
+}
+
+fn should_include_touch_breakdown(filters: &StatAggregateFilters) -> bool {
+    filters.stat_terms.is_empty() || filters.stat_terms.iter().any(|term| term.contains("touch"))
 }
 
 async fn load_stat_aggregate_groups(
