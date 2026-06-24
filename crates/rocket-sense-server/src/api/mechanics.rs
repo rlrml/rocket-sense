@@ -3221,7 +3221,7 @@ fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
 
 fn canonical_event_type_key(event_type: &str) -> &str {
     if let Some(mechanic_key) = event_type.strip_prefix("mechanic.") {
-        if mechanic_event_type_keys(mechanic_key) {
+        if registered_event_type_category(mechanic_key).is_some() {
             return mechanic_key;
         }
     }

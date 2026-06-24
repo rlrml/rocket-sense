@@ -839,7 +839,7 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
 
     assert_eq!(controlled_play.event_type_key, "controlled_play");
     assert_eq!(controlled_play.display_name, "Controlled Play");
-    assert_eq!(controlled_play.category, "mechanic");
+    assert_eq!(controlled_play.category, "other");
     assert_eq!(
         controlled_play
             .primary_subject
@@ -849,8 +849,8 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
     );
 
     assert_eq!(backboard.event_type_key, "backboard_bounce");
-    assert_eq!(backboard.display_name, "Backboard Bounce");
-    assert_eq!(backboard.category, "mechanic");
+    assert_eq!(backboard.display_name, "Backboard Hit");
+    assert_eq!(backboard.category, "basic");
 
     assert_eq!(flip_impulse.event_type_key, "flip_impulse");
     assert_eq!(flip_impulse.display_name, "Flip Impulse");
