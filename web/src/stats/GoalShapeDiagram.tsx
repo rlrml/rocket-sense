@@ -35,9 +35,9 @@ export interface GoalPathPlayer extends PathPlayerRef {
  *  subtr-actor's `scorer_last_touch` — the exact contact point, not a frame lookup. */
 export interface GoalScoringTouch {
   /** Ball position at the moment of the last touch (the touch point itself). */
-  ball: { x: number; y: number };
+  ball: { x: number; y: number; z?: number };
   /** Scorer's car position at that moment, if known (used to orient the car). */
-  player: { x: number; y: number } | null;
+  player: { x: number; y: number; z?: number } | null;
   team: number | null;
   /** subtr-actor touch id, so the matching buildup touch event can be de-duped. */
   touchId: number | null;
