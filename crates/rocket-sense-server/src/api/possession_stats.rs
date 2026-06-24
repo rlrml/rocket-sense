@@ -331,7 +331,6 @@ fn push_materialized_span_select(builder: &mut QueryBuilder<'_, Postgres>, susta
         r#"
         SELECT
             cohort,
-            SUM(active_time_seconds) AS active_time_seconds,
             COUNT(DISTINCT replay_id) AS replay_count,
             SUM({p}possession_count)::bigint AS possession_count,
             SUM({p}duration_seconds) AS total_duration,
@@ -360,12 +359,10 @@ fn push_materialized_span_select(builder: &mut QueryBuilder<'_, Postgres>, susta
     ));
 }
 
-/// Per-cohort appearance counts from the full roster, reusing the live
-/// `cohort_appearances` CTE (over `replay_players`) so the materialized read
-/// reports exactly the live `COUNT(DISTINCT actor_id)` per cohort. This is the
-/// authoritative source for appearance_count in the materialized path, since the
-/// materialized possession table only has rows for players who recorded
-/// possession events. No play_events join, so it is sub-second.
+/// Roster query backing both per-cohort `appearance_count` and the
+/// `active_time_seconds` denominator, reusing the live `cohort_appearances` CTE
+/// (over `replay_players`) so the materialized read reports exactly the live
+/// `COUNT(DISTINCT actor_id)` and `SUM(active_time_seconds)` per cohort.
 fn build_materialized_cohort_appearances_query<'a>(
     filters: &'a PossessionStatsQuery,
 ) -> QueryBuilder<'a, Postgres> {
@@ -373,7 +370,9 @@ fn build_materialized_cohort_appearances_query<'a>(
     push_possession_cohort_ctes(&mut q, filters, true);
     q.push(
         r#"
-        SELECT cohort, COUNT(DISTINCT actor_id)::bigint AS appearance_count
+        SELECT cohort,
+            COUNT(DISTINCT actor_id)::bigint AS appearance_count,
+            SUM(active_time_seconds) AS active_time_seconds
         FROM cohort_appearances
         GROUP BY cohort
         "#,
@@ -381,17 +380,27 @@ fn build_materialized_cohort_appearances_query<'a>(
     q
 }
 
-async fn load_materialized_cohort_appearances(
+/// Per-cohort appearance counts and active-time denominators from the full
+/// roster. The materialized possession table is sparse (only players who
+/// recorded possession events get a row) AND has no active_time_seconds column,
+/// so neither value can be derived from it -- both come from the roster CTE, the
+/// authoritative source. No play_events join, so it is sub-second.
+async fn load_materialized_cohort_roster(
     pool: &sqlx::PgPool,
     filters: &PossessionStatsQuery,
-) -> Result<HashMap<String, u64>, sqlx::Error> {
+) -> Result<(HashMap<String, u64>, HashMap<String, Option<f64>>), sqlx::Error> {
     let mut q = build_materialized_cohort_appearances_query(filters);
     let mut counts = HashMap::new();
+    let mut active_time = HashMap::new();
     for row in q.build().fetch_all(pool).await? {
         let cohort: String = row.try_get("cohort")?;
-        counts.insert(cohort, count_column(&row, "appearance_count")?);
+        counts.insert(cohort.clone(), count_column(&row, "appearance_count")?);
+        active_time.insert(
+            cohort,
+            finite_nonnegative(row.try_get("active_time_seconds")?),
+        );
     }
-    Ok(counts)
+    Ok((counts, active_time))
 }
 
 async fn load_possession_summary_materialized(
@@ -400,7 +409,6 @@ async fn load_possession_summary_materialized(
 ) -> Result<PossessionSummaryResponse, sqlx::Error> {
     // Per-cohort span summaries (all + sustained), reusing the live row builder.
     let mut span_all: HashMap<String, (u64, PossessionSpanSummary)> = HashMap::new();
-    let mut span_active_time: HashMap<String, Option<f64>> = HashMap::new();
     let mut span_sc: HashMap<String, PossessionSpanSummary> = HashMap::new();
     for sustained in [false, true] {
         let mut q = QueryBuilder::<Postgres>::new("");
@@ -412,23 +420,21 @@ async fn load_possession_summary_materialized(
             if sustained {
                 span_sc.insert(cohort, summary);
             } else {
-                span_active_time.insert(
-                    cohort.clone(),
-                    finite_nonnegative(row.try_get("active_time_seconds")?),
-                );
                 span_all.insert(cohort, (replay_count, summary));
             }
         }
     }
 
-    // Cohort appearance counts come from the full roster (replay_players), NOT
-    // the sparse materialized rows: a co-player who appeared but recorded zero
-    // possession events has no player_replay_possession row, so counting those
-    // rows undercounts appearances (off by one for a teammate with no
-    // possessions). This mirrors the live COUNT(DISTINCT actor_id) over the
-    // roster-based cohort_appearances, so the count matches the live path
-    // exactly. It carries no event-table join, so it stays cheap.
-    let span_appearance = load_materialized_cohort_appearances(pool, filters).await?;
+    // Appearance counts AND the active-time denominator come from the full roster
+    // (replay_players), NOT the sparse materialized rows: a co-player who appeared
+    // but recorded zero possession events has no player_replay_possession row (so
+    // counting those rows undercounts appearances -- off by one for a teammate
+    // with no possessions), and the possession table has no active_time_seconds
+    // column at all. This mirrors the live COUNT(DISTINCT actor_id) /
+    // SUM(active_time_seconds) over the roster-based cohort_appearances, matching
+    // the live path exactly. It carries no event-table join, so it stays cheap.
+    let (span_appearance, span_active_time) =
+        load_materialized_cohort_roster(pool, filters).await?;
 
     // Per-cohort touch counts (mixes are only on the target's top-level touches).
     let mut touch_counts: HashMap<String, PossessionTouchSummary> = HashMap::new();
