@@ -474,7 +474,10 @@ function shootingPercentage(summary: CorePlayerSummary): number | null {
 }
 
 function assistPercentage(summary: CorePlayerSummary): number | null {
-  return summary.teamGoals > 0 ? (summary.assists / summary.teamGoals) * 100 : null;
+  // Assist percentage is over goals the player could have assisted, which
+  // excludes the goals they scored themselves (you can't assist your own goal).
+  const assistableGoals = summary.teamGoals - summary.goals;
+  return assistableGoals > 0 ? (summary.assists / assistableGoals) * 100 : null;
 }
 
 function formatPercentage(value: number): string {
