@@ -59,16 +59,38 @@ export function PlayerRateComparisonChart({
   playerName = "Player",
   stats,
   rankBenchmark,
+  orderedKeys,
 }: {
   playerName?: string;
   stats: StatAggregateResponse[];
   rankBenchmark?: RankBenchmarkRowInfo;
+  // When provided (wins/losses split), the chart renders exactly these cards in
+  // this order, regardless of how this side ranks them, so the two grids line up
+  // for comparison. A canonical key absent from this side renders a placeholder
+  // card, keeping the rows aligned across outcomes.
+  orderedKeys?: Array<{ key: string; display_name: string }>;
 }) {
-  const cards = stats
-    .filter((stat) => stat.per_active_minute != null)
-    .slice(0, rateChartStatLimit)
-    .map((stat) => ({ stat, rows: playerRateComparisonRows(stat, playerName, rankBenchmark) }))
-    .filter((card) => card.rows.length > 0);
+  const cards = orderedKeys
+    ? (() => {
+        const statByKey = new Map(stats.map((stat) => [stat.key, stat]));
+        return orderedKeys.slice(0, rateChartStatLimit).map(({ key, display_name }) => {
+          const stat = statByKey.get(key);
+          return {
+            key,
+            title: display_name,
+            rows: stat ? playerRateComparisonRows(stat, playerName, rankBenchmark) : [],
+          };
+        });
+      })()
+    : stats
+        .filter((stat) => stat.per_active_minute != null)
+        .slice(0, rateChartStatLimit)
+        .map((stat) => ({
+          key: stat.key,
+          title: stat.display_name,
+          rows: playerRateComparisonRows(stat, playerName, rankBenchmark),
+        }))
+        .filter((card) => card.rows.length > 0);
 
   if (cards.length === 0) {
     return null;
@@ -77,12 +99,13 @@ export function PlayerRateComparisonChart({
   return (
     <section className="full-span player-rate-chart">
       <div className="stat-comparison-grid player-rate-comparison-grid">
-        {cards.map(({ stat, rows }) => (
+        {cards.map(({ key, title, rows }) => (
           <PlayerComparisonChart
             className="career-rate-card"
-            key={stat.key}
+            key={key}
             rows={rows}
-            title={stat.display_name}
+            title={title}
+            emptyLabel="No data"
           />
         ))}
       </div>

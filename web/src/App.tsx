@@ -4349,22 +4349,34 @@ function PlayerAggregateStatsSections({
   // Each stat section is composed of several heterogeneous panels. We build them
   // as a keyed list so the combined view can render them in order, and the
   // wins/losses split can pair the same panel for each outcome side by side.
-  function buildStatsPanels({
-    contentKickoffFilterSummary,
-    contentKickoffSupportSummary,
-    contentKickoffTakerSummary,
-    contentMovementSummary,
-    contentOverview,
-    contentPossessionSummary,
-    contentPositioningSummary,
-    contentSearch,
-    contentStats,
-    contentSupplementalError,
-    contentSupplementalLoading,
-  }: StatsContentInputs): Array<{ key: string; node: ReactNode }> {
+  function buildStatsPanels(
+    {
+      contentKickoffFilterSummary,
+      contentKickoffSupportSummary,
+      contentKickoffTakerSummary,
+      contentMovementSummary,
+      contentOverview,
+      contentPossessionSummary,
+      contentPositioningSummary,
+      contentSearch,
+      contentStats,
+      contentSupplementalError,
+      contentSupplementalLoading,
+    }: StatsContentInputs,
+    // In the wins/losses split we pass a canonical ordering derived from the
+    // overall (non-split) stats so every outcome side sorts identically. Without
+    // it each side would sort by its own frequency and the cards wouldn't line up.
+    order?: { index: Map<string, number>; rateKeys: Array<{ key: string; display_name: string }> },
+  ): Array<{ key: string; node: ReactNode }> {
+    const orderComparator = order
+      ? (left: StatAggregateResponse, right: StatAggregateResponse) =>
+          (order.index.get(left.key) ?? Number.POSITIVE_INFINITY) -
+            (order.index.get(right.key) ?? Number.POSITIVE_INFINITY) ||
+          comparePlayerStatRates(left, right)
+      : comparePlayerStatRates;
     const contentSectionStats = filterStatsForGroup(contentStats.stats, activeGroup)
       .slice()
-      .sort(comparePlayerStatRates);
+      .sort(orderComparator);
     const contentTopStats = contentSectionStats.slice(0, 20);
     const contentKickoffSpawnDimension = contentKickoffFilterSummary?.dimensions.find(
       (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
@@ -4401,7 +4413,8 @@ function PlayerAggregateStatsSections({
         "rate-comparison",
         <PlayerRateComparisonChart
           playerName={playerName}
-          stats={contentTopStats}
+          stats={order ? contentSectionStats : contentTopStats}
+          orderedKeys={order?.rateKeys}
           rankBenchmark={{
             tierLabel: contentStats.rank_benchmark_tier_label,
             windowLabel: contentStats.rank_benchmark_window_label,
@@ -4661,10 +4674,24 @@ function PlayerAggregateStatsSections({
         <>
           <StatusLine loading={outcomeState.loading} error={outcomeState.error} />
           {(() => {
+            // Canonical ordering shared by every outcome side, taken from the
+            // overall (non-split) stats so the wins and losses cards sort the
+            // same way and pair up row-for-row instead of each ranking by its
+            // own frequency. rateKeys also defines which cards appear on both
+            // sides, so a stat present on one side renders a placeholder on the
+            // other rather than shifting the grid out of alignment.
+            const splitOrder = {
+              index: new Map(sectionStats.map((stat, idx) => [stat.key, idx] as const)),
+              rateKeys: sectionStats
+                .filter((stat) => stat.per_active_minute != null)
+                .map((stat) => ({ key: stat.key, display_name: stat.display_name })),
+            };
             const readyBundles = outcomeState.bundles
               .map((bundle) => {
                 const inputs = outcomeBundleInputs(bundle);
-                return inputs ? { bundle, inputs, panels: buildStatsPanels(inputs) } : null;
+                return inputs
+                  ? { bundle, inputs, panels: buildStatsPanels(inputs, splitOrder) }
+                  : null;
               })
               .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
             if (readyBundles.length === 0) return null;
