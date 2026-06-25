@@ -8703,3 +8703,138 @@ tbody tr:last-child td {
     text-align: right;
   }
 }
+
+/* Rank Trends view */
+.rank-trends-header {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+.rank-trends-subtitle {
+  color: #64748b;
+  max-width: 60ch;
+  margin: 4px 0 0;
+}
+.rank-trends-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rank-trends-controls label {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+.rank-trends-controls label > span {
+  color: #64748b;
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.rank-trends-controls select {
+  min-height: 32px;
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1e293b;
+}
+.rank-trends-axis {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 18px;
+  margin: 14px 0 6px;
+  color: #475569;
+  font-size: var(--text-sm);
+}
+.rank-trends-axis-label {
+  color: #64748b;
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.rank-trends-axis-rank {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.rank-trends-axis-rank em {
+  color: #94a3b8;
+  font-style: normal;
+  font-size: 11px;
+}
+.rank-trend-category {
+  margin-top: 22px;
+}
+.rank-trend-category-title {
+  text-transform: capitalize;
+  color: #334155;
+  border-bottom: 1px solid #e2e8f0;
+  padding-bottom: 6px;
+  margin-bottom: 12px;
+}
+.rank-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 14px;
+}
+.rank-trend-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  background: #fff;
+}
+.rank-trend-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.rank-trend-card-title {
+  font-weight: var(--fw-semibold);
+  color: #1e293b;
+  font-size: var(--text-sm);
+}
+.rank-trend-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  color: #7c3aed;
+  background: #ede9fe;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.rank-trend-spark {
+  width: 100%;
+  height: 96px;
+  display: block;
+}
+.rank-trend-empty {
+  height: 96px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  font-size: var(--text-sm);
+}
+.rank-trend-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 4px;
+  color: #475569;
+  font-size: var(--text-sm);
+}
+.rank-trend-change-up {
+  color: #0f766e;
+}
+.rank-trend-change-down {
+  color: #7c3aed;
+}
+.rank-trend-change-flat {
+  color: #64748b;
+}
