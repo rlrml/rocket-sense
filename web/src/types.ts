@@ -366,10 +366,12 @@ export interface StatAggregateResponse {
   opponent_count_per_game: number | null;
   opponent_per_active_minute: number | null;
   opponent_per_non_demo_active_minute: number | null;
-  // The `rank-peers` benchmark cohort (median of a typical player at the served
-  // tier). Optional: a flagged-off / undeployed backend omits these.
+  // The `rank-peers` benchmark cohort (a typical player at the served tier).
+  // Optional: a flagged-off / undeployed backend omits these.
   rank_benchmark_per_active_minute?: number | null;
   rank_benchmark_per_non_demo_active_minute?: number | null;
+  // "median" (typical player) or "mean" (pooled rate, for rare mechanics).
+  rank_benchmark_aggregator?: string | null;
 }
 
 export interface RankBenchmarkTierOption {

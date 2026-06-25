@@ -39,13 +39,22 @@ CREATE TABLE rank_benchmark_stats (
     rank_value integer NOT NULL,
     outcome text NOT NULL,
     event_type_id integer NOT NULL REFERENCES event_types(id),
+    -- Median of per-player rates ("the typical player") and the pooled mean
+    -- (total events / total active time). `aggregator` records which one the
+    -- read path serves: 'median' for common stats, 'mean' for rare mechanics
+    -- whose per-player median is 0 (so the bar isn't flatlined). Both are stored
+    -- so the choice can be revisited without a recompute.
     median_per_active_minute double precision,
     median_per_non_demo_active_minute double precision,
+    mean_per_active_minute double precision,
+    mean_per_non_demo_active_minute double precision,
+    aggregator text NOT NULL DEFAULT 'median',
     created_at timestamptz NOT NULL DEFAULT now(),
     PRIMARY KEY (window_key, playlist_group_key, rank_grouping, rank_value, outcome, event_type_id),
     CHECK (window_key <> ''),
     CHECK (playlist_group_key <> ''),
     CHECK (rank_grouping IN ('tier', 'group')),
+    CHECK (aggregator IN ('median', 'mean')),
     CHECK (outcome IN ('all', 'win', 'loss'))
 );
 

@@ -197,11 +197,14 @@ pub struct StatAggregateResponse {
     pub opponent_count_per_game: Option<f64>,
     pub opponent_per_active_minute: Option<f64>,
     pub opponent_per_non_demo_active_minute: Option<f64>,
-    /// Median per-active-minute rate of a typical player at the served rank tier
-    /// (the `rank-peers` cohort). `None` when the benchmark is disabled or the
-    /// tier/event has no materialized cell.
+    /// Served per-active-minute benchmark rate of a typical player at the served
+    /// rank tier (the `rank-peers` cohort). `None` when the benchmark is disabled
+    /// or the tier/event has no materialized cell.
     pub rank_benchmark_per_active_minute: Option<f64>,
     pub rank_benchmark_per_non_demo_active_minute: Option<f64>,
+    /// How that rate was aggregated: `"median"` (typical player) or `"mean"`
+    /// (pooled rate, used for rare mechanics whose median is 0).
+    pub rank_benchmark_aggregator: Option<String>,
 }
 
 /// One selectable rank tier for the benchmark picker, with its sample size.
@@ -1509,11 +1512,14 @@ pub(crate) fn player_boost_band_index(percent: f64) -> usize {
     }
 }
 
-/// One stat's median benchmark rates (the `rank-peers` cohort), keyed by the
-/// event-type key in [`RankBenchmarkCohort::per_stat`].
+/// One stat's served benchmark rates (the `rank-peers` cohort), keyed by the
+/// event-type key in [`RankBenchmarkCohort::per_stat`]. The values are already
+/// the aggregator's pick (median for common stats, pooled mean for rare ones);
+/// `aggregator` is carried so the UI can label which it is.
 struct RankBenchmarkStatValue {
     per_active_minute: Option<f64>,
     per_non_demo_active_minute: Option<f64>,
+    aggregator: String,
 }
 
 /// The resolved rank-median benchmark cohort for a single `(window, playlist
@@ -1765,7 +1771,9 @@ async fn load_rank_benchmark_cohort(
     )) = served
     {
         let stat_rows = sqlx::query(
-                "SELECT et.key AS stat_key, s.median_per_active_minute, s.median_per_non_demo_active_minute \
+                "SELECT et.key AS stat_key, s.aggregator, \
+                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_active_minute ELSE s.median_per_active_minute END AS per_active_minute, \
+                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_non_demo_active_minute ELSE s.median_per_non_demo_active_minute END AS per_non_demo_active_minute \
                  FROM rank_benchmark_stats s JOIN event_types et ON et.id = s.event_type_id \
                  WHERE s.window_key = $1 AND s.playlist_group_key = $2 AND s.rank_grouping = $3 \
                    AND s.rank_value = $4 AND s.outcome = $5",
@@ -1783,8 +1791,9 @@ async fn load_rank_benchmark_cohort(
             per_stat.insert(
                 key,
                 RankBenchmarkStatValue {
-                    per_active_minute: row.try_get("median_per_active_minute")?,
-                    per_non_demo_active_minute: row.try_get("median_per_non_demo_active_minute")?,
+                    per_active_minute: row.try_get("per_active_minute")?,
+                    per_non_demo_active_minute: row.try_get("per_non_demo_active_minute")?,
+                    aggregator: row.try_get("aggregator")?,
                 },
             );
         }
@@ -1979,6 +1988,7 @@ async fn load_stat_aggregates_base(
                 rank_benchmark_per_active_minute: benchmark.and_then(|v| v.per_active_minute),
                 rank_benchmark_per_non_demo_active_minute: benchmark
                     .and_then(|v| v.per_non_demo_active_minute),
+                rank_benchmark_aggregator: benchmark.map(|v| v.aggregator.clone()),
             }
         })
         .collect();

@@ -146,6 +146,7 @@ function playerRateComparisonRows(
         rate: rankRate,
         statName: stat.display_name,
         rankBenchmark,
+        aggregator: stat.rank_benchmark_aggregator,
       }),
     );
   }
@@ -160,27 +161,36 @@ function playerRateComparisonRow({
   rate,
   statName,
   rankBenchmark,
+  aggregator,
 }: {
   cohortKey: CareerCohortKey;
-  // Absent for the `rank-peers` cohort: a median rate has no per-row count.
+  // Absent for the `rank-peers` cohort: a benchmark rate has no per-row count.
   count?: number;
   maxValue: number;
   playerName: string;
   rate: number;
   statName: string;
   rankBenchmark?: RankBenchmarkRowInfo;
+  // "median" | "mean" for the rank-peers row, so a pooled-mean (rare-mechanic)
+  // bar reads "average" rather than "median".
+  aggregator?: string | null;
 }): ComparisonRow {
   const formatted = formatRate(rate);
   const rateLabel = `${formatted}/5m`;
   const tierLabel = rankBenchmark?.tierLabel ?? null;
-  const cohortLabel = careerCohortLabel(cohortKey, playerName, tierLabel);
-  // Rank-peers is a median rate, so it carries no count label; its subtitle
-  // shows the served tier + window instead.
+  // Rare mechanics are served as a pooled mean; label them "average".
+  const rankWord = aggregator === "mean" ? "average" : "median";
+  const cohortLabel =
+    cohortKey === "rank-peers"
+      ? `Rank ${rankWord}${tierLabel ? ` (${tierLabel})` : ""}`
+      : careerCohortLabel(cohortKey, playerName, tierLabel);
+  // Rank-peers is a benchmark rate, so it carries no count label; its subtitle
+  // shows the aggregator + window instead.
   const hasCount = count != null;
   const totalKind = cohortKey === "player" ? "total" : "pooled total";
   const subtitle =
     cohortKey === "rank-peers"
-      ? [careerCohortSubtitle(cohortKey), rankBenchmark?.windowLabel].filter(Boolean).join(" · ")
+      ? [`Rank ${rankWord}`, rankBenchmark?.windowLabel].filter(Boolean).join(" · ")
       : `${careerCohortSubtitle(cohortKey)} · ${(count ?? 0).toLocaleString()} ${totalKind}`;
   const segmentTitle = hasCount
     ? `${rateLabel} (${(count ?? 0).toLocaleString()} ${totalKind})`

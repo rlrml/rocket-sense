@@ -3544,6 +3544,8 @@ async fn refresh_rank_benchmark_window(
         -- still enters X's median (excluding them biases it upward).
         player_rates AS (
             SELECT d.playlist_group_key, d.rank_grouping, d.rank_value, d.outcome, et.event_type_id,
+                   COALESCE(s.events, 0) AS events,
+                   d.active_seconds, d.non_demo_active_seconds,
                    CASE WHEN d.active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.active_seconds END AS per_active_minute,
                    CASE WHEN d.non_demo_active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.non_demo_active_seconds END AS per_non_demo_active_minute
             FROM player_denoms d
@@ -3555,6 +3557,32 @@ async fn refresh_rank_benchmark_window(
              AND s.outcome = d.outcome
              AND s.player_subject_id = d.player_subject_id
              AND s.event_type_id = et.event_type_id
+        ),
+        -- Per (group, rank bucket, outcome, event_type): the per-player median,
+        -- the pooled mean (sum events / sum active), and how many players ever
+        -- performed the event (drives the rare-stat aggregator choice).
+        stat_agg AS (
+            SELECT playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute) AS median_per_active_minute,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute) AS median_per_non_demo_active_minute,
+                   CASE WHEN SUM(active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(active_seconds) END AS mean_per_active_minute,
+                   CASE WHEN SUM(non_demo_active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(non_demo_active_seconds) END AS mean_per_non_demo_active_minute,
+                   COUNT(*) FILTER (WHERE events > 0) AS nonzero_players,
+                   COUNT(*) AS total_players
+            FROM player_rates
+            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, event_type_id
+        ),
+        -- One aggregator per (group, event_type), consistent across ranks/outcomes
+        -- so a stat's bars stay comparable: 'mean' for rare events, else 'median'.
+        stat_aggregator AS (
+            SELECT playlist_group_key, event_type_id,
+                   CASE WHEN SUM(nonzero_players)::float8 / NULLIF(SUM(total_players), 0) < "#,
+    );
+    builder.push_bind(crate::rank_benchmark::RARE_NONZERO_FRACTION);
+    builder.push(
+        r#" THEN 'mean' ELSE 'median' END AS aggregator
+            FROM stat_agg
+            GROUP BY playlist_group_key, event_type_id
         ),
         population AS (
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
@@ -3572,17 +3600,20 @@ async fn refresh_rank_benchmark_window(
         ins_stats AS (
             INSERT INTO rank_benchmark_stats (
                 window_key, playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
-                median_per_active_minute, median_per_non_demo_active_minute
+                median_per_active_minute, median_per_non_demo_active_minute,
+                mean_per_active_minute, mean_per_non_demo_active_minute, aggregator
             )
             SELECT "#,
     );
     builder.push_bind(&resolved.window_key);
     builder.push(
-        r#", playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
-                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute),
-                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute)
-            FROM player_rates
-            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, event_type_id
+        r#", sa.playlist_group_key, sa.rank_grouping, sa.rank_value, sa.outcome, sa.event_type_id,
+                   sa.median_per_active_minute, sa.median_per_non_demo_active_minute,
+                   sa.mean_per_active_minute, sa.mean_per_non_demo_active_minute, agg.aggregator
+            FROM stat_agg sa
+            JOIN stat_aggregator agg
+              ON agg.playlist_group_key = sa.playlist_group_key
+             AND agg.event_type_id = sa.event_type_id
             RETURNING 1
         )
         INSERT INTO rank_benchmark_population (

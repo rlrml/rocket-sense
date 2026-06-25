@@ -14,6 +14,12 @@ pub const MIN_PLAYER_GAMES: i64 = 5;
 /// `distinct_player_count` so the UI can hide or flag thinner tiers.
 pub const MIN_SAMPLE: i64 = 20;
 
+/// When fewer than this fraction of a stat's qualifying players ever perform the
+/// event (so the per-player median is ~0), the refresh marks the stat
+/// `aggregator = 'mean'` and the read serves the pooled rate instead -- a rare
+/// mechanic (flip reset, air dribble, ...) otherwise flatlines at a 0 median.
+pub const RARE_NONZERO_FRACTION: f64 = 0.5;
+
 /// How many of a season's qualifying players are needed before `season:current`
 /// resolves to that season rather than falling back to the most recent prior
 /// season while the new one is still thin.
