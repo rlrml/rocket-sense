@@ -187,7 +187,7 @@ export function TouchesDetail({
           onComparisonModeChange={setSelectedMode}
         />
       )}
-      <StatComparisonGrid>
+      <StatComparisonGrid contained={false}>
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
             key={`touches-${dimension.id}`}
@@ -245,7 +245,7 @@ export function TouchProfileComparison({
 
   return (
     <div className="touches-detail">
-      <StatComparisonGrid>
+      <StatComparisonGrid contained={false}>
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
             key={`profile-touches-${dimension.id}`}

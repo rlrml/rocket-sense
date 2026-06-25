@@ -3937,6 +3937,12 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
+.boost-profile-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
 .boost-comparison-tabs {
   display: inline-flex;
   width: fit-content;
