@@ -347,12 +347,51 @@ fn build_movement_summary_query(filters: &MovementStatsQuery) -> QueryBuilder<'_
     query.push(
         r#"
                     ELSE 0 END), 0.0) AS high_air_seconds,
-                COUNT(*) FILTER (WHERE event_type = 'powerslide') AS powerslide_count,
-                COALESCE(SUM(duration) FILTER (WHERE event_type = 'powerslide'), 0.0) AS powerslide_seconds,
                 COUNT(*) FILTER (WHERE event_type = 'speed_flip') AS speed_flips,
                 COUNT(*) FILTER (WHERE event_type = 'wavedash') AS wavedashes,
                 COUNT(*) FILTER (WHERE event_type = 'half_flip') AS half_flips
             FROM movement_events
+            GROUP BY cohort
+        ),
+        powerslide_toggles AS (
+            -- Powerslide events are instantaneous on/off toggles (payload.active),
+            -- not spans, so summing per-event `duration` is always zero. Pair each
+            -- slide's leading `active:true` toggle with its trailing `active:false`
+            -- toggle, mirroring the per-replay client logic in web/src/stats/movement.tsx.
+            SELECT
+                cohort,
+                replay_id,
+                subject_id,
+                COALESCE(CASE WHEN jsonb_typeof(payload->'time') = 'number' THEN (payload->>'time')::float8 END, 0.0) AS toggle_time,
+                COALESCE(CASE WHEN jsonb_typeof(payload->'frame') = 'number' THEN (payload->>'frame')::float8 END, 0.0) AS toggle_order,
+                ((payload->>'active') IS DISTINCT FROM 'false') AS active
+            FROM movement_events
+            WHERE event_type = 'powerslide'
+        ),
+        powerslide_edges AS (
+            SELECT
+                cohort, replay_id, subject_id, toggle_time, toggle_order, active,
+                (active IS DISTINCT FROM LAG(active) OVER w) AS is_edge
+            FROM powerslide_toggles
+            WINDOW w AS (PARTITION BY cohort, replay_id, subject_id ORDER BY toggle_time, toggle_order)
+        ),
+        powerslide_paired AS (
+            -- After dropping repeated same-state toggles, edges strictly alternate;
+            -- each slide-start (active) is closed by the next edge's timestamp.
+            SELECT
+                cohort, active, toggle_time,
+                LEAD(toggle_time) OVER (
+                    PARTITION BY cohort, replay_id, subject_id ORDER BY toggle_time, toggle_order
+                ) AS close_time
+            FROM powerslide_edges
+            WHERE is_edge
+        ),
+        powerslide_spans AS (
+            SELECT
+                cohort,
+                COUNT(*) FILTER (WHERE active) AS powerslide_count,
+                COALESCE(SUM(CASE WHEN active THEN GREATEST(close_time - toggle_time, 0.0) ELSE 0.0 END), 0.0) AS powerslide_seconds
+            FROM powerslide_paired
             GROUP BY cohort
         )
         SELECT
@@ -368,13 +407,14 @@ fn build_movement_summary_query(filters: &MovementStatsQuery) -> QueryBuilder<'_
             COALESCE(events.ground_seconds, 0.0) AS ground_seconds,
             COALESCE(events.low_air_seconds, 0.0) AS low_air_seconds,
             COALESCE(events.high_air_seconds, 0.0) AS high_air_seconds,
-            COALESCE(events.powerslide_count, 0) AS powerslide_count,
-            COALESCE(events.powerslide_seconds, 0.0) AS powerslide_seconds,
+            COALESCE(slides.powerslide_count, 0) AS powerslide_count,
+            COALESCE(slides.powerslide_seconds, 0.0) AS powerslide_seconds,
             COALESCE(events.speed_flips, 0) AS speed_flips,
             COALESCE(events.wavedashes, 0) AS wavedashes,
             COALESCE(events.half_flips, 0) AS half_flips
         FROM appearance_aggregates appearances
         LEFT JOIN event_aggregates events USING (cohort)
+        LEFT JOIN powerslide_spans slides USING (cohort)
         "#,
     );
     query

@@ -334,12 +334,49 @@ const INSERT_PLAYER_REPLAY_MOVEMENT_SQL: &str = r#"
                 COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_ground', 'ground_seconds', 'ground_time_seconds', 'time_on_ground'], ARRAY['ground', 'on_ground']) ELSE 0 END), 0.0) AS ground_seconds,
                 COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_low_air', 'low_air_seconds', 'low_air_time_seconds'], ARRAY['low_air', 'low']) ELSE 0 END), 0.0) AS low_air_seconds,
                 COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_high_air', 'high_air_seconds', 'high_air_time_seconds'], ARRAY['high_air', 'high']) ELSE 0 END), 0.0) AS high_air_seconds,
-                COUNT(*) FILTER (WHERE event_type = 'powerslide') AS powerslide_count,
-                COALESCE(SUM(duration) FILTER (WHERE event_type = 'powerslide'), 0.0) AS powerslide_seconds,
                 COUNT(*) FILTER (WHERE event_type = 'speed_flip') AS speed_flips,
                 COUNT(*) FILTER (WHERE event_type = 'wavedash') AS wavedashes,
                 COUNT(*) FILTER (WHERE event_type = 'half_flip') AS half_flips
             FROM movement_events
+            GROUP BY player_subject_id
+        ),
+        powerslide_toggles AS (
+            -- Powerslide events are instantaneous on/off toggles (payload.active),
+            -- not spans, so summing per-event `duration` is always zero. Pair each
+            -- slide's leading `active:true` toggle with its trailing `active:false`
+            -- toggle, mirroring the per-replay client logic in web/src/stats/movement.tsx.
+            SELECT
+                player_subject_id,
+                COALESCE(CASE WHEN jsonb_typeof(payload->'time') = 'number' THEN (payload->>'time')::float8 END, 0.0) AS toggle_time,
+                COALESCE(CASE WHEN jsonb_typeof(payload->'frame') = 'number' THEN (payload->>'frame')::float8 END, 0.0) AS toggle_order,
+                ((payload->>'active') IS DISTINCT FROM 'false') AS active
+            FROM movement_events
+            WHERE event_type = 'powerslide'
+        ),
+        powerslide_edges AS (
+            SELECT
+                player_subject_id, toggle_time, toggle_order, active,
+                (active IS DISTINCT FROM LAG(active) OVER w) AS is_edge
+            FROM powerslide_toggles
+            WINDOW w AS (PARTITION BY player_subject_id ORDER BY toggle_time, toggle_order)
+        ),
+        powerslide_paired AS (
+            -- After dropping repeated same-state toggles, edges strictly alternate;
+            -- each slide-start (active) is closed by the next edge's timestamp.
+            SELECT
+                player_subject_id, active, toggle_time,
+                LEAD(toggle_time) OVER (
+                    PARTITION BY player_subject_id ORDER BY toggle_time, toggle_order
+                ) AS close_time
+            FROM powerslide_edges
+            WHERE is_edge
+        ),
+        powerslide_spans AS (
+            SELECT
+                player_subject_id,
+                COUNT(*) FILTER (WHERE active) AS powerslide_count,
+                COALESCE(SUM(CASE WHEN active THEN GREATEST(close_time - toggle_time, 0.0) ELSE 0.0 END), 0.0) AS powerslide_seconds
+            FROM powerslide_paired
             GROUP BY player_subject_id
         )
         SELECT
@@ -360,14 +397,16 @@ const INSERT_PLAYER_REPLAY_MOVEMENT_SQL: &str = r#"
             COALESCE(events.ground_seconds, 0.0),
             COALESCE(events.low_air_seconds, 0.0),
             COALESCE(events.high_air_seconds, 0.0),
-            COALESCE(events.powerslide_count, 0),
-            COALESCE(events.powerslide_seconds, 0.0),
+            COALESCE(slides.powerslide_count, 0),
+            COALESCE(slides.powerslide_seconds, 0.0),
             COALESCE(events.speed_flips, 0),
             COALESCE(events.wavedashes, 0),
             COALESCE(events.half_flips, 0)
         FROM replay_players rp
         LEFT JOIN event_aggregates events
           ON events.player_subject_id = concat(rp.platform, ':', rp.platform_player_id)
+        LEFT JOIN powerslide_spans slides
+          ON slides.player_subject_id = concat(rp.platform, ':', rp.platform_player_id)
         WHERE rp.replay_id = $2
           AND rp.platform IS NOT NULL
           AND btrim(rp.platform) <> ''
@@ -2593,8 +2632,20 @@ async fn insert_player_replay_movement(
 
 /// Populate `player_replay_movement` for every canonical replay missing rows,
 /// from existing events (no re-parse). Resumable; returns replays backfilled.
-pub async fn backfill_player_replay_movement(pool: &PgPool) -> Result<u64> {
-    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+///
+/// When `recompute` is true, every canonical replay is re-materialized (each
+/// `insert_player_replay_movement` deletes and re-inserts), not just those
+/// missing rows -- use this to refresh existing rows after the materialization
+/// SQL changes (e.g. the powerslide toggle-pairing fix).
+pub async fn backfill_player_replay_movement(pool: &PgPool, recompute: bool) -> Result<u64> {
+    let query = if recompute {
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+        ORDER BY r.created_at, r.id
+        "#
+    } else {
         r#"
         SELECT r.id, r.canonical_analysis_run_id
         FROM replays r
@@ -2606,11 +2657,12 @@ pub async fn backfill_player_replay_movement(pool: &PgPool) -> Result<u64> {
                 AND movement.analysis_run_id = r.canonical_analysis_run_id
           )
         ORDER BY r.created_at, r.id
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .context("failed to list replays needing movement backfill")?;
+        "#
+    };
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(query)
+        .fetch_all(pool)
+        .await
+        .context("failed to list replays needing movement backfill")?;
 
     let total = targets.len();
     tracing::info!(total, "starting player replay movement backfill");
