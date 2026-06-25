@@ -3473,6 +3473,26 @@ tbody tr:last-child td {
   background: var(--touch-other);
 }
 
+.source-segment.touch-seg-loc-ground,
+.chart-legend .touch-seg-loc-ground::before {
+  background: var(--touch-loc-ground);
+}
+
+.source-segment.touch-seg-loc-aerial,
+.chart-legend .touch-seg-loc-aerial::before {
+  background: var(--touch-loc-aerial);
+}
+
+.source-segment.touch-seg-loc-high,
+.chart-legend .touch-seg-loc-high::before {
+  background: var(--touch-loc-high);
+}
+
+.source-segment.touch-seg-loc-wall,
+.chart-legend .touch-seg-loc-wall::before {
+  background: var(--touch-loc-wall);
+}
+
 /* Aerials section — per-panel ranked bar segments + matching legend swatches. */
 .source-segment.aerial-seg-mix-flip-reset,
 .chart-legend .aerial-seg-mix-flip-reset::before {
@@ -3914,6 +3934,12 @@ tbody tr:last-child td {
 .boost-comparison-grid {
   display: grid;
   gap: 16px;
+  min-width: 0;
+}
+
+.boost-profile-panel {
+  display: grid;
+  gap: 12px;
   min-width: 0;
 }
 

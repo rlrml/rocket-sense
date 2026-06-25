@@ -125,6 +125,12 @@
   --touch-cat-neutral: var(--possession-neutral);
   --touch-other: var(--outcome-neutral);
 
+  /* Touch location swatches (ground -> low air -> high air -> wall). */
+  --touch-loc-ground: #16a34a;
+  --touch-loc-aerial: #0891b2;
+  --touch-loc-high: #6366f1;
+  --touch-loc-wall: #d97706;
+
   /* Aerial mechanics swatches. Each panel on the Aerials section is an
      independent ranked bar set, so colors only need to stay distinct *within* a
      panel — the same hue may recur across panels for different mechanics. Every

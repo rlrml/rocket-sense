@@ -352,11 +352,7 @@ export function BoostProfileDetail({
   });
 
   return (
-    <section className="chart-panel full-span boost-profile-panel">
-      <header className="chart-panel-header">
-        <h3>Boost economy</h3>
-        <span>Boost rates, source breakdowns, and pad pickups across this replay set</span>
-      </header>
+    <section className="boost-profile-panel">
       <BoostEconomyComparisonGrid
         comparisonMode="players"
         durationSeconds={Math.max(1, ...summaries.map((summary) => summary.trackedSeconds))}
