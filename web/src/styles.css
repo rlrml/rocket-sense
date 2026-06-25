@@ -1495,6 +1495,37 @@ tbody tr:last-child td {
   gap: 8px;
 }
 
+.rank-benchmark-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin: 4px 0 12px;
+}
+
+.rank-benchmark-picker {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+}
+
+.rank-benchmark-picker-label {
+  color: #64748b;
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.rank-benchmark-picker select {
+  min-height: 32px;
+  padding: 2px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  color: #1e293b;
+}
+
 .segment-bar-label {
   display: inline-flex;
   align-items: center;

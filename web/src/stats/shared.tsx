@@ -244,7 +244,7 @@ export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
   "negative-unknown": "#ddd6fe",
 };
 
-export type CareerCohortKey = "player" | "teammates" | "opponents";
+export type CareerCohortKey = "player" | "teammates" | "opponents" | "rank-peers";
 
 export function careerCohortKey(value: string | null | undefined): CareerCohortKey | null {
   if (!value) return null;
@@ -253,19 +253,27 @@ export function careerCohortKey(value: string | null | undefined): CareerCohortK
     return "teammates";
   if (value === "opponent" || value === "opponents" || value === "cohort-opponents")
     return "opponents";
+  if (value === "rank" || value === "rank-peers" || value === "cohort-rank-peers")
+    return "rank-peers";
   return null;
 }
 
-export function careerCohortLabel(key: CareerCohortKey, playerName = "Player"): string {
+export function careerCohortLabel(
+  key: CareerCohortKey,
+  playerName = "Player",
+  tierLabel?: string | null,
+): string {
   if (key === "player") return playerName;
   if (key === "teammates") return "Teammates";
-  return "Opponents";
+  if (key === "opponents") return "Opponents";
+  return `Rank median${tierLabel ? ` (${tierLabel})` : ""}`;
 }
 
 export function careerCohortSubtitle(key: CareerCohortKey): string {
   if (key === "player") return "Player";
   if (key === "teammates") return "Teammates";
-  return "Opponents";
+  if (key === "opponents") return "Opponents";
+  return "Rank median";
 }
 
 export function careerCohortClassName(key: CareerCohortKey): string {

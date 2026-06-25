@@ -61,6 +61,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/stats/backfill-boost", post(backfill_boost))
         .route("/admin/stats/backfill-kickoff", post(backfill_kickoff))
+        .route(
+            "/admin/stats/refresh-rank-benchmarks",
+            post(refresh_rank_benchmarks),
+        )
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
@@ -784,6 +788,39 @@ pub async fn backfill_boost(
         match crate::processing::backfill_player_replay_boost(&pool).await {
             Ok(backfilled) => tracing::info!(backfilled, "boost backfill task finished"),
             Err(error) => tracing::error!(?error, "boost backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Recompute the rank-median benchmark cohort for every configured window. Runs
+/// in the background; on-demand rebuild that mirrors the recurring refresh job.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/refresh-rank-benchmarks",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Rank benchmark refresh started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn refresh_rank_benchmarks(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    let windows = state.rank_benchmark_windows.to_vec();
+    let calc = state.rank_benchmark_calc;
+    tokio::spawn(async move {
+        match crate::processing::refresh_rank_benchmark(&pool, &windows, calc).await {
+            Ok(refreshed) => tracing::info!(refreshed, "rank benchmark refresh task finished"),
+            Err(error) => tracing::error!(?error, "rank benchmark refresh task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {

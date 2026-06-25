@@ -19,6 +19,7 @@ use utoipa::{
         admin::backfill_team_control,
         admin::backfill_boost,
         admin::backfill_kickoff,
+        admin::refresh_rank_benchmarks,
         admin::backfill_profile_timing,
         admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,

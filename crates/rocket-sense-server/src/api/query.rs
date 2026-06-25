@@ -152,6 +152,13 @@ pub(crate) fn parse_u32_filter(name: &str, value: &str) -> Result<u32, ApiError>
         .map_err(|_| ApiError::bad_request(format!("{name} must be an unsigned integer")))
 }
 
+pub(crate) fn parse_i32_filter(name: &str, value: &str) -> Result<i32, ApiError> {
+    value
+        .trim()
+        .parse::<i32>()
+        .map_err(|_| ApiError::bad_request(format!("{name} must be an integer")))
+}
+
 pub(crate) fn parse_datetime_filter(name: &str, value: &str) -> Result<DateTime<Utc>, ApiError> {
     DateTime::parse_from_rfc3339(value.trim())
         .map(|date| date.with_timezone(&Utc))

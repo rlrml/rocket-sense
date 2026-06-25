@@ -4399,7 +4399,14 @@ function PlayerAggregateStatsSections({
     ) {
       add(
         "rate-comparison",
-        <PlayerRateComparisonChart playerName={playerName} stats={contentTopStats} />,
+        <PlayerRateComparisonChart
+          playerName={playerName}
+          stats={contentTopStats}
+          rankBenchmark={{
+            tierLabel: contentStats.rank_benchmark_tier_label,
+            windowLabel: contentStats.rank_benchmark_window_label,
+          }}
+        />,
       );
     }
 

@@ -19,6 +19,12 @@ mod spa;
 mod stats;
 mod users;
 
+/// Reused by `crate::processing` to key the rank-median benchmark population on
+/// the exact same playlist-group expression the read path filters by (a
+/// mismatch would silently empty the cohort). Re-exported narrowly so the
+/// `replay_set` module itself stays private to `api`.
+pub(crate) use replay_set::push_playlist_group_key_expression;
+
 /// Boost materialization helpers reused by `crate::processing` to populate
 /// `player_replay_boost` with the same band/last-value accumulation as the live
 /// boost-totals read, without widening the whole `stats`/`replays` modules.

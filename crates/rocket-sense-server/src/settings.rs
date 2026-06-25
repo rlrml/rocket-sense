@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use std::{env, net::SocketAddr, path::PathBuf};
 
+use crate::rank_benchmark::{self, BenchmarkWindow, CalcStyle};
+
 const DEV_JWT_SECRET: &str = "rocket-sense-local-dev-secret";
 const MIN_APP_JWT_SECRET_BYTES: usize = 32;
 
@@ -118,6 +120,19 @@ pub struct Settings {
     /// `play_event_subjects`/`play_events` scan. Default false so the page stays
     /// correct until the reprocess backfill has populated the table.
     pub materialized_stat_counts: bool,
+    /// Gates the rank-median benchmark cohort: the recurring refresh job, the
+    /// admin trigger, and the `rank_benchmark_*` read-path fields. Default false
+    /// until the first refresh has populated `rank_benchmark_stats`.
+    pub rank_benchmark_enabled: bool,
+    /// Which `BenchmarkWindow`s the refresh job materializes. Default
+    /// `[rolling-6m]`; e.g. `["rolling-6m", "season:current"]` to offer both.
+    pub rank_benchmark_windows: Vec<BenchmarkWindow>,
+    /// The `window_key` the read serves when a request has no
+    /// `rank-benchmark-window` override. Defaults to `rolling-6m`.
+    pub rank_benchmark_default_window: String,
+    /// How the refresh computes a stat's rate sample: per-appearance (default,
+    /// one rate per game) or per-player (one rate per player).
+    pub rank_benchmark_calc: CalcStyle,
     /// Normalized (trimmed, lowercased) email addresses that are automatically
     /// promoted to admin when they authenticate. Bootstraps the first admin(s);
     /// further admins are then granted through the admin API.
@@ -173,6 +188,28 @@ impl Settings {
         let materialized_stat_counts = env::var("ROCKET_SENSE_MATERIALIZED_STAT_COUNTS")
             .map(|value| value == "1" || value.to_lowercase() == "true")
             .unwrap_or(true);
+        let rank_benchmark_enabled = env::var("ROCKET_SENSE_RANK_BENCHMARK")
+            .map(|value| value == "1" || value.to_lowercase() == "true")
+            .unwrap_or(false);
+        let rank_benchmark_windows = env::var("ROCKET_SENSE_RANK_BENCHMARK_WINDOWS")
+            .ok()
+            .map(|value| rank_benchmark::parse_window_list(&value))
+            .filter(|windows| !windows.is_empty())
+            .unwrap_or_else(|| vec![BenchmarkWindow::Rolling { months: 6 }]);
+        let rank_benchmark_default_window = env::var("ROCKET_SENSE_RANK_BENCHMARK_DEFAULT_WINDOW")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| {
+                rank_benchmark_windows
+                    .first()
+                    .map(BenchmarkWindow::window_key)
+                    .unwrap_or_else(|| "rolling-6m".to_owned())
+            });
+        let rank_benchmark_calc = env::var("ROCKET_SENSE_RANK_BENCHMARK_CALC")
+            .ok()
+            .and_then(|value| CalcStyle::parse(&value))
+            .unwrap_or_default();
         let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
 
         Ok(Self {
@@ -188,6 +225,10 @@ impl Settings {
             run_replay_processing_workers,
             background_processing_concurrency,
             materialized_stat_counts,
+            rank_benchmark_enabled,
+            rank_benchmark_windows,
+            rank_benchmark_default_window,
+            rank_benchmark_calc,
             admin_emails,
         })
     }

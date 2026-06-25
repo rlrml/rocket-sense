@@ -17,6 +17,79 @@ use uuid::Uuid;
 #[path = "ranks_tests.rs"]
 mod tests;
 
+/// Canonical PsyNet skill-tier names (0 = Unranked, 1-21 = Bronze I through
+/// Grand Champion III, 22 = Supersonic Legend). Kept in sync with `tierNames`
+/// in `web/src/rank.tsx`.
+const TIER_NAMES: [&str; 23] = [
+    "Unranked",
+    "Bronze I",
+    "Bronze II",
+    "Bronze III",
+    "Silver I",
+    "Silver II",
+    "Silver III",
+    "Gold I",
+    "Gold II",
+    "Gold III",
+    "Platinum I",
+    "Platinum II",
+    "Platinum III",
+    "Diamond I",
+    "Diamond II",
+    "Diamond III",
+    "Champion I",
+    "Champion II",
+    "Champion III",
+    "Grand Champion I",
+    "Grand Champion II",
+    "Grand Champion III",
+    "Supersonic Legend",
+];
+
+/// Human label for a rank tier index, e.g. `14` -> `"Diamond II"`. Falls back to
+/// `"Tier <n>"` for out-of-range values.
+pub fn rank_tier_label(tier: i32) -> String {
+    usize::try_from(tier)
+        .ok()
+        .and_then(|index| TIER_NAMES.get(index))
+        .map(|name| (*name).to_owned())
+        .unwrap_or_else(|| format!("Tier {tier}"))
+}
+
+/// Rank-group names (a rank's three divisions pooled into one bucket): index
+/// `0` Bronze .. `7` Supersonic Legend. Used by the rank-median benchmark when a
+/// single tier is too sparse to sample.
+const RANK_GROUP_NAMES: [&str; 8] = [
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+    "Diamond",
+    "Champion",
+    "Grand Champion",
+    "Supersonic Legend",
+];
+
+/// The pooled rank-group id (0..7) for a tier index. Kept in sync with the SQL
+/// `CASE WHEN tier = 22 THEN 7 ELSE (tier - 1) / 3 END` in the benchmark refresh.
+/// Only meaningful for ranked tiers (`tier >= 1`).
+pub fn rank_group_id(tier: i32) -> i32 {
+    if tier >= 22 {
+        7
+    } else {
+        (tier - 1) / 3
+    }
+}
+
+/// Human label for a rank-group id, e.g. `2` -> `"Gold"`.
+pub fn rank_group_label(group_id: i32) -> String {
+    usize::try_from(group_id)
+        .ok()
+        .and_then(|index| RANK_GROUP_NAMES.get(index))
+        .map(|name| (*name).to_owned())
+        .unwrap_or_else(|| format!("Group {group_id}"))
+}
+
 /// A skill snapshot at a single point in time (before or after the match).
 /// `mu`/`sigma` are the raw TrueSkill values; `mmr` is the derived display
 /// value (`mu * 20 + 100`). Any field may be absent.
