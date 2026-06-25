@@ -19,6 +19,7 @@ import {
   careerCohortLabel,
   careerCohortSegmentClassName,
   careerCohortSubtitle,
+  careerRateValue,
   careerRateWindowLabel,
   type CareerCohortKey,
   ComparisonBar,
@@ -1750,22 +1751,25 @@ function teamControlChart(
   const rows: ComparisonRow[] = buckets.map((bucket) => {
     const share = total > 0 ? bucket.duration_seconds / total : 0;
     const formatted = formatShare(share);
+    // Seconds in this bucket per 5 minutes of tracked time (share * 5 min).
+    const per5 = careerRateValue(bucket.duration_seconds, total) ?? 0;
+    const per5Label = `${formatDurationSeconds(per5)}/5m`;
     return {
       key: `${key}:${bucket.key}`,
       label: <span className="possession-team-bucket-label">{bucket.label}</span>,
-      ariaLabel: `${bucket.label}: ${formatted}`,
+      ariaLabel: `${bucket.label}: ${per5Label} (${formatted})`,
       segments: [
         {
           key: "value",
           className: teamControlClass(bucket.key),
           label: bucket.label,
           value: share,
-          title: statPercentWithValue(formatted, formatDurationSeconds(bucket.duration_seconds)),
+          title: `${bucket.label}: ${per5Label} (${formatted})`,
         },
       ],
       total: share,
       maxValue: 1,
-      barValue: formatted,
+      barValue: `${per5Label} · ${formatted}`,
     };
   });
   return { key, title, rows };
