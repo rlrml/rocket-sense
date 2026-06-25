@@ -6554,7 +6554,7 @@ tbody tr:last-child td {
 
 @media (max-width: 560px) {
   .top-bar {
-    grid-template-columns: max-content max-content minmax(0, 1fr);
+    grid-template-columns: max-content max-content minmax(0, 1fr) max-content;
   }
 
   .brand span,
