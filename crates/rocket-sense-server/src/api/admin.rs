@@ -63,6 +63,15 @@ pub fn router() -> Router<AppState> {
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
+pub struct BackfillMovementQuery {
+    /// Re-materialize every canonical replay, refreshing existing rows instead
+    /// of only filling replays that have no movement rows yet. Required to pick
+    /// up materialization SQL changes for already-processed replays.
+    #[serde(default)]
+    pub recompute: bool,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
 pub struct ReplayProcessingDiagnosticsQuery {
     pub status: Option<String>,
     #[serde(default)]
@@ -613,11 +622,16 @@ pub async fn backfill_positioning(
 }
 
 /// Populate `player_replay_movement` from existing events for every canonical
-/// replay missing rows. Runs in the background and is resumable.
+/// replay missing rows. Runs in the background and is resumable. Pass
+/// `?recompute=true` to refresh existing rows (e.g. after materialization SQL
+/// changes) instead of only filling replays without rows.
 #[utoipa::path(
     post,
     path = "/api/v1/admin/stats/backfill-movement",
     tag = "admin",
+    params(
+        ("recompute" = Option<bool>, Query, description = "Re-materialize every canonical replay, refreshing existing rows")
+    ),
     responses(
         (status = 200, description = "Movement backfill started", body = BackfillEventCountsResponse),
         (status = 401, description = "Not authenticated"),
@@ -628,13 +642,17 @@ pub async fn backfill_positioning(
 pub async fn backfill_movement(
     auth_user: AuthUser,
     State(state): State<AppState>,
+    Query(query): Query<BackfillMovementQuery>,
 ) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
     let pool = require_db(&state)?;
     require_admin(&state, &auth_user).await?;
     let pool = pool.clone();
+    let recompute = query.recompute;
     tokio::spawn(async move {
-        match crate::processing::backfill_player_replay_movement(&pool).await {
-            Ok(backfilled) => tracing::info!(backfilled, "movement backfill task finished"),
+        match crate::processing::backfill_player_replay_movement(&pool, recompute).await {
+            Ok(backfilled) => {
+                tracing::info!(backfilled, recompute, "movement backfill task finished")
+            }
             Err(error) => tracing::error!(?error, "movement backfill task failed"),
         }
     });
