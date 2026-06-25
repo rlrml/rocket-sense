@@ -476,19 +476,27 @@ function assistPercentageRows(
 ): ComparisonRow[] {
   const teamGoals = goals.count + goals.teammate_count;
   const opponentTeamGoals = goals.opponent_count;
-  const playerPercentage = percentage(assists.count, teamGoals);
+  // Assist percentage is over goals the cohort could have assisted. For the
+  // individual player that excludes the goals they scored themselves (you can't
+  // assist your own goal), so the denominator is the goals their teammates
+  // scored. The pooled teammate/opponent rows keep their full team-goal
+  // denominators: self-scored goals can't be subtracted cleanly from a pool (a
+  // teammate can assist another teammate's goal), and the opponent cohort is the
+  // entire other team, so subtracting their goals would leave nothing.
+  const playerAssistableGoals = goals.teammate_count;
+  const playerPercentage = percentage(assists.count, playerAssistableGoals);
   const teammatePercentage = percentage(assists.teammate_count, teamGoals);
   const opponentPercentage = percentage(assists.opponent_count, opponentTeamGoals);
   const rows: ComparisonRow[] = [
     percentageComparisonRow({
       cohortKey: "player",
-      denominator: teamGoals,
+      denominator: playerAssistableGoals,
       label: formatPercentage(playerPercentage),
       maxValue: 100,
       numerator: assists.count,
       playerName,
       statName: "Assist percentage",
-      totalName: "assists/team goals",
+      totalName: "assists/assistable goals",
       value: playerPercentage ?? 0,
     }),
   ];
