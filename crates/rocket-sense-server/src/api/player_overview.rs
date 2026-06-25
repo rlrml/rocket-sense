@@ -713,7 +713,9 @@ async fn load_mvp_summary(
                     THEN 1.0 / win.win_size
                     ELSE 0
                 END
-            ), 0) AS mvp_expected
+            -- `1.0 / win.win_size` is NUMERIC in Postgres, so the whole sum is
+            -- too; cast to double precision to match the f64 decode below.
+            ), 0)::double precision AS mvp_expected
         FROM mvp_replays mr
         LEFT JOIN LATERAL (
             SELECT COUNT(*) AS win_size, MAX(wrp.score) AS win_max_score
