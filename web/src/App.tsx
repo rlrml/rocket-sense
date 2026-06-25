@@ -35,7 +35,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -4270,19 +4270,7 @@ function PlayerAggregateStatsSections({
     search,
   });
 
-  function renderStatsContent({
-    contentKickoffFilterSummary,
-    contentKickoffSupportSummary,
-    contentKickoffTakerSummary,
-    contentMovementSummary,
-    contentOverview,
-    contentPossessionSummary,
-    contentPositioningSummary,
-    contentSearch,
-    contentStats,
-    contentSupplementalError,
-    contentSupplementalLoading,
-  }: {
+  type StatsContentInputs = {
     contentKickoffFilterSummary: EventStatSummaryResponse | null;
     contentKickoffSupportSummary: EventStatSummaryResponse | null;
     contentKickoffTakerSummary: EventStatSummaryResponse | null;
@@ -4294,7 +4282,24 @@ function PlayerAggregateStatsSections({
     contentStats: StatAggregateSetResponse;
     contentSupplementalError: string | null;
     contentSupplementalLoading: boolean;
-  }) {
+  };
+
+  // Each stat section is composed of several heterogeneous panels. We build them
+  // as a keyed list so the combined view can render them in order, and the
+  // wins/losses split can pair the same panel for each outcome side by side.
+  function buildStatsPanels({
+    contentKickoffFilterSummary,
+    contentKickoffSupportSummary,
+    contentKickoffTakerSummary,
+    contentMovementSummary,
+    contentOverview,
+    contentPossessionSummary,
+    contentPositioningSummary,
+    contentSearch,
+    contentStats,
+    contentSupplementalError,
+    contentSupplementalLoading,
+  }: StatsContentInputs): Array<{ key: string; node: ReactNode }> {
     const contentSectionStats = filterStatsForGroup(contentStats.stats, activeGroup)
       .slice()
       .sort(comparePlayerStatRates);
@@ -4303,107 +4308,180 @@ function PlayerAggregateStatsSections({
       (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
     );
 
+    const panels: Array<{ key: string; node: ReactNode }> = [];
+    const add = (key: string, node: ReactNode) => panels.push({ key, node });
+
+    if (activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome) {
+      add(
+        "kickoff-spawn",
+        <KickoffSpawnBreakdown
+          dimension={contentKickoffSpawnDimension}
+          shapeFilter={kickoffShapeFilter}
+          sideFilter={kickoffSideFilter}
+          onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
+          onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
+        />,
+      );
+    }
+
+    if (
+      activeGroup.id !== "kickoffs" &&
+      activeGroup.id !== "boost" &&
+      activeGroup.id !== "core" &&
+      activeGroup.id !== "goals" &&
+      activeGroup.id !== "movement" &&
+      activeGroup.id !== "possession" &&
+      activeGroup.id !== "positioning" &&
+      activeGroup.id !== "rotation" &&
+      activeGroup.id !== "touches"
+    ) {
+      add(
+        "rate-comparison",
+        <PlayerRateComparisonChart playerName={playerName} stats={contentTopStats} />,
+      );
+    }
+
+    if (activeGroup.id === "boost") {
+      add(
+        "boost-profile",
+        <BoostProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "core" && contentOverview) {
+      add(
+        "core-profile",
+        <CoreProfileComparison
+          overview={contentOverview}
+          playerName={playerName}
+          stats={contentSectionStats}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "movement" && contentMovementSummary) {
+      add(
+        "movement-cohorts",
+        <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />,
+      );
+    }
+    if (activeGroup.id === "movement" && contentSupplementalLoading) {
+      add("movement-loading", <SupplementalLoadingNotice label="Movement comparisons" />);
+    }
+    if (activeGroup.id === "movement" && contentSupplementalError) {
+      add(
+        "movement-error",
+        <ApiNotice label="Movement comparisons" message={contentSupplementalError} />,
+      );
+    }
+
+    if (activeGroup.id === "goals" && contentOverview) {
+      add(
+        "goal-share",
+        <GoalTagSharePanel
+          overview={contentOverview}
+          playerName={playerName}
+          goalTypeHref={(kind) =>
+            playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
+          }
+          allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
+        />,
+      );
+    }
+    if (activeGroup.id === "goals" && contentSupplementalLoading) {
+      add("goal-loading", <SupplementalLoadingNotice label="Goal types" />);
+    }
+    if (activeGroup.id === "goals" && contentSupplementalError) {
+      add("goal-error", <ApiNotice label="Goal types" message={contentSupplementalError} />);
+    }
+
+    if (activeGroup.id === "kickoffs" && contentKickoffTakerSummary) {
+      add(
+        "kickoff-taker",
+        <KickoffSummaryPanel role="taker" summary={contentKickoffTakerSummary} />,
+      );
+    }
+    if (activeGroup.id === "kickoffs" && contentKickoffSupportSummary) {
+      add(
+        "kickoff-support",
+        <KickoffSummaryPanel role="support" summary={contentKickoffSupportSummary} />,
+      );
+    }
+
+    if (activeGroup.id === "possession" && contentPossessionSummary) {
+      add(
+        "possession-summary",
+        <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />,
+      );
+    }
+    if (activeGroup.id === "possession" && contentSupplementalLoading) {
+      add("possession-loading", <SupplementalLoadingNotice label="Possession comparisons" />);
+    }
+    if (activeGroup.id === "possession" && contentSupplementalError) {
+      add(
+        "possession-error",
+        <ApiNotice label="Possession comparisons" message={contentSupplementalError} />,
+      );
+    }
+
+    if (activeGroup.id === "touches" && contentStats.touch_breakdown) {
+      add(
+        "touch-profile",
+        <TouchProfileComparison breakdown={contentStats.touch_breakdown} playerName={playerName} />,
+      );
+    }
+
+    if (activeGroup.id === "positioning" && contentPositioningSummary) {
+      add(
+        "positioning-cohorts",
+        <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />,
+      );
+    }
+    if ((activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview) {
+      add(
+        "rotation-share",
+        <RotationTimeSharePanel
+          overview={contentOverview}
+          playerName={playerName}
+          stats={contentStats}
+        />,
+      );
+    }
+
+    return panels;
+  }
+
+  function renderStatsContent(inputs: StatsContentInputs) {
     return (
       <>
-        {activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome ? (
-          <KickoffSpawnBreakdown
-            dimension={contentKickoffSpawnDimension}
-            shapeFilter={kickoffShapeFilter}
-            sideFilter={kickoffSideFilter}
-            onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
-            onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
-          />
-        ) : null}
-
-        {activeGroup.id === "kickoffs" ||
-        activeGroup.id === "boost" ||
-        activeGroup.id === "core" ||
-        activeGroup.id === "goals" ||
-        activeGroup.id === "movement" ||
-        activeGroup.id === "possession" ||
-        activeGroup.id === "positioning" ||
-        activeGroup.id === "rotation" ||
-        activeGroup.id === "touches" ? null : (
-          <PlayerRateComparisonChart playerName={playerName} stats={contentTopStats} />
-        )}
-
-        {activeGroup.id === "boost" ? (
-          <BoostProfileDetail
-            platform={platform}
-            platformPlayerId={platformPlayerId}
-            playerName={playerName}
-            search={contentSearch}
-          />
-        ) : null}
-
-        {activeGroup.id === "core" && contentOverview ? (
-          <CoreProfileComparison
-            overview={contentOverview}
-            playerName={playerName}
-            stats={contentSectionStats}
-          />
-        ) : null}
-
-        {activeGroup.id === "movement" && contentMovementSummary ? (
-          <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />
-        ) : null}
-        {activeGroup.id === "movement" && contentSupplementalLoading ? (
-          <SupplementalLoadingNotice label="Movement comparisons" />
-        ) : null}
-        {activeGroup.id === "movement" && contentSupplementalError ? (
-          <ApiNotice label="Movement comparisons" message={contentSupplementalError} />
-        ) : null}
-
-        {activeGroup.id === "goals" && contentOverview ? (
-          <GoalTagSharePanel
-            overview={contentOverview}
-            playerName={playerName}
-            goalTypeHref={(kind) =>
-              playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
-            }
-            allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
-          />
-        ) : null}
-        {activeGroup.id === "goals" && contentSupplementalLoading ? (
-          <SupplementalLoadingNotice label="Goal types" />
-        ) : null}
-        {activeGroup.id === "goals" && contentSupplementalError ? (
-          <ApiNotice label="Goal types" message={contentSupplementalError} />
-        ) : null}
-        {activeGroup.id === "kickoffs" && contentKickoffTakerSummary ? (
-          <KickoffSummaryPanel role="taker" summary={contentKickoffTakerSummary} />
-        ) : null}
-        {activeGroup.id === "kickoffs" && contentKickoffSupportSummary ? (
-          <KickoffSummaryPanel role="support" summary={contentKickoffSupportSummary} />
-        ) : null}
-        {activeGroup.id === "possession" && contentPossessionSummary ? (
-          <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />
-        ) : null}
-        {activeGroup.id === "possession" && contentSupplementalLoading ? (
-          <SupplementalLoadingNotice label="Possession comparisons" />
-        ) : null}
-        {activeGroup.id === "possession" && contentSupplementalError ? (
-          <ApiNotice label="Possession comparisons" message={contentSupplementalError} />
-        ) : null}
-        {activeGroup.id === "touches" && contentStats.touch_breakdown ? (
-          <TouchProfileComparison
-            breakdown={contentStats.touch_breakdown}
-            playerName={playerName}
-          />
-        ) : null}
-        {activeGroup.id === "positioning" && contentPositioningSummary ? (
-          <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />
-        ) : null}
-        {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview ? (
-          <RotationTimeSharePanel
-            overview={contentOverview}
-            playerName={playerName}
-            stats={contentStats}
-          />
-        ) : null}
+        {buildStatsPanels(inputs).map((panel) => (
+          <Fragment key={panel.key}>{panel.node}</Fragment>
+        ))}
       </>
     );
   }
+
+  const outcomeBundleInputs = (bundle: PlayerStatsOutcomeBundle): StatsContentInputs | null =>
+    bundle.stats
+      ? {
+          contentKickoffFilterSummary: bundle.kickoffFilterSummary,
+          contentKickoffSupportSummary: bundle.kickoffSupportSummary,
+          contentKickoffTakerSummary: bundle.kickoffTakerSummary,
+          contentMovementSummary: bundle.movementSummary,
+          contentOverview: bundle.overview,
+          contentPossessionSummary: bundle.possessionSummary,
+          contentPositioningSummary: bundle.positioningSummary,
+          contentSearch: bundle.search,
+          contentStats: bundle.stats,
+          contentSupplementalError: null,
+          contentSupplementalLoading: false,
+        }
+      : null;
 
   return (
     <section className="stat-detail player-aggregate-stats">
@@ -4464,32 +4542,71 @@ function PlayerAggregateStatsSections({
       {splitOutcome ? (
         <>
           <StatusLine loading={outcomeState.loading} error={outcomeState.error} />
-          {outcomeState.bundles.map((bundle) =>
-            bundle.stats ? (
-              <section className="player-outcome-split-section" key={bundle.key}>
-                <header className="chart-panel-header">
-                  <h3>{bundle.label}</h3>
-                  <span>
-                    {bundle.stats.replay_count.toLocaleString()}{" "}
-                    {bundle.stats.replay_count === 1 ? "game" : "games"}
-                  </span>
+          {(() => {
+            const readyBundles = outcomeState.bundles
+              .map((bundle) => {
+                const inputs = outcomeBundleInputs(bundle);
+                return inputs ? { bundle, inputs, panels: buildStatsPanels(inputs) } : null;
+              })
+              .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+            if (readyBundles.length === 0) return null;
+
+            // Union the panel keys across outcomes, preserving first-seen order, so
+            // each panel pairs its wins and losses variants on the same row.
+            const orderedKeys: string[] = [];
+            const seenKeys = new Set<string>();
+            for (const entry of readyBundles) {
+              for (const panel of entry.panels) {
+                if (!seenKeys.has(panel.key)) {
+                  seenKeys.add(panel.key);
+                  orderedKeys.push(panel.key);
+                }
+              }
+            }
+
+            return (
+              <div className="player-outcome-split">
+                <header className="player-outcome-split-summary">
+                  {readyBundles.map(({ bundle }) => (
+                    <div
+                      className="player-outcome-summary-cell"
+                      data-outcome={bundle.key}
+                      key={bundle.key}
+                    >
+                      <h3>{bundle.label}</h3>
+                      <span>
+                        {bundle.stats?.replay_count.toLocaleString()}{" "}
+                        {bundle.stats?.replay_count === 1 ? "game" : "games"}
+                      </span>
+                    </div>
+                  ))}
                 </header>
-                {renderStatsContent({
-                  contentKickoffFilterSummary: bundle.kickoffFilterSummary,
-                  contentKickoffSupportSummary: bundle.kickoffSupportSummary,
-                  contentKickoffTakerSummary: bundle.kickoffTakerSummary,
-                  contentMovementSummary: bundle.movementSummary,
-                  contentOverview: bundle.overview,
-                  contentPossessionSummary: bundle.possessionSummary,
-                  contentPositioningSummary: bundle.positioningSummary,
-                  contentSearch: bundle.search,
-                  contentStats: bundle.stats,
-                  contentSupplementalError: null,
-                  contentSupplementalLoading: false,
-                })}
-              </section>
-            ) : null,
-          )}
+                {orderedKeys.map((key) => (
+                  <div className="player-outcome-pair" key={key}>
+                    {readyBundles.map(({ bundle, panels }) => {
+                      const panel = panels.find((entry) => entry.key === key);
+                      return (
+                        <div
+                          className="player-outcome-pair-cell"
+                          data-outcome={bundle.key}
+                          key={bundle.key}
+                        >
+                          <span className="player-outcome-pair-tag">{bundle.label}</span>
+                          {panel ? (
+                            panel.node
+                          ) : (
+                            <p className="muted-text player-outcome-pair-empty">
+                              No {bundle.label.toLowerCase()} data
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </>
       ) : (
         renderStatsContent({

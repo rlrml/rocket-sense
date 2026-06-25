@@ -7231,10 +7231,87 @@ tbody tr:last-child td {
   margin-bottom: 14px;
 }
 
-.player-outcome-split-section {
+.player-outcome-split {
   display: grid;
   grid-column: 1 / -1;
   gap: 14px;
+}
+
+.player-outcome-split-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.player-outcome-summary-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--surface-subtle);
+}
+
+.player-outcome-summary-cell[data-outcome="wins"] {
+  border-left-color: #16a34a;
+}
+
+.player-outcome-summary-cell[data-outcome="losses"] {
+  border-left-color: #dc2626;
+}
+
+.player-outcome-summary-cell h3 {
+  margin: 0;
+  font-size: var(--text-base);
+}
+
+.player-outcome-summary-cell span {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.player-outcome-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 14px;
+}
+
+.player-outcome-pair-cell {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.player-outcome-pair-tag {
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.player-outcome-pair-cell[data-outcome="wins"] .player-outcome-pair-tag {
+  color: #16a34a;
+}
+
+.player-outcome-pair-cell[data-outcome="losses"] .player-outcome-pair-tag {
+  color: #dc2626;
+}
+
+.player-outcome-pair-empty {
+  margin: 0;
+}
+
+@media (max-width: 820px) {
+  .player-outcome-split-summary,
+  .player-outcome-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .rate-chart-rows {
