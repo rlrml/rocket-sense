@@ -38,6 +38,17 @@ export interface StatDetailProps {
   subjectSubtitle?: string;
 }
 
+/**
+ * How a section renders in a replay-group (multi-player) context:
+ * - `"leaderboard"` (default): stat-major per-player ranking — pick a stat, rank
+ *   every participant. The group default; works for any countable/rate stat.
+ * - `"drill-down-only"`: no group-level aggregate view. The section only makes
+ *   sense per player (e.g. the boost control diagram is a single-subject spatial
+ *   chart), so the group view links into each player's group-scoped career view
+ *   instead of rendering a group panel.
+ */
+export type StatGroupLayout = "leaderboard" | "drill-down-only";
+
 export interface StatGroup {
   id: string;
   aliases?: readonly string[];
@@ -49,8 +60,21 @@ export interface StatGroup {
   excludeKeys?: readonly string[];
   completed: boolean;
   usesAggregateStats: boolean;
+  /** Group-context rendering. Defaults to `"leaderboard"` when unset. */
+  groupLayout?: StatGroupLayout;
+  /**
+   * Stat keys to surface as ranked leaderboard columns for this section, in
+   * priority order (the first present becomes the default selection). When unset,
+   * the leaderboard offers every aggregate stat matching `terms`.
+   */
+  leaderboardStats?: readonly string[];
   eventTypes: readonly string[];
   Detail?: ComponentType<StatDetailProps>;
+}
+
+/** A section's group-context layout, applying the `"leaderboard"` default. */
+export function statGroupLayout(group: StatGroup): StatGroupLayout {
+  return group.groupLayout ?? "leaderboard";
 }
 
 export const statGroups: StatGroup[] = [
@@ -73,6 +97,7 @@ export const statGroups: StatGroup[] = [
     ],
     completed: true,
     usesAggregateStats: false,
+    leaderboardStats: ["goal", "assist", "save", "shot", "demolition", "death"],
     eventTypes: coreEventTypes,
     Detail: CoreDetail,
   },
@@ -108,6 +133,10 @@ export const statGroups: StatGroup[] = [
     terms: ["boost", "pickup", "pad"],
     completed: true,
     usesAggregateStats: false,
+    // The boost detail centres on the per-player pad-control diagram (a
+    // single-subject spatial chart), which doesn't collapse to a leaderboard.
+    // Surface it per player via the group-scoped career drill-down instead.
+    groupLayout: "drill-down-only",
     eventTypes: boostEventTypes,
     Detail: BoostDetail,
   },
