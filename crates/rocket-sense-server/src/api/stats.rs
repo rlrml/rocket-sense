@@ -2399,6 +2399,8 @@ struct TouchAggregateCohortAccumulator {
     kind_advance: HashMap<String, f64>,
     category_counts: HashMap<String, u64>,
     category_advance: HashMap<String, f64>,
+    location_counts: HashMap<String, u64>,
+    location_advance: HashMap<String, f64>,
     active_time_seconds: Option<f64>,
 }
 
@@ -2408,10 +2410,10 @@ impl TouchAggregateCohortAccumulator {
     }
 
     fn add(&mut self, dimension: String, value: String, count: u64, advance: f64) {
-        let (counts, advances) = if dimension == "kind" {
-            (&mut self.kind_counts, &mut self.kind_advance)
-        } else {
-            (&mut self.category_counts, &mut self.category_advance)
+        let (counts, advances) = match dimension.as_str() {
+            "kind" => (&mut self.kind_counts, &mut self.kind_advance),
+            "location" => (&mut self.location_counts, &mut self.location_advance),
+            _ => (&mut self.category_counts, &mut self.category_advance),
         };
         *counts.entry(value.clone()).or_insert(0) += count;
         *advances.entry(value).or_insert(0.0) += advance.max(0.0);
@@ -2442,6 +2444,10 @@ impl TouchAggregateCohortAccumulator {
                 TouchAggregateDimensionResponse {
                     key: "category".to_owned(),
                     values: touch_values_response(self.category_counts, self.category_advance),
+                },
+                TouchAggregateDimensionResponse {
+                    key: "location".to_owned(),
+                    values: touch_values_response(self.location_counts, self.location_advance),
                 },
             ],
         }
@@ -2495,6 +2501,13 @@ async fn load_touch_aggregate_breakdown(
                     WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
                     ELSE 'other'
                 END AS category,
+                CASE
+                    WHEN detail.surface = 'wall' THEN 'wall'
+                    WHEN detail.surface = 'ground' THEN 'ground'
+                    WHEN detail.surface = 'air' AND detail.height_band = 'high_air' THEN 'high_aerial'
+                    WHEN detail.surface = 'air' AND detail.height_band = 'low_air' THEN 'aerial'
+                    ELSE 'other'
+                END AS location,
                 COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
             FROM target_appearances appearance
             JOIN play_events event
@@ -2536,7 +2549,7 @@ async fn load_touch_aggregate_breakdown(
             GROUP BY cohort
         ),
         normalized AS (
-            SELECT cohort, kind, category, advance_distance
+            SELECT cohort, kind, category, location, advance_distance
             FROM touch_events
             WHERE cohort IS NOT NULL
         )
@@ -2565,6 +2578,15 @@ async fn load_touch_aggregate_breakdown(
                 COALESCE(SUM(advance_distance), 0.0) AS advance_distance
             FROM normalized
             GROUP BY cohort, category
+            UNION ALL
+            SELECT
+                cohort,
+                'location' AS dimension,
+                location AS value,
+                COUNT(*) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM normalized
+            GROUP BY cohort, location
         ) rows
         LEFT JOIN cohort_denominators denominator
           ON denominator.cohort = rows.cohort

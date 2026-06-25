@@ -26,11 +26,12 @@ import {
 } from "./shared";
 import { touchIntentionValue, touchPayloadValue } from "./touchTags";
 
-// Only the classified touch stream feeds this section. Each event carries two
+// Only the classified touch stream feeds this section. Each event carries three
 // independent classification axes plus how far the touch moved the ball toward
 // the attacking goal (`ball_movement.advance_distance`):
 //   - kind:      hit strength (control / medium / hard hit)
 //   - category:  action/possession (shot / save / clear / pass / boom / advance / dribble)
+//   - location:  where it happened (ground / aerial / high aerial / wall)
 export const touchEventTypes = ["touch"];
 
 type TouchComparisonMode = "players" | "teams";
@@ -95,7 +96,28 @@ export const CATEGORY_DIMENSION: TouchDimension = {
   other: OTHER_VALUE,
 };
 
-export const TOUCH_DIMENSIONS: TouchDimension[] = [KIND_DIMENSION, CATEGORY_DIMENSION];
+// Where the touch happened, combining subtr-actor's `surface` (ground/air/wall)
+// and `height_band` (ground/low_air/high_air) facets. Surface wins first (wall
+// and ground are surface states); air touches split into Aerial vs High aerial
+// by height band. Ordered ground -> up -> wall.
+export const LOCATION_DIMENSION: TouchDimension = {
+  id: "location",
+  noun: "location",
+  value: touchLocationValue,
+  values: [
+    { id: "ground", label: "Ground", segmentClass: "touch-seg-loc-ground" },
+    { id: "aerial", label: "Aerial", segmentClass: "touch-seg-loc-aerial" },
+    { id: "high_aerial", label: "High aerial", segmentClass: "touch-seg-loc-high" },
+    { id: "wall", label: "Wall", segmentClass: "touch-seg-loc-wall" },
+  ],
+  other: OTHER_VALUE,
+};
+
+export const TOUCH_DIMENSIONS: TouchDimension[] = [
+  KIND_DIMENSION,
+  CATEGORY_DIMENSION,
+  LOCATION_DIMENSION,
+];
 
 interface TouchSubject {
   key: string;
@@ -532,6 +554,28 @@ function touchKindValue(payload: Record<string, unknown>): string | null {
 
 function touchCategoryValue(payload: Record<string, unknown>): string | null {
   return touchIntentionValue(payload);
+}
+
+// Mirrors the server's location bucketing (processing.rs / stats.rs): surface
+// wins for ground/wall; air splits into aerial vs high aerial by height band.
+// The profile (lifetime) path feeds already-bucketed value keys straight
+// through `dimensionValueIdFromKey`; this path only runs for raw per-replay
+// payloads.
+function touchLocationValue(payload: Record<string, unknown>): string | null {
+  const surface = touchPayloadValue(payload, "surface");
+  const heightBand = touchPayloadValue(payload, "height_band");
+  if (surface === "wall") return "wall";
+  if (surface === "ground") return "ground";
+  if (surface === "air") {
+    if (heightBand === "high_air") return "high_aerial";
+    if (heightBand === "low_air") return "aerial";
+    return null;
+  }
+  // Fallback for payloads without a surface tag: classify by height band alone.
+  if (heightBand === "ground") return "ground";
+  if (heightBand === "high_air") return "high_aerial";
+  if (heightBand === "low_air") return "aerial";
+  return null;
 }
 
 function touchAdvance(payload: Record<string, unknown>): number {

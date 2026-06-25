@@ -446,6 +446,13 @@ const INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL: &str = r#"
                     WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
                     ELSE 'other'
                 END AS category,
+                CASE
+                    WHEN detail.surface = 'wall' THEN 'wall'
+                    WHEN detail.surface = 'ground' THEN 'ground'
+                    WHEN detail.surface = 'air' AND detail.height_band = 'high_air' THEN 'high_aerial'
+                    WHEN detail.surface = 'air' AND detail.height_band = 'low_air' THEN 'aerial'
+                    ELSE 'other'
+                END AS location,
                 COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
             FROM play_events event
             JOIN play_event_touch_details detail
@@ -467,6 +474,10 @@ const INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL: &str = r#"
             SELECT replay_player_id, 'category'::text AS dimension, category AS value, COUNT(*) AS touch_count, COALESCE(SUM(advance_distance), 0.0) AS advance_distance
             FROM touch_events
             GROUP BY replay_player_id, category
+            UNION ALL
+            SELECT replay_player_id, 'location'::text AS dimension, location AS value, COUNT(*) AS touch_count, COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM touch_events
+            GROUP BY replay_player_id, location
         )
         SELECT
             $1,
