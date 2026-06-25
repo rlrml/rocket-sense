@@ -502,6 +502,8 @@ export interface ScoringRateResponse {
 export interface PlayerStatOverviewResponse {
   replay_count: number;
   goals_scored: number;
+  /** Team size shared by every replay in the set (2 = doubles), or null when mixed. */
+  team_size?: number | null;
   score: ScoringRateResponse;
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
@@ -585,19 +587,13 @@ export interface PossessionSummaryResponse {
   cohorts: PossessionCohortSummary[];
   touches: PossessionTouchSummary;
   locations: PossessionLocationSummary;
-  // Team-level control oriented to the player's team, split by game result.
-  // Only present when the summary targets a single player.
-  team: PossessionTeamSummary | null;
+  // Team-level control oriented to the player's team, over the same filtered
+  // replay set as the rest of the summary (so the global win/loss outcome
+  // control applies). Only present when the summary targets a single player.
+  team: PossessionTeamControl | null;
 }
 
-export interface PossessionTeamSummary {
-  overall: PossessionTeamSplit;
-  wins: PossessionTeamSplit;
-  losses: PossessionTeamSplit;
-}
-
-export interface PossessionTeamSplit {
-  replay_count: number;
+export interface PossessionTeamControl {
   possession: PossessionTeamMetric;
   ball_halves: PossessionTeamMetric;
   ball_thirds: PossessionTeamMetric;

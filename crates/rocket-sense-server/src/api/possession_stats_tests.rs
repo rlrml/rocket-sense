@@ -106,13 +106,12 @@ fn team_metrics_orient_raw_values_to_player_team() {
 
 #[test]
 fn team_metric_slots_preserve_bucket_order_and_share() {
-    let mut accumulator = TeamSplitAccumulator::new();
+    let mut accumulator = TeamControlAccumulator::new();
     accumulator.add(TeamMetricKind::BallHalf, "own_side", 3.0);
     accumulator.add(TeamMetricKind::BallHalf, "opponent_side", 1.0);
-    let split = accumulator.into_split(7);
-    assert_eq!(split.replay_count, 7);
+    let control = accumulator.into_control();
 
-    let halves = split.ball_halves;
+    let halves = control.ball_halves;
     assert_eq!(halves.total_duration_seconds, 4.0);
     let keys: Vec<_> = halves.buckets.iter().map(|b| b.key.as_str()).collect();
     assert_eq!(keys, vec!["own_side", "neutral", "opponent_side"]);

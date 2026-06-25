@@ -55,6 +55,10 @@ pub fn router() -> Router<AppState> {
             "/admin/stats/backfill-possession",
             post(backfill_possession),
         )
+        .route(
+            "/admin/stats/backfill-team-control",
+            post(backfill_team_control),
+        )
         .route("/admin/stats/backfill-boost", post(backfill_boost))
         .route("/admin/stats/backfill-kickoff", post(backfill_kickoff))
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
@@ -718,6 +722,37 @@ pub async fn backfill_possession(
         match crate::processing::backfill_player_replay_possession(&pool).await {
             Ok(backfilled) => tracing::info!(backfilled, "possession backfill task finished"),
             Err(error) => tracing::error!(?error, "possession backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Populate `replay_team_control` from existing events for every canonical
+/// replay missing a row. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-team-control",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Team control backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_team_control(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_replay_team_control(&pool).await {
+            Ok(backfilled) => tracing::info!(backfilled, "team control backfill task finished"),
+            Err(error) => tracing::error!(?error, "team control backfill task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {

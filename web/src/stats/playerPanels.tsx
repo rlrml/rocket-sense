@@ -1,14 +1,12 @@
 import { Link } from "react-router-dom";
-import { useState } from "react";
 import type { ReactNode } from "react";
 import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
   PlayerStatOverviewResponse,
   PossessionSummaryResponse,
-  PossessionTeamSplit,
-  PossessionTeamSummary,
-  PossessionTimeBucket,
+  PossessionTeamControl,
+  PossessionTeamMetric,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
@@ -27,16 +25,14 @@ import {
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
   PlayerComparisonChart,
-  SegmentedBar,
   StatPlayerLabel,
   statPercentWithValue,
   type ComparisonRow,
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
-  type SegmentedBarSegment,
 } from "./shared";
 import {
-  PossessionAdvancedComparisonGrid,
+  PossessionAdvancedCharts,
   possessionAdvancedCohortLabel,
   type PossessionAdvancedSubject,
 } from "./possessionAdvanced";
@@ -299,7 +295,7 @@ export function CoreProfileComparison({
     {
       key: "assist-percentage",
       title: "Assist percentage (%)",
-      rows: assistPercentageRows(goals, assists, playerName),
+      rows: assistPercentageRows(goals, assists, playerName, overview.team_size),
     },
   ];
 
@@ -480,19 +476,27 @@ function assistPercentageRows(
   goals: ScoringRateLike,
   assists: ScoringRateLike,
   playerName: string,
+  teamSize?: number | null,
 ): ComparisonRow[] {
   const teamGoals = goals.count + goals.teammate_count;
   const opponentTeamGoals = goals.opponent_count;
   // Assist percentage is over goals the cohort could have assisted. For the
   // individual player that excludes the goals they scored themselves (you can't
   // assist your own goal), so the denominator is the goals their teammates
-  // scored. The pooled teammate/opponent rows keep their full team-goal
-  // denominators: self-scored goals can't be subtracted cleanly from a pool (a
-  // teammate can assist another teammate's goal), and the opponent cohort is the
-  // entire other team, so subtracting their goals would leave nothing.
+  // scored.
   const playerAssistableGoals = goals.teammate_count;
   const playerPercentage = percentage(assists.count, playerAssistableGoals);
-  const teammatePercentage = percentage(assists.teammate_count, teamGoals);
+  // The teammate cohort normally keeps the full team-goal denominator: in a pool
+  // a teammate can assist another teammate's goal, so self-scored goals can't be
+  // subtracted cleanly. In 2v2 there is exactly one teammate per game, whose only
+  // assistable goals are the player's own — so the denominator collapses to the
+  // player's goals, mirroring the player row. We only apply that when the whole
+  // set is doubles; mixing in 3v3 would make the player-goals denominator too
+  // small and inflate the percentage.
+  const teammateAssistableGoals = teamSize === 2 ? goals.count : teamGoals;
+  // The opponent cohort is the entire other team, so subtracting their goals
+  // would leave nothing; keep the full opponent-goal denominator.
+  const teammatePercentage = percentage(assists.teammate_count, teammateAssistableGoals);
   const opponentPercentage = percentage(assists.opponent_count, opponentTeamGoals);
   const rows: ComparisonRow[] = [
     percentageComparisonRow({
@@ -511,13 +515,13 @@ function assistPercentageRows(
     rows.push(
       percentageComparisonRow({
         cohortKey: "teammates",
-        denominator: teamGoals,
+        denominator: teammateAssistableGoals,
         label: formatPercentage(teammatePercentage),
         maxValue: 100,
         numerator: assists.teammate_count,
         playerName,
         statName: "Assist percentage",
-        totalName: "assists/team goals",
+        totalName: teamSize === 2 ? "assists/your goals" : "assists/team goals",
         value: teammatePercentage ?? 0,
       }),
     );
@@ -1690,165 +1694,71 @@ export function PossessionSummaryPanel({
   playerName?: string;
   summary: PossessionSummaryResponse;
 }) {
-  const subjects = possessionProfileSubjects(summary, playerName);
-
-  return (
-    <>
-      <PossessionAdvancedComparisonGrid
-        className="possession-profile-grid"
-        subjects={subjects.map(possessionAdvancedProfileSubject)}
-      />
-      {summary.team && teamSummaryHasData(summary.team) ? (
-        <TeamPossessionBreakdown team={summary.team} />
-      ) : null}
-    </>
+  const subjects = possessionProfileSubjects(summary, playerName).map(
+    possessionAdvancedProfileSubject,
   );
-}
-
-type TeamSplitKey = "overall" | "wins" | "losses";
-
-function teamSplitHasData(split: PossessionTeamSplit): boolean {
-  return (
-    split.possession.total_duration_seconds > 0 ||
-    split.ball_halves.total_duration_seconds > 0 ||
-    split.ball_thirds.total_duration_seconds > 0
-  );
-}
-
-function teamSummaryHasData(team: PossessionTeamSummary): boolean {
-  return teamSplitHasData(team.overall);
-}
-
-/**
- * Team-level ball control oriented to the player's team — possession share,
- * which half/third the ball sat in — split by game result (all / wins /
- * losses). Sits alongside the cohort comparison grid as the team-scoped view
- * the per-player cohorts can't express, with a win/loss toggle.
- */
-function TeamPossessionBreakdown({ team }: { team: PossessionTeamSummary }) {
-  const splits: Array<{ key: TeamSplitKey; label: string; split: PossessionTeamSplit }> = [
-    { key: "overall", label: "All games", split: team.overall },
-    { key: "wins", label: "Wins", split: team.wins },
-    { key: "losses", label: "Losses", split: team.losses },
-  ];
-  const [activeKey, setActiveKey] = useState<TeamSplitKey>("overall");
-  const active = splits.find((entry) => entry.key === activeKey) ?? splits[0];
-  const split = active.split;
+  const teamCharts = summary.team ? teamControlCharts(summary.team) : [];
 
   return (
-    <section className="chart-panel full-span possession-team-section">
-      <header className="chart-panel-header possession-team-header">
-        <h3>Team control</h3>
-        <div className="boost-page-controls">
-          <div
-            className="boost-comparison-tabs"
-            role="tablist"
-            aria-label="Team control game filter"
-          >
-            {splits.map((entry) => {
-              const disabled = entry.key !== "overall" && entry.split.replay_count === 0;
-              return (
-                <button
-                  aria-selected={entry.key === activeKey}
-                  className={entry.key === activeKey ? "active" : ""}
-                  disabled={disabled}
-                  key={entry.key}
-                  onClick={() => setActiveKey(entry.key)}
-                  role="tab"
-                  title={`${entry.label} · ${formatGameCount(entry.split.replay_count)}`}
-                  type="button"
-                >
-                  {entry.label}
-                  <span className="possession-team-tab-count">{entry.split.replay_count}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </header>
-      {teamSplitHasData(split) ? (
-        <div className="possession-location-grid possession-team-grid">
-          <TeamControlBreakdown
-            ariaLabel="Team possession share"
-            metric={split.possession}
-            title="Possession share"
-          />
-          <TeamControlBreakdown
-            ariaLabel="Ball time by half"
-            metric={split.ball_halves}
-            title="Ball half"
-          />
-          <TeamControlBreakdown
-            ariaLabel="Ball time by third"
-            metric={split.ball_thirds}
-            title="Ball thirds"
-          />
-        </div>
-      ) : (
-        <div className="stat-empty">
-          No team control data is available for {active.label.toLowerCase()}.
-        </div>
-      )}
-    </section>
-  );
-}
-
-/**
- * Stacked share bar + labelled rows for one oriented team metric (your side /
- * neutral / opponents), matching the design of the player possession bars.
- */
-function TeamControlBreakdown({
-  ariaLabel,
-  metric,
-  title,
-}: {
-  ariaLabel: string;
-  metric: PossessionTeamSummary["overall"]["possession"];
-  title: string;
-}) {
-  const total = metric.total_duration_seconds;
-  return (
-    <div className="possession-location-breakdown">
-      <h4>{title}</h4>
-      <SegmentedBar
-        ariaLabel={ariaLabel}
-        className="possession-location-track"
-        segments={metric.buckets.map((bucket) => teamControlSegment(bucket, total))}
-        total={total}
-      />
-      <div className="possession-location-list">
-        {metric.buckets.map((bucket) => (
-          <div
-            className={`possession-location-row ${teamControlClass(bucket.key)}`}
-            key={bucket.key}
-          >
-            <span>{bucket.label}</span>
-            <strong>{formatShare(bucket.share)}</strong>
-            <span>{formatDurationSeconds(bucket.duration_seconds)}</span>
-          </div>
-        ))}
-      </div>
+    <div
+      className="stat-comparison-grid possession-profile-grid"
+      aria-label="Possession comparisons"
+    >
+      <PossessionAdvancedCharts subjects={subjects} />
+      <PossessionAdvancedCharts charts={teamCharts} />
     </div>
   );
 }
 
-function teamControlSegment(
-  bucket: PossessionTimeBucket,
-  totalSeconds: number,
-): SegmentedBarSegment {
-  const share = totalSeconds > 0 ? bucket.duration_seconds / totalSeconds : 0;
-  return {
-    key: bucket.key,
-    className: teamControlClass(bucket.key),
-    label: bucket.label,
-    value: bucket.duration_seconds,
-    visibleLabel: share >= 0.08 ? `${bucket.label}: ${formatShare(share)}` : undefined,
-    title: statPercentWithValue(
-      formatShare(share),
-      formatDurationSeconds(bucket.duration_seconds),
-      bucket.label,
-    ),
-  };
+interface TeamControlChart {
+  key: string;
+  title: string;
+  rows: ComparisonRow[];
+}
+
+/**
+ * Team-level ball control (possession share, ball half, ball thirds) oriented
+ * to the player's team, rendered as extra cards in the same possession grid so
+ * they ride the global win/loss outcome control like every other stat — each
+ * card shows your-team / neutral / opponents shares.
+ */
+function teamControlCharts(team: PossessionTeamControl): TeamControlChart[] {
+  return [
+    teamControlChart("team-possession-share", "Team possession", team.possession),
+    teamControlChart("ball-half", "Ball half", team.ball_halves),
+    teamControlChart("ball-thirds", "Ball thirds", team.ball_thirds),
+  ].filter((chart): chart is TeamControlChart => chart != null);
+}
+
+function teamControlChart(
+  key: string,
+  title: string,
+  metric: PossessionTeamMetric,
+): TeamControlChart | null {
+  const total = metric.total_duration_seconds;
+  if (!(total > 0)) return null;
+  const rows: ComparisonRow[] = metric.buckets.map((bucket) => {
+    const share = total > 0 ? bucket.duration_seconds / total : 0;
+    const formatted = formatShare(share);
+    return {
+      key: `${key}:${bucket.key}`,
+      label: <span className="possession-team-bucket-label">{bucket.label}</span>,
+      ariaLabel: `${bucket.label}: ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: teamControlClass(bucket.key),
+          label: bucket.label,
+          value: share,
+          title: statPercentWithValue(formatted, formatDurationSeconds(bucket.duration_seconds)),
+        },
+      ],
+      total: share,
+      maxValue: 1,
+      barValue: formatted,
+    };
+  });
+  return { key, title, rows };
 }
 
 // Oriented keys (own_* / opponent_* / neutral*) map to the player's team
@@ -1857,10 +1767,6 @@ function teamControlClass(key: string): string {
   if (key.includes("own")) return "possession-location-team-zero";
   if (key.includes("opponent")) return "possession-location-team-one";
   return "possession-location-neutral";
-}
-
-function formatGameCount(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? "game" : "games"}`;
 }
 
 interface PossessionProfileSubject {

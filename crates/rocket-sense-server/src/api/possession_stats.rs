@@ -42,25 +42,16 @@ pub struct PossessionSummaryResponse {
     pub touches: PossessionTouchSummary,
     pub locations: PossessionLocationSummary,
     /// Team-level ball control (possession share, ball half, ball thirds)
-    /// oriented to the queried player's team and split by game result.
-    /// Only populated when the query targets a single player.
-    pub team: Option<PossessionTeamSummary>,
+    /// oriented to the queried player's team, over the same filtered replay set
+    /// as the rest of the summary (so the global win/loss outcome filter applies
+    /// uniformly). Only populated when the query targets a single player.
+    pub team: Option<PossessionTeamControl>,
 }
 
-/// Team-level possession metrics over a replay set, oriented to the queried
-/// player's team (your side / neutral / opponents) and split into the games
-/// that player won, lost, or all games together.
+/// Team-level possession metrics over the (already outcome-filtered) replay set,
+/// oriented to the queried player's team: your side / neutral / opponents.
 #[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct PossessionTeamSummary {
-    pub overall: PossessionTeamSplit,
-    pub wins: PossessionTeamSplit,
-    pub losses: PossessionTeamSplit,
-}
-
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct PossessionTeamSplit {
-    /// Replays contributing to this split (games won / lost / all graded).
-    pub replay_count: u64,
+pub struct PossessionTeamControl {
     /// Share of ball-control time held by each team (your team / neutral / opponents).
     pub possession: PossessionTeamMetric,
     /// Time the ball spent in each half (your side / neutral / opponent side).
@@ -262,7 +253,7 @@ async fn load_possession_summary(
     let touches = load_possession_touch_summary(pool, filters).await?;
     let locations = load_possession_location_summary(pool, filters).await?;
     let team = if filters.player.is_some() {
-        Some(load_possession_team_summary(pool, filters).await?)
+        Some(load_possession_team_control(pool, filters).await?)
     } else {
         None
     };
@@ -582,7 +573,7 @@ async fn load_possession_summary_materialized(
     // to single-player queries. The metric streams aren't materialized, so load
     // them directly here too.
     let team = if filters.player.is_some() {
-        Some(load_possession_team_summary(pool, filters).await?)
+        Some(load_possession_team_control(pool, filters).await?)
     } else {
         None
     };
@@ -1525,19 +1516,26 @@ const TEAM_METRIC_KINDS: [TeamMetricKind; 3] = [
 ];
 
 impl TeamMetricKind {
-    fn source_stream(self) -> &'static str {
+    /// Materialized `replay_team_control` columns for this metric, paired with
+    /// the raw stream value each represents, in (team_zero, team_one, neutral)
+    /// order so `orient` can fold them into the player's perspective.
+    fn materialized_columns(self) -> [(&'static str, &'static str); 3] {
         match self {
-            TeamMetricKind::Possession => "possession",
-            TeamMetricKind::BallHalf => "ball_half",
-            TeamMetricKind::BallThird => "ball_third",
-        }
-    }
-
-    fn payload_key(self) -> &'static str {
-        match self {
-            TeamMetricKind::Possession => "possession_state",
-            TeamMetricKind::BallHalf => "field_half",
-            TeamMetricKind::BallThird => "field_third",
+            TeamMetricKind::Possession => [
+                ("team_zero", "possession_team_zero"),
+                ("team_one", "possession_team_one"),
+                ("neutral", "possession_neutral"),
+            ],
+            TeamMetricKind::BallHalf => [
+                ("team_zero_side", "ball_half_team_zero"),
+                ("team_one_side", "ball_half_team_one"),
+                ("neutral", "ball_half_neutral"),
+            ],
+            TeamMetricKind::BallThird => [
+                ("team_zero_third", "ball_third_team_zero"),
+                ("team_one_third", "ball_third_team_one"),
+                ("neutral_third", "ball_third_neutral"),
+            ],
         }
     }
 
@@ -1592,15 +1590,15 @@ impl TeamMetricKind {
     }
 }
 
-/// Per-split accumulator: seconds per oriented bucket for each metric, kept in
+/// Accumulator: seconds per oriented bucket for each metric, seeded in
 /// bucket-key display order so the rendered bars stay stable.
-struct TeamSplitAccumulator {
+struct TeamControlAccumulator {
     possession: Vec<(&'static str, f64)>,
     ball_halves: Vec<(&'static str, f64)>,
     ball_thirds: Vec<(&'static str, f64)>,
 }
 
-impl TeamSplitAccumulator {
+impl TeamControlAccumulator {
     fn new() -> Self {
         let seed = |kind: TeamMetricKind| {
             kind.bucket_keys()
@@ -1629,9 +1627,8 @@ impl TeamSplitAccumulator {
         }
     }
 
-    fn into_split(self, replay_count: u64) -> PossessionTeamSplit {
-        PossessionTeamSplit {
-            replay_count,
+    fn into_control(self) -> PossessionTeamControl {
+        PossessionTeamControl {
             possession: team_metric_from_slots(TeamMetricKind::Possession, &self.possession),
             ball_halves: team_metric_from_slots(TeamMetricKind::BallHalf, &self.ball_halves),
             ball_thirds: team_metric_from_slots(TeamMetricKind::BallThird, &self.ball_thirds),
@@ -1662,35 +1659,33 @@ fn team_metric_from_slots(
     }
 }
 
-struct TeamResultCounts {
-    total: u64,
-    wins: u64,
-    losses: u64,
-}
+/// Read team control from the materialized `replay_team_control` table over the
+/// player's (already outcome-filtered) replay set. The table stores absolute
+/// team_zero/team_one/neutral seconds; we group by the player's team per replay
+/// and orient in Rust, so wins/losses come for free from the shared replay-set
+/// outcome filter rather than a baked-in split.
+async fn load_possession_team_control(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<PossessionTeamControl, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("team control summary requires a player filter");
 
-/// SQL `CASE` expression yielding whether the queried player's team won a
-/// replay (NULL when scores are missing). Assumes `r` and `rp` are in scope.
-const PLAYER_WON_CASE: &str = r#"
-    CASE
-        WHEN r.team_zero_score IS NULL OR r.team_one_score IS NULL THEN NULL
-        WHEN rp.team = 0 THEN (r.team_zero_score > r.team_one_score)
-        WHEN rp.team = 1 THEN (r.team_one_score > r.team_zero_score)
-        ELSE NULL
-    END
-"#;
-
-fn build_team_metric_query<'args>(
-    filters: &'args PossessionStatsQuery,
-    player: &'args PlayerStatFilter,
-    kind: TeamMetricKind,
-) -> QueryBuilder<'args, Postgres> {
-    let mut query = QueryBuilder::<Postgres>::new("SELECT payload.payload ->> ");
-    query.push_bind(kind.payload_key());
-    query.push(" AS bucket, rp.team AS player_team, (");
-    query.push(PLAYER_WON_CASE);
-    query.push(
-        r#") AS player_won,
-        COALESCE(SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)), 0) AS duration
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            rp.team AS player_team,
+            COALESCE(SUM(control.possession_team_zero_seconds), 0) AS possession_team_zero,
+            COALESCE(SUM(control.possession_team_one_seconds), 0) AS possession_team_one,
+            COALESCE(SUM(control.possession_neutral_seconds), 0) AS possession_neutral,
+            COALESCE(SUM(control.ball_half_team_zero_seconds), 0) AS ball_half_team_zero,
+            COALESCE(SUM(control.ball_half_team_one_seconds), 0) AS ball_half_team_one,
+            COALESCE(SUM(control.ball_half_neutral_seconds), 0) AS ball_half_neutral,
+            COALESCE(SUM(control.ball_third_team_zero_seconds), 0) AS ball_third_team_zero,
+            COALESCE(SUM(control.ball_third_team_one_seconds), 0) AS ball_third_team_one,
+            COALESCE(SUM(control.ball_third_neutral_seconds), 0) AS ball_third_neutral
         FROM replays r
         JOIN replay_players rp ON rp.replay_id = r.id
         "#,
@@ -1700,102 +1695,30 @@ fn build_team_metric_query<'args>(
     query.push(" AND rp.platform_player_id = ");
     query.push_bind(&player.platform_player_id);
     query.push(
-        " JOIN play_events event ON event.analysis_run_id = r.canonical_analysis_run_id AND event.replay_id = r.id AND event.source_stream = ",
-    );
-    query.push_bind(kind.source_stream());
-    query.push(
         r#"
-        JOIN play_event_payloads payload ON payload.event_id = event.id
+        JOIN replay_team_control control
+          ON control.replay_id = r.id
+         AND control.analysis_run_id = r.canonical_analysis_run_id
         WHERE r.canonical_analysis_run_id IS NOT NULL
-          AND COALESCE((payload.payload ->> 'active')::boolean, true)
-          AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
         "#,
     );
     super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
-    query.push(" GROUP BY 1, 2, 3");
-    query
-}
+    query.push(" GROUP BY rp.team");
 
-async fn load_team_result_counts(
-    pool: &sqlx::PgPool,
-    filters: &PossessionStatsQuery,
-    player: &PlayerStatFilter,
-) -> Result<TeamResultCounts, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        SELECT
-            COUNT(*) AS total_count,
-            COUNT(*) FILTER (WHERE won IS TRUE) AS win_count,
-            COUNT(*) FILTER (WHERE won IS FALSE) AS loss_count
-        FROM (
-            SELECT DISTINCT r.id, (
-        "#,
-    );
-    query.push(PLAYER_WON_CASE);
-    query.push(
-        r#") AS won
-            FROM replays r
-            JOIN replay_players rp ON rp.replay_id = r.id
-        "#,
-    );
-    query.push(" AND rp.platform = ");
-    query.push_bind(&player.platform);
-    query.push(" AND rp.platform_player_id = ");
-    query.push_bind(&player.platform_player_id);
-    query.push(" WHERE r.canonical_analysis_run_id IS NOT NULL ");
-    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
-    query.push(") g");
-
-    let row = query.build().fetch_one(pool).await?;
-    Ok(TeamResultCounts {
-        total: count_column(&row, "total_count")?,
-        wins: count_column(&row, "win_count")?,
-        losses: count_column(&row, "loss_count")?,
-    })
-}
-
-async fn load_possession_team_summary(
-    pool: &sqlx::PgPool,
-    filters: &PossessionStatsQuery,
-) -> Result<PossessionTeamSummary, sqlx::Error> {
-    let player = filters
-        .player
-        .as_ref()
-        .expect("team possession summary requires a player filter");
-
-    let mut overall = TeamSplitAccumulator::new();
-    let mut wins = TeamSplitAccumulator::new();
-    let mut losses = TeamSplitAccumulator::new();
-
-    for kind in TEAM_METRIC_KINDS {
-        let mut query = build_team_metric_query(filters, player, kind);
-        let rows = query.build().fetch_all(pool).await?;
-        for row in rows {
-            let bucket: Option<String> = row.try_get("bucket")?;
-            let player_team: Option<i32> = row.try_get("player_team")?;
-            let player_won: Option<bool> = row.try_get("player_won")?;
-            let duration: f64 = row.try_get("duration")?;
-            let Some(raw) = bucket.as_deref() else {
-                continue;
-            };
-            let Some(key) = kind.orient(raw, player_team) else {
-                continue;
-            };
-            overall.add(kind, key, duration);
-            match player_won {
-                Some(true) => wins.add(kind, key, duration),
-                Some(false) => losses.add(kind, key, duration),
-                None => {}
+    let rows = query.build().fetch_all(pool).await?;
+    let mut accumulator = TeamControlAccumulator::new();
+    for row in rows {
+        let player_team: Option<i32> = row.try_get("player_team")?;
+        for kind in TEAM_METRIC_KINDS {
+            for (raw, column) in kind.materialized_columns() {
+                let seconds: f64 = row.try_get(column)?;
+                if let Some(key) = kind.orient(raw, player_team) {
+                    accumulator.add(kind, key, seconds);
+                }
             }
         }
     }
-
-    let counts = load_team_result_counts(pool, filters, player).await?;
-    Ok(PossessionTeamSummary {
-        overall: overall.into_split(counts.total),
-        wins: wins.into_split(counts.wins),
-        losses: losses.into_split(counts.losses),
-    })
+    Ok(accumulator.into_control())
 }
 
 async fn load_touch_mix(
