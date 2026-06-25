@@ -4063,71 +4063,155 @@ async fn refresh_rank_benchmark_window(
         event_type_universe AS (
             SELECT DISTINCT event_type_id FROM player_replay_event_counts
         ),
+        -- Every lifetime-stat metric, long-format, one row per (appearance,
+        -- metric). Each metric reduces to a (numerator, denom) pair so the same
+        -- median/mean machinery covers counts, rates and gauges: rate metrics use
+        -- denom = active seconds and numerator = value * 60 (per-minute); gauges
+        -- (avg speed) use (weighted_sum, weight); shares use (seconds, total).
+        -- Event counts are 0-filled across every event type; the other sources
+        -- contribute only where their per-replay-player row exists.
+        metric_values AS (
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, et.key AS metric_key,
+                   COALESCE(c.event_count, 0) * 60.0 AS numerator,
+                   ab.active_seconds AS denom,
+                   ab.non_demo_active_seconds AS denom_non_demo
+            FROM appearance_bucket ab
+            CROSS JOIN event_type_universe etu
+            JOIN event_types et ON et.id = etu.event_type_id
+            LEFT JOIN player_replay_event_counts c
+              ON c.analysis_run_id = ab.analysis_run_id
+             AND c.replay_id = ab.replay_id
+             AND c.player_subject_id = ab.player_subject_id
+             AND c.event_type_id = etu.event_type_id
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
+            FROM appearance_bucket ab
+            JOIN player_replay_boost b
+              ON b.analysis_run_id = ab.analysis_run_id AND b.player_subject_id = ab.player_subject_id
+            CROSS JOIN LATERAL (VALUES
+                ('boost:collected', b.boost_collected * 60.0, ab.active_seconds),
+                ('boost:stolen', b.boost_stolen * 60.0, ab.active_seconds),
+                ('boost:used', b.boost_used * 60.0, ab.active_seconds),
+                ('boost:used_supersonic', b.boost_used_supersonic * 60.0, ab.active_seconds),
+                ('boost:overfill', b.boost_overfill * 60.0, ab.active_seconds),
+                ('boost:big_pads', b.big_pads * 60.0, ab.active_seconds),
+                ('boost:small_pads', b.small_pads * 60.0, ab.active_seconds),
+                ('boost:stolen_big_pads', b.stolen_big_pads * 60.0, ab.active_seconds),
+                ('boost:stolen_small_pads', b.stolen_small_pads * 60.0, ab.active_seconds),
+                ('boost:avg_amount', b.boost_amount_weighted_sum, NULLIF(b.tracked_seconds, 0)),
+                ('boost:time_empty_share', b.time_empty, NULLIF(b.tracked_seconds, 0)),
+                ('boost:time_full_share', b.time_full, NULLIF(b.tracked_seconds, 0)),
+                ('boost:time_supersonic_share', b.time_over, NULLIF(b.tracked_seconds, 0))
+            ) AS m(metric_key, numerator, denom)
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
+            FROM appearance_bucket ab
+            JOIN player_replay_movement mv
+              ON mv.analysis_run_id = ab.analysis_run_id AND mv.player_subject_id = ab.player_subject_id
+            CROSS JOIN LATERAL (VALUES
+                ('movement:avg_speed', mv.speed_weighted, NULLIF(mv.speed_weight, 0)),
+                ('movement:supersonic_share', mv.supersonic_seconds, NULLIF(mv.active_seconds, 0)),
+                ('movement:boost_speed_share', mv.boost_seconds, NULLIF(mv.active_seconds, 0)),
+                ('movement:slow_share', mv.slow_seconds, NULLIF(mv.active_seconds, 0)),
+                ('movement:ground_share', mv.ground_seconds, NULLIF(mv.active_seconds, 0)),
+                ('movement:low_air_share', mv.low_air_seconds, NULLIF(mv.active_seconds, 0)),
+                ('movement:high_air_share', mv.high_air_seconds, NULLIF(mv.active_seconds, 0)),
+                ('movement:powerslides', mv.powerslide_count * 60.0, ab.active_seconds),
+                ('movement:distance', mv.total_distance * 60.0, ab.active_seconds)
+            ) AS m(metric_key, numerator, denom)
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'fact:' || f.stat_key,
+                   f.value * 60.0, NULLIF(f.active_time_seconds, 0), NULL
+            FROM appearance_bucket ab
+            JOIN player_replay_stat_facts f
+              ON f.analysis_run_id = ab.analysis_run_id AND f.player_subject_id = ab.player_subject_id
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
+            FROM appearance_bucket ab
+            JOIN player_replay_possession p
+              ON p.analysis_run_id = ab.analysis_run_id AND p.player_subject_id = ab.player_subject_id
+            CROSS JOIN LATERAL (VALUES
+                ('possession:count', p.possession_count * 60.0, ab.active_seconds),
+                ('possession:touch_count', p.touch_count * 60.0, ab.active_seconds),
+                ('possession:advance_distance', p.advance_distance * 60.0, ab.active_seconds),
+                ('possession:duration_share', p.duration_seconds, ab.active_seconds),
+                ('possession:carry_time_share', p.carry_time, ab.active_seconds),
+                ('possession:air_dribble_time_share', p.air_dribble_time, ab.active_seconds)
+            ) AS m(metric_key, numerator, denom)
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
+            FROM appearance_bucket ab
+            JOIN player_replay_positioning pos
+              ON pos.analysis_run_id = ab.analysis_run_id AND pos.player_subject_id = ab.player_subject_id
+            CROSS JOIN LATERAL (VALUES
+                ('positioning:defensive_third_share', pos.defensive_third_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:neutral_third_share', pos.neutral_third_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:offensive_third_share', pos.offensive_third_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:behind_ball_share', pos.behind_ball_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:ahead_of_ball_share', pos.ahead_of_ball_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:most_back_share', pos.role_most_back_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:most_forward_share', pos.role_most_forward_seconds, NULLIF(pos.tracked_seconds, 0)),
+                ('positioning:distance_to_ball', pos.distance_to_ball_weighted, NULLIF(pos.distance_to_ball_weight, 0))
+            ) AS m(metric_key, numerator, denom)
+        ),
         "#,
     );
 
     // Calc-style-specific: define `rate_units` (one row per sample unit ×
-    // event_type, zero-filled) and `population`. The sample unit is a player
-    // (per-player) or a (player, game) appearance (per-appearance).
+    // metric) and `population`. The sample unit is a player (per-player) or a
+    // (player, game) appearance (per-appearance).
     match calc {
         CalcStyle::PerPlayer => {
             builder.push(
                 r#"
-        -- Per (group, rank bucket, outcome, player) denominators: games + active.
-        player_denoms AS (
+        player_games AS (
             SELECT playlist_group_key, rank_grouping, rank_value, outcome, player_subject_id,
-                   COUNT(DISTINCT replay_id) AS games,
-                   SUM(active_seconds) AS active_seconds,
-                   SUM(non_demo_active_seconds) AS non_demo_active_seconds
+                   COUNT(DISTINCT replay_id) AS games
             FROM appearance_bucket
             GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, player_subject_id
-            HAVING COUNT(DISTINCT replay_id) >= "#,
+        ),
+        -- One value per qualifying player per metric: their pooled rate/level
+        -- across their games (sum numerator / sum denom).
+        rate_units AS (
+            SELECT mv.playlist_group_key, mv.rank_grouping, mv.rank_value, mv.outcome, mv.metric_key,
+                   SUM(mv.numerator) AS numerator,
+                   SUM(mv.denom) AS denom,
+                   SUM(mv.denom_non_demo) AS denom_non_demo,
+                   CASE WHEN SUM(mv.denom) > 0 THEN SUM(mv.numerator) / SUM(mv.denom) END AS per_active_minute,
+                   CASE WHEN SUM(mv.denom_non_demo) > 0 THEN SUM(mv.numerator) / SUM(mv.denom_non_demo) END AS per_non_demo_active_minute
+            FROM metric_values mv
+            JOIN player_games g
+              ON g.playlist_group_key = mv.playlist_group_key AND g.rank_grouping = mv.rank_grouping
+             AND g.rank_value = mv.rank_value AND g.outcome = mv.outcome
+             AND g.player_subject_id = mv.player_subject_id
+            WHERE g.games >= "#,
             );
             builder.push_bind(crate::rank_benchmark::MIN_PLAYER_GAMES);
             builder.push(
                 r#"
+            GROUP BY mv.playlist_group_key, mv.rank_grouping, mv.rank_value, mv.outcome,
+                     mv.metric_key, mv.player_subject_id
         ),
-        player_event_sums AS (
-            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
-                   ab.player_subject_id, c.event_type_id, SUM(c.event_count) AS events
-            FROM appearance_bucket ab
-            JOIN player_replay_event_counts c
-              ON c.analysis_run_id = ab.analysis_run_id
-             AND c.replay_id = ab.replay_id
-             AND c.player_subject_id = ab.player_subject_id
-            GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
-                     ab.player_subject_id, c.event_type_id
-        ),
-        -- One zero-filled rate per qualifying player: a player who never performs
-        -- event X has rate 0 for X and still enters X's median.
-        rate_units AS (
-            SELECT d.playlist_group_key, d.rank_grouping, d.rank_value, d.outcome, et.event_type_id,
-                   COALESCE(s.events, 0) AS events,
-                   d.active_seconds, d.non_demo_active_seconds,
-                   CASE WHEN d.active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.active_seconds END AS per_active_minute,
-                   CASE WHEN d.non_demo_active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.non_demo_active_seconds END AS per_non_demo_active_minute
-            FROM player_denoms d
-            CROSS JOIN event_type_universe et
-            LEFT JOIN player_event_sums s
-              ON s.playlist_group_key = d.playlist_group_key
-             AND s.rank_grouping = d.rank_grouping
-             AND s.rank_value = d.rank_value
-             AND s.outcome = d.outcome
-             AND s.player_subject_id = d.player_subject_id
-             AND s.event_type_id = et.event_type_id
-        ),
-        -- Sample adequacy from the qualifying (>= min games) players only.
         population AS (
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    COUNT(DISTINCT ab.player_subject_id)::int AS distinct_player_count,
                    COUNT(DISTINCT ab.replay_id)::int AS replay_count
             FROM appearance_bucket ab
-            JOIN player_denoms d
-              ON d.playlist_group_key = ab.playlist_group_key
-             AND d.rank_grouping = ab.rank_grouping
-             AND d.rank_value = ab.rank_value
-             AND d.outcome = ab.outcome
-             AND d.player_subject_id = ab.player_subject_id
+            JOIN player_games g
+              ON g.playlist_group_key = ab.playlist_group_key AND g.rank_grouping = ab.rank_grouping
+             AND g.rank_value = ab.rank_value AND g.outcome = ab.outcome
+             AND g.player_subject_id = ab.player_subject_id
+            WHERE g.games >= "#,
+            );
+            builder.push_bind(crate::rank_benchmark::MIN_PLAYER_GAMES);
+            builder.push(
+                r#"
             GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome
         ),
         "#,
@@ -4136,21 +4220,14 @@ async fn refresh_rank_benchmark_window(
         CalcStyle::PerAppearance => {
             builder.push(
                 r#"
-        -- One zero-filled rate per (player, game) appearance. No min-games floor,
-        -- so every game counts -- many more samples for rare mechanics.
+        -- One value per (player, game) appearance per metric. No min-games floor,
+        -- so every game counts -- many more samples for rare metrics.
         rate_units AS (
-            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome, et.event_type_id,
-                   COALESCE(c.event_count, 0) AS events,
-                   ab.active_seconds, ab.non_demo_active_seconds,
-                   CASE WHEN ab.active_seconds > 0 THEN COALESCE(c.event_count, 0) * 60.0 / ab.active_seconds END AS per_active_minute,
-                   CASE WHEN ab.non_demo_active_seconds > 0 THEN COALESCE(c.event_count, 0) * 60.0 / ab.non_demo_active_seconds END AS per_non_demo_active_minute
-            FROM appearance_bucket ab
-            CROSS JOIN event_type_universe et
-            LEFT JOIN player_replay_event_counts c
-              ON c.analysis_run_id = ab.analysis_run_id
-             AND c.replay_id = ab.replay_id
-             AND c.player_subject_id = ab.player_subject_id
-             AND c.event_type_id = et.event_type_id
+            SELECT playlist_group_key, rank_grouping, rank_value, outcome, metric_key,
+                   numerator, denom, denom_non_demo,
+                   CASE WHEN denom > 0 THEN numerator / denom END AS per_active_minute,
+                   CASE WHEN denom_non_demo > 0 THEN numerator / denom_non_demo END AS per_non_demo_active_minute
+            FROM metric_values
         ),
         population AS (
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
@@ -4168,31 +4245,31 @@ async fn refresh_rank_benchmark_window(
     // aggregator decision, then the transactional inserts.
     builder.push(
         r#"stat_agg AS (
-            SELECT playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
+            SELECT playlist_group_key, rank_grouping, rank_value, outcome, metric_key,
                    percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute) AS median_per_active_minute,
                    percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute) AS median_per_non_demo_active_minute,
-                   CASE WHEN SUM(active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(active_seconds) END AS mean_per_active_minute,
-                   CASE WHEN SUM(non_demo_active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(non_demo_active_seconds) END AS mean_per_non_demo_active_minute,
-                   COUNT(*) FILTER (WHERE events > 0) AS nonzero_units,
+                   CASE WHEN SUM(denom) > 0 THEN SUM(numerator) / SUM(denom) END AS mean_per_active_minute,
+                   CASE WHEN SUM(denom_non_demo) > 0 THEN SUM(numerator) / SUM(denom_non_demo) END AS mean_per_non_demo_active_minute,
+                   COUNT(*) FILTER (WHERE numerator > 0) AS nonzero_units,
                    COUNT(*) AS total_units
             FROM rate_units
-            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, event_type_id
+            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, metric_key
         ),
-        -- One aggregator per (group, event_type), consistent across ranks/outcomes
-        -- so a stat's bars stay comparable: 'mean' for rare events, else 'median'.
+        -- One aggregator per (group, metric), consistent across ranks/outcomes
+        -- so a stat's bars stay comparable: 'mean' for rare metrics, else 'median'.
         stat_aggregator AS (
-            SELECT playlist_group_key, event_type_id,
+            SELECT playlist_group_key, metric_key,
                    CASE WHEN SUM(nonzero_units)::float8 / NULLIF(SUM(total_units), 0) < "#,
     );
     builder.push_bind(crate::rank_benchmark::RARE_NONZERO_FRACTION);
     builder.push(
         r#" THEN 'mean' ELSE 'median' END AS aggregator
             FROM stat_agg
-            GROUP BY playlist_group_key, event_type_id
+            GROUP BY playlist_group_key, metric_key
         ),
         ins_stats AS (
             INSERT INTO rank_benchmark_stats (
-                window_key, playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
+                window_key, playlist_group_key, rank_grouping, rank_value, outcome, metric_key,
                 median_per_active_minute, median_per_non_demo_active_minute,
                 mean_per_active_minute, mean_per_non_demo_active_minute, aggregator
             )
@@ -4200,13 +4277,13 @@ async fn refresh_rank_benchmark_window(
     );
     builder.push_bind(&resolved.window_key);
     builder.push(
-        r#", sa.playlist_group_key, sa.rank_grouping, sa.rank_value, sa.outcome, sa.event_type_id,
+        r#", sa.playlist_group_key, sa.rank_grouping, sa.rank_value, sa.outcome, sa.metric_key,
                    sa.median_per_active_minute, sa.median_per_non_demo_active_minute,
                    sa.mean_per_active_minute, sa.mean_per_non_demo_active_minute, agg.aggregator
             FROM stat_agg sa
             JOIN stat_aggregator agg
               ON agg.playlist_group_key = sa.playlist_group_key
-             AND agg.event_type_id = sa.event_type_id
+             AND agg.metric_key = sa.metric_key
             RETURNING 1
         )
         INSERT INTO rank_benchmark_population (

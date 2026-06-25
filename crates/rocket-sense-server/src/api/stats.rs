@@ -1939,10 +1939,10 @@ async fn load_rank_benchmark_cohort(
     )) = served
     {
         let stat_rows = sqlx::query(
-                "SELECT et.key AS stat_key, s.aggregator, \
+                "SELECT s.metric_key AS stat_key, s.aggregator, \
                         CASE WHEN s.aggregator = 'mean' THEN s.mean_per_active_minute ELSE s.median_per_active_minute END AS per_active_minute, \
                         CASE WHEN s.aggregator = 'mean' THEN s.mean_per_non_demo_active_minute ELSE s.median_per_non_demo_active_minute END AS per_non_demo_active_minute \
-                 FROM rank_benchmark_stats s JOIN event_types et ON et.id = s.event_type_id \
+                 FROM rank_benchmark_stats s \
                  WHERE s.window_key = $1 AND s.playlist_group_key = $2 AND s.rank_grouping = $3 \
                    AND s.rank_value = $4 AND s.outcome = $5",
             )
