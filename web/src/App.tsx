@@ -152,6 +152,7 @@ import type {
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
+  ReplayUploaderResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "./types";
@@ -917,11 +918,7 @@ function ReplayListPage() {
                   <ReplayLink className="primary-link" replayId={replay.id}>
                     {replay.original_file_name || replay.id}
                   </ReplayLink>
-                  <span className="subtle">
-                    {replay.map_code ||
-                      replay.summary.match_guid ||
-                      replay.file_sha256.slice(0, 12)}
-                  </span>
+                  <UploaderPill uploader={replay.uploaded_by} />
                 </div>
               </div>
               <div className="replay-card-meta">
@@ -1390,6 +1387,29 @@ function filterValueLabel(key: string, value: string): string {
   if (key === "playlist") return playlistLabel(null, value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
+}
+
+// A pill identifying who uploaded the replay, badged with the platform/provider
+// glyph for the auth account they signed in with (Steam, Epic, Xbox, Google, ...).
+function UploaderPill({ uploader }: { uploader: ReplayUploaderResponse | null }) {
+  if (!uploader) {
+    return (
+      <Chip tone="muted" title="No uploader on record">
+        Unknown uploader
+      </Chip>
+    );
+  }
+  const name =
+    uploader.display_name?.trim() || uploader.primary_email?.trim() || "Unknown uploader";
+  const title = uploader.provider
+    ? `Uploaded by ${name} via ${providerLabel(uploader.provider)}`
+    : `Uploaded by ${name}`;
+  return (
+    <Chip tone="slate" className="uploader-pill" title={title}>
+      {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
+      <span className="uploader-pill-name">{name}</span>
+    </Chip>
+  );
 }
 
 // One small badge per game-type parameter: competitive context

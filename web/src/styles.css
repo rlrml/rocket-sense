@@ -897,6 +897,22 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+/* Uploader pill: smaller provider glyph and a truncating name so long
+   display names/emails don't blow out the replay card title. */
+.uploader-pill {
+  max-width: 16rem;
+}
+
+.uploader-pill .provider-login-icon {
+  width: 13px;
+  height: 13px;
+}
+
+.uploader-pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* A chip that is itself a clickable <button> (e.g. the stale status chip). */
 .chip-button {
   cursor: pointer;

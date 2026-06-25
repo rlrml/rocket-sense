@@ -135,6 +135,8 @@ fn replay_select_includes_uploader_profile() {
     assert!(sql.contains("LEFT JOIN users uploader ON uploader.id = r.uploaded_by_user_id"));
     assert!(sql.contains("uploader.primary_email AS uploader_primary_email"));
     assert!(sql.contains("uploader.display_name AS uploader_display_name"));
+    assert!(sql.contains("AS uploader_provider"));
+    assert!(sql.contains("FROM auth_identities ai"));
 }
 
 #[test]
