@@ -3236,6 +3236,7 @@ type PlayerSupplementalErrorState = {
 function PlayerStatsPage() {
   const { platform = "", platformPlayerId, playerName, statGroup } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const routePlayerRef = platformPlayerId ?? playerName ?? "";
   const routeUsesExplicitId = platformPlayerId != null;
   const routeBasePath = routeUsesExplicitId
@@ -3263,6 +3264,15 @@ function PlayerStatsPage() {
     () => statGroupById(statGroup, playerStatsSectionGroups) ?? playerStatsSectionGroups[0]!,
     [statGroup],
   );
+  // Mirror the section + segment filters in the address bar so the current view
+  // is always shareable, even before the first nav click writes them explicitly.
+  useEffect(() => {
+    const canonical = canonicalPlayerStatsPath(routeBasePath, activeGroup.id, location.search);
+    const current = `${location.pathname}${location.search}`;
+    if (current !== canonical) {
+      navigate(canonical, { replace: true });
+    }
+  }, [activeGroup.id, location.pathname, location.search, navigate, routeBasePath]);
   const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({
     scope: "",
     groups: {},
@@ -3695,6 +3705,25 @@ function stripKickoffSpawnParams(params: URLSearchParams): URLSearchParams {
   params.delete("kickoff-side");
   params.delete("kickoff_side");
   return params;
+}
+
+// The fully explicit URL for the section + segment filters currently in view.
+// The section nav and segment bar already write these on interaction, but the
+// initial render falls back to implicit defaults (e.g. Core / 2v2 / Ranked with
+// a bare `…/stats` URL). Normalizing to this path keeps the address bar an exact
+// mirror of what's on screen, so any view is shareable from first load.
+function canonicalPlayerStatsPath(routeBasePath: string, groupId: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (groupId !== "kickoffs") {
+    stripKickoffSpawnParams(params);
+  }
+  const teamSize = playerSegmentValue(params, "team-size");
+  params.set("team-size", teamSize === "" ? allPlayerTeamSizes : teamSize);
+  const gameType = playerSegmentValue(params, "game-type");
+  params.set("game-type", gameType === "" ? anyPlayerGameType : gameType);
+  const query = params.toString();
+  const path = `${routeBasePath}/stats/${encodeURIComponent(groupId)}`;
+  return query ? `${path}?${query}` : path;
 }
 
 function playerAggregateSearchParams(groupId: string, search: string): URLSearchParams {
