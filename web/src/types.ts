@@ -30,6 +30,8 @@ export interface ReplayUploaderResponse {
   id: string;
   primary_email: string | null;
   display_name: string | null;
+  /** Auth provider the uploader signed in with (e.g. "steam", "epic", "google"). */
+  provider: string | null;
 }
 
 export interface UserProfileResponse {

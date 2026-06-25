@@ -148,6 +148,10 @@ pub struct ReplayUploaderResponse {
     pub id: Uuid,
     pub primary_email: Option<String>,
     pub display_name: Option<String>,
+    /// Auth provider the uploader signed in with (e.g. `steam`, `epic`,
+    /// `xbox`, `google`), used to badge the account's platform. `None` when the
+    /// uploader has no linked auth identity (e.g. legacy/dev accounts).
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -3021,6 +3025,16 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             uploader.id AS uploader_id,
             uploader.primary_email AS uploader_primary_email,
             uploader.display_name AS uploader_display_name,
+            (
+                -- earliest-linked provider; array_agg+subscript avoids a LIMIT
+                -- so the page-query's single LIMIT/OFFSET invariant still holds
+                SELECT (array_agg(
+                    ai.provider_name
+                    ORDER BY ai.created_at, ai.provider_name, ai.subject
+                ))[1]
+                FROM auth_identities ai
+                WHERE ai.user_id = uploader.id
+            ) AS uploader_provider,
             r.storage_key,
             r.external_replay_id,
             r.playlist,
@@ -3175,6 +3189,7 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
                 id,
                 primary_email: row.try_get("uploader_primary_email")?,
                 display_name: row.try_get("uploader_display_name")?,
+                provider: row.try_get("uploader_provider")?,
             })
         })
         .transpose()?;
