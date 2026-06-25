@@ -1727,17 +1727,27 @@ function teamControlCharts(team: PossessionTeamControl): TeamControlChart[] {
     teamControlChart("team-possession-share", "Team possession", team.possession),
     teamControlChart("ball-half", "Ball half", team.ball_halves),
     teamControlChart("ball-thirds", "Ball thirds", team.ball_thirds),
-  ].filter((chart): chart is TeamControlChart => chart != null);
+  ];
 }
 
+// Always renders the three buckets (your team / neutral / opponents); with no
+// tracked time they show as 0% so the cards stay visible and discoverable in
+// the possession tab rather than disappearing on empty data.
 function teamControlChart(
   key: string,
   title: string,
   metric: PossessionTeamMetric,
-): TeamControlChart | null {
+): TeamControlChart {
   const total = metric.total_duration_seconds;
-  if (!(total > 0)) return null;
-  const rows: ComparisonRow[] = metric.buckets.map((bucket) => {
+  const buckets =
+    metric.buckets.length > 0
+      ? metric.buckets
+      : [
+          { key: "own", label: "Your team", duration_seconds: 0, share: 0 },
+          { key: "neutral", label: "Neutral", duration_seconds: 0, share: 0 },
+          { key: "opponent", label: "Opponents", duration_seconds: 0, share: 0 },
+        ];
+  const rows: ComparisonRow[] = buckets.map((bucket) => {
     const share = total > 0 ? bucket.duration_seconds / total : 0;
     const formatted = formatShare(share);
     return {
