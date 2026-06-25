@@ -366,9 +366,38 @@ export interface StatAggregateResponse {
   opponent_count_per_game: number | null;
   opponent_per_active_minute: number | null;
   opponent_per_non_demo_active_minute: number | null;
+  // The `rank-peers` benchmark cohort (median of a typical player at the served
+  // tier). Optional: a flagged-off / undeployed backend omits these.
+  rank_benchmark_per_active_minute?: number | null;
+  rank_benchmark_per_non_demo_active_minute?: number | null;
 }
 
-export interface StatAggregateSetResponse {
+export interface RankBenchmarkTierOption {
+  tier: number;
+  label: string;
+  distinct_player_count: number;
+}
+
+export interface RankBenchmarkWindowOption {
+  key: string;
+  label: string;
+}
+
+// The served rank-benchmark cohort metadata + picker option lists, shared by the
+// aggregate set and per-playlist group responses. All optional so an
+// undeployed / flagged-off backend simply omits them.
+export interface RankBenchmarkAggregateFields {
+  rank_benchmark_tier?: number | null;
+  rank_benchmark_tier_label?: string | null;
+  rank_benchmark_is_player_default?: boolean | null;
+  rank_benchmark_distinct_player_count?: number | null;
+  rank_benchmark_window?: string | null;
+  rank_benchmark_window_label?: string | null;
+  rank_benchmark_available_tiers?: RankBenchmarkTierOption[];
+  rank_benchmark_available_windows?: RankBenchmarkWindowOption[];
+}
+
+export interface StatAggregateSetResponse extends RankBenchmarkAggregateFields {
   replay_count: number;
   player_appearance_count: number | null;
   active_time_seconds: number | null;
@@ -430,7 +459,7 @@ export interface TouchAggregateValueResponse {
   advance_distance: number;
 }
 
-export interface StatAggregateGroupResponse {
+export interface StatAggregateGroupResponse extends RankBenchmarkAggregateFields {
   group_by: string;
   key: string;
   display_name: string;

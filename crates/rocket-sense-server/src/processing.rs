@@ -1,3 +1,4 @@
+use crate::rank_benchmark::{BenchmarkWindow, SeasonSelector, SEASON_CURRENT_MIN_SAMPLE};
 use anyhow::{anyhow, Context, Result};
 use apalis::prelude::*;
 use apalis_postgres::{
@@ -3249,6 +3250,361 @@ pub fn start_event_stream_gc_sweeper(pool: PgPool, storage: Arc<dyn ObjectStorag
             tokio::time::sleep(EVENT_STREAM_GC_SWEEP_INTERVAL).await;
         }
     });
+}
+
+const RANK_BENCHMARK_REFRESH_INITIAL_DELAY: std::time::Duration =
+    std::time::Duration::from_secs(2 * 60);
+const RANK_BENCHMARK_REFRESH_INTERVAL: std::time::Duration =
+    std::time::Duration::from_secs(12 * 60 * 60);
+
+/// A [`BenchmarkWindow`] resolved against the database into concrete bounds and
+/// a display label, ready to drive both the predicate and the
+/// `rank_benchmark_meta` row.
+struct ResolvedBenchmarkWindow {
+    window_key: String,
+    kind: &'static str,
+    season_code: Option<String>,
+    window_start: Option<DateTime<Utc>>,
+    window_end: Option<DateTime<Utc>>,
+    label: String,
+}
+
+/// Periodically recompute the rank-median benchmark cohort for every configured
+/// window. A single pooled full-recompute (not per-replay durable work), so it
+/// mirrors [`start_event_stream_gc_sweeper`] rather than using the apalis queue.
+/// Started only when `ROCKET_SENSE_RANK_BENCHMARK` is set, so exactly one
+/// service instance runs it.
+pub fn start_rank_benchmark_refresh_job(pool: PgPool, windows: Vec<BenchmarkWindow>) {
+    if windows.is_empty() {
+        tracing::warn!("rank benchmark refresh job not started: no windows configured");
+        return;
+    }
+    tokio::spawn(async move {
+        tokio::time::sleep(RANK_BENCHMARK_REFRESH_INITIAL_DELAY).await;
+        loop {
+            match refresh_rank_benchmark(&pool, &windows).await {
+                Ok(refreshed) => {
+                    tracing::info!(refreshed, "rank benchmark refresh complete");
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        error = %format!("{error:#}"),
+                        "rank benchmark refresh failed"
+                    );
+                }
+            }
+            tokio::time::sleep(RANK_BENCHMARK_REFRESH_INTERVAL).await;
+        }
+    });
+}
+
+/// Recompute the rank-median benchmark for each configured window, replacing
+/// that window's rows transactionally. Returns the number of windows refreshed.
+pub async fn refresh_rank_benchmark(pool: &PgPool, windows: &[BenchmarkWindow]) -> Result<u64> {
+    let mut refreshed = 0u64;
+    for window in windows {
+        let Some(resolved) = resolve_benchmark_window(pool, window).await? else {
+            tracing::warn!(
+                window = %window.window_key(),
+                "skipping rank benchmark window with no qualifying replays"
+            );
+            continue;
+        };
+        refresh_rank_benchmark_window(pool, window, &resolved)
+            .await
+            .with_context(|| format!("refreshing rank benchmark window {}", resolved.window_key))?;
+        refreshed += 1;
+    }
+    Ok(refreshed)
+}
+
+/// Resolve a window into concrete bounds. Rolling windows resolve in-process;
+/// season windows query the `replays.season`/`replay_date` ranges (and apply the
+/// `season:current` min-sample fallback). Returns `None` when a season window
+/// has no qualifying replays to bound it.
+async fn resolve_benchmark_window(
+    pool: &PgPool,
+    window: &BenchmarkWindow,
+) -> Result<Option<ResolvedBenchmarkWindow>> {
+    match window {
+        BenchmarkWindow::Rolling { months } => {
+            let window_end = Utc::now();
+            let window_start = window_end
+                .checked_sub_months(chrono::Months::new(*months))
+                .ok_or_else(|| anyhow!("rolling window {} months overflowed", months))?;
+            Ok(Some(ResolvedBenchmarkWindow {
+                window_key: window.window_key(),
+                kind: window.kind(),
+                season_code: None,
+                window_start: Some(window_start),
+                window_end: Some(window_end),
+                label: window.default_label(),
+            }))
+        }
+        BenchmarkWindow::Season(selector) => {
+            let resolved_code = match selector {
+                SeasonSelector::Code(code) => code.clone(),
+                SeasonSelector::Current => match resolve_current_season(pool).await? {
+                    Some(code) => code,
+                    None => return Ok(None),
+                },
+            };
+            // Bound the season by its actual replay-date range (informational; the
+            // predicate filters on the season code itself).
+            let bounds = sqlx::query(
+                r#"
+                SELECT MIN(replay_date) AS lo, MAX(replay_date) AS hi, COUNT(*) AS cnt
+                FROM replays
+                WHERE season = $1 AND canonical_analysis_run_id IS NOT NULL
+                "#,
+            )
+            .bind(&resolved_code)
+            .fetch_one(pool)
+            .await?;
+            let count: i64 = bounds.try_get("cnt")?;
+            if count == 0 {
+                return Ok(None);
+            }
+            Ok(Some(ResolvedBenchmarkWindow {
+                window_key: window.window_key(),
+                kind: window.kind(),
+                season_code: Some(resolved_code.clone()),
+                window_start: bounds.try_get("lo")?,
+                window_end: bounds.try_get("hi")?,
+                label: format!("Season {resolved_code}"),
+            }))
+        }
+    }
+}
+
+/// Pick the season `season:current` resolves to: the most recent season (by its
+/// `replay_date` range, not the text code) that already has enough replays,
+/// falling back to the most recent prior season while a new one is still thin.
+async fn resolve_current_season(pool: &PgPool) -> Result<Option<String>> {
+    let rows = sqlx::query(
+        r#"
+        SELECT season, COUNT(*) AS cnt
+        FROM replays
+        WHERE season IS NOT NULL
+          AND btrim(season) <> ''
+          AND canonical_analysis_run_id IS NOT NULL
+          AND replay_date IS NOT NULL
+        GROUP BY season
+        ORDER BY MAX(replay_date) DESC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    let mut most_recent: Option<String> = None;
+    for row in &rows {
+        let season: String = row.try_get("season")?;
+        let count: i64 = row.try_get("cnt")?;
+        if most_recent.is_none() {
+            most_recent = Some(season.clone());
+        }
+        if count >= SEASON_CURRENT_MIN_SAMPLE {
+            return Ok(Some(season));
+        }
+    }
+    // No season clears the threshold; use the most recent one we have, if any.
+    Ok(most_recent)
+}
+
+/// Replace one window's `rank_benchmark_*` rows in a single transaction.
+async fn refresh_rank_benchmark_window(
+    pool: &PgPool,
+    window: &BenchmarkWindow,
+    resolved: &ResolvedBenchmarkWindow,
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+
+    for table in [
+        "rank_benchmark_stats",
+        "rank_benchmark_population",
+        "rank_benchmark_meta",
+    ] {
+        sqlx::query(&format!("DELETE FROM {table} WHERE window_key = $1"))
+            .bind(&resolved.window_key)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Per-(replay, player) appearances within the window. DISTINCT ON the
+    // analysis run + player identity so a player holding two roster rows in one
+    // replay (rare) counts once, matching `player_replay_event_counts`' grain.
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH appearance AS (
+            SELECT DISTINCT ON (r.canonical_analysis_run_id, concat(rp.platform, ':', rp.platform_player_id))
+                r.canonical_analysis_run_id AS analysis_run_id,
+                rp.replay_id,
+                concat(rp.platform, ':', rp.platform_player_id) AS player_subject_id,
+                rp.rank_tier,
+                "#,
+    );
+    crate::api::push_playlist_group_key_expression(&mut builder, "r");
+    builder.push(
+        r#" AS playlist_group_key,
+                COALESCE(rp.active_time_seconds, 0.0) AS active_seconds,
+                GREATEST(COALESCE(rp.active_time_seconds, 0.0) - COALESCE(rp.time_demolished_seconds, 0.0), 0.0) AS non_demo_active_seconds,
+                CASE
+                    WHEN r.team_zero_score IS NULL OR r.team_one_score IS NULL OR r.team_zero_score = r.team_one_score THEN NULL
+                    WHEN rp.team = 0 AND r.team_zero_score > r.team_one_score THEN 'win'
+                    WHEN rp.team = 1 AND r.team_one_score > r.team_zero_score THEN 'win'
+                    WHEN rp.team IN (0, 1) THEN 'loss'
+                    ELSE NULL
+                END AS appearance_outcome
+            FROM replay_players rp
+            JOIN replays r
+              ON r.id = rp.replay_id
+             AND r.canonical_analysis_run_id IS NOT NULL
+            WHERE rp.rank_tier IS NOT NULL
+              AND rp.platform IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform_player_id) <> ''
+              AND "#,
+    );
+    match window {
+        BenchmarkWindow::Rolling { .. } => {
+            let start = resolved
+                .window_start
+                .ok_or_else(|| anyhow!("rolling window missing resolved start"))?;
+            builder.push("r.replay_date IS NOT NULL AND r.replay_date >= ");
+            builder.push_bind(start);
+        }
+        BenchmarkWindow::Season(_) => {
+            let code = resolved
+                .season_code
+                .as_ref()
+                .ok_or_else(|| anyhow!("season window missing resolved code"))?;
+            builder.push("r.season = ");
+            builder.push_bind(code);
+        }
+    }
+    builder.push(
+        r#"
+            ORDER BY r.canonical_analysis_run_id, concat(rp.platform, ':', rp.platform_player_id), rp.active_time_seconds DESC NULLS LAST
+        ),
+        appearance_keyed AS (
+            SELECT * FROM appearance WHERE playlist_group_key IS NOT NULL
+        ),
+        -- Each appearance feeds the combined 'all' bucket plus its own decided
+        -- outcome ('win'/'loss'); medians are not additive so 'all' is computed
+        -- directly here, never reconstructed from win+loss.
+        appearance_bucket AS (
+            SELECT a.analysis_run_id, a.replay_id, a.player_subject_id, a.rank_tier,
+                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, bucket.outcome
+            FROM appearance_keyed a
+            CROSS JOIN LATERAL (
+                SELECT 'all'::text AS outcome
+                UNION ALL
+                SELECT a.appearance_outcome WHERE a.appearance_outcome IS NOT NULL
+            ) bucket
+        ),
+        event_type_universe AS (
+            SELECT DISTINCT event_type_id FROM player_replay_event_counts
+        ),
+        -- Per (group, tier, outcome, player) denominators: games + active time.
+        player_denoms AS (
+            SELECT playlist_group_key, rank_tier, outcome, player_subject_id,
+                   COUNT(DISTINCT replay_id) AS games,
+                   SUM(active_seconds) AS active_seconds,
+                   SUM(non_demo_active_seconds) AS non_demo_active_seconds
+            FROM appearance_bucket
+            GROUP BY playlist_group_key, rank_tier, outcome, player_subject_id
+            HAVING COUNT(DISTINCT replay_id) >= "#,
+    );
+    builder.push_bind(crate::rank_benchmark::MIN_PLAYER_GAMES);
+    builder.push(
+        r#"
+        ),
+        -- Summed events per (group, tier, outcome, player, event_type).
+        player_event_sums AS (
+            SELECT ab.playlist_group_key, ab.rank_tier, ab.outcome, ab.player_subject_id,
+                   c.event_type_id, SUM(c.event_count) AS events
+            FROM appearance_bucket ab
+            JOIN player_replay_event_counts c
+              ON c.analysis_run_id = ab.analysis_run_id
+             AND c.replay_id = ab.replay_id
+             AND c.player_subject_id = ab.player_subject_id
+            GROUP BY ab.playlist_group_key, ab.rank_tier, ab.outcome, ab.player_subject_id, c.event_type_id
+        ),
+        -- Zero-filled per-player rates across the event-type universe: a
+        -- qualifying player who never performs event X has rate 0 for X and
+        -- still enters X's median (excluding them biases it upward).
+        player_rates AS (
+            SELECT d.playlist_group_key, d.rank_tier, d.outcome, et.event_type_id,
+                   CASE WHEN d.active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.active_seconds END AS per_active_minute,
+                   CASE WHEN d.non_demo_active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.non_demo_active_seconds END AS per_non_demo_active_minute
+            FROM player_denoms d
+            CROSS JOIN event_type_universe et
+            LEFT JOIN player_event_sums s
+              ON s.playlist_group_key = d.playlist_group_key
+             AND s.rank_tier = d.rank_tier
+             AND s.outcome = d.outcome
+             AND s.player_subject_id = d.player_subject_id
+             AND s.event_type_id = et.event_type_id
+        ),
+        population AS (
+            SELECT ab.playlist_group_key, ab.rank_tier, ab.outcome,
+                   COUNT(DISTINCT ab.player_subject_id)::int AS distinct_player_count,
+                   COUNT(DISTINCT ab.replay_id)::int AS replay_count
+            FROM appearance_bucket ab
+            JOIN player_denoms d
+              ON d.playlist_group_key = ab.playlist_group_key
+             AND d.rank_tier = ab.rank_tier
+             AND d.outcome = ab.outcome
+             AND d.player_subject_id = ab.player_subject_id
+            GROUP BY ab.playlist_group_key, ab.rank_tier, ab.outcome
+        ),
+        ins_stats AS (
+            INSERT INTO rank_benchmark_stats (
+                window_key, playlist_group_key, rank_tier, outcome, event_type_id,
+                median_per_active_minute, median_per_non_demo_active_minute
+            )
+            SELECT "#,
+    );
+    builder.push_bind(&resolved.window_key);
+    builder.push(
+        r#", playlist_group_key, rank_tier, outcome, event_type_id,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute),
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute)
+            FROM player_rates
+            GROUP BY playlist_group_key, rank_tier, outcome, event_type_id
+            RETURNING 1
+        )
+        INSERT INTO rank_benchmark_population (
+            window_key, playlist_group_key, rank_tier, outcome, distinct_player_count, replay_count
+        )
+        SELECT "#,
+    );
+    builder.push_bind(&resolved.window_key);
+    builder.push(
+        r#", playlist_group_key, rank_tier, outcome, distinct_player_count, replay_count
+        FROM population"#,
+    );
+    builder.build().execute(&mut *tx).await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO rank_benchmark_meta (
+            window_key, window_kind, window_start, window_end, season_code, display_label, computed_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, now())
+        "#,
+    )
+    .bind(&resolved.window_key)
+    .bind(resolved.kind)
+    .bind(resolved.window_start)
+    .bind(resolved.window_end)
+    .bind(&resolved.season_code)
+    .bind(&resolved.label)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(())
 }
 
 struct CarryForwardEventReview {

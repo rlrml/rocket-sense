@@ -17,6 +17,45 @@ use uuid::Uuid;
 #[path = "ranks_tests.rs"]
 mod tests;
 
+/// Canonical PsyNet skill-tier names (0 = Unranked, 1-21 = Bronze I through
+/// Grand Champion III, 22 = Supersonic Legend). Kept in sync with `tierNames`
+/// in `web/src/rank.tsx`.
+const TIER_NAMES: [&str; 23] = [
+    "Unranked",
+    "Bronze I",
+    "Bronze II",
+    "Bronze III",
+    "Silver I",
+    "Silver II",
+    "Silver III",
+    "Gold I",
+    "Gold II",
+    "Gold III",
+    "Platinum I",
+    "Platinum II",
+    "Platinum III",
+    "Diamond I",
+    "Diamond II",
+    "Diamond III",
+    "Champion I",
+    "Champion II",
+    "Champion III",
+    "Grand Champion I",
+    "Grand Champion II",
+    "Grand Champion III",
+    "Supersonic Legend",
+];
+
+/// Human label for a rank tier index, e.g. `14` -> `"Diamond II"`. Falls back to
+/// `"Tier <n>"` for out-of-range values.
+pub fn rank_tier_label(tier: i32) -> String {
+    usize::try_from(tier)
+        .ok()
+        .and_then(|index| TIER_NAMES.get(index))
+        .map(|name| (*name).to_owned())
+        .unwrap_or_else(|| format!("Tier {tier}"))
+}
+
 /// A skill snapshot at a single point in time (before or after the match).
 /// `mu`/`sigma` are the raw TrueSkill values; `mmr` is the derived display
 /// value (`mu * 20 + 100`). Any field may be absent.

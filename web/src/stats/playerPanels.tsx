@@ -41,17 +41,27 @@ const rateWindowMinutes = 5;
  * Career fallback for stat sections without a purpose-built profile subview.
  * Each card is one stat; rows compare the profile subject to available cohorts.
  */
+/// Served tier/window labels for the `rank-peers` benchmark cohort, threaded
+/// from the aggregate set/group response so rank-peers rows can show the tier
+/// and window in their subtitle.
+export interface RankBenchmarkRowInfo {
+  tierLabel?: string | null;
+  windowLabel?: string | null;
+}
+
 export function PlayerRateComparisonChart({
   playerName = "Player",
   stats,
+  rankBenchmark,
 }: {
   playerName?: string;
   stats: StatAggregateResponse[];
+  rankBenchmark?: RankBenchmarkRowInfo;
 }) {
   const cards = stats
     .filter((stat) => stat.per_active_minute != null)
     .slice(0, rateChartStatLimit)
-    .map((stat) => ({ stat, rows: playerRateComparisonRows(stat, playerName) }))
+    .map((stat) => ({ stat, rows: playerRateComparisonRows(stat, playerName, rankBenchmark) }))
     .filter((card) => card.rows.length > 0);
 
   if (cards.length === 0) {
@@ -77,6 +87,7 @@ export function PlayerRateComparisonChart({
 function playerRateComparisonRows(
   stat: StatAggregateResponse,
   playerName: string,
+  rankBenchmark?: RankBenchmarkRowInfo,
 ): ComparisonRow[] {
   const playerRate = (stat.per_active_minute ?? 0) * rateWindowMinutes;
   const teammateRate =
@@ -87,7 +98,11 @@ function playerRateComparisonRows(
     stat.opponent_per_active_minute != null
       ? stat.opponent_per_active_minute * rateWindowMinutes
       : null;
-  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0);
+  const rankRate =
+    stat.rank_benchmark_per_active_minute != null
+      ? stat.rank_benchmark_per_active_minute * rateWindowMinutes
+      : null;
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0, rankRate ?? 0);
   const rows: ComparisonRow[] = [
     playerRateComparisonRow({
       cohortKey: "player",
@@ -122,6 +137,18 @@ function playerRateComparisonRows(
       }),
     );
   }
+  if (rankRate != null) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "rank-peers",
+        maxValue,
+        playerName,
+        rate: rankRate,
+        statName: stat.display_name,
+        rankBenchmark,
+      }),
+    );
+  }
   return rows;
 }
 
@@ -132,34 +159,47 @@ function playerRateComparisonRow({
   playerName,
   rate,
   statName,
+  rankBenchmark,
 }: {
   cohortKey: CareerCohortKey;
-  count: number;
+  // Absent for the `rank-peers` cohort: a median rate has no per-row count.
+  count?: number;
   maxValue: number;
   playerName: string;
   rate: number;
   statName: string;
+  rankBenchmark?: RankBenchmarkRowInfo;
 }): ComparisonRow {
   const formatted = formatRate(rate);
   const rateLabel = `${formatted}/5m`;
+  const tierLabel = rankBenchmark?.tierLabel ?? null;
+  const cohortLabel = careerCohortLabel(cohortKey, playerName, tierLabel);
+  // Rank-peers is a median rate, so it carries no count label; its subtitle
+  // shows the served tier + window instead.
+  const hasCount = count != null;
   const totalKind = cohortKey === "player" ? "total" : "pooled total";
+  const subtitle =
+    cohortKey === "rank-peers"
+      ? [careerCohortSubtitle(cohortKey), rankBenchmark?.windowLabel].filter(Boolean).join(" · ")
+      : `${careerCohortSubtitle(cohortKey)} · ${(count ?? 0).toLocaleString()} ${totalKind}`;
+  const segmentTitle = hasCount
+    ? `${rateLabel} (${(count ?? 0).toLocaleString()} ${totalKind})`
+    : `${cohortLabel}: ${rateLabel}`;
   return {
     key: cohortKey,
     label: (
       <StatPlayerLabel
         className={careerCohortClassName(cohortKey)}
-        name={careerCohortLabel(cohortKey, playerName)}
+        name={cohortLabel}
         platform={null}
         platformPlayerId={null}
         profilePath={null}
         rank={null}
         showPlatformBadge={false}
-        subtitle={`${careerCohortSubtitle(cohortKey)} · ${count.toLocaleString()} ${totalKind}`}
+        subtitle={subtitle}
       />
     ),
-    ariaLabel: `${careerCohortLabel(cohortKey, playerName)}: ${rateLabel} ${careerRateWindowLabel(
-      rateWindowMinutes * 60,
-    )}`,
+    ariaLabel: `${cohortLabel}: ${rateLabel} ${careerRateWindowLabel(rateWindowMinutes * 60)}`,
     segments: [
       {
         key: "rate",
@@ -167,13 +207,17 @@ function playerRateComparisonRow({
         label: statName,
         value: Math.max(0, rate),
         visibleLabel: rate > 0 ? rateLabel : undefined,
-        title: `${rateLabel} (${count.toLocaleString()} ${totalKind})`,
+        title: segmentTitle,
       },
     ],
     total: Math.max(0, rate),
     maxValue,
-    valueLabel: (
-      <span title={`${count.toLocaleString()} ${totalKind}`}>{count.toLocaleString()} total</span>
+    valueLabel: hasCount ? (
+      <span title={`${(count ?? 0).toLocaleString()} ${totalKind}`}>
+        {(count ?? 0).toLocaleString()} total
+      </span>
+    ) : (
+      <span title={cohortLabel}>{rateLabel}</span>
     ),
     placeholder: rateLabel,
   };

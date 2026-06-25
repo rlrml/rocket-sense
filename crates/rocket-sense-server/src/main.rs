@@ -6,6 +6,7 @@ mod api;
 mod app;
 mod auth;
 mod processing;
+mod rank_benchmark;
 mod ranks;
 mod settings;
 mod telemetry;

@@ -4187,6 +4187,19 @@ function PlayerAggregateStatsSections({
     const query = params.toString();
     navigate(query ? `${location.pathname}?${query}` : location.pathname);
   };
+  const setRankBenchmarkParam = (
+    key: "rank-benchmark-tier" | "rank-benchmark-window",
+    value: string | null,
+  ) => {
+    const params = new URLSearchParams(location.search);
+    if (value == null || value === "") {
+      params.delete(key);
+    } else {
+      params.set(key, value);
+    }
+    const query = params.toString();
+    navigate(query ? `${location.pathname}?${query}` : location.pathname);
+  };
   const splitOutcome = playerOutcomeSplitEnabled(search);
   const outcomeState = usePlayerOutcomeStatBundles({
     activeGroup,
@@ -4229,8 +4242,58 @@ function PlayerAggregateStatsSections({
       (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
     );
 
+    const rankBenchmarkTiers = contentStats.rank_benchmark_available_tiers ?? [];
+    const rankBenchmarkWindows = contentStats.rank_benchmark_available_windows ?? [];
+    const showRankBenchmarkPickers =
+      rankBenchmarkTiers.length > 0 || rankBenchmarkWindows.length > 1;
+
     return (
       <>
+        {showRankBenchmarkPickers ? (
+          <div className="rank-benchmark-pickers">
+            {rankBenchmarkTiers.length > 0 ? (
+              <label className="rank-benchmark-picker">
+                <span className="rank-benchmark-picker-label">Rank median</span>
+                <select
+                  value={
+                    contentStats.rank_benchmark_is_player_default === false &&
+                    contentStats.rank_benchmark_tier != null
+                      ? String(contentStats.rank_benchmark_tier)
+                      : ""
+                  }
+                  onChange={(event) =>
+                    setRankBenchmarkParam("rank-benchmark-tier", event.target.value || null)
+                  }
+                >
+                  <option value="">Your rank{`${" "}(default)`}</option>
+                  {rankBenchmarkTiers.map((option) => (
+                    <option key={option.tier} value={String(option.tier)}>
+                      {option.label} ({option.distinct_player_count.toLocaleString()})
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {rankBenchmarkWindows.length > 1 ? (
+              <label className="rank-benchmark-picker">
+                <span className="rank-benchmark-picker-label">Window</span>
+                <select
+                  value={contentStats.rank_benchmark_window ?? ""}
+                  onChange={(event) =>
+                    setRankBenchmarkParam("rank-benchmark-window", event.target.value || null)
+                  }
+                >
+                  {rankBenchmarkWindows.map((option) => (
+                    <option key={option.key} value={option.key}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+        ) : null}
+
         {activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome ? (
           <KickoffSpawnBreakdown
             dimension={contentKickoffSpawnDimension}
@@ -4250,7 +4313,14 @@ function PlayerAggregateStatsSections({
         activeGroup.id === "positioning" ||
         activeGroup.id === "rotation" ||
         activeGroup.id === "touches" ? null : (
-          <PlayerRateComparisonChart playerName={playerName} stats={contentTopStats} />
+          <PlayerRateComparisonChart
+            playerName={playerName}
+            stats={contentTopStats}
+            rankBenchmark={{
+              tierLabel: contentStats.rank_benchmark_tier_label,
+              windowLabel: contentStats.rank_benchmark_window_label,
+            }}
+          />
         )}
 
         {activeGroup.id === "boost" ? (

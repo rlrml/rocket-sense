@@ -1,4 +1,4 @@
-use crate::{api, processing, settings, telemetry};
+use crate::{api, processing, rank_benchmark::BenchmarkWindow, settings, telemetry};
 use anyhow::Result;
 use axum::{extract::DefaultBodyLimit, Router};
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
@@ -21,6 +21,14 @@ pub struct AppState {
     /// Gates the lifetime stat-count read path between the materialized
     /// `player_replay_event_counts` table and the live event-subject scan.
     pub materialized_stat_counts: bool,
+    /// Gates the rank-median benchmark cohort read path (`rank_benchmark_*`
+    /// response fields). Off until the first refresh has populated the table.
+    pub rank_benchmark_enabled: bool,
+    /// Windows the read path exposes in `rank_benchmark_available_windows` and
+    /// resolves overrides against; mirrors what the refresh job materializes.
+    pub rank_benchmark_windows: Arc<[BenchmarkWindow]>,
+    /// `window_key` served when a request carries no `rank-benchmark-window`.
+    pub rank_benchmark_default_window: Arc<str>,
     /// Email addresses that are auto-promoted to admin on authentication.
     pub admin_emails: Arc<[String]>,
 }
@@ -49,6 +57,9 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
             settings.background_processing_concurrency,
         )),
         materialized_stat_counts: settings.materialized_stat_counts,
+        rank_benchmark_enabled: settings.rank_benchmark_enabled,
+        rank_benchmark_windows: Arc::from(settings.rank_benchmark_windows),
+        rank_benchmark_default_window: Arc::from(settings.rank_benchmark_default_window),
         admin_emails: Arc::from(settings.admin_emails),
     };
 
@@ -61,6 +72,12 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
                     settings.background_processing_concurrency,
                 );
                 processing::start_event_stream_gc_sweeper(pool.clone(), state.storage.clone());
+                if state.rank_benchmark_enabled {
+                    processing::start_rank_benchmark_refresh_job(
+                        pool.clone(),
+                        state.rank_benchmark_windows.to_vec(),
+                    );
+                }
                 match processing::enqueue_unfinished_replay_processing(pool).await {
                     Ok(count) if count > 0 => {
                         tracing::info!(count, "enqueued unfinished replay processing on startup");
@@ -101,6 +118,12 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
         settings.background_processing_concurrency,
     );
     processing::start_event_stream_gc_sweeper(pool.clone(), storage);
+    if settings.rank_benchmark_enabled {
+        processing::start_rank_benchmark_refresh_job(
+            pool.clone(),
+            settings.rank_benchmark_windows.clone(),
+        );
+    }
 
     match processing::enqueue_unfinished_replay_processing(&pool).await {
         Ok(count) if count > 0 => {
