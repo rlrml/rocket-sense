@@ -349,6 +349,12 @@ resource "kubernetes_deployment_v1" "server" {
             value = "true"
           }
 
+          # Enable the rank-median benchmark cohort (read path + daily refresh).
+          env {
+            name  = "ROCKET_SENSE_RANK_BENCHMARK"
+            value = "true"
+          }
+
           env {
             name  = "ROCKET_SENSE_LOG_FORMAT"
             value = "json"
@@ -615,6 +621,12 @@ resource "kubernetes_deployment_v1" "worker" {
           env {
             name  = "ROCKET_SENSE_BACKGROUND_PROCESSING_CONCURRENCY"
             value = tostring(var.worker_processing_concurrency)
+          }
+
+          # The worker runs the daily rank-benchmark refresh job; gate it on too.
+          env {
+            name  = "ROCKET_SENSE_RANK_BENCHMARK"
+            value = "true"
           }
 
           env {
