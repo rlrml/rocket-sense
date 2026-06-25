@@ -167,3 +167,44 @@ catch those locally without running the whole suite:
 - `just fmt` - format Rust code.
 - `just clippy` - run clippy with warnings as errors.
 - `just dev` - run the binary locally.
+
+## Deploying (railbird-sf)
+
+There is **no CD** — deploys are manual and ship whatever image you build, so
+**land the change on `master` first**, then deploy from an up-to-date checkout (a
+worktree is fine). See [`infra/README.md`](infra/README.md) for the one-time
+`.kube/railbird-sf.yaml` kubeconfig setup; the build host's registry
+(`railbird-sf:5279`) must be reachable.
+
+The one-shot recipe builds the image with Nix, pushes it to the registry, applies
+the agenix-backed Secret, and runs `tofu apply`:
+
+```sh
+export KUBECONFIG="$PWD/.kube/railbird-sf.yaml"
+just deploy-railbird-sf
+```
+
+**Gotcha — `tofu apply` alone usually does not roll the pods.** The Deployments
+pin the *mutable* `…/rocket-sense-server:dev` tag
+([`infra/terraform/variables.tf`](infra/terraform/variables.tf)), so when only
+code changed Terraform sees no diff and leaves the running pods on the old image.
+Force the freshly-pushed image out with a rollout restart — the server and the
+replay worker share the image, so restart both:
+
+```sh
+kubectl -n rocket-sense rollout restart deployment/rocket-sense deployment/rocket-sense-worker
+kubectl -n rocket-sense rollout status  deployment/rocket-sense
+```
+
+After deploying:
+
+- **Disk gotcha:** if the build/node host hits `no space left`, the Nix store on
+  `/var` is the usual culprit — `nix-collect-garbage -d` and retry. (A
+  disk-usage watchdog also runs in-cluster.)
+- **Smoke-test prod**, not just the UI. Re-curl the key stat read endpoints,
+  including the materialized aggregate reads (`?materialized=true`): that path is
+  on for all aggregate/possession/positioning/boost endpoints, and a sibling
+  branch that landed on `master` can break one you didn't touch.
+- The app is public via DuckDNS → host nginx → NodePort `30080`. App health and
+  the public URL are separate: an outage right after deploy is often a stale
+  DuckDNS IP, not the rollout.
