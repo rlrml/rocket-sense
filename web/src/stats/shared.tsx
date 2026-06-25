@@ -26,6 +26,9 @@ export function SegmentedBar({
   total: number;
 }) {
   const visibleSegments = segments.filter((segment) => segment.value > 0);
+  // Normalize the flex-grow factors so they sum to 1; otherwise segment values
+  // that sum to < 1 leave the fill partly empty (see ComparisonBar for details).
+  const segmentSum = visibleSegments.reduce((sum, segment) => sum + segment.value, 0);
   const scaleMax = maxValue ?? total;
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
 
@@ -39,7 +42,7 @@ export function SegmentedBar({
           <span
             className={`source-segment ${segment.className}`}
             key={segment.key}
-            style={{ flexGrow: total > 0 ? segment.value : 0 }}
+            style={{ flexGrow: segmentSum > 0 ? segment.value / segmentSum : 0 }}
             title={segment.title ?? `${segment.label}: ${segment.value.toLocaleString()}`}
           >
             {segment.visibleLabel ? (
@@ -57,6 +60,7 @@ export function StatPlayerLabel({
   inline = false,
   name,
   platform,
+  platformPlayerId,
   profilePath,
   rank,
   showPlatformBadge = true,
@@ -66,6 +70,7 @@ export function StatPlayerLabel({
   inline?: boolean;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath?: string | null;
   rank?: StatPlayerRank | null;
   showPlatformBadge?: boolean;
@@ -76,6 +81,7 @@ export function StatPlayerLabel({
       <StatPlayerName
         name={name}
         platform={platform}
+        platformPlayerId={platformPlayerId}
         profilePath={profilePath}
         showPlatformBadge={showPlatformBadge}
       />
@@ -134,17 +140,18 @@ export function StatPlayerName({
   className = "",
   name,
   platform,
+  platformPlayerId,
   profilePath,
   showPlatformBadge = true,
 }: {
   className?: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath?: string | null;
   showPlatformBadge?: boolean;
 }) {
   const nameNode = profilePath ? <Link to={profilePath}>{name}</Link> : <>{name}</>;
-  const platformPlayerId = playerIdFromProfilePath(profilePath);
   return (
     <strong className={`stat-player-name-line ${className}`.trim()}>
       {showPlatformBadge ? (
@@ -158,16 +165,6 @@ export function StatPlayerName({
       <span className="stat-player-name-text">{nameNode}</span>
     </strong>
   );
-}
-
-function playerIdFromProfilePath(profilePath: string | null | undefined): string | null {
-  const match = /^\/players\/[^/]+\/([^/?#]+)/.exec(profilePath ?? "");
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
 
 export function PlayerSegmentedBarRows<T>({
@@ -246,6 +243,55 @@ export const PLAYER_RELATIVE_OUTCOME_COLORS: OutcomeDistributionColors = {
   "negative-clear": "#7c3aed",
   "negative-unknown": "#ddd6fe",
 };
+
+export type CareerCohortKey = "player" | "teammates" | "opponents";
+
+export function careerCohortKey(value: string | null | undefined): CareerCohortKey | null {
+  if (!value) return null;
+  if (value === "player" || value === "self" || value === "cohort-self") return "player";
+  if (value === "teammate" || value === "teammates" || value === "cohort-teammates")
+    return "teammates";
+  if (value === "opponent" || value === "opponents" || value === "cohort-opponents")
+    return "opponents";
+  return null;
+}
+
+export function careerCohortLabel(key: CareerCohortKey, playerName = "Player"): string {
+  if (key === "player") return playerName;
+  if (key === "teammates") return "Teammates";
+  return "Opponents";
+}
+
+export function careerCohortSubtitle(key: CareerCohortKey): string {
+  if (key === "player") return "Player";
+  if (key === "teammates") return "Teammates";
+  return "Opponents";
+}
+
+export function careerCohortClassName(key: CareerCohortKey): string {
+  return `career-cohort-${key.replace("_", "-")}`;
+}
+
+export function careerCohortSegmentClassName(key: CareerCohortKey): string {
+  return careerCohortClassName(key);
+}
+
+export const CAREER_RATE_WINDOW_SECONDS = 5 * 60;
+
+export function careerRateValue(
+  value: number,
+  activeSeconds: number | null | undefined,
+  windowSeconds = CAREER_RATE_WINDOW_SECONDS,
+): number | null {
+  if (!Number.isFinite(value) || value < 0) return null;
+  if (activeSeconds == null || !Number.isFinite(activeSeconds) || activeSeconds <= 0) return null;
+  return (value * windowSeconds) / activeSeconds;
+}
+
+export function careerRateWindowLabel(windowSeconds = CAREER_RATE_WINDOW_SECONDS): string {
+  const minutes = windowSeconds / 60;
+  return `per ${Number.isInteger(minutes) ? minutes.toFixed(0) : minutes.toFixed(1)} active min`;
+}
 
 // Team-colored ramp for OutcomeDistributionBar / comparison distribution rows:
 // blue maps to the positive tone, orange to negative, and the level tiers a
@@ -382,12 +428,28 @@ export interface ComparisonRow {
   maxValue?: number;
   /** Right-column value (e.g. "2.10s", "67%", "+1 / -0"). Omit to drop the column. */
   valueLabel?: ReactNode;
-  /** Value floated at the bar's end instead of a right column (magnitude bars). */
-  valueInBar?: ReactNode;
+  /**
+   * Value drawn on the bar's leading edge (single-value magnitude bars): on wide
+   * bars it prints inside the colored segment at the tip (light on the bar),
+   * keeping the bar full width with no separate column; on short/empty bars it
+   * trails just past the tip (dark on the track) so every bar still shows its
+   * number. Mutually exclusive with `valueLabel` in practice.
+   */
+  barValue?: ReactNode;
   /** Extra CSS vars for the track, e.g. outcomeDistributionColorStyle(colors). */
   style?: CSSProperties;
+  /** Optional point markers on the same scale, e.g. a teammate/rank-peer average. */
+  markers?: ComparisonMarker[];
   /** Shown on the track when there are no filled segments (e.g. a zero value). */
   placeholder?: ReactNode;
+}
+
+export interface ComparisonMarker {
+  key: string;
+  label: string;
+  value: number;
+  className?: string;
+  title?: string;
 }
 
 /**
@@ -400,8 +462,8 @@ export interface ComparisonRow {
  * The rows of a comparison chart without the surrounding titled panel, so a page
  * can drop them into its own section (e.g. a `.chart-panel` with a custom header)
  * while still using the one shared bar. The right-hand value column is dropped
- * automatically when no row carries a `valueLabel` — magnitude bars float their
- * value on the track via `valueInBar` instead, so they need no column.
+ * automatically when no row carries a `valueLabel` (e.g. pure distribution bars
+ * whose values live inside the segments).
  */
 export function ComparisonRows({
   rows,
@@ -425,8 +487,9 @@ export function ComparisonRows({
             total={row.total}
             maxValue={row.maxValue}
             style={row.style}
+            markers={row.markers}
             placeholder={row.placeholder}
-            valueInBar={row.valueInBar}
+            barValue={row.barValue}
           />
           {row.valueLabel != null ? (
             <strong className="metric-value player-comparison-value">
@@ -458,6 +521,10 @@ export function PlayerComparisonChart({
   );
 }
 
+// At/above this fill percentage the bar is wide enough to print its value on the
+// colored bar; below it the value trails the tip on the open track instead.
+const BAR_VALUE_ON_BAR_MIN_PERCENT = 25;
+
 /**
  * The single shared bar track used by every comparison chart AND any standalone
  * full-width distribution bar, so they all read identically (same height,
@@ -470,55 +537,75 @@ export function ComparisonBar({
   total,
   maxValue,
   style,
+  markers = [],
   placeholder,
-  valueInBar,
+  barValue,
 }: {
   ariaLabel: string;
   segments: SegmentedBarSegment[];
   total: number;
   maxValue?: number;
   style?: CSSProperties;
+  markers?: ComparisonMarker[];
   placeholder?: ReactNode;
-  /** Value floated at the bar's end: inside the fill when nearly full, in the
-   *  empty track otherwise, so it stays readable on bars of any length. */
-  valueInBar?: ReactNode;
+  barValue?: ReactNode;
 }) {
   const visible = segments.filter((segment) => segment.value > 0);
+  // Segments split the fill proportionally via flex-grow. The grow factors must
+  // sum to >= 1 or flexbox leaves the fill partly unfilled (a single segment with
+  // value 0.33 would fill only 33% of its own fill and gain a square end), so
+  // normalize by the segment sum — a single segment then always fills its fill.
+  const segmentSum = visible.reduce((sum, segment) => sum + segment.value, 0);
   const scaleMax = maxValue ?? total;
   const fillPercent = scaleMax > 0 ? Math.max(0, Math.min(100, (total / scaleMax) * 100)) : 0;
-  // The value hugs the right tip of its own bar (white, right-aligned inside the
-  // fill's end) so every row reads the same way regardless of bar length. Only a
-  // bar too short to hold the text at all falls back to dark text just past the
-  // fill, since there is no room to place it inside.
-  const valueInside = fillPercent > 10;
+  const hasBarValue = barValue != null;
+  // Wide bars print the value on the colored bar at its leading edge; short or
+  // empty bars can't hold it, so it trails just past the tip on the track.
+  const valueOnBar =
+    hasBarValue && visible.length > 0 && fillPercent >= BAR_VALUE_ON_BAR_MIN_PERCENT;
+  const lastIndex = visible.length - 1;
   return (
     <div
-      className="metric-bar-track source-bar-track player-comparison-track"
+      className={`metric-bar-track source-bar-track player-comparison-track${
+        hasBarValue && !valueOnBar ? " has-bar-value" : ""
+      }`}
       style={style}
       aria-label={ariaLabel}
     >
       <span className="source-bar-fill" style={{ width: `${fillPercent}%` }}>
-        {visible.map((segment) => (
+        {visible.map((segment, index) => (
           <span
-            className={`source-segment ${segment.className}`}
+            className={`source-segment ${segment.className}${
+              valueOnBar && index === lastIndex ? " has-bar-value-on-bar" : ""
+            }`}
             key={segment.key}
-            style={{ flexGrow: segment.value }}
+            style={{ flexGrow: segmentSum > 0 ? segment.value / segmentSum : 0 }}
             title={segment.title ?? `${segment.label}: ${segment.value.toLocaleString()}`}
           >
             {segment.visibleLabel ? (
               <span className="source-segment-label">{segment.visibleLabel}</span>
             ) : null}
+            {valueOnBar && index === lastIndex ? (
+              <span className="bar-value-label on-bar">{barValue}</span>
+            ) : null}
           </span>
         ))}
       </span>
-      {valueInBar != null && visible.length > 0 ? (
-        <span
-          className={`player-comparison-inbar-value${valueInside ? " inside" : ""}`}
-          style={valueInside ? { right: `${100 - fillPercent}%` } : { left: `${fillPercent}%` }}
-        >
-          {valueInBar}
-        </span>
+      {hasBarValue && !valueOnBar ? (
+        <span className="bar-value-label trailing">{barValue}</span>
       ) : null}
+      {markers.map((marker) => {
+        const leftPercent =
+          scaleMax > 0 ? Math.max(0, Math.min(100, (marker.value / scaleMax) * 100)) : 0;
+        return (
+          <span
+            className={`player-comparison-marker ${marker.className ?? ""}`.trim()}
+            key={marker.key}
+            style={{ left: `${leftPercent}%` }}
+            title={marker.title ?? `${marker.label}: ${marker.value.toLocaleString()}`}
+          />
+        );
+      })}
       {visible.length === 0 && placeholder != null ? (
         <span className="player-comparison-placeholder">{placeholder}</span>
       ) : null}

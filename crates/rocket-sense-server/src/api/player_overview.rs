@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::{
     event_stats::{count_column, display_label, finite_value},
-    query::QueryParams,
+    query::{parse_bool_filter, QueryParams},
     replay_set::{
         append_target_player_replay_set_filters, PlayerStatFilter, ReplaySetFilterInput,
         ReplaySetFilters,
@@ -34,10 +34,14 @@ pub fn router() -> Router<AppState> {
 pub struct PlayerStatOverviewResponse {
     pub replay_count: u64,
     pub goals_scored: u64,
+    /// Headline score rate for the player vs the pooled teammate average.
+    pub score: ScoringRateResponse,
     /// Headline goal rate for the player vs the pooled teammate average.
     pub goals: ScoringRateResponse,
     /// Headline assist rate for the player vs the pooled teammate average.
     pub assists: ScoringRateResponse,
+    /// Headline shot rate for the player vs the pooled teammate average.
+    pub shots: ScoringRateResponse,
     pub goal_tags: Vec<GoalTagAggregateResponse>,
     pub rotation_roles: Vec<RotationTimeShareResponse>,
     pub rotation_depths: Vec<RotationTimeShareResponse>,
@@ -52,6 +56,8 @@ pub struct ScoringRateResponse {
     pub per_active_minute: Option<f64>,
     pub teammate_count: u64,
     pub teammate_per_active_minute: Option<f64>,
+    pub opponent_count: u64,
+    pub opponent_per_active_minute: Option<f64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -69,6 +75,11 @@ pub struct GoalTagAggregateResponse {
     /// Pooled teammate goals of this type per active minute (the teammate
     /// average to compare the player's rate against).
     pub teammate_per_active_minute: Option<f64>,
+    /// Goals of this type scored by opponents, pooled across the filtered replay
+    /// set.
+    pub opponent_count: u64,
+    /// Pooled opponent goals of this type per active minute.
+    pub opponent_per_active_minute: Option<f64>,
     pub avg_confidence: Option<f64>,
 }
 
@@ -84,12 +95,16 @@ pub struct RotationTimeShareResponse {
 struct PlayerOverviewQuery {
     replay_set: ReplaySetFilters,
     player: PlayerStatFilter,
+    include_goal_tags: bool,
+    include_rotation: bool,
+    materialized: bool,
 }
 
 impl PlayerOverviewQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
+        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -98,8 +113,29 @@ impl PlayerOverviewQuery {
             .first(&["player-id", "player_id"])
             .ok_or_else(|| ApiError::bad_request("player-id is required"))
             .and_then(|player_id| PlayerStatFilter::from_query(&player_id))?;
+        let include_goal_tags = params
+            .first(&["include-goal-tags", "include_goal_tags"])
+            .map(|value| parse_bool_filter("include-goal-tags", &value))
+            .transpose()?
+            .unwrap_or(true);
+        let include_rotation = params
+            .first(&["include-rotation", "include_rotation"])
+            .map(|value| parse_bool_filter("include-rotation", &value))
+            .transpose()?
+            .unwrap_or(true);
+        let materialized = params
+            .first(&["materialized"])
+            .map(|value| parse_bool_filter("materialized", &value))
+            .transpose()?
+            .unwrap_or(materialized_default);
 
-        Ok(Self { replay_set, player })
+        Ok(Self {
+            replay_set,
+            player,
+            include_goal_tags,
+            include_rotation,
+            materialized,
+        })
     }
 }
 
@@ -122,6 +158,7 @@ pub async fn get_player_stat_overview(
     let query = PlayerOverviewQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
+        state.materialized_stat_counts,
     )?;
     let response = load_player_stat_overview(db, &query)
         .await
@@ -138,12 +175,24 @@ async fn load_player_stat_overview(
         (replay_count, goals_scored),
         mut goal_tags,
         (rotation_roles, rotation_depths),
-        (player_active_time_seconds, teammate_active_time_seconds),
+        (player_active_time_seconds, teammate_active_time_seconds, opponent_active_time_seconds),
         counters,
     ) = tokio::try_join!(
         load_goal_totals(pool, query),
-        load_goal_tag_aggregates(pool, query),
-        load_rotation_time_shares(pool, query),
+        async {
+            if query.include_goal_tags {
+                load_goal_tag_aggregates(pool, query).await
+            } else {
+                Ok(Vec::new())
+            }
+        },
+        async {
+            if query.include_rotation {
+                load_rotation_time_shares(pool, query).await
+            } else {
+                Ok((Vec::new(), Vec::new()))
+            }
+        },
         load_goal_rate_denominators(pool, query),
         load_scoring_counters(pool, query),
     )?;
@@ -154,23 +203,49 @@ async fn load_player_stat_overview(
         tag.per_active_minute = goal_tag_per_minute(tag.count, player_active_time_seconds);
         tag.teammate_per_active_minute =
             goal_tag_per_minute(tag.teammate_count, teammate_active_time_seconds);
+        tag.opponent_per_active_minute =
+            goal_tag_per_minute(tag.opponent_count, opponent_active_time_seconds);
     }
 
-    let scoring_rate = |player_count: u64, teammate_count: u64| ScoringRateResponse {
-        count: player_count,
-        per_active_minute: goal_tag_per_minute(player_count, player_active_time_seconds),
-        teammate_count,
-        teammate_per_active_minute: goal_tag_per_minute(
+    let scoring_rate =
+        |player_count: u64, teammate_count: u64, opponent_count: u64| ScoringRateResponse {
+            count: player_count,
+            per_active_minute: goal_tag_per_minute(player_count, player_active_time_seconds),
             teammate_count,
-            teammate_active_time_seconds,
-        ),
-    };
+            teammate_per_active_minute: goal_tag_per_minute(
+                teammate_count,
+                teammate_active_time_seconds,
+            ),
+            opponent_count,
+            opponent_per_active_minute: goal_tag_per_minute(
+                opponent_count,
+                opponent_active_time_seconds,
+            ),
+        };
 
     Ok(PlayerStatOverviewResponse {
         replay_count,
         goals_scored,
-        goals: scoring_rate(counters.player_goals, counters.teammate_goals),
-        assists: scoring_rate(counters.player_assists, counters.teammate_assists),
+        score: scoring_rate(
+            counters.player_score,
+            counters.teammate_score,
+            counters.opponent_score,
+        ),
+        goals: scoring_rate(
+            counters.player_goals,
+            counters.teammate_goals,
+            counters.opponent_goals,
+        ),
+        assists: scoring_rate(
+            counters.player_assists,
+            counters.teammate_assists,
+            counters.opponent_assists,
+        ),
+        shots: scoring_rate(
+            counters.player_shots,
+            counters.teammate_shots,
+            counters.opponent_shots,
+        ),
         goal_tags,
         rotation_roles,
         rotation_depths,
@@ -186,7 +261,7 @@ fn push_target_appearances_cte<'args>(
     builder.push(
         r#"
         WITH target_appearances AS MATERIALIZED (
-            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id, rp.team, rp.active_time_seconds, rp.goals, rp.assists
+            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id, rp.team, rp.active_time_seconds, rp.score, rp.goals, rp.assists, rp.shots
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
         "#,
@@ -227,12 +302,11 @@ async fn load_goal_totals(
 ) -> Result<(u64, u64), sqlx::Error> {
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
-    push_goal_events_cte(&mut builder);
     builder.push(
         r#"
         SELECT
             (SELECT COUNT(DISTINCT replay_id) FROM target_appearances) AS replay_count,
-            (SELECT COUNT(*) FROM goal_events) AS goals_scored
+            (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS goals_scored
         "#,
     );
 
@@ -261,6 +335,39 @@ fn push_teammate_goal_events_cte(builder: &mut QueryBuilder<'_, Postgres>) {
         , teammate_goal_events AS MATERIALIZED (
             SELECT event.id
             FROM teammate_appearances appearance
+            JOIN play_event_subjects subject
+              ON subject.replay_player_id = appearance.id
+             AND subject.role = 'scorer'
+            JOIN play_events event
+              ON event.id = subject.event_id
+             AND event.analysis_run_id = appearance.run_id
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key = 'goal_context'
+        )
+        "#,
+    );
+}
+
+/// Push an `opponent_goal_events` CTE (requires `target_appearances`) selecting
+/// canonical `goal_context` events scored by opponents in the target player's
+/// filtered replay set.
+fn push_opponent_goal_events_cte(builder: &mut QueryBuilder<'_, Postgres>) {
+    builder.push(
+        r#"
+        , opponent_appearances AS MATERIALIZED (
+            SELECT DISTINCT opponent.id, r.canonical_analysis_run_id AS run_id
+            FROM target_appearances target
+            JOIN replay_players opponent
+              ON opponent.replay_id = target.replay_id
+             AND opponent.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND opponent.team <> target.team
+            JOIN replays r ON r.id = opponent.replay_id
+        )
+        , opponent_goal_events AS MATERIALIZED (
+            SELECT event.id
+            FROM opponent_appearances appearance
             JOIN play_event_subjects subject
               ON subject.replay_player_id = appearance.id
              AND subject.role = 'scorer'
@@ -314,20 +421,26 @@ async fn load_goal_tag_aggregates(
     push_target_appearances_cte(&mut builder, query);
     push_goal_events_cte(&mut builder);
     push_teammate_goal_events_cte(&mut builder);
+    push_opponent_goal_events_cte(&mut builder);
     builder.push(", player_tags AS (");
     push_goal_tag_count_select(&mut builder, "goal_events");
     builder.push("), teammate_tags AS (");
     push_goal_tag_count_select(&mut builder, "teammate_goal_events");
+    builder.push("), opponent_tags AS (");
+    push_goal_tag_count_select(&mut builder, "opponent_goal_events");
     builder.push(
         r#")
         SELECT
-            COALESCE(player_tags.kind, teammate_tags.kind) AS kind,
+            COALESCE(player_tags.kind, teammate_tags.kind, opponent_tags.kind) AS kind,
             COALESCE(player_tags.tag_count, 0) AS tag_count,
             player_tags.avg_confidence AS avg_confidence,
-            COALESCE(teammate_tags.tag_count, 0) AS teammate_tag_count
+            COALESCE(teammate_tags.tag_count, 0) AS teammate_tag_count,
+            COALESCE(opponent_tags.tag_count, 0) AS opponent_tag_count
         FROM player_tags
         FULL OUTER JOIN teammate_tags ON player_tags.kind = teammate_tags.kind
-        ORDER BY COALESCE(player_tags.tag_count, 0) DESC, COALESCE(player_tags.kind, teammate_tags.kind)
+        FULL OUTER JOIN opponent_tags
+          ON opponent_tags.kind = COALESCE(player_tags.kind, teammate_tags.kind)
+        ORDER BY COALESCE(player_tags.tag_count, 0) DESC, COALESCE(player_tags.kind, teammate_tags.kind, opponent_tags.kind)
         "#,
     );
 
@@ -337,27 +450,30 @@ async fn load_goal_tag_aggregates(
             let kind: String = row.try_get("kind")?;
             let count = count_column(&row, "tag_count")?;
             let teammate_count = count_column(&row, "teammate_tag_count")?;
+            let opponent_count = count_column(&row, "opponent_tag_count")?;
             Ok(GoalTagAggregateResponse {
                 display_name: goal_tag_label(&kind),
                 share_of_goals: None,
                 per_active_minute: None,
                 teammate_per_active_minute: None,
+                opponent_per_active_minute: None,
                 avg_confidence: finite_value(row.try_get("avg_confidence")?),
                 kind,
                 count,
                 teammate_count,
+                opponent_count,
             })
         })
         .collect()
 }
 
 /// Active-time denominators (seconds) for the target player and their pooled
-/// teammates across the filtered replay set, used to turn goal-tag counts into
-/// per-minute rates.
+/// teammates/opponents across the filtered replay set, used to turn goal-tag
+/// counts into per-minute rates.
 async fn load_goal_rate_denominators(
     pool: &sqlx::PgPool,
     query: &PlayerOverviewQuery,
-) -> Result<(Option<f64>, Option<f64>), sqlx::Error> {
+) -> Result<(Option<f64>, Option<f64>, Option<f64>), sqlx::Error> {
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
     builder.push(
@@ -369,10 +485,20 @@ async fn load_goal_rate_denominators(
               ON teammate.replay_id = target.replay_id
              AND teammate.team = target.team
              AND teammate.id <> target.id
+        ),
+        opponent_appearances AS (
+            SELECT DISTINCT opponent.id, opponent.active_time_seconds
+            FROM target_appearances target
+            JOIN replay_players opponent
+              ON opponent.replay_id = target.replay_id
+             AND opponent.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND opponent.team <> target.team
         )
         SELECT
             (SELECT SUM(active_time_seconds) FROM target_appearances) AS player_active_time_seconds,
-            (SELECT SUM(active_time_seconds) FROM teammate_appearances) AS teammate_active_time_seconds
+            (SELECT SUM(active_time_seconds) FROM teammate_appearances) AS teammate_active_time_seconds,
+            (SELECT SUM(active_time_seconds) FROM opponent_appearances) AS opponent_active_time_seconds
         "#,
     );
 
@@ -380,18 +506,27 @@ async fn load_goal_rate_denominators(
     Ok((
         nonnegative_seconds(row.try_get("player_active_time_seconds")?),
         nonnegative_seconds(row.try_get("teammate_active_time_seconds")?),
+        nonnegative_seconds(row.try_get("opponent_active_time_seconds")?),
     ))
 }
 
 #[derive(Debug, Default)]
 struct ScoringCounters {
+    player_score: u64,
     player_goals: u64,
     player_assists: u64,
+    player_shots: u64,
+    teammate_score: u64,
     teammate_goals: u64,
     teammate_assists: u64,
+    teammate_shots: u64,
+    opponent_score: u64,
+    opponent_goals: u64,
+    opponent_assists: u64,
+    opponent_shots: u64,
 }
 
-/// Sum the scoreboard goal/assist counters for the target player and the pooled
+/// Sum the scoreboard counters for the target player and the pooled
 /// teammate set across the filtered replay set.
 async fn load_scoring_counters(
     pool: &sqlx::PgPool,
@@ -402,27 +537,52 @@ async fn load_scoring_counters(
     builder.push(
         r#"
         , teammate_appearances AS (
-            SELECT DISTINCT teammate.id, teammate.goals, teammate.assists
+            SELECT DISTINCT teammate.id, teammate.score, teammate.goals, teammate.assists, teammate.shots
             FROM target_appearances target
             JOIN replay_players teammate
               ON teammate.replay_id = target.replay_id
              AND teammate.team = target.team
              AND teammate.id <> target.id
+        ),
+        opponent_appearances AS (
+            SELECT DISTINCT opponent.id, opponent.score, opponent.goals, opponent.assists, opponent.shots
+            FROM target_appearances target
+            JOIN replay_players opponent
+              ON opponent.replay_id = target.replay_id
+             AND opponent.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND opponent.team <> target.team
         )
         SELECT
+            (SELECT COALESCE(SUM(score), 0) FROM target_appearances) AS player_score,
             (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS player_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM target_appearances) AS player_assists,
+            (SELECT COALESCE(SUM(shots), 0) FROM target_appearances) AS player_shots,
+            (SELECT COALESCE(SUM(score), 0) FROM teammate_appearances) AS teammate_score,
             (SELECT COALESCE(SUM(goals), 0) FROM teammate_appearances) AS teammate_goals,
-            (SELECT COALESCE(SUM(assists), 0) FROM teammate_appearances) AS teammate_assists
+            (SELECT COALESCE(SUM(assists), 0) FROM teammate_appearances) AS teammate_assists,
+            (SELECT COALESCE(SUM(shots), 0) FROM teammate_appearances) AS teammate_shots,
+            (SELECT COALESCE(SUM(score), 0) FROM opponent_appearances) AS opponent_score,
+            (SELECT COALESCE(SUM(goals), 0) FROM opponent_appearances) AS opponent_goals,
+            (SELECT COALESCE(SUM(assists), 0) FROM opponent_appearances) AS opponent_assists,
+            (SELECT COALESCE(SUM(shots), 0) FROM opponent_appearances) AS opponent_shots
         "#,
     );
 
     let row = builder.build().fetch_one(pool).await?;
     Ok(ScoringCounters {
+        player_score: count_column(&row, "player_score")?,
         player_goals: count_column(&row, "player_goals")?,
         player_assists: count_column(&row, "player_assists")?,
+        player_shots: count_column(&row, "player_shots")?,
+        teammate_score: count_column(&row, "teammate_score")?,
         teammate_goals: count_column(&row, "teammate_goals")?,
         teammate_assists: count_column(&row, "teammate_assists")?,
+        teammate_shots: count_column(&row, "teammate_shots")?,
+        opponent_score: count_column(&row, "opponent_score")?,
+        opponent_goals: count_column(&row, "opponent_goals")?,
+        opponent_assists: count_column(&row, "opponent_assists")?,
+        opponent_shots: count_column(&row, "opponent_shots")?,
     })
 }
 
@@ -446,6 +606,10 @@ async fn load_rotation_time_shares(
     ),
     sqlx::Error,
 > {
+    if query.materialized {
+        return load_rotation_time_shares_materialized(pool, query).await;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
     builder.push(
@@ -510,6 +674,77 @@ async fn load_rotation_time_shares(
     }
 
     Ok((roles, depths))
+}
+
+async fn load_rotation_time_shares_materialized(
+    pool: &sqlx::PgPool,
+    query: &PlayerOverviewQuery,
+) -> Result<
+    (
+        Vec<RotationTimeShareResponse>,
+        Vec<RotationTimeShareResponse>,
+    ),
+    sqlx::Error,
+> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT *
+        FROM (
+            SELECT 'ball_depth_behind_ball'::text AS key, 'Behind Ball'::text AS display_name, COALESCE(SUM(pos.behind_ball_seconds), 0.0) AS seconds, COUNT(*) FILTER (WHERE pos.behind_ball_seconds > 0.0) AS span_count
+            FROM player_replay_positioning pos
+            JOIN replays r ON r.id = pos.replay_id AND r.canonical_analysis_run_id = pos.analysis_run_id
+            WHERE pos.platform = "#,
+    );
+    builder.push_bind(&query.player.platform);
+    builder.push(" AND pos.platform_player_id = ");
+    builder.push_bind(&query.player.platform_player_id);
+    super::replay_set::append_replay_set_filters(&mut builder, &query.replay_set, "r");
+    builder.push(
+        r#"
+            UNION ALL
+            SELECT 'ball_depth_level_with_ball'::text, 'Level With Ball'::text, COALESCE(SUM(pos.level_with_ball_seconds), 0.0), COUNT(*) FILTER (WHERE pos.level_with_ball_seconds > 0.0)
+            FROM player_replay_positioning pos
+            JOIN replays r ON r.id = pos.replay_id AND r.canonical_analysis_run_id = pos.analysis_run_id
+            WHERE pos.platform = "#,
+    );
+    builder.push_bind(&query.player.platform);
+    builder.push(" AND pos.platform_player_id = ");
+    builder.push_bind(&query.player.platform_player_id);
+    super::replay_set::append_replay_set_filters(&mut builder, &query.replay_set, "r");
+    builder.push(
+        r#"
+            UNION ALL
+            SELECT 'ball_depth_ahead_of_ball'::text, 'Ahead Of Ball'::text, COALESCE(SUM(pos.ahead_of_ball_seconds), 0.0), COUNT(*) FILTER (WHERE pos.ahead_of_ball_seconds > 0.0)
+            FROM player_replay_positioning pos
+            JOIN replays r ON r.id = pos.replay_id AND r.canonical_analysis_run_id = pos.analysis_run_id
+            WHERE pos.platform = "#,
+    );
+    builder.push_bind(&query.player.platform);
+    builder.push(" AND pos.platform_player_id = ");
+    builder.push_bind(&query.player.platform_player_id);
+    super::replay_set::append_replay_set_filters(&mut builder, &query.replay_set, "r");
+    builder.push(
+        r#"
+        ) rows
+        WHERE seconds > 0.0
+        ORDER BY seconds DESC, key
+        "#,
+    );
+
+    let rows = builder.build().fetch_all(pool).await?;
+    let depths = rows
+        .into_iter()
+        .map(|row| {
+            let seconds: Option<f64> = row.try_get("seconds")?;
+            Ok(RotationTimeShareResponse {
+                key: row.try_get("key")?,
+                display_name: display_label(&row.try_get::<String, _>("display_name")?),
+                seconds: finite_value(seconds).unwrap_or(0.0).max(0.0),
+                span_count: count_column(&row, "span_count")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()?;
+    Ok((Vec::new(), depths))
 }
 
 fn goal_tag_label(kind: &str) -> String {

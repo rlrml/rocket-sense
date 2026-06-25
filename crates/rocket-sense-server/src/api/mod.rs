@@ -6,6 +6,7 @@ mod health;
 mod leaderboards;
 mod mechanics;
 mod meta;
+mod movement_stats;
 mod openapi;
 mod player_overview;
 mod players;
@@ -16,6 +17,17 @@ mod replay_set;
 mod replays;
 mod spa;
 mod stats;
+mod users;
+
+/// Boost materialization helpers reused by `crate::processing` to populate
+/// `player_replay_boost` with the same band/last-value accumulation as the live
+/// boost-totals read, without widening the whole `stats`/`replays` modules.
+pub(crate) mod boost_materialization {
+    pub(crate) use super::replays::BoostTracksResponse;
+    pub(crate) use super::stats::{
+        accumulate_player_boost_track, boost_track_replay_duration, PlayerBoostAccumulator,
+    };
+}
 
 use crate::app::AppState;
 use axum::{routing::get, Json, Router};
@@ -44,12 +56,14 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(leaderboards::router())
         .merge(mechanics::router())
         .merge(meta::router())
+        .merge(movement_stats::router())
         .merge(player_overview::router())
         .merge(positioning_stats::router())
         .merge(possession_stats::router())
         .merge(players::router())
         .merge(replays::router())
         .merge(stats::router())
+        .merge(users::router())
         .with_state(state)
 }
 

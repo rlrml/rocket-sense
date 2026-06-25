@@ -5,105 +5,637 @@ import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
   PlayerStatOverviewResponse,
-  PossessionMixValue,
-  PossessionSpanSummary,
   PossessionSummaryResponse,
   PossessionTeamSplit,
   PossessionTeamSummary,
-  PossessionTeammateComparison,
   PossessionTimeBucket,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
+import { isIgnoredGoalTag } from "./goalTagFilters";
 import {
+  careerCohortClassName,
+  careerCohortKey,
+  careerCohortLabel,
+  careerCohortSegmentClassName,
+  careerCohortSubtitle,
+  careerRateWindowLabel,
+  type CareerCohortKey,
+  ComparisonBar,
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
+  PlayerComparisonChart,
   SegmentedBar,
+  StatPlayerLabel,
   statPercentWithValue,
+  type ComparisonRow,
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
   type SegmentedBarSegment,
 } from "./shared";
+import {
+  PossessionAdvancedComparisonGrid,
+  possessionAdvancedCohortLabel,
+  type PossessionAdvancedSubject,
+} from "./possessionAdvanced";
 
 const rateChartStatLimit = 12;
 const rateWindowMinutes = 5;
 
 /**
- * Horizontal "per 5 minutes" comparison chart for the active stat section:
- * one row per stat, player rate as a filled bar with the teammate average
- * rendered as a marker on the same scale.
+ * Career fallback for stat sections without a purpose-built profile subview.
+ * Each card is one stat; rows compare the profile subject to available cohorts.
  */
-export function PlayerRateComparisonChart({ stats }: { stats: StatAggregateResponse[] }) {
-  const rows = stats
+export function PlayerRateComparisonChart({
+  playerName = "Player",
+  stats,
+}: {
+  playerName?: string;
+  stats: StatAggregateResponse[];
+}) {
+  const cards = stats
     .filter((stat) => stat.per_active_minute != null)
     .slice(0, rateChartStatLimit)
-    .map((stat) => ({
-      stat,
-      playerRate: (stat.per_active_minute ?? 0) * rateWindowMinutes,
-      teammateRate:
-        stat.teammate_per_active_minute != null
-          ? stat.teammate_per_active_minute * rateWindowMinutes
-          : null,
-    }));
-  const maxRate = rows.reduce(
-    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
-    0,
-  );
+    .map((stat) => ({ stat, rows: playerRateComparisonRows(stat, playerName) }))
+    .filter((card) => card.rows.length > 0);
 
-  if (rows.length === 0) {
+  if (cards.length === 0) {
     return null;
   }
 
   return (
-    <section className="chart-panel full-span player-rate-chart">
-      <header className="chart-panel-header">
-        <h3>Per {rateWindowMinutes} minutes</h3>
-        <span>Player rate vs teammate average, scaled to a {rateWindowMinutes}-minute window</span>
-      </header>
-      <div className="rate-chart-rows">
-        {rows.map(({ stat, playerRate, teammateRate }) => (
-          <div className="rate-chart-row" key={stat.key}>
-            <div className="rate-chart-label" title={stat.display_name}>
-              {stat.display_name}
-            </div>
-            <div
-              className="rate-chart-track"
-              aria-label={`${stat.display_name} per ${rateWindowMinutes} minutes`}
-            >
-              <span
-                className="rate-chart-fill"
-                style={{ width: `${barPercent(playerRate, maxRate)}%` }}
-                title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
-              />
-              {teammateRate != null ? (
-                <span
-                  className="rate-chart-teammate-marker"
-                  style={{ left: `${barPercent(teammateRate, maxRate)}%` }}
-                  title={`Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min`}
-                />
-              ) : null}
-            </div>
-            <div className="rate-chart-value">
-              <strong>{formatRate(playerRate)}</strong>
-              {teammateRate != null ? (
-                <span className="subtle"> vs {formatRate(teammateRate)}</span>
-              ) : null}
-            </div>
-          </div>
+    <section className="full-span player-rate-chart">
+      <div className="stat-comparison-grid player-rate-comparison-grid">
+        {cards.map(({ stat, rows }) => (
+          <PlayerComparisonChart
+            className="career-rate-card"
+            key={stat.key}
+            rows={rows}
+            title={stat.display_name}
+          />
         ))}
       </div>
-      <p className="rate-chart-legend subtle">
-        <span className="rate-chart-legend-fill" /> player
-        <span className="rate-chart-legend-marker" /> teammate average
-      </p>
     </section>
   );
 }
 
+function playerRateComparisonRows(
+  stat: StatAggregateResponse,
+  playerName: string,
+): ComparisonRow[] {
+  const playerRate = (stat.per_active_minute ?? 0) * rateWindowMinutes;
+  const teammateRate =
+    stat.teammate_per_active_minute != null
+      ? stat.teammate_per_active_minute * rateWindowMinutes
+      : null;
+  const opponentRate =
+    stat.opponent_per_active_minute != null
+      ? stat.opponent_per_active_minute * rateWindowMinutes
+      : null;
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0);
+  const rows: ComparisonRow[] = [
+    playerRateComparisonRow({
+      cohortKey: "player",
+      count: stat.event_count,
+      maxValue,
+      playerName,
+      rate: playerRate,
+      statName: stat.display_name,
+    }),
+  ];
+  if (teammateRate != null) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "teammates",
+        count: stat.teammate_event_count,
+        maxValue,
+        playerName,
+        rate: teammateRate,
+        statName: stat.display_name,
+      }),
+    );
+  }
+  if (opponentRate != null) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "opponents",
+        count: stat.opponent_event_count,
+        maxValue,
+        playerName,
+        rate: opponentRate,
+        statName: stat.display_name,
+      }),
+    );
+  }
+  return rows;
+}
+
+function playerRateComparisonRow({
+  cohortKey,
+  count,
+  maxValue,
+  playerName,
+  rate,
+  statName,
+}: {
+  cohortKey: CareerCohortKey;
+  count: number;
+  maxValue: number;
+  playerName: string;
+  rate: number;
+  statName: string;
+}): ComparisonRow {
+  const formatted = formatRate(rate);
+  const rateLabel = `${formatted}/5m`;
+  const totalKind = cohortKey === "player" ? "total" : "pooled total";
+  return {
+    key: cohortKey,
+    label: (
+      <StatPlayerLabel
+        className={careerCohortClassName(cohortKey)}
+        name={careerCohortLabel(cohortKey, playerName)}
+        platform={null}
+        platformPlayerId={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={`${careerCohortSubtitle(cohortKey)} · ${count.toLocaleString()} ${totalKind}`}
+      />
+    ),
+    ariaLabel: `${careerCohortLabel(cohortKey, playerName)}: ${rateLabel} ${careerRateWindowLabel(
+      rateWindowMinutes * 60,
+    )}`,
+    segments: [
+      {
+        key: "rate",
+        className: careerCohortSegmentClassName(cohortKey),
+        label: statName,
+        value: Math.max(0, rate),
+        visibleLabel: rate > 0 ? rateLabel : undefined,
+        title: `${rateLabel} (${count.toLocaleString()} ${totalKind})`,
+      },
+    ],
+    total: Math.max(0, rate),
+    maxValue,
+    valueLabel: (
+      <span title={`${count.toLocaleString()} ${totalKind}`}>{count.toLocaleString()} total</span>
+    ),
+    placeholder: rateLabel,
+  };
+}
+
+function RateComparisonBar({
+  ariaLabel,
+  maxValue,
+  playerLabel,
+  playerName = "Player",
+  playerRate,
+  playerTitle,
+  opponentRate,
+  opponentTitle,
+  teammateRate,
+  teammateTitle,
+}: {
+  ariaLabel: string;
+  maxValue: number;
+  playerLabel: string;
+  playerName?: string;
+  playerRate: number;
+  playerTitle?: string;
+  opponentRate?: number | null;
+  opponentTitle?: string;
+  teammateRate: number | null;
+  teammateTitle?: string;
+}) {
+  const markers = [];
+  if (teammateRate != null) {
+    markers.push({
+      key: "teammates",
+      className: careerCohortClassName("teammates"),
+      label: "Teammates",
+      value: Math.max(0, teammateRate),
+      title: teammateTitle ?? `Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min`,
+    });
+  }
+  if (opponentRate != null) {
+    markers.push({
+      key: "opponents",
+      className: careerCohortClassName("opponents"),
+      label: "Opponents",
+      value: Math.max(0, opponentRate),
+      title: opponentTitle ?? `Opponents: ${formatRate(opponentRate)} per ${rateWindowMinutes} min`,
+    });
+  }
+
+  return (
+    <ComparisonBar
+      ariaLabel={ariaLabel}
+      maxValue={maxValue}
+      segments={[
+        {
+          key: "player",
+          className: careerCohortSegmentClassName("player"),
+          label: "Player",
+          value: Math.max(0, playerRate),
+          visibleLabel: playerRate > 0 ? playerLabel : undefined,
+          title: playerTitle ?? `${playerName}: ${playerLabel} per ${rateWindowMinutes} min`,
+        },
+      ]}
+      total={Math.max(0, playerRate)}
+      markers={markers}
+      placeholder={playerLabel}
+    />
+  );
+}
+
+interface ProfileRateStat {
+  key: string;
+  displayName: string;
+  eventCount: number;
+  perActiveMinute: number | null;
+  teammateEventCount: number;
+  teammatePerActiveMinute: number | null;
+  opponentEventCount: number;
+  opponentPerActiveMinute: number | null;
+}
+
+export function CoreProfileComparison({
+  overview,
+  playerName,
+  stats,
+}: {
+  overview: PlayerStatOverviewResponse;
+  playerName: string;
+  stats: StatAggregateResponse[];
+}) {
+  const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
+  const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
+  const score = scoringRateOrZero(overview.score);
+  const goals = scoringRateOrZero(overview.goals);
+  const assists = scoringRateOrZero(overview.assists);
+  const shots = scoringRateOrZero(overview.shots);
+  const cards = [
+    rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
+    rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
+    rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
+    rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
+    {
+      key: "demos",
+      title: "Demos (per 5 min)",
+      rows: profileRateComparisonRows(demos, playerName),
+    },
+    {
+      key: "deaths",
+      title: "Deaths (per 5 min)",
+      rows: profileRateComparisonRows(deaths, playerName),
+    },
+    {
+      key: "shooting-percentage",
+      title: "Shooting percentage (%)",
+      rows: shootingPercentageRows(goals, shots, playerName),
+    },
+    {
+      key: "assist-percentage",
+      title: "Assist percentage (%)",
+      rows: assistPercentageRows(goals, assists, playerName),
+    },
+  ];
+
+  return (
+    <section className="core-profile-comparison full-span">
+      <div className="stat-comparison-grid player-rate-comparison-grid">
+        {cards.map((card) => (
+          <PlayerComparisonChart
+            className="career-rate-card"
+            key={card.key}
+            rows={card.rows}
+            title={card.title}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function rateCardFromOverview(
+  key: string,
+  title: string,
+  rate: ScoringRateLike,
+  playerName: string,
+) {
+  const stat: ProfileRateStat = {
+    key,
+    displayName: title,
+    eventCount: rate.count,
+    perActiveMinute: rate.per_active_minute,
+    teammateEventCount: rate.teammate_count,
+    teammatePerActiveMinute: rate.teammate_per_active_minute,
+    opponentEventCount: rate.opponent_count,
+    opponentPerActiveMinute: rate.opponent_per_active_minute,
+  };
+  return { key, title, rows: profileRateComparisonRows(stat, playerName) };
+}
+
+interface ScoringRateLike {
+  count: number;
+  per_active_minute: number | null;
+  teammate_count: number;
+  teammate_per_active_minute: number | null;
+  opponent_count: number;
+  opponent_per_active_minute: number | null;
+}
+
+function scoringRateOrZero(rate: ScoringRateLike | null | undefined): ScoringRateLike {
+  return {
+    count: rate?.count ?? 0,
+    per_active_minute: rate?.per_active_minute ?? null,
+    teammate_count: rate?.teammate_count ?? 0,
+    teammate_per_active_minute: rate?.teammate_per_active_minute ?? null,
+    opponent_count: rate?.opponent_count ?? 0,
+    opponent_per_active_minute: rate?.opponent_per_active_minute ?? null,
+  };
+}
+
+function aggregateProfileRateStat(
+  key: string,
+  displayName: string,
+  stats: StatAggregateResponse[],
+  predicate: (stat: StatAggregateResponse) => boolean,
+): ProfileRateStat {
+  const matches = stats.filter(predicate);
+  const eventCount = matches.reduce((total, stat) => total + stat.event_count, 0);
+  const teammateEventCount = matches.reduce((total, stat) => total + stat.teammate_event_count, 0);
+  const opponentEventCount = matches.reduce((total, stat) => total + stat.opponent_event_count, 0);
+  return {
+    key,
+    displayName,
+    eventCount,
+    perActiveMinute: sumNullableRates(matches.map((stat) => stat.per_active_minute)),
+    teammateEventCount,
+    teammatePerActiveMinute: sumNullableRates(
+      matches.map((stat) => stat.teammate_per_active_minute),
+    ),
+    opponentEventCount,
+    opponentPerActiveMinute: sumNullableRates(
+      matches.map((stat) => stat.opponent_per_active_minute),
+    ),
+  };
+}
+
+function profileRateComparisonRows(stat: ProfileRateStat, playerName: string): ComparisonRow[] {
+  const playerRate = (stat.perActiveMinute ?? 0) * rateWindowMinutes;
+  const teammateRate =
+    stat.teammatePerActiveMinute != null ? stat.teammatePerActiveMinute * rateWindowMinutes : null;
+  const opponentRate =
+    stat.opponentPerActiveMinute != null ? stat.opponentPerActiveMinute * rateWindowMinutes : null;
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0);
+  const rows = [
+    playerRateComparisonRow({
+      cohortKey: "player",
+      count: stat.eventCount,
+      maxValue,
+      playerName,
+      rate: playerRate,
+      statName: stat.displayName,
+    }),
+  ];
+  if (teammateRate != null || stat.teammateEventCount > 0) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "teammates",
+        count: stat.teammateEventCount,
+        maxValue,
+        playerName,
+        rate: teammateRate ?? 0,
+        statName: stat.displayName,
+      }),
+    );
+  }
+  if (opponentRate != null || stat.opponentEventCount > 0) {
+    rows.push(
+      playerRateComparisonRow({
+        cohortKey: "opponents",
+        count: stat.opponentEventCount,
+        maxValue,
+        playerName,
+        rate: opponentRate ?? 0,
+        statName: stat.displayName,
+      }),
+    );
+  }
+  return rows;
+}
+
+function shootingPercentageRows(
+  goals: ScoringRateLike,
+  shots: ScoringRateLike,
+  playerName: string,
+): ComparisonRow[] {
+  const playerPercentage = percentage(goals.count, shots.count);
+  const teammatePercentage = percentage(goals.teammate_count, shots.teammate_count);
+  const opponentPercentage = percentage(goals.opponent_count, shots.opponent_count);
+  const rows: ComparisonRow[] = [
+    percentageComparisonRow({
+      cohortKey: "player",
+      denominator: shots.count,
+      label: formatPercentage(playerPercentage),
+      maxValue: 100,
+      numerator: goals.count,
+      playerName,
+      value: playerPercentage ?? 0,
+    }),
+  ];
+  if (teammatePercentage != null || shots.teammate_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "teammates",
+        denominator: shots.teammate_count,
+        label: formatPercentage(teammatePercentage),
+        maxValue: 100,
+        numerator: goals.teammate_count,
+        playerName,
+        value: teammatePercentage ?? 0,
+      }),
+    );
+  }
+  if (opponentPercentage != null || shots.opponent_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "opponents",
+        denominator: shots.opponent_count,
+        label: formatPercentage(opponentPercentage),
+        maxValue: 100,
+        numerator: goals.opponent_count,
+        playerName,
+        value: opponentPercentage ?? 0,
+      }),
+    );
+  }
+  return rows;
+}
+
+function assistPercentageRows(
+  goals: ScoringRateLike,
+  assists: ScoringRateLike,
+  playerName: string,
+): ComparisonRow[] {
+  const teamGoals = goals.count + goals.teammate_count;
+  const opponentTeamGoals = goals.opponent_count;
+  // Assist percentage is over goals the cohort could have assisted. For the
+  // individual player that excludes the goals they scored themselves (you can't
+  // assist your own goal), so the denominator is the goals their teammates
+  // scored. The pooled teammate/opponent rows keep their full team-goal
+  // denominators: self-scored goals can't be subtracted cleanly from a pool (a
+  // teammate can assist another teammate's goal), and the opponent cohort is the
+  // entire other team, so subtracting their goals would leave nothing.
+  const playerAssistableGoals = goals.teammate_count;
+  const playerPercentage = percentage(assists.count, playerAssistableGoals);
+  const teammatePercentage = percentage(assists.teammate_count, teamGoals);
+  const opponentPercentage = percentage(assists.opponent_count, opponentTeamGoals);
+  const rows: ComparisonRow[] = [
+    percentageComparisonRow({
+      cohortKey: "player",
+      denominator: playerAssistableGoals,
+      label: formatPercentage(playerPercentage),
+      maxValue: 100,
+      numerator: assists.count,
+      playerName,
+      statName: "Assist percentage",
+      totalName: "assists/assistable goals",
+      value: playerPercentage ?? 0,
+    }),
+  ];
+  if (teammatePercentage != null || assists.teammate_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "teammates",
+        denominator: teamGoals,
+        label: formatPercentage(teammatePercentage),
+        maxValue: 100,
+        numerator: assists.teammate_count,
+        playerName,
+        statName: "Assist percentage",
+        totalName: "assists/team goals",
+        value: teammatePercentage ?? 0,
+      }),
+    );
+  }
+  if (opponentPercentage != null || assists.opponent_count > 0) {
+    rows.push(
+      percentageComparisonRow({
+        cohortKey: "opponents",
+        denominator: opponentTeamGoals,
+        label: formatPercentage(opponentPercentage),
+        maxValue: 100,
+        numerator: assists.opponent_count,
+        playerName,
+        statName: "Assist percentage",
+        totalName: "assists/team goals",
+        value: opponentPercentage ?? 0,
+      }),
+    );
+  }
+  return rows;
+}
+
+function percentageComparisonRow({
+  cohortKey,
+  denominator,
+  label,
+  maxValue,
+  numerator,
+  playerName,
+  statName = "Shooting percentage",
+  totalName = "goals/shots",
+  value,
+}: {
+  cohortKey: CareerCohortKey;
+  denominator: number;
+  label: string;
+  maxValue: number;
+  numerator: number;
+  playerName: string;
+  statName?: string;
+  totalName?: string;
+  value: number;
+}): ComparisonRow {
+  const totalKind = cohortKey === "player" ? "total" : "pooled total";
+  const totalLabel = `${numerator.toLocaleString()}/${denominator.toLocaleString()}`;
+  return {
+    key: cohortKey,
+    label: (
+      <StatPlayerLabel
+        className={careerCohortClassName(cohortKey)}
+        name={careerCohortLabel(cohortKey, playerName)}
+        platform={null}
+        platformPlayerId={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={`${careerCohortSubtitle(cohortKey)} · ${totalLabel} ${totalKind}`}
+      />
+    ),
+    ariaLabel: `${careerCohortLabel(cohortKey, playerName)}: ${label}`,
+    segments: [
+      {
+        key: statName.toLowerCase().replaceAll(" ", "-"),
+        className: careerCohortSegmentClassName(cohortKey),
+        label: statName,
+        value,
+        visibleLabel: value > 0 ? label : undefined,
+        title: `${label} (${totalLabel} ${totalName} ${totalKind})`,
+      },
+    ],
+    total: value,
+    maxValue,
+    valueLabel: <span title={`${totalLabel} ${totalName} ${totalKind}`}>{totalLabel} total</span>,
+    placeholder: label,
+  };
+}
+
+function isDemoStat(stat: StatAggregateResponse): boolean {
+  const key = stat.key.toLowerCase();
+  const displayName = stat.display_name.toLowerCase();
+  return (
+    key === "demolition" ||
+    key === "kill" ||
+    key === "core.demo" ||
+    key.includes("demo") ||
+    displayName.includes("demo")
+  );
+}
+
+function isDeathStat(stat: StatAggregateResponse): boolean {
+  const key = stat.key.toLowerCase();
+  const displayName = stat.display_name.toLowerCase();
+  return key === "death" || key.includes("death") || displayName.includes("death");
+}
+
+function sumNullableRates(values: Array<number | null>): number | null {
+  const finite = values.filter((value): value is number => value != null && Number.isFinite(value));
+  if (finite.length === 0) return null;
+  return finite.reduce((total, value) => total + value, 0);
+}
+
+function percentage(numerator: number, denominator: number): number | null {
+  return denominator > 0 ? (numerator / denominator) * 100 : null;
+}
+
+function formatPercentage(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "0%";
+  return `${Math.round(value)}%`;
+}
+
 /** Headline goal and assist rates, player vs pooled teammate average. */
-export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewResponse }) {
+export function ScoringRatePanel({
+  overview,
+  playerName = "Player",
+}: {
+  overview: PlayerStatOverviewResponse;
+  playerName?: string;
+}) {
   const rows = [
     { label: "Goals", rate: overview.goals },
     { label: "Assists", rate: overview.assists },
@@ -115,9 +647,13 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
       rate.teammate_per_active_minute != null
         ? rate.teammate_per_active_minute * rateWindowMinutes
         : null,
+    opponentRate:
+      rate.opponent_per_active_minute != null
+        ? rate.opponent_per_active_minute * rateWindowMinutes
+        : null,
   }));
   const maxRate = rows.reduce(
-    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
+    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0, row.opponentRate ?? 0),
     0,
   );
 
@@ -125,33 +661,33 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
     <section className="chart-panel scoring-rate-panel">
       <header className="chart-panel-header">
         <h3>Goals &amp; assists</h3>
-        <span>Per {rateWindowMinutes} minutes vs teammate average</span>
+        <span>Per {rateWindowMinutes} minutes vs teammate and opponent averages</span>
       </header>
       <div className="rate-chart-rows">
-        {rows.map(({ label, count, playerRate, teammateRate }) => (
+        {rows.map(({ label, count, playerRate, teammateRate, opponentRate }) => (
           <div className="rate-chart-row" key={label}>
             <div className="rate-chart-label">{label}</div>
             <div
               className="rate-chart-track"
               aria-label={`${label} per ${rateWindowMinutes} minutes`}
             >
-              <span
-                className="rate-chart-fill"
-                style={{ width: `${barPercent(playerRate, maxRate)}%` }}
-                title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min`}
+              <RateComparisonBar
+                ariaLabel={`${label} per ${rateWindowMinutes} minutes`}
+                maxValue={maxRate}
+                playerLabel={formatRate(playerRate)}
+                playerName={playerName}
+                playerRate={playerRate}
+                opponentRate={opponentRate}
+                teammateRate={teammateRate}
               />
-              {teammateRate != null ? (
-                <span
-                  className="rate-chart-teammate-marker"
-                  style={{ left: `${barPercent(teammateRate, maxRate)}%` }}
-                  title={`Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min`}
-                />
-              ) : null}
             </div>
             <div className="rate-chart-value">
               <strong>{formatRate(playerRate)}</strong>
               {teammateRate != null ? (
                 <span className="subtle"> vs {formatRate(teammateRate)}</span>
+              ) : null}
+              {opponentRate != null ? (
+                <span className="subtle"> / {formatRate(opponentRate)} opp</span>
               ) : null}
               <span className="subtle"> · {count.toLocaleString()}</span>
             </div>
@@ -161,6 +697,7 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
       <p className="rate-chart-legend subtle">
         <span className="rate-chart-legend-fill" /> player
         <span className="rate-chart-legend-marker" /> teammate average
+        <span className="rate-chart-legend-marker" /> opponent average
       </p>
     </section>
   );
@@ -169,36 +706,54 @@ export function ScoringRatePanel({ overview }: { overview: PlayerStatOverviewRes
 /** Goal tag proportions over the player's goals. */
 export function GoalTagSharePanel({
   overview,
+  playerName = "Player",
   goalTypeHref,
   allGoalsHref,
 }: {
   overview: PlayerStatOverviewResponse;
+  playerName?: string;
   /** When provided, each goal type row links to a playlist of those goals. */
   goalTypeHref?: (kind: string) => string;
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
 }) {
-  const rows = overview.goal_tags.map((tag) => ({
-    tag,
-    playerRate: (tag.per_active_minute ?? 0) * rateWindowMinutes,
-    teammateRate:
-      tag.teammate_per_active_minute != null
-        ? tag.teammate_per_active_minute * rateWindowMinutes
-        : null,
-  }));
-  const maxRate = rows.reduce(
-    (max, row) => Math.max(max, row.playerRate, row.teammateRate ?? 0),
-    0,
-  );
+  const cards = overview.goal_tags
+    .filter((tag) => !isIgnoredGoalTag(tag.kind))
+    .map((tag) => {
+      const rows = profileRateComparisonRows(
+        {
+          key: tag.kind,
+          displayName: tag.display_name,
+          eventCount: tag.count,
+          perActiveMinute: tag.per_active_minute,
+          teammateEventCount: tag.teammate_count,
+          teammatePerActiveMinute: tag.teammate_per_active_minute,
+          opponentEventCount: tag.opponent_count,
+          opponentPerActiveMinute: tag.opponent_per_active_minute,
+        },
+        playerName,
+      );
+      const title = goalTypeHref ? (
+        <Link
+          className="goal-tag-card-title"
+          to={goalTypeHref(tag.kind)}
+          title={`Watch all ${tag.display_name.toLowerCase()} goals`}
+        >
+          {tag.display_name} (per 5 min)
+        </Link>
+      ) : (
+        `${tag.display_name} (per 5 min)`
+      );
+      return { key: tag.kind, rows, title };
+    });
 
   return (
-    <section className="chart-panel goal-tag-share-panel">
-      <header className="chart-panel-header">
+    <section className="goal-tag-share-panel full-span">
+      <header className="goal-tag-share-header">
         <h3>Goal types</h3>
         <span>
           {overview.goals_scored.toLocaleString()} goals tagged by the analyzer — per{" "}
-          {rateWindowMinutes} minutes vs teammate average
-          {goalTypeHref ? ", pick a type to watch those goals" : ""}
+          {rateWindowMinutes} minutes vs teammate and opponent averages.
         </span>
         {allGoalsHref ? (
           <Link className="goal-tag-watch-all" to={allGoalsHref}>
@@ -206,63 +761,20 @@ export function GoalTagSharePanel({
           </Link>
         ) : null}
       </header>
-      {rows.length === 0 ? (
+      {cards.length === 0 ? (
         <p className="subtle">No tagged goals yet for this replay set.</p>
       ) : (
-        <div className="rate-chart-rows">
-          {rows.map(({ tag, playerRate, teammateRate }) => {
-            const row = (
-              <>
-                <div className="rate-chart-label" title={tag.display_name}>
-                  {tag.display_name}
-                </div>
-                <div
-                  className="rate-chart-track"
-                  aria-label={`${tag.display_name} per ${rateWindowMinutes} minutes`}
-                >
-                  <span
-                    className="rate-chart-fill goal-tag-fill"
-                    style={{ width: `${barPercent(playerRate, maxRate)}%` }}
-                    title={`You: ${formatRate(playerRate)} per ${rateWindowMinutes} min · ${shareTitle(tag.display_name, tag.share_of_goals, tag.count)}`}
-                  />
-                  {teammateRate != null ? (
-                    <span
-                      className="rate-chart-teammate-marker"
-                      style={{ left: `${barPercent(teammateRate, maxRate)}%` }}
-                      title={`Teammates: ${formatRate(teammateRate)} per ${rateWindowMinutes} min (${tag.teammate_count.toLocaleString()}×)`}
-                    />
-                  ) : null}
-                </div>
-                <div className="rate-chart-value">
-                  <strong>{formatRate(playerRate)}</strong>
-                  {teammateRate != null ? (
-                    <span className="subtle"> vs {formatRate(teammateRate)}</span>
-                  ) : null}
-                  <span className="subtle"> · {tag.count.toLocaleString()}×</span>
-                </div>
-              </>
-            );
-            return goalTypeHref ? (
-              <Link
-                className="rate-chart-row goal-tag-row-link"
-                key={tag.kind}
-                to={goalTypeHref(tag.kind)}
-                title={`Watch all ${tag.display_name.toLowerCase()} goals`}
-              >
-                {row}
-              </Link>
-            ) : (
-              <div className="rate-chart-row" key={tag.kind}>
-                {row}
-              </div>
-            );
-          })}
+        <div className="stat-comparison-grid player-rate-comparison-grid">
+          {cards.map((card) => (
+            <PlayerComparisonChart
+              className="career-rate-card"
+              key={card.key}
+              rows={card.rows}
+              title={card.title}
+            />
+          ))}
         </div>
       )}
-      <p className="rate-chart-legend subtle">
-        <span className="rate-chart-legend-fill" /> player
-        <span className="rate-chart-legend-marker" /> teammate average
-      </p>
     </section>
   );
 }
@@ -272,9 +784,11 @@ const rotationDepthOrder = ["behind_play", "level_with_play", "ahead_of_play", "
 /** Rotation role/depth time shares plus most-back/forward comparison and stint histogram. */
 export function RotationTimeSharePanel({
   overview,
+  playerName = "Player",
   stats,
 }: {
   overview: PlayerStatOverviewResponse;
+  playerName?: string;
   stats: StatAggregateSetResponse;
 }) {
   const depths = orderTimeSharesBySuffix(overview.rotation_depths, depthSuffix, rotationDepthOrder);
@@ -288,7 +802,7 @@ export function RotationTimeSharePanel({
       <div className="rotation-share-grid">
         <RotationDepthTugOfWar depths={depths} />
         <MostBackForwardBlock stats={stats} />
-        <FirstManStintHistogram stats={stats} />
+        <FirstManStintHistogram playerName={playerName} stats={stats} />
       </div>
     </section>
   );
@@ -398,64 +912,102 @@ function depthSuffix(key: string): string {
 }
 
 /** First-man stint length distribution, player overlaid against teammate average. */
-function FirstManStintHistogram({ stats }: { stats: StatAggregateSetResponse }) {
+function FirstManStintHistogram({
+  playerName,
+  stats,
+}: {
+  playerName: string;
+  stats: StatAggregateSetResponse;
+}) {
   const histogram = stats.rotation_duration_histogram;
   const teammateHistogram = stats.teammate_rotation_duration_histogram ?? [];
+  const opponentHistogram = stats.opponent_rotation_duration_histogram ?? [];
   if (histogram.length === 0) return null;
 
   const teammateCountFor = (minSeconds: number) =>
     teammateHistogram.find((bucket) => bucket.min_seconds === minSeconds)?.count ?? 0;
+  const opponentCountFor = (minSeconds: number) =>
+    opponentHistogram.find((bucket) => bucket.min_seconds === minSeconds)?.count ?? 0;
   const playerTotal = histogram.reduce((sum, bucket) => sum + bucket.count, 0);
   const teammateTotal = teammateHistogram.reduce((sum, bucket) => sum + bucket.count, 0);
+  const opponentTotal = opponentHistogram.reduce((sum, bucket) => sum + bucket.count, 0);
   const hasTeammates = teammateTotal > 0;
+  const hasOpponents = opponentTotal > 0;
 
-  // Compare share-of-stints so player and teammate distributions are on the same scale.
+  // Compare share-of-stints so every cohort distribution is on the same scale.
   const rows = histogram.map((bucket) => {
     const teammateCount = teammateCountFor(bucket.min_seconds);
+    const opponentCount = opponentCountFor(bucket.min_seconds);
     return {
       bucket,
       playerShare: playerTotal > 0 ? bucket.count / playerTotal : 0,
       teammateShare: teammateTotal > 0 ? teammateCount / teammateTotal : 0,
+      opponentShare: opponentTotal > 0 ? opponentCount / opponentTotal : 0,
       teammateCount,
+      opponentCount,
     };
   });
-  const maxShare = rows.reduce((max, row) => Math.max(max, row.playerShare, row.teammateShare), 0);
+  const maxShare = rows.reduce(
+    (max, row) => Math.max(max, row.playerShare, row.teammateShare, row.opponentShare),
+    0,
+  );
 
   return (
     <div className="rotation-share-block rotation-histogram-block">
-      <h4>First man stint lengths{hasTeammates ? " vs teammates" : ""}</h4>
+      <h4>First man stint lengths{hasTeammates || hasOpponents ? " vs cohorts" : ""}</h4>
       <div className="rotation-histogram" role="img" aria-label="First man stint length histogram">
-        {rows.map(({ bucket, playerShare, teammateShare, teammateCount }) => (
-          <div
-            className="rotation-histogram-bar"
-            key={bucket.min_seconds}
-            title={
-              `${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints (${formatShare(playerShare)})` +
-              (hasTeammates
-                ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})`
-                : "")
-            }
-          >
-            <div className="rotation-histogram-plot">
-              <span
-                className="rotation-histogram-fill"
-                style={{ height: `${barPercent(playerShare, maxShare)}%` }}
-              />
-              {hasTeammates ? (
+        {rows.map(
+          ({ bucket, playerShare, teammateShare, opponentShare, teammateCount, opponentCount }) => (
+            <div
+              className="rotation-histogram-bar"
+              key={bucket.min_seconds}
+              title={
+                `${bucket.min_seconds}-${bucket.max_seconds}s: ${bucket.count.toLocaleString()} stints (${formatShare(playerShare)})` +
+                (hasTeammates
+                  ? ` · teammates ${teammateCount.toLocaleString()} (${formatShare(teammateShare)})`
+                  : "") +
+                (hasOpponents
+                  ? ` · opponents ${opponentCount.toLocaleString()} (${formatShare(opponentShare)})`
+                  : "")
+              }
+            >
+              <div className="rotation-histogram-plot">
                 <span
-                  className="rotation-histogram-teammate-marker"
-                  style={{ bottom: `${barPercent(teammateShare, maxShare)}%` }}
+                  className="rotation-histogram-fill"
+                  style={{ height: `${barPercent(playerShare, maxShare)}%` }}
                 />
-              ) : null}
+                {hasTeammates ? (
+                  <span
+                    className="rotation-histogram-teammate-marker"
+                    style={{ bottom: `${barPercent(teammateShare, maxShare)}%` }}
+                  />
+                ) : null}
+                {hasOpponents ? (
+                  <span
+                    className="rotation-histogram-teammate-marker career-cohort-opponents"
+                    style={{ bottom: `${barPercent(opponentShare, maxShare)}%` }}
+                  />
+                ) : null}
+              </div>
+              <span className="rotation-histogram-label">{bucket.min_seconds}s</span>
             </div>
-            <span className="rotation-histogram-label">{bucket.min_seconds}s</span>
-          </div>
-        ))}
+          ),
+        )}
       </div>
-      {hasTeammates ? (
+      {hasTeammates || hasOpponents ? (
         <p className="rotation-histogram-legend subtle">
-          <span className="rotation-histogram-legend-fill" /> you
-          <span className="rotation-histogram-legend-marker" /> teammate average
+          <span className="rotation-histogram-legend-fill" /> {playerName}
+          {hasTeammates ? (
+            <>
+              <span className="rotation-histogram-legend-marker" /> teammate average
+            </>
+          ) : null}
+          {hasOpponents ? (
+            <>
+              <span className="rotation-histogram-legend-marker career-cohort-opponents" /> opponent
+              average
+            </>
+          ) : null}
         </p>
       ) : null}
     </div>
@@ -478,10 +1030,22 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
     stats.teammate_time_most_forward_seconds,
     stats.teammate_active_time_seconds,
   );
+  const opponentBack = shareOf(
+    stats.opponent_time_most_back_seconds,
+    stats.opponent_active_time_seconds,
+  );
+  const opponentForward = shareOf(
+    stats.opponent_time_most_forward_seconds,
+    stats.opponent_active_time_seconds,
+  );
   const hasTeammates = teammateBack != null || teammateForward != null;
+  const hasOpponents = opponentBack != null || opponentForward != null;
   const teammateBackPosition = teammateBack == null ? null : barPercent(teammateBack, 1);
   const teammateForwardPosition =
     teammateForward == null ? null : 100 - barPercent(teammateForward, 1);
+  const opponentBackPosition = opponentBack == null ? null : barPercent(opponentBack, 1);
+  const opponentForwardPosition =
+    opponentForward == null ? null : 100 - barPercent(opponentForward, 1);
 
   return (
     <div className="rotation-share-block field-position-tug-block">
@@ -521,6 +1085,20 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
               title={`Teammates most forward: ${formatShare(teammateForward)}`}
             />
           ) : null}
+          {opponentBackPosition != null ? (
+            <span
+              className="field-position-teammate-marker back career-cohort-opponents"
+              style={{ left: `${opponentBackPosition}%` }}
+              title={`Opponents most back: ${formatShare(opponentBack)}`}
+            />
+          ) : null}
+          {opponentForwardPosition != null ? (
+            <span
+              className="field-position-teammate-marker forward career-cohort-opponents"
+              style={{ left: `${opponentForwardPosition}%` }}
+              title={`Opponents most forward: ${formatShare(opponentForward)}`}
+            />
+          ) : null}
         </div>
         <div className="rotation-depth-tug-labels field-position-tug-labels">
           <span className="rotation-depth-tug-label">
@@ -528,8 +1106,8 @@ function MostBackForwardBlock({ stats }: { stats: StatAggregateSetResponse }) {
             Most back
             <strong>{formatShare(mostBack)}</strong>
           </span>
-          {hasTeammates ? (
-            <span className="field-position-teammate-label">Markers show teammate averages</span>
+          {hasTeammates || hasOpponents ? (
+            <span className="field-position-teammate-label">Markers show cohort averages</span>
           ) : null}
           <span className="rotation-depth-tug-label rotation-depth-tug-label-right">
             <strong>{formatShare(mostForward)}</strong>
@@ -907,14 +1485,28 @@ function KickoffDimensionList({ dimension }: { dimension: EventStatDimensionResp
               className="rate-chart-track"
               aria-label={`${dimension.label}: ${value.display_name}`}
             >
-              <span
-                className="rate-chart-fill kickoff-dimension-fill"
-                style={{ width: `${barPercent(value.count, total)}%` }}
-                title={shareTitle(
-                  value.display_name,
-                  total > 0 ? value.count / total : null,
-                  value.count,
-                )}
+              <ComparisonBar
+                ariaLabel={`${dimension.label}: ${value.display_name}`}
+                maxValue={total}
+                segments={[
+                  {
+                    key: "value",
+                    className: "kickoff-dimension-fill",
+                    label: value.display_name,
+                    value: value.count,
+                    visibleLabel:
+                      value.count > 0
+                        ? formatShare(total > 0 ? value.count / total : null)
+                        : undefined,
+                    title: shareTitle(
+                      value.display_name,
+                      total > 0 ? value.count / total : null,
+                      value.count,
+                    ),
+                  },
+                ]}
+                total={value.count}
+                placeholder={formatShare(total > 0 ? value.count / total : null)}
               />
             </div>
             <div className="rate-chart-value">
@@ -1086,241 +1678,31 @@ function formatDurationSeconds(value: number): string {
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
 }
 
-const possessionSurfaceClasses: Record<string, string> = {
-  ground: "possession-surface-segment-ground",
-  air: "possession-surface-segment-air",
-  wall: "possession-surface-segment-wall",
-};
-
 /**
  * Career possession summary: how often and how long the player holds the
  * ball, what they do with it (advance, carry, take it airborne or up the
  * wall), and how their first touches resolve.
  */
-export function PossessionSummaryPanel({ summary }: { summary: PossessionSummaryResponse }) {
-  const spans = summary.possessions;
-  const controlledPlays = summary.controlled_plays;
-  const touches = summary.touches;
-  const locations = summary.locations;
-  const possessionsPerGame =
-    summary.replay_count > 0 ? spans.possession_count / summary.replay_count : null;
-  const possessionTimePerGame =
-    summary.replay_count > 0 ? spans.total_duration_seconds / summary.replay_count : null;
-  const ownHalfPossessionShare = possessionLocationShare(locations.halves, "own_side");
-  const opponentHalfPossessionShare = possessionLocationShare(locations.halves, "opponent_side");
-  const surfaceTotal = touches.surfaces.reduce((sum, value) => sum + value.count, 0);
-  const histogramTotal = spans.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
-  const histogramMax = Math.max(...spans.duration_histogram.map((bucket) => bucket.count), 1);
-  const playStyles = [
-    { key: "sustained_control", label: "Sustained control", share: spans.sustained_control_share },
-    { key: "carry", label: "Ball carry", share: spans.with_carry_share },
-    { key: "air_dribble", label: "Air dribble", share: spans.with_air_dribble_share },
-    { key: "aerial_touch", label: "Aerial touch", share: spans.with_aerial_touch_share },
-    { key: "wall_touch", label: "Wall touch", share: spans.with_wall_touch_share },
-  ].filter((style) => style.share != null);
+export function PossessionSummaryPanel({
+  playerName = "Player",
+  summary,
+}: {
+  playerName?: string;
+  summary: PossessionSummaryResponse;
+}) {
+  const subjects = possessionProfileSubjects(summary, playerName);
 
   return (
-    <section className="chart-panel full-span possession-summary-panel">
-      <header className="chart-panel-header">
-        <h3>Possession</h3>
-        <span>
-          {spans.possession_count.toLocaleString()} possessions across{" "}
-          {summary.replay_count.toLocaleString()} replays
-        </span>
-      </header>
-      <div className="kickoff-headline-metrics">
-        <PossessionMetric
-          label="Possessions per game"
-          value={possessionsPerGame != null ? formatRate(possessionsPerGame) : "—"}
-        />
-        <PossessionMetric
-          label="Possession time per game"
-          value={possessionTimePerGame != null ? formatDurationSeconds(possessionTimePerGame) : "—"}
-        />
-        <PossessionMetric
-          label="Avg possession length"
-          value={formatSecondsValue(spans.avg_duration_seconds)}
-        />
-        <PossessionMetric
-          label="Avg touches per possession"
-          value={
-            spans.avg_touches_per_possession != null
-              ? formatRate(spans.avg_touches_per_possession)
-              : "—"
-          }
-        />
-        <PossessionMetric
-          label="Ball advanced per possession"
-          value={formatDistance(spans.avg_advance_distance)}
-        />
-        <PossessionMetric label="Own-half possession" value={formatShare(ownHalfPossessionShare)} />
-        <PossessionMetric
-          label="Opponent-half possession"
-          value={formatShare(opponentHalfPossessionShare)}
-        />
-        <PossessionMetric label="Carry time share" value={formatShare(spans.carry_time_share)} />
-        <PossessionMetric
-          label="First-touch control rate"
-          value={formatShare(touches.first_touch_control_share)}
-        />
-        <PossessionMetric
-          label="Contested touch share"
-          value={formatShare(
-            touches.classified_touch_count > 0
-              ? touches.contested_touch_count / touches.classified_touch_count
-              : null,
-          )}
-        />
-      </div>
-
-      <ControlledPlayComparison
-        player={controlledPlays}
-        replayCount={summary.replay_count}
-        teammates={summary.teammates}
+    <>
+      <PossessionAdvancedComparisonGrid
+        className="possession-profile-grid"
+        subjects={subjects.map(possessionAdvancedProfileSubject)}
       />
-
-      {surfaceTotal > 0 ? (
-        <div className="possession-surface-share">
-          <h4>Touch surfaces</h4>
-          <SegmentedBar
-            ariaLabel="Touch surface share"
-            className="positioning-track"
-            segments={touches.surfaces.map((value) =>
-              possessionSurfaceSegment(value, surfaceTotal),
-            )}
-            total={surfaceTotal}
-          />
-        </div>
-      ) : null}
-
-      {locations.total_duration_seconds > 0 ? (
-        <div className="possession-location-grid">
-          <PossessionLocationBreakdown
-            ariaLabel="Possession time by field halves"
-            buckets={locations.halves}
-            title="Possession by halves"
-            totalSeconds={locations.total_duration_seconds}
-          />
-          <PossessionLocationBreakdown
-            ariaLabel="Possession time by field thirds"
-            buckets={locations.thirds}
-            title="Possession by thirds"
-            totalSeconds={locations.total_duration_seconds}
-          />
-        </div>
-      ) : null}
-
       {summary.team && teamSummaryHasData(summary.team) ? (
         <TeamPossessionBreakdown team={summary.team} />
       ) : null}
-
-      <div className="kickoff-dimension-grid possession-breakdown-grid">
-        {playStyles.length > 0 ? (
-          <div className="kickoff-dimension">
-            <h4>Possessions including…</h4>
-            <div className="rate-chart-rows">
-              {playStyles.map((style) => (
-                <div className="rate-chart-row kickoff-dimension-row" key={style.key}>
-                  <div className="rate-chart-label" title={style.label}>
-                    {style.label}
-                  </div>
-                  <div
-                    className="rate-chart-track"
-                    aria-label={`Possessions including ${style.label}`}
-                  >
-                    <span
-                      className="rate-chart-fill kickoff-dimension-fill"
-                      style={{ width: `${Math.max(0, Math.min(100, (style.share ?? 0) * 100))}%` }}
-                      title={`${style.label}: ${formatShare(style.share)}`}
-                    />
-                  </div>
-                  <div className="rate-chart-value">
-                    <strong>{formatShare(style.share)}</strong>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {histogramTotal > 0 ? (
-          <div className="kickoff-dimension">
-            <h4>Possession length</h4>
-            <div className="rate-chart-rows">
-              {spans.duration_histogram.map((bucket) => (
-                <div className="rate-chart-row kickoff-dimension-row" key={bucket.key}>
-                  <div className="rate-chart-label" title={bucket.label}>
-                    {bucket.label}
-                  </div>
-                  <div
-                    className="rate-chart-track"
-                    aria-label={`Possession length ${bucket.label}`}
-                  >
-                    <span
-                      className="rate-chart-fill kickoff-dimension-fill"
-                      style={{ width: `${barPercent(bucket.count, histogramMax)}%` }}
-                      title={shareTitle(
-                        bucket.label,
-                        histogramTotal > 0 ? bucket.count / histogramTotal : null,
-                        bucket.count,
-                      )}
-                    />
-                  </div>
-                  <div className="rate-chart-value">
-                    <strong>
-                      {formatShare(histogramTotal > 0 ? bucket.count / histogramTotal : null)}
-                    </strong>
-                    <span className="subtle"> {bucket.count.toLocaleString()}×</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <PossessionMixList title="First-touch intentions" values={touches.first_touch_intentions} />
-        <PossessionMixList title="All touch intentions" values={touches.intentions} />
-      </div>
-    </section>
+    </>
   );
-}
-
-function PossessionLocationBreakdown({
-  ariaLabel,
-  buckets,
-  title,
-  totalSeconds,
-}: {
-  ariaLabel: string;
-  buckets: PossessionTimeBucket[];
-  title: string;
-  totalSeconds: number;
-}) {
-  return (
-    <div className="possession-location-breakdown">
-      <h4>{title}</h4>
-      <SegmentedBar
-        ariaLabel={ariaLabel}
-        className="possession-location-track"
-        segments={buckets.map((bucket) => possessionLocationSegment(bucket, totalSeconds))}
-        total={totalSeconds}
-      />
-      <div className="possession-location-list">
-        {buckets.map((bucket) => (
-          <div
-            className={`possession-location-row ${possessionLocationClass(bucket.key)}`}
-            key={bucket.key}
-          >
-            <span>{bucket.label}</span>
-            <strong>{formatShare(bucket.share)}</strong>
-            <span>{formatDurationSeconds(bucket.duration_seconds)}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function possessionLocationShare(buckets: PossessionTimeBucket[], key: string): number | null {
-  return buckets.find((bucket) => bucket.key === key)?.share ?? null;
 }
 
 type TeamSplitKey = "overall" | "wins" | "losses";
@@ -1340,8 +1722,8 @@ function teamSummaryHasData(team: PossessionTeamSummary): boolean {
 /**
  * Team-level ball control oriented to the player's team — possession share,
  * which half/third the ball sat in — split by game result (all / wins /
- * losses). Mirrors the player-relative possession breakdowns above so the two
- * read as one design, just toggled across the win/loss dimension teams add.
+ * losses). Sits alongside the cohort comparison grid as the team-scoped view
+ * the per-player cohorts can't express, with a win/loss toggle.
  */
 function TeamPossessionBreakdown({ team }: { team: PossessionTeamSummary }) {
   const splits: Array<{ key: TeamSplitKey; label: string; split: PossessionTeamSplit }> = [
@@ -1354,9 +1736,9 @@ function TeamPossessionBreakdown({ team }: { team: PossessionTeamSummary }) {
   const split = active.split;
 
   return (
-    <div className="possession-team-section">
-      <div className="possession-team-header">
-        <h4>Team control</h4>
+    <section className="chart-panel full-span possession-team-section">
+      <header className="chart-panel-header possession-team-header">
+        <h3>Team control</h3>
         <div className="boost-page-controls">
           <div
             className="boost-comparison-tabs"
@@ -1383,26 +1765,23 @@ function TeamPossessionBreakdown({ team }: { team: PossessionTeamSummary }) {
             })}
           </div>
         </div>
-      </div>
+      </header>
       {teamSplitHasData(split) ? (
         <div className="possession-location-grid possession-team-grid">
-          <PossessionLocationBreakdown
+          <TeamControlBreakdown
             ariaLabel="Team possession share"
-            buckets={split.possession.buckets}
+            metric={split.possession}
             title="Possession share"
-            totalSeconds={split.possession.total_duration_seconds}
           />
-          <PossessionLocationBreakdown
+          <TeamControlBreakdown
             ariaLabel="Ball time by half"
-            buckets={split.ball_halves.buckets}
+            metric={split.ball_halves}
             title="Ball half"
-            totalSeconds={split.ball_halves.total_duration_seconds}
           />
-          <PossessionLocationBreakdown
+          <TeamControlBreakdown
             ariaLabel="Ball time by third"
-            buckets={split.ball_thirds.buckets}
+            metric={split.ball_thirds}
             title="Ball thirds"
-            totalSeconds={split.ball_thirds.total_duration_seconds}
           />
         </div>
       ) : (
@@ -1410,212 +1789,42 @@ function TeamPossessionBreakdown({ team }: { team: PossessionTeamSummary }) {
           No team control data is available for {active.label.toLowerCase()}.
         </div>
       )}
-    </div>
+    </section>
   );
 }
 
-function formatGameCount(count: number): string {
-  return `${count.toLocaleString()} ${count === 1 ? "game" : "games"}`;
-}
-
-function ControlledPlayComparison({
-  player,
-  replayCount,
-  teammates,
+/**
+ * Stacked share bar + labelled rows for one oriented team metric (your side /
+ * neutral / opponents), matching the design of the player possession bars.
+ */
+function TeamControlBreakdown({
+  ariaLabel,
+  metric,
+  title,
 }: {
-  player: PossessionSpanSummary;
-  replayCount: number;
-  teammates: PossessionTeammateComparison | null;
+  ariaLabel: string;
+  metric: PossessionTeamSummary["overall"]["possession"];
+  title: string;
 }) {
-  const teammateControlledPlays = teammates?.controlled_plays ?? null;
-  const hasPlayer = player.possession_count > 0;
-  const hasTeammates = (teammateControlledPlays?.possession_count ?? 0) > 0;
-  if (!hasPlayer && !hasTeammates) return null;
-
-  const playerPerGame = replayCount > 0 ? player.possession_count / replayCount : null;
-  const teammatePerGame =
-    teammates && teammates.appearance_count > 0
-      ? teammates.controlled_plays.possession_count / teammates.appearance_count
-      : null;
-  const metrics = [
-    {
-      key: "count",
-      label: "Controlled plays per game",
-      playerValue: playerPerGame,
-      teammateValue: teammatePerGame,
-      formatter: (value: number | null) => (value != null ? formatRate(value) : "—"),
-    },
-    {
-      key: "duration",
-      label: "Avg controlled length",
-      playerValue: player.avg_duration_seconds,
-      teammateValue: teammateControlledPlays?.avg_duration_seconds ?? null,
-      formatter: formatSecondsValue,
-    },
-    {
-      key: "touches",
-      label: "Touches per controlled play",
-      playerValue: player.avg_touches_per_possession,
-      teammateValue: teammateControlledPlays?.avg_touches_per_possession ?? null,
-      formatter: (value: number | null) => (value != null ? formatRate(value) : "—"),
-    },
-    {
-      key: "advance",
-      label: "Advance per controlled play",
-      playerValue: player.avg_advance_distance,
-      teammateValue: teammateControlledPlays?.avg_advance_distance ?? null,
-      formatter: formatDistance,
-    },
-  ];
-  const maxMetric = Math.max(
-    1,
-    ...metrics.flatMap((metric) => [metric.playerValue ?? 0, metric.teammateValue ?? 0]),
-  );
-
+  const total = metric.total_duration_seconds;
   return (
-    <div className="controlled-play-comparison">
-      <div className="kickoff-dimension-grid possession-breakdown-grid">
-        <div className="kickoff-dimension">
-          <h4>Controlled plays{hasTeammates ? " vs teammates" : ""}</h4>
-          <div className="rate-chart-rows">
-            {metrics.map((metric) => (
-              <div className="rate-chart-row kickoff-dimension-row" key={metric.key}>
-                <div className="rate-chart-label" title={metric.label}>
-                  {metric.label}
-                </div>
-                <div className="rate-chart-track" aria-label={metric.label}>
-                  <span
-                    className="rate-chart-fill kickoff-dimension-fill"
-                    style={{ width: `${barPercent(metric.playerValue ?? 0, maxMetric)}%` }}
-                    title={`Player: ${metric.formatter(metric.playerValue)}`}
-                  />
-                  {metric.teammateValue != null ? (
-                    <span
-                      className="rate-chart-teammate-marker"
-                      style={{ left: `${barPercent(metric.teammateValue, maxMetric)}%` }}
-                      title={`Teammates: ${metric.formatter(metric.teammateValue)}`}
-                    />
-                  ) : null}
-                </div>
-                <div className="rate-chart-value">
-                  <strong>{metric.formatter(metric.playerValue)}</strong>
-                  {metric.teammateValue != null ? (
-                    <span className="subtle"> vs {metric.formatter(metric.teammateValue)}</span>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-          {hasTeammates ? (
-            <p className="rate-chart-legend subtle">
-              <span className="rate-chart-legend-fill" /> player
-              <span className="rate-chart-legend-marker" /> teammate average
-            </p>
-          ) : null}
-        </div>
-        <ControlledPlayHistogram player={player} teammates={teammateControlledPlays} />
-      </div>
-    </div>
-  );
-}
-
-function ControlledPlayHistogram({
-  player,
-  teammates,
-}: {
-  player: PossessionSpanSummary;
-  teammates: PossessionSpanSummary | null;
-}) {
-  const playerTotal = player.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0);
-  const teammateTotal =
-    teammates?.duration_histogram.reduce((sum, bucket) => sum + bucket.count, 0) ?? 0;
-  if (playerTotal === 0 && teammateTotal === 0) return null;
-
-  const teammateCountFor = (key: string) =>
-    teammates?.duration_histogram.find((bucket) => bucket.key === key)?.count ?? 0;
-  const rows = player.duration_histogram.map((bucket) => {
-    const teammateCount = teammateCountFor(bucket.key);
-    return {
-      bucket,
-      playerShare: playerTotal > 0 ? bucket.count / playerTotal : 0,
-      teammateShare: teammateTotal > 0 ? teammateCount / teammateTotal : 0,
-      teammateCount,
-    };
-  });
-  const maxShare = Math.max(0.01, ...rows.flatMap((row) => [row.playerShare, row.teammateShare]));
-
-  return (
-    <div className="kickoff-dimension">
-      <h4>Controlled length{teammateTotal > 0 ? " vs teammates" : ""}</h4>
-      <div className="rate-chart-rows">
-        {rows.map(({ bucket, playerShare, teammateShare, teammateCount }) => (
-          <div className="rate-chart-row kickoff-dimension-row" key={bucket.key}>
-            <div className="rate-chart-label" title={bucket.label}>
-              {bucket.label}
-            </div>
-            <div className="rate-chart-track" aria-label={`Controlled length ${bucket.label}`}>
-              <span
-                className="rate-chart-fill kickoff-dimension-fill"
-                style={{ width: `${barPercent(playerShare, maxShare)}%` }}
-                title={shareTitle(bucket.label, playerShare, bucket.count)}
-              />
-              {teammateTotal > 0 ? (
-                <span
-                  className="rate-chart-teammate-marker"
-                  style={{ left: `${barPercent(teammateShare, maxShare)}%` }}
-                  title={`Teammates: ${formatShare(teammateShare)} (${teammateCount.toLocaleString()})`}
-                />
-              ) : null}
-            </div>
-            <div className="rate-chart-value">
-              <strong>{formatShare(playerShare)}</strong>
-              {teammateTotal > 0 ? (
-                <span className="subtle"> vs {formatShare(teammateShare)}</span>
-              ) : null}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PossessionMetric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="kickoff-headline-metric">
-      <span className="subtle">{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function PossessionMixList({ title, values }: { title: string; values: PossessionMixValue[] }) {
-  const total = values.reduce((sum, value) => sum + value.count, 0);
-  if (total === 0) return null;
-  return (
-    <div className="kickoff-dimension">
+    <div className="possession-location-breakdown">
       <h4>{title}</h4>
-      <div className="rate-chart-rows">
-        {values.map((value) => (
-          <div className="rate-chart-row kickoff-dimension-row" key={value.key ?? "unknown"}>
-            <div className="rate-chart-label" title={value.display_name}>
-              {value.display_name}
-            </div>
-            <div className="rate-chart-track" aria-label={`${title}: ${value.display_name}`}>
-              <span
-                className="rate-chart-fill kickoff-dimension-fill"
-                style={{ width: `${barPercent(value.count, total)}%` }}
-                title={shareTitle(
-                  value.display_name,
-                  total > 0 ? value.count / total : null,
-                  value.count,
-                )}
-              />
-            </div>
-            <div className="rate-chart-value">
-              <strong>{formatShare(total > 0 ? value.count / total : null)}</strong>
-              <span className="subtle"> {value.count.toLocaleString()}×</span>
-            </div>
+      <SegmentedBar
+        ariaLabel={ariaLabel}
+        className="possession-location-track"
+        segments={metric.buckets.map((bucket) => teamControlSegment(bucket, total))}
+        total={total}
+      />
+      <div className="possession-location-list">
+        {metric.buckets.map((bucket) => (
+          <div
+            className={`possession-location-row ${teamControlClass(bucket.key)}`}
+            key={bucket.key}
+          >
+            <span>{bucket.label}</span>
+            <strong>{formatShare(bucket.share)}</strong>
+            <span>{formatDurationSeconds(bucket.duration_seconds)}</span>
           </div>
         ))}
       </div>
@@ -1623,26 +1832,14 @@ function PossessionMixList({ title, values }: { title: string; values: Possessio
   );
 }
 
-function possessionSurfaceSegment(value: PossessionMixValue, total: number): SegmentedBarSegment {
-  const share = total > 0 ? value.count / total : 0;
-  return {
-    key: value.key ?? "unknown",
-    className: possessionSurfaceClasses[value.key ?? ""] ?? "possession-surface-segment-other",
-    label: value.display_name,
-    value: value.count,
-    visibleLabel: share >= 0.08 ? `${value.display_name} ${formatShare(share)}` : undefined,
-    title: shareTitle(value.display_name, share, value.count),
-  };
-}
-
-function possessionLocationSegment(
+function teamControlSegment(
   bucket: PossessionTimeBucket,
   totalSeconds: number,
 ): SegmentedBarSegment {
   const share = totalSeconds > 0 ? bucket.duration_seconds / totalSeconds : 0;
   return {
     key: bucket.key,
-    className: possessionLocationClass(bucket.key),
+    className: teamControlClass(bucket.key),
     label: bucket.label,
     value: bucket.duration_seconds,
     visibleLabel: share >= 0.08 ? `${bucket.label}: ${formatShare(share)}` : undefined,
@@ -1654,15 +1851,79 @@ function possessionLocationSegment(
   };
 }
 
-function possessionLocationClass(key: string): string {
+// Oriented keys (own_* / opponent_* / neutral*) map to the player's team
+// (blue) vs opponents (orange), reusing the possession-location palette.
+function teamControlClass(key: string): string {
   if (key.includes("own")) return "possession-location-team-zero";
-  if (key.includes("team_zero")) return "possession-location-team-zero";
   if (key.includes("opponent")) return "possession-location-team-one";
-  if (key.includes("team_one")) return "possession-location-team-one";
   return "possession-location-neutral";
 }
 
-function formatDistance(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "—";
-  return `${Math.round(value).toLocaleString()} uu`;
+function formatGameCount(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? "game" : "games"}`;
+}
+
+interface PossessionProfileSubject {
+  key: string;
+  cohortKey: CareerCohortKey;
+  name: string;
+  subtitle: string;
+  appearances: number;
+  activeTimeSeconds: number | null;
+  cohort: PossessionSummaryResponse["cohorts"][number];
+  segmentClassName: string;
+}
+
+function possessionProfileSubjects(
+  summary: PossessionSummaryResponse,
+  playerName: string,
+): PossessionProfileSubject[] {
+  const responseCohorts = summary.cohorts ?? [];
+  const cohorts: PossessionSummaryResponse["cohorts"] =
+    responseCohorts.length > 0
+      ? responseCohorts
+      : [
+          {
+            key: "player",
+            label: playerName,
+            appearance_count: summary.replay_count,
+            active_time_seconds: null,
+            possessions: summary.possessions,
+            controlled_plays: summary.controlled_plays,
+            touches: summary.touches,
+            locations: summary.locations,
+          },
+        ];
+
+  return cohorts.map((cohort) => {
+    const cohortKey = careerCohortKey(cohort.key) ?? "opponents";
+    return {
+      key: cohort.key,
+      cohortKey,
+      name: careerCohortLabel(cohortKey, playerName),
+      subtitle: careerCohortSubtitle(cohortKey),
+      appearances: cohort.appearance_count,
+      activeTimeSeconds: cohort.active_time_seconds,
+      cohort,
+      segmentClassName: careerCohortSegmentClassName(cohortKey),
+    };
+  });
+}
+
+function possessionAdvancedProfileSubject(
+  subject: PossessionProfileSubject,
+): PossessionAdvancedSubject {
+  return {
+    key: subject.key,
+    name: subject.name,
+    label: possessionAdvancedCohortLabel({
+      appearanceCount: subject.appearances,
+      className: careerCohortClassName(subject.cohortKey),
+      name: subject.name,
+      subtitle: subject.subtitle,
+    }),
+    activeTimeSeconds: subject.activeTimeSeconds,
+    cohort: subject.cohort,
+    segmentClassName: subject.segmentClassName,
+  };
 }

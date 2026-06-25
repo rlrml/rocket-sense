@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn player_replay_event_counts_role_map_demolition_subjects() {
+    assert!(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL.contains("death_event_type.key = 'death'"));
+    assert!(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL
+        .contains("source_event_type.key = 'demolition' AND subject.role = 'victim'"));
+    assert!(INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL
+        .contains("subject.role NOT IN ('attacker', 'victim')"));
+}
+
+#[test]
 fn ball_opponent_half_facts_are_clipped_to_player_activity_spans() {
     assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("source_stream = 'player_activity'"));
     assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("JOIN play_event_subjects subject"));
@@ -113,6 +122,123 @@ fn replay_search_player_extracts_scoreboard_stats_from_header() {
     let search_player = replay_search_player(&no_stats, 1);
     assert_eq!(search_player.score, None);
     assert_eq!(search_player.goals, None);
+}
+
+#[test]
+fn replay_search_metadata_backfills_missing_scoreboard_stats_from_core_events() {
+    let steam_player = RemoteId::Steam(76561198000000001);
+    let epic_player = RemoteId::Epic("orange-epic-id".to_owned());
+    let timeline = subtr_actor::ReplayStatsTimelineScaffold {
+        config: subtr_actor::default_stats_timeline_config(),
+        replay_meta: ReplayMeta {
+            team_zero: vec![PlayerInfo {
+                remote_id: steam_player.clone(),
+                stats: None,
+                name: "Blue Player".to_owned(),
+                car_body_id: None,
+                car_body_name: None,
+                camera_settings: None,
+                car_hitbox_family: None,
+            }],
+            team_one: vec![PlayerInfo {
+                remote_id: epic_player.clone(),
+                stats: Some(
+                    [
+                        ("Score".to_owned(), HeaderProp::Int(999)),
+                        ("Goals".to_owned(), HeaderProp::Int(3)),
+                        ("Assists".to_owned(), HeaderProp::Int(2)),
+                        ("Saves".to_owned(), HeaderProp::Int(1)),
+                        ("Shots".to_owned(), HeaderProp::Int(7)),
+                    ]
+                    .into_iter()
+                    .collect(),
+                ),
+                name: "Orange Player".to_owned(),
+                car_body_id: None,
+                car_body_name: None,
+                camera_settings: None,
+                car_hitbox_family: None,
+            }],
+            all_headers: vec![],
+            game_type: subtr_actor::ReplayGameTypeDetails::default(),
+            season: None,
+        },
+        events: timeline_events_from(vec![
+            moment_event(
+                "core_player",
+                60,
+                1.0,
+                subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                    time: 1.0,
+                    frame: 60,
+                    player: steam_player.clone(),
+                    player_position: None,
+                    is_team_0: true,
+                    score_delta: 100,
+                    goals_delta: 1,
+                    assists_delta: 0,
+                    saves_delta: 0,
+                    shots_delta: 1,
+                }),
+            ),
+            moment_event(
+                "core_player",
+                120,
+                2.0,
+                subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                    time: 2.0,
+                    frame: 120,
+                    player: steam_player.clone(),
+                    player_position: None,
+                    is_team_0: true,
+                    score_delta: 50,
+                    goals_delta: 0,
+                    assists_delta: 1,
+                    saves_delta: 2,
+                    shots_delta: 1,
+                }),
+            ),
+            moment_event(
+                "core_player",
+                180,
+                3.0,
+                subtr_actor::EventPayload::CorePlayer(subtr_actor::CorePlayerScoreboardEvent {
+                    time: 3.0,
+                    frame: 180,
+                    player: epic_player,
+                    player_position: None,
+                    is_team_0: false,
+                    score_delta: 10,
+                    goals_delta: 1,
+                    assists_delta: 0,
+                    saves_delta: 0,
+                    shots_delta: 1,
+                }),
+            ),
+        ]),
+        frames: vec![],
+        positioning_summary: vec![],
+        accumulation_tracks: vec![],
+    };
+
+    let typed = replay_search_metadata(&timeline);
+    let scaffold_json = serde_json::to_value(&timeline).expect("serialize scaffold");
+    let from_json = replay_search_metadata_from_scaffold_json(&scaffold_json);
+    assert_eq!(typed, from_json);
+
+    let blue = &typed.players[0];
+    assert_eq!(blue.score, Some(150));
+    assert_eq!(blue.goals, Some(1));
+    assert_eq!(blue.assists, Some(1));
+    assert_eq!(blue.saves, Some(2));
+    assert_eq!(blue.shots, Some(2));
+
+    let orange = &typed.players[1];
+    assert_eq!(orange.score, Some(999));
+    assert_eq!(orange.goals, Some(3));
+    assert_eq!(orange.assists, Some(2));
+    assert_eq!(orange.saves, Some(1));
+    assert_eq!(orange.shots, Some(7));
 }
 
 #[test]
@@ -377,7 +503,7 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
     assert!(touch_rows
         .iter()
         .all(|event| event.source == STATS_TIMELINE_SOURCE));
-    assert!(touch_rows.iter().all(|event| event.category == "other"));
+    assert!(touch_rows.iter().all(|event| event.category == "basic"));
     assert_eq!(
         touch_rows[0]
             .primary_subject
@@ -713,7 +839,7 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
 
     assert_eq!(controlled_play.event_type_key, "controlled_play");
     assert_eq!(controlled_play.display_name, "Controlled Play");
-    assert_eq!(controlled_play.category, "mechanic");
+    assert_eq!(controlled_play.category, "other");
     assert_eq!(
         controlled_play
             .primary_subject
@@ -723,13 +849,29 @@ fn indexed_timeline_events_use_upstream_event_metadata_for_newer_streams() {
     );
 
     assert_eq!(backboard.event_type_key, "backboard_bounce");
-    assert_eq!(backboard.display_name, "Backboard Bounce");
-    assert_eq!(backboard.category, "mechanic");
+    assert_eq!(backboard.display_name, "Backboard Hit");
+    assert_eq!(backboard.category, "basic");
 
     assert_eq!(flip_impulse.event_type_key, "flip_impulse");
     assert_eq!(flip_impulse.display_name, "Flip Impulse");
     assert_eq!(flip_impulse.category, "event");
     assert_eq!(flip_impulse.end_time, Some(20.18));
+
+    let touch = indexed_timeline_payload_event(
+        "touch",
+        0,
+        &serde_json::json!({
+            "time": 21.0,
+            "frame": 1260,
+            "player": { "Steam": 76561198000000001_u64 },
+            "team_is_team_0": true
+        }),
+    )
+    .expect("touch event should index");
+
+    assert_eq!(touch.event_type_key, "touch");
+    assert_eq!(touch.display_name, "Touch");
+    assert_eq!(touch.category, "basic");
 }
 
 #[test]
@@ -1421,7 +1563,9 @@ fn version_fixture() -> CurrentProcessingVersion {
         extractor_version: "0.1.0",
         subtr_actor_version: "0.12.0",
         subtr_actor_git_sha: Some("aaaaaaa"),
+        subtr_actor_git_commit_timestamp: Some("2026-01-01T00:00:00Z"),
         rocket_sense_git_sha: Some("bbbbbbb"),
+        rocket_sense_git_commit_timestamp: Some("2026-01-01T00:00:00Z"),
     }
 }
 
@@ -1568,4 +1712,118 @@ fn client_scaffold_json_matches_typed_analysis() {
     // Sanity: the fixture actually exercised the twins.
     assert!(!typed.indexed_events.is_empty(), "expected indexed events");
     assert!(!typed.metadata.players.is_empty(), "expected players");
+}
+
+/// End-to-end check that a full reprocess (the exact `process_replay` path the
+/// queue worker runs) populates EVERY per-(replay, player) materialized table,
+/// including the boost table added on this branch. Guards against a regression
+/// where a writer is silently dropped from `persist_analysis_output` or a new
+/// subtr-actor output shape stops feeding one of the aggregations.
+///
+/// Requires a throwaway Postgres: set `RS_REPROCESS_TEST_DATABASE_URL` to a
+/// FRESH, EMPTY database (migrations run against it). Skipped otherwise, so CI
+/// (no DB) still compiles it. Run with:
+///   RS_REPROCESS_TEST_DATABASE_URL=postgres://... cargo test -p rocket-sense-server \
+///     reprocess_populates_all_materialized_tables -- --ignored --nocapture
+#[tokio::test]
+#[ignore = "requires RS_REPROCESS_TEST_DATABASE_URL"]
+async fn reprocess_populates_all_materialized_tables() {
+    use std::sync::Arc;
+
+    let Ok(database_url) = std::env::var("RS_REPROCESS_TEST_DATABASE_URL") else {
+        eprintln!("skipping: RS_REPROCESS_TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let pool = rocket_sense_db::connect(&database_url)
+        .await
+        .expect("connect to test db");
+    rocket_sense_db::run_migrations(&pool)
+        .await
+        .expect("run migrations");
+
+    // A normal ranked-standard replay: exercises boost, possession, positioning,
+    // rotation stints, and event counts for a full roster.
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../vendor/subtr-actor/assets/recent-ranked-standard-2026-03-10-b.replay"
+    );
+    let bytes = std::fs::read(fixture).expect("read replay fixture");
+    let file_sha256 = sha256_hex(&bytes);
+
+    let storage_root = std::env::temp_dir().join(format!("rs-reprocess-check-{}", Uuid::now_v7()));
+    std::fs::create_dir_all(&storage_root).expect("create storage root");
+    let storage: Arc<dyn rocket_sense_storage::ObjectStorage> = Arc::new(
+        rocket_sense_storage::LocalStorage::new(storage_root.clone()),
+    );
+    let storage_key = format!("replays/{file_sha256}.replay");
+    let stored = storage
+        .put(&storage_key, bytes::Bytes::from(bytes.clone()), None)
+        .await
+        .expect("store replay bytes");
+
+    let replay_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO replays (
+            id, uploaded_by_user_id, file_sha256, original_file_name,
+            byte_size, storage_key, storage_encoding, storage_byte_size
+        )
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(replay_id)
+    .bind(&file_sha256)
+    .bind("reprocess-check.replay")
+    .bind(bytes.len() as i64)
+    .bind(&stored.key)
+    .bind(stored.storage_encoding.to_string())
+    .bind(stored.storage_byte_size as i64)
+    .execute(&pool)
+    .await
+    .expect("insert replays row");
+
+    // The real worker path: analyze + persist (all writers, prune, GC).
+    process_replay(
+        pool.clone(),
+        storage,
+        replay_id,
+        file_sha256,
+        stored.key.clone(),
+    )
+    .await
+    .expect("process_replay succeeds");
+
+    // Every per-(replay, player) materialized table must have rows for this
+    // replay's canonical run.
+    let tables = [
+        "player_replay_stat_facts",
+        "player_replay_event_counts",
+        "player_replay_first_man_stints",
+        "player_replay_positioning",
+        "player_replay_possession",
+        "player_replay_boost",
+    ];
+    let mut summary = Vec::new();
+    for table in tables {
+        let sql = format!(
+            "SELECT count(*) FROM {table} m \
+             JOIN replays r ON r.id = m.replay_id \
+             AND r.canonical_analysis_run_id = m.analysis_run_id \
+             WHERE m.replay_id = $1"
+        );
+        let count: i64 = sqlx::query_scalar(&sql)
+            .bind(replay_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or_else(|e| panic!("count {table}: {e}"));
+        eprintln!("{table}: {count} rows");
+        summary.push((table, count));
+    }
+
+    let _ = std::fs::remove_dir_all(&storage_root);
+
+    for (table, count) in summary {
+        assert!(count > 0, "{table} had no rows after reprocess");
+    }
 }

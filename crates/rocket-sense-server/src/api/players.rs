@@ -27,8 +27,12 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/players/name-history", get(search_player_name_history))
         .route(
-            "/players/{platform}/{platform_player_id}",
+            "/players/{platform}/id/{platform_player_id}",
             get(get_player_profile).put(set_player_public_display_name),
+        )
+        .route(
+            "/players/{platform}/{player_ref}",
+            get(get_player_profile_by_ref),
         )
 }
 
@@ -177,7 +181,7 @@ pub struct PlayerProfileQuery {
 
 #[utoipa::path(
     get,
-    path = "/api/v1/players/{platform}/{platform_player_id}",
+    path = "/api/v1/players/{platform}/id/{platform_player_id}",
     tag = "players",
     params(
         PlayerProfileQuery,
@@ -201,10 +205,23 @@ pub async fn get_player_profile(
     let query = PlayerProfileQuery::from_raw_query(raw_query.as_deref())?;
     let filters = PlayerProfileFilters::from_query(query)?;
 
-    let profile = load_player_profile(db, &identity, &filters)
-        .await
-        .map_err(ApiError::internal)?
+    let profile = load_required_player_profile(db, &identity, &filters).await?;
+
+    Ok(Json(profile))
+}
+
+pub async fn get_player_profile_by_ref(
+    State(state): State<AppState>,
+    Path((platform, player_ref)): Path<(String, String)>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<PlayerProfileResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let query = PlayerProfileQuery::from_raw_query(raw_query.as_deref())?;
+    let filters = PlayerProfileFilters::from_query(query)?;
+    let identity = resolve_player_display_name(db, platform, player_ref, &filters)
+        .await?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))?;
+    let profile = load_required_player_profile(db, &identity, &filters).await?;
 
     Ok(Json(profile))
 }
@@ -232,7 +249,7 @@ pub async fn search_player_name_history(
 
 #[utoipa::path(
     put,
-    path = "/api/v1/players/{platform}/{platform_player_id}",
+    path = "/api/v1/players/{platform}/id/{platform_player_id}",
     tag = "players",
     request_body = SetPlayerPublicDisplayNameRequest,
     params(
@@ -411,6 +428,137 @@ impl PlayerIdentity {
             platform_player_id,
         })
     }
+}
+
+async fn load_required_player_profile(
+    pool: &sqlx::PgPool,
+    identity: &PlayerIdentity,
+    filters: &PlayerProfileFilters,
+) -> Result<PlayerProfileResponse, ApiError> {
+    load_player_profile(pool, identity, filters)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))
+}
+
+async fn resolve_player_display_name(
+    pool: &sqlx::PgPool,
+    platform: String,
+    display_name: String,
+    filters: &PlayerProfileFilters,
+) -> Result<Option<PlayerIdentity>, ApiError> {
+    let platform = platform.trim().to_ascii_lowercase();
+    let display_name = display_name.trim().to_owned();
+    if platform.is_empty() || display_name.is_empty() {
+        return Err(ApiError::bad_request(
+            "player display-name path must include both platform and display name",
+        ));
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            candidate.platform,
+            candidate.platform_player_id,
+            MAX(candidate.rank) AS match_rank,
+            MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at,
+            COUNT(DISTINCT r.id) AS replay_count
+        FROM (
+            SELECT
+                identities.platform,
+                identities.platform_player_id,
+                CASE
+                    WHEN lower(identities.public_display_name) = lower(
+        "#,
+    );
+    query.push_bind(&display_name);
+    query.push(
+        r#"
+                    ) THEN 3
+                    WHEN lower(identities.current_display_name) = lower(
+        "#,
+    );
+    query.push_bind(&display_name);
+    query.push(
+        r#"
+                    ) THEN 2
+                    ELSE 1
+                END AS rank
+            FROM player_identities identities
+            WHERE identities.platform = 
+        "#,
+    );
+    query.push_bind(&platform);
+    query.push(
+        r#"
+              AND (
+                  lower(identities.public_display_name) = lower(
+        "#,
+    );
+    query.push_bind(&display_name);
+    query.push(
+        r#"
+                  )
+               OR lower(identities.current_display_name) = lower(
+        "#,
+    );
+    query.push_bind(&display_name);
+    query.push(
+        r#"
+                  )
+               OR EXISTS (
+                   SELECT 1
+                   FROM player_display_names names
+                   WHERE names.platform = identities.platform
+                     AND names.platform_player_id = identities.platform_player_id
+                     AND lower(names.display_name) = lower(
+        "#,
+    );
+    query.push_bind(&display_name);
+    query.push(
+        r#"
+                     )
+               )
+              )
+        ) candidate
+        JOIN replay_players rp
+          ON rp.platform = candidate.platform
+         AND rp.platform_player_id = candidate.platform_player_id
+        JOIN replays r ON r.id = rp.replay_id
+        WHERE TRUE
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(
+        r#"
+        GROUP BY candidate.platform, candidate.platform_player_id
+        ORDER BY match_rank DESC, latest_seen_at DESC NULLS LAST, replay_count DESC, candidate.platform_player_id
+        LIMIT 2
+        "#,
+    );
+
+    let rows = query
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
+    if rows.len() > 1 {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "player display name is ambiguous; use /players/{platform}/id/{id}",
+        ));
+    }
+    rows.into_iter()
+        .next()
+        .map(|row| {
+            Ok(PlayerIdentity {
+                platform: row.try_get("platform").map_err(ApiError::internal)?,
+                platform_player_id: row
+                    .try_get("platform_player_id")
+                    .map_err(ApiError::internal)?,
+            })
+        })
+        .transpose()
 }
 
 async fn load_player_profile(

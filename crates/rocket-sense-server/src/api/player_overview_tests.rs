@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn player_overview_query_requires_player_id() {
-    let error = PlayerOverviewQuery::from_raw_query(Some("playlist=Online"), None)
+    let error = PlayerOverviewQuery::from_raw_query(Some("playlist=Online"), None, true)
         .expect_err("player overview should require a player id");
     assert!(format!("{error:?}").contains("player-id"));
 }
@@ -10,8 +10,9 @@ fn player_overview_query_requires_player_id() {
 #[test]
 fn player_overview_query_parses_player_and_replay_set_filters() {
     let query = PlayerOverviewQuery::from_raw_query(
-        Some("player-id=Steam:76561198000000000&playlist=Online&pro=true"),
+        Some("player-id=Steam:76561198000000000&playlist=Online&pro=true&include-goal-tags=false&include-rotation=false&materialized=false"),
         None,
+        true,
     )
     .expect("player overview query should parse");
 
@@ -19,6 +20,9 @@ fn player_overview_query_parses_player_and_replay_set_filters() {
     assert_eq!(query.player.platform_player_id, "76561198000000000");
     assert_eq!(query.replay_set.playlists, ["Online"]);
     assert_eq!(query.replay_set.pro, Some(true));
+    assert!(!query.include_goal_tags);
+    assert!(!query.include_rotation);
+    assert!(!query.materialized);
 }
 
 #[test]

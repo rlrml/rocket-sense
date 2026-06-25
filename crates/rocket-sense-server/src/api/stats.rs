@@ -2,6 +2,7 @@ use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::types::Json as SqlxJson;
 use sqlx::{Postgres, QueryBuilder, Row};
 use std::collections::{HashMap, HashSet};
@@ -29,6 +30,10 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/stats/aggregates", get(get_stat_aggregates))
+        .route(
+            "/stats/boost-pad-control",
+            get(get_player_boost_pad_control),
+        )
         .route("/stats/boost-totals", get(get_player_boost_totals))
         .route(
             "/stats/processing-versions",
@@ -71,11 +76,46 @@ pub struct StatAggregateSetResponse {
     pub teammate_non_demo_active_time_seconds: Option<f64>,
     pub teammate_time_most_back_seconds: Option<f64>,
     pub teammate_time_most_forward_seconds: Option<f64>,
+    pub opponent_appearance_count: Option<u64>,
+    pub opponent_active_time_seconds: Option<f64>,
+    pub opponent_non_demo_active_time_seconds: Option<f64>,
+    pub opponent_time_most_back_seconds: Option<f64>,
+    pub opponent_time_most_forward_seconds: Option<f64>,
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub teammate_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
+    pub opponent_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
+    pub touch_breakdown: Option<TouchAggregateBreakdownResponse>,
     pub stats: Vec<StatAggregateResponse>,
     pub groups: Vec<StatAggregateGroupResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateBreakdownResponse {
+    pub cohorts: Vec<TouchAggregateCohortResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateCohortResponse {
+    pub key: String,
+    pub label: String,
+    pub total_touch_count: u64,
+    pub total_advance_distance: f64,
+    pub active_time_seconds: Option<f64>,
+    pub dimensions: Vec<TouchAggregateDimensionResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateDimensionResponse {
+    pub key: String,
+    pub values: Vec<TouchAggregateValueResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct TouchAggregateValueResponse {
+    pub key: String,
+    pub touch_count: u64,
+    pub advance_distance: f64,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -94,6 +134,11 @@ pub struct StatAggregateGroupResponse {
     pub teammate_non_demo_active_time_seconds: Option<f64>,
     pub teammate_time_most_back_seconds: Option<f64>,
     pub teammate_time_most_forward_seconds: Option<f64>,
+    pub opponent_appearance_count: Option<u64>,
+    pub opponent_active_time_seconds: Option<f64>,
+    pub opponent_non_demo_active_time_seconds: Option<f64>,
+    pub opponent_time_most_back_seconds: Option<f64>,
+    pub opponent_time_most_forward_seconds: Option<f64>,
     pub stats: Vec<StatAggregateResponse>,
 }
 
@@ -118,6 +163,11 @@ pub struct StatAggregateResponse {
     pub teammate_count_per_game: Option<f64>,
     pub teammate_per_active_minute: Option<f64>,
     pub teammate_per_non_demo_active_minute: Option<f64>,
+    pub opponent_event_count: u64,
+    pub opponent_appearance_count: u64,
+    pub opponent_count_per_game: Option<f64>,
+    pub opponent_per_active_minute: Option<f64>,
+    pub opponent_per_non_demo_active_minute: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -159,6 +209,24 @@ pub struct PlayerBoostTotalsResponse {
     pub player: PlayerBoostTotalResponse,
     pub teammates: Option<PlayerBoostTotalResponse>,
     pub opponents: Option<PlayerBoostTotalResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct BoostPadControlPointResponse {
+    pub pad_id: String,
+    /// Player-relative field X coordinate after rotating team-one appearances.
+    pub x: f64,
+    /// Player-relative field Y coordinate: negative is own half, positive is opponent half.
+    pub y: f64,
+    pub pad_size: String,
+    pub player_count: u64,
+    pub teammate_count: u64,
+    pub opponent_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct BoostPadControlResponse {
+    pub points: Vec<BoostPadControlPointResponse>,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -258,6 +326,9 @@ pub struct StatAggregatesQuery {
     /// Optional player focus in `platform:id` form.
     #[serde(rename = "player-id")]
     pub player_id: Option<String>,
+    /// Restrict the replay set to games the focused player won or lost.
+    #[serde(rename = "player-outcome", alias = "player_outcome")]
+    pub player_outcome: Option<String>,
     /// Restrict aggregate event counts to event types matching one or more
     /// search terms. Denominators still cover the full filtered replay set.
     #[serde(
@@ -289,12 +360,24 @@ pub struct StatAggregatesQuery {
     /// Optional aggregate grouping. Currently supports `playlist`.
     #[serde(rename = "group-by", alias = "group_by")]
     pub group_by: Option<String>,
+    /// Include first-man stint histograms. Defaults to true for compatibility,
+    /// but expensive lifetime views can opt out when they do not render them.
+    #[serde(
+        rename = "include-rotation-histogram",
+        alias = "include_rotation_histogram"
+    )]
+    pub include_rotation_histogram: Option<bool>,
     /// Kickoff spawn shape filter for kickoff-scoped aggregate rows.
     #[serde(rename = "kickoff-shape", alias = "kickoff_shape")]
     pub kickoff_shape: Option<String>,
     /// Kickoff spawn side filter for kickoff-scoped aggregate rows.
     #[serde(rename = "kickoff-side", alias = "kickoff_side")]
     pub kickoff_side: Option<String>,
+    /// Per-request override of the server's materialized-stats default:
+    /// `materialized=false` forces the live (non-materialized) query path,
+    /// `materialized=true` forces the materialized path. Absent uses the server
+    /// default. Lets any view run a query both ways for comparison/verification.
+    pub materialized: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -303,12 +386,13 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) player: Option<PlayerStatFilter>,
     pub(crate) stat_terms: Vec<String>,
     pub(crate) include_teammates: bool,
+    pub(crate) include_rotation_histogram: bool,
     pub(crate) kickoff_spawn: KickoffSpawnFilter,
     pub(crate) limit: u32,
     pub(crate) group_by: Option<StatAggregateGroupBy>,
     /// When true, player stat counts read the materialized
     /// `player_replay_event_counts` table instead of the live event scan. Set
-    /// from `AppState::materialized_stat_counts` by the handler; defaults false.
+    /// from `AppState::materialized_stat_counts` by the handler.
     pub(crate) materialized_stat_counts: bool,
 }
 
@@ -359,6 +443,7 @@ struct StatCountRow {
     category: String,
     event_count: u64,
     teammate_event_count: u64,
+    opponent_event_count: u64,
 }
 
 impl StatAggregateFilters {
@@ -387,6 +472,8 @@ impl StatAggregateFilters {
                 created_before: query.created_before,
                 replay_date_after: query.replay_date_after,
                 replay_date_before: query.replay_date_before,
+                target_player_id: query.player_id.clone(),
+                player_outcome: query.player_outcome,
             },
             auth_user_id,
         )?;
@@ -399,6 +486,7 @@ impl StatAggregateFilters {
                 .transpose()?,
             stat_terms: normalize_stat_terms(query.stat_terms),
             include_teammates: query.include_teammates.unwrap_or(false),
+            include_rotation_histogram: query.include_rotation_histogram.unwrap_or(true),
             kickoff_spawn: KickoffSpawnFilter::from_values(
                 query.kickoff_shape,
                 query.kickoff_side,
@@ -434,6 +522,7 @@ impl StatAggregatesQuery {
             uploader: replay_set.uploader,
             status: replay_set.status,
             player_id: params.first(&["player-id", "player_id"]),
+            player_outcome: params.first(&["player-outcome", "player_outcome"]),
             stat_terms: params.values(&["stat-term", "stat_terms"]),
             include_teammates: params
                 .first(&["include-teammates", "include_teammates"])
@@ -448,8 +537,16 @@ impl StatAggregatesQuery {
                 .map(|value| parse_u32_filter("count", &value))
                 .transpose()?,
             group_by: params.first(&["group-by", "group_by"]),
+            include_rotation_histogram: params
+                .first(&["include-rotation-histogram", "include_rotation_histogram"])
+                .map(|value| parse_bool_filter("include-rotation-histogram", &value))
+                .transpose()?,
             kickoff_shape: params.first(&["kickoff-shape", "kickoff_shape"]),
             kickoff_side: params.first(&["kickoff-side", "kickoff_side"]),
+            materialized: params
+                .first(&["materialized"])
+                .map(|value| parse_bool_filter("materialized", &value))
+                .transpose()?,
         })
     }
 }
@@ -472,9 +569,13 @@ pub async fn get_stat_aggregates(
 ) -> Result<Json<StatAggregateSetResponse>, ApiError> {
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
+    // Per-request `materialized=true|false` overrides the server default, so any
+    // view can be run both ways (e.g. live-vs-materialized parity checks).
+    let materialized_override = query.materialized;
     let mut filters =
         StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
-    filters.materialized_stat_counts = state.materialized_stat_counts;
+    filters.materialized_stat_counts =
+        materialized_override.unwrap_or(state.materialized_stat_counts);
     let aggregates = load_stat_aggregates(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -500,15 +601,58 @@ pub async fn get_player_boost_totals(
 ) -> Result<Json<PlayerBoostTotalsResponse>, ApiError> {
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
-    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    // Per-request `materialized=true|false` overrides the server default, so the
+    // boost panel can run live-vs-materialized parity checks.
+    let materialized_override = query.materialized;
+    let mut filters =
+        StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    filters.materialized_stat_counts =
+        materialized_override.unwrap_or(state.materialized_stat_counts);
     if filters.player.is_none() {
         return Err(ApiError::bad_request("boost totals require player-id"));
     }
-    let totals = load_player_boost_totals(db, &filters)
+    let totals = if filters.materialized_stat_counts {
+        load_player_boost_totals_materialized(db, &filters)
+            .await
+            .map_err(ApiError::internal)?
+    } else {
+        load_player_boost_totals(db, &filters)
+            .await
+            .map_err(ApiError::internal)?
+    };
+
+    Ok(Json(totals))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/stats/boost-pad-control",
+    tag = "stats",
+    params(StatAggregatesQuery),
+    responses(
+        (status = 200, description = "Lifetime boost pad pickup counts by player/team relationship", body = BoostPadControlResponse),
+        (status = 400, description = "Stats filters were invalid or player-id was omitted"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn get_player_boost_pad_control(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<BoostPadControlResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
+    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    if filters.player.is_none() {
+        return Err(ApiError::bad_request(
+            "boost pad control requires player-id",
+        ));
+    }
+    let response = load_player_boost_pad_control(db, &filters)
         .await
         .map_err(ApiError::internal)?;
 
-    Ok(Json(totals))
+    Ok(Json(response))
 }
 
 #[utoipa::path(
@@ -625,7 +769,7 @@ pub(crate) async fn load_stat_aggregates(
     // The base aggregate and the per-playlist breakdown are independent, so run
     // them concurrently rather than serializing the (many) underlying queries.
     let (mut aggregates, groups) = tokio::try_join!(
-        load_stat_aggregates_base(pool, filters, true),
+        load_stat_aggregates_base(pool, filters, true, true),
         load_stat_aggregate_groups(pool, filters),
     )?;
     aggregates.groups = groups;
@@ -737,18 +881,372 @@ async fn load_player_boost_totals(
     })
 }
 
+async fn load_player_boost_pad_control(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<BoostPadControlResponse, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT DISTINCT
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id,
+                concat(rp.platform, ':', rp.platform_player_id) AS target_player_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+              AND r.canonical_analysis_run_id IS NOT NULL
+        ),
+        boost_pickups AS MATERIALIZED (
+            SELECT
+                CASE
+                    WHEN concat(actor.platform, ':', actor.platform_player_id) = appearance.target_player_id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND concat(actor.platform, ':', actor.platform_player_id) <> appearance.target_player_id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                appearance.team AS target_team,
+                COALESCE(payload.payload->>'pad_type', payload.payload->>'pad_size') AS pad_size,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM target_appearances appearance
+            JOIN play_events event
+              ON event.replay_id = appearance.replay_id
+             AND event.analysis_run_id = appearance.run_id
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key = 'boost_pickup'
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN replay_players actor ON actor.id = subject.replay_player_id
+            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
+        )
+        SELECT cohort, target_team, pad_size, payload
+        FROM boost_pickups
+        WHERE cohort IS NOT NULL
+          AND pad_size IN ('big', 'small')
+          AND target_team IN (0, 1)
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let pad_locations = boost_pad_locations();
+    let mut counts: HashMap<String, BoostPadControlPointResponse> = pad_locations
+        .iter()
+        .map(|pad| {
+            (
+                pad.id.clone(),
+                BoostPadControlPointResponse {
+                    pad_id: pad.id.clone(),
+                    x: pad.x,
+                    y: pad.y,
+                    pad_size: pad.size.to_owned(),
+                    player_count: 0,
+                    teammate_count: 0,
+                    opponent_count: 0,
+                },
+            )
+        })
+        .collect();
+
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let target_team: i32 = row.try_get("target_team")?;
+        let pad_size: String = row.try_get("pad_size")?;
+        let SqlxJson(payload): SqlxJson<Value> = row.try_get("payload")?;
+        let Some(position) = boost_pickup_position(&payload) else {
+            continue;
+        };
+        let position = player_relative_field_position(position, target_team);
+        let Some(pad) = nearest_boost_pad(&pad_locations, position, &pad_size) else {
+            continue;
+        };
+        let Some(point) = counts.get_mut(&pad.id) else {
+            continue;
+        };
+        match cohort.as_str() {
+            "player" => point.player_count += 1,
+            "teammates" => point.teammate_count += 1,
+            "opponents" => point.opponent_count += 1,
+            _ => {}
+        }
+    }
+
+    let mut points: Vec<BoostPadControlPointResponse> = counts
+        .into_values()
+        .filter(|point| point.player_count + point.teammate_count + point.opponent_count > 0)
+        .collect();
+    points.sort_by(|left, right| {
+        left.pad_size
+            .cmp(&right.pad_size)
+            .then_with(|| left.y.total_cmp(&right.y))
+            .then_with(|| left.x.total_cmp(&right.x))
+    });
+
+    Ok(BoostPadControlResponse { points })
+}
+
+/// Pushes `WITH target_appearances, cohort_rows AS (...)` reconstructing the
+/// player / teammates / opponents cohorts from the materialized
+/// `player_replay_boost` rows in the target's filtered replays, joined by
+/// (replay, team) -- mirrors possession's `push_materialized_possession_cohorts`.
+fn push_materialized_boost_cohorts<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    filters: &'a StatAggregateFilters,
+) {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized boost requires player");
+    builder.push(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT boost.replay_id, boost.team AS target_team, boost.analysis_run_id AS run_id
+            FROM player_replay_boost boost
+            JOIN replays r ON r.id = boost.replay_id AND r.canonical_analysis_run_id = boost.analysis_run_id
+            WHERE boost.platform = "#,
+    );
+    builder.push_bind(&player.platform);
+    builder.push(" AND boost.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    append_replay_set_filters(builder, &filters.replay_set, "r");
+    builder.push(
+        r#"
+        ),
+        cohort_rows AS (
+            SELECT 'player'::text AS cohort, boost.*
+            FROM target_appearances ta
+            JOIN player_replay_boost boost
+              ON boost.replay_id = ta.replay_id AND boost.analysis_run_id = ta.run_id
+             AND boost.platform = "#,
+    );
+    builder.push_bind(&player.platform);
+    builder.push(" AND boost.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    builder.push(
+        r#"
+            UNION ALL
+            SELECT 'teammates'::text AS cohort, boost.*
+            FROM target_appearances ta
+            JOIN player_replay_boost boost
+              ON boost.replay_id = ta.replay_id AND boost.analysis_run_id = ta.run_id
+             AND boost.team = ta.target_team
+             AND NOT (boost.platform = "#,
+    );
+    builder.push_bind(&player.platform);
+    builder.push(" AND boost.platform_player_id = ");
+    builder.push_bind(&player.platform_player_id);
+    builder.push(
+        r#")
+            UNION ALL
+            SELECT 'opponents'::text AS cohort, boost.*
+            FROM target_appearances ta
+            JOIN player_replay_boost boost
+              ON boost.replay_id = ta.replay_id AND boost.analysis_run_id = ta.run_id
+             AND boost.team IS NOT NULL AND ta.target_team IS NOT NULL
+             AND boost.team <> ta.target_team
+        )
+        "#,
+    );
+}
+
+/// Pushes the per-cohort SUM select over `cohort_rows`. The double-precision
+/// sums decode as f64; every bigint pad-count sum is cast `::bigint` (Postgres
+/// `SUM(bigint)` returns NUMERIC, which sqlx will not decode as i64).
+fn push_materialized_boost_sum_select(builder: &mut QueryBuilder<'_, Postgres>) {
+    builder.push(
+        r#"
+        SELECT
+            cohort,
+            COALESCE(SUM(boost_collected), 0.0) AS boost_collected,
+            COALESCE(SUM(boost_stolen), 0.0) AS boost_stolen,
+            COALESCE(SUM(boost_used), 0.0) AS boost_used,
+            COALESCE(SUM(boost_used_supersonic), 0.0) AS boost_used_supersonic,
+            COALESCE(SUM(boost_overfill), 0.0) AS boost_overfill,
+            COALESCE(SUM(boost_amount_weighted_sum), 0.0) AS boost_amount_weighted_sum,
+            COALESCE(SUM(tracked_seconds), 0.0) AS tracked_seconds,
+            COALESCE(SUM(time_empty), 0.0) AS time_empty,
+            COALESCE(SUM(time_low), 0.0) AS time_low,
+            COALESCE(SUM(time_medium), 0.0) AS time_medium,
+            COALESCE(SUM(time_high), 0.0) AS time_high,
+            COALESCE(SUM(time_full), 0.0) AS time_full,
+            COALESCE(SUM(time_over), 0.0) AS time_over,
+            COALESCE(SUM(boost_collected_big), 0.0) AS boost_collected_big,
+            COALESCE(SUM(boost_collected_small), 0.0) AS boost_collected_small,
+            COALESCE(SUM(boost_collected_grant), 0.0) AS boost_collected_grant,
+            COALESCE(SUM(boost_stolen_big), 0.0) AS boost_stolen_big,
+            COALESCE(SUM(boost_stolen_small), 0.0) AS boost_stolen_small,
+            COALESCE(SUM(boost_stolen_overfill), 0.0) AS boost_stolen_overfill,
+            COALESCE(SUM(big_pads), 0)::bigint AS big_pads,
+            COALESCE(SUM(big_pads_offensive), 0)::bigint AS big_pads_offensive,
+            COALESCE(SUM(big_pads_neutral), 0)::bigint AS big_pads_neutral,
+            COALESCE(SUM(big_pads_defensive), 0)::bigint AS big_pads_defensive,
+            COALESCE(SUM(small_pads), 0)::bigint AS small_pads,
+            COALESCE(SUM(small_pads_offensive), 0)::bigint AS small_pads_offensive,
+            COALESCE(SUM(small_pads_defensive), 0)::bigint AS small_pads_defensive,
+            COALESCE(SUM(stolen_big_pads), 0)::bigint AS stolen_big_pads,
+            COALESCE(SUM(stolen_small_pads), 0)::bigint AS stolen_small_pads
+        FROM cohort_rows
+        GROUP BY cohort
+        "#,
+    );
+}
+
+fn build_materialized_boost_query<'a>(
+    filters: &'a StatAggregateFilters,
+) -> QueryBuilder<'a, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_materialized_boost_cohorts(&mut builder, filters);
+    push_materialized_boost_sum_select(&mut builder);
+    builder
+}
+
+/// Read `player_replay_boost` for the target's filtered replay set and
+/// reconstruct the player/teammates/opponents cohorts by (replay, team). Derives
+/// `boost_collected_unknown` and `stolen_pads` on read (they are not stored).
+async fn load_player_boost_totals_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<PlayerBoostTotalsResponse, sqlx::Error> {
+    let mut builder = build_materialized_boost_query(filters);
+    let rows = builder.build().fetch_all(pool).await?;
+    let mut cohorts: HashMap<String, PlayerBoostTotalResponse> = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        cohorts.insert(cohort, materialized_boost_response_from_row(&row)?);
+    }
+    let cohort_has_data = |response: &PlayerBoostTotalResponse| -> bool {
+        response.tracked_seconds > 0.0
+            || response.boost_collected > 0.0
+            || response.boost_collected_big > 0.0
+            || response.boost_collected_small > 0.0
+            || response.boost_collected_grant > 0.0
+            || response.boost_stolen > 0.0
+            || response.boost_overfill > 0.0
+            || response.boost_used > 0.0
+            || response.boost_used_supersonic > 0.0
+            || response.big_pads > 0
+            || response.small_pads > 0
+    };
+    let player = cohorts
+        .remove("player")
+        .unwrap_or_else(empty_player_boost_total_response);
+    let teammates = cohorts.remove("teammates").filter(cohort_has_data);
+    let opponents = cohorts.remove("opponents").filter(cohort_has_data);
+    Ok(PlayerBoostTotalsResponse {
+        player,
+        teammates,
+        opponents,
+    })
+}
+
+fn materialized_boost_response_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PlayerBoostTotalResponse, sqlx::Error> {
+    let boost_collected: f64 = row.try_get("boost_collected")?;
+    let boost_collected_big: f64 = row.try_get("boost_collected_big")?;
+    let boost_collected_small: f64 = row.try_get("boost_collected_small")?;
+    let boost_collected_grant: f64 = row.try_get("boost_collected_grant")?;
+    let known_collected = boost_collected_big + boost_collected_small + boost_collected_grant;
+    let boost_collected_unknown = (boost_collected - known_collected).max(0.0);
+    let stolen_big_pads = count_column(row, "stolen_big_pads")?;
+    let stolen_small_pads = count_column(row, "stolen_small_pads")?;
+    Ok(PlayerBoostTotalResponse {
+        boost_collected,
+        boost_collected_big,
+        boost_collected_small,
+        boost_collected_grant,
+        boost_collected_unknown,
+        boost_stolen: row.try_get("boost_stolen")?,
+        boost_stolen_big: row.try_get("boost_stolen_big")?,
+        boost_stolen_small: row.try_get("boost_stolen_small")?,
+        boost_overfill: row.try_get("boost_overfill")?,
+        boost_used: row.try_get("boost_used")?,
+        boost_used_supersonic: row.try_get("boost_used_supersonic")?,
+        boost_stolen_overfill: row.try_get("boost_stolen_overfill")?,
+        big_pads: count_column(row, "big_pads")?,
+        big_pads_offensive: count_column(row, "big_pads_offensive")?,
+        big_pads_neutral: count_column(row, "big_pads_neutral")?,
+        big_pads_defensive: count_column(row, "big_pads_defensive")?,
+        small_pads: count_column(row, "small_pads")?,
+        small_pads_offensive: count_column(row, "small_pads_offensive")?,
+        small_pads_defensive: count_column(row, "small_pads_defensive")?,
+        stolen_big_pads,
+        stolen_small_pads,
+        stolen_pads: stolen_big_pads + stolen_small_pads,
+        boost_amount_weighted_sum: row.try_get("boost_amount_weighted_sum")?,
+        tracked_seconds: row.try_get("tracked_seconds")?,
+        time_empty: row.try_get("time_empty")?,
+        time_low: row.try_get("time_low")?,
+        time_medium: row.try_get("time_medium")?,
+        time_high: row.try_get("time_high")?,
+        time_full: row.try_get("time_full")?,
+        time_over: row.try_get("time_over")?,
+    })
+}
+
+fn empty_player_boost_total_response() -> PlayerBoostTotalResponse {
+    PlayerBoostTotalResponse {
+        boost_collected: 0.0,
+        boost_collected_big: 0.0,
+        boost_collected_small: 0.0,
+        boost_collected_grant: 0.0,
+        boost_collected_unknown: 0.0,
+        boost_stolen: 0.0,
+        boost_stolen_big: 0.0,
+        boost_stolen_small: 0.0,
+        boost_overfill: 0.0,
+        boost_used: 0.0,
+        boost_used_supersonic: 0.0,
+        boost_stolen_overfill: 0.0,
+        big_pads: 0,
+        big_pads_offensive: 0,
+        big_pads_neutral: 0,
+        big_pads_defensive: 0,
+        small_pads: 0,
+        small_pads_offensive: 0,
+        small_pads_defensive: 0,
+        stolen_big_pads: 0,
+        stolen_small_pads: 0,
+        stolen_pads: 0,
+        boost_amount_weighted_sum: 0.0,
+        tracked_seconds: 0.0,
+        time_empty: 0.0,
+        time_low: 0.0,
+        time_medium: 0.0,
+        time_high: 0.0,
+        time_full: 0.0,
+        time_over: 0.0,
+    }
+}
+
+/// Accumulates one player's boost totals over a replay set (live read) or a
+/// single replay (the materialization writer). The track-derived fields
+/// (`boost_collected`/`boost_stolen`/`boost_used`/`boost_used_supersonic`/
+/// `boost_overfill`/`boost_amount_weighted_sum`/`tracked_seconds`/`bands`) come
+/// from [`accumulate_player_boost_track`]; the event-derived fields come from
+/// [`PlayerBoostEventAccumulator`]/[`PlayerBoostAccumulator::merge_event_fields`].
 #[derive(Default)]
-struct PlayerBoostAccumulator {
-    boost_collected: f64,
+pub(crate) struct PlayerBoostAccumulator {
+    pub(crate) boost_collected: f64,
     boost_collected_big: f64,
     boost_collected_small: f64,
     boost_collected_grant: f64,
-    boost_stolen: f64,
+    pub(crate) boost_stolen: f64,
     boost_stolen_big: f64,
     boost_stolen_small: f64,
-    boost_overfill: f64,
-    boost_used: f64,
-    boost_used_supersonic: f64,
+    pub(crate) boost_overfill: f64,
+    pub(crate) boost_used: f64,
+    pub(crate) boost_used_supersonic: f64,
     boost_stolen_overfill: f64,
     big_pads: u64,
     big_pads_offensive: u64,
@@ -759,9 +1257,9 @@ struct PlayerBoostAccumulator {
     small_pads_defensive: u64,
     stolen_big_pads: u64,
     stolen_small_pads: u64,
-    boost_amount_weighted_sum: f64,
-    tracked_seconds: f64,
-    bands: [f64; 6],
+    pub(crate) boost_amount_weighted_sum: f64,
+    pub(crate) tracked_seconds: f64,
+    pub(crate) bands: [f64; 6],
 }
 
 impl PlayerBoostAccumulator {
@@ -970,6 +1468,19 @@ async fn load_player_boost_event_fields(
     Ok(fields)
 }
 
+/// Replay duration used to time-weight boost-amount samples: the max sample
+/// time over all `boost_amount` tracks. Shared by the live read and the
+/// materialization writer so both bound the last sample's weight identically.
+pub(crate) fn boost_track_replay_duration(tracks: &BoostTracksResponse) -> f64 {
+    tracks
+        .tracks
+        .iter()
+        .filter(|track| track.quantity == "boost_amount")
+        .flat_map(|track| track.points.iter())
+        .filter_map(|point| point.time)
+        .fold(0.0_f64, f64::max)
+}
+
 fn accumulate_player_boost_tracks(
     tracks: &BoostTracksResponse,
     target_player_id: &str,
@@ -981,13 +1492,7 @@ fn accumulate_player_boost_tracks(
 ) {
     let teammate_ids: HashSet<&str> = teammate_player_ids.iter().map(String::as_str).collect();
     let opponent_ids: HashSet<&str> = opponent_player_ids.iter().map(String::as_str).collect();
-    let replay_duration = tracks
-        .tracks
-        .iter()
-        .filter(|track| track.quantity == "boost_amount")
-        .flat_map(|track| track.points.iter())
-        .filter_map(|point| point.time)
-        .fold(0.0_f64, f64::max);
+    let replay_duration = boost_track_replay_duration(tracks);
 
     for track in &tracks.tracks {
         let Some(player_id) = track.player_id.as_deref() else {
@@ -1004,7 +1509,7 @@ fn accumulate_player_boost_tracks(
     }
 }
 
-fn accumulate_player_boost_track(
+pub(crate) fn accumulate_player_boost_track(
     track: &super::replays::BoostTrack,
     replay_duration: f64,
     accumulator: &mut PlayerBoostAccumulator,
@@ -1059,13 +1564,13 @@ fn accumulate_player_boost_track(
     }
 }
 
-const BOOST_RAW_MAX: f64 = 255.0;
+pub(crate) const BOOST_RAW_MAX: f64 = 255.0;
 
-fn boost_raw_to_percent(value: f64) -> f64 {
+pub(crate) fn boost_raw_to_percent(value: f64) -> f64 {
     value * 100.0 / BOOST_RAW_MAX
 }
 
-fn player_boost_band_index(percent: f64) -> usize {
+pub(crate) fn player_boost_band_index(percent: f64) -> usize {
     if percent < 1.0 {
         0
     } else if percent < 25.0 {
@@ -1081,10 +1586,91 @@ fn player_boost_band_index(percent: f64) -> usize {
     }
 }
 
+#[derive(Clone)]
+struct BoostPadLocation {
+    id: String,
+    x: f64,
+    y: f64,
+    size: &'static str,
+}
+
+fn boost_pad_locations() -> Vec<BoostPadLocation> {
+    let mut pads = Vec::new();
+    mirror_boost_pad_y(&mut pads, 0.0, 4240.0, "small");
+    mirror_boost_pad_both(&mut pads, 1792.0, 4184.0, "small");
+    mirror_boost_pad_both(&mut pads, 3072.0, 4096.0, "big");
+    mirror_boost_pad_both(&mut pads, 940.0, 3308.0, "small");
+    mirror_boost_pad_y(&mut pads, 0.0, 2816.0, "small");
+    mirror_boost_pad_both(&mut pads, 3584.0, 2484.0, "small");
+    mirror_boost_pad_both(&mut pads, 1788.0, 2300.0, "small");
+    mirror_boost_pad_both(&mut pads, 2048.0, 1036.0, "small");
+    mirror_boost_pad_y(&mut pads, 0.0, 1024.0, "small");
+    mirror_boost_pad_x(&mut pads, 3584.0, 0.0, "big");
+    mirror_boost_pad_x(&mut pads, 1024.0, 0.0, "small");
+
+    pads
+}
+
+fn add_boost_pad(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    pads.push(BoostPadLocation {
+        id: format!("{size}:{}:{}", x.round(), y.round()),
+        x,
+        y,
+        size,
+    });
+}
+
+fn mirror_boost_pad_x(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    add_boost_pad(pads, -x, y, size);
+    add_boost_pad(pads, x, y, size);
+}
+
+fn mirror_boost_pad_y(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    add_boost_pad(pads, x, -y, size);
+    add_boost_pad(pads, x, y, size);
+}
+
+fn mirror_boost_pad_both(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    mirror_boost_pad_x(pads, x, -y, size);
+    mirror_boost_pad_x(pads, x, y, size);
+}
+
+fn nearest_boost_pad<'a>(
+    pads: &'a [BoostPadLocation],
+    position: (f64, f64),
+    size: &str,
+) -> Option<&'a BoostPadLocation> {
+    pads.iter()
+        .filter(|pad| pad.size == size)
+        .min_by(|left, right| {
+            let left_distance = (position.0 - left.x).hypot(position.1 - left.y);
+            let right_distance = (position.0 - right.x).hypot(position.1 - right.y);
+            left_distance.total_cmp(&right_distance)
+        })
+}
+
+fn boost_pickup_position(payload: &Value) -> Option<(f64, f64)> {
+    let position = payload.get("player_position")?.as_array()?;
+    let x = position.first()?.as_f64()?;
+    let y = position.get(1)?.as_f64()?;
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+fn player_relative_field_position((x, y): (f64, f64), target_team: i32) -> (f64, f64) {
+    match target_team {
+        0 => (x, y),
+        // Team 1 attacks in the opposite direction. Rotate the field so the
+        // profile player's own half is always rendered at negative Y.
+        1 => (-x, -y),
+        _ => (x, y),
+    }
+}
+
 async fn load_stat_aggregates_base(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
     include_rotation_histogram: bool,
+    include_touch_breakdown: bool,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
     // These queries are independent; run them concurrently against the pool.
     let teammate_fut = async {
@@ -1094,35 +1680,80 @@ async fn load_stat_aggregates_base(
             Ok(None)
         }
     };
+    let opponent_fut = async {
+        if filters.player.is_some() && filters.include_teammates {
+            Ok::<_, sqlx::Error>(Some(load_opponent_denominators(pool, filters).await?))
+        } else {
+            Ok(None)
+        }
+    };
     // The rotation histogram is only surfaced on the top-level response, not on
     // per-playlist groups, so skip the (expensive) query when grouping.
     let histogram_fut = async {
-        if include_rotation_histogram {
+        if include_rotation_histogram && filters.include_rotation_histogram {
             load_rotation_duration_histogram(pool, filters).await
         } else {
             Ok::<_, sqlx::Error>(Vec::new())
         }
     };
-    // Teammate stint distribution, surfaced alongside the player's for comparison.
+    // Teammate stint distribution, from the materialized first-man stints. Only
+    // served on the materialized path: the live version was a per-event scan over
+    // every teammate's rotation stints (with a jsonb attribute join) that
+    // dominated the aggregates latency (~15s), so `materialized=false` returns
+    // empty rather than resurrecting it.
     let teammate_histogram_fut = async {
-        if include_rotation_histogram && filters.player.is_some() && filters.include_teammates {
-            load_teammate_rotation_duration_histogram(pool, filters).await
+        if include_rotation_histogram
+            && filters.include_rotation_histogram
+            && filters.player.is_some()
+            && filters.include_teammates
+            && filters.materialized_stat_counts
+        {
+            load_teammate_rotation_duration_histogram_materialized(pool, filters).await
         } else {
             Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
+    let opponent_histogram_fut = async {
+        if include_rotation_histogram
+            && filters.include_rotation_histogram
+            && filters.player.is_some()
+            && filters.include_teammates
+            && filters.materialized_stat_counts
+        {
+            load_opponent_rotation_duration_histogram_materialized(pool, filters).await
+        } else {
+            Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
+    let touch_breakdown_fut = async {
+        if include_touch_breakdown
+            && filters.player.is_some()
+            && filters.include_teammates
+            && should_include_touch_breakdown(filters)
+        {
+            Ok::<_, sqlx::Error>(Some(load_touch_aggregate_breakdown(pool, filters).await?))
+        } else {
+            Ok(None)
         }
     };
     let (
         target_denominators,
         teammate_denominators,
+        opponent_denominators,
         rows,
         rotation_duration_histogram,
         teammate_rotation_duration_histogram,
+        opponent_rotation_duration_histogram,
+        touch_breakdown,
     ) = tokio::try_join!(
         load_target_denominators(pool, filters),
         teammate_fut,
+        opponent_fut,
         load_stat_count_rows(pool, filters),
         histogram_fut,
         teammate_histogram_fut,
+        opponent_histogram_fut,
+        touch_breakdown_fut,
     )?;
     let target_replay_count = target_denominators.replay_count.max(1) as f64;
     let teammate_appearance_count = teammate_denominators
@@ -1139,6 +1770,22 @@ async fn load_stat_aggregates_base(
         .as_ref()
         .and_then(|denominator| denominator.time_most_back_seconds);
     let teammate_time_most_forward_seconds = teammate_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.time_most_forward_seconds);
+    let opponent_appearance_count = opponent_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.appearance_count)
+        .unwrap_or(0);
+    let opponent_active_time_seconds = opponent_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.active_time_seconds);
+    let opponent_non_demo_active_time_seconds = opponent_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.non_demo_active_time_seconds);
+    let opponent_time_most_back_seconds = opponent_denominators
+        .as_ref()
+        .and_then(|denominator| denominator.time_most_back_seconds);
+    let opponent_time_most_forward_seconds = opponent_denominators
         .as_ref()
         .and_then(|denominator| denominator.time_most_forward_seconds);
 
@@ -1167,6 +1814,18 @@ async fn load_stat_aggregates_base(
                 row.teammate_event_count,
                 teammate_non_demo_active_time_seconds,
             ),
+            opponent_event_count: row.opponent_event_count,
+            opponent_appearance_count,
+            opponent_count_per_game: (opponent_appearance_count > 0)
+                .then(|| row.opponent_event_count as f64 / opponent_appearance_count as f64),
+            opponent_per_active_minute: per_minute(
+                row.opponent_event_count,
+                opponent_active_time_seconds,
+            ),
+            opponent_per_non_demo_active_minute: per_minute(
+                row.opponent_event_count,
+                opponent_non_demo_active_time_seconds,
+            ),
         })
         .collect();
 
@@ -1184,12 +1843,25 @@ async fn load_stat_aggregates_base(
         teammate_non_demo_active_time_seconds,
         teammate_time_most_back_seconds,
         teammate_time_most_forward_seconds,
+        opponent_appearance_count: opponent_denominators
+            .as_ref()
+            .and_then(|denominator| denominator.appearance_count),
+        opponent_active_time_seconds,
+        opponent_non_demo_active_time_seconds,
+        opponent_time_most_back_seconds,
+        opponent_time_most_forward_seconds,
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
         teammate_rotation_duration_histogram,
+        opponent_rotation_duration_histogram,
+        touch_breakdown,
         stats,
         groups: Vec::new(),
     })
+}
+
+fn should_include_touch_breakdown(filters: &StatAggregateFilters) -> bool {
+    filters.stat_terms.is_empty() || filters.stat_terms.iter().any(|term| term.contains("touch"))
 }
 
 async fn load_stat_aggregate_groups(
@@ -1226,7 +1898,7 @@ async fn load_playlist_stat_aggregate_groups(
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
         group_filters.replay_set.playlist_group_key = Some(playlist.clone());
-        let aggregates = load_stat_aggregates_base(pool, &group_filters, false).await?;
+        let aggregates = load_stat_aggregates_base(pool, &group_filters, false, false).await?;
         Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
             display_name: playlist_label(&playlist),
@@ -1242,6 +1914,11 @@ async fn load_playlist_stat_aggregate_groups(
             teammate_non_demo_active_time_seconds: aggregates.teammate_non_demo_active_time_seconds,
             teammate_time_most_back_seconds: aggregates.teammate_time_most_back_seconds,
             teammate_time_most_forward_seconds: aggregates.teammate_time_most_forward_seconds,
+            opponent_appearance_count: aggregates.opponent_appearance_count,
+            opponent_active_time_seconds: aggregates.opponent_active_time_seconds,
+            opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
+            opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
+            opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
             stats: aggregates.stats,
         })
     }))
@@ -1408,10 +2085,205 @@ async fn load_teammate_denominators(
     })
 }
 
+async fn load_opponent_denominators(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<StatDenominators, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS (
+            SELECT rp.id, rp.replay_id, rp.team
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+        ),
+        opponent_appearances AS (
+            SELECT DISTINCT
+                opponent.id,
+                opponent.replay_id,
+                opponent.active_time_seconds,
+                opponent.time_demolished_seconds,
+                opponent.time_most_back_seconds,
+                opponent.time_most_forward_seconds
+            FROM target_appearances target
+            JOIN replay_players opponent
+              ON opponent.replay_id = target.replay_id
+             AND opponent.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND opponent.team <> target.team
+        )
+        SELECT
+            COUNT(DISTINCT replay_id) AS replay_count,
+            COUNT(*) AS appearance_count,
+            SUM(active_time_seconds) AS active_time_seconds,
+            SUM(GREATEST(active_time_seconds - COALESCE(time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
+            SUM(time_most_back_seconds) AS time_most_back_seconds,
+            SUM(time_most_forward_seconds) AS time_most_forward_seconds
+        FROM opponent_appearances
+        "#,
+    );
+
+    let row = query.build().fetch_one(pool).await?;
+    let replay_count: i64 = row.try_get("replay_count")?;
+    let appearance_count: Option<i64> = row.try_get("appearance_count")?;
+    Ok(StatDenominators {
+        replay_count: replay_count.max(0) as u64,
+        appearance_count: appearance_count.map(|count| count.max(0) as u64),
+        active_time_seconds: finite_nonnegative(row.try_get("active_time_seconds")?),
+        non_demo_active_time_seconds: finite_nonnegative(
+            row.try_get("non_demo_active_time_seconds")?,
+        ),
+        time_most_back_seconds: finite_nonnegative(row.try_get("time_most_back_seconds")?),
+        time_most_forward_seconds: finite_nonnegative(row.try_get("time_most_forward_seconds")?),
+    })
+}
+
+/// Buckets the target player's first-man stint durations from the materialized
+/// `player_replay_first_man_stints` table instead of the live rotation-event
+/// scan. Mirrors the player branch of `load_rotation_duration_histogram`.
+async fn load_rotation_duration_histogram_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized rotation histogram requires a player");
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT floor(stint.duration_seconds / "#,
+    );
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds, COUNT(*) AS count
+        FROM player_replay_first_man_stints stint
+        JOIN replays r
+          ON r.id = stint.replay_id
+         AND r.canonical_analysis_run_id = stint.analysis_run_id
+        WHERE stint.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND stint.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(
+        r#"
+        GROUP BY bucket_start_seconds
+        ORDER BY bucket_start_seconds
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
+}
+
+/// Buckets the target player's teammates' first-man stint durations from the
+/// materialized table: the target's (replay, team) appearances joined to
+/// co-players' stints in those replays.
+async fn load_teammate_rotation_duration_histogram_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized teammate rotation histogram requires a player");
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+        )
+        SELECT floor(stint.duration_seconds / "#,
+    );
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds, COUNT(*) AS count
+        FROM target_appearances appearance
+        JOIN player_replay_first_man_stints stint
+          ON stint.replay_id = appearance.replay_id
+         AND stint.analysis_run_id = appearance.run_id
+         AND stint.team = appearance.team
+         AND NOT (
+            stint.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND stint.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#")
+        GROUP BY bucket_start_seconds
+        ORDER BY bucket_start_seconds
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
+}
+
+async fn load_opponent_rotation_duration_histogram_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+        )
+        SELECT floor(stint.duration_seconds / "#,
+    );
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(") * ");
+    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
+    query.push(
+        r#" AS bucket_start_seconds, COUNT(*) AS count
+        FROM target_appearances appearance
+        JOIN player_replay_first_man_stints stint
+          ON stint.replay_id = appearance.replay_id
+         AND stint.analysis_run_id = appearance.run_id
+         AND stint.team IS NOT NULL
+         AND appearance.team IS NOT NULL
+         AND stint.team <> appearance.team
+        GROUP BY bucket_start_seconds
+        ORDER BY bucket_start_seconds
+        "#,
+    );
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(rotation_duration_bucket_row_from_db)
+        .collect()
+}
+
 async fn load_rotation_duration_histogram(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    if filters.player.is_some() && filters.materialized_stat_counts {
+        return load_rotation_duration_histogram_materialized(pool, filters).await;
+    }
     let mut query = if filters.player.is_some() {
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
@@ -1510,80 +2382,6 @@ async fn load_rotation_duration_histogram(
         .collect()
 }
 
-/// First-man stint distribution for the target player's teammates, bucketed the
-/// same way as [`load_rotation_duration_histogram`] so the two can be compared.
-async fn load_teammate_rotation_duration_histogram(
-    pool: &sqlx::PgPool,
-    filters: &StatAggregateFilters,
-) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS MATERIALIZED (
-            SELECT rp.id, rp.replay_id, rp.team, r.canonical_analysis_run_id AS run_id
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-        "#,
-    );
-    append_target_player_filters(&mut query, filters);
-    query.push(
-        r#"
-        ),
-        teammate_appearances AS MATERIALIZED (
-            SELECT DISTINCT teammate.id, target.run_id
-            FROM target_appearances target
-            JOIN replay_players teammate
-              ON teammate.replay_id = target.replay_id
-             AND teammate.team = target.team
-             AND teammate.id <> target.id
-        ),
-        rotation_events AS MATERIALIZED (
-            SELECT event.duration_seconds
-            FROM teammate_appearances appearance
-            JOIN play_event_subjects subject
-              ON subject.replay_player_id = appearance.id
-             AND subject.role = 'actor'
-            JOIN play_events event
-              ON event.id = subject.event_id
-             AND event.analysis_run_id = appearance.run_id
-             AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
-            JOIN event_types et
-              ON et.id = event.event_type_id
-            LEFT JOIN play_event_attributes attributes
-              ON attributes.event_id = event.id
-            WHERE (
-                event.source_stream = 'rotation_first_man_stint'
-                AND et.key = 'rotation_first_man_stint'
-            ) OR (
-                event.source_stream = 'rotation_role'
-                AND attributes.attributes->>'state' = 'first_man'
-            )
-        ),
-        bucketed AS (
-            SELECT floor(duration_seconds /
-        "#,
-    );
-
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(") * ");
-    query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
-    query.push(
-        r#" AS bucket_start_seconds
-        FROM rotation_events
-        WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
-    )
-    SELECT bucket_start_seconds, COUNT(*) AS count
-    FROM bucketed
-    GROUP BY bucket_start_seconds
-    ORDER BY bucket_start_seconds
-    "#,
-    );
-
-    let rows = query.build().fetch_all(pool).await?;
-    rows.into_iter()
-        .map(rotation_duration_bucket_row_from_db)
-        .collect()
-}
-
 async fn load_stat_count_rows(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
@@ -1592,6 +2390,380 @@ async fn load_stat_count_rows(
         load_player_stat_count_rows(pool, filters).await
     } else {
         load_replay_set_stat_count_rows(pool, filters).await
+    }
+}
+
+#[derive(Debug, Default)]
+struct TouchAggregateCohortAccumulator {
+    kind_counts: HashMap<String, u64>,
+    kind_advance: HashMap<String, f64>,
+    category_counts: HashMap<String, u64>,
+    category_advance: HashMap<String, f64>,
+    active_time_seconds: Option<f64>,
+}
+
+impl TouchAggregateCohortAccumulator {
+    fn set_active_time_seconds(&mut self, active_time_seconds: Option<f64>) {
+        self.active_time_seconds = active_time_seconds;
+    }
+
+    fn add(&mut self, dimension: String, value: String, count: u64, advance: f64) {
+        let (counts, advances) = if dimension == "kind" {
+            (&mut self.kind_counts, &mut self.kind_advance)
+        } else {
+            (&mut self.category_counts, &mut self.category_advance)
+        };
+        *counts.entry(value.clone()).or_insert(0) += count;
+        *advances.entry(value).or_insert(0.0) += advance.max(0.0);
+    }
+
+    fn total_touch_count(&self) -> u64 {
+        self.kind_counts.values().sum()
+    }
+
+    fn total_advance_distance(&self) -> f64 {
+        self.kind_advance.values().sum()
+    }
+
+    fn into_response(self, key: &str) -> TouchAggregateCohortResponse {
+        let total_touch_count = self.total_touch_count();
+        let total_advance_distance = self.total_advance_distance();
+        TouchAggregateCohortResponse {
+            key: key.to_owned(),
+            label: touch_cohort_label(key).to_owned(),
+            total_touch_count,
+            total_advance_distance,
+            active_time_seconds: self.active_time_seconds,
+            dimensions: vec![
+                TouchAggregateDimensionResponse {
+                    key: "kind".to_owned(),
+                    values: touch_values_response(self.kind_counts, self.kind_advance),
+                },
+                TouchAggregateDimensionResponse {
+                    key: "category".to_owned(),
+                    values: touch_values_response(self.category_counts, self.category_advance),
+                },
+            ],
+        }
+    }
+}
+
+async fn load_touch_aggregate_breakdown(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
+    if filters.materialized_stat_counts {
+        return load_touch_aggregate_breakdown_materialized(pool, filters).await;
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT
+                rp.id,
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+              AND r.canonical_analysis_run_id IS NOT NULL
+        ),
+        touch_events AS MATERIALIZED (
+            SELECT
+                CASE
+                    WHEN actor.id = appearance.id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND actor.id <> appearance.id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                CASE
+                    WHEN detail.kind IN ('control', 'medium_hit', 'hard_hit') THEN detail.kind
+                    WHEN detail.kind IN ('hit', 'medium') THEN 'medium_hit'
+                    WHEN detail.kind = 'hard' THEN 'hard_hit'
+                    WHEN detail.kind IN ('soft', 'soft_touch') THEN 'control'
+                    ELSE 'other'
+                END AS kind,
+                CASE
+                    WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
+                    ELSE 'other'
+                END AS category,
+                COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
+            FROM target_appearances appearance
+            JOIN play_events event
+              ON event.replay_id = appearance.replay_id
+             AND event.analysis_run_id = appearance.run_id
+             AND event.source_stream = 'touch'
+            JOIN play_event_touch_details detail
+              ON detail.event_id = event.id
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.subject_kind = 'player'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN replay_players actor ON actor.id = subject.replay_player_id
+        ),
+        cohort_players AS MATERIALIZED (
+            SELECT DISTINCT
+                CASE
+                    WHEN actor.id = appearance.id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND actor.id <> appearance.id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                actor.id,
+                actor.active_time_seconds
+            FROM target_appearances appearance
+            JOIN replay_players actor
+              ON actor.replay_id = appearance.replay_id
+        ),
+        cohort_denominators AS (
+            SELECT
+                cohort,
+                SUM(active_time_seconds) AS active_time_seconds
+            FROM cohort_players
+            WHERE cohort IS NOT NULL
+            GROUP BY cohort
+        ),
+        normalized AS (
+            SELECT cohort, kind, category, advance_distance
+            FROM touch_events
+            WHERE cohort IS NOT NULL
+        )
+        SELECT
+            rows.cohort,
+            rows.dimension,
+            rows.value,
+            rows.touch_count,
+            rows.advance_distance,
+            denominator.active_time_seconds
+        FROM (
+            SELECT
+                cohort,
+                'kind' AS dimension,
+                kind AS value,
+                COUNT(*) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM normalized
+            GROUP BY cohort, kind
+            UNION ALL
+            SELECT
+                cohort,
+                'category' AS dimension,
+                category AS value,
+                COUNT(*) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM normalized
+            GROUP BY cohort, category
+        ) rows
+        LEFT JOIN cohort_denominators denominator
+          ON denominator.cohort = rows.cohort
+        ORDER BY
+            CASE rows.cohort
+                WHEN 'player' THEN 0
+                WHEN 'teammates' THEN 1
+                WHEN 'opponents' THEN 2
+                ELSE 3
+            END,
+            rows.dimension,
+            rows.touch_count DESC,
+            rows.value
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    touch_aggregate_breakdown_from_rows(rows)
+}
+
+async fn load_touch_aggregate_breakdown_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("materialized touch breakdown requires player");
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT
+                rp.id,
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE rp.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND rp.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    append_replay_filters(&mut query, filters, "r");
+    query.push(
+        r#"
+        ),
+        cohort_breakdowns AS MATERIALIZED (
+            SELECT 'player'::text AS cohort, touch.dimension, touch.value, touch.touch_count, touch.advance_distance
+            FROM target_appearances appearance
+            JOIN player_replay_touch_breakdowns touch
+              ON touch.replay_id = appearance.replay_id
+             AND touch.analysis_run_id = appearance.run_id
+             AND touch.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND touch.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#"
+            UNION ALL
+            SELECT 'teammates'::text AS cohort, touch.dimension, touch.value, touch.touch_count, touch.advance_distance
+            FROM target_appearances appearance
+            JOIN player_replay_touch_breakdowns touch
+              ON touch.replay_id = appearance.replay_id
+             AND touch.analysis_run_id = appearance.run_id
+             AND touch.team = appearance.team
+             AND NOT (touch.platform = "#,
+    );
+    query.push_bind(&player.platform);
+    query.push(" AND touch.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        r#")
+            UNION ALL
+            SELECT 'opponents'::text AS cohort, touch.dimension, touch.value, touch.touch_count, touch.advance_distance
+            FROM target_appearances appearance
+            JOIN player_replay_touch_breakdowns touch
+              ON touch.replay_id = appearance.replay_id
+             AND touch.analysis_run_id = appearance.run_id
+             AND touch.team IS NOT NULL
+             AND appearance.team IS NOT NULL
+             AND touch.team <> appearance.team
+        ),
+        cohort_players AS MATERIALIZED (
+            SELECT DISTINCT
+                CASE
+                    WHEN actor.id = appearance.id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND actor.id <> appearance.id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                actor.id,
+                actor.active_time_seconds
+            FROM target_appearances appearance
+            JOIN replay_players actor
+              ON actor.replay_id = appearance.replay_id
+        ),
+        cohort_denominators AS (
+            SELECT cohort, SUM(active_time_seconds) AS active_time_seconds
+            FROM cohort_players
+            WHERE cohort IS NOT NULL
+            GROUP BY cohort
+        )
+        SELECT
+            rows.cohort,
+            rows.dimension,
+            rows.value,
+            rows.touch_count,
+            rows.advance_distance,
+            denominator.active_time_seconds
+        FROM (
+            SELECT
+                cohort,
+                dimension,
+                value,
+                SUM(touch_count)::bigint AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM cohort_breakdowns
+            GROUP BY cohort, dimension, value
+        ) rows
+        LEFT JOIN cohort_denominators denominator
+          ON denominator.cohort = rows.cohort
+        ORDER BY
+            CASE rows.cohort
+                WHEN 'player' THEN 0
+                WHEN 'teammates' THEN 1
+                WHEN 'opponents' THEN 2
+                ELSE 3
+            END,
+            rows.dimension,
+            rows.touch_count DESC,
+            rows.value
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    touch_aggregate_breakdown_from_rows(rows)
+}
+
+fn touch_aggregate_breakdown_from_rows(
+    rows: Vec<sqlx::postgres::PgRow>,
+) -> Result<TouchAggregateBreakdownResponse, sqlx::Error> {
+    let mut cohorts: HashMap<String, TouchAggregateCohortAccumulator> = HashMap::new();
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let dimension: String = row.try_get("dimension")?;
+        let value: String = row.try_get("value")?;
+        let touch_count = count_column(&row, "touch_count")?;
+        let advance_distance: f64 = row.try_get("advance_distance")?;
+        let active_time_seconds = finite_nonnegative(row.try_get("active_time_seconds")?);
+        let cohort = cohorts.entry(cohort).or_default();
+        cohort.set_active_time_seconds(active_time_seconds);
+        cohort.add(dimension, value, touch_count, advance_distance);
+    }
+
+    Ok(TouchAggregateBreakdownResponse {
+        cohorts: ["player", "teammates", "opponents"]
+            .into_iter()
+            .filter_map(|key| {
+                cohorts
+                    .remove(key)
+                    .filter(|cohort| cohort.total_touch_count() > 0)
+                    .map(|cohort| cohort.into_response(key))
+            })
+            .collect(),
+    })
+}
+
+fn touch_values_response(
+    counts: HashMap<String, u64>,
+    advances: HashMap<String, f64>,
+) -> Vec<TouchAggregateValueResponse> {
+    let mut values: Vec<_> = counts
+        .into_iter()
+        .map(|(key, touch_count)| TouchAggregateValueResponse {
+            advance_distance: advances.get(&key).copied().unwrap_or(0.0),
+            key,
+            touch_count,
+        })
+        .collect();
+    values.sort_by(|left, right| {
+        right
+            .touch_count
+            .cmp(&left.touch_count)
+            .then_with(|| left.key.cmp(&right.key))
+    });
+    values
+}
+
+fn touch_cohort_label(key: &str) -> &'static str {
+    match key {
+        "player" => "You",
+        "teammates" => "Teammates",
+        "opponents" => "Opponents",
+        _ => "Unknown",
     }
 }
 
@@ -1606,7 +2778,8 @@ async fn load_replay_set_stat_count_rows(
             et.display_name,
             et.category,
             COUNT(DISTINCT event.id) AS event_count,
-            0::bigint AS teammate_event_count
+            0::bigint AS teammate_event_count,
+            0::bigint AS opponent_event_count
         FROM replays r
         JOIN play_events event
           ON event.replay_id = r.id
@@ -1641,10 +2814,10 @@ async fn load_replay_set_stat_count_rows(
 ///
 /// Reads the materialized `player_replay_event_counts` table when enabled and
 /// usable, falling back to the live `play_event_subjects`/`play_events` scan
-/// otherwise. The materialization is gated by `materialized_stat_counts` (off
-/// until the reprocess backfill is complete and parity-verified) and cannot
-/// serve the `kickoff_spawn` filter -- a per-event-id predicate the per-(player,
-/// type) counts cannot reproduce, which the lifetime stats page never sets.
+/// otherwise. The materialization is gated by `materialized_stat_counts` and
+/// cannot serve the `kickoff_spawn` filter -- a per-event-id predicate the
+/// per-(player, type) counts cannot reproduce, which the lifetime stats page
+/// never sets.
 async fn load_player_stat_count_rows(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
@@ -1684,20 +2857,33 @@ async fn load_player_stat_count_rows_live(
         r#"
         ),
         target_events AS MATERIALIZED (
-            SELECT DISTINCT event.id, event.event_type_id
+            SELECT DISTINCT
+                event.id,
+                CASE
+                    WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                        THEN death_event_type.id
+                    ELSE event.event_type_id
+                END AS event_type_id
             FROM target_appearances appearance
             JOIN play_event_subjects subject
               ON subject.replay_player_id = appearance.id
             JOIN play_events event
               ON event.id = subject.event_id
              AND event.analysis_run_id = appearance.run_id
+            JOIN event_types source_event_type
+              ON source_event_type.id = event.event_type_id
+            JOIN event_types death_event_type
+              ON death_event_type.key = 'death'
             "#,
     );
     append_user_facing_stat_event_join_filter(&mut query, "event");
-    append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
     append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
     query.push(
         r#"
+              AND NOT (
+                    source_event_type.key = 'demolition'
+                    AND subject.role NOT IN ('attacker', 'victim')
+                  )
         ),
         target_stats AS (
             SELECT
@@ -1707,6 +2893,11 @@ async fn load_player_stat_count_rows_live(
                 COUNT(*) AS event_count
             FROM target_events
             JOIN event_types et ON et.id = target_events.event_type_id
+            "#,
+    );
+    append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+    query.push(
+        r#"
             GROUP BY et.key, et.display_name, et.category
         )
         "#,
@@ -1728,20 +2919,33 @@ async fn load_player_stat_count_rows_live(
                  AND teammate.id <> target.id
             ),
             teammate_events AS MATERIALIZED (
-                SELECT DISTINCT event.id, event.event_type_id
+                SELECT DISTINCT
+                    event.id,
+                    CASE
+                        WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                            THEN death_event_type.id
+                        ELSE event.event_type_id
+                    END AS event_type_id
                 FROM teammate_appearances appearance
                 JOIN play_event_subjects subject
                   ON subject.replay_player_id = appearance.id
                 JOIN play_events event
                   ON event.id = subject.event_id
                  AND event.analysis_run_id = appearance.run_id
+                JOIN event_types source_event_type
+                  ON source_event_type.id = event.event_type_id
+                JOIN event_types death_event_type
+                  ON death_event_type.key = 'death'
                 "#,
         );
         append_user_facing_stat_event_join_filter(&mut query, "event");
-        append_stat_term_event_filter(&mut query, "event", &filters.stat_terms);
         append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
         query.push(
             r#"
+                  AND NOT (
+                        source_event_type.key = 'demolition'
+                        AND subject.role NOT IN ('attacker', 'victim')
+                      )
             ),
             teammate_stats AS (
                 SELECT
@@ -1751,19 +2955,89 @@ async fn load_player_stat_count_rows_live(
                     COUNT(*) AS event_count
                 FROM teammate_events
                 JOIN event_types et ON et.id = teammate_events.event_type_id
+                "#,
+        );
+        append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+        query.push(
+            r#"
                 GROUP BY et.key, et.display_name, et.category
+            ),
+            opponent_appearances AS MATERIALIZED (
+                SELECT DISTINCT
+                    opponent.id,
+                    opponent.replay_id,
+                    target.run_id
+                FROM target_appearances target
+                JOIN replay_players opponent
+                  ON opponent.replay_id = target.replay_id
+                 AND opponent.team IS NOT NULL
+                 AND target.team IS NOT NULL
+                 AND opponent.team <> target.team
+            ),
+            opponent_events AS MATERIALIZED (
+                SELECT DISTINCT
+                    event.id,
+                    CASE
+                        WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                            THEN death_event_type.id
+                        ELSE event.event_type_id
+                    END AS event_type_id
+                FROM opponent_appearances appearance
+                JOIN play_event_subjects subject
+                  ON subject.replay_player_id = appearance.id
+                JOIN play_events event
+                  ON event.id = subject.event_id
+                 AND event.analysis_run_id = appearance.run_id
+                JOIN event_types source_event_type
+                  ON source_event_type.id = event.event_type_id
+                JOIN event_types death_event_type
+                  ON death_event_type.key = 'death'
+                "#,
+        );
+        append_user_facing_stat_event_join_filter(&mut query, "event");
+        append_event_kickoff_spawn_filter(&mut query, filters, "event.id");
+        query.push(
+            r#"
+                  AND NOT (
+                        source_event_type.key = 'demolition'
+                        AND subject.role NOT IN ('attacker', 'victim')
+                      )
+            ),
+            opponent_stats AS (
+                SELECT
+                    et.key,
+                    et.display_name,
+                    et.category,
+                    COUNT(*) AS event_count
+                FROM opponent_events
+                JOIN event_types et ON et.id = opponent_events.event_type_id
+                "#,
+        );
+        append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
+        query.push(
+            r#"
+                GROUP BY et.key, et.display_name, et.category
+            ),
+            stat_keys AS (
+                SELECT key FROM target_stats
+                UNION
+                SELECT key FROM teammate_stats
+                UNION
+                SELECT key FROM opponent_stats
             )
             SELECT
-                COALESCE(target_stats.key, teammate_stats.key) AS key,
-                COALESCE(target_stats.display_name, teammate_stats.display_name) AS display_name,
-                COALESCE(target_stats.category, teammate_stats.category) AS category,
+                stat_keys.key,
+                COALESCE(target_stats.display_name, teammate_stats.display_name, opponent_stats.display_name) AS display_name,
+                COALESCE(target_stats.category, teammate_stats.category, opponent_stats.category) AS category,
                 COALESCE(target_stats.event_count, 0) AS event_count,
-                COALESCE(teammate_stats.event_count, 0) AS teammate_event_count
-            FROM target_stats
-            FULL OUTER JOIN teammate_stats
-              ON teammate_stats.key = target_stats.key
+                COALESCE(teammate_stats.event_count, 0) AS teammate_event_count,
+                COALESCE(opponent_stats.event_count, 0) AS opponent_event_count
+            FROM stat_keys
+            LEFT JOIN target_stats ON target_stats.key = stat_keys.key
+            LEFT JOIN teammate_stats ON teammate_stats.key = stat_keys.key
+            LEFT JOIN opponent_stats ON opponent_stats.key = stat_keys.key
             ORDER BY
-                GREATEST(COALESCE(target_stats.event_count, 0), COALESCE(teammate_stats.event_count, 0)) DESC,
+                GREATEST(COALESCE(target_stats.event_count, 0), COALESCE(teammate_stats.event_count, 0), COALESCE(opponent_stats.event_count, 0)) DESC,
                 category,
                 display_name,
                 key
@@ -1778,7 +3052,8 @@ async fn load_player_stat_count_rows_live(
                 display_name,
                 category,
                 event_count,
-                0::bigint AS teammate_event_count
+                0::bigint AS teammate_event_count,
+                0::bigint AS opponent_event_count
             FROM target_stats
             ORDER BY event_count DESC, category, display_name, key
             LIMIT
@@ -1844,7 +3119,9 @@ async fn load_player_stat_count_rows_materialized(
     );
 
     if filters.include_teammates {
-        // Co-players sharing the target's (replay, team), excluding the target.
+        // Co-players sharing the target's replay, split into same-team and
+        // opponent cohorts. These are pooled player-appearance totals, so their
+        // rates use the pooled cohort active-time denominators loaded above.
         query.push(
             r#"
             ,
@@ -1866,25 +3143,43 @@ async fn load_player_stat_count_rows_materialized(
         query.push(
             r#")
                 GROUP BY counts.event_type_id
+            ),
+            opponent_stats AS (
+                SELECT counts.event_type_id, SUM(counts.event_count) AS event_count
+                FROM target_appearances appearance
+                JOIN player_replay_event_counts counts
+                  ON counts.replay_id = appearance.replay_id
+                 AND counts.team IS NOT NULL
+                 AND appearance.team IS NOT NULL
+                 AND counts.team <> appearance.team
+                GROUP BY counts.event_type_id
+            ),
+            stat_ids AS (
+                SELECT event_type_id FROM target_stats
+                UNION
+                SELECT event_type_id FROM teammate_stats
+                UNION
+                SELECT event_type_id FROM opponent_stats
             )
             SELECT
                 et.key,
                 et.display_name,
                 et.category,
                 COALESCE(target_stats.event_count, 0) AS event_count,
-                COALESCE(teammate_stats.event_count, 0) AS teammate_event_count
-            FROM target_stats
-            FULL OUTER JOIN teammate_stats
-              ON teammate_stats.event_type_id = target_stats.event_type_id
-            JOIN event_types et
-              ON et.id = COALESCE(target_stats.event_type_id, teammate_stats.event_type_id)
+                COALESCE(teammate_stats.event_count, 0) AS teammate_event_count,
+                COALESCE(opponent_stats.event_count, 0) AS opponent_event_count
+            FROM stat_ids
+            LEFT JOIN target_stats ON target_stats.event_type_id = stat_ids.event_type_id
+            LEFT JOIN teammate_stats ON teammate_stats.event_type_id = stat_ids.event_type_id
+            LEFT JOIN opponent_stats ON opponent_stats.event_type_id = stat_ids.event_type_id
+            JOIN event_types et ON et.id = stat_ids.event_type_id
             "#,
         );
         append_materialized_stat_term_filter(&mut query, &filters.stat_terms);
         query.push(
             r#"
             ORDER BY
-                GREATEST(COALESCE(target_stats.event_count, 0), COALESCE(teammate_stats.event_count, 0)) DESC,
+                GREATEST(COALESCE(target_stats.event_count, 0), COALESCE(teammate_stats.event_count, 0), COALESCE(opponent_stats.event_count, 0)) DESC,
                 et.category,
                 et.display_name,
                 et.key
@@ -1899,7 +3194,8 @@ async fn load_player_stat_count_rows_materialized(
                 et.display_name,
                 et.category,
                 target_stats.event_count AS event_count,
-                0::bigint AS teammate_event_count
+                0::bigint AS teammate_event_count,
+                0::bigint AS opponent_event_count
             FROM target_stats
             JOIN event_types et ON et.id = target_stats.event_type_id
             "#,
@@ -1936,12 +3232,14 @@ fn append_materialized_stat_term_filter<'args>(
 fn stat_count_row_from_db(row: sqlx::postgres::PgRow) -> Result<StatCountRow, sqlx::Error> {
     let event_count: i64 = row.try_get("event_count")?;
     let teammate_event_count: i64 = row.try_get("teammate_event_count")?;
+    let opponent_event_count: i64 = row.try_get("opponent_event_count")?;
     Ok(StatCountRow {
         key: row.try_get("key")?,
         display_name: row.try_get("display_name")?,
         category: row.try_get("category")?,
         event_count: event_count.max(0) as u64,
         teammate_event_count: teammate_event_count.max(0) as u64,
+        opponent_event_count: opponent_event_count.max(0) as u64,
     })
 }
 

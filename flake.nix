@@ -1,6 +1,15 @@
 {
   description = "rocket-sense development environment";
 
+  nixConfig = {
+    extra-substituters = [
+      "https://rocket-sense.cachix.org"
+    ];
+    extra-trusted-public-keys = [
+      "rocket-sense.cachix.org-1:URNAS7hJKReblHpK3kh5YiOiBFYTSyrJ5HAgawySFvU="
+    ];
+  };
+
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -52,6 +61,15 @@
         buildInputs = [
           pkgs.openssl
         ];
+        flakeCommitTimestamp =
+          input:
+          let
+            value = input.lastModifiedDate or "";
+          in
+          if builtins.stringLength value >= 14 then
+            "${builtins.substring 0 4 value}-${builtins.substring 4 2 value}-${builtins.substring 6 2 value}T${builtins.substring 8 2 value}:${builtins.substring 10 2 value}:${builtins.substring 12 2 value}Z"
+          else
+            "unknown";
         shellPackages =
           [
             rustToolchain
@@ -60,6 +78,7 @@
             # which runs `agenix -d`) using your SSH key.
             agenix.packages.${system}.default
             pkgs.cargo-watch
+            pkgs.cachix
             pkgs.curl
             # gcloud + the GKE auth plugin so kubectl can authenticate to the
             # railbird-gke cluster (its kubeconfig user execs
@@ -225,7 +244,7 @@
           version = "0.1.0";
           src = sourceWithSubtrActor;
           cargoExtraArgs = "-p rocket-sense-server";
-          RUST_MIN_STACK = "268435456";
+          RUST_MIN_STACK = "536870912";
           strictDeps = true;
           inherit nativeBuildInputs buildInputs;
         };
@@ -237,7 +256,9 @@
         );
         rocketSenseServer = craneLib.buildPackage (rocketSenseServerCommonArgs // {
           ROCKET_SENSE_GIT_SHA = self.rev or self.dirtyRev or "unknown";
+          ROCKET_SENSE_GIT_COMMIT_TIMESTAMP = flakeCommitTimestamp self;
           SUBTR_ACTOR_GIT_SHA = subtr-actor-src.rev or "unknown";
+          SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP = flakeCommitTimestamp subtr-actor-src;
           ROCKET_SENSE_WEB_DIST = rocketSenseWeb;
           # subtr-actor static player/stats/review assets, built from the
           # submodule flake instead of committed under static/subtr-actor.

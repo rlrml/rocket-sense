@@ -21,7 +21,19 @@ export function playerProfilePath(
   platformPlayerId: string | null | undefined,
 ): string | null {
   if (!platform || !platformPlayerId) return null;
-  return `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`;
+  return playerProfileIdPath(platform, platformPlayerId);
+}
+
+export function playerProfileIdPath(platform: string, platformPlayerId: string): string {
+  return `/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(platformPlayerId)}`;
+}
+
+export function playerStatProfileIdPath(
+  platform: string,
+  platformPlayerId: string,
+  statGroup: string,
+): string {
+  return `${playerProfileIdPath(platform, platformPlayerId)}/stats/${encodeURIComponent(statGroup)}`;
 }
 
 export function playerDisplayName(

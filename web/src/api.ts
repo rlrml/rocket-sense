@@ -1,6 +1,7 @@
 import type {
   AccessTokenResponse,
   AuthOptionsResponse,
+  BoostPadControlResponse,
   BoostTracksResponse,
   CurrentUserResponse,
   EventStatSummaryResponse,
@@ -8,12 +9,14 @@ import type {
   GroupBoostTotalsResponse,
   LinkedIdentitiesResponse,
   ListReplayGroupsResponse,
+  ListReplayGroupManagersResponse,
   ListReplaysResponse,
   UploadsLeaderboardResponse,
   AppearancesLeaderboardResponse,
   EventLeaderboardResponse,
   StatLeaderboardResponse,
   MechanicEventsResponse,
+  MovementSummaryResponse,
   PlayerProfileResponse,
   PlayerBoostTotalsResponse,
   PlayerStatOverviewResponse,
@@ -28,6 +31,7 @@ import type {
   StatAggregateSetResponse,
   PossessionSummaryResponse,
   PositioningSummaryResponse,
+  UserProfileResponse,
 } from "./types";
 
 const tokenKey = "rocket_sense_access_token";
@@ -110,6 +114,10 @@ export function listReplays(searchParams: URLSearchParams): Promise<ListReplaysR
   });
 }
 
+export function getUserProfile(userId: string): Promise<UserProfileResponse> {
+  return request<UserProfileResponse>(`/api/v1/users/${encodeURIComponent(userId)}`);
+}
+
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
 }
@@ -184,6 +192,38 @@ export function removeReplaysFromGroup(
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ replay_ids: replayIds }),
     },
+  );
+}
+
+export function listReplayGroupManagers(groupId: string): Promise<ListReplayGroupManagersResponse> {
+  return request<ListReplayGroupManagersResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/managers`,
+  );
+}
+
+// Identify the invitee by email (matched case-insensitively against an existing
+// user) or by user_id. The target must already have signed in at least once.
+export function addReplayGroupManager(
+  groupId: string,
+  target: { email: string } | { user_id: string },
+): Promise<ListReplayGroupManagersResponse> {
+  return request<ListReplayGroupManagersResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/managers`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(target),
+    },
+  );
+}
+
+export function removeReplayGroupManager(
+  groupId: string,
+  userId: string,
+): Promise<ListReplayGroupManagersResponse> {
+  return request<ListReplayGroupManagersResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/managers/${encodeURIComponent(userId)}`,
+    { method: "DELETE" },
   );
 }
 
@@ -284,12 +324,21 @@ export function getPlayerStatAggregates(
   platformPlayerId: string,
   searchParams: URLSearchParams,
   statTerms: readonly string[] = [],
+  options: {
+    includeRotationHistogram?: boolean;
+    groupBy?: "playlist" | null;
+  } = {},
 ): Promise<StatAggregateSetResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
   params.set("include-teammates", "true");
-  params.set("group-by", "playlist");
   params.set("count", "200");
+  if (options.groupBy) {
+    params.set("group-by", options.groupBy);
+  }
+  if (options.includeRotationHistogram != null) {
+    params.set("include-rotation-histogram", String(options.includeRotationHistogram));
+  }
   for (const term of statTerms) {
     params.append("stat-term", term);
   }
@@ -361,6 +410,16 @@ export function getPlayerPositioningSummary(
   return request<PositioningSummaryResponse>(
     `/api/v1/stats/positioning/summary?${params.toString()}`,
   );
+}
+
+export function getPlayerMovementSummary(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<MovementSummaryResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<MovementSummaryResponse>(`/api/v1/stats/movement/summary?${params.toString()}`);
 }
 
 export async function listReplayEvents(
@@ -443,8 +502,17 @@ export async function listReplayGroupEvents(
 export async function listPlayerEvents(
   playerId: string,
   eventTypes: string[] = [],
+  searchParams: URLSearchParams = new URLSearchParams(),
 ): Promise<MechanicEventsResponse> {
-  const cacheKey = replayEventsKey(`player:${playerId}`, eventTypes, null);
+  const scopedParams = new URLSearchParams(searchParams);
+  scopedParams.set("player-id", playerId);
+  scopedParams.delete("count");
+  scopedParams.delete("offset");
+  const cacheKey = replayEventsKey(
+    `player:${playerId}?${scopedParams.toString()}`,
+    eventTypes,
+    null,
+  );
   const cached = getCachedReplayEvents(cacheKey);
   if (cached) return cached;
 
@@ -453,11 +521,9 @@ export async function listPlayerEvents(
   let nextOffset: number | null = 0;
 
   while (nextOffset != null && events.length < maxReplayEvents) {
-    const params = new URLSearchParams({
-      "player-id": playerId,
-      count: String(eventPageSize),
-      offset: String(offset),
-    });
+    const params = new URLSearchParams(scopedParams);
+    params.set("count", String(eventPageSize));
+    params.set("offset", String(offset));
     for (const eventType of eventTypes) {
       params.append("event-type", eventType);
     }
@@ -504,6 +570,17 @@ export function getPlayerBoostTotals(
   return request<PlayerBoostTotalsResponse>(`/api/v1/stats/boost-totals?${params.toString()}`);
 }
 
+export function getPlayerBoostPadControl(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<BoostPadControlResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  params.set("include-teammates", "true");
+  return request<BoostPadControlResponse>(`/api/v1/stats/boost-pad-control?${params.toString()}`);
+}
+
 export function getPlayerProfile(
   platform: string,
   platformPlayerId: string,
@@ -512,7 +589,19 @@ export function getPlayerProfile(
   const query = searchParams.toString();
   const suffix = query ? `?${query}` : "";
   return request<PlayerProfileResponse>(
-    `/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}${suffix}`,
+    `/api/v1/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(platformPlayerId)}${suffix}`,
+  );
+}
+
+export function getPlayerProfileByRef(
+  platform: string,
+  playerRef: string,
+  searchParams: URLSearchParams,
+): Promise<PlayerProfileResponse> {
+  const query = searchParams.toString();
+  const suffix = query ? `?${query}` : "";
+  return request<PlayerProfileResponse>(
+    `/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(playerRef)}${suffix}`,
   );
 }
 

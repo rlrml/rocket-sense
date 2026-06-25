@@ -1,23 +1,24 @@
 import { type ReactNode, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
-  type ComparisonRow,
-  PlayerComparisonChart,
-  StatPlayerLabel,
-  statPlayerRank,
-  type StatPlayerRank,
-} from "./shared";
+  StatComparisonGrid,
+  StatComparisonPanel,
+  subjectIndexByTeam,
+  subjectMagnitudeRows,
+} from "./comparisonPanels";
+import { StatPlayerLabel, statPlayerRank, type StatPlayerRank } from "./shared";
 
-// Scoreboard core stats (score, goals, assists, saves, shots) are parsed onto
-// each ReplayPlayer directly — for a group they are summed across the group's
-// replays — so this page reads them off `players`. Demolitions are not on the
-// scoreboard, so they are counted from indexed events. The current subtr-actor
-// emits one "demolition" event carrying both sides — the attacker (top-level
-// `player_id`) takes a demo inflicted and `payload.victim` takes a death. Older
-// replays (indexed before that merge) instead have separate "kill" (demolisher)
-// and "death" (victim) events; both shapes are tallied so the page works without
+// Scoreboard core stats (score, goals, assists, saves, shots) are usually
+// parsed onto each ReplayPlayer directly. Some replay formats lack those header
+// stats, so the Core tab also loads subtr-actor's scoreboard delta stream and
+// reconstructs the totals as a fallback. Demolitions are not on the scoreboard,
+// so they are counted from indexed events. The current subtr-actor emits one
+// "demolition" event carrying both sides — the attacker (top-level `player_id`)
+// takes a demo inflicted and `payload.victim` takes a death. Older replays
+// (indexed before that merge) instead have separate "kill" (demolisher) and
+// "death" (victim) events; both shapes are tallied so the page works without
 // reprocessing.
-export const coreEventTypes: string[] = ["demolition", "kill", "death"];
+export const coreEventTypes: string[] = ["core_player_scoreboard", "demolition", "kill", "death"];
 
 interface CorePlayerSummary {
   key: string;
@@ -33,6 +34,7 @@ interface CorePlayerSummary {
   shots: number;
   demos: number;
   deaths: number;
+  teamGoals: number;
 }
 
 export function CoreDetail({
@@ -46,7 +48,6 @@ export function CoreDetail({
 }) {
   const summaries = useMemo(() => corePlayerSummaries(players, events), [players, events]);
   const teamColored = scope !== "group";
-  const playerIndexByKey = useMemo(() => teamLocalPlayerIndexByKey(players), [players]);
 
   if (!summaries.some(hasCoreData)) {
     return (
@@ -56,13 +57,7 @@ export function CoreDetail({
     );
   }
 
-  const scoreScale = Math.max(1, ...summaries.map((summary) => summary.score));
-  const goalScale = Math.max(1, ...summaries.map((summary) => summary.goals));
-  const assistScale = Math.max(1, ...summaries.map((summary) => summary.assists));
-  const saveScale = Math.max(1, ...summaries.map((summary) => summary.saves));
-  const shotScale = Math.max(1, ...summaries.map((summary) => summary.shots));
-  const demoScale = Math.max(1, ...summaries.map((summary) => summary.demos));
-  const deathScale = Math.max(1, ...summaries.map((summary) => summary.deaths));
+  const subjectIndexByKey = subjectIndexByTeam(summaries);
 
   return (
     <div className="core-detail">
@@ -70,153 +65,99 @@ export function CoreDetail({
         <CoreStatTable summaries={summaries} />
       </section>
 
-      <section className="chart-panel full-span">
-        <div className="core-comparison-grid">
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Score"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-score",
-              metric: (summary) => summary.score,
-              maxValue: scoreScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Goals"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-goals",
-              metric: (summary) => summary.goals,
-              maxValue: goalScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Assists"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-assists",
-              metric: (summary) => summary.assists,
-              maxValue: assistScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Saves"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-saves",
-              metric: (summary) => summary.saves,
-              maxValue: saveScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Shots"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-shots",
-              metric: (summary) => summary.shots,
-              maxValue: shotScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Demos"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-demos",
-              metric: (summary) => summary.demos,
-              maxValue: demoScale,
-              format: formatCount,
-            })}
-          />
-          <PlayerComparisonChart
-            className="core-chart"
-            title="Deaths"
-            rows={magnitudeRows(summaries, {
-              teamColored,
-              playerIndexByKey,
-              groupClassName: "core-bar-deaths",
-              metric: (summary) => summary.deaths,
-              maxValue: deathScale,
-              format: formatCount,
-            })}
-          />
-        </div>
-      </section>
+      <StatComparisonGrid>
+        <StatComparisonPanel
+          title="Score"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-score",
+            metric: (summary) => summary.score,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Goals"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-goals",
+            metric: (summary) => summary.goals,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Assists"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-assists",
+            metric: (summary) => summary.assists,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Assist %"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-assist-percentage",
+            metric: assistPercentage,
+            format: formatPercentage,
+            label: corePlayerLabel,
+            placeholder: "0%",
+          })}
+        />
+        <StatComparisonPanel
+          title="Saves"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-saves",
+            metric: (summary) => summary.saves,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Shots"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-shots",
+            metric: (summary) => summary.shots,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Demos"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-demos",
+            metric: (summary) => summary.demos,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+        <StatComparisonPanel
+          title="Deaths"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "core-bar-deaths",
+            metric: (summary) => summary.deaths,
+            format: formatCount,
+            label: corePlayerLabel,
+          })}
+        />
+      </StatComparisonGrid>
     </div>
   );
-}
-
-function magnitudeRows(
-  summaries: CorePlayerSummary[],
-  options: {
-    teamColored: boolean;
-    playerIndexByKey: Map<string, number>;
-    groupClassName: string;
-    metric: (summary: CorePlayerSummary) => number;
-    maxValue: number;
-    format: (value: number) => string;
-  },
-): ComparisonRow[] {
-  // Every player appears in every chart (sorted high -> low); a zero value reads
-  // as an empty track with a "0" placeholder rather than a dropped row.
-  return [...summaries]
-    .sort(
-      (left, right) =>
-        options.metric(right) - options.metric(left) || left.name.localeCompare(right.name),
-    )
-    .map((summary) => {
-      const value = options.metric(summary);
-      return {
-        key: summary.key,
-        label: corePlayerLabel(summary),
-        ariaLabel: `${summary.name}: ${options.format(value)}`,
-        segments: [
-          {
-            key: "value",
-            className: magnitudeSegmentClass(
-              summary,
-              options.teamColored,
-              options.playerIndexByKey,
-              options.groupClassName,
-            ),
-            label: summary.name,
-            value,
-          },
-        ],
-        total: value,
-        maxValue: options.maxValue,
-        valueInBar: value > 0 ? options.format(value) : undefined,
-        placeholder: value > 0 ? undefined : "0",
-      };
-    });
-}
-
-// Single game: tint by the player's team with a per-player shade. Group: there
-// is no replay-local team, so fall back to the fixed per-metric hue.
-function magnitudeSegmentClass(
-  summary: CorePlayerSummary,
-  teamColored: boolean,
-  playerIndexByKey: Map<string, number>,
-  groupClassName: string,
-): string {
-  if (!teamColored) return groupClassName;
-  return `team-segment-${teamClass(summary.team)} player-shade-${Math.min(playerIndexByKey.get(summary.key) ?? 0, 3)}`;
 }
 
 function CoreStatTable({ summaries }: { summaries: CorePlayerSummary[] }) {
@@ -274,6 +215,7 @@ type CoreStatSortKey =
   | "shots"
   | "demos"
   | "deaths"
+  | "assistPercentage"
   | "shooting";
 
 type CoreStatSort = {
@@ -294,6 +236,11 @@ const coreStatColumns: Array<{
   { key: "score", label: "Score", render: (summary) => formatCount(summary.score) },
   { key: "goals", label: "Goals", render: (summary) => formatCount(summary.goals) },
   { key: "assists", label: "Assists", render: (summary) => formatCount(summary.assists) },
+  {
+    key: "assistPercentage",
+    label: "Assist %",
+    render: (summary) => formatAssistPercentage(summary),
+  },
   { key: "saves", label: "Saves", render: (summary) => formatCount(summary.saves) },
   { key: "shots", label: "Shots", render: (summary) => formatCount(summary.shots) },
   { key: "demos", label: "Demos", render: (summary) => formatCount(summary.demos) },
@@ -311,6 +258,7 @@ function corePlayerLabel(summary: CorePlayerSummary) {
       className={`core-table-player team-accent-${teamClass(summary.team)}`}
       name={summary.name}
       platform={summary.platform}
+      platformPlayerId={summary.platformPlayerId}
       profilePath={playerProfilePath(summary)}
       rank={summary.rank}
       subtitle={teamLabel(summary.team)}
@@ -338,6 +286,8 @@ function coreStatSortValue(summary: CorePlayerSummary, key: CoreStatSortKey): nu
   switch (key) {
     case "name":
       return 0;
+    case "assistPercentage":
+      return assistPercentage(summary) ?? Number.NEGATIVE_INFINITY;
     case "shooting":
       return shootingPercentage(summary) ?? Number.NEGATIVE_INFINITY;
     default:
@@ -350,8 +300,10 @@ function corePlayerSummaries(
   events: MechanicEventResponse[],
 ): CorePlayerSummary[] {
   const { inflicted, taken } = demoCountsByPlayerKey(players, events);
-  return players.map((player, index) => {
+  const scoreboardTotals = scoreboardTotalsByPlayerKey(players, events);
+  const summaries = players.map((player, index) => {
     const key = playerKey(player, index);
+    const fallback = scoreboardTotals.get(key);
     return {
       key,
       name: player.name || player.platform_player_id || "Unknown",
@@ -359,15 +311,66 @@ function corePlayerSummaries(
       platformPlayerId: player.platform_player_id,
       rank: statPlayerRank(player),
       team: player.team,
-      score: numberOr(player.score),
-      goals: numberOr(player.goals),
-      assists: numberOr(player.assists),
-      saves: numberOr(player.saves),
-      shots: numberOr(player.shots),
+      score: numberOr(player.score, fallback?.score),
+      goals: numberOr(player.goals, fallback?.goals),
+      assists: numberOr(player.assists, fallback?.assists),
+      saves: numberOr(player.saves, fallback?.saves),
+      shots: numberOr(player.shots, fallback?.shots),
       demos: inflicted.get(key) ?? 0,
       deaths: taken.get(key) ?? 0,
+      teamGoals: 0,
     };
   });
+  const totalGoals = summaries.reduce((total, summary) => total + summary.goals, 0);
+  const goalsByTeam = new Map<number, number>();
+  for (const summary of summaries) {
+    if (summary.team == null) continue;
+    goalsByTeam.set(summary.team, (goalsByTeam.get(summary.team) ?? 0) + summary.goals);
+  }
+  return summaries.map((summary) => ({
+    ...summary,
+    teamGoals: summary.team == null ? totalGoals : (goalsByTeam.get(summary.team) ?? 0),
+  }));
+}
+
+type ScoreboardTotals = Pick<CorePlayerSummary, "score" | "goals" | "assists" | "saves" | "shots">;
+
+function scoreboardTotalsByPlayerKey(
+  players: ReplayPlayer[],
+  events: MechanicEventResponse[],
+): Map<string, ScoreboardTotals> {
+  const totals = new Map<string, ScoreboardTotals>();
+  const increment = (
+    event: MechanicEventResponse,
+    field: keyof ScoreboardTotals,
+    value: unknown,
+  ) => {
+    if (typeof value !== "number" || !Number.isFinite(value)) return;
+    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
+    if (index < 0) return;
+    const key = playerKey(players[index], index);
+    const current = totals.get(key) ?? {
+      score: 0,
+      goals: 0,
+      assists: 0,
+      saves: 0,
+      shots: 0,
+    };
+    current[field] += value;
+    totals.set(key, current);
+  };
+
+  for (const event of events) {
+    if (event.event_type !== "core_player_scoreboard") continue;
+    const payload = event.payload;
+    increment(event, "score", payload.score_delta);
+    increment(event, "goals", payload.goals_delta);
+    increment(event, "assists", payload.assists_delta);
+    increment(event, "saves", payload.saves_delta);
+    increment(event, "shots", payload.shots_delta);
+  }
+
+  return totals;
 }
 
 // Demolitions come in two indexed shapes. The current "demolition" event carries
@@ -470,29 +473,36 @@ function shootingPercentage(summary: CorePlayerSummary): number | null {
   return summary.shots > 0 ? (summary.goals / summary.shots) * 100 : null;
 }
 
+function assistPercentage(summary: CorePlayerSummary): number | null {
+  // Assist percentage is over goals the player could have assisted, which
+  // excludes the goals they scored themselves (you can't assist your own goal).
+  const assistableGoals = summary.teamGoals - summary.goals;
+  return assistableGoals > 0 ? (summary.assists / assistableGoals) * 100 : null;
+}
+
+function formatPercentage(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+function formatAssistPercentage(summary: CorePlayerSummary): string {
+  const value = assistPercentage(summary);
+  if (value == null) return "—";
+  return formatPercentage(value);
+}
+
 function formatShootingPercentage(summary: CorePlayerSummary): string {
   const value = shootingPercentage(summary);
   if (value == null) return "—";
-  return `${Math.round(value)}%`;
+  return formatPercentage(value);
 }
 
 function formatCount(value: number): string {
   return value.toLocaleString();
 }
 
-function numberOr(value: number | null | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function teamLocalPlayerIndexByKey(players: ReplayPlayer[]): Map<string, number> {
-  const indexes = new Map<string, number>();
-  const counts = new Map<number | null, number>();
-  players.forEach((player, index) => {
-    const next = counts.get(player.team) ?? 0;
-    indexes.set(playerKey(player, index), next);
-    counts.set(player.team, next + 1);
-  });
-  return indexes;
+function numberOr(value: number | null | undefined, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  return typeof fallback === "number" && Number.isFinite(fallback) ? fallback : 0;
 }
 
 function playerKey(player: ReplayPlayer, index: number): string {
@@ -503,7 +513,7 @@ function playerKey(player: ReplayPlayer, index: number): string {
 
 function playerProfilePath(summary: CorePlayerSummary): string | null {
   if (!summary.platform || !summary.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/core`;
+  return `/players/${encodeURIComponent(summary.platform)}/id/${encodeURIComponent(summary.platformPlayerId)}/stats/core`;
 }
 
 function normalizePlatform(value: string): string {

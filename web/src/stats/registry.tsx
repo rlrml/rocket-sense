@@ -1,6 +1,7 @@
 import {
   BatteryCharging,
   CircleDotDashed,
+  Crosshair,
   Gauge,
   Goal,
   Hand,
@@ -24,6 +25,7 @@ import { MovementDetail, movementEventTypes, movementMechanicEventTypes } from "
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
 import { RotationDetail, rotationEventTypes } from "./rotation";
+import { ShotMapDetail, shotMapEventTypes } from "./shotMap";
 import { TouchesDetail, touchEventTypes } from "./touches";
 
 export interface StatDetailProps {
@@ -33,6 +35,7 @@ export interface StatDetailProps {
   replayId?: string;
   groupId?: string;
   scope?: "replay" | "group";
+  subjectSubtitle?: string;
 }
 
 export interface StatGroup {
@@ -55,8 +58,19 @@ export const statGroups: StatGroup[] = [
     id: "core",
     label: "Core",
     icon: Trophy,
-    description: "Scoreboard core stats: score, goals, assists, saves, shots, and shooting %.",
-    terms: ["score", "goal", "assist", "save", "shot", "shooting"],
+    description:
+      "Scoreboard core stats: score, goals, assists, assist %, saves, shots, shooting %, demos, and deaths.",
+    terms: [
+      "score",
+      "goal",
+      "assist",
+      "assist percentage",
+      "save",
+      "shot",
+      "shooting",
+      "demo",
+      "death",
+    ],
     completed: true,
     usesAggregateStats: false,
     eventTypes: coreEventTypes,
@@ -74,6 +88,17 @@ export const statGroups: StatGroup[] = [
     // Goal buildup diagrams place the real attributed touches, so load them too.
     eventTypes: [...goalEventTypes, "touch"],
     Detail: GoalsDetail,
+  },
+  {
+    id: "shot-map",
+    label: "Shot Map",
+    icon: Crosshair,
+    description: "3D shot and goal locations in the replay player scene.",
+    terms: ["shot", "goal", "finish", "touch", "heatmap", "map"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: shotMapEventTypes,
+    Detail: ShotMapDetail,
   },
   {
     id: "boost",
@@ -103,12 +128,10 @@ export const statGroups: StatGroup[] = [
     label: "Movement",
     icon: Gauge,
     description:
-      "Speed, aerial movement, ground movement, powerslides, speed flips, wavedashes, and half flips.",
+      "Speed, air/ground movement, powerslides, speed flips, wavedashes, and half flips.",
     terms: [
       "speed",
       "movement",
-      "aerial",
-      "air",
       "ground",
       "powerslide",
       "dodge",

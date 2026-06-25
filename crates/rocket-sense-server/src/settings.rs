@@ -172,7 +172,7 @@ impl Settings {
                 .clamp(1, 4);
         let materialized_stat_counts = env::var("ROCKET_SENSE_MATERIALIZED_STAT_COUNTS")
             .map(|value| value == "1" || value.to_lowercase() == "true")
-            .unwrap_or(false);
+            .unwrap_or(true);
         let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
 
         Ok(Self {

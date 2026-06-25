@@ -15,7 +15,7 @@ use axum::{
         StatusCode,
     },
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use bytes::Bytes;
@@ -72,6 +72,14 @@ pub fn router() -> Router<AppState> {
             get(list_replay_group_replays)
                 .post(add_replay_group_replays)
                 .delete(remove_replay_group_replays),
+        )
+        .route(
+            "/replay-groups/{group_id}/managers",
+            get(list_replay_group_managers).post(add_replay_group_manager),
+        )
+        .route(
+            "/replay-groups/{group_id}/managers/{user_id}",
+            delete(remove_replay_group_manager),
         )
         .route(
             "/replay-groups/{group_id}/stats/boost-totals",
@@ -140,6 +148,10 @@ pub struct ReplayUploaderResponse {
     pub id: Uuid,
     pub primary_email: Option<String>,
     pub display_name: Option<String>,
+    /// Auth provider the uploader signed in with (e.g. `steam`, `epic`,
+    /// `xbox`, `google`), used to badge the account's platform. `None` when the
+    /// uploader has no linked auth identity (e.g. legacy/dev accounts).
+    pub provider: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, ToSchema)]
@@ -316,6 +328,34 @@ pub struct ListReplayGroupsResponse {
     pub groups: Vec<ReplayGroupResponse>,
 }
 
+/// A user who may administer a replay group: either its creator
+/// (`is_creator = true`, always present) or a co-manager that was invited.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayGroupManagerResponse {
+    pub user_id: Uuid,
+    pub email: Option<String>,
+    pub display_name: Option<String>,
+    pub is_creator: bool,
+    pub added_by_user_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ListReplayGroupManagersResponse {
+    pub managers: Vec<ReplayGroupManagerResponse>,
+}
+
+/// Identify the user to grant management rights to. Provide exactly one of
+/// `user_id` or `email`; `email` is matched case-insensitively against an
+/// existing user's primary email.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct AddReplayGroupManagerRequest {
+    #[serde(default)]
+    pub user_id: Option<Uuid>,
+    #[serde(default)]
+    pub email: Option<String>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ReplayGroupReplayUpdateResponse {
     pub group: ReplayGroupResponse,
@@ -406,7 +446,7 @@ pub struct ListReplaysQuery {
     pub count: Option<u32>,
     /// Number of rows to skip.
     pub offset: Option<u32>,
-    /// Supported values: `upload-date`, `replay-date`.
+    /// Supported values: `replay-date` (default), `upload-date`.
     #[serde(rename = "sort-by")]
     pub sort_by: Option<String>,
     /// Supported values: `asc`, `desc`.
@@ -1114,6 +1154,144 @@ pub async fn remove_replay_group_replays(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/replay-groups/{group_id}/managers",
+    tag = "replay-groups",
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Replay group managers", body = ListReplayGroupManagersResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not manage this replay group"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_replay_group_managers(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<ListReplayGroupManagersResponse>, ApiError> {
+    let db = require_db(&state)?;
+    // Only people who can administer the group may see who else can.
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    let managers = load_replay_group_managers(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(ListReplayGroupManagersResponse { managers }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replay-groups/{group_id}/managers",
+    tag = "replay-groups",
+    request_body = AddReplayGroupManagerRequest,
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Updated manager list", body = ListReplayGroupManagersResponse),
+        (status = 400, description = "Request was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not manage this replay group"),
+        (status = 404, description = "Replay group or target user was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn add_replay_group_manager(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+    Json(request): Json<AddReplayGroupManagerRequest>,
+) -> Result<Json<ListReplayGroupManagersResponse>, ApiError> {
+    let db = require_db(&state)?;
+    // Any existing manager (or the creator/admin) may invite another manager.
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let target_user_id = resolve_manager_target_user(db, &request).await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO replay_group_managers (group_id, user_id, added_by_user_id)
+        VALUES ($1, $2, $3)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(group_id)
+    .bind(target_user_id)
+    .bind(auth_user.id)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let managers = load_replay_group_managers(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(ListReplayGroupManagersResponse { managers }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/replay-groups/{group_id}/managers/{user_id}",
+    tag = "replay-groups",
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id"),
+        ("user_id" = Uuid, Path, description = "User to remove as a manager")
+    ),
+    responses(
+        (status = 200, description = "Updated manager list", body = ListReplayGroupManagersResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not manage this replay group"),
+        (status = 404, description = "Replay group or manager was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn remove_replay_group_manager(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((group_id, user_id)): Path<(Uuid, Uuid)>,
+) -> Result<Json<ListReplayGroupManagersResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+
+    let result =
+        sqlx::query("DELETE FROM replay_group_managers WHERE group_id = $1 AND user_id = $2")
+            .bind(group_id)
+            .bind(user_id)
+            .execute(db)
+            .await
+            .map_err(ApiError::internal)?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "that user is not a manager of this replay group",
+        ));
+    }
+
+    let managers = load_replay_group_managers(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(ListReplayGroupManagersResponse { managers }))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/replays/{replay_id}/file",
     tag = "replays",
     params(
@@ -1614,7 +1792,7 @@ enum SortBy {
 
 impl SortBy {
     fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
-        match value.unwrap_or("upload-date") {
+        match value.unwrap_or("replay-date") {
             "upload-date" | "created_at" => Ok(Self::UploadDate),
             "replay-date" | "replay_date" => Ok(Self::ReplayDate),
             other => Err(ApiError::bad_request(format!(
@@ -2285,6 +2463,20 @@ async fn require_replay_group_manager(
         return Ok(());
     }
 
+    // Co-managers added to replay_group_managers have the same (flat) rights as
+    // the creator. The creator is never stored there, so they cannot be removed.
+    let is_manager: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM replay_group_managers WHERE group_id = $1 AND user_id = $2)",
+    )
+    .bind(group_id)
+    .bind(auth_user.id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    if is_manager {
+        return Ok(());
+    }
+
     let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)
         .await
         .map_err(ApiError::internal)?;
@@ -2295,6 +2487,102 @@ async fn require_replay_group_manager(
             StatusCode::FORBIDDEN,
             "you do not have permission to modify this replay group",
         ))
+    }
+}
+
+/// Return everyone who can administer the group: the creator (`is_creator =
+/// true`, listed first) followed by any invited co-managers, alphabetised by
+/// display name then email.
+async fn load_replay_group_managers(
+    pool: &PgPool,
+    group_id: Uuid,
+) -> Result<Vec<ReplayGroupManagerResponse>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            u.id AS user_id,
+            u.primary_email AS email,
+            u.display_name AS display_name,
+            (u.id = g.created_by_user_id) AS is_creator,
+            m.added_by_user_id AS added_by_user_id,
+            COALESCE(m.created_at, g.created_at) AS created_at
+        FROM replay_groups g
+        JOIN users u
+          ON u.id = g.created_by_user_id
+          OR u.id IN (
+              SELECT user_id FROM replay_group_managers WHERE group_id = g.id
+          )
+        LEFT JOIN replay_group_managers m
+          ON m.group_id = g.id AND m.user_id = u.id
+        WHERE g.id = $1
+        ORDER BY is_creator DESC, u.display_name NULLS LAST, u.primary_email NULLS LAST
+        "#,
+    )
+    .bind(group_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter()
+        .map(|row| {
+            Ok(ReplayGroupManagerResponse {
+                user_id: row.try_get("user_id")?,
+                email: row.try_get("email")?,
+                display_name: row.try_get("display_name")?,
+                is_creator: row.try_get("is_creator")?,
+                added_by_user_id: row.try_get("added_by_user_id")?,
+                created_at: row.try_get("created_at")?,
+            })
+        })
+        .collect()
+}
+
+/// Resolve the user named in an add-manager request to an existing user id.
+/// Exactly one of `user_id` / `email` must be supplied; the user must already
+/// exist (we cannot grant rights to someone who has never signed in).
+async fn resolve_manager_target_user(
+    pool: &PgPool,
+    request: &AddReplayGroupManagerRequest,
+) -> Result<Uuid, ApiError> {
+    let email = request
+        .email
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+
+    match (request.user_id, email) {
+        (Some(_), Some(_)) => Err(ApiError::bad_request(
+            "provide either user_id or email, not both",
+        )),
+        (None, None) => Err(ApiError::bad_request(
+            "a manager must be identified by user_id or email",
+        )),
+        (Some(user_id), None) => {
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM users WHERE id = $1)")
+                    .bind(user_id)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(ApiError::internal)?;
+            if exists {
+                Ok(user_id)
+            } else {
+                Err(ApiError::new(StatusCode::NOT_FOUND, "no such user"))
+            }
+        }
+        (None, Some(email)) => {
+            let user_id: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM users WHERE lower(primary_email) = lower($1)")
+                    .bind(email)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(ApiError::internal)?;
+            user_id.ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "no user with that email has signed in yet",
+                )
+            })
+        }
     }
 }
 
@@ -2737,6 +3025,16 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             uploader.id AS uploader_id,
             uploader.primary_email AS uploader_primary_email,
             uploader.display_name AS uploader_display_name,
+            (
+                -- earliest-linked provider; array_agg+subscript avoids a LIMIT
+                -- so the page-query's single LIMIT/OFFSET invariant still holds
+                SELECT (array_agg(
+                    ai.provider_name
+                    ORDER BY ai.created_at, ai.provider_name, ai.subject
+                ))[1]
+                FROM auth_identities ai
+                WHERE ai.user_id = uploader.id
+            ) AS uploader_provider,
             r.storage_key,
             r.external_replay_id,
             r.playlist,
@@ -2891,6 +3189,7 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
                 id,
                 primary_email: row.try_get("uploader_primary_email")?,
                 display_name: row.try_get("uploader_display_name")?,
+                provider: row.try_get("uploader_provider")?,
             })
         })
         .transpose()?;

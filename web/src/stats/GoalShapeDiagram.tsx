@@ -35,9 +35,9 @@ export interface GoalPathPlayer extends PathPlayerRef {
  *  subtr-actor's `scorer_last_touch` — the exact contact point, not a frame lookup. */
 export interface GoalScoringTouch {
   /** Ball position at the moment of the last touch (the touch point itself). */
-  ball: { x: number; y: number };
+  ball: { x: number; y: number; z?: number };
   /** Scorer's car position at that moment, if known (used to orient the car). */
-  player: { x: number; y: number } | null;
+  player: { x: number; y: number; z?: number } | null;
   team: number | null;
   /** subtr-actor touch id, so the matching buildup touch event can be de-duped. */
   touchId: number | null;
@@ -258,22 +258,20 @@ function buildGoalModel(
   if (scoringMark && scoringMark.color == null) scoringMark.color = scorerColor;
 
   // Prefer the real attributed touch events (the scoring touch is already excluded
-  // upstream by id, so we keep every other contact — both sides of a 50/50). Only
-  // when no touch data is available fall back to the proximity heuristic, which then
-  // needs a position de-dup to avoid drawing the scorer's own last contact twice.
+  // upstream by id, so we keep every other contact — both sides of a 50/50, and
+  // repeated touches by the same player during the visible window). Only when no
+  // touch data is available fall back to the proximity heuristic, which then needs
+  // a position de-dup to avoid drawing the scorer's own last contact twice.
   let buildupMarks: TouchMark[];
   if (buildupTouches) {
-    // Show every contact in the window — defensive challenges and opponent deflections
-    // are part of the story too, and their team colour makes them read as the other
-    // side. A player's repeated contacts still collapse to one marker. team_is_team_0
-    // is missing on older replays, so fall back to the car sitting on the touch point.
+    // Show every contact in the window — defensive challenges, opponent deflections,
+    // and repeat contacts by the same player are all part of the traced play.
+    // team_is_team_0 is missing on older replays, so fall back to the car sitting
+    // on the touch point.
     const sorted = [...buildupTouches]
       .sort((a, b) => a.frame - b.frame)
       .map((t) => ({ ...t, team: t.team ?? nearestPlayerTeam(replay, t.frame, t.at) }));
-    const collapsed = sorted.filter(
-      (t, i) => i === sorted.length - 1 || t.playerKey !== sorted[i + 1].playerKey,
-    );
-    buildupMarks = collapsed.map((t) => ({
+    buildupMarks = sorted.map((t) => ({
       at: projection.project(t.at.x, t.at.y),
       team: t.team,
       headingDeg: null,

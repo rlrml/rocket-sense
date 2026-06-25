@@ -83,7 +83,9 @@ fn write_index_html_consts(out_path: &Path, static_root: &Path) -> io::Result<()
 
 fn emit_build_metadata(repo_root: &Path) -> io::Result<()> {
     println!("cargo:rerun-if-env-changed=ROCKET_SENSE_GIT_SHA");
+    println!("cargo:rerun-if-env-changed=ROCKET_SENSE_GIT_COMMIT_TIMESTAMP");
     println!("cargo:rerun-if-env-changed=SUBTR_ACTOR_GIT_SHA");
+    println!("cargo:rerun-if-env-changed=SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP");
     println!("cargo:rerun-if-env-changed=SUBTR_ACTOR_VERSION");
     println!(
         "cargo:rerun-if-changed={}",
@@ -105,6 +107,13 @@ fn emit_build_metadata(repo_root: &Path) -> io::Result<()> {
     {
         println!("cargo:rustc-env=GIT_SHA={value}");
     }
+    if let Some(value) = env::var("ROCKET_SENSE_GIT_COMMIT_TIMESTAMP")
+        .ok()
+        .and_then(meaningful_timestamp)
+        .or_else(|| git_commit_timestamp(repo_root))
+    {
+        println!("cargo:rustc-env=GIT_COMMIT_TIMESTAMP={value}");
+    }
 
     let subtr_actor_root = repo_root.join("vendor/subtr-actor");
     if let Some(value) = env::var("SUBTR_ACTOR_GIT_SHA")
@@ -113,6 +122,13 @@ fn emit_build_metadata(repo_root: &Path) -> io::Result<()> {
         .or_else(|| git_rev_parse(&subtr_actor_root))
     {
         println!("cargo:rustc-env=SUBTR_ACTOR_GIT_SHA={value}");
+    }
+    if let Some(value) = env::var("SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP")
+        .ok()
+        .and_then(meaningful_timestamp)
+        .or_else(|| git_commit_timestamp(&subtr_actor_root))
+    {
+        println!("cargo:rustc-env=SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP={value}");
     }
 
     let subtr_actor_version = match env::var("SUBTR_ACTOR_VERSION")
@@ -145,11 +161,38 @@ fn meaningful_sha(value: String) -> Option<String> {
     }
 }
 
+fn meaningful_timestamp(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("unknown") {
+        None
+    } else {
+        Some(trimmed.to_owned())
+    }
+}
+
 fn git_rev_parse(repo_root: &Path) -> Option<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(repo_root)
         .arg("rev-parse")
+        .arg("HEAD")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let value = String::from_utf8(output.stdout).ok()?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| value.to_owned())
+}
+
+fn git_commit_timestamp(repo_root: &Path) -> Option<String> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(repo_root)
+        .arg("show")
+        .arg("-s")
+        .arg("--format=%cI")
         .arg("HEAD")
         .output()
         .ok()?;

@@ -1,6 +1,6 @@
-import { readFileSync, realpathSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
@@ -50,11 +50,38 @@ const apiProxy = {
   "/draco": { target: backendTarget, changeOrigin: true },
 };
 
+const playerAssetCandidates = [
+  fileURLToPath(new URL("./node_modules/@rlrml/player/dist", import.meta.url)),
+  fileURLToPath(new URL("./vendor/@rlrml/player/dist", import.meta.url)),
+];
+
+function playerAssetDir(): string {
+  const dir = playerAssetCandidates.find((candidate) => existsSync(candidate));
+  if (!dir) {
+    throw new Error(
+      `Could not find @rlrml/player dist assets in ${playerAssetCandidates.join(" or ")}`,
+    );
+  }
+  return dir;
+}
+
+function playerAssetPlugin(): Plugin {
+  const assetDir = playerAssetDir();
+
+  return {
+    name: "rocket-sense-player-assets",
+    closeBundle() {
+      const outDir = fileURLToPath(new URL("./dist/vendor/@rlrml/player/dist", import.meta.url));
+      cpSync(assetDir, outDir, { recursive: true });
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __SUBTR_ACTOR_REV__: JSON.stringify(subtrActorRev),
   },
-  plugins: [react()],
+  plugins: [react(), playerAssetPlugin()],
   // The replay player ships a web worker plus a wasm-bindgen module that load
   // via `new URL(..., import.meta.url)`. Keep them out of esbuild prebundling so
   // those asset URLs resolve correctly, and emit workers as ES modules.

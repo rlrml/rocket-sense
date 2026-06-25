@@ -29,13 +29,49 @@ mod tests;
 pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 
 // Per-replay materialization of `player_replay_event_counts` for one analysis
-// run ($1) and replay ($2). Mirrors the backfill SELECT in
-// migrations/0056_player_replay_event_counts.sql -- keep the two in sync,
-// including the user-facing `source_stream` exclusion list (the same set as
+// run ($1) and replay ($2). Keep this in sync with the user-facing
+// `source_stream` exclusion list (the same set as
 // AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL in api/stats.rs). Counts are deduped
 // per player identity (a player may hold more than one roster row in a replay),
-// matching the live query's `SELECT DISTINCT event.id`.
+// matching the live query's `SELECT DISTINCT event.id`. Modern demolition events
+// are role-mapped so attackers contribute to demos and victims to deaths.
 const INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL: &str = r#"
+        WITH counted_subjects AS (
+            SELECT
+                rp.replay_id,
+                rp.id AS replay_player_id,
+                rp.platform,
+                rp.platform_player_id,
+                rp.team,
+                CASE
+                    WHEN source_event_type.key = 'demolition' AND subject.role = 'victim'
+                        THEN death_event_type.id
+                    ELSE event.event_type_id
+                END AS event_type_id,
+                event.id AS event_id
+            FROM replay_players rp
+            JOIN play_event_subjects subject ON subject.replay_player_id = rp.id
+            JOIN play_events event
+              ON event.id = subject.event_id
+             AND event.analysis_run_id = $1
+            JOIN event_types source_event_type ON source_event_type.id = event.event_type_id
+            JOIN event_types death_event_type ON death_event_type.key = 'death'
+            WHERE rp.replay_id = $2
+              AND rp.platform IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform_player_id) <> ''
+              AND event.source_stream NOT IN (
+                    'positioning', 'boost_state', 'boost_ledger', 'movement',
+                    'rotation_player', 'rotation_role_span', 'rotation_depth_span',
+                    'rotation_role', 'ball_depth', 'field_third', 'field_half',
+                    'ball_proximity', 'powerslide'
+                  )
+              AND NOT (
+                    source_event_type.key = 'demolition'
+                    AND subject.role NOT IN ('attacker', 'victim')
+                  )
+        )
         INSERT INTO player_replay_event_counts (
             analysis_run_id,
             replay_id,
@@ -49,36 +85,929 @@ const INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL: &str = r#"
         )
         SELECT
             $1,
+            counted_subjects.replay_id,
+            (array_agg(counted_subjects.replay_player_id))[1],
+            concat(counted_subjects.platform, ':', counted_subjects.platform_player_id),
+            counted_subjects.platform,
+            counted_subjects.platform_player_id,
+            MIN(counted_subjects.team),
+            counted_subjects.event_type_id,
+            COUNT(DISTINCT counted_subjects.event_id)
+        FROM counted_subjects
+        GROUP BY
+            counted_subjects.replay_id,
+            counted_subjects.platform,
+            counted_subjects.platform_player_id,
+            counted_subjects.event_type_id
+        ON CONFLICT DO NOTHING
+        "#;
+
+// Per-replay materialization of `player_replay_first_man_stints` for one
+// analysis run ($1) and replay ($2). One row per first-man rotation stint with
+// its duration, baking in the same `state = 'first_man'` jsonb filter the live
+// histogram query applied -- keep in sync with `load_rotation_duration_histogram`
+// in api/stats.rs and the backfill in this module.
+const INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL: &str = r#"
+        INSERT INTO player_replay_first_man_stints (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            event_id,
+            duration_seconds
+        )
+        SELECT
+            $1,
             rp.replay_id,
-            (array_agg(rp.id))[1],
+            rp.id,
             concat(rp.platform, ':', rp.platform_player_id),
             rp.platform,
             rp.platform_player_id,
-            MIN(rp.team),
-            event.event_type_id,
-            COUNT(DISTINCT event.id)
+            rp.team,
+            event.id,
+            event.duration_seconds
         FROM replay_players rp
-        JOIN play_event_subjects subject ON subject.replay_player_id = rp.id
+        JOIN play_event_subjects subject
+          ON subject.replay_player_id = rp.id
+         AND subject.role = 'actor'
         JOIN play_events event
           ON event.id = subject.event_id
          AND event.analysis_run_id = $1
+         AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
+        JOIN event_types et ON et.id = event.event_type_id
+        LEFT JOIN play_event_attributes attributes ON attributes.event_id = event.id
         WHERE rp.replay_id = $2
           AND rp.platform IS NOT NULL
           AND btrim(rp.platform) <> ''
           AND rp.platform_player_id IS NOT NULL
           AND btrim(rp.platform_player_id) <> ''
-          AND event.source_stream NOT IN (
-                'positioning', 'boost_state', 'boost_ledger', 'movement',
-                'rotation_player', 'rotation_role_span', 'rotation_depth_span',
-                'rotation_role', 'ball_depth', 'field_third', 'field_half',
-                'ball_proximity', 'powerslide'
+          AND event.duration_seconds IS NOT NULL
+          AND event.duration_seconds > 0.0
+          AND (
+                (event.source_stream = 'rotation_first_man_stint' AND et.key = 'rotation_first_man_stint')
+             OR (event.source_stream = 'rotation_role' AND attributes.attributes->>'state' = 'first_man')
+          )
+        ON CONFLICT DO NOTHING
+        "#;
+
+// Per-replay materialization of `player_replay_positioning` for one analysis run
+// ($1) and replay ($2). One row per player, summing each positioning stream's
+// durations. Mirrors the per-event aggregation in api/positioning_stats.rs
+// (build_positioning_summary_query) but grouped per absolute player rather than
+// per target-relative cohort -- the read reconstructs cohorts by (replay, team).
+const INSERT_PLAYER_REPLAY_POSITIONING_SQL: &str = r#"
+        INSERT INTO player_replay_positioning (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            active_seconds, tracked_seconds,
+            defensive_third_seconds, neutral_third_seconds, offensive_third_seconds,
+            defensive_half_seconds, offensive_half_seconds,
+            behind_ball_seconds, level_with_ball_seconds, ahead_of_ball_seconds,
+            role_most_back_seconds, role_mid_seconds, role_most_forward_seconds,
+            role_other_seconds, role_no_teammates_seconds,
+            closest_team_seconds, closest_absolute_seconds, farthest_seconds,
+            distance_to_ball_weighted, distance_to_ball_weight,
+            distance_to_teammates_weighted, distance_to_teammates_weight
+        )
+        WITH positioning_events AS (
+            SELECT
+                actor.id AS replay_player_id,
+                actor.platform AS platform,
+                actor.platform_player_id AS platform_player_id,
+                actor.team AS team,
+                event.source_stream AS stream,
+                COALESCE(
+                    event.duration_seconds,
+                    CASE
+                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
+                        THEN GREATEST(event.end_time - event.start_time, 0)
+                        ELSE 0
+                    END,
+                    0
+                ) AS duration,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM play_events event
+            JOIN replay_players actor
+              ON actor.replay_id = event.replay_id
+             AND actor.platform IS NOT NULL
+             AND actor.platform_player_id IS NOT NULL
+             AND concat(actor.platform, ':', actor.platform_player_id) = event.primary_subject_id
+            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream IN (
+                'player_activity', 'field_third', 'field_half', 'ball_depth',
+                'depth_role', 'ball_proximity', 'positioning_distance'
               )
-        GROUP BY
+        )
+        SELECT
+            $1,
+            $2,
+            (array_agg(replay_player_id))[1],
+            concat(platform, ':', platform_player_id),
+            platform,
+            platform_player_id,
+            min(team),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'player_activity'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'defensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'neutral'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'offensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_half' AND payload->>'state' = 'defensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_half' AND payload->>'state' = 'offensive'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'behind_ball'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'level_with_ball'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'ahead_of_ball'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'most_back'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'mid'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'most_forward'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'other'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'no_teammates'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'closest_to_ball_team' = 'true'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'closest_to_ball_absolute' = 'true'), 0.0),
+            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'farthest_from_ball' = 'true'), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_ball') = 'number' THEN (payload->>'distance_to_ball')::float8 * duration ELSE 0 END), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_ball') = 'number' THEN duration ELSE 0 END), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_teammates') = 'number' THEN (payload->>'distance_to_teammates')::float8 * duration ELSE 0 END), 0.0),
+            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_teammates') = 'number' THEN duration ELSE 0 END), 0.0)
+        FROM positioning_events
+        GROUP BY platform, platform_player_id
+        ON CONFLICT DO NOTHING
+        "#;
+
+// Per-replay materialization of `player_replay_movement` for one analysis run
+// ($1) and replay ($2). One row per rostered player, with zero-valued movement
+// columns when the player has no movement events; the profile read depends on
+// those rows for correct cohort appearance counts.
+const INSERT_PLAYER_REPLAY_MOVEMENT_SQL: &str = r#"
+        INSERT INTO player_replay_movement (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            active_seconds,
+            total_distance,
+            speed_weighted,
+            speed_weight,
+            slow_seconds,
+            boost_seconds,
+            supersonic_seconds,
+            ground_seconds,
+            low_air_seconds,
+            high_air_seconds,
+            powerslide_count,
+            powerslide_seconds,
+            speed_flips,
+            wavedashes,
+            half_flips
+        )
+        WITH movement_events AS (
+            SELECT
+                event.primary_subject_id AS player_subject_id,
+                event_type.key AS event_type,
+                COALESCE(
+                    event.duration_seconds,
+                    CASE
+                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
+                        THEN GREATEST(event.end_time - event.start_time, 0)
+                        ELSE 0
+                    END,
+                    0
+                ) AS duration,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM play_events event
+            JOIN event_types event_type
+              ON event_type.id = event.event_type_id
+            LEFT JOIN play_event_payloads payload
+              ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.primary_subject_id IS NOT NULL
+              AND (
+                    event.source_stream IN ('movement', 'powerslide')
+                 OR event_type.key IN ('speed_flip', 'wavedash', 'half_flip')
+              )
+        ),
+        event_aggregates AS (
+            SELECT
+                player_subject_id,
+                COALESCE(SUM(
+                    CASE WHEN event_type = 'movement' THEN
+                        COALESCE(
+                            CASE WHEN jsonb_typeof(payload->'total_distance') = 'number' THEN (payload->>'total_distance')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'distance') = 'number' THEN (payload->>'distance')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'distance_traveled') = 'number' THEN (payload->>'distance_traveled')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'distance_uu') = 'number' THEN (payload->>'distance_uu')::float8 END,
+                            0.0
+                        )
+                    ELSE 0 END
+                ), 0.0) AS total_distance,
+                COALESCE(SUM(
+                    CASE WHEN event_type = 'movement' THEN
+                        COALESCE(
+                            CASE WHEN jsonb_typeof(payload->'avg_speed') = 'number' THEN (payload->>'avg_speed')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'average_speed') = 'number' THEN (payload->>'average_speed')::float8 END,
+                            CASE WHEN jsonb_typeof(payload->'speed') = 'number' THEN (payload->>'speed')::float8 END,
+                            0.0
+                        ) * NULLIF(duration, 0)
+                    ELSE 0 END
+                ), 0.0) AS speed_weighted,
+                COALESCE(SUM(
+                    CASE WHEN event_type = 'movement'
+                           AND COALESCE(
+                               CASE WHEN jsonb_typeof(payload->'avg_speed') = 'number' THEN (payload->>'avg_speed')::float8 END,
+                               CASE WHEN jsonb_typeof(payload->'average_speed') = 'number' THEN (payload->>'average_speed')::float8 END,
+                               CASE WHEN jsonb_typeof(payload->'speed') = 'number' THEN (payload->>'speed')::float8 END
+                           ) IS NOT NULL
+                           AND duration > 0
+                         THEN duration ELSE 0 END
+                ), 0.0) AS speed_weight,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_slow_speed', 'slow_speed_seconds', 'slow_speed_time_seconds', 'time_slow_speed_seconds'], ARRAY['slow_speed', 'slow']) ELSE 0 END), 0.0) AS slow_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_boost_speed', 'boost_speed_seconds', 'boost_speed_time_seconds', 'time_boost_speed_seconds'], ARRAY['boost_speed', 'boost']) ELSE 0 END), 0.0) AS boost_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_supersonic_speed', 'supersonic_seconds', 'supersonic_speed_time_seconds', 'time_supersonic_speed_seconds'], ARRAY['supersonic_speed', 'supersonic']) ELSE 0 END), 0.0) AS supersonic_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_ground', 'ground_seconds', 'ground_time_seconds', 'time_on_ground'], ARRAY['ground', 'on_ground']) ELSE 0 END), 0.0) AS ground_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_low_air', 'low_air_seconds', 'low_air_time_seconds'], ARRAY['low_air', 'low']) ELSE 0 END), 0.0) AS low_air_seconds,
+                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN rocket_sense_movement_seconds(payload, duration, ARRAY['time_high_air', 'high_air_seconds', 'high_air_time_seconds'], ARRAY['high_air', 'high']) ELSE 0 END), 0.0) AS high_air_seconds,
+                COUNT(*) FILTER (WHERE event_type = 'speed_flip') AS speed_flips,
+                COUNT(*) FILTER (WHERE event_type = 'wavedash') AS wavedashes,
+                COUNT(*) FILTER (WHERE event_type = 'half_flip') AS half_flips
+            FROM movement_events
+            GROUP BY player_subject_id
+        ),
+        powerslide_toggles AS (
+            -- Powerslide events are instantaneous on/off toggles (payload.active),
+            -- not spans, so summing per-event `duration` is always zero. Pair each
+            -- slide's leading `active:true` toggle with its trailing `active:false`
+            -- toggle, mirroring the per-replay client logic in web/src/stats/movement.tsx.
+            SELECT
+                player_subject_id,
+                COALESCE(CASE WHEN jsonb_typeof(payload->'time') = 'number' THEN (payload->>'time')::float8 END, 0.0) AS toggle_time,
+                COALESCE(CASE WHEN jsonb_typeof(payload->'frame') = 'number' THEN (payload->>'frame')::float8 END, 0.0) AS toggle_order,
+                ((payload->>'active') IS DISTINCT FROM 'false') AS active
+            FROM movement_events
+            WHERE event_type = 'powerslide'
+        ),
+        powerslide_edges AS (
+            SELECT
+                player_subject_id, toggle_time, toggle_order, active,
+                (active IS DISTINCT FROM LAG(active) OVER w) AS is_edge
+            FROM powerslide_toggles
+            WINDOW w AS (PARTITION BY player_subject_id ORDER BY toggle_time, toggle_order)
+        ),
+        powerslide_paired AS (
+            -- After dropping repeated same-state toggles, edges strictly alternate;
+            -- each slide-start (active) is closed by the next edge's timestamp.
+            SELECT
+                player_subject_id, active, toggle_time,
+                LEAD(toggle_time) OVER (
+                    PARTITION BY player_subject_id ORDER BY toggle_time, toggle_order
+                ) AS close_time
+            FROM powerslide_edges
+            WHERE is_edge
+        ),
+        powerslide_spans AS (
+            SELECT
+                player_subject_id,
+                COUNT(*) FILTER (WHERE active) AS powerslide_count,
+                COALESCE(SUM(CASE WHEN active THEN GREATEST(close_time - toggle_time, 0.0) ELSE 0.0 END), 0.0) AS powerslide_seconds
+            FROM powerslide_paired
+            GROUP BY player_subject_id
+        )
+        SELECT
+            $1,
             rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
             rp.platform,
             rp.platform_player_id,
-            event.event_type_id
+            rp.team,
+            GREATEST(COALESCE(rp.active_time_seconds, 0.0), 0.0),
+            COALESCE(events.total_distance, 0.0),
+            COALESCE(events.speed_weighted, 0.0),
+            COALESCE(events.speed_weight, 0.0),
+            COALESCE(events.slow_seconds, 0.0),
+            COALESCE(events.boost_seconds, 0.0),
+            COALESCE(events.supersonic_seconds, 0.0),
+            COALESCE(events.ground_seconds, 0.0),
+            COALESCE(events.low_air_seconds, 0.0),
+            COALESCE(events.high_air_seconds, 0.0),
+            COALESCE(slides.powerslide_count, 0),
+            COALESCE(slides.powerslide_seconds, 0.0),
+            COALESCE(events.speed_flips, 0),
+            COALESCE(events.wavedashes, 0),
+            COALESCE(events.half_flips, 0)
+        FROM replay_players rp
+        LEFT JOIN event_aggregates events
+          ON events.player_subject_id = concat(rp.platform, ':', rp.platform_player_id)
+        LEFT JOIN powerslide_spans slides
+          ON slides.player_subject_id = concat(rp.platform, ':', rp.platform_player_id)
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
         ON CONFLICT DO NOTHING
+        "#;
+
+// Per-replay materialization of the profile Touches breakdown. One row per
+// (player, dimension, value), where dimensions are the two UI distributions:
+// hit kind and intention category.
+const INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL: &str = r#"
+        INSERT INTO player_replay_touch_breakdowns (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            dimension,
+            value,
+            touch_count,
+            advance_distance
+        )
+        WITH touch_events AS (
+            SELECT
+                subject.replay_player_id,
+                CASE
+                    WHEN detail.kind IN ('control', 'medium_hit', 'hard_hit') THEN detail.kind
+                    WHEN detail.kind IN ('hit', 'medium') THEN 'medium_hit'
+                    WHEN detail.kind = 'hard' THEN 'hard_hit'
+                    WHEN detail.kind IN ('soft', 'soft_touch') THEN 'control'
+                    ELSE 'other'
+                END AS kind,
+                CASE
+                    WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
+                    ELSE 'other'
+                END AS category,
+                COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
+            FROM play_events event
+            JOIN play_event_touch_details detail
+              ON detail.event_id = event.id
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.subject_kind = 'player'
+             AND subject.replay_player_id IS NOT NULL
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream = 'touch'
+        ),
+        breakdowns AS (
+            SELECT replay_player_id, 'kind'::text AS dimension, kind AS value, COUNT(*) AS touch_count, COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM touch_events
+            GROUP BY replay_player_id, kind
+            UNION ALL
+            SELECT replay_player_id, 'category'::text AS dimension, category AS value, COUNT(*) AS touch_count, COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM touch_events
+            GROUP BY replay_player_id, category
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            breakdowns.dimension,
+            breakdowns.value,
+            breakdowns.touch_count,
+            breakdowns.advance_distance
+        FROM breakdowns
+        JOIN replay_players rp ON rp.id = breakdowns.replay_player_id
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        ON CONFLICT DO NOTHING
+        "#;
+
+// Per-replay materialization of `player_replay_kickoff` for one analysis run ($1)
+// and replay ($2). Mirrors api/event_stats.rs::load_kickoff_summary and
+// load_event_stat_dimensions: each player's kickoff appearances are aggregated to
+// the (role, event-taker-spawn-set) grain the read path still filters on, with
+// summary counts, average sum/count pairs, and per-dimension {value: count}
+// jsonb mixes (NULL value keyed as ''). The read sums matching rows across the
+// player's replays.
+const INSERT_PLAYER_REPLAY_KICKOFF_SQL: &str = r#"
+        INSERT INTO player_replay_kickoff (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            role,
+            taker_spawns,
+            row_count,
+            touched_count,
+            first_touch_count,
+            missed_count,
+            fake_count,
+            win_count,
+            loss_count,
+            neutral_count,
+            kickoff_goals_for,
+            kickoff_goals_against,
+            advantages_for,
+            advantages_against,
+            no_advantage_count,
+            time_to_ball_sum,
+            time_to_ball_count,
+            boost_after_sum,
+            boost_after_count,
+            boost_used_sum,
+            boost_used_count,
+            spawn_position_mix,
+            approach_mix,
+            taker_outcome_mix,
+            support_behavior_mix,
+            kickoff_outcome_mix,
+            player_result_mix,
+            win_strength_result_mix,
+            advantage_result_mix
+        )
+        WITH kickoff_rows AS (
+            SELECT
+                detail.event_id,
+                detail.replay_id,
+                detail.replay_player_id,
+                detail.player_subject_id,
+                detail.team,
+                detail.role,
+                detail.spawn_position,
+                detail.boost_after,
+                detail.boost_used,
+                detail.time_to_ball,
+                detail.taker_outcome,
+                detail.approach,
+                detail.support_behavior,
+                kickoff.outcome AS kickoff_outcome,
+                kickoff.winning_team,
+                kickoff.win_strength_band,
+                kickoff.kickoff_goal,
+                kickoff.scoring_team,
+                kickoff.advantage,
+                kickoff.advantage_team,
+                kickoff.first_touch_subject_id
+            FROM play_event_kickoff_player_details detail
+            JOIN play_events event
+              ON event.id = detail.event_id
+             AND event.analysis_run_id = $1
+             AND event.replay_id = $2
+            JOIN play_event_kickoff_details kickoff
+              ON kickoff.event_id = detail.event_id
+        ),
+        event_takers AS (
+            SELECT
+                event_id,
+                COALESCE(
+                    array_agg(DISTINCT spawn_position ORDER BY spawn_position)
+                        FILTER (WHERE spawn_position IS NOT NULL),
+                    ARRAY[]::text[]
+                ) AS taker_spawns
+            FROM kickoff_rows
+            WHERE role = 'taker'
+            GROUP BY event_id
+        ),
+        enriched AS (
+            SELECT
+                kr.replay_id,
+                kr.replay_player_id,
+                kr.player_subject_id,
+                kr.team,
+                kr.role,
+                COALESCE(et.taker_spawns, ARRAY[]::text[]) AS taker_spawns,
+                kr.spawn_position,
+                kr.boost_after,
+                kr.time_to_ball,
+                kr.taker_outcome,
+                kr.approach,
+                kr.support_behavior,
+                kr.kickoff_outcome,
+                kr.winning_team,
+                kr.win_strength_band,
+                kr.kickoff_goal,
+                kr.scoring_team,
+                kr.advantage,
+                kr.advantage_team,
+                COALESCE(
+                    kr.boost_used,
+                    (
+                        SELECT (
+                            payload.payload -> CASE kr.team
+                                WHEN 0 THEN 'team_zero_taker'
+                                ELSE 'team_one_taker'
+                            END
+                        ) ->> 'boost_used'
+                        FROM play_event_payloads payload
+                        WHERE payload.event_id = kr.event_id
+                    )::double precision
+                ) AS eff_boost_used,
+                EXISTS (
+                    SELECT 1
+                    FROM kickoff_rows taker
+                    WHERE taker.event_id = kr.event_id
+                      AND taker.team = kr.team
+                      AND taker.role = 'taker'
+                      AND taker.player_subject_id = kr.first_touch_subject_id
+                ) AS team_taker_first_touch
+            FROM kickoff_rows kr
+            LEFT JOIN event_takers et ON et.event_id = kr.event_id
+        ),
+        agg AS (
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                team,
+                role,
+                taker_spawns,
+                COUNT(*) AS row_count,
+                COUNT(*) FILTER (WHERE taker_outcome = 'touched') AS touched_count,
+                COUNT(*) FILTER (WHERE team_taker_first_touch) AS first_touch_count,
+                COUNT(*) FILTER (WHERE taker_outcome = 'missed') AS missed_count,
+                COUNT(*) FILTER (WHERE taker_outcome = 'fake') AS fake_count,
+                COUNT(*) FILTER (WHERE winning_team = team) AS win_count,
+                COUNT(*) FILTER (WHERE winning_team IS NOT NULL AND winning_team <> team) AS loss_count,
+                COUNT(*) FILTER (WHERE winning_team IS NULL) AS neutral_count,
+                COUNT(*) FILTER (WHERE kickoff_goal AND scoring_team = team) AS kickoff_goals_for,
+                COUNT(*) FILTER (
+                    WHERE kickoff_goal AND scoring_team IS NOT NULL AND scoring_team <> team
+                ) AS kickoff_goals_against,
+                COUNT(*) FILTER (WHERE advantage_team = team) AS advantages_for,
+                COUNT(*) FILTER (
+                    WHERE advantage_team IS NOT NULL AND advantage_team <> team
+                ) AS advantages_against,
+                COUNT(*) FILTER (WHERE advantage = 'no_advantage') AS no_advantage_count,
+                COALESCE(
+                    SUM(time_to_ball) FILTER (WHERE role = 'taker' AND time_to_ball IS NOT NULL),
+                    0.0
+                ) AS time_to_ball_sum,
+                COUNT(*) FILTER (WHERE role = 'taker' AND time_to_ball IS NOT NULL) AS time_to_ball_count,
+                COALESCE(SUM(boost_after) FILTER (WHERE boost_after IS NOT NULL), 0.0) AS boost_after_sum,
+                COUNT(*) FILTER (WHERE boost_after IS NOT NULL) AS boost_after_count,
+                COALESCE(
+                    SUM(eff_boost_used) FILTER (WHERE role = 'taker' AND eff_boost_used IS NOT NULL),
+                    0.0
+                ) AS boost_used_sum,
+                COUNT(*) FILTER (WHERE role = 'taker' AND eff_boost_used IS NOT NULL) AS boost_used_count
+            FROM enriched
+            GROUP BY replay_id, replay_player_id, player_subject_id, team, role, taker_spawns
+        ),
+        dim_counts AS (
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'spawn_position'::text AS dimension, COALESCE(spawn_position, '') AS value, COUNT(*) AS cnt
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(spawn_position, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'approach', COALESCE(approach, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(approach, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'taker_outcome', COALESCE(taker_outcome, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(taker_outcome, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'support_behavior', COALESCE(support_behavior, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(support_behavior, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'kickoff_outcome', COALESCE(kickoff_outcome, ''), COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns, COALESCE(kickoff_outcome, '')
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'player_result',
+                CASE
+                    WHEN winning_team IS NULL THEN 'neutral'
+                    WHEN winning_team = team THEN 'win'
+                    ELSE 'loss'
+                END,
+                COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns,
+                CASE WHEN winning_team IS NULL THEN 'neutral' WHEN winning_team = team THEN 'win' ELSE 'loss' END
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'win_strength_result',
+                CASE
+                    WHEN winning_team IS NULL THEN 'neutral'
+                    WHEN winning_team = team THEN concat('win_', COALESCE(win_strength_band, 'unknown'))
+                    ELSE concat('loss_', COALESCE(win_strength_band, 'unknown'))
+                END,
+                COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns,
+                CASE
+                    WHEN winning_team IS NULL THEN 'neutral'
+                    WHEN winning_team = team THEN concat('win_', COALESCE(win_strength_band, 'unknown'))
+                    ELSE concat('loss_', COALESCE(win_strength_band, 'unknown'))
+                END
+            UNION ALL
+            SELECT replay_id, player_subject_id, role, taker_spawns,
+                'advantage_result',
+                CASE
+                    WHEN advantage IS NULL THEN ''
+                    WHEN advantage_team IS NULL THEN advantage
+                    ELSE concat(
+                        CASE WHEN advantage_team = team THEN 'won_' ELSE 'lost_' END,
+                        regexp_replace(advantage, '^team_(zero|one)_', '')
+                    )
+                END,
+                COUNT(*)
+            FROM enriched GROUP BY replay_id, player_subject_id, role, taker_spawns,
+                CASE
+                    WHEN advantage IS NULL THEN ''
+                    WHEN advantage_team IS NULL THEN advantage
+                    ELSE concat(
+                        CASE WHEN advantage_team = team THEN 'won_' ELSE 'lost_' END,
+                        regexp_replace(advantage, '^team_(zero|one)_', '')
+                    )
+                END
+        ),
+        mixes AS (
+            SELECT
+                replay_id,
+                player_subject_id,
+                role,
+                taker_spawns,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'spawn_position'), '{}'::jsonb) AS spawn_position_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'approach'), '{}'::jsonb) AS approach_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'taker_outcome'), '{}'::jsonb) AS taker_outcome_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'support_behavior'), '{}'::jsonb) AS support_behavior_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'kickoff_outcome'), '{}'::jsonb) AS kickoff_outcome_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'player_result'), '{}'::jsonb) AS player_result_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'win_strength_result'), '{}'::jsonb) AS win_strength_result_mix,
+                COALESCE(jsonb_object_agg(value, cnt) FILTER (WHERE dimension = 'advantage_result'), '{}'::jsonb) AS advantage_result_mix
+            FROM dim_counts
+            GROUP BY replay_id, player_subject_id, role, taker_spawns
+        )
+        SELECT
+            $1,
+            agg.replay_id,
+            agg.replay_player_id,
+            agg.player_subject_id,
+            split_part(agg.player_subject_id, ':', 1),
+            substr(agg.player_subject_id, length(split_part(agg.player_subject_id, ':', 1)) + 2),
+            agg.team,
+            agg.role,
+            agg.taker_spawns,
+            agg.row_count,
+            agg.touched_count,
+            agg.first_touch_count,
+            agg.missed_count,
+            agg.fake_count,
+            agg.win_count,
+            agg.loss_count,
+            agg.neutral_count,
+            agg.kickoff_goals_for,
+            agg.kickoff_goals_against,
+            agg.advantages_for,
+            agg.advantages_against,
+            agg.no_advantage_count,
+            agg.time_to_ball_sum,
+            agg.time_to_ball_count,
+            agg.boost_after_sum,
+            agg.boost_after_count,
+            agg.boost_used_sum,
+            agg.boost_used_count,
+            mixes.spawn_position_mix,
+            mixes.approach_mix,
+            mixes.taker_outcome_mix,
+            mixes.support_behavior_mix,
+            mixes.kickoff_outcome_mix,
+            mixes.player_result_mix,
+            mixes.win_strength_result_mix,
+            mixes.advantage_result_mix
+        FROM agg
+        JOIN mixes
+          ON mixes.replay_id = agg.replay_id
+         AND mixes.player_subject_id = agg.player_subject_id
+         AND mixes.role = agg.role
+         AND mixes.taker_spawns = agg.taker_spawns
+        WHERE split_part(agg.player_subject_id, ':', 1) <> ''
+          AND substr(agg.player_subject_id, length(split_part(agg.player_subject_id, ':', 1)) + 2) <> ''
+        ON CONFLICT DO NOTHING
+        "#;
+
+// Per-replay materialization of `player_replay_possession` for one analysis run
+// ($1) and replay ($2). Aggregates each player's possession spans, classified
+// touches (with intention/surface jsonb mixes), and possession location. Mirrors
+// the per-event queries in api/possession_stats.rs; the read sums rows across a
+// player's replays and reconstructs cohorts by (replay, team).
+const INSERT_PLAYER_REPLAY_POSSESSION_SQL: &str = r#"
+        INSERT INTO player_replay_possession (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            possession_count, duration_seconds, touch_count, advance_distance, retreat_distance,
+            carry_time, air_dribble_time, sustained_control_count,
+            with_carry_count, with_air_dribble_count, with_aerial_touch_count, with_wall_touch_count,
+            duration_bucket_0, duration_bucket_1, duration_bucket_2, duration_bucket_3, duration_bucket_4,
+            sc_possession_count, sc_duration_seconds, sc_touch_count, sc_advance_distance, sc_retreat_distance,
+            sc_carry_time, sc_air_dribble_time,
+            sc_with_carry_count, sc_with_air_dribble_count, sc_with_aerial_touch_count, sc_with_wall_touch_count,
+            sc_duration_bucket_0, sc_duration_bucket_1, sc_duration_bucket_2, sc_duration_bucket_3, sc_duration_bucket_4,
+            classified_touch_count, first_touch_count, first_touch_control_count, contested_touch_count,
+            intention_mix, first_touch_intention_mix, surface_mix, location_third_seconds
+        )
+        WITH span AS (
+            SELECT
+                detail.replay_player_id AS replay_player_id,
+                COUNT(*) AS possession_count,
+                COALESCE(SUM(detail.duration), 0.0) AS duration_seconds,
+                COALESCE(SUM(detail.touch_count), 0)::bigint AS touch_count,
+                COALESCE(SUM(detail.advance_distance), 0.0) AS advance_distance,
+                COALESCE(SUM(detail.retreat_distance), 0.0) AS retreat_distance,
+                COALESCE(SUM(detail.carry_time), 0.0) AS carry_time,
+                COALESCE(SUM(detail.air_dribble_time), 0.0) AS air_dribble_time,
+                COUNT(*) FILTER (WHERE detail.sustained_control) AS sustained_control_count,
+                COUNT(*) FILTER (WHERE detail.carry_count > 0) AS with_carry_count,
+                COUNT(*) FILTER (WHERE detail.air_dribble_count > 0) AS with_air_dribble_count,
+                COUNT(*) FILTER (WHERE detail.aerial_touch_count > 0) AS with_aerial_touch_count,
+                COUNT(*) FILTER (WHERE detail.wall_touch_count > 0) AS with_wall_touch_count,
+                COUNT(*) FILTER (WHERE detail.duration >= 0.0 AND detail.duration < 1.0) AS duration_bucket_0,
+                COUNT(*) FILTER (WHERE detail.duration >= 1.0 AND detail.duration < 2.0) AS duration_bucket_1,
+                COUNT(*) FILTER (WHERE detail.duration >= 2.0 AND detail.duration < 4.0) AS duration_bucket_2,
+                COUNT(*) FILTER (WHERE detail.duration >= 4.0 AND detail.duration < 8.0) AS duration_bucket_3,
+                COUNT(*) FILTER (WHERE detail.duration >= 8.0) AS duration_bucket_4,
+                COUNT(*) FILTER (WHERE detail.sustained_control) AS sc_possession_count,
+                COALESCE(SUM(detail.duration) FILTER (WHERE detail.sustained_control), 0.0) AS sc_duration_seconds,
+                COALESCE(SUM(detail.touch_count) FILTER (WHERE detail.sustained_control), 0)::bigint AS sc_touch_count,
+                COALESCE(SUM(detail.advance_distance) FILTER (WHERE detail.sustained_control), 0.0) AS sc_advance_distance,
+                COALESCE(SUM(detail.retreat_distance) FILTER (WHERE detail.sustained_control), 0.0) AS sc_retreat_distance,
+                COALESCE(SUM(detail.carry_time) FILTER (WHERE detail.sustained_control), 0.0) AS sc_carry_time,
+                COALESCE(SUM(detail.air_dribble_time) FILTER (WHERE detail.sustained_control), 0.0) AS sc_air_dribble_time,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.carry_count > 0) AS sc_with_carry_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.air_dribble_count > 0) AS sc_with_air_dribble_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.aerial_touch_count > 0) AS sc_with_aerial_touch_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.wall_touch_count > 0) AS sc_with_wall_touch_count,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 0.0 AND detail.duration < 1.0) AS sc_duration_bucket_0,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 1.0 AND detail.duration < 2.0) AS sc_duration_bucket_1,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 2.0 AND detail.duration < 4.0) AS sc_duration_bucket_2,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 4.0 AND detail.duration < 8.0) AS sc_duration_bucket_3,
+                COUNT(*) FILTER (WHERE detail.sustained_control AND detail.duration >= 8.0) AS sc_duration_bucket_4
+            FROM play_event_player_possession_details detail
+            JOIN play_events event ON event.id = detail.event_id AND event.analysis_run_id = $1
+            WHERE detail.replay_id = $2 AND detail.replay_player_id IS NOT NULL
+            GROUP BY detail.replay_player_id
+        ),
+        touch_base AS (
+            SELECT
+                subject.replay_player_id AS replay_player_id,
+                detail.intention AS intention,
+                detail.surface AS surface,
+                detail.first_touch AS first_touch,
+                detail.contested AS contested
+            FROM play_events event
+            JOIN play_event_touch_details detail
+              ON detail.event_id = event.id AND detail.intention IS NOT NULL
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.subject_kind = 'player'
+             AND subject.replay_player_id IS NOT NULL
+            WHERE event.analysis_run_id = $1 AND event.replay_id = $2 AND event.source_stream = 'touch'
+        ),
+        touch AS (
+            SELECT
+                replay_player_id,
+                COUNT(*) AS classified_touch_count,
+                COUNT(*) FILTER (WHERE first_touch) AS first_touch_count,
+                COUNT(*) FILTER (WHERE first_touch AND intention = 'control') AS first_touch_control_count,
+                COUNT(*) FILTER (WHERE contested) AS contested_touch_count
+            FROM touch_base GROUP BY replay_player_id
+        ),
+        intention_mix AS (
+            SELECT replay_player_id, jsonb_object_agg(intention, cnt) AS mix
+            FROM (SELECT replay_player_id, intention, COUNT(*) AS cnt FROM touch_base GROUP BY replay_player_id, intention) g
+            GROUP BY replay_player_id
+        ),
+        ft_intention_mix AS (
+            SELECT replay_player_id, jsonb_object_agg(intention, cnt) AS mix
+            FROM (SELECT replay_player_id, intention, COUNT(*) AS cnt FROM touch_base WHERE first_touch GROUP BY replay_player_id, intention) g
+            GROUP BY replay_player_id
+        ),
+        surface_mix AS (
+            SELECT replay_player_id, jsonb_object_agg(surface, cnt) AS mix
+            FROM (SELECT replay_player_id, surface, COUNT(*) AS cnt FROM touch_base WHERE surface IS NOT NULL GROUP BY replay_player_id, surface) g
+            GROUP BY replay_player_id
+        ),
+        location AS (
+            SELECT loc.replay_player_id AS replay_player_id,
+                jsonb_object_agg(loc.field_third, loc.seconds) AS mix
+            FROM (
+                SELECT
+                    subject.replay_player_id AS replay_player_id,
+                    payload.payload ->> 'field_third' AS field_third,
+                    SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)) AS seconds
+                FROM play_events event
+                JOIN play_event_payloads payload ON payload.event_id = event.id
+                JOIN play_event_subjects subject
+                  ON subject.event_id = event.id
+                 AND subject.subject_kind = 'player'
+                 AND subject.replay_player_id IS NOT NULL
+                WHERE event.analysis_run_id = $1 AND event.replay_id = $2 AND event.source_stream = 'possession'
+                  AND COALESCE((payload.payload ->> 'active')::boolean, true)
+                  AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
+                  AND payload.payload ->> 'field_third' IS NOT NULL
+                GROUP BY subject.replay_player_id, field_third
+            ) loc
+            GROUP BY loc.replay_player_id
+        )
+        SELECT
+            $1, $2, rp.id, concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform, rp.platform_player_id, rp.team,
+            COALESCE(span.possession_count, 0), COALESCE(span.duration_seconds, 0.0), COALESCE(span.touch_count, 0),
+            COALESCE(span.advance_distance, 0.0), COALESCE(span.retreat_distance, 0.0),
+            COALESCE(span.carry_time, 0.0), COALESCE(span.air_dribble_time, 0.0), COALESCE(span.sustained_control_count, 0),
+            COALESCE(span.with_carry_count, 0), COALESCE(span.with_air_dribble_count, 0), COALESCE(span.with_aerial_touch_count, 0), COALESCE(span.with_wall_touch_count, 0),
+            COALESCE(span.duration_bucket_0, 0), COALESCE(span.duration_bucket_1, 0), COALESCE(span.duration_bucket_2, 0), COALESCE(span.duration_bucket_3, 0), COALESCE(span.duration_bucket_4, 0),
+            COALESCE(span.sc_possession_count, 0), COALESCE(span.sc_duration_seconds, 0.0), COALESCE(span.sc_touch_count, 0),
+            COALESCE(span.sc_advance_distance, 0.0), COALESCE(span.sc_retreat_distance, 0.0),
+            COALESCE(span.sc_carry_time, 0.0), COALESCE(span.sc_air_dribble_time, 0.0),
+            COALESCE(span.sc_with_carry_count, 0), COALESCE(span.sc_with_air_dribble_count, 0), COALESCE(span.sc_with_aerial_touch_count, 0), COALESCE(span.sc_with_wall_touch_count, 0),
+            COALESCE(span.sc_duration_bucket_0, 0), COALESCE(span.sc_duration_bucket_1, 0), COALESCE(span.sc_duration_bucket_2, 0), COALESCE(span.sc_duration_bucket_3, 0), COALESCE(span.sc_duration_bucket_4, 0),
+            COALESCE(touch.classified_touch_count, 0), COALESCE(touch.first_touch_count, 0), COALESCE(touch.first_touch_control_count, 0), COALESCE(touch.contested_touch_count, 0),
+            COALESCE(intention_mix.mix, '{}'::jsonb), COALESCE(ft_intention_mix.mix, '{}'::jsonb), COALESCE(surface_mix.mix, '{}'::jsonb),
+            COALESCE(location.mix, '{}'::jsonb)
+        FROM replay_players rp
+        LEFT JOIN span ON span.replay_player_id = rp.id
+        LEFT JOIN touch ON touch.replay_player_id = rp.id
+        LEFT JOIN intention_mix ON intention_mix.replay_player_id = rp.id
+        LEFT JOIN ft_intention_mix ON ft_intention_mix.replay_player_id = rp.id
+        LEFT JOIN surface_mix ON surface_mix.replay_player_id = rp.id
+        LEFT JOIN location ON location.replay_player_id = rp.id
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> ''
+          AND (span.replay_player_id IS NOT NULL OR touch.replay_player_id IS NOT NULL OR location.replay_player_id IS NOT NULL)
+        ON CONFLICT DO NOTHING
+        "#;
+
+// Event-derived columns for `player_replay_boost`, grouped per absolute player
+// (replay_player) rather than per target-relative cohort -- the read
+// reconstructs player/teammates/opponents by (replay, team). Adapts the body of
+// load_player_boost_event_fields in api/stats.rs (the same boost_pickup /
+// boost_respawn play_events scan and pad-zone/field-half fallback logic) but
+// keyed by actor.id, returning percent-scaled amounts (* 100 / 255) so the
+// stored columns sum directly. Run for one analysis run ($1) and replay ($2).
+pub(crate) const PLAYER_REPLAY_BOOST_EVENT_FIELDS_SQL: &str = r#"
+        WITH boost_events AS MATERIALIZED (
+            SELECT
+                actor.id AS replay_player_id,
+                et.key AS event_type,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM play_events event
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key IN ('boost_pickup', 'boost_respawn')
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN replay_players actor ON actor.id = subject.replay_player_id
+            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1 AND event.replay_id = $2
+        ),
+        normalized AS (
+            SELECT
+                replay_player_id,
+                event_type,
+                COALESCE(payload->>'pad_type', payload->>'pad_size') AS pad_size,
+                COALESCE(payload->>'pad_zone', payload->>'big_pad_zone') AS pad_zone,
+                payload->>'field_half' AS field_half,
+                COALESCE((payload->>'is_steal')::boolean, false) AS is_steal,
+                COALESCE((payload->>'collected_amount')::double precision, 0.0) AS collected_amount,
+                COALESCE((payload->>'overfill_amount')::double precision, 0.0) AS overfill_amount,
+                COALESCE((payload->>'boost_granted')::double precision, 0.0) AS boost_granted
+            FROM boost_events
+        )
+        SELECT
+            replay_player_id,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big'), 0.0) * 100.0 / 255.0 AS boost_collected_big,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small'), 0.0) * 100.0 / 255.0 AS boost_collected_small,
+            COALESCE(SUM(boost_granted) FILTER (WHERE event_type = 'boost_respawn'), 0.0) * 100.0 / 255.0 AS boost_collected_grant,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'big'), 0.0) * 100.0 / 255.0 AS boost_stolen_big,
+            COALESCE(SUM(collected_amount) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'small'), 0.0) * 100.0 / 255.0 AS boost_stolen_small,
+            COALESCE(SUM(overfill_amount) FILTER (WHERE event_type = 'boost_pickup' AND is_steal), 0.0) * 100.0 / 255.0 AS boost_stolen_overfill,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big')::bigint AS big_pads,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big' AND (pad_zone = 'offensive' OR (pad_zone IS NULL AND field_half = 'opponent')))::bigint AS big_pads_offensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big' AND pad_zone = 'neutral')::bigint AS big_pads_neutral,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'big' AND (pad_zone = 'defensive' OR (pad_zone IS NULL AND field_half = 'own')))::bigint AS big_pads_defensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small')::bigint AS small_pads,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small' AND (pad_zone = 'offensive' OR (pad_zone IS NULL AND field_half = 'opponent')))::bigint AS small_pads_offensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND pad_size = 'small' AND (pad_zone = 'defensive' OR (pad_zone IS NULL AND field_half = 'own')))::bigint AS small_pads_defensive,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'big')::bigint AS stolen_big_pads,
+            COUNT(*) FILTER (WHERE event_type = 'boost_pickup' AND is_steal AND pad_size = 'small')::bigint AS stolen_small_pads
+        FROM normalized
+        GROUP BY replay_player_id
         "#;
 
 const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
@@ -189,6 +1118,101 @@ const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
         ) > 0.0
         ON CONFLICT DO NOTHING
         "#;
+
+const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        WITH player_touch_counts AS (
+            SELECT
+                subject.replay_player_id,
+                COUNT(DISTINCT event.id) FILTER (WHERE detail.height_band = 'high_air') AS high_aerial_touch_count,
+                COUNT(DISTINCT event.id) FILTER (WHERE detail.kind = 'control') AS control_touch_count
+            FROM play_events event
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.subject_kind = 'player'
+             AND subject.role = 'actor'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN play_event_touch_details detail ON detail.event_id = event.id
+            WHERE event.analysis_run_id = $1
+              AND event.replay_id = $2
+              AND event.source_stream = 'touch'
+            GROUP BY subject.replay_player_id
+        ),
+        touch_counts AS (
+            SELECT
+                rp.replay_id,
+                rp.id AS replay_player_id,
+                concat(rp.platform, ':', rp.platform_player_id) AS player_subject_id,
+                rp.platform,
+                rp.platform_player_id,
+                rp.team,
+                rp.active_time_seconds,
+                COALESCE(counts.high_aerial_touch_count, 0) AS high_aerial_touch_count,
+                COALESCE(counts.control_touch_count, 0) AS control_touch_count
+            FROM replay_players rp
+            LEFT JOIN player_touch_counts counts ON counts.replay_player_id = rp.id
+            WHERE rp.replay_id = $2
+              AND rp.platform IS NOT NULL
+              AND btrim(rp.platform) <> ''
+              AND rp.platform_player_id IS NOT NULL
+              AND btrim(rp.platform_player_id) <> ''
+        ),
+        facts AS (
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                'high-aerial-touch-count'::text AS stat_key,
+                high_aerial_touch_count::double precision AS value,
+                active_time_seconds
+            FROM touch_counts
+            UNION ALL
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                'control-touch-count'::text AS stat_key,
+                control_touch_count::double precision AS value,
+                active_time_seconds
+            FROM touch_counts
+        )
+        SELECT
+            $1,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            'count',
+            active_time_seconds,
+            'active_time',
+            active_time_seconds
+        FROM facts
+        ON CONFLICT DO NOTHING
+        "#;
 // Bumped v2 -> v3 when goal ball speed (`ball_speed_at_goal`) was corrected:
 // previously every goal recorded 0 because the explosion frame carries no ball
 // velocity. Bumping marks prior analyses stale so reprocessing re-emits the
@@ -227,7 +1251,11 @@ const INSERT_BALL_OPPONENT_HALF_FACTS_SQL: &str = r#"
 // Bumped v9 -> v10 for subtr-actor's tag-based touch classification: touch
 // events no longer carry fixed intention/first-touch/contested fields, so
 // reprocessing derives those indexed detail columns from classification tags.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v10";
+// Bumped v10 -> v11 to backfill replay-player scoreboard metadata from
+// `core_player_scoreboard` deltas when the replay header lacks `PlayerStats`.
+// Reprocessing fills score/goals/assists/saves/shots for replay cards, group
+// participants, and Core stats.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v11";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -408,6 +1436,11 @@ struct ReplayProcessingTarget {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReplayProcessingJob {
     replay_id: Uuid,
+    /// When true the worker reprocesses even if the replay is already processed
+    /// (a queued force-reprocess). Defaults false for normal new-replay jobs and
+    /// for jobs enqueued before this field existed.
+    #[serde(default)]
+    force: bool,
 }
 
 #[derive(Clone)]
@@ -500,6 +1533,24 @@ pub fn start_replay_processing_workers(
 }
 
 pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
+    enqueue_replay_processing_job_inner(pool, replay_id, false)
+        .await
+        .map(|_| ())
+}
+
+/// Enqueue a force-reprocess job: the worker reprocesses the replay even if it
+/// is already processed. Used by the durable, queue-backed reprocess path so
+/// progress survives restarts and can be drained by the worker fleet. Returns
+/// whether a new job was enqueued (false if one was already outstanding).
+pub async fn enqueue_replay_reprocessing_job(pool: &PgPool, replay_id: Uuid) -> Result<bool> {
+    enqueue_replay_processing_job_inner(pool, replay_id, true).await
+}
+
+async fn enqueue_replay_processing_job_inner(
+    pool: &PgPool,
+    replay_id: Uuid,
+    force: bool,
+) -> Result<bool> {
     // Startup re-enqueue sweeps and repeated reprocess requests would
     // otherwise pile up duplicate jobs for the same replay; one outstanding
     // job is enough since processing always reads current state.
@@ -520,15 +1571,15 @@ pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Re
     .await
     .with_context(|| format!("failed to check for queued replay processing job for {replay_id}"))?;
     if already_queued {
-        return Ok(());
+        return Ok(false);
     }
 
     let mut backend = replay_processing_storage(pool);
     backend
-        .push(ReplayProcessingJob { replay_id })
+        .push(ReplayProcessingJob { replay_id, force })
         .await
         .with_context(|| format!("failed to enqueue replay processing job for {replay_id}"))?;
-    Ok(())
+    Ok(true)
 }
 
 // Producer-side handle, used only to `push` new jobs onto the queue. The
@@ -562,7 +1613,8 @@ async fn process_replay_job(
     let replay_id = job.replay_id;
     tracing::info!(%replay_id, "started queued replay processing job");
 
-    let Some(target) = replay_processing_job_target(&state.pool, replay_id).await? else {
+    let Some(target) = replay_processing_job_target(&state.pool, replay_id, job.force).await?
+    else {
         tracing::info!(
             %replay_id,
             "skipping replay processing job because replay is missing or already processed"
@@ -610,21 +1662,27 @@ pub async fn upsert_replay_preflight_metadata(
 
 pub async fn enqueue_replay_reprocessing(
     pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    permits: Arc<Semaphore>,
+    _storage: Arc<dyn ObjectStorage>,
+    _permits: Arc<Semaphore>,
     options: ReplayReprocessOptions,
 ) -> Result<ReplayReprocessSummary> {
     let concurrency = options.concurrency.clamp(1, 4);
     let targets = reprocess_targets(&pool, &options).await?;
-    let enqueued_replays = targets.len();
-    if !targets.is_empty() {
-        spawn_reprocess_worker(pool, storage, permits, targets, concurrency);
+    let matched_replays = targets.len();
+    // Enqueue durable force-reprocess jobs onto the apalis queue rather than
+    // running an in-process batch: progress is persisted in postgres, survives
+    // server restarts, and is drained by the worker fleet (scale to parallelize).
+    let mut enqueued_replays = 0usize;
+    for target in &targets {
+        if enqueue_replay_reprocessing_job(&pool, target.replay_id).await? {
+            enqueued_replays += 1;
+        }
     }
 
     Ok(ReplayReprocessSummary {
-        matched_replays: enqueued_replays,
+        matched_replays,
         enqueued_replays,
-        skipped_replays: 0,
+        skipped_replays: matched_replays - enqueued_replays,
         concurrency,
         force: options.force,
     })
@@ -758,106 +1816,6 @@ fn spawn_profile_timing_backfill_worker(
     });
 }
 
-fn spawn_reprocess_worker(
-    pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    permits: Arc<Semaphore>,
-    targets: Vec<ReplayProcessingTarget>,
-    concurrency: usize,
-) {
-    tokio::spawn(async move {
-        let total = targets.len();
-        let mut pending = targets.into_iter();
-        let mut tasks = JoinSet::new();
-        let mut succeeded = 0usize;
-        let mut failed = 0usize;
-
-        loop {
-            while tasks.len() < concurrency {
-                let Some(target) = pending.next() else {
-                    break;
-                };
-                let pool = pool.clone();
-                let storage = storage.clone();
-                let permits = permits.clone();
-                tasks.spawn(async move {
-                    let replay_id = target.replay_id;
-                    tracing::info!(%replay_id, "queued replay reprocessing");
-                    let _permit = permits
-                        .acquire_owned()
-                        .await
-                        .context("replay reprocessing worker was cancelled before start")?;
-                    tracing::info!(%replay_id, "started replay reprocessing");
-                    let result = process_replay(
-                        pool,
-                        storage,
-                        replay_id,
-                        target.file_sha256,
-                        target.storage_key,
-                    )
-                    .await;
-                    Ok::<_, anyhow::Error>((replay_id, result))
-                });
-            }
-
-            let Some(result) = tasks.join_next().await else {
-                break;
-            };
-
-            match result {
-                Ok(Ok((replay_id, Ok(())))) => {
-                    succeeded += 1;
-                    tracing::info!(
-                        %replay_id,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing succeeded"
-                    );
-                }
-                Ok(Ok((replay_id, Err(error)))) => {
-                    failed += 1;
-                    tracing::error!(
-                        %replay_id,
-                        error = %error,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing failed"
-                    );
-                }
-                Ok(Err(error)) => {
-                    failed += 1;
-                    tracing::error!(
-                        error = %error,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing task failed before start"
-                    );
-                }
-                Err(error) => {
-                    failed += 1;
-                    tracing::error!(
-                        error = %error,
-                        succeeded,
-                        failed,
-                        total,
-                        "replay reprocessing task panicked"
-                    );
-                }
-            }
-        }
-
-        tracing::info!(
-            succeeded,
-            failed,
-            total,
-            "replay reprocessing batch finished"
-        );
-    });
-}
-
 async fn unfinished_replay_processing_targets(
     pool: &PgPool,
 ) -> Result<Vec<ReplayProcessingTarget>> {
@@ -887,6 +1845,7 @@ async fn unfinished_replay_processing_targets(
 async fn replay_processing_job_target(
     pool: &PgPool,
     replay_id: Uuid,
+    force: bool,
 ) -> Result<Option<ReplayProcessingTarget>> {
     let Some(row) = sqlx::query(
         r#"
@@ -905,7 +1864,9 @@ async fn replay_processing_job_target(
 
     let processing_status: String = row.try_get("processing_status")?;
     let canonical_analysis_run_id: Option<Uuid> = row.try_get("canonical_analysis_run_id")?;
-    if processing_status == "processed" && canonical_analysis_run_id.is_some() {
+    // A normal job skips an already-processed replay; a force-reprocess job
+    // proceeds regardless so it can rebuild the analysis under a new run.
+    if !force && processing_status == "processed" && canonical_analysis_run_id.is_some() {
         return Ok(None);
     }
 
@@ -1319,6 +2280,13 @@ async fn persist_analysis_output(
         .await?;
     insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(
@@ -1447,7 +2415,9 @@ async fn insert_player_replay_stat_facts(
     .context("failed to clear player replay stat facts")?;
 
     insert_ball_opponent_half_facts(pool, analysis_run_id, replay_id).await?;
+    insert_ball_advance_facts(pool, analysis_run_id, replay_id).await?;
     insert_possession_time_facts(pool, analysis_run_id, replay_id).await?;
+    insert_touch_count_facts(pool, analysis_run_id, replay_id).await?;
     Ok(())
 }
 
@@ -1474,6 +2444,724 @@ async fn insert_player_replay_event_counts(
     Ok(())
 }
 
+/// Populate `player_replay_event_counts` for every canonical replay that is
+/// missing rows, reusing the per-replay writer (delete+reinsert) so the result
+/// matches what live processing produces. Skips replays that already have counts
+/// (so it is resumable and cheap to re-run), and materializes from the existing
+/// `play_events`/`play_event_subjects` -- no replay re-parsing -- so it is the
+/// fast path to populate the table without waiting on a full reprocess. Returns
+/// the number of replays backfilled.
+pub async fn backfill_player_replay_event_counts(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_event_counts counts
+              WHERE counts.replay_id = r.id
+                AND counts.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing event-count backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay event-count backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(
+                backfilled,
+                total,
+                "player replay event-count backfill progress"
+            );
+        }
+    }
+    tracing::info!(
+        backfilled,
+        total,
+        "player replay event-count backfill complete"
+    );
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_first_man_stints(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_first_man_stints WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay first-man stints")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay first-man stints")?;
+    Ok(())
+}
+
+/// Populate `player_replay_first_man_stints` for every canonical replay missing
+/// rows, from existing events (no re-parse). Resumable like the event-count
+/// backfill; returns the number of replays backfilled.
+pub async fn backfill_player_replay_first_man_stints(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_first_man_stints stint
+              WHERE stint.replay_id = r.id
+                AND stint.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing first-man stint backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay first-man stint backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "first-man stint backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "first-man stint backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_positioning(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_positioning WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay positioning")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_POSITIONING_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay positioning")?;
+    Ok(())
+}
+
+/// Populate `player_replay_positioning` for every canonical replay missing rows,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_player_replay_positioning(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_positioning pos
+              WHERE pos.replay_id = r.id
+                AND pos.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing positioning backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay positioning backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "positioning backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "positioning backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_movement(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query("DELETE FROM player_replay_movement WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear player replay movement")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_MOVEMENT_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay movement")?;
+    Ok(())
+}
+
+/// Populate `player_replay_movement` for every canonical replay missing rows,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+///
+/// When `recompute` is true, every canonical replay is re-materialized (each
+/// `insert_player_replay_movement` deletes and re-inserts), not just those
+/// missing rows -- use this to refresh existing rows after the materialization
+/// SQL changes (e.g. the powerslide toggle-pairing fix).
+pub async fn backfill_player_replay_movement(pool: &PgPool, recompute: bool) -> Result<u64> {
+    let query = if recompute {
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+        ORDER BY r.created_at, r.id
+        "#
+    } else {
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_movement movement
+              WHERE movement.replay_id = r.id
+                AND movement.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#
+    };
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(query)
+        .fetch_all(pool)
+        .await
+        .context("failed to list replays needing movement backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay movement backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "movement backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "movement backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_touch_breakdowns(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_touch_breakdowns WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay touch breakdowns")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay touch breakdowns")?;
+    Ok(())
+}
+
+/// Populate `player_replay_touch_breakdowns` for every canonical replay missing
+/// rows, from existing touch detail rows (no re-parse). Resumable; returns
+/// replays backfilled.
+pub async fn backfill_player_replay_touch_breakdowns(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM play_events event
+              WHERE event.replay_id = r.id
+                AND event.analysis_run_id = r.canonical_analysis_run_id
+                AND event.source_stream = 'touch'
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_touch_breakdowns touch
+              WHERE touch.replay_id = r.id
+                AND touch.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing touch breakdown backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay touch breakdown backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "touch breakdown backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "touch breakdown backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_kickoff(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query("DELETE FROM player_replay_kickoff WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear player replay kickoff")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_KICKOFF_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay kickoff")?;
+    Ok(())
+}
+
+/// Populate `player_replay_kickoff` for every canonical replay missing rows, from
+/// existing kickoff detail rows (no re-parse). Resumable; returns replays
+/// backfilled.
+pub async fn backfill_player_replay_kickoff(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND EXISTS (
+              SELECT 1
+              FROM play_event_kickoff_player_details detail
+              JOIN play_events event
+                ON event.id = detail.event_id
+               AND event.analysis_run_id = r.canonical_analysis_run_id
+              WHERE detail.replay_id = r.id
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_kickoff kickoff
+              WHERE kickoff.replay_id = r.id
+                AND kickoff.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing kickoff backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay kickoff backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "kickoff backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "kickoff backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_player_replay_possession(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_possession WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay possession")?;
+
+    sqlx::query(INSERT_PLAYER_REPLAY_POSSESSION_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert player replay possession")?;
+    Ok(())
+}
+
+/// Populate `player_replay_possession` for every canonical replay missing rows,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_player_replay_possession(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_possession poss
+              WHERE poss.replay_id = r.id
+                AND poss.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing possession backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay possession backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "possession backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "possession backfill complete");
+    Ok(backfilled)
+}
+
+// Per-replay-player merged boost row: track-derived band/last-value totals
+// (accumulated in Rust from the replay_boost_tracks JSONB, reusing the live
+// helpers) merged with the event-derived pad totals from the SQL aggregation.
+#[derive(Default)]
+struct PlayerReplayBoostRow {
+    replay_player_id: Uuid,
+    platform: String,
+    platform_player_id: String,
+    team: Option<i32>,
+    // Track-derived (percent-scaled)
+    boost_collected: f64,
+    boost_stolen: f64,
+    boost_used: f64,
+    boost_used_supersonic: f64,
+    boost_overfill: f64,
+    boost_amount_weighted_sum: f64,
+    tracked_seconds: f64,
+    bands: [f64; 6],
+    // Event-derived (percent-scaled amounts + pad counts)
+    boost_collected_big: f64,
+    boost_collected_small: f64,
+    boost_collected_grant: f64,
+    boost_stolen_big: f64,
+    boost_stolen_small: f64,
+    boost_stolen_overfill: f64,
+    big_pads: i64,
+    big_pads_offensive: i64,
+    big_pads_neutral: i64,
+    big_pads_defensive: i64,
+    small_pads: i64,
+    small_pads_offensive: i64,
+    small_pads_defensive: i64,
+    stolen_big_pads: i64,
+    stolen_small_pads: i64,
+}
+
+/// Materialize `player_replay_boost` for one analysis run + replay. The
+/// track-derived columns require Rust: the per-frame boost_amount/last-value
+/// tracks live as a single JSONB blob, so we deserialize it and run the same
+/// band/last-value accumulation as the live read (api::stats helpers). The
+/// event-derived pad columns come from a per-replay_player SQL aggregation. Both
+/// are keyed/merged by replay_player and written one row per player present in
+/// replay_players (with a real platform identity). Delete-then-reinsert mirrors
+/// `insert_player_replay_possession`.
+async fn insert_player_replay_boost(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query("DELETE FROM player_replay_boost WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear player replay boost")?;
+
+    // Player roster for the replay: maps the track player_id string
+    // (platform:platform_player_id) to a replay_player row. Only players with a
+    // real platform identity get a row, matching the materialization contract.
+    let roster: Vec<(Uuid, String, String, Option<i32>)> = sqlx::query_as(
+        r#"
+        SELECT rp.id, rp.platform, rp.platform_player_id, rp.team
+        FROM replay_players rp
+        WHERE rp.replay_id = $1
+          AND rp.platform IS NOT NULL AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> ''
+        "#,
+    )
+    .bind(replay_id)
+    .fetch_all(pool)
+    .await
+    .context("failed to load replay players for boost materialization")?;
+
+    if roster.is_empty() {
+        return Ok(());
+    }
+
+    // One accumulator row per replay_player, seeded from the roster.
+    let mut rows: HashMap<Uuid, PlayerReplayBoostRow> = HashMap::new();
+    // Map subject id "platform:platform_player_id" -> replay_player id so the
+    // track player_id strings resolve to a roster row.
+    let mut subject_to_player: HashMap<String, Uuid> = HashMap::new();
+    for (id, platform, platform_player_id, team) in roster {
+        let subject = format!("{platform}:{platform_player_id}");
+        subject_to_player.insert(subject, id);
+        rows.insert(
+            id,
+            PlayerReplayBoostRow {
+                replay_player_id: id,
+                platform,
+                platform_player_id,
+                team,
+                ..Default::default()
+            },
+        );
+    }
+
+    // Track-derived columns: deserialize the run's boost tracks and accumulate
+    // per player_id using the shared live helpers (band weights + last values).
+    use crate::api::boost_materialization::{
+        accumulate_player_boost_track, boost_track_replay_duration, BoostTracksResponse,
+        PlayerBoostAccumulator,
+    };
+
+    let tracks_json: Option<sqlx::types::Json<BoostTracksResponse>> = sqlx::query_scalar(
+        "SELECT tracks FROM replay_boost_tracks WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .fetch_optional(pool)
+    .await
+    .context("failed to load replay boost tracks for materialization")?;
+
+    if let Some(sqlx::types::Json(tracks)) = tracks_json {
+        let replay_duration = boost_track_replay_duration(&tracks);
+        let mut per_player: HashMap<Uuid, PlayerBoostAccumulator> = HashMap::new();
+        for track in &tracks.tracks {
+            let Some(player_id) = track.player_id.as_deref() else {
+                continue;
+            };
+            let Some(&replay_player_id) = subject_to_player.get(player_id) else {
+                continue;
+            };
+            let accumulator = per_player.entry(replay_player_id).or_default();
+            accumulate_player_boost_track(track, replay_duration, accumulator);
+        }
+        for (replay_player_id, accumulator) in per_player {
+            if let Some(row) = rows.get_mut(&replay_player_id) {
+                row.boost_collected = accumulator.boost_collected;
+                row.boost_stolen = accumulator.boost_stolen;
+                row.boost_used = accumulator.boost_used;
+                row.boost_used_supersonic = accumulator.boost_used_supersonic;
+                row.boost_overfill = accumulator.boost_overfill;
+                row.boost_amount_weighted_sum = accumulator.boost_amount_weighted_sum;
+                row.tracked_seconds = accumulator.tracked_seconds;
+                row.bands = accumulator.bands;
+            }
+        }
+    }
+
+    // Event-derived columns: per-replay_player pad totals (percent-scaled).
+    let event_rows = sqlx::query(PLAYER_REPLAY_BOOST_EVENT_FIELDS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .fetch_all(pool)
+        .await
+        .context("failed to aggregate player replay boost event fields")?;
+    for event_row in event_rows {
+        let replay_player_id: Uuid = event_row.try_get("replay_player_id")?;
+        let Some(row) = rows.get_mut(&replay_player_id) else {
+            continue;
+        };
+        row.boost_collected_big = event_row.try_get("boost_collected_big")?;
+        row.boost_collected_small = event_row.try_get("boost_collected_small")?;
+        row.boost_collected_grant = event_row.try_get("boost_collected_grant")?;
+        row.boost_stolen_big = event_row.try_get("boost_stolen_big")?;
+        row.boost_stolen_small = event_row.try_get("boost_stolen_small")?;
+        row.boost_stolen_overfill = event_row.try_get("boost_stolen_overfill")?;
+        row.big_pads = event_row.try_get("big_pads")?;
+        row.big_pads_offensive = event_row.try_get("big_pads_offensive")?;
+        row.big_pads_neutral = event_row.try_get("big_pads_neutral")?;
+        row.big_pads_defensive = event_row.try_get("big_pads_defensive")?;
+        row.small_pads = event_row.try_get("small_pads")?;
+        row.small_pads_offensive = event_row.try_get("small_pads_offensive")?;
+        row.small_pads_defensive = event_row.try_get("small_pads_defensive")?;
+        row.stolen_big_pads = event_row.try_get("stolen_big_pads")?;
+        row.stolen_small_pads = event_row.try_get("stolen_small_pads")?;
+    }
+
+    // Emit only players that actually contributed any boost data so the table
+    // grain stays sparse like the sibling materializations.
+    let mut emit: Vec<PlayerReplayBoostRow> = rows
+        .into_values()
+        .filter(player_replay_boost_row_has_data)
+        .collect();
+    if emit.is_empty() {
+        return Ok(());
+    }
+    // Deterministic order keeps batched inserts stable across runs.
+    emit.sort_by_key(|row| row.replay_player_id);
+
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO player_replay_boost (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            boost_collected, boost_stolen, boost_used, boost_used_supersonic, boost_overfill,
+            boost_amount_weighted_sum, tracked_seconds,
+            time_empty, time_low, time_medium, time_high, time_full, time_over,
+            boost_collected_big, boost_collected_small, boost_collected_grant,
+            boost_stolen_big, boost_stolen_small, boost_stolen_overfill,
+            big_pads, big_pads_offensive, big_pads_neutral, big_pads_defensive,
+            small_pads, small_pads_offensive, small_pads_defensive,
+            stolen_big_pads, stolen_small_pads
+        ) "#,
+    );
+    builder.push_values(emit.iter(), |mut values, row| {
+        let subject = format!("{}:{}", row.platform, row.platform_player_id);
+        values
+            .push_bind(analysis_run_id)
+            .push_bind(replay_id)
+            .push_bind(row.replay_player_id)
+            .push_bind(subject)
+            .push_bind(&row.platform)
+            .push_bind(&row.platform_player_id)
+            .push_bind(row.team)
+            .push_bind(row.boost_collected)
+            .push_bind(row.boost_stolen)
+            .push_bind(row.boost_used)
+            .push_bind(row.boost_used_supersonic)
+            .push_bind(row.boost_overfill)
+            .push_bind(row.boost_amount_weighted_sum)
+            .push_bind(row.tracked_seconds)
+            .push_bind(row.bands[0])
+            .push_bind(row.bands[1])
+            .push_bind(row.bands[2])
+            .push_bind(row.bands[3])
+            .push_bind(row.bands[4])
+            .push_bind(row.bands[5])
+            .push_bind(row.boost_collected_big)
+            .push_bind(row.boost_collected_small)
+            .push_bind(row.boost_collected_grant)
+            .push_bind(row.boost_stolen_big)
+            .push_bind(row.boost_stolen_small)
+            .push_bind(row.boost_stolen_overfill)
+            .push_bind(row.big_pads)
+            .push_bind(row.big_pads_offensive)
+            .push_bind(row.big_pads_neutral)
+            .push_bind(row.big_pads_defensive)
+            .push_bind(row.small_pads)
+            .push_bind(row.small_pads_offensive)
+            .push_bind(row.small_pads_defensive)
+            .push_bind(row.stolen_big_pads)
+            .push_bind(row.stolen_small_pads);
+    });
+    builder.push(" ON CONFLICT DO NOTHING");
+    builder
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to insert player replay boost")?;
+    Ok(())
+}
+
+/// True when a merged boost row carries any non-zero signal worth storing.
+/// Mirrors `PlayerBoostAccumulator::has_data` in api/stats.rs.
+fn player_replay_boost_row_has_data(row: &PlayerReplayBoostRow) -> bool {
+    row.tracked_seconds > 0.0
+        || row.boost_collected > 0.0
+        || row.boost_collected_big > 0.0
+        || row.boost_collected_small > 0.0
+        || row.boost_collected_grant > 0.0
+        || row.boost_stolen > 0.0
+        || row.boost_overfill > 0.0
+        || row.boost_used > 0.0
+        || row.boost_used_supersonic > 0.0
+        || row.big_pads > 0
+        || row.small_pads > 0
+}
+
+/// Populate `player_replay_boost` for every canonical replay missing rows, from
+/// existing tracks + events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_player_replay_boost(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM player_replay_boost boost
+              WHERE boost.replay_id = r.id
+                AND boost.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing boost backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting player replay boost backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "boost backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "boost backfill complete");
+    Ok(backfilled)
+}
+
 async fn insert_ball_opponent_half_facts(
     pool: &PgPool,
     analysis_run_id: Uuid,
@@ -1485,6 +3173,65 @@ async fn insert_ball_opponent_half_facts(
         .execute(pool)
         .await
         .context("failed to insert ball opponent-half stat facts")?;
+    Ok(())
+}
+
+async fn insert_ball_advance_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(
+        r#"
+        INSERT INTO player_replay_stat_facts (
+            analysis_run_id,
+            replay_id,
+            replay_player_id,
+            player_subject_id,
+            platform,
+            platform_player_id,
+            team,
+            stat_key,
+            value,
+            unit,
+            active_time_seconds,
+            denominator_key,
+            denominator_value
+        )
+        SELECT
+            $1,
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            'ball-advance',
+            SUM(detail.advance_distance) AS value,
+            'uu',
+            rp.active_time_seconds,
+            'active_time',
+            rp.active_time_seconds
+        FROM replay_players rp
+        JOIN play_event_player_possession_details detail ON detail.replay_player_id = rp.id
+        JOIN play_events event
+          ON event.id = detail.event_id
+         AND event.analysis_run_id = $1
+        WHERE rp.replay_id = $2
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        GROUP BY rp.replay_id, rp.id, rp.platform, rp.platform_player_id, rp.team, rp.active_time_seconds
+        HAVING SUM(detail.advance_distance) > 0.0
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to insert ball-advance stat facts")?;
     Ok(())
 }
 
@@ -1547,6 +3294,20 @@ async fn insert_possession_time_facts(
     Ok(())
 }
 
+async fn insert_touch_count_facts(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query(INSERT_TOUCH_COUNT_FACTS_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert touch-count stat facts")?;
+    Ok(())
+}
+
 /// Delete the play events (and boost tracks) left behind by this replay's
 /// superseded analysis runs once a new run is canonical. Child event tables
 /// are removed via `ON DELETE CASCADE`; `event_reviews.event_id` becomes NULL
@@ -1589,6 +3350,96 @@ async fn prune_superseded_run_events(
     .execute(pool)
     .await
     .context("failed to prune superseded player replay event counts")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_first_man_stints stint
+        USING analysis_runs run
+        WHERE run.id = stint.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay first-man stints")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_positioning pos
+        USING analysis_runs run
+        WHERE run.id = pos.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay positioning")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_movement movement
+        USING analysis_runs run
+        WHERE run.id = movement.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay movement")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_touch_breakdowns touch
+        USING analysis_runs run
+        WHERE run.id = touch.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay touch breakdowns")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_possession poss
+        USING analysis_runs run
+        WHERE run.id = poss.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay possession")?;
+
+    sqlx::query(
+        r#"
+        DELETE FROM player_replay_boost boost
+        USING analysis_runs run
+        WHERE run.id = boost.analysis_run_id
+          AND run.replay_id = $1
+          AND run.id <> $2
+        "#,
+    )
+    .bind(replay_id)
+    .bind(canonical_analysis_run_id)
+    .execute(pool)
+    .await
+    .context("failed to prune superseded player replay boost")?;
 
     sqlx::query(
         r#"
@@ -2279,6 +4130,7 @@ fn replay_search_metadata_from_scaffold_json(scaffold: &Value) -> ReplaySearchMe
                 .map(|player| replay_search_player_json(player, 1)),
         )
         .collect::<Vec<_>>();
+    apply_player_scoreboard_metadata_json(&mut players, scaffold);
     apply_player_timing_metadata_json(&mut players, scaffold);
     let has_pro_player = players.iter().any(|player| player.is_pro);
 
@@ -2412,6 +4264,69 @@ fn team_score_from_events_json(scaffold: &Value, is_team_0: bool) -> i32 {
                 .and_then(|n| i32::try_from(n).ok())
         })
         .sum()
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct PlayerScoreboardMetadata {
+    score: i32,
+    goals: i32,
+    assists: i32,
+    saves: i32,
+    shots: i32,
+}
+
+impl PlayerScoreboardMetadata {
+    fn apply_missing_to(self, player: &mut ReplaySearchPlayer) {
+        player.score.get_or_insert(self.score);
+        player.goals.get_or_insert(self.goals);
+        player.assists.get_or_insert(self.assists);
+        player.saves.get_or_insert(self.saves);
+        player.shots.get_or_insert(self.shots);
+    }
+}
+
+/// JSON twin of [`apply_player_scoreboard_metadata`].
+fn apply_player_scoreboard_metadata_json(players: &mut [ReplaySearchPlayer], scaffold: &Value) {
+    let mut scoreboard_by_key = HashMap::<String, PlayerScoreboardMetadata>::new();
+    let mut saw_scoreboard_events = false;
+
+    for inner in scaffold_event_inner_payloads(scaffold, "core_player") {
+        saw_scoreboard_events = true;
+        let (platform, platform_player_id) =
+            remote_id_parts_json(inner.get("player").unwrap_or(&Value::Null));
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let scoreboard = scoreboard_by_key.entry(key).or_default();
+        scoreboard.score += scoreboard_delta_json(inner, "score_delta");
+        scoreboard.goals += scoreboard_delta_json(inner, "goals_delta");
+        scoreboard.assists += scoreboard_delta_json(inner, "assists_delta");
+        scoreboard.saves += scoreboard_delta_json(inner, "saves_delta");
+        scoreboard.shots += scoreboard_delta_json(inner, "shots_delta");
+    }
+
+    if !saw_scoreboard_events {
+        return;
+    }
+
+    for player in players {
+        let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
+            continue;
+        };
+        scoreboard_by_key
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            .apply_missing_to(player);
+    }
+}
+
+fn scoreboard_delta_json(inner: &Value, key: &str) -> i32 {
+    inner
+        .get(key)
+        .and_then(Value::as_i64)
+        .and_then(|n| i32::try_from(n).ok())
+        .unwrap_or(0)
 }
 
 /// Iterate the inner typed payloads of timeline events whose payload `kind`
@@ -2606,6 +4521,7 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
                 .map(|player| replay_search_player(player, 1)),
         )
         .collect::<Vec<_>>();
+    apply_player_scoreboard_metadata(&mut players, timeline);
     apply_player_timing_metadata(&mut players, timeline);
     let has_pro_player = players.iter().any(|player| player.is_pro);
 
@@ -2761,6 +4677,51 @@ fn team_score_from_events(timeline: &ReplayStatsTimelineScaffold, is_team_0: boo
         .filter(|event| event.is_team_0 == is_team_0)
         .map(|event| event.goals_delta)
         .sum()
+}
+
+fn apply_player_scoreboard_metadata(
+    players: &mut [ReplaySearchPlayer],
+    timeline: &ReplayStatsTimelineScaffold,
+) {
+    let mut scoreboard_by_key = HashMap::<String, PlayerScoreboardMetadata>::new();
+    let mut saw_scoreboard_events = false;
+
+    for event in timeline
+        .events
+        .events
+        .iter()
+        .filter_map(|event| match &event.payload {
+            subtr_actor::EventPayload::CorePlayer(event) => Some(event),
+            _ => None,
+        })
+    {
+        saw_scoreboard_events = true;
+        let (platform, platform_player_id) = remote_id_parts(&event.player);
+        let Some(key) = player_lookup_key(&platform, &platform_player_id) else {
+            continue;
+        };
+        let scoreboard = scoreboard_by_key.entry(key).or_default();
+        scoreboard.score += event.score_delta;
+        scoreboard.goals += event.goals_delta;
+        scoreboard.assists += event.assists_delta;
+        scoreboard.saves += event.saves_delta;
+        scoreboard.shots += event.shots_delta;
+    }
+
+    if !saw_scoreboard_events {
+        return;
+    }
+
+    for player in players {
+        let Some(key) = player_lookup_key(&player.platform, &player.platform_player_id) else {
+            continue;
+        };
+        scoreboard_by_key
+            .get(&key)
+            .copied()
+            .unwrap_or_default()
+            .apply_missing_to(player);
+    }
 }
 
 fn apply_player_timing_metadata(
@@ -5515,7 +7476,7 @@ fn rocket_sense_timeline_event_metadata(id: &str) -> Option<EventDefinitionMetad
     // Categories follow subtr-actor's event definitions; entries here are
     // rocket-sense-specific overrides only. The former controlled_play and
     // kickoff overrides were dropped when subtr-actor retired the Possession
-    // category (controlled_play is now a mechanic, kickoff is core).
+    // category; the vendored registry now owns those categories.
     let (id, label, category) = match id {
         "core_player_scoreboard" => (
             "core_player_scoreboard",
@@ -5551,6 +7512,7 @@ fn normalized_payload_field(payload: &Value, field: &str) -> Option<String> {
 fn event_category_key(category: EventCategory) -> &'static str {
     match category {
         EventCategory::Core => "core",
+        EventCategory::Basic => "basic",
         EventCategory::Mechanic => "mechanic",
         EventCategory::Positioning => "positioning",
         EventCategory::Other => "other",
@@ -6174,7 +8136,9 @@ pub struct CurrentProcessingVersion {
     pub subtr_actor_version: &'static str,
     /// `None` when the build did not record a sha (e.g. local dev).
     pub subtr_actor_git_sha: Option<&'static str>,
+    pub subtr_actor_git_commit_timestamp: Option<&'static str>,
     pub rocket_sense_git_sha: Option<&'static str>,
+    pub rocket_sense_git_commit_timestamp: Option<&'static str>,
 }
 
 pub fn current_processing_version() -> CurrentProcessingVersion {
@@ -6184,7 +8148,9 @@ pub fn current_processing_version() -> CurrentProcessingVersion {
         extractor_version: env!("CARGO_PKG_VERSION"),
         subtr_actor_version: subtr_actor_version(),
         subtr_actor_git_sha: option_env!("SUBTR_ACTOR_GIT_SHA"),
+        subtr_actor_git_commit_timestamp: option_env!("SUBTR_ACTOR_GIT_COMMIT_TIMESTAMP"),
         rocket_sense_git_sha: option_env!("GIT_SHA"),
+        rocket_sense_git_commit_timestamp: option_env!("GIT_COMMIT_TIMESTAMP"),
     }
 }
 

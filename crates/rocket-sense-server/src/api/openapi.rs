@@ -1,6 +1,6 @@
 use super::{
-    admin, auth, ballchasing, health, leaderboards, meta, player_overview, players,
-    positioning_stats, possession_stats, replays, stats,
+    admin, auth, ballchasing, health, leaderboards, meta, movement_stats, player_overview, players,
+    positioning_stats, possession_stats, replays, stats, users,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -10,6 +10,14 @@ use utoipa::{
 #[derive(OpenApi)]
 #[openapi(
     paths(
+        admin::backfill_event_counts,
+        admin::backfill_rotation_stints,
+        admin::backfill_positioning,
+        admin::backfill_movement,
+        admin::backfill_touch_breakdowns,
+        admin::backfill_possession,
+        admin::backfill_boost,
+        admin::backfill_kickoff,
         admin::backfill_profile_timing,
         admin::gc_event_streams,
         admin::list_replay_processing_diagnostics,
@@ -30,6 +38,7 @@ use utoipa::{
         leaderboards::get_event_leaderboard,
         leaderboards::get_stat_leaderboard,
         meta::get_processing_version,
+        movement_stats::get_movement_summary,
         players::search_player_name_history,
         players::get_player_profile,
         players::set_player_public_display_name,
@@ -37,6 +46,7 @@ use utoipa::{
         positioning_stats::get_positioning_summary,
         possession_stats::get_possession_summary,
         stats::get_stat_aggregates,
+        stats::get_player_boost_pad_control,
         stats::get_player_boost_totals,
         stats::get_processing_version_breakdown,
         replays::create_replay,
@@ -50,11 +60,15 @@ use utoipa::{
         replays::list_replay_group_replays,
         replays::add_replay_group_replays,
         replays::remove_replay_group_replays,
+        replays::list_replay_group_managers,
+        replays::add_replay_group_manager,
+        replays::remove_replay_group_manager,
         replays::download_replay_file,
         replays::get_replay,
         replays::reprocess_replay,
         replays::reprocess_replay_client,
         replays::set_replay_ranks,
+        users::get_user_profile,
     ),
     components(
         schemas(
@@ -63,6 +77,7 @@ use utoipa::{
             auth::AuthProviderResponse,
             auth::LinkedIdentitiesResponse,
             auth::LinkedIdentityResponse,
+            admin::BackfillEventCountsResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
             admin::GcEventStreamsRequest,
@@ -95,6 +110,8 @@ use utoipa::{
             leaderboards::LeaderboardStatMetricResponse,
             meta::ProcessingVersionResponse,
             meta::SchemaChangelogEntry,
+            movement_stats::MovementSummaryResponse,
+            movement_stats::MovementCohortSummary,
             players::PlayerNameHistoryEntryResponse,
             players::PlayerNameHistoryResponse,
             players::SetPlayerPublicDisplayNameRequest,
@@ -117,6 +134,8 @@ use utoipa::{
             possession_stats::PossessionMixValue,
             stats::StatAggregateResponse,
             stats::StatAggregateSetResponse,
+            stats::BoostPadControlPointResponse,
+            stats::BoostPadControlResponse,
             stats::PlayerBoostTotalResponse,
             stats::PlayerBoostTotalsResponse,
             stats::ProcessingVersionBreakdownResponse,
@@ -130,6 +149,9 @@ use utoipa::{
             replays::ReplayGroupReplayUpdateRequest,
             replays::ReplayGroupReplayUpdateResponse,
             replays::ReplayGroupResponse,
+            replays::ReplayGroupManagerResponse,
+            replays::ListReplayGroupManagersResponse,
+            replays::AddReplayGroupManagerRequest,
             replays::ReplayPlayerResponse,
             replays::ReplayResponse,
             replays::ReplayStalenessResponse,
@@ -144,6 +166,7 @@ use utoipa::{
             crate::ranks::RankSubmission,
             crate::ranks::SubmittedRank,
             crate::ranks::SkillSnapshot,
+            users::UserProfileResponse,
         )
     ),
     tags(
@@ -154,6 +177,7 @@ use utoipa::{
         (name = "leaderboards", description = "Cross-replay leaderboard endpoints"),
         (name = "meta", description = "Service metadata endpoints"),
         (name = "players", description = "Player profile endpoints"),
+        (name = "users", description = "Rocket Sense user (uploader) profile endpoints"),
         (name = "stats", description = "Aggregate replay statistics endpoints"),
         (name = "replays", description = "Replay upload and metadata endpoints"),
         (name = "replay-groups", description = "Replay group endpoints")

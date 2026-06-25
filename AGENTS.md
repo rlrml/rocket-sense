@@ -36,14 +36,15 @@ such. This keeps text from drifting between views.
 ## Web stats bars
 
 Every horizontal bar on the per-replay stats pages (positioning, kickoffs,
-movement, boost, ...) should render through the **one** shared track in
+movement, boost, ...) should render through the **one** shared stat bar track in
 [`web/src/stats/shared.tsx`](web/src/stats/shared.tsx). Do not hand-roll a
 bespoke `<div>` + inline-`width` bar for a new chart — reuse the component so
 height, rounding, segment borders, label color, and value placement stay
 identical across pages. The two are intentionally interchangeable:
 
-- **`ComparisonBar`** is the track itself: one fill made of `segments`, scaled by
-  `total` (and an optional cross-row `maxValue` for magnitude charts).
+- **Stat bar track / `ComparisonBar`** is the fundamental bar primitive: one fill
+  made of `segments`, scaled by `total` (and an optional cross-row `maxValue` for
+  magnitude charts).
 - **`ComparisonRows` / `PlayerComparisonChart`** lay out one `ComparisonRow` per
   player. `PlayerComparisonChart` adds its own titled panel; use `ComparisonRows`
   when the page supplies its own `.chart-panel` header (positioning does this).
@@ -71,6 +72,70 @@ If a new chart needs something the component can't express, extend the shared
 component (a new optional prop / row field) rather than forking it — keeping a
 single flexible bar is the point.
 
+## Web career stats subviews
+
+Use **career stats subviews** as the consistent name for the subsection pages
+under the career stats profile experience. Keep their look, interaction model,
+and chart behavior aligned with the established stats pages; look at nearby
+views before adding new visual patterns.
+
+Career stats aggregate across multiple games, so do not assume replay-local
+team zero / team one, Blue / Orange, or left / right team identity means the
+same thing across rows. Orient comparisons around the profile subject and the
+relationship to that subject: player, teammates, opponents, and eventually
+rank-peer averages. Keep the color assignment for those comparison groups fixed
+and centrally defined so the same relationship uses the same color in every
+career stats subview. The rank-peer average comparison is still provisional, so
+build it behind a centralized enable/disable path when it is introduced.
+
+Prefer the shared stat bar track for career stats charts as much as possible.
+Exceptions should be explicit in the request or product note: if a career stats
+subview needs a table, scatter plot, timeline, or another visualization, call
+that out directly rather than drifting away from bars by default.
+
+In career stats subviews, a bar-chart card should focus on **one statistic**.
+The rows/bars inside that card are for comparing the profile subject against
+the relevant cohorts (player, teammates, opponents, and any enabled rank-peer
+average), not for listing unrelated stats in the same card. A single-stat card
+may still have a segmented bar when that one statistic is itself a distribution
+(for example, speed bands or aerial type mix), but do not use one card as a
+leaderboard-style list of many different metrics. If a view currently has many
+metrics, render multiple single-stat cards.
+
+Avoid double card framing. If the whole subview already sits in one containing
+card/surface, render the individual bar charts as unframed sections inside that
+surface. If the page does not have a page-level containing card, single-stat
+bar-chart cards are fine. Do not wrap every chart in both its own card and a
+second all-charts card unless there is a specific layout reason.
+
+Use centrally defined palettes for career stats charts. Most charts should use
+monochrome ramps: same hue, different lightness, enough contrast for adjacent
+segments. Use multi-hue palettes only when there are many categories that need
+strong differentiation. Do not encode aggregate career stats with replay-local
+team colors unless the UI explicitly labels those colors as replay-local.
+
+Rates should usually be normalized as **per 5 minutes**. Boost is the common
+exception where **per minute** values can be appropriate. Be careful with
+teammate and opponent rates: their denominator is not always the profile
+player's elapsed replay time because a single game can include multiple
+teammates and multiple opponents. Put denominator calculation in shared,
+centralized code that sums the relevant replay time for each entity type
+correctly instead of recomputing it per subview.
+
+Keep career stats fast by relying on per-replay facts for most statistics. Many
+facts are already computed automatically, but add new per-replay fact extraction
+when a stat would otherwise require expensive replay-wide recomputation at view
+time.
+
+Every bar and bar segment should show numerical text whenever there is enough
+room. Keep alignment, placement, threshold behavior, and text color consistent
+through the shared stat bar track rather than per-subview CSS.
+
+Do not hide an expected chart just because its current values are zero. A
+subview should keep its full chart set visible, with zero-value rows/labels or
+an in-chart empty state, so the page layout and available statistics remain
+predictable across players and replay sets.
+
 ## Before committing (avoid CI failures)
 
 CI fails on format/lint/compile issues far more often than on test logic. To
@@ -78,9 +143,8 @@ catch those locally without running the whole suite:
 
 - **Always run `just check` clean before committing.** It is the fast gate that
   mirrors CI's blocking checks: migration-version uniqueness
-  (`check-migration-versions.sh`), `npm run typecheck` (web), `cargo fmt --
-  --check`, and `cargo clippy --workspace -- -D warnings`. If it is not clean, do
-  not commit.
+  (`check-migration-versions.sh`), `npm run typecheck` (web), `just fmt-check`,
+  and `just clippy`. If it is not clean, do not commit.
 - Clippy runs with `-D warnings` over the whole workspace, so a lint in a test
   or any crate fails CI even though a plain `cargo build` passes. Prefer the
   `just clippy` / `just fmt-check` recipes over bare `cargo` — they use CI's
@@ -103,3 +167,44 @@ catch those locally without running the whole suite:
 - `just fmt` - format Rust code.
 - `just clippy` - run clippy with warnings as errors.
 - `just dev` - run the binary locally.
+
+## Deploying (railbird-sf)
+
+There is **no CD** — deploys are manual and ship whatever image you build, so
+**land the change on `master` first**, then deploy from an up-to-date checkout (a
+worktree is fine). See [`infra/README.md`](infra/README.md) for the one-time
+`.kube/railbird-sf.yaml` kubeconfig setup; the build host's registry
+(`railbird-sf:5279`) must be reachable.
+
+The one-shot recipe builds the image with Nix, pushes it to the registry, applies
+the agenix-backed Secret, and runs `tofu apply`:
+
+```sh
+export KUBECONFIG="$PWD/.kube/railbird-sf.yaml"
+just deploy-railbird-sf
+```
+
+**Gotcha — `tofu apply` alone usually does not roll the pods.** The Deployments
+pin the *mutable* `…/rocket-sense-server:dev` tag
+([`infra/terraform/variables.tf`](infra/terraform/variables.tf)), so when only
+code changed Terraform sees no diff and leaves the running pods on the old image.
+Force the freshly-pushed image out with a rollout restart — the server and the
+replay worker share the image, so restart both:
+
+```sh
+kubectl -n rocket-sense rollout restart deployment/rocket-sense deployment/rocket-sense-worker
+kubectl -n rocket-sense rollout status  deployment/rocket-sense
+```
+
+After deploying:
+
+- **Disk gotcha:** if the build/node host hits `no space left`, the Nix store on
+  `/var` is the usual culprit — `nix-collect-garbage -d` and retry. (A
+  disk-usage watchdog also runs in-cluster.)
+- **Smoke-test prod**, not just the UI. Re-curl the key stat read endpoints,
+  including the materialized aggregate reads (`?materialized=true`): that path is
+  on for all aggregate/possession/positioning/boost endpoints, and a sibling
+  branch that landed on `master` can break one you didn't touch.
+- The app is public via DuckDNS → host nginx → NodePort `30080`. App health and
+  the public URL are separate: an outage right after deploy is often a stale
+  DuckDNS IP, not the rollout.

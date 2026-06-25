@@ -467,6 +467,13 @@ impl EventSort {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EventCountSource {
+    Scoreboard { column: &'static str },
+    SubjectRole { role: &'static str },
+    AnySubject,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct EventLeaderboardResponse {
     pub rows: Vec<EventLeaderboardRowResponse>,
@@ -545,6 +552,26 @@ impl EventLeaderboardFilters {
             },
             paging,
         ))
+    }
+
+    fn event_count_source(&self) -> EventCountSource {
+        let [term] = self.stat_terms.as_slice() else {
+            return EventCountSource::AnySubject;
+        };
+        match term.as_str() {
+            "goal" | "goals" | "core.goal" => EventCountSource::Scoreboard { column: "goals" },
+            "assist" | "assists" | "core.assist" => {
+                EventCountSource::Scoreboard { column: "assists" }
+            }
+            "save" | "saves" | "core.save" => EventCountSource::Scoreboard { column: "saves" },
+            "shot" | "shots" | "core.shot" => EventCountSource::Scoreboard { column: "shots" },
+            "bump" | "bumps" => EventCountSource::SubjectRole { role: "initiator" },
+            "demolition" | "demolitions" | "demo" | "demos" => {
+                EventCountSource::SubjectRole { role: "attacker" }
+            }
+            "pass" | "passes" => EventCountSource::SubjectRole { role: "passer" },
+            _ => EventCountSource::AnySubject,
+        }
     }
 }
 
@@ -682,6 +709,45 @@ fn push_event_ctes<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     filters: &'args EventLeaderboardFilters,
 ) {
+    if let EventCountSource::Scoreboard { column } = filters.event_count_source() {
+        builder.push(
+            "WITH event_counts AS (\
+             SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
+             COALESCE(SUM(rp.",
+        );
+        builder.push(column);
+        builder.push(
+            "), 0)::bigint AS event_count \
+             FROM replay_players rp \
+             JOIN replays r ON r.id = rp.replay_id \
+             WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
+             AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
+             AND r.canonical_analysis_run_id IS NOT NULL",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(
+            " GROUP BY rp.platform, rp.platform_player_id \
+             HAVING COALESCE(SUM(rp.",
+        );
+        builder.push(column);
+        builder.push(
+            "), 0) > 0), \
+             denominators AS (\
+             SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
+             COUNT(DISTINCT rp.replay_id) AS replay_count, \
+             SUM(rp.active_time_seconds) AS active_time_seconds \
+             FROM replay_players rp \
+             JOIN replays r ON r.id = rp.replay_id \
+             WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
+             AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
+             AND r.canonical_analysis_run_id IS NOT NULL \
+             AND (rp.platform, rp.platform_player_id) IN (SELECT platform, platform_player_id FROM event_counts)",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
+        return;
+    }
+
     builder.push(
         "WITH event_counts AS (\
          SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
@@ -689,7 +755,15 @@ fn push_event_ctes<'args>(
          FROM replay_players rp \
          JOIN replays r ON r.id = rp.replay_id \
          JOIN play_event_subjects subject ON subject.replay_player_id = rp.id \
-         JOIN play_events event ON event.id = subject.event_id \
+         ",
+    );
+    if let EventCountSource::SubjectRole { role } = filters.event_count_source() {
+        builder.push("AND subject.role = ");
+        builder.push_bind(role);
+        builder.push(" ");
+    }
+    builder.push(
+        "JOIN play_events event ON event.id = subject.event_id \
          AND event.analysis_run_id = r.canonical_analysis_run_id",
     );
     append_user_facing_stat_event_join_filter(builder, "event");
@@ -765,7 +839,16 @@ fn event_total_query(filters: &EventLeaderboardFilters) -> QueryBuilder<'_, Post
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StatLeaderboardMetric {
     BallOpponentHalf,
+    BallAdvance,
     PossessionTime,
+    TouchesPerPossession,
+    AvgPossessionDuration,
+    HighAerialTouchCount,
+    ControlTouchCount,
+    BigBoostPadCount,
+    SmallBoostPadCount,
+    BigBoostAmount,
+    SmallBoostAmount,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -775,8 +858,43 @@ enum RelativeFieldHalf {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StatMetricSource {
-    BallHalfDuration { half: RelativeFieldHalf },
+    BallHalfDuration {
+        half: RelativeFieldHalf,
+    },
+    PlayerPossessionAdvance,
     PlayerPossessionDuration,
+    PlayerPossessionAverage {
+        numerator: PossessionAverageNumerator,
+    },
+    TouchCount,
+    Boost {
+        column: BoostMetricColumn,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PossessionAverageNumerator {
+    Touches,
+    DurationSeconds,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BoostMetricColumn {
+    BigPads,
+    SmallPads,
+    BigAmount,
+    SmallAmount,
+}
+
+impl BoostMetricColumn {
+    fn sql(self) -> &'static str {
+        match self {
+            Self::BigPads => "boost.big_pads",
+            Self::SmallPads => "boost.small_pads",
+            Self::BigAmount => "boost.boost_collected_big",
+            Self::SmallAmount => "boost.boost_collected_small",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -796,8 +914,23 @@ impl StatMetricDefinition {
             StatMetricSource::BallHalfDuration {
                 half: RelativeFieldHalf::Opponent,
             } => self.key,
+            StatMetricSource::PlayerPossessionAdvance => self.key,
             StatMetricSource::PlayerPossessionDuration => self.key,
+            StatMetricSource::PlayerPossessionAverage { .. } => self.key,
+            StatMetricSource::TouchCount => self.key,
+            StatMetricSource::Boost { .. } => self.key,
         }
+    }
+
+    fn is_average(self) -> bool {
+        matches!(
+            self.source,
+            StatMetricSource::PlayerPossessionAverage { .. }
+        )
+    }
+
+    fn supports_share(self) -> bool {
+        self.unit == "seconds" && !self.is_average()
     }
 }
 
@@ -829,7 +962,167 @@ const STAT_METRIC_DEFINITIONS: &[StatMetricDefinition] = &[
         unit: "seconds",
         source: StatMetricSource::PlayerPossessionDuration,
     },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BallAdvance,
+        key: "ball-advance",
+        aliases: &[
+            "ball_advance",
+            "ball-advanced",
+            "ball_advanced",
+            "advance",
+            "advance-distance",
+            "advance_distance",
+        ],
+        display_name: "Ball advance",
+        description: "Unreal units the player advanced the ball during possessions",
+        unit: "uu",
+        source: StatMetricSource::PlayerPossessionAdvance,
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::TouchesPerPossession,
+        key: "touches-per-possession",
+        aliases: &[
+            "touches_per_possession",
+            "touches-per-posession",
+            "touches_per_posession",
+            "touches-possession",
+            "touches_possession",
+        ],
+        display_name: "Touches per possession",
+        description: "Average touches recorded in each individual possession",
+        unit: "touches_per_possession",
+        source: StatMetricSource::PlayerPossessionAverage {
+            numerator: PossessionAverageNumerator::Touches,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::AvgPossessionDuration,
+        key: "avg-possession-duration",
+        aliases: &[
+            "average-possession-duration",
+            "average_possession_duration",
+            "avg_possession_duration",
+            "possession-duration",
+            "posession-duration",
+            "average-posession-duration",
+            "avg-posession-duration",
+        ],
+        display_name: "Average possession duration",
+        description: "Average seconds per individual possession",
+        unit: "seconds",
+        source: StatMetricSource::PlayerPossessionAverage {
+            numerator: PossessionAverageNumerator::DurationSeconds,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::HighAerialTouchCount,
+        key: "high-aerial-touch-count",
+        aliases: &[
+            "high_aerial_touch_count",
+            "high-aerial-touches",
+            "high_aerial_touches",
+            "high-aerial-touch",
+            "high_aerial_touch",
+        ],
+        display_name: "High aerial touches",
+        description: "Touches classified as high aerial contacts",
+        unit: "count",
+        source: StatMetricSource::TouchCount,
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::ControlTouchCount,
+        key: "control-touch-count",
+        aliases: &[
+            "control_touch_count",
+            "control-touches",
+            "control_touches",
+            "control-touch",
+            "control_touch",
+        ],
+        display_name: "Control touches",
+        description: "Touches classified as controlled contacts",
+        unit: "count",
+        source: StatMetricSource::TouchCount,
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BigBoostPadCount,
+        key: "big-boost-pad-count",
+        aliases: &[
+            "big_boost_pad_count",
+            "big-boost-count",
+            "big_boost_count",
+            "big-pads",
+            "big_pads",
+            "big-boost-pads",
+            "big_boost_pads",
+        ],
+        display_name: "Big boost pad count",
+        description: "Big boost pads collected by the player",
+        unit: "count",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::BigPads,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::SmallBoostPadCount,
+        key: "small-boost-pad-count",
+        aliases: &[
+            "small_boost_pad_count",
+            "small-boost-count",
+            "small_boost_count",
+            "small-pads",
+            "small_pads",
+            "small-boost-pads",
+            "small_boost_pads",
+        ],
+        display_name: "Small boost pad count",
+        description: "Small boost pads collected by the player",
+        unit: "count",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::SmallPads,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::BigBoostAmount,
+        key: "big-boost-amount",
+        aliases: &[
+            "big_boost_amount",
+            "amount-from-big-boosts",
+            "amount_from_big_boosts",
+            "boost-from-big-boosts",
+            "boost_from_big_boosts",
+            "boost-collected-big",
+            "boost_collected_big",
+        ],
+        display_name: "Boost from big pads",
+        description: "Boost amount collected from big pads, in normal 0-100 boost units",
+        unit: "boost",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::BigAmount,
+        },
+    },
+    StatMetricDefinition {
+        metric: StatLeaderboardMetric::SmallBoostAmount,
+        key: "small-boost-amount",
+        aliases: &[
+            "small_boost_amount",
+            "amount-from-small-boosts",
+            "amount_from_small_boosts",
+            "boost-from-small-boosts",
+            "boost_from_small_boosts",
+            "boost-collected-small",
+            "boost_collected_small",
+        ],
+        display_name: "Boost from small pads",
+        description: "Boost amount collected from small pads, in normal 0-100 boost units",
+        unit: "boost",
+        source: StatMetricSource::Boost {
+            column: BoostMetricColumn::SmallAmount,
+        },
+    },
 ];
+
+const STAT_METRIC_KEYS: &str = "ball-opponent-half, possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count, big-boost-pad-count, small-boost-pad-count, big-boost-amount, small-boost-amount";
 
 impl StatLeaderboardMetric {
     fn from_query(value: Option<&str>) -> Result<Self, ApiError> {
@@ -846,7 +1139,7 @@ impl StatLeaderboardMetric {
             })
             .map(|definition| definition.metric)
             .ok_or_else(|| {
-                ApiError::bad_request("stat must be one of: ball-opponent-half, possession-time")
+                ApiError::bad_request(format!("stat must be one of: {STAT_METRIC_KEYS}"))
             })
     }
 
@@ -864,6 +1157,7 @@ enum StatLeaderboardSort {
     PerGame,
     PerMinute,
     Share,
+    Average,
 }
 
 impl StatLeaderboardSort {
@@ -875,8 +1169,9 @@ impl StatLeaderboardSort {
                 Ok(Self::PerMinute)
             }
             Some("share") | Some("percentage") | Some("percent") | Some("pct") => Ok(Self::Share),
+            Some("average") | Some("avg") => Ok(Self::Average),
             Some(_) => Err(ApiError::bad_request(
-                "sort must be one of: total, per-game, per-minute, share",
+                "sort must be one of: total, per-game, per-minute, share, average",
             )),
         }
     }
@@ -887,6 +1182,7 @@ impl StatLeaderboardSort {
             Self::PerGame => "value_per_game DESC NULLS LAST, value DESC",
             Self::PerMinute => "value_per_active_minute DESC NULLS LAST, value DESC",
             Self::Share => "share_of_active_time DESC NULLS LAST, value DESC",
+            Self::Average => "value DESC",
         }
     }
 }
@@ -919,6 +1215,8 @@ pub struct StatLeaderboardRowResponse {
     pub value: f64,
     pub replay_count: u64,
     pub active_time_seconds: Option<f64>,
+    /// Count of underlying samples for average metrics, e.g. possession spans.
+    pub sample_count: Option<u64>,
     pub value_per_game: Option<f64>,
     pub value_per_active_minute: Option<f64>,
     pub share_of_active_time: Option<f64>,
@@ -946,6 +1244,11 @@ impl StatLeaderboardFilters {
         let metric =
             StatLeaderboardMetric::from_query(params.first(&["stat", "metric"]).as_deref())?;
         let sort = StatLeaderboardSort::from_query(params.first(&["sort", "rate"]).as_deref())?;
+        if sort == StatLeaderboardSort::Share && !metric.definition().supports_share() {
+            return Err(ApiError::bad_request(
+                "share sorting is only available for second-based stats",
+            ));
+        }
         let min_games = params
             .first(&["min-games", "min_games"])
             .map(|value| parse_u32_filter("min-games", &value))
@@ -969,8 +1272,8 @@ impl StatLeaderboardFilters {
     path = "/api/v1/leaderboards/stat",
     tag = "leaderboards",
     params(
-        ("stat" = Option<String>, Query, description = "Continuous stat metric: ball-opponent-half (default) or possession-time"),
-        ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, or share"),
+        ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count, big-boost-pad-count, small-boost-pad-count, big-boost-amount, or small-boost-amount"),
+        ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, share, or average"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
@@ -1054,6 +1357,9 @@ async fn load_stat_rows(
                 value: row.try_get("value")?,
                 replay_count: replay_count.max(0) as u64,
                 active_time_seconds: row.try_get("active_time_seconds")?,
+                sample_count: row
+                    .try_get::<Option<i64>, _>("sample_count")?
+                    .map(|value| value.max(0) as u64),
                 value_per_game: row.try_get("value_per_game")?,
                 value_per_active_minute: row.try_get("value_per_active_minute")?,
                 share_of_active_time: row.try_get("share_of_active_time")?,
@@ -1085,18 +1391,83 @@ fn push_stat_fact_cte<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     filters: &'args StatLeaderboardFilters,
 ) {
+    let definition = filters.metric.definition();
+    if let StatMetricSource::PlayerPossessionAverage { numerator } = definition.source {
+        let numerator_sql = match numerator {
+            PossessionAverageNumerator::Touches => "possession.touch_count",
+            PossessionAverageNumerator::DurationSeconds => "possession.duration_seconds",
+        };
+        builder.push(
+            "WITH metric_values AS (\
+             SELECT possession.platform AS platform, possession.platform_player_id AS platform_player_id, \
+             SUM(",
+        );
+        builder.push(numerator_sql);
+        builder.push(
+            ")::float8 / NULLIF(SUM(possession.possession_count), 0)::float8 AS value, \
+             COUNT(DISTINCT possession.replay_id) AS replay_count, \
+             SUM(rp.active_time_seconds) AS active_time_seconds, \
+             NULL::float8 AS denominator_value, \
+             SUM(possession.possession_count)::bigint AS sample_count \
+             FROM player_replay_possession possession \
+             JOIN replays r ON r.id = possession.replay_id \
+             AND r.canonical_analysis_run_id = possession.analysis_run_id \
+             LEFT JOIN replay_players rp ON rp.id = possession.replay_player_id \
+             WHERE possession.platform IS NOT NULL AND btrim(possession.platform) <> '' \
+             AND possession.platform_player_id IS NOT NULL \
+             AND btrim(possession.platform_player_id) <> ''",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(
+            " GROUP BY possession.platform, possession.platform_player_id \
+             HAVING SUM(possession.possession_count) > 0)",
+        );
+        return;
+    }
+
+    if let StatMetricSource::Boost { column } = definition.source {
+        builder.push(
+            "WITH metric_values AS (\
+             SELECT boost.platform AS platform, boost.platform_player_id AS platform_player_id, \
+             COALESCE(SUM(",
+        );
+        builder.push(column.sql());
+        builder.push(
+            "), 0.0)::float8 AS value, \
+             COUNT(DISTINCT boost.replay_id) AS replay_count, \
+             SUM(boost.tracked_seconds) AS active_time_seconds, \
+             NULL::float8 AS denominator_value, \
+             NULL::bigint AS sample_count \
+             FROM player_replay_boost boost \
+             JOIN replays r ON r.id = boost.replay_id \
+             AND r.canonical_analysis_run_id = boost.analysis_run_id \
+             WHERE boost.platform IS NOT NULL AND btrim(boost.platform) <> '' \
+             AND boost.platform_player_id IS NOT NULL \
+             AND btrim(boost.platform_player_id) <> ''",
+        );
+        append_replay_set_filters(builder, &filters.replay, "r");
+        builder.push(
+            " GROUP BY boost.platform, boost.platform_player_id \
+             HAVING COALESCE(SUM(",
+        );
+        builder.push(column.sql());
+        builder.push("), 0.0) > 0)");
+        return;
+    }
+
     builder.push(
         "WITH metric_values AS (\
          SELECT fact.platform AS platform, fact.platform_player_id AS platform_player_id, \
          COALESCE(SUM(fact.value), 0.0) AS value, \
          COUNT(DISTINCT fact.replay_id) AS replay_count, \
          SUM(fact.active_time_seconds) AS active_time_seconds, \
-         SUM(fact.denominator_value) AS denominator_value \
+         SUM(fact.denominator_value) AS denominator_value, \
+         NULL::bigint AS sample_count \
          FROM player_replay_stat_facts fact \
          JOIN replays r ON r.id = fact.replay_id AND r.canonical_analysis_run_id = fact.analysis_run_id \
          WHERE fact.stat_key = ",
     );
-    builder.push_bind(filters.metric.definition().fact_key());
+    builder.push_bind(definition.fact_key());
     append_replay_set_filters(builder, &filters.replay, "r");
     builder.push(
         " GROUP BY fact.platform, fact.platform_player_id \
@@ -1109,16 +1480,29 @@ fn stat_rank_query<'args>(
     paging: &LeaderboardPaging,
 ) -> QueryBuilder<'args, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new("");
+    let is_average = filters.metric.definition().is_average();
     push_stat_fact_cte(&mut builder, filters);
     builder.push(
         " SELECT m.platform AS platform, m.platform_player_id AS platform_player_id, \
          m.value AS value, m.replay_count AS replay_count, \
-         m.active_time_seconds AS active_time_seconds, \
-         (m.value / NULLIF(m.replay_count, 0)) AS value_per_game, \
-         (m.value / NULLIF(m.denominator_value, 0)) AS share_of_active_time, \
-         CASE WHEN COALESCE(m.active_time_seconds, 0) > 0 \
-         THEN m.value * 60.0 / m.active_time_seconds ELSE NULL END AS value_per_active_minute \
-         FROM metric_values m \
+         m.active_time_seconds AS active_time_seconds, m.sample_count AS sample_count, ",
+    );
+    if is_average {
+        builder.push(
+            "NULL::float8 AS value_per_game, \
+             NULL::float8 AS share_of_active_time, \
+             NULL::float8 AS value_per_active_minute ",
+        );
+    } else {
+        builder.push(
+            "(m.value / NULLIF(m.replay_count, 0)) AS value_per_game, \
+             (m.value / NULLIF(m.denominator_value, 0)) AS share_of_active_time, \
+             CASE WHEN COALESCE(m.active_time_seconds, 0) > 0 \
+             THEN m.value * 60.0 / m.active_time_seconds ELSE NULL END AS value_per_active_minute ",
+        );
+    }
+    builder.push(
+        " FROM metric_values m \
          WHERE m.replay_count >= ",
     );
     builder.push_bind(filters.min_games);

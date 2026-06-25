@@ -13,6 +13,8 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::collections::BTreeMap;
 use uuid::Uuid;
 
+use super::replay_set::push_replay_team_size_expression;
+
 #[cfg(test)]
 #[path = "mechanics_tests.rs"]
 mod tests;
@@ -132,6 +134,24 @@ pub struct MechanicEventsQuery {
     pub game_modes: Vec<String>,
     #[serde(
         default,
+        rename = "game-type",
+        alias = "game-type[]",
+        alias = "game_types",
+        alias = "game_types[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub game_types: Vec<String>,
+    #[serde(
+        default,
+        rename = "team-size",
+        alias = "team-size[]",
+        alias = "team_sizes",
+        alias = "team_sizes[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub team_sizes: Vec<String>,
+    #[serde(
+        default,
         rename = "map",
         alias = "map[]",
         alias = "maps",
@@ -216,6 +236,12 @@ impl MechanicEventsQuery {
                 "playlist" if !value.is_empty() => parsed.playlist.push(value.to_owned()),
                 "game-mode" | "game_modes" if !value.is_empty() => {
                     parsed.game_modes.push(value.to_owned())
+                }
+                "game-type" | "game_types" | "replay-game-type" if !value.is_empty() => {
+                    parsed.game_types.push(value.to_owned())
+                }
+                "team-size" | "team_sizes" if !value.is_empty() => {
+                    parsed.team_sizes.push(value.to_owned())
                 }
                 "map" | "maps" if !value.is_empty() => parsed.maps.push(value.to_owned()),
                 "pro" if !value.is_empty() => {
@@ -362,7 +388,6 @@ fn mechanic_timeline_kind(event_type: &str) -> Option<String> {
             | "pass"
             | "speed_flip"
             | "wall_aerial"
-            | "wall_aerial_shot"
             | "wavedash"
     )
     .then(|| event_type.to_owned())
@@ -1418,6 +1443,8 @@ struct MechanicEventFilters {
     player_name_patterns: Vec<String>,
     player_ids: Vec<String>,
     playlists: Vec<String>,
+    game_types: Vec<String>,
+    team_sizes: Vec<i32>,
     maps: Vec<String>,
     pro: Option<bool>,
     uploader_user_id: Option<Uuid>,
@@ -1514,6 +1541,8 @@ impl Default for MechanicEventFilters {
             player_name_patterns: Vec::new(),
             player_ids: Vec::new(),
             playlists: Vec::new(),
+            game_types: Vec::new(),
+            team_sizes: Vec::new(),
             maps: Vec::new(),
             pro: None,
             uploader_user_id: None,
@@ -1552,6 +1581,18 @@ impl MechanicEventFilters {
         playlists.extend(normalize_terms(query.game_modes));
         playlists.sort();
         playlists.dedup();
+        let mut game_types = normalize_terms(query.game_types)
+            .into_iter()
+            .map(|value| parse_review_game_type_filter(&value))
+            .collect::<Result<Vec<_>, _>>()?;
+        game_types.sort();
+        game_types.dedup();
+        let mut team_sizes = normalize_terms(query.team_sizes)
+            .into_iter()
+            .map(|value| parse_review_team_size_filter(&value))
+            .collect::<Result<Vec<_>, _>>()?;
+        team_sizes.sort_unstable();
+        team_sizes.dedup();
         let review_status = match query.review_status {
             Some(status) => normalize_review_status_filter(&status)?,
             None => None,
@@ -1576,6 +1617,8 @@ impl MechanicEventFilters {
                 .collect(),
             player_ids,
             playlists,
+            game_types,
+            team_sizes,
             maps: normalize_terms(query.maps),
             pro: query.pro,
             uploader_user_id: query
@@ -1718,6 +1761,32 @@ impl MechanicEventFilters {
         )?;
         playlists.sort();
         playlists.dedup();
+        let mut game_types = json_string_vec(
+            object
+                .get("gameTypes")
+                .or_else(|| object.get("game-types"))
+                .or_else(|| object.get("gameType"))
+                .or_else(|| object.get("game-type"))
+                .or_else(|| object.get("replayGameType"))
+                .or_else(|| object.get("replay-game-type")),
+        )?
+        .into_iter()
+        .map(|value| parse_review_game_type_filter(&value))
+        .collect::<Result<Vec<_>, _>>()?;
+        game_types.sort();
+        game_types.dedup();
+        let mut team_sizes = json_string_vec(
+            object
+                .get("teamSizes")
+                .or_else(|| object.get("team-sizes"))
+                .or_else(|| object.get("teamSize"))
+                .or_else(|| object.get("team-size")),
+        )?
+        .into_iter()
+        .map(|value| parse_review_team_size_filter(&value))
+        .collect::<Result<Vec<_>, _>>()?;
+        team_sizes.sort_unstable();
+        team_sizes.dedup();
         let maps = json_string_vec(object.get("maps").or_else(|| object.get("map")))?;
         let event_categories = json_string_vec(
             object
@@ -1831,6 +1900,8 @@ impl MechanicEventFilters {
                 .collect(),
             player_ids: normalize_terms(player_ids),
             playlists: normalize_terms(playlists),
+            game_types,
+            team_sizes,
             maps: normalize_terms(maps),
             pro,
             uploader_user_id,
@@ -1987,6 +2058,8 @@ fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
                 "playerNames": filters.player_name_patterns.iter().map(|pattern| unescape_like_pattern(pattern)).collect::<Vec<_>>(),
                 "playerIds": filters.player_ids,
                 "playlists": filters.playlists,
+                "gameTypes": filters.game_types,
+                "teamSizes": filters.team_sizes,
                 "maps": filters.maps,
                 "pro": filters.pro,
                 "uploader": filters.uploader_user_id,
@@ -2495,6 +2568,22 @@ fn push_evaluation_replay_filters<'a>(
             .push_bind(&filters.playlists)
             .push(")");
     }
+    if !filters.game_types.is_empty() {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".replay_game_type = ANY(")
+            .push_bind(&filters.game_types)
+            .push(")");
+    }
+    if !filters.team_sizes.is_empty() {
+        builder.push(" AND (");
+        push_replay_team_size_expression(builder, replay_alias);
+        builder
+            .push(") = ANY(")
+            .push_bind(&filters.team_sizes)
+            .push(")");
+    }
     if !filters.maps.is_empty() {
         builder
             .push(" AND ")
@@ -2696,6 +2785,20 @@ fn find_mechanic_events_query<'args>(
         builder
             .push(" AND replay.playlist = ANY(")
             .push_bind(&filters.playlists)
+            .push(")");
+    }
+    if !filters.game_types.is_empty() {
+        builder
+            .push(" AND replay.replay_game_type = ANY(")
+            .push_bind(&filters.game_types)
+            .push(")");
+    }
+    if !filters.team_sizes.is_empty() {
+        builder.push(" AND (");
+        push_replay_team_size_expression(&mut builder, "replay");
+        builder
+            .push(") = ANY(")
+            .push_bind(&filters.team_sizes)
             .push(")");
     }
     if !filters.maps.is_empty() {
@@ -3107,6 +3210,7 @@ fn registered_event_type_category(event_type: &str) -> Option<&'static str> {
 fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
     match category {
         subtr_actor::EventCategory::Core => "core",
+        subtr_actor::EventCategory::Basic => "basic",
         subtr_actor::EventCategory::Mechanic => "mechanic",
         subtr_actor::EventCategory::Positioning => "positioning",
         subtr_actor::EventCategory::Other => "other",
@@ -3117,7 +3221,7 @@ fn event_category_key(category: subtr_actor::EventCategory) -> &'static str {
 
 fn canonical_event_type_key(event_type: &str) -> &str {
     if let Some(mechanic_key) = event_type.strip_prefix("mechanic.") {
-        if mechanic_event_type_keys(mechanic_key) {
+        if registered_event_type_category(mechanic_key).is_some() {
             return mechanic_key;
         }
     }
@@ -3144,6 +3248,7 @@ fn event_category_alias(category: &str) -> &'static str {
         "boost" => "boost",
         "contact" => "contact",
         "core" => "core",
+        "basic" => "basic",
         "mechanic" => "mechanic",
         "movement" => "movement",
         "possession" => "possession",
@@ -3278,6 +3383,43 @@ fn parse_review_bool_filter(name: &str, value: &str) -> Result<bool, ApiError> {
         .trim()
         .parse::<bool>()
         .map_err(|_| ApiError::bad_request(format!("{name} must be true or false")))
+}
+
+fn parse_review_game_type_filter(value: &str) -> Result<String, ApiError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    const ALLOWED: &[&str] = &[
+        "ranked",
+        "casual",
+        "private",
+        "offline",
+        "lan",
+        "tournament",
+        "unknown",
+    ];
+    if ALLOWED.contains(&normalized.as_str()) {
+        Ok(normalized)
+    } else {
+        Err(ApiError::bad_request(format!(
+            "game-type must be one of: {}",
+            ALLOWED.join(", ")
+        )))
+    }
+}
+
+fn parse_review_team_size_filter(value: &str) -> Result<i32, ApiError> {
+    let normalized = value.trim().to_ascii_lowercase();
+    let digits = match normalized.as_str() {
+        "1v1" => "1",
+        "2v2" => "2",
+        "3v3" => "3",
+        "4v4" => "4",
+        other => other,
+    };
+    digits
+        .parse::<i32>()
+        .ok()
+        .filter(|size| (1..=4).contains(size))
+        .ok_or_else(|| ApiError::bad_request("team-size must be 1-4 (or 1v1, 2v2, 3v3, 4v4)"))
 }
 
 fn parse_review_datetime_filter(name: &str, value: &str) -> Result<DateTime<Utc>, ApiError> {

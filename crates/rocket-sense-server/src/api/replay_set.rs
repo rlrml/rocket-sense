@@ -32,6 +32,8 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) created_before: Option<DateTime<Utc>>,
     pub(crate) replay_date_after: Option<DateTime<Utc>>,
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
+    pub(crate) target_player_id: Option<String>,
+    pub(crate) player_outcome: Option<String>,
 }
 
 impl ReplaySetFilterInput {
@@ -74,6 +76,8 @@ impl ReplaySetFilterInput {
                 .first(&["replay-date-before", "replay_date_before"])
                 .map(|value| parse_datetime_filter("replay-date-before", &value))
                 .transpose()?,
+            target_player_id: params.first(&["player-id", "player_id"]),
+            player_outcome: params.first(&["player-outcome", "player_outcome"]),
         })
     }
 }
@@ -98,12 +102,25 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) replay_date_after: Option<DateTime<Utc>>,
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
     pub(crate) playlist_group_key: Option<String>,
+    pub(crate) player_outcome: Option<PlayerReplayOutcomeFilter>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct PlayerStatFilter {
     pub(crate) platform: String,
     pub(crate) platform_player_id: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct PlayerReplayOutcomeFilter {
+    pub(crate) player: PlayerStatFilter,
+    pub(crate) outcome: ReplayOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ReplayOutcome {
+    Win,
+    Loss,
 }
 
 impl ReplaySetFilters {
@@ -140,6 +157,18 @@ impl ReplaySetFilters {
             .uploader
             .map(|uploader| parse_uploader_filter(&uploader, auth_user_id))
             .transpose()?;
+        let player_outcome = input
+            .player_outcome
+            .map(|outcome| {
+                let player = input.target_player_id.as_deref().ok_or_else(|| {
+                    ApiError::bad_request("player-outcome requires a player-id filter")
+                })?;
+                Ok::<_, ApiError>(PlayerReplayOutcomeFilter {
+                    player: PlayerStatFilter::from_query(player)?,
+                    outcome: parse_replay_outcome_filter(&outcome)?,
+                })
+            })
+            .transpose()?;
 
         Ok(Self {
             search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
@@ -172,6 +201,7 @@ impl ReplaySetFilters {
             replay_date_after: input.replay_date_after,
             replay_date_before: input.replay_date_before,
             playlist_group_key: None,
+            player_outcome,
         })
     }
 }
@@ -199,6 +229,7 @@ impl ReplaySetFilters {
             && self.replay_date_after.is_none()
             && self.replay_date_before.is_none()
             && self.playlist_group_key.is_none()
+            && self.player_outcome.is_none()
     }
 }
 
@@ -392,6 +423,48 @@ pub(crate) fn append_replay_set_filters<'args>(
             .push(".replay_date <= ")
             .push_bind(replay_date_before);
     }
+    if let Some(outcome) = &filters.player_outcome {
+        append_player_replay_outcome_filter(builder, outcome, replay_alias);
+    }
+}
+
+fn append_player_replay_outcome_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    filter: &'args PlayerReplayOutcomeFilter,
+    replay_alias: &str,
+) {
+    let team_zero_operator = match filter.outcome {
+        ReplayOutcome::Win => ">",
+        ReplayOutcome::Loss => "<",
+    };
+    let team_one_operator = match filter.outcome {
+        ReplayOutcome::Win => "<",
+        ReplayOutcome::Loss => ">",
+    };
+
+    builder.push(" AND EXISTS (SELECT 1 FROM replay_players outcome_player WHERE outcome_player.replay_id = ");
+    builder.push(replay_alias);
+    builder.push(".id AND outcome_player.platform = ");
+    builder.push_bind(&filter.player.platform);
+    builder.push(" AND outcome_player.platform_player_id = ");
+    builder.push_bind(&filter.player.platform_player_id);
+    builder.push(" AND outcome_player.team IS NOT NULL AND ");
+    builder.push(replay_alias);
+    builder.push(".team_zero_score IS NOT NULL AND ");
+    builder.push(replay_alias);
+    builder.push(".team_one_score IS NOT NULL AND ((outcome_player.team = 0 AND ");
+    builder.push(replay_alias);
+    builder.push(".team_zero_score ");
+    builder.push(team_zero_operator);
+    builder.push(" ");
+    builder.push(replay_alias);
+    builder.push(".team_one_score) OR (outcome_player.team = 1 AND ");
+    builder.push(replay_alias);
+    builder.push(".team_zero_score ");
+    builder.push(team_one_operator);
+    builder.push(" ");
+    builder.push(replay_alias);
+    builder.push(".team_one_score)))");
 }
 
 /// Canonical playlist group key combining the two orthogonal segmentation
@@ -428,7 +501,7 @@ pub(crate) fn push_playlist_group_key_expression<'args>(
 /// active time of zero (e.g. spectating referees in private/RLCS lobbies that
 /// still appear on a team roster) are excluded; players with no recorded
 /// active time (legacy rows) are counted.
-fn push_replay_team_size_expression<'args>(
+pub(crate) fn push_replay_team_size_expression<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     replay_alias: &str,
 ) {
@@ -474,6 +547,14 @@ fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
         .ok()
         .filter(|size| (1..=4).contains(size))
         .ok_or_else(|| ApiError::bad_request("team-size must be 1-4 (or 1v1, 2v2, 3v3, 4v4)"))
+}
+
+fn parse_replay_outcome_filter(value: &str) -> Result<ReplayOutcome, ApiError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "win" | "wins" | "won" => Ok(ReplayOutcome::Win),
+        "loss" | "losses" | "lost" => Ok(ReplayOutcome::Loss),
+        _ => Err(ApiError::bad_request("player-outcome must be win or loss")),
+    }
 }
 
 pub(crate) fn normalize_terms(terms: Vec<String>) -> Vec<String> {

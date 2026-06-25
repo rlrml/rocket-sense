@@ -282,10 +282,12 @@ fn event_type_catalog_is_code_defined_and_canonical() {
     let event_types = code_defined_event_types();
     let event_type = |key: &str| event_types.iter().find(|event_type| event_type.key == key);
 
-    assert_eq!(event_type("center").unwrap().category, "mechanic");
+    assert_eq!(event_type("center").unwrap().category, "basic");
     assert!(event_type("mechanic.center").is_none());
     assert_eq!(event_type("air_dribble").unwrap().category, "mechanic");
     assert!(event_type("goal_tag_air_dribble_goal").is_none());
+    assert_eq!(event_type("dodge").unwrap().category, "basic");
+    assert_eq!(event_type("touch").unwrap().category, "other");
     assert_eq!(event_type("boost_pickup").unwrap().category, "other");
     assert!(event_type("boost_pickup_both").is_none());
     assert_eq!(event_type("rotation_role").unwrap().category, "positioning");
@@ -727,7 +729,7 @@ fn stale_event_categories_are_canonicalized_by_event_type_key() {
     );
     assert_eq!(
         canonical_event_type_category("controlled_play", "event"),
-        "mechanic"
+        "other"
     );
 }
 

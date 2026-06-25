@@ -10,8 +10,15 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { getPlayerBoostTotals, listBoostTracks, listReplayGroupBoostTotals } from "../api";
+import {
+  getPlayerBoostPadControl,
+  getPlayerBoostTotals,
+  listBoostTracks,
+  listReplayGroupBoostTotals,
+} from "../api";
 import type {
+  BoostPadControlPoint,
+  BoostPadControlResponse,
   BoostTrack,
   GroupBoostTotal,
   GroupBoostTotalsResponse,
@@ -22,6 +29,12 @@ import type {
 } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
 import {
+  careerCohortKey,
+  careerCohortSegmentClassName,
+  careerCohortSubtitle,
+  type ComparisonRow,
+  PlayerComparisonChart,
+  type CareerCohortKey,
   SegmentedBar,
   type SegmentedBarSegment,
   statPercentWithValue,
@@ -267,8 +280,11 @@ export function BoostProfileDetail({
   search: string;
 }) {
   const [totals, setTotals] = useState<PlayerBoostTotalsResponse | null>(null);
+  const [padControl, setPadControl] = useState<BoostPadControlResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [padControlLoading, setPadControlLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [padControlError, setPadControlError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -284,6 +300,26 @@ export function BoostProfileDetail({
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, platformPlayerId, search]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPadControlLoading(true);
+    setPadControlError(null);
+    setPadControl(null);
+    getPlayerBoostPadControl(platform, platformPlayerId, new URLSearchParams(search))
+      .then((response) => {
+        if (!cancelled) setPadControl(response);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setPadControlError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setPadControlLoading(false);
       });
     return () => {
       cancelled = true;
@@ -330,24 +366,25 @@ export function BoostProfileDetail({
         profilePathForSummary={(summary) => playerProfilePath(summary)}
         segmentColorClassNameForSummary={boostProfileSegmentColorClassName}
         showPlatformBadgeForSummary={(summary) => summary.key === "player"}
-        subtitleForSummary={(summary) =>
-          summary.key === "player"
-            ? "Player"
-            : summary.key === "teammates"
-              ? "Same-team players"
-              : "Other-team players"
-        }
+        subtitleForSummary={(summary) => careerCohortSubtitle(boostProfileCohort(summary))}
         summaries={summaries}
         valueMode="per-minute"
+      />
+      <BoostProfilePadControlMap
+        error={padControlError}
+        loading={padControlLoading}
+        points={padControl?.points ?? []}
       />
     </section>
   );
 }
 
 function boostProfileSegmentColorClassName(summary: BoostPlayerSummary): string {
-  if (summary.key === "player") return "boost-profile-subject";
-  if (summary.key === "teammates") return "boost-profile-teammates";
-  return "boost-profile-opponents";
+  return careerCohortSegmentClassName(boostProfileCohort(summary));
+}
+
+function boostProfileCohort(summary: BoostPlayerSummary): CareerCohortKey {
+  return careerCohortKey(summary.key) ?? "opponents";
 }
 
 function BoostComparisonModeToggle({
@@ -381,6 +418,212 @@ function BoostComparisonModeToggle({
       </div>
     </div>
   );
+}
+
+function BoostProfilePadControlMap({
+  error,
+  loading,
+  points,
+}: {
+  error: string | null;
+  loading: boolean;
+  points: BoostPadControlPoint[];
+}) {
+  const maxTotal = Math.max(1, ...points.map(boostPadControlTotal));
+
+  return (
+    <section className="boost-comparison-group boost-profile-control-map">
+      <div className="boost-control-heading">
+        <div className="player-comparison-title">Boost control</div>
+        <div className="boost-control-note">Center % = team control</div>
+      </div>
+      {loading ? (
+        <div className="stat-empty">Loading boost control...</div>
+      ) : error ? (
+        <div className="stat-empty">Boost control is unavailable: {error}</div>
+      ) : points.length === 0 ? (
+        <div className="stat-empty">No boost-control pickup locations are available yet.</div>
+      ) : (
+        <>
+          <svg
+            className="pickup-map boost-control-map"
+            viewBox="0 0 100 125"
+            role="img"
+            aria-label="Lifetime boost pad control map"
+          >
+            <rect className="field-bg" x="4" y="4" width="92" height="117" rx="3" />
+            <path
+              className="boost-control-half-shade opponent"
+              d="M 7 4 H 93 Q 96 4 96 7 V 62.5 H 4 V 7 Q 4 4 7 4 Z"
+            />
+            <path
+              className="boost-control-half-shade own"
+              d="M 4 62.5 H 96 V 118 Q 96 121 93 121 H 7 Q 4 121 4 118 Z"
+            />
+            <line className="field-line" x1="4" y1="62.5" x2="96" y2="62.5" />
+            <line className="field-line" x1="50" y1="4" x2="50" y2="121" />
+            <circle className="field-line-fillless" cx="50" cy="62.5" r="10" />
+            <rect className="field-line-fillless" x="24" y="4" width="52" height="20" />
+            <rect className="field-line-fillless" x="24" y="101" width="52" height="20" />
+            <text className="boost-control-half-label opponent" x="50" y="9.6">
+              Opponent half
+            </text>
+            <text className="boost-control-half-label own" x="50" y="117.4">
+              Own half
+            </text>
+            {boostPadLocations.map((pad) => {
+              const projected = projectFieldPosition(pad.x, pad.y);
+              return (
+                <circle
+                  className={`pad-location-dot ${pad.size}`}
+                  cx={projected.x}
+                  cy={projected.y}
+                  key={pad.id}
+                  r={pad.size === "big" ? 2.1 : 1.15}
+                />
+              );
+            })}
+            {points.map((point) => {
+              const projected = projectFieldPosition(point.x, point.y);
+              const total = boostPadControlTotal(point);
+              const teamControlPercent = boostPadTeamControlPercent(point);
+              const radius =
+                point.pad_size === "big"
+                  ? 3.4 + (total / maxTotal) * 3.2
+                  : 2.1 + (total / maxTotal) * 2.4;
+              const showLabel = point.pad_size === "big" || total >= 3;
+              const slices = boostPadControlPieSlices(point);
+              const onlySlice = slices.length === 1 ? slices[0] : null;
+
+              return (
+                <g className="boost-control-marker" key={point.pad_id}>
+                  <title>{boostPadControlTitle(point)}</title>
+                  {onlySlice ? (
+                    <circle
+                      className={`boost-control-slice boost-control-slice-${onlySlice.key}`}
+                      cx={projected.x}
+                      cy={projected.y}
+                      r={radius}
+                    />
+                  ) : (
+                    slices.map((slice) => (
+                      <path
+                        className={`boost-control-slice boost-control-slice-${slice.key}`}
+                        d={pieSlicePath(
+                          projected.x,
+                          projected.y,
+                          radius,
+                          slice.startAngle,
+                          slice.endAngle,
+                        )}
+                        key={slice.key}
+                      />
+                    ))
+                  )}
+                  <circle
+                    className={`boost-control-ring ${point.pad_size}`}
+                    cx={projected.x}
+                    cy={projected.y}
+                    r={radius}
+                  />
+                  {showLabel ? (
+                    <text className="boost-control-count" x={projected.x} y={projected.y + 1.4}>
+                      {teamControlPercent == null ? "" : `${Math.round(teamControlPercent)}%`}
+                    </text>
+                  ) : null}
+                </g>
+              );
+            })}
+          </svg>
+          <div className="chart-legend compact-legend pickup-map-legend">
+            <span className="legend-boost-control-player">Player</span>
+            <span className="legend-boost-control-teammates">Rest of team</span>
+            <span className="legend-boost-control-opponents">Opponents</span>
+            <span className="legend-boost-control-count">Center % = team control</span>
+            <span className="legend-boost-control-size">Marker size = pickup volume</span>
+            <span className="legend-big-pad">Big pad</span>
+            <span className="legend-small-pad">Small pad</span>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+function boostPadControlTotal(point: BoostPadControlPoint): number {
+  return point.player_count + point.teammate_count + point.opponent_count;
+}
+
+function boostPadTeamControlPercent(point: BoostPadControlPoint): number | null {
+  const total = boostPadControlTotal(point);
+  if (total <= 0) return null;
+  return ((point.player_count + point.teammate_count) / total) * 100;
+}
+
+function boostPadControlTitle(point: BoostPadControlPoint): string {
+  const teamControlPercent = boostPadTeamControlPercent(point);
+  return [
+    `${point.pad_size === "big" ? "Big" : "Small"} pad`,
+    teamControlPercent == null
+      ? "Team control: n/a"
+      : `Team control: ${Math.round(teamControlPercent)}%`,
+    `Total: ${boostPadControlTotal(point).toLocaleString()}`,
+    `Player: ${point.player_count.toLocaleString()}`,
+    `Teammates: ${point.teammate_count.toLocaleString()}`,
+    `Opponents: ${point.opponent_count.toLocaleString()}`,
+  ].join(" | ");
+}
+
+type BoostPadControlPieSlice = {
+  key: "player" | "teammates" | "opponents";
+  value: number;
+  startAngle: number;
+  endAngle: number;
+};
+
+function boostPadControlPieSlices(point: BoostPadControlPoint): BoostPadControlPieSlice[] {
+  const total = boostPadControlTotal(point);
+  if (total <= 0) return [];
+  const rawValues: Array<Omit<BoostPadControlPieSlice, "startAngle" | "endAngle">> = [
+    { key: "player", value: point.player_count },
+    { key: "teammates", value: point.teammate_count },
+    { key: "opponents", value: point.opponent_count },
+  ];
+  const values = rawValues.filter((slice) => slice.value > 0);
+
+  let startAngle = -Math.PI / 2;
+  return values.map((slice, index) => {
+    const isLast = index === values.length - 1;
+    const endAngle = isLast ? Math.PI * 1.5 : startAngle + (slice.value / total) * Math.PI * 2;
+    const pieSlice = { ...slice, startAngle, endAngle };
+    startAngle = endAngle;
+    return pieSlice;
+  });
+}
+
+function pieSlicePath(
+  centerX: number,
+  centerY: number,
+  radius: number,
+  startAngle: number,
+  endAngle: number,
+): string {
+  const start = polarPoint(centerX, centerY, radius, startAngle);
+  const end = polarPoint(centerX, centerY, radius, endAngle);
+  const largeArc = endAngle - startAngle > Math.PI ? 1 : 0;
+  return [
+    `M ${centerX} ${centerY}`,
+    `L ${start.x} ${start.y}`,
+    `A ${radius} ${radius} 0 ${largeArc} 1 ${end.x} ${end.y}`,
+    "Z",
+  ].join(" ");
+}
+
+function polarPoint(centerX: number, centerY: number, radius: number, angle: number) {
+  return {
+    x: centerX + Math.cos(angle) * radius,
+    y: centerY + Math.sin(angle) * radius,
+  };
 }
 
 function boostProfileData(
@@ -963,6 +1206,7 @@ function BoostEconomyComparisonGrid({
               key: summary.key,
               name: summary.name,
               platform: summary.platform,
+              platformPlayerId: summary.platformPlayerId,
               profilePath: profilePathForSummary(summary),
               rank: summary.rank,
               segmentColorClassName: summaryColorClassName(summary),
@@ -1001,6 +1245,7 @@ function BoostEconomyComparisonGrid({
               key: summary.key,
               name: summary.name,
               platform: summary.platform,
+              platformPlayerId: summary.platformPlayerId,
               profilePath: profilePathForSummary(summary),
               rank: summary.rank,
               segmentColorClassName: summaryColorClassName(summary),
@@ -1028,44 +1273,6 @@ function BoostEconomyComparisonGrid({
             .sort((left, right) => right.sortValue - left.sortValue),
         },
         {
-          key: "grant-boost-collected",
-          title: "Grant/gather boost",
-          legend: [{ className: "legend-grant", label: "Kickoff/respawn grants" }],
-          maxValue: maxSummaryValue(comparisonSummaries, (summary) =>
-            scaleBoostValue(summary, summary.collectedGrant),
-          ),
-          rows: comparisonSummaries
-            .map((summary) => ({
-              key: summary.key,
-              name: summary.name,
-              platform: summary.platform,
-              profilePath: profilePathForSummary(summary),
-              rank: summary.rank,
-              segmentColorClassName: summaryColorClassName(summary),
-              showPlatformBadge: showPlatformBadgeForSummary(summary),
-              subtitle: subtitleForSummary?.(summary),
-              team: summary.team,
-              playerIndex: summaryPlayerIndex(summary),
-              sortValue: scaleBoostValue(summary, summary.collectedGrant),
-              total: scaleBoostValue(summary, summary.collectedGrant),
-              valueLabel: boostValueLabel(summary, summary.collectedGrant),
-              segments: [
-                {
-                  className: "grant-source",
-                  label: "Grant",
-                  value: scaleBoostValue(summary, summary.collectedGrant),
-                  visibleLabel: boostValueLabel(summary, summary.collectedGrant),
-                  title: boostSegmentTitle(
-                    "Grant boost",
-                    summary.collectedGrant,
-                    durationForSummary(summary),
-                  ),
-                },
-              ],
-            }))
-            .sort((left, right) => right.sortValue - left.sortValue),
-        },
-        {
           key: "boost-pads-collected",
           title: "Boost pads collected",
           legend: [
@@ -1082,6 +1289,7 @@ function BoostEconomyComparisonGrid({
                 key: summary.key,
                 name: summary.name,
                 platform: summary.platform,
+                platformPlayerId: summary.platformPlayerId,
                 profilePath: profilePathForSummary(summary),
                 rank: summary.rank,
                 segmentColorClassName: summaryColorClassName(summary),
@@ -1168,6 +1376,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1182,7 +1391,6 @@ function BoostEconomyComparisonGrid({
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
     },
-    ...collectionBreakdownGroups,
     {
       key: "usage",
       title: "Usage",
@@ -1193,6 +1401,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1232,6 +1441,7 @@ function BoostEconomyComparisonGrid({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            platformPlayerId: summary.platformPlayerId,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
             segmentColorClassName: summaryColorClassName(summary),
@@ -1297,6 +1507,7 @@ function BoostEconomyComparisonGrid({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            platformPlayerId: summary.platformPlayerId,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
             segmentColorClassName: summaryColorClassName(summary),
@@ -1350,6 +1561,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1374,6 +1586,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1406,6 +1619,7 @@ function BoostEconomyComparisonGrid({
           key: summary.key,
           name: summary.name,
           platform: summary.platform,
+          platformPlayerId: summary.platformPlayerId,
           profilePath: profilePathForSummary(summary),
           rank: summary.rank,
           segmentColorClassName: summaryColorClassName(summary),
@@ -1447,6 +1661,7 @@ function BoostEconomyComparisonGrid({
             key: summary.key,
             name: summary.name,
             platform: summary.platform,
+            platformPlayerId: summary.platformPlayerId,
             profilePath: profilePathForSummary(summary),
             rank: summary.rank,
             segmentColorClassName: summaryColorClassName(summary),
@@ -1473,6 +1688,7 @@ function BoostEconomyComparisonGrid({
         })
         .sort((left, right) => right.sortValue - left.sortValue),
     },
+    ...collectionBreakdownGroups,
   ];
 
   return (
@@ -1502,6 +1718,7 @@ interface BoostComparisonRow {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath: string | null;
   rank: StatPlayerRank | null;
   segmentColorClassName: string | null;
@@ -1524,83 +1741,62 @@ interface BoostComparisonSegment {
 }
 
 function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
-  const useTeamColoredBars = true;
-  // Every comparison group is per-player: each segment takes the player's
-  // identity hue (--seg-color), and multi-level bars step that hue's lightness
-  // per level (pad zones, sources, boost ranges, stolen) — see styles.css.
-  const usePlayerShade = true;
+  const rows = group.rows.map((row): ComparisonRow => {
+    const rowWidthPercent = row.total > 0 ? (row.total / Math.max(1, group.maxValue)) * 100 : 0;
+    const showSegmentLabels = group.key === "boost-ranges" || rowWidthPercent >= 24;
+    const rowIdentityClassName = row.segmentColorClassName ?? `team-accent-${teamClass(row.team)}`;
+
+    return {
+      key: row.key,
+      label: (
+        <StatPlayerLabel
+          className={`comparison-player-label ${rowIdentityClassName}`}
+          name={row.name}
+          platform={row.platform}
+          platformPlayerId={row.platformPlayerId}
+          profilePath={row.profilePath}
+          rank={row.rank}
+          showPlatformBadge={row.showPlatformBadge}
+          subtitle={row.subtitle ?? teamLabel(row.team)}
+        />
+      ),
+      ariaLabel: `${row.name}: ${row.valueLabel}`,
+      segments: row.segments.map((segment) => ({
+        key: `${row.key}:${segment.label}`,
+        className: boostComparisonSegmentClassName(row, segment),
+        label: segment.label,
+        value: segment.value,
+        visibleLabel: showSegmentLabels ? segment.visibleLabel : undefined,
+        title: segment.title,
+      })),
+      total: row.total,
+      maxValue: group.maxValue,
+      valueLabel: row.valueLabel,
+    };
+  });
 
   return (
-    <section className="boost-comparison-group">
-      <div className="boost-comparison-title">{group.title}</div>
-      <div className="boost-comparison-rows">
-        {group.rows.map((row) => {
-          const rowWidthPercent = barWidthPercent(row.total, group.maxValue);
-          const showSegmentLabels = group.key === "boost-ranges" || rowWidthPercent >= 24;
-
-          return (
-            <div className="boost-comparison-row" key={row.key}>
-              <StatPlayerLabel
-                className={`comparison-player-label team-accent-${teamClass(row.team)}`}
-                name={row.name}
-                platform={row.platform}
-                profilePath={row.profilePath}
-                rank={row.rank}
-                showPlatformBadge={row.showPlatformBadge}
-                subtitle={row.subtitle ?? teamLabel(row.team)}
-              />
-              <div className="metric-bar-track source-bar-track comparison-track">
-                <span className="source-bar-fill" style={{ width: `${rowWidthPercent}%` }}>
-                  {row.segments.map((segment) => (
-                    <BoostSourceSegment
-                      key={`${row.key}:${segment.label}`}
-                      colorClassName={row.segmentColorClassName}
-                      playerIndex={usePlayerShade ? row.playerIndex : null}
-                      segment={segment}
-                      showLabel={showSegmentLabels}
-                      team={useTeamColoredBars ? row.team : null}
-                    />
-                  ))}
-                </span>
-              </div>
-              <strong className="metric-value comparison-value">
-                <span>{row.valueLabel}</span>
-              </strong>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+    <PlayerComparisonChart
+      className="boost-comparison-group"
+      emptyLabel="No boost comparison data yet."
+      rows={rows}
+      title={group.title}
+    />
   );
 }
 
-function BoostSourceSegment({
-  colorClassName,
-  playerIndex,
-  segment,
-  showLabel,
-  team,
-}: {
-  colorClassName: string | null;
-  playerIndex: number | null;
-  segment: BoostComparisonSegment;
-  showLabel: boolean;
-  team: number | null;
-}) {
-  const { className, label, title, value, visibleLabel } = segment;
-  if (value < 0.5) return null;
-
-  return (
-    <span
-      className={`source-segment ${className} ${colorClassName ?? ""} ${team == null ? "" : `team-segment-${teamClass(team)}`} ${playerIndex == null ? "" : `player-shade-${playerIndex}`}`}
-      style={{ flexGrow: value }}
-      title={title ?? `${label}: ${formatBoost(value)}`}
-    >
-      {showLabel && visibleLabel ? (
-        <span className="source-segment-label">{visibleLabel}</span>
-      ) : null}
-    </span>
-  );
+function boostComparisonSegmentClassName(
+  row: BoostComparisonRow,
+  segment: BoostComparisonSegment,
+): string {
+  return [
+    segment.className,
+    row.segmentColorClassName,
+    row.team == null ? null : `team-segment-${teamClass(row.team)}`,
+    row.playerIndex == null ? null : `player-shade-${row.playerIndex}`,
+  ]
+    .filter((className): className is string => Boolean(className))
+    .join(" ");
 }
 
 function maxSummaryValue(
@@ -1608,11 +1804,6 @@ function maxSummaryValue(
   selector: (summary: BoostPlayerSummary) => number,
 ): number {
   return Math.max(1, ...summaries.map(selector));
-}
-
-function barWidthPercent(value: number, maxValue: number): number {
-  if (value <= 0) return 0;
-  return Math.max(2, (value / Math.max(1, maxValue)) * 100);
 }
 
 function percentOf(value: number, total: number): number {
@@ -1623,6 +1814,7 @@ interface PickupMapSubject {
   key: string;
   name: string;
   platform: string | null;
+  platformPlayerId: string | null;
   profilePath: string | null;
   rank: StatPlayerRank | null;
   team: number | null;
@@ -1663,6 +1855,7 @@ function PadPickupMaps({
             key,
             name: player.name || player.platform_player_id || "Unknown",
             platform: player.platform,
+            platformPlayerId: player.platform_player_id,
             profilePath: playerProfilePath({
               platform: player.platform,
               platformPlayerId: player.platform_player_id,
@@ -1694,6 +1887,7 @@ function PadPickupMaps({
           <StatPlayerLabel
             name={subject.name}
             platform={subject.platform}
+            platformPlayerId={subject.platformPlayerId}
             profilePath={subject.profilePath}
             rank={subject.rank}
             showPlatformBadge={subject.playerIndex != null}
@@ -1991,6 +2185,7 @@ function teamPickupMapSubjects(points: BoostPickupMapPoint[]): PickupMapSubject[
     key: `team:${team}`,
     name: `${teamLabel(team)} team`,
     platform: null,
+    platformPlayerId: null,
     profilePath: null,
     rank: null,
     team,
@@ -2142,6 +2337,7 @@ const boostStatColumns: Array<{
         className={`boost-table-player team-accent-${teamClass(summary.team)}`}
         name={summary.name}
         platform={summary.platform}
+        platformPlayerId={summary.platformPlayerId}
         profilePath={playerProfilePath(summary)}
         rank={summary.rank}
         subtitle={teamLabel(summary.team)}
@@ -3104,7 +3300,7 @@ function playerProfilePath(player: {
   platformPlayerId: string | null;
 }): string | null {
   if (!player.platform || !player.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(player.platform)}/${encodeURIComponent(player.platformPlayerId)}/stats/boost`;
+  return `/players/${encodeURIComponent(player.platform)}/id/${encodeURIComponent(player.platformPlayerId)}/stats/boost`;
 }
 
 function average(values: number[]): number | null {

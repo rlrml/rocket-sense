@@ -1,5 +1,23 @@
-import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import type { ReactNode } from "react";
+import type {
+  MechanicEventResponse,
+  MovementCohortSummary,
+  MovementSummaryResponse,
+  ReplayPlayer,
+} from "../types";
 import {
+  comparisonSubjectLabel,
+  StatComparisonGrid,
+  StatComparisonPanel,
+  subjectIndexByTeam,
+  subjectMagnitudeRows,
+} from "./comparisonPanels";
+import {
+  careerCohortClassName,
+  careerCohortSegmentClassName,
+  careerCohortSubtitle,
+  careerRateValue,
+  type CareerCohortKey,
   type ComparisonRow,
   type OutcomeDistributionColors,
   type OutcomeDistributionLevel,
@@ -7,8 +25,8 @@ import {
   outcomeSegmentClassName,
   PlayerComparisonChart,
   type SegmentedBarSegment,
-  statPercentWithValue,
   StatPlayerLabel,
+  statPercentWithValue,
   statPlayerRank,
   type StatPlayerRank,
   TEAM_OUTCOME_COLORS,
@@ -61,10 +79,6 @@ interface MovementBand {
   value: (summary: PlayerMovementSummary) => number;
 }
 
-// Fixed band palette for replay-group views, where there is no replay-local team
-// to color by: the three bands keep distinct hues (teal / purple / crimson) via
-// the positive / neutral / negative tones. Single games override this with
-// TEAM_OUTCOME_COLORS so each player's bands tier their own team color.
 const BAND_COLORS: OutcomeDistributionColors = {
   positive: "#0f766e",
   "positive-clear": "#0f766e",
@@ -74,8 +88,6 @@ const BAND_COLORS: OutcomeDistributionColors = {
   "negative-clear": "#be123c",
 };
 
-// Group views give each band its own hue (one tone per band); single games give
-// every band the player's team tone and tell them apart by the shade level.
 const GROUP_BAND_TONES = ["positive", "neutral", "negative"] as const;
 
 export function MovementDetail({
@@ -83,11 +95,13 @@ export function MovementDetail({
   players,
   durationSeconds,
   scope = "replay",
+  subjectSubtitle,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   scope?: "replay" | "group";
+  subjectSubtitle?: string;
 }) {
   const summaries = playerMovementSummaries(players, events, durationSeconds);
 
@@ -100,15 +114,159 @@ export function MovementDetail({
   }
 
   const teamColored = scope !== "group";
-  const playerIndexByKey = teamLocalPlayerIndexByKey(players);
+  const subjectIndexByKey = subjectIndexByTeam(summaries);
+  const speedBands: MovementBand[] = [
+    { id: "slow", label: "Slow", level: "unknown", value: (summary) => summary.slowSeconds },
+    { id: "boost", label: "Boost", level: "clear", value: (summary) => summary.boostSeconds },
+    {
+      id: "supersonic",
+      label: "Supersonic",
+      level: "strong",
+      value: (summary) => summary.supersonicSeconds,
+    },
+  ];
+  const heightBands: MovementBand[] = [
+    { id: "ground", label: "Ground", level: "unknown", value: (summary) => summary.groundSeconds },
+    { id: "low_air", label: "Low air", level: "clear", value: (summary) => summary.lowAirSeconds },
+    {
+      id: "high_air",
+      label: "High air",
+      level: "strong",
+      value: (summary) => summary.highAirSeconds,
+    },
+  ];
 
-  const speedScale = Math.max(1, ...summaries.map((summary) => averageSpeed(summary) ?? 0));
-  const distanceScale = Math.max(1, ...summaries.map((summary) => summary.totalDistance));
-  const powerslideTimeScale = Math.max(1, ...summaries.map((summary) => summary.powerslideSeconds));
-  const powerslideCountScale = Math.max(1, ...summaries.map((summary) => summary.powerslideCount));
-  const speedFlipScale = Math.max(1, ...summaries.map((summary) => summary.speedFlips));
-  const wavedashScale = Math.max(1, ...summaries.map((summary) => summary.wavedashes));
-  const halfFlipScale = Math.max(1, ...summaries.map((summary) => summary.halfFlips));
+  return (
+    <div className="movement-detail">
+      <StatComparisonGrid contained={false}>
+        <StatComparisonPanel
+          title="Average speed (uu/s)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-speed",
+            metric: averageSpeed,
+            format: formatSpeed,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+            placeholder: "—",
+          })}
+        />
+        <StatComparisonPanel
+          title="Distance covered (uu)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-distance",
+            metric: (summary) => summary.totalDistance,
+            format: formatDistanceShort,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+          })}
+        />
+        <StatComparisonPanel
+          title="Speed bands (seconds)"
+          rows={distributionRows(summaries, speedBands, {
+            teamColored,
+            subjectSubtitle,
+            scope,
+            sortKey: (summary) => summary.boostSeconds + summary.supersonicSeconds,
+            format: formatSeconds,
+          })}
+        />
+        <StatComparisonPanel
+          title="Ground & air (seconds)"
+          rows={distributionRows(summaries, heightBands, {
+            teamColored,
+            subjectSubtitle,
+            scope,
+            sortKey: (summary) => summary.lowAirSeconds + summary.highAirSeconds,
+            format: formatSeconds,
+          })}
+        />
+        <StatComparisonPanel
+          title="Powerslide time (seconds)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-powerslide",
+            metric: (summary) => summary.powerslideSeconds,
+            format: formatSeconds,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+          })}
+        />
+        <StatComparisonPanel
+          title="Powerslide count (count)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-powerslide",
+            metric: (summary) => summary.powerslideCount,
+            format: formatCount,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+          })}
+        />
+        <StatComparisonPanel
+          title="Speed flips (count)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-speed-flip",
+            metric: (summary) => summary.speedFlips,
+            format: formatCount,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+          })}
+        />
+        <StatComparisonPanel
+          title="Wavedashes (count)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-wavedash",
+            metric: (summary) => summary.wavedashes,
+            format: formatCount,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+          })}
+        />
+        <StatComparisonPanel
+          title="Half flips (count)"
+          rows={subjectMagnitudeRows(summaries, {
+            teamColored,
+            subjectIndexByKey,
+            groupClassName: "movement-bar-half-flip",
+            metric: (summary) => summary.halfFlips,
+            format: formatCount,
+            label: (summary) => movementPlayerLabel(summary, scope, subjectSubtitle),
+          })}
+        />
+      </StatComparisonGrid>
+    </div>
+  );
+}
+
+type CareerMovementSummary = PlayerMovementSummary & {
+  careerCohort: CareerCohortKey;
+  appearanceCount: number;
+};
+
+export function PlayerMovementCohorts({
+  response,
+  playerName,
+}: {
+  response: MovementSummaryResponse;
+  playerName: string;
+}) {
+  const summaries: CareerMovementSummary[] = [
+    movementCohortSummary("cohort-self", "player", playerName || "Player", response.player),
+  ];
+  if (response.teammates) {
+    summaries.push(
+      movementCohortSummary("cohort-teammates", "teammates", "Teammates", response.teammates),
+    );
+  }
+  if (response.opponents) {
+    summaries.push(
+      movementCohortSummary("cohort-opponents", "opponents", "Opponents", response.opponents),
+    );
+  }
 
   const speedBands: MovementBand[] = [
     { id: "slow", label: "Slow", level: "unknown", value: (summary) => summary.slowSeconds },
@@ -131,167 +289,205 @@ export function MovementDetail({
     },
   ];
 
-  const formatCount = (value: number) => value.toLocaleString();
+  const cards = [
+    {
+      key: "average-speed",
+      title: "Average speed (uu/s)",
+      rows: careerMovementMagnitudeRows(summaries, averageSpeed, formatSpeed),
+    },
+    {
+      key: "distance-covered",
+      title: "Distance covered (uu / 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.totalDistance, summary.activeSeconds),
+        formatDistanceRate,
+      ),
+    },
+    {
+      key: "speed-bands",
+      title: "Speed bands (% tracked time)",
+      rows: careerMovementDistributionRows(summaries, speedBands, speedBandTotal),
+    },
+    {
+      key: "ground-air",
+      title: "Ground & air (% tracked time)",
+      rows: careerMovementDistributionRows(summaries, heightBands, movementTimeTotal),
+    },
+    {
+      key: "powerslide-time",
+      title: "Powerslide time (s / 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.powerslideSeconds, summary.activeSeconds),
+        formatSecondsRate,
+      ),
+    },
+    {
+      key: "powerslide-count",
+      title: "Powerslide count (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.powerslideCount, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+    {
+      key: "speed-flips",
+      title: "Speed flips (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.speedFlips, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+    {
+      key: "wavedashes",
+      title: "Wavedashes (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.wavedashes, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+    {
+      key: "half-flips",
+      title: "Half flips (per 5 min)",
+      rows: careerMovementMagnitudeRows(
+        summaries,
+        (summary) => careerRateValue(summary.halfFlips, summary.activeSeconds),
+        formatRate,
+      ),
+    },
+  ];
 
   return (
-    <div className="movement-detail">
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Average speed"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-speed",
-          metric: (summary) => averageSpeed(summary) ?? 0,
-          maxValue: speedScale,
-          format: (value) => formatSpeed(value),
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Distance covered"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-distance",
-          metric: (summary) => summary.totalDistance,
-          maxValue: distanceScale,
-          format: (value) => formatDistanceShort(value),
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Speed bands"
-        rows={distributionRows(summaries, speedBands, {
-          teamColored,
-          sortKey: (summary) => summary.boostSeconds + summary.supersonicSeconds,
-          format: formatSeconds,
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Ground & air"
-        rows={distributionRows(summaries, heightBands, {
-          teamColored,
-          sortKey: (summary) => summary.lowAirSeconds + summary.highAirSeconds,
-          format: formatSeconds,
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Powerslide time"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-powerslide",
-          metric: (summary) => summary.powerslideSeconds,
-          maxValue: powerslideTimeScale,
-          format: formatSeconds,
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Powerslide count"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-powerslide",
-          metric: (summary) => summary.powerslideCount,
-          maxValue: powerslideCountScale,
-          format: formatCount,
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Speed flips"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-speed-flip",
-          metric: (summary) => summary.speedFlips,
-          maxValue: speedFlipScale,
-          format: formatCount,
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Wavedashes"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-wavedash",
-          metric: (summary) => summary.wavedashes,
-          maxValue: wavedashScale,
-          format: formatCount,
-        })}
-      />
-
-      <PlayerComparisonChart
-        className="movement-chart"
-        title="Half flips"
-        rows={magnitudeRows(summaries, {
-          teamColored,
-          playerIndexByKey,
-          groupClassName: "movement-bar-half-flip",
-          metric: (summary) => summary.halfFlips,
-          maxValue: halfFlipScale,
-          format: formatCount,
-        })}
-      />
-    </div>
+    <section className="movement-profile-detail full-span">
+      <div className="stat-comparison-grid player-rate-comparison-grid">
+        {cards.map((card) => (
+          <PlayerComparisonChart
+            className="career-rate-card"
+            key={card.key}
+            rows={card.rows}
+            title={card.title}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 
-function magnitudeRows(
-  summaries: PlayerMovementSummary[],
-  options: {
-    teamColored: boolean;
-    playerIndexByKey: Map<string, number>;
-    groupClassName: string;
-    metric: (summary: PlayerMovementSummary) => number;
-    maxValue: number;
-    format: (value: number) => string;
-  },
+function movementCohortSummary(
+  key: string,
+  careerCohort: CareerCohortKey,
+  name: string,
+  cohort: MovementCohortSummary,
+): CareerMovementSummary {
+  return {
+    key,
+    name,
+    platform: null,
+    platformPlayerId: null,
+    rank: null,
+    team: null,
+    careerCohort,
+    appearanceCount: cohort.appearance_count,
+    activeSeconds: cohort.active_seconds,
+    totalDistance: cohort.total_distance,
+    speedWeighted: cohort.speed_weighted,
+    speedWeight: cohort.speed_weight,
+    slowSeconds: cohort.slow_seconds,
+    boostSeconds: cohort.boost_seconds,
+    supersonicSeconds: cohort.supersonic_seconds,
+    groundSeconds: cohort.ground_seconds,
+    lowAirSeconds: cohort.low_air_seconds,
+    highAirSeconds: cohort.high_air_seconds,
+    powerslideCount: cohort.powerslide_count,
+    powerslideSeconds: cohort.powerslide_seconds,
+    speedFlips: cohort.speed_flips,
+    wavedashes: cohort.wavedashes,
+    halfFlips: cohort.half_flips,
+  };
+}
+
+function careerMovementMagnitudeRows(
+  summaries: CareerMovementSummary[],
+  value: (summary: CareerMovementSummary) => number | null,
+  format: (value: number) => string,
 ): ComparisonRow[] {
-  // Every player appears in every graph (sorted high -> low); a zero value reads
-  // as an empty track with a "0" placeholder rather than a dropped row.
-  return [...summaries]
-    .sort(
-      (left, right) =>
-        options.metric(right) - options.metric(left) || left.name.localeCompare(right.name),
-    )
-    .map((summary) => {
-      const value = options.metric(summary);
+  const maxValue = Math.max(1, ...summaries.map((summary) => value(summary) ?? 0));
+  return summaries.map((summary) => {
+    const metric = value(summary);
+    const total = metric ?? 0;
+    const formatted = format(total);
+    return {
+      key: summary.key,
+      label: movementCohortLabel(summary),
+      ariaLabel: `${summary.name}: ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: careerCohortSegmentClassName(summary.careerCohort),
+          label: summary.name,
+          value: total,
+        },
+      ],
+      total,
+      maxValue,
+      barValue: formatted,
+    };
+  });
+}
+
+function careerMovementDistributionRows(
+  summaries: CareerMovementSummary[],
+  bands: MovementBand[],
+  totalFor: (summary: CareerMovementSummary) => number,
+): ComparisonRow[] {
+  return summaries.map((summary) => {
+    const total = totalFor(summary);
+    const segments: SegmentedBarSegment[] = bands.map((band, index) => {
+      const value = band.value(summary);
+      const share = total > 0 ? value / total : 0;
       return {
-        key: summary.key,
-        label: movementPlayerLabel(summary),
-        ariaLabel: `${summary.name}: ${options.format(value)}`,
-        segments: [
-          {
-            key: "value",
-            className: magnitudeSegmentClass(
-              summary,
-              options.teamColored,
-              options.playerIndexByKey,
-              options.groupClassName,
-            ),
-            label: summary.name,
-            value,
-          },
-        ],
-        total: value,
-        maxValue: options.maxValue,
-        valueInBar: value > 0 ? options.format(value) : undefined,
-        placeholder: value > 0 ? undefined : "0",
+        key: band.id,
+        className: outcomeSegmentClassName(GROUP_BAND_TONES[index], "clear"),
+        label: band.label,
+        value,
+        visibleLabel:
+          value > 0 && share >= 0.12 ? `${band.label} ${Math.round(share * 100)}%` : undefined,
+        title:
+          value > 0
+            ? statPercentWithValue(`${Math.round(share * 100)}%`, formatSeconds(value), band.label)
+            : undefined,
       };
     });
+    return {
+      key: summary.key,
+      label: movementCohortLabel(summary),
+      ariaLabel: `${summary.name}: ${bands.map((band) => band.label).join(" / ")}`,
+      segments,
+      total,
+      style: outcomeDistributionColorStyle(BAND_COLORS),
+      placeholder: total > 0 ? undefined : "0%",
+    };
+  });
+}
+
+function movementCohortLabel(summary: CareerMovementSummary): ReactNode {
+  const suffix = summary.careerCohort === "player" ? "games" : "appearances";
+  return (
+    <StatPlayerLabel
+      className={careerCohortClassName(summary.careerCohort)}
+      name={summary.name}
+      platform={null}
+      platformPlayerId={null}
+      profilePath={null}
+      rank={null}
+      showPlatformBadge={false}
+      subtitle={`${careerCohortSubtitle(summary.careerCohort)} · ${summary.appearanceCount.toLocaleString()} ${suffix}`}
+    />
+  );
 }
 
 function distributionRows(
@@ -299,14 +495,14 @@ function distributionRows(
   bands: MovementBand[],
   options: {
     teamColored: boolean;
+    scope: "replay" | "group";
+    subjectSubtitle?: string;
     sortKey: (summary: PlayerMovementSummary) => number;
     format: (value: number) => string;
   },
 ): ComparisonRow[] {
   const colors = options.teamColored ? TEAM_OUTCOME_COLORS : BAND_COLORS;
 
-  // Every player appears (sorted high -> low); an all-zero split reads as an
-  // empty track with a placeholder rather than a dropped row.
   return [...summaries]
     .sort(
       (left, right) =>
@@ -338,7 +534,7 @@ function distributionRows(
       });
       return {
         key: summary.key,
-        label: movementPlayerLabel(summary),
+        label: movementPlayerLabel(summary, options.scope, options.subjectSubtitle),
         ariaLabel: `${summary.name} ${bands.map((band) => band.label).join(" / ")}`,
         segments,
         total,
@@ -348,39 +544,15 @@ function distributionRows(
     });
 }
 
-// Single game: tint by the player's team with a per-player shade. Group: there
-// is no replay-local team, so fall back to the fixed per-metric hue.
-function magnitudeSegmentClass(
+function movementPlayerLabel(
   summary: PlayerMovementSummary,
-  teamColored: boolean,
-  playerIndexByKey: Map<string, number>,
-  groupClassName: string,
-): string {
-  if (!teamColored) return groupClassName;
-  return `team-segment-${teamClass(summary.team)} player-shade-${Math.min(playerIndexByKey.get(summary.key) ?? 0, 3)}`;
-}
-
-function teamLocalPlayerIndexByKey(players: ReplayPlayer[]): Map<string, number> {
-  const indexes = new Map<string, number>();
-  const counts = new Map<number | null, number>();
-  players.forEach((player, index) => {
-    const next = counts.get(player.team) ?? 0;
-    indexes.set(playerKey(player, index), next);
-    counts.set(player.team, next + 1);
-  });
-  return indexes;
-}
-
-function movementPlayerLabel(summary: PlayerMovementSummary) {
-  return (
-    <StatPlayerLabel
-      className={`team-accent-${teamClass(summary.team)}`}
-      name={summary.name}
-      platform={summary.platform}
-      profilePath={playerProfilePath(summary)}
-      rank={summary.rank}
-      subtitle={teamLabel(summary.team)}
-    />
+  scope: "replay" | "group",
+  subjectSubtitle?: string,
+) {
+  return comparisonSubjectLabel(
+    summary,
+    "movement",
+    scope === "group" ? { teamSubtitle: subjectSubtitle ?? "Player" } : {},
   );
 }
 
@@ -391,8 +563,6 @@ function playerMovementSummaries(
 ): PlayerMovementSummary[] {
   const summaries = players.map((player, index) => emptySummary(player, index, durationSeconds));
   const byKey = new Map(summaries.map((summary) => [summary.key, summary]));
-  // Powerslide arrives as separate start/end toggles; collect per player and
-  // pair them once all events are seen (order-independent).
   const powerslideToggles = new Map<string, Array<{ time: number; active: boolean }>>();
 
   for (const event of events) {
@@ -423,9 +593,6 @@ function playerMovementSummaries(
   return summaries.sort(compareSummaries);
 }
 
-// Pair active:true (start) -> active:false (end) toggles in time order into a
-// slide count and total duration. A trailing unclosed start still counts as a
-// slide (with no measurable duration).
 function addPowerslideToggles(
   summary: PlayerMovementSummary,
   toggles: Array<{ time: number; active: boolean }>,
@@ -621,46 +788,42 @@ function flipTotal(summary: PlayerMovementSummary): number {
 }
 
 function bandTotal(summary: PlayerMovementSummary, bands: MovementBand[]): number {
-  return bands.reduce((sum, band) => sum + band.value(summary), 0);
+  return bands.reduce((total, band) => total + band.value(summary), 0);
+}
+
+function compareSummaries(left: PlayerMovementSummary, right: PlayerMovementSummary): number {
+  if ((left.team ?? 99) !== (right.team ?? 99)) return (left.team ?? 99) - (right.team ?? 99);
+  return left.name.localeCompare(right.name);
 }
 
 function eventDuration(event: MechanicEventResponse): number {
-  const duration = firstNumber(event.payload, ["duration", "duration_seconds"]);
-  if (duration != null) return duration;
-  if (event.start_time != null && event.end_time != null)
+  const payloadDuration = firstNumber(event.payload, ["duration"]);
+  if (payloadDuration != null) return Math.max(0, payloadDuration);
+  if (event.start_time != null && event.end_time != null) {
     return Math.max(0, event.end_time - event.start_time);
+  }
   return 0;
 }
 
-function firstNumber(payload: Record<string, unknown>, keys: string[]): number | null {
-  for (const key of keys) {
-    const value = nestedValue(payload, key);
+function firstNumber(payload: Record<string, unknown>, names: string[]): number | null {
+  for (const name of names) {
+    const value = payload[name];
     if (typeof value === "number" && Number.isFinite(value)) return value;
   }
   return null;
 }
 
-function firstString(payload: Record<string, unknown>, keys: string[]): string | null {
-  for (const key of keys) {
-    const value = nestedValue(payload, key);
-    if (typeof value === "string") return normalizeKey(value);
+function firstString(payload: Record<string, unknown>, names: string[]): string | null {
+  for (const name of names) {
+    const value = payload[name];
+    if (typeof value === "string" && value.length > 0) return value;
   }
   return null;
 }
 
-function nestedValue(payload: Record<string, unknown>, key: string): unknown {
-  if (key in payload) return payload[key];
-  for (const value of Object.values(payload)) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    const nested = value as Record<string, unknown>;
-    if (key in nested) return nested[key];
-  }
-  return undefined;
-}
-
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
   const value = payload[key];
-  return typeof value === "string" ? value : null;
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function remoteIdKey(value: unknown): string | null {
@@ -679,25 +842,6 @@ function remoteIdKey(value: unknown): string | null {
   return null;
 }
 
-function compareSummaries(left: PlayerMovementSummary, right: PlayerMovementSummary): number {
-  const leftSpeed = averageSpeed(left) ?? 0;
-  const rightSpeed = averageSpeed(right) ?? 0;
-  if (rightSpeed !== leftSpeed) return rightSpeed - leftSpeed;
-  if (left.team !== right.team) return (left.team ?? 9) - (right.team ?? 9);
-  return left.name.localeCompare(right.name);
-}
-
-function playerKey(player: ReplayPlayer, index: number): string {
-  if (player.platform && player.platform_player_id)
-    return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
-  return `name:${player.name || index}`;
-}
-
-function playerProfilePath(summary: PlayerMovementSummary): string | null {
-  if (!summary.platform || !summary.platformPlayerId) return null;
-  return `/players/${encodeURIComponent(summary.platform)}/${encodeURIComponent(summary.platformPlayerId)}/stats/movement`;
-}
-
 function normalizePlayerKey(value: string): string {
   const [platform, ...rest] = value.split(":");
   return rest.length > 0 ? `${normalizePlatform(platform)}:${rest.join(":")}` : value;
@@ -710,38 +854,42 @@ function normalizePlatform(value: string): string {
   return lower;
 }
 
-function normalizeKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
+function playerKey(player: ReplayPlayer, index: number): string {
+  if (player.platform && player.platform_player_id)
+    return `${normalizePlatform(player.platform)}:${player.platform_player_id}`;
+  return `name:${player.name || index}`;
 }
 
-function formatSpeed(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "Unknown";
+function formatSpeed(value: number): string {
   return `${Math.round(value).toLocaleString()} uu/s`;
 }
 
 function formatDistanceShort(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "Unknown";
   if (value >= 1000) return `${Math.round(value / 1000).toLocaleString()}k uu`;
   return `${Math.round(value).toLocaleString()} uu`;
 }
 
+function formatDistanceRate(value: number): string {
+  return `${Math.round(value).toLocaleString()} uu/5m`;
+}
+
 function formatSeconds(value: number): string {
-  if (!Number.isFinite(value)) return "Unknown";
   if (value > 0 && value < 10) return `${value.toFixed(1)}s`;
-  return `${Math.round(value)}s`;
+  return `${Math.round(value).toLocaleString()}s`;
 }
 
-function teamClass(team: number | null): string {
-  if (team === 0) return "blue";
-  if (team === 1) return "orange";
-  return "unknown";
+function formatSecondsRate(value: number): string {
+  if (value > 0 && value < 10) return `${value.toFixed(1)}s/5m`;
+  return `${Math.round(value).toLocaleString()}s/5m`;
 }
 
-function teamLabel(team: number | null): string {
-  if (team === 0) return "Blue";
-  if (team === 1) return "Orange";
-  return "Unknown";
+function formatCount(value: number): string {
+  return Math.round(value).toLocaleString();
+}
+
+function formatRate(value: number): string {
+  if (!Number.isFinite(value)) return "0/5m";
+  const absolute = Math.abs(value);
+  const formatted = absolute >= 100 ? value.toFixed(0) : value.toFixed(absolute >= 10 ? 1 : 2);
+  return `${formatted}/5m`;
 }

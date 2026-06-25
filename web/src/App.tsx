@@ -19,19 +19,23 @@ import {
   LogIn,
   LogOut,
   Mail,
+  Menu,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
   ServerCog,
   SlidersHorizontal,
   Trophy,
+  Users,
+  UserPlus,
   X,
   Trash2,
   Search,
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -42,7 +46,9 @@ import {
   useParams,
 } from "react-router-dom";
 import { siDiscord, siEpicgames, siGithub, siGoogle, siSteam } from "simple-icons";
+import { lazyWithChunkLoadRecovery } from "./chunkLoadRecovery";
 import {
+  addReplayGroupManager,
   addReplaysToGroup,
   authChangeEvent,
   clearAccessToken,
@@ -54,9 +60,11 @@ import {
   getAuthOptions,
   getCurrentUser,
   getPlayerKickoffSummary,
+  getPlayerMovementSummary,
   getPlayerPositioningSummary,
   getPlayerPossessionSummary,
   getPlayerProfile,
+  getPlayerProfileByRef,
   getPlayerStatAggregates,
   getPlayerStatOverview,
   getProcessingVersion,
@@ -67,6 +75,7 @@ import {
   listEventTypes,
   listReplayGroups,
   listReplayGroupEvents,
+  listReplayGroupManagers,
   listReplayGroupReplays,
   listReplayEvents,
   listReplayFilterOptions,
@@ -74,6 +83,7 @@ import {
   listReplayProcessingDiagnostics,
   listReplays,
   logout,
+  removeReplayGroupManager,
   removeReplaysFromGroup,
   reprocessReplay,
   reprocessReplayClient,
@@ -81,6 +91,7 @@ import {
   uploadReplay,
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
+import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import {
@@ -97,7 +108,12 @@ import { StalenessChip } from "./staleness";
 import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
-import { PlayerIdentity, playerIdentityKey, replayLocalTeamLabel } from "./playerIdentity";
+import {
+  PlayerIdentity,
+  playerIdentityKey,
+  playerProfileIdPath,
+  replayLocalTeamLabel,
+} from "./playerIdentity";
 import { RankBadge } from "./rank";
 import {
   KickoffSpawnBreakdown,
@@ -108,11 +124,13 @@ import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
   PossessionSummaryPanel,
+  CoreProfileComparison,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
-  ScoringRatePanel,
 } from "./stats/playerPanels";
+import { PlayerMovementCohorts } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
+import { TouchProfileComparison } from "./stats/touches";
 import type {
   AuthOptionsResponse,
   CurrentUserResponse,
@@ -120,6 +138,7 @@ import type {
   EventTypeResponse,
   LinkedIdentityResponse,
   MechanicEventResponse,
+  MovementSummaryResponse,
   PlayerProfileResponse,
   PlayerStatOverviewResponse,
   PositioningSummaryResponse,
@@ -129,9 +148,11 @@ import type {
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
   ReplayGroupResponse,
+  ReplayGroupManagerResponse,
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
+  ReplayUploaderResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "./types";
@@ -140,14 +161,17 @@ import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 
 // Lazily loaded so the three.js / wasm replay player is only fetched when a
 // goal playlist page is actually opened, instead of bloating the main bundle.
-const ReplayGoalPlaylistPage = lazy(() =>
+const ReplayGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.ReplayGoalPlaylistPage })),
 );
-const PlayerGoalPlaylistPage = lazy(() =>
+const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.PlayerGoalPlaylistPage })),
 );
-const LeaderboardsPage = lazy(() =>
+const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
+);
+const UserProfilePage = lazyWithChunkLoadRecovery(() =>
+  import("./UserProfilePage").then((module) => ({ default: module.UserProfilePage })),
 );
 
 const navItems = [
@@ -155,55 +179,115 @@ const navItems = [
   { to: "/replay-groups", label: "Groups", icon: FolderOpen, end: true },
   { to: "/leaderboards", label: "Leaderboards", icon: Trophy, end: true },
   { to: "/events/review", label: "Events", icon: Activity },
-  { to: "/admin/processing", label: "Admin", icon: ServerCog },
-  { to: "/account", label: "Account", icon: CircleUser },
+  { to: "/admin/processing", label: "Admin", icon: ServerCog, adminOnly: true },
   { to: "/about", label: "About", icon: Info },
 ];
 
-// Mirror the per-replay game stats: only show completed groups (Mechanics /
-// Touches / Rotation are hidden pending a rewrite — see stats/registry.tsx).
-const playerStatsSectionGroups: StatGroup[] = completedStatGroups;
+const replayStatsSectionGroups: StatGroup[] = completedStatGroups;
+const aggregateStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
+  (group) => group.id !== "shot-map",
+);
+// Mirror the aggregate-safe game stats: only show completed groups (Mechanics /
+// Rotation are hidden pending a rewrite — see stats/registry.tsx).
+const playerStatsSectionGroups: StatGroup[] = aggregateStatsSectionGroups;
 
 export function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const previewReplayId = replayContextRouteId(location.pathname);
+  const [primaryNavOpen, setPrimaryNavOpen] = useState(false);
+  const [loginOpen, setLoginOpen] = useState(false);
   const [previewWarmupStatus, setPreviewWarmupStatus] = useState<PreviewPlayerWarmupStatus>(
     getPreviewPlayerWarmupStatus,
   );
+  const visibleNavItems = navItems.filter((item) => !item.adminOnly || currentUser?.is_admin);
 
   useEffect(() => schedulePreviewPlayerWarmup(previewReplayId), [previewReplayId]);
   useEffect(() => subscribePreviewPlayerWarmupStatus(setPreviewWarmupStatus), []);
+  useEffect(() => setPrimaryNavOpen(false), [location.pathname]);
 
   async function handleLogout() {
     await logout();
-    navigate("/account");
+    navigate("/replays");
+  }
+
+  function acceptLoginToken(accessToken: string) {
+    setAccessToken(accessToken);
+    setLoginOpen(false);
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
-        <Link className="brand" to="/replays">
+    <div className={`app-shell${primaryNavOpen ? " primary-nav-open" : ""}`}>
+      <header className="top-bar">
+        <button
+          className="nav-menu-button icon-button"
+          type="button"
+          aria-label={primaryNavOpen ? "Close navigation menu" : "Open navigation menu"}
+          aria-controls="primary-navigation-menu"
+          aria-expanded={primaryNavOpen}
+          onClick={() => setPrimaryNavOpen((open) => !open)}
+        >
+          {primaryNavOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+        <Link className="brand" to="/replays" aria-label="Rocket Sense home">
           <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
-          <span>Rocket Sense</span>
         </Link>
         <nav id="primary-navigation" className="nav-list" aria-label="Primary navigation">
-          {navItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
               <item.icon size={18} />
               <span>{item.label}</span>
             </NavLink>
           ))}
         </nav>
-        <PreviewPlayerWarmupIndicator status={previewWarmupStatus} />
-        {currentUser ? (
-          <button className="sidebar-logout" type="button" onClick={() => void handleLogout()}>
-            <LogOut size={18} />
-            <span>Log out</span>
-          </button>
-        ) : null}
-      </aside>
+        <nav
+          id="primary-navigation-menu"
+          className="nav-menu-list"
+          aria-label="Primary navigation menu"
+        >
+          {visibleNavItems.map((item) => (
+            <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
+              <item.icon size={18} />
+              <span>{item.label}</span>
+            </NavLink>
+          ))}
+        </nav>
+        <div className="top-bar-actions">
+          <PreviewPlayerWarmupIndicator status={previewWarmupStatus} />
+          {currentUser ? (
+            <div className="top-bar-user">
+              <Link className="top-bar-user-link" to="/account">
+                <CircleUser size={20} />
+                <div className="top-bar-user-text">
+                  <span>{currentUser.display_name}</span>
+                  <small>{currentUser.email ?? providerLabel(currentUser.provider_name)}</small>
+                </div>
+              </Link>
+              <button
+                className="top-bar-logout icon-button"
+                type="button"
+                aria-label="Log out"
+                title="Log out"
+                onClick={() => void handleLogout()}
+              >
+                <LogOut size={18} />
+              </button>
+            </div>
+          ) : (
+            <button className="top-bar-login" type="button" onClick={() => setLoginOpen(true)}>
+              <LogIn size={18} />
+              <span>Login</span>
+            </button>
+          )}
+        </div>
+      </header>
+      {loginOpen ? (
+        <LoginModal
+          onClose={() => setLoginOpen(false)}
+          onAccessToken={(accessToken) => acceptLoginToken(accessToken)}
+        />
+      ) : null}
       <main className="main-panel">
         <Routes>
           <Route path="/" element={<ReplayListPage />} />
@@ -214,6 +298,14 @@ export function App() {
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <LeaderboardsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/users/:userId"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <UserProfilePage />
               </Suspense>
             }
           />
@@ -242,14 +334,17 @@ export function App() {
               </Suspense>
             }
           />
-          <Route path="/players/:platform/:platformPlayerId" element={<PlayerStatsPage />} />
-          <Route path="/players/:platform/:platformPlayerId/stats" element={<PlayerStatsPage />} />
+          <Route path="/players/:platform/id/:platformPlayerId" element={<PlayerStatsPage />} />
           <Route
-            path="/players/:platform/:platformPlayerId/stats/:statGroup"
+            path="/players/:platform/id/:platformPlayerId/stats"
             element={<PlayerStatsPage />}
           />
           <Route
-            path="/players/:platform/:platformPlayerId/goals"
+            path="/players/:platform/id/:platformPlayerId/stats/:statGroup"
+            element={<PlayerStatsPage />}
+          />
+          <Route
+            path="/players/:platform/id/:platformPlayerId/goals"
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <PlayerGoalPlaylistPage />
@@ -257,7 +352,29 @@ export function App() {
             }
           />
           <Route
-            path="/players/:platform/:platformPlayerId/goals/:goalType"
+            path="/players/:platform/id/:platformPlayerId/goals/:goalType"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route path="/players/:platform/:playerName" element={<PlayerStatsPage />} />
+          <Route path="/players/:platform/:playerName/stats" element={<PlayerStatsPage />} />
+          <Route
+            path="/players/:platform/:playerName/stats/:statGroup"
+            element={<PlayerStatsPage />}
+          />
+          <Route
+            path="/players/:platform/:playerName/goals"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/players/:platform/:playerName/goals/:goalType"
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <PlayerGoalPlaylistPage />
@@ -319,14 +436,18 @@ function PreviewPlayerWarmupIndicator({ status }: { status: PreviewPlayerWarmupS
     <div
       className={`preview-player-warmup preview-player-warmup-${status}`}
       title={title}
+      aria-label={label}
       aria-live="polite"
     >
-      <span className="preview-player-warmup-dot" aria-hidden="true" />
-      <Icon
-        size={14}
-        className={status === "warming-runtime" || status === "warming-player" ? "spin" : undefined}
-      />
-      <span>{label}</span>
+      <Play size={17} className="preview-player-warmup-kind" aria-hidden="true" />
+      <span className="preview-player-warmup-state" aria-hidden="true">
+        <Icon
+          size={10}
+          className={
+            status === "warming-runtime" || status === "warming-player" ? "spin" : undefined
+          }
+        />
+      </span>
     </div>
   );
 }
@@ -490,7 +611,7 @@ function ReplayListPage() {
   function updateReplayOrder(order: ReplayOrder) {
     const [sortBy, sortDir] = order.split(":");
     const params = new URLSearchParams(location.search);
-    if (sortBy === "upload-date") {
+    if (sortBy === "replay-date") {
       params.delete("sort-by");
     } else {
       params.set("sort-by", sortBy);
@@ -797,11 +918,7 @@ function ReplayListPage() {
                   <ReplayLink className="primary-link" replayId={replay.id}>
                     {replay.original_file_name || replay.id}
                   </ReplayLink>
-                  <span className="subtle">
-                    {replay.map_code ||
-                      replay.summary.match_guid ||
-                      replay.file_sha256.slice(0, 12)}
-                  </span>
+                  <UploaderPill uploader={replay.uploaded_by} />
                 </div>
               </div>
               <div className="replay-card-meta">
@@ -850,10 +967,10 @@ interface ReplayFilterForm {
 const pageSizeOptions = [25, 50, 100, 200];
 
 const replayOrderOptions: Array<{ value: ReplayOrder; label: string }> = [
-  { value: "upload-date:desc", label: "Newest uploaded" },
   { value: "replay-date:desc", label: "Newest played" },
-  { value: "upload-date:asc", label: "Oldest uploaded" },
   { value: "replay-date:asc", label: "Oldest played" },
+  { value: "upload-date:desc", label: "Newest uploaded" },
+  { value: "upload-date:asc", label: "Oldest uploaded" },
 ];
 
 const replayStatusOptions = [
@@ -1174,7 +1291,7 @@ function positiveIntegerParam(params: URLSearchParams, key: string, fallback: nu
 }
 
 function replayOrderFromParams(params: URLSearchParams): ReplayOrder {
-  const sortBy = params.get("sort-by") === "replay-date" ? "replay-date" : "upload-date";
+  const sortBy = params.get("sort-by") === "upload-date" ? "upload-date" : "replay-date";
   const sortDir = params.get("sort-dir") === "asc" ? "asc" : "desc";
   return `${sortBy}:${sortDir}` as ReplayOrder;
 }
@@ -1270,6 +1387,29 @@ function filterValueLabel(key: string, value: string): string {
   if (key === "playlist") return playlistLabel(null, value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
+}
+
+// A pill identifying who uploaded the replay, badged with the platform/provider
+// glyph for the auth account they signed in with (Steam, Epic, Xbox, Google, ...).
+function UploaderPill({ uploader }: { uploader: ReplayUploaderResponse | null }) {
+  if (!uploader) {
+    return (
+      <Chip tone="muted" title="No uploader on record">
+        Unknown uploader
+      </Chip>
+    );
+  }
+  const name =
+    uploader.display_name?.trim() || uploader.primary_email?.trim() || "Unknown uploader";
+  const title = uploader.provider
+    ? `Uploaded by ${name} via ${providerLabel(uploader.provider)}`
+    : `Uploaded by ${name}`;
+  return (
+    <Chip tone="slate" className="uploader-pill" title={title}>
+      {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
+      <span className="uploader-pill-name">{name}</span>
+    </Chip>
+  );
 }
 
 // One small badge per game-type parameter: competitive context
@@ -1581,9 +1721,11 @@ function GroupSelectionBar({
   onClear: () => void;
   onGroupsChanged: () => void;
 }) {
+  const currentUser = useCurrentUser();
   const [targetGroupId, setTargetGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
   const creating = targetGroupId === NEW_GROUP_OPTION;
@@ -1679,6 +1821,7 @@ function GroupSelectionBar({
             value={targetGroupId}
             onChange={(event) => {
               setTargetGroupId(event.currentTarget.value);
+              setShowMembers(false);
               setFeedback(null);
             }}
             disabled={busy}
@@ -1734,6 +1877,17 @@ function GroupSelectionBar({
             </button>
             <button
               type="button"
+              className={`secondary-button${showMembers ? " is-active" : ""}`}
+              onClick={() => setShowMembers((value) => !value)}
+              disabled={busy || !targetGroup}
+              title="Manage who can administer this group"
+              aria-pressed={showMembers}
+            >
+              <Users size={16} />
+              Members
+            </button>
+            <button
+              type="button"
               className="secondary-button is-danger"
               onClick={handleDeleteGroup}
               disabled={busy || !targetGroup}
@@ -1745,6 +1899,9 @@ function GroupSelectionBar({
           </>
         )}
       </div>
+      {showMembers && targetGroup ? (
+        <GroupManagersPanel group={targetGroup} currentUserId={currentUser?.id ?? null} />
+      ) : null}
       {feedback ? (
         <p
           className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}
@@ -1758,6 +1915,158 @@ function GroupSelectionBar({
 
 function pluralizeReplay(count: number): string {
   return count === 1 ? "replay" : "replays";
+}
+
+function managerLabel(manager: ReplayGroupManagerResponse): string {
+  return manager.display_name?.trim() || manager.email || manager.user_id;
+}
+
+function GroupManagersPanel({
+  group,
+  currentUserId,
+}: {
+  group: ReplayGroupResponse;
+  currentUserId: string | null;
+}) {
+  const [managers, setManagers] = useState<ReplayGroupManagerResponse[] | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setManagers(null);
+    setLoadError(null);
+    listReplayGroupManagers(group.id)
+      .then((response) => {
+        if (!cancelled) setManagers(response.managers);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setManagers([]);
+          setLoadError(err instanceof Error ? err.message : "Could not load members.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [group.id]);
+
+  async function withBusy(action: () => Promise<void>) {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await action();
+    } catch (err) {
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Request failed",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleInvite() {
+    const email = inviteEmail.trim();
+    if (!email) return;
+    void withBusy(async () => {
+      const response = await addReplayGroupManager(group.id, { email });
+      setManagers(response.managers);
+      setInviteEmail("");
+      setFeedback({ kind: "ok", message: `${email} can now manage this group.` });
+    });
+  }
+
+  function handleRemove(manager: ReplayGroupManagerResponse) {
+    const label = managerLabel(manager);
+    if (!window.confirm(`Remove ${label} as a manager of "${group.name}"?`)) return;
+    void withBusy(async () => {
+      const response = await removeReplayGroupManager(group.id, manager.user_id);
+      setManagers(response.managers);
+      setFeedback({ kind: "ok", message: `Removed ${label}.` });
+    });
+  }
+
+  return (
+    <div className="group-managers-panel">
+      <p className="group-managers-title">
+        <Users size={14} />
+        Managers of <strong>{group.name}</strong>
+      </p>
+      {managers === null && !loadError ? (
+        <p className="group-managers-empty">Loading members…</p>
+      ) : null}
+      {loadError ? <p className="replay-selection-feedback is-error">{loadError}</p> : null}
+      {managers && managers.length > 0 ? (
+        <ul className="group-managers-list">
+          {managers.map((manager) => (
+            <li key={manager.user_id} className="group-managers-item">
+              <span className="group-managers-identity">
+                <CircleUser size={16} />
+                <span className="group-managers-name">
+                  {managerLabel(manager)}
+                  {manager.user_id === currentUserId ? " (you)" : ""}
+                </span>
+                {manager.email && manager.email !== managerLabel(manager) ? (
+                  <span className="group-managers-email">{manager.email}</span>
+                ) : null}
+              </span>
+              {manager.is_creator ? (
+                <span className="group-managers-badge">Creator</span>
+              ) : (
+                <button
+                  type="button"
+                  className="link-button is-danger"
+                  onClick={() => handleRemove(manager)}
+                  disabled={busy}
+                  title="Remove this manager"
+                >
+                  <X size={14} />
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div className="group-managers-invite">
+        <input
+          type="email"
+          value={inviteEmail}
+          placeholder="Invite by email"
+          onChange={(event) => setInviteEmail(event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              handleInvite();
+            }
+          }}
+          disabled={busy || managers === null}
+        />
+        <button
+          type="button"
+          onClick={handleInvite}
+          disabled={busy || managers === null || inviteEmail.trim() === ""}
+        >
+          <UserPlus size={16} />
+          Invite
+        </button>
+      </div>
+      <p className="group-managers-hint">
+        The person must have signed in at least once. Any manager can invite or remove others; the
+        creator can&rsquo;t be removed.
+      </p>
+      {feedback ? (
+        <p
+          className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}
+        >
+          {feedback.message}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 type RequeuePhase = "pending" | "done" | "skipped" | "error";
@@ -1797,7 +2106,7 @@ function ReplayStatsPage() {
   const [eventsError, setEventsError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
-    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, replayStatsSectionGroups) ?? replayStatsSectionGroups[0],
     [statGroup],
   );
 
@@ -2028,7 +2337,7 @@ function ReplayStatsPage() {
           </div>
 
           <nav className="stat-group-nav" aria-label="Stat groups">
-            {completedStatGroups.map((group) => {
+            {replayStatsSectionGroups.map((group) => {
               const Icon = group.icon;
               return (
                 <Link
@@ -2092,7 +2401,7 @@ function ReplayStatsPage() {
 function ReplayGroupStatsPage() {
   const { groupId = "", statGroup } = useParams();
   const activeGroup = useMemo(
-    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, aggregateStatsSectionGroups) ?? aggregateStatsSectionGroups[0],
     [statGroup],
   );
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
@@ -2251,7 +2560,7 @@ function ReplayGroupStatsPage() {
           ) : null}
 
           <nav className="stat-group-nav" aria-label="Group stat sections">
-            {completedStatGroups.map((section) => {
+            {aggregateStatsSectionGroups.map((section) => {
               const Icon = section.icon;
               return (
                 <Link
@@ -2876,6 +3185,16 @@ function ApiNotice({ label, message }: { label: string; message: string }) {
   );
 }
 
+function SupplementalLoadingNotice({ label }: { label: string }) {
+  return (
+    <div className="api-notice loading">
+      <RefreshCw size={16} className="spin" />
+      <strong>{label}</strong>
+      <span>Loading</span>
+    </div>
+  );
+}
+
 function friendlyApiMessage(message: string): string {
   if (message.includes("missing bearer token")) {
     return "This production endpoint needs a bearer token. Save one on the Account page to populate this section locally.";
@@ -2888,42 +3207,79 @@ type PlayerStatsByGroupState = {
   groups: Partial<Record<string, StatAggregateSetResponse>>;
 };
 
-const playerSupplementalKeys = [
-  "overview",
-  "kickoffTaker",
-  "kickoffSupport",
-  "kickoffFilter",
-  "possession",
-  "positioningSummary",
-] as const;
-type PlayerSupplementalKey = (typeof playerSupplementalKeys)[number];
+type PlayerOverviewSupplementalKey = "overviewCore" | "overviewGoalTags" | "overviewRotation";
+
+type PlayerSupplementalKey =
+  | PlayerOverviewSupplementalKey
+  | "kickoffTaker"
+  | "kickoffSupport"
+  | "kickoffFilter"
+  | "movementSummary"
+  | "possession"
+  | "positioningSummary";
 
 type PlayerSupplementalLoadedState = {
   scope: string;
   loaded: Partial<Record<PlayerSupplementalKey, boolean>>;
 };
 
+type PlayerSupplementalLoadingState = {
+  scope: string;
+  loading: Partial<Record<PlayerSupplementalKey, boolean>>;
+};
+
+type PlayerSupplementalErrorState = {
+  scope: string;
+  errors: Partial<Record<PlayerSupplementalKey, string>>;
+};
+
 function PlayerStatsPage() {
-  const { platform = "", platformPlayerId = "", statGroup } = useParams();
+  const { platform = "", platformPlayerId, playerName, statGroup } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
+  const routePlayerRef = platformPlayerId ?? playerName ?? "";
+  const routeUsesExplicitId = platformPlayerId != null;
+  const routeBasePath = routeUsesExplicitId
+    ? playerProfileIdPath(platform, routePlayerRef)
+    : `/players/${encodeURIComponent(platform)}/${encodeURIComponent(routePlayerRef)}`;
+  const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
+  const resolvedPlatform = playerSummary?.platform ?? platform;
+  const resolvedPlatformPlayerId =
+    playerSummary?.platform_player_id ?? (routeUsesExplicitId ? routePlayerRef : "");
+  const hasResolvedPlayer = resolvedPlatform.length > 0 && resolvedPlatformPlayerId.length > 0;
+  const playerStatsSearchParams = useMemo(
+    () => playerStatsRequestSearchParams(location.search),
+    [location.search],
+  );
+  const playerStatsSearch = playerStatsSearchParams.toString();
   const statsScope = useMemo(
-    () => `${platform}\n${platformPlayerId}\n${location.search}`,
-    [location.search, platform, platformPlayerId],
+    () => `${resolvedPlatform}\n${resolvedPlatformPlayerId}\n${playerStatsSearch}`,
+    [playerStatsSearch, resolvedPlatform, resolvedPlatformPlayerId],
   );
   const playerReplayParams = useMemo(
-    () => playerReplaySetParams(platform, platformPlayerId, location.search),
-    [location.search, platform, platformPlayerId],
+    () => playerReplaySetParams(resolvedPlatform, resolvedPlatformPlayerId, playerStatsSearch),
+    [playerStatsSearch, resolvedPlatform, resolvedPlatformPlayerId],
   );
   const activeGroup = useMemo(
     () => statGroupById(statGroup, playerStatsSectionGroups) ?? playerStatsSectionGroups[0]!,
     [statGroup],
   );
-  const [playerSummary, setPlayerSummary] = useState<PlayerProfileResponse | null>(null);
+  // Mirror the section + segment filters in the address bar so the current view
+  // is always shareable, even before the first nav click writes them explicitly.
+  useEffect(() => {
+    const canonical = canonicalPlayerStatsPath(routeBasePath, activeGroup.id, location.search);
+    const current = `${location.pathname}${location.search}`;
+    if (current !== canonical) {
+      navigate(canonical, { replace: true });
+    }
+  }, [activeGroup.id, location.pathname, location.search, navigate, routeBasePath]);
   const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({
     scope: "",
     groups: {},
   });
-  const [overview, setOverview] = useState<PlayerStatOverviewResponse | null>(null);
+  const [overviews, setOverviews] = useState<
+    Partial<Record<PlayerOverviewSupplementalKey, PlayerStatOverviewResponse>>
+  >({});
   const [kickoffTakerSummary, setKickoffTakerSummary] = useState<EventStatSummaryResponse | null>(
     null,
   );
@@ -2932,6 +3288,7 @@ function PlayerStatsPage() {
   const [kickoffFilterSummary, setKickoffFilterSummary] = useState<EventStatSummaryResponse | null>(
     null,
   );
+  const [movementSummary, setMovementSummary] = useState<MovementSummaryResponse | null>(null);
   const [possessionSummary, setPossessionSummary] = useState<PossessionSummaryResponse | null>(
     null,
   );
@@ -2942,42 +3299,63 @@ function PlayerStatsPage() {
     scope: "",
     loaded: {},
   });
+  const [supplementalLoading, setSupplementalLoading] = useState<PlayerSupplementalLoadingState>({
+    scope: "",
+    loading: {},
+  });
+  const [supplementalErrors, setSupplementalErrors] = useState<PlayerSupplementalErrorState>({
+    scope: "",
+    errors: {},
+  });
   const [loading, setLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statsError, setStatsError] = useState<string | null>(null);
   const scopedStatsByGroup = statsByGroup.scope === statsScope ? statsByGroup.groups : {};
   const stats = scopedStatsByGroup[activeGroup.id] ?? null;
+  const overview = playerOverviewForGroup(activeGroup.id, overviews);
   const scopedSupplementalLoaded =
     supplementalLoaded.scope === statsScope ? supplementalLoaded.loaded : {};
-  const loadedSupplementalKeys = Object.keys(scopedSupplementalLoaded).sort().join("|");
+  const scopedSupplementalLoading =
+    supplementalLoading.scope === statsScope ? supplementalLoading.loading : {};
+  const scopedSupplementalErrors =
+    supplementalErrors.scope === statsScope ? supplementalErrors.errors : {};
   const activeSupplementalKeys = useMemo(
     () => playerSupplementalKeysForGroup(activeGroup.id),
     [activeGroup.id],
   );
   const activeSupplementalKeyList = activeSupplementalKeys.join("|");
-  const activeSupplementalReady = activeSupplementalKeys.every(
-    (key) => scopedSupplementalLoaded[key],
+  const activeSupplementalLoading = activeSupplementalKeys.some(
+    (key) => scopedSupplementalLoading[key],
   );
+  const activeSupplementalError =
+    activeSupplementalKeys.map((key) => scopedSupplementalErrors[key]).find(Boolean) ?? null;
   const rlTrackerPlayerName =
     playerSummary?.display_name ??
     playerSummary?.current_display_name ??
     playerSummary?.public_display_name ??
     null;
+  const resolvedPlayerDisplayName =
+    playerSummary?.display_name ??
+    playerSummary?.current_display_name ??
+    playerSummary?.public_display_name ??
+    routePlayerRef;
   const rlTrackerUrl = useMemo(
-    () => rlTrackerPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
-    [platform, platformPlayerId, rlTrackerPlayerName],
+    () => rlTrackerPlayerUrl(resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName),
+    [resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName],
   );
   const ballchasingUrl = useMemo(
-    () => ballchasingPlayerUrl(platform, platformPlayerId, rlTrackerPlayerName),
-    [platform, platformPlayerId, rlTrackerPlayerName],
+    () => ballchasingPlayerUrl(resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName),
+    [resolvedPlatform, resolvedPlatformPlayerId, rlTrackerPlayerName],
   );
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    getPlayerProfile(platform, platformPlayerId, new URLSearchParams(location.search))
+    setPlayerSummary(null);
+    const request = routeUsesExplicitId ? getPlayerProfile : getPlayerProfileByRef;
+    request(platform, routePlayerRef, playerStatsSearchParams)
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
       })
@@ -2990,23 +3368,33 @@ function PlayerStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, platform, platformPlayerId]);
+  }, [platform, playerStatsSearchParams, routePlayerRef, routeUsesExplicitId]);
 
   useEffect(() => {
     setStatsByGroup({ scope: statsScope, groups: {} });
     setSupplementalLoaded({ scope: statsScope, loaded: {} });
+    setSupplementalLoading({ scope: statsScope, loading: {} });
+    setSupplementalErrors({ scope: statsScope, errors: {} });
     setStatsError(null);
     setStatsLoading(true);
-    setOverview(null);
+    setOverviews({});
     setKickoffTakerSummary(null);
     setKickoffSupportSummary(null);
     setKickoffFilterSummary(null);
+    setMovementSummary(null);
     setPossessionSummary(null);
     setPositioningSummary(null);
   }, [statsScope]);
 
   useEffect(() => {
     let cancelled = false;
+    if (!hasResolvedPlayer) {
+      setStatsLoading(false);
+      setStatsError(null);
+      return () => {
+        cancelled = true;
+      };
+    }
     if (stats) {
       setStatsLoading(false);
       setStatsError(null);
@@ -3018,10 +3406,11 @@ function PlayerStatsPage() {
     setStatsLoading(true);
     setStatsError(null);
     getPlayerStatAggregates(
-      platform,
-      platformPlayerId,
-      playerAggregateSearchParams(activeGroup.id, location.search),
+      resolvedPlatform,
+      resolvedPlatformPlayerId,
+      playerAggregateSearchParams(activeGroup.id, playerStatsSearch),
       activeGroup.terms,
+      playerAggregateRequestOptions(activeGroup.id),
     )
       .then((response) => {
         if (cancelled) return;
@@ -3039,50 +3428,12 @@ function PlayerStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [activeGroup, location.search, platform, platformPlayerId, stats, statsScope]);
-
-  useEffect(() => {
-    if (!stats || !activeSupplementalReady) return;
-    const remainingGroups = playerStatsSectionGroups.filter(
-      (group) => group.id !== activeGroup.id && scopedStatsByGroup[group.id] == null,
-    );
-    if (remainingGroups.length === 0) return;
-
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      void (async () => {
-        for (const group of remainingGroups) {
-          if (cancelled) break;
-          try {
-            const response = await getPlayerStatAggregates(
-              platform,
-              platformPlayerId,
-              playerAggregateSearchParams(group.id, location.search),
-              group.terms,
-            );
-            if (cancelled) break;
-            setStatsByGroup((current) => {
-              const groups = current.scope === statsScope ? current.groups : {};
-              if (groups[group.id]) return current;
-              return { scope: statsScope, groups: { ...groups, [group.id]: response } };
-            });
-          } catch {
-            // Background tab hydration should not interrupt the visible section.
-          }
-        }
-      })();
-    }, 100);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
   }, [
-    activeGroup.id,
-    activeSupplementalReady,
-    location.search,
-    platform,
-    platformPlayerId,
+    activeGroup,
+    hasResolvedPlayer,
+    playerStatsSearch,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
     stats,
     statsScope,
   ]);
@@ -3092,17 +3443,23 @@ function PlayerStatsPage() {
     response:
       | PlayerStatOverviewResponse
       | EventStatSummaryResponse
+      | MovementSummaryResponse
       | PossessionSummaryResponse
       | PositioningSummaryResponse,
   ) {
-    if (key === "overview") {
-      setOverview(response as PlayerStatOverviewResponse);
+    if (isPlayerOverviewSupplementalKey(key)) {
+      setOverviews((current) => ({
+        ...current,
+        [key]: response as PlayerStatOverviewResponse,
+      }));
     } else if (key === "kickoffTaker") {
       setKickoffTakerSummary(response as EventStatSummaryResponse);
     } else if (key === "kickoffSupport") {
       setKickoffSupportSummary(response as EventStatSummaryResponse);
     } else if (key === "kickoffFilter") {
       setKickoffFilterSummary(response as EventStatSummaryResponse);
+    } else if (key === "movementSummary") {
+      setMovementSummary(response as MovementSummaryResponse);
     } else if (key === "possession") {
       setPossessionSummary(response as PossessionSummaryResponse);
     } else {
@@ -3117,19 +3474,63 @@ function PlayerStatsPage() {
     });
   }
 
+  function markSupplementalLoading(key: PlayerSupplementalKey, loading: boolean) {
+    setSupplementalLoading((current) => {
+      const currentLoading = current.scope === statsScope ? current.loading : {};
+      return {
+        scope: statsScope,
+        loading: { ...currentLoading, [key]: loading },
+      };
+    });
+  }
+
+  function markSupplementalError(key: PlayerSupplementalKey, message: string | null) {
+    setSupplementalErrors((current) => {
+      const errors = current.scope === statsScope ? current.errors : {};
+      const nextErrors = { ...errors };
+      if (message) {
+        nextErrors[key] = message;
+      } else {
+        delete nextErrors[key];
+      }
+      return { scope: statsScope, errors: nextErrors };
+    });
+  }
+
   useEffect(() => {
-    const missingKeys = activeSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
+    const missingKeys = activeSupplementalKeys.filter(
+      (key) => !scopedSupplementalLoaded[key] && !scopedSupplementalLoading[key],
+    );
+    if (!hasResolvedPlayer) return;
     if (missingKeys.length === 0) return;
 
     let cancelled = false;
     for (const key of missingKeys) {
-      fetchPlayerSupplemental(key, platform, platformPlayerId, location.search)
+      markSupplementalLoading(key, true);
+      markSupplementalError(key, null);
+      fetchPlayerSupplemental(
+        key,
+        activeGroup.id,
+        resolvedPlatform,
+        resolvedPlatformPlayerId,
+        playerStatsSearch,
+      )
         .then((response) => {
           if (!cancelled) applySupplementalResponse(key, response);
         })
-        .catch(() => {})
+        .catch((err: unknown) => {
+          if (!cancelled) {
+            markSupplementalError(
+              key,
+              err instanceof Error ? err.message : "Failed to load supplemental stats.",
+            );
+          }
+        })
         .finally(() => {
-          if (!cancelled) markSupplementalLoaded(key);
+          if (!cancelled) {
+            markSupplementalLoaded(key);
+            markSupplementalLoading(key, false);
+          }
         });
     }
 
@@ -3137,47 +3538,14 @@ function PlayerStatsPage() {
       cancelled = true;
     };
   }, [
+    activeGroup.id,
     activeSupplementalKeyList,
-    loadedSupplementalKeys,
-    location.search,
-    platform,
-    platformPlayerId,
-    scopedSupplementalLoaded,
+    hasResolvedPlayer,
+    playerStatsSearch,
+    resolvedPlatform,
+    resolvedPlatformPlayerId,
+    statsScope,
   ]);
-
-  useEffect(() => {
-    if (!stats || !activeSupplementalReady) return;
-    const remainingKeys = playerSupplementalKeys.filter((key) => !scopedSupplementalLoaded[key]);
-    if (remainingKeys.length === 0) return;
-
-    let cancelled = false;
-    const timeout = window.setTimeout(() => {
-      void (async () => {
-        for (const key of remainingKeys) {
-          if (cancelled) break;
-          try {
-            const response = await fetchPlayerSupplemental(
-              key,
-              platform,
-              platformPlayerId,
-              location.search,
-            );
-            if (cancelled) break;
-            applySupplementalResponse(key, response);
-          } catch {
-            // Background supplemental panels are optional.
-          } finally {
-            if (!cancelled) markSupplementalLoaded(key);
-          }
-        }
-      })();
-    }, 100);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [activeSupplementalReady, location.search, platform, platformPlayerId, stats]);
 
   return (
     <section className="page player-stats-page">
@@ -3193,11 +3561,11 @@ function PlayerStatsPage() {
                 linkToRlTracker
               />
             ) : null}
-            <span>{playerSummary?.display_name || platformPlayerId}</span>
+            <span>{resolvedPlayerDisplayName}</span>
           </h1>
         </div>
         <div className="button-row">
-          {rlTrackerUrl ? (
+          {hasResolvedPlayer && rlTrackerUrl ? (
             <a
               className="secondary-button"
               href={rlTrackerUrl}
@@ -3208,7 +3576,7 @@ function PlayerStatsPage() {
               TRN
             </a>
           ) : null}
-          {ballchasingUrl ? (
+          {hasResolvedPlayer && ballchasingUrl ? (
             <a
               className="secondary-button"
               href={ballchasingUrl}
@@ -3219,10 +3587,12 @@ function PlayerStatsPage() {
               Ballchasing
             </a>
           ) : null}
-          <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
-            <FileVideo size={16} />
-            Replays
-          </Link>
+          {hasResolvedPlayer ? (
+            <Link className="secondary-button" to={`/replays?${playerReplayParams.toString()}`}>
+              <FileVideo size={16} />
+              Replays
+            </Link>
+          ) : null}
         </div>
       </header>
       <StatusLine loading={loading} error={error} />
@@ -3265,12 +3635,16 @@ function PlayerStatsPage() {
               kickoffFilterSummary={kickoffFilterSummary}
               kickoffSupportSummary={kickoffSupportSummary}
               kickoffTakerSummary={kickoffTakerSummary}
+              movementSummary={movementSummary}
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
+              supplementalError={activeSupplementalError}
+              supplementalLoading={activeSupplementalLoading}
               overview={overview}
-              platform={platform}
-              platformPlayerId={platformPlayerId}
-              playerName={playerSummary?.display_name ?? ""}
+              platform={resolvedPlatform}
+              platformPlayerId={resolvedPlatformPlayerId}
+              playerName={resolvedPlayerDisplayName}
+              routeBasePath={routeBasePath}
               search={location.search}
               stats={stats}
             />
@@ -3315,18 +3689,13 @@ function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
   );
 }
 
-function playerStatGroupPath(
-  platform: string,
-  platformPlayerId: string,
-  groupId: string,
-  search: string,
-): string {
+function playerStatGroupPath(routeBasePath: string, groupId: string, search: string): string {
   const params = new URLSearchParams(search);
   if (groupId !== "kickoffs") {
     stripKickoffSpawnParams(params);
   }
   const query = params.toString();
-  const path = `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/${groupId}`;
+  const path = `${routeBasePath}/stats/${encodeURIComponent(groupId)}`;
   return query ? `${path}?${query}` : path;
 }
 
@@ -3338,9 +3707,36 @@ function stripKickoffSpawnParams(params: URLSearchParams): URLSearchParams {
   return params;
 }
 
+// The fully explicit URL for the section + segment filters currently in view.
+// The section nav and segment bar already write these on interaction, but the
+// initial render falls back to implicit defaults (e.g. Core / 2v2 / Ranked with
+// a bare `…/stats` URL). Normalizing to this path keeps the address bar an exact
+// mirror of what's on screen, so any view is shareable from first load.
+function canonicalPlayerStatsPath(routeBasePath: string, groupId: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (groupId !== "kickoffs") {
+    stripKickoffSpawnParams(params);
+  }
+  const teamSize = playerSegmentValue(params, "team-size");
+  params.set("team-size", teamSize === "" ? allPlayerTeamSizes : teamSize);
+  const gameType = playerSegmentValue(params, "game-type");
+  params.set("game-type", gameType === "" ? anyPlayerGameType : gameType);
+  const query = params.toString();
+  const path = `${routeBasePath}/stats/${encodeURIComponent(groupId)}`;
+  return query ? `${path}?${query}` : path;
+}
+
 function playerAggregateSearchParams(groupId: string, search: string): URLSearchParams {
   const params = new URLSearchParams(search);
   return groupId === "kickoffs" ? params : stripKickoffSpawnParams(params);
+}
+
+function playerAggregateRequestOptions(groupId: string): {
+  includeRotationHistogram: boolean;
+} {
+  return {
+    includeRotationHistogram: groupId === "positioning" || groupId === "rotation",
+  };
 }
 
 function kickoffShapeFilterFromSearch(search: string): KickoffShapeFilter {
@@ -3353,19 +3749,65 @@ function kickoffSideFilterFromSearch(search: string): KickoffSideFilter {
   return value === "left" || value === "right" ? value : "all";
 }
 
+const playerOverviewSupplementalKeys = [
+  "overviewCore",
+  "overviewGoalTags",
+  "overviewRotation",
+] as const;
+
+function isPlayerOverviewSupplementalKey(
+  key: PlayerSupplementalKey,
+): key is PlayerOverviewSupplementalKey {
+  return (playerOverviewSupplementalKeys as readonly string[]).includes(key);
+}
+
+function overviewSupplementalKeyForGroup(groupId: string): PlayerOverviewSupplementalKey | null {
+  if (groupId === "goals") {
+    return "overviewGoalTags";
+  }
+  if (groupId === "positioning" || groupId === "rotation") {
+    return "overviewRotation";
+  }
+  if (groupId === "core") {
+    return "overviewCore";
+  }
+  return null;
+}
+
+function playerOverviewForGroup(
+  groupId: string,
+  overviews: Partial<Record<PlayerOverviewSupplementalKey, PlayerStatOverviewResponse>>,
+): PlayerStatOverviewResponse | null {
+  const key = overviewSupplementalKeyForGroup(groupId);
+  if (!key) return null;
+  if (key === "overviewCore") {
+    return (
+      overviews.overviewCore ?? overviews.overviewGoalTags ?? overviews.overviewRotation ?? null
+    );
+  }
+  return overviews[key] ?? null;
+}
+
 function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
+  const overviewKey = overviewSupplementalKeyForGroup(groupId);
+  if (groupId === "core" && overviewKey) {
+    return [overviewKey];
+  }
+  if (groupId === "movement") {
+    return ["movementSummary"];
+  }
   if (groupId === "positioning") {
     // overview backs the rotation time-share panel; positioningSummary backs the
     // You/Teammates/Opponents comparison graphs.
-    return ["overview", "positioningSummary"];
+    return overviewKey ? [overviewKey, "positioningSummary"] : ["positioningSummary"];
   }
-  if (groupId === "goals" || groupId === "rotation") {
-    return ["overview"];
+  if ((groupId === "goals" || groupId === "rotation") && overviewKey) {
+    return [overviewKey];
   }
   if (groupId === "kickoffs") {
     return ["kickoffTaker", "kickoffSupport", "kickoffFilter"];
   }
-  if (groupId === "possession-territory") {
+  if (groupId === "possession" || groupId === "possession-territory") {
     return ["possession"];
   }
   return [];
@@ -3373,17 +3815,21 @@ function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[
 
 function fetchPlayerSupplemental(
   key: PlayerSupplementalKey,
+  _groupId: string,
   platform: string,
   platformPlayerId: string,
   search: string,
 ): Promise<
   | PlayerStatOverviewResponse
   | EventStatSummaryResponse
+  | MovementSummaryResponse
   | PossessionSummaryResponse
   | PositioningSummaryResponse
 > {
   const params = new URLSearchParams(search);
-  if (key === "overview") {
+  if (isPlayerOverviewSupplementalKey(key)) {
+    params.set("include-goal-tags", String(key === "overviewGoalTags"));
+    params.set("include-rotation", String(key === "overviewRotation"));
     return getPlayerStatOverview(platform, platformPlayerId, params);
   }
   if (key === "kickoffTaker") {
@@ -3393,22 +3839,203 @@ function fetchPlayerSupplemental(
     return getPlayerKickoffSummary(platform, platformPlayerId, params, "support");
   }
   if (key === "kickoffFilter") {
-    return getPlayerKickoffSummary(
-      platform,
-      platformPlayerId,
-      stripKickoffSpawnParams(params),
-      "taker",
-    );
+    // This summary powers the spawn-shape controls. Keep it role-neutral so
+    // support appearances still contribute to the available kickoff types; the
+    // taker/support panels above fetch their own role-scoped summaries.
+    return getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(params));
   }
   if (key === "positioningSummary") {
     return getPlayerPositioningSummary(platform, platformPlayerId, params);
   }
+  if (key === "movementSummary") {
+    return getPlayerMovementSummary(platform, platformPlayerId, params);
+  }
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
+}
+
+type PlayerStatsOutcomeKey = "wins" | "losses";
+
+type PlayerStatsOutcomeBundle = {
+  key: PlayerStatsOutcomeKey;
+  label: string;
+  stats: StatAggregateSetResponse | null;
+  overview: PlayerStatOverviewResponse | null;
+  kickoffTakerSummary: EventStatSummaryResponse | null;
+  kickoffSupportSummary: EventStatSummaryResponse | null;
+  kickoffFilterSummary: EventStatSummaryResponse | null;
+  movementSummary: MovementSummaryResponse | null;
+  possessionSummary: PossessionSummaryResponse | null;
+  positioningSummary: PositioningSummaryResponse | null;
+  search: string;
+};
+
+type PlayerStatsOutcomeLoadState = {
+  bundles: PlayerStatsOutcomeBundle[];
+  loading: boolean;
+  error: string | null;
+};
+
+const playerOutcomeOptions: Array<{
+  key: PlayerStatsOutcomeKey;
+  label: string;
+  queryValue: "win" | "loss";
+}> = [
+  { key: "wins", label: "Wins", queryValue: "win" },
+  { key: "losses", label: "Losses", queryValue: "loss" },
+];
+
+function emptyPlayerStatsOutcomeBundle(
+  key: PlayerStatsOutcomeKey,
+  label: string,
+  search: string,
+): PlayerStatsOutcomeBundle {
+  return {
+    key,
+    label,
+    stats: null,
+    overview: null,
+    kickoffTakerSummary: null,
+    kickoffSupportSummary: null,
+    kickoffFilterSummary: null,
+    movementSummary: null,
+    possessionSummary: null,
+    positioningSummary: null,
+    search,
+  };
+}
+
+function bundleWithSupplementalResponse(
+  bundle: PlayerStatsOutcomeBundle,
+  key: PlayerSupplementalKey,
+  response:
+    | PlayerStatOverviewResponse
+    | EventStatSummaryResponse
+    | MovementSummaryResponse
+    | PossessionSummaryResponse
+    | PositioningSummaryResponse,
+): PlayerStatsOutcomeBundle {
+  if (isPlayerOverviewSupplementalKey(key)) {
+    return { ...bundle, overview: response as PlayerStatOverviewResponse };
+  }
+  if (key === "kickoffTaker") {
+    return { ...bundle, kickoffTakerSummary: response as EventStatSummaryResponse };
+  }
+  if (key === "kickoffSupport") {
+    return { ...bundle, kickoffSupportSummary: response as EventStatSummaryResponse };
+  }
+  if (key === "kickoffFilter") {
+    return { ...bundle, kickoffFilterSummary: response as EventStatSummaryResponse };
+  }
+  if (key === "movementSummary") {
+    return { ...bundle, movementSummary: response as MovementSummaryResponse };
+  }
+  if (key === "possession") {
+    return { ...bundle, possessionSummary: response as PossessionSummaryResponse };
+  }
+  return { ...bundle, positioningSummary: response as PositioningSummaryResponse };
+}
+
+function usePlayerOutcomeStatBundles({
+  activeGroup,
+  enabled,
+  platform,
+  platformPlayerId,
+  search,
+}: {
+  activeGroup: StatGroup;
+  enabled: boolean;
+  platform: string;
+  platformPlayerId: string;
+  search: string;
+}): PlayerStatsOutcomeLoadState {
+  const [state, setState] = useState<PlayerStatsOutcomeLoadState>({
+    bundles: [],
+    loading: false,
+    error: null,
+  });
+  const supplementalKeys = useMemo(
+    () => playerSupplementalKeysForGroup(activeGroup.id),
+    [activeGroup.id],
+  );
+  const supplementalKeyList = supplementalKeys.join("|");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!enabled) {
+      setState({ bundles: [], loading: false, error: null });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    setState({ bundles: [], loading: true, error: null });
+    Promise.all(
+      playerOutcomeOptions.map(async (option) => {
+        const outcomeSearch = searchWithPlayerOutcome(search, option.queryValue);
+        let bundle = emptyPlayerStatsOutcomeBundle(option.key, option.label, outcomeSearch);
+        const stats = await getPlayerStatAggregates(
+          platform,
+          platformPlayerId,
+          playerAggregateSearchParams(activeGroup.id, outcomeSearch),
+          activeGroup.terms,
+          playerAggregateRequestOptions(activeGroup.id),
+        );
+        bundle = { ...bundle, stats };
+        const supplementalResponses = await Promise.all(
+          supplementalKeys.map(async (key) => ({
+            key,
+            response: await fetchPlayerSupplemental(
+              key,
+              activeGroup.id,
+              platform,
+              platformPlayerId,
+              outcomeSearch,
+            ),
+          })),
+        );
+        for (const { key, response } of supplementalResponses) {
+          bundle = bundleWithSupplementalResponse(bundle, key, response);
+        }
+        return bundle;
+      }),
+    )
+      .then((bundles) => {
+        if (!cancelled) setState({ bundles, loading: false, error: null });
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setState({
+            bundles: [],
+            loading: false,
+            error: err instanceof Error ? err.message : "Failed to load win/loss stats.",
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeGroup,
+    enabled,
+    platform,
+    platformPlayerId,
+    search,
+    supplementalKeyList,
+    supplementalKeys,
+  ]);
+
+  return state;
 }
 
 // Top-level career segmentation: team size and competitive context are
 // orthogonal dimensions (see docs/stats-principles.md) and govern every
 // panel on the player stats page through the shared replay-set params.
+const defaultPlayerTeamSize = "2";
+const defaultPlayerGameType = "ranked";
+const allPlayerTeamSizes = "all";
+const anyPlayerGameType = "any";
+
 const teamSizeSegmentOptions = [
   { value: "", label: "All modes" },
   { value: "1", label: "1v1" },
@@ -3424,22 +4051,146 @@ const gameTypeSegmentOptions = [
   { value: "tournament", label: "Tournament" },
 ];
 
-function segmentParamPath(pathname: string, search: string, key: string, value: string): string {
+function playerStatsRequestSearchParams(search: string): URLSearchParams {
   const params = new URLSearchParams(search);
-  if (value) {
-    params.set(key, value);
+  const teamSize = params.get("team-size");
+  if (teamSize == null) {
+    params.set("team-size", defaultPlayerTeamSize);
+  } else if (teamSize === "" || teamSize === allPlayerTeamSizes) {
+    params.delete("team-size");
+  }
+
+  const gameType = params.get("game-type");
+  if (gameType == null) {
+    params.set("game-type", defaultPlayerGameType);
+  } else if (gameType === "" || gameType === anyPlayerGameType) {
+    params.delete("game-type");
+  }
+
+  return params;
+}
+
+// Link a goal-tag panel to the embedded goal playlist, carrying the active stats
+// filter context (playlist, game mode, dates, …) so the in-page player shows the
+// same goals the rates were computed from. The playlist itself filters by the
+// goal `kind` client-side, so only the replay/match filters need to ride along.
+function playerGoalPlaylistHref(
+  routeBasePath: string,
+  search: string,
+  options: { goalTag?: string } = {},
+): string {
+  const source = stripKickoffSpawnParams(new URLSearchParams(search));
+  const params = new URLSearchParams();
+  for (const key of [
+    "q",
+    "title",
+    "playlist",
+    "game-mode",
+    "game-type",
+    "team-size",
+    "map",
+    "pro",
+    "uploader",
+    "group",
+    "project",
+    "created-after",
+    "created-before",
+    "replay-date-after",
+    "replay-date-before",
+  ]) {
+    for (const value of source.getAll(key)) {
+      if (value) params.append(key, value);
+    }
+  }
+  const base = options.goalTag
+    ? `${routeBasePath}/goals/${encodeURIComponent(options.goalTag)}`
+    : `${routeBasePath}/goals`;
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
+function playerSegmentValue(params: URLSearchParams, key: "team-size" | "game-type"): string {
+  const value = params.get(key);
+  if (key === "team-size") {
+    if (value == null) return defaultPlayerTeamSize;
+    return value === allPlayerTeamSizes ? "" : value;
+  }
+  if (value == null) return defaultPlayerGameType;
+  return value === anyPlayerGameType ? "" : value;
+}
+
+function playerSegmentParamPath(
+  pathname: string,
+  search: string,
+  key: "team-size" | "game-type",
+  value: string,
+): string {
+  const params = new URLSearchParams(search);
+  if (value === "") {
+    params.set(key, key === "team-size" ? allPlayerTeamSizes : anyPlayerGameType);
   } else {
-    params.delete(key);
+    params.set(key, value);
   }
   const query = params.toString();
   return query ? `${pathname}?${query}` : pathname;
 }
 
+function outcomeSplitParamPath(pathname: string, search: string, enabled: boolean): string {
+  const params = new URLSearchParams(search);
+  params.delete("player-outcome");
+  if (enabled) {
+    params.set("split-outcome", "true");
+  } else {
+    params.delete("split-outcome");
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+function playerOutcomeSplitEnabled(search: string): boolean {
+  const value = new URLSearchParams(search).get("split-outcome");
+  return value === "true" || value === "1" || value === "wins-losses";
+}
+
+// Whether the stat views should read from the materialized tables. The server
+// default materializes, so a bare URL (no `materialized` param) reads as enabled;
+// only an explicit opt-out forces a live recompute from events.
+function materializedStatsEnabled(search: string): boolean {
+  const value = new URLSearchParams(search).get("materialized");
+  if (value == null) {
+    return true;
+  }
+  return value !== "false" && value !== "0";
+}
+
+// Toggle the `materialized` param in the URL. Enabling drops the param to keep
+// URLs clean (the server default re-materializes); disabling pins `false` so the
+// override is explicit and shareable.
+function materializedStatsParamPath(pathname: string, search: string, enabled: boolean): string {
+  const params = new URLSearchParams(search);
+  if (enabled) {
+    params.delete("materialized");
+  } else {
+    params.set("materialized", "false");
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): string {
+  const params = playerStatsRequestSearchParams(search);
+  params.delete("split-outcome");
+  params.set("player-outcome", outcome);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 function PlayerStatsSegmentBar() {
   const location = useLocation();
   const params = new URLSearchParams(location.search);
-  const teamSize = params.get("team-size") ?? "";
-  const gameType = params.get("game-type") ?? "";
+  const teamSize = playerSegmentValue(params, "team-size");
+  const gameType = playerSegmentValue(params, "game-type");
+  const splitOutcome = playerOutcomeSplitEnabled(location.search);
 
   return (
     <div className="player-segment-bar">
@@ -3449,7 +4200,12 @@ function PlayerStatsSegmentBar() {
           <Link
             key={option.value || "all"}
             className={`stat-group-link ${teamSize === option.value ? "active" : ""}`}
-            to={segmentParamPath(location.pathname, location.search, "team-size", option.value)}
+            to={playerSegmentParamPath(
+              location.pathname,
+              location.search,
+              "team-size",
+              option.value,
+            )}
           >
             {option.label}
           </Link>
@@ -3461,11 +4217,31 @@ function PlayerStatsSegmentBar() {
           <Link
             key={option.value || "all"}
             className={`stat-group-link ${gameType === option.value ? "active" : ""}`}
-            to={segmentParamPath(location.pathname, location.search, "game-type", option.value)}
+            to={playerSegmentParamPath(
+              location.pathname,
+              location.search,
+              "game-type",
+              option.value,
+            )}
           >
             {option.label}
           </Link>
         ))}
+      </nav>
+      <nav className="stat-group-nav" aria-label="Outcome split">
+        <span className="segment-bar-label">Outcome</span>
+        <Link
+          className={`stat-group-link ${splitOutcome ? "" : "active"}`}
+          to={outcomeSplitParamPath(location.pathname, location.search, false)}
+        >
+          Combined
+        </Link>
+        <Link
+          className={`stat-group-link ${splitOutcome ? "active" : ""}`}
+          to={outcomeSplitParamPath(location.pathname, location.search, true)}
+        >
+          Wins / losses
+        </Link>
       </nav>
       {teamSize === "" ? (
         <p className="muted-text segment-bar-note">
@@ -3483,41 +4259,54 @@ function PlayerAggregateStatsSections({
   kickoffSupportSummary,
   kickoffTakerSummary,
   overview,
+  movementSummary,
   possessionSummary,
   positioningSummary,
   platform,
   platformPlayerId,
   playerName,
+  routeBasePath,
   search,
   stats,
+  supplementalError,
+  supplementalLoading,
 }: {
   activeGroup: StatGroup;
   kickoffFilterSummary: EventStatSummaryResponse | null;
   kickoffSupportSummary: EventStatSummaryResponse | null;
   kickoffTakerSummary: EventStatSummaryResponse | null;
   overview: PlayerStatOverviewResponse | null;
+  movementSummary: MovementSummaryResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
   platform: string;
   platformPlayerId: string;
   playerName: string;
+  routeBasePath: string;
   search: string;
   stats: StatAggregateSetResponse;
+  supplementalError: string | null;
+  supplementalLoading: boolean;
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = useCurrentUser();
+  const materializedEnabled = materializedStatsEnabled(location.search);
   const sectionStats = filterStatsForGroup(stats.stats, activeGroup)
     .slice()
     .sort(comparePlayerStatRates);
-  const topStats = sectionStats.slice(0, 20);
   const sectionEventCount = sectionStats.reduce((total, stat) => total + stat.event_count, 0);
   const Icon = activeGroup.icon;
+  const requestSearch = playerStatsRequestSearchParams(search).toString();
   const kickoffShapeFilter = kickoffShapeFilterFromSearch(search);
   const kickoffSideFilter = kickoffSideFilterFromSearch(search);
-  const kickoffSpawnDimension = kickoffFilterSummary?.dimensions.find(
-    (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
-  );
-
+  const kickoffSpawnDimension =
+    kickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "kickoff_type" && dimension.values.length > 0,
+    ) ??
+    kickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
+    );
   const setKickoffFilter = (key: "kickoff-shape" | "kickoff-side", value: string) => {
     const params = new URLSearchParams(location.search);
     if (value === "all") {
@@ -3528,6 +4317,227 @@ function PlayerAggregateStatsSections({
     const query = params.toString();
     navigate(query ? `${location.pathname}?${query}` : location.pathname);
   };
+  const splitOutcome = playerOutcomeSplitEnabled(search);
+  const outcomeState = usePlayerOutcomeStatBundles({
+    activeGroup,
+    enabled: splitOutcome,
+    platform,
+    platformPlayerId,
+    search,
+  });
+
+  type StatsContentInputs = {
+    contentKickoffFilterSummary: EventStatSummaryResponse | null;
+    contentKickoffSupportSummary: EventStatSummaryResponse | null;
+    contentKickoffTakerSummary: EventStatSummaryResponse | null;
+    contentMovementSummary: MovementSummaryResponse | null;
+    contentOverview: PlayerStatOverviewResponse | null;
+    contentPossessionSummary: PossessionSummaryResponse | null;
+    contentPositioningSummary: PositioningSummaryResponse | null;
+    contentSearch: string;
+    contentStats: StatAggregateSetResponse;
+    contentSupplementalError: string | null;
+    contentSupplementalLoading: boolean;
+  };
+
+  // Each stat section is composed of several heterogeneous panels. We build them
+  // as a keyed list so the combined view can render them in order, and the
+  // wins/losses split can pair the same panel for each outcome side by side.
+  function buildStatsPanels({
+    contentKickoffFilterSummary,
+    contentKickoffSupportSummary,
+    contentKickoffTakerSummary,
+    contentMovementSummary,
+    contentOverview,
+    contentPossessionSummary,
+    contentPositioningSummary,
+    contentSearch,
+    contentStats,
+    contentSupplementalError,
+    contentSupplementalLoading,
+  }: StatsContentInputs): Array<{ key: string; node: ReactNode }> {
+    const contentSectionStats = filterStatsForGroup(contentStats.stats, activeGroup)
+      .slice()
+      .sort(comparePlayerStatRates);
+    const contentTopStats = contentSectionStats.slice(0, 20);
+    const contentKickoffSpawnDimension = contentKickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
+    );
+
+    const panels: Array<{ key: string; node: ReactNode }> = [];
+    const add = (key: string, node: ReactNode) => panels.push({ key, node });
+
+    if (activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome) {
+      add(
+        "kickoff-spawn",
+        <KickoffSpawnBreakdown
+          dimension={contentKickoffSpawnDimension}
+          shapeFilter={kickoffShapeFilter}
+          sideFilter={kickoffSideFilter}
+          onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
+          onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
+        />,
+      );
+    }
+
+    if (
+      activeGroup.id !== "kickoffs" &&
+      activeGroup.id !== "boost" &&
+      activeGroup.id !== "core" &&
+      activeGroup.id !== "goals" &&
+      activeGroup.id !== "movement" &&
+      activeGroup.id !== "possession" &&
+      activeGroup.id !== "positioning" &&
+      activeGroup.id !== "rotation" &&
+      activeGroup.id !== "touches"
+    ) {
+      add(
+        "rate-comparison",
+        <PlayerRateComparisonChart playerName={playerName} stats={contentTopStats} />,
+      );
+    }
+
+    if (activeGroup.id === "boost") {
+      add(
+        "boost-profile",
+        <BoostProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "core" && contentOverview) {
+      add(
+        "core-profile",
+        <CoreProfileComparison
+          overview={contentOverview}
+          playerName={playerName}
+          stats={contentSectionStats}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "movement" && contentMovementSummary) {
+      add(
+        "movement-cohorts",
+        <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />,
+      );
+    }
+    if (activeGroup.id === "movement" && contentSupplementalLoading) {
+      add("movement-loading", <SupplementalLoadingNotice label="Movement comparisons" />);
+    }
+    if (activeGroup.id === "movement" && contentSupplementalError) {
+      add(
+        "movement-error",
+        <ApiNotice label="Movement comparisons" message={contentSupplementalError} />,
+      );
+    }
+
+    if (activeGroup.id === "goals" && contentOverview) {
+      add(
+        "goal-share",
+        <GoalTagSharePanel
+          overview={contentOverview}
+          playerName={playerName}
+          goalTypeHref={(kind) =>
+            playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
+          }
+          allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
+        />,
+      );
+    }
+    if (activeGroup.id === "goals" && contentSupplementalLoading) {
+      add("goal-loading", <SupplementalLoadingNotice label="Goal types" />);
+    }
+    if (activeGroup.id === "goals" && contentSupplementalError) {
+      add("goal-error", <ApiNotice label="Goal types" message={contentSupplementalError} />);
+    }
+
+    if (activeGroup.id === "kickoffs" && contentKickoffTakerSummary) {
+      add(
+        "kickoff-taker",
+        <KickoffSummaryPanel role="taker" summary={contentKickoffTakerSummary} />,
+      );
+    }
+    if (activeGroup.id === "kickoffs" && contentKickoffSupportSummary) {
+      add(
+        "kickoff-support",
+        <KickoffSummaryPanel role="support" summary={contentKickoffSupportSummary} />,
+      );
+    }
+
+    if (activeGroup.id === "possession" && contentPossessionSummary) {
+      add(
+        "possession-summary",
+        <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />,
+      );
+    }
+    if (activeGroup.id === "possession" && contentSupplementalLoading) {
+      add("possession-loading", <SupplementalLoadingNotice label="Possession comparisons" />);
+    }
+    if (activeGroup.id === "possession" && contentSupplementalError) {
+      add(
+        "possession-error",
+        <ApiNotice label="Possession comparisons" message={contentSupplementalError} />,
+      );
+    }
+
+    if (activeGroup.id === "touches" && contentStats.touch_breakdown) {
+      add(
+        "touch-profile",
+        <TouchProfileComparison breakdown={contentStats.touch_breakdown} playerName={playerName} />,
+      );
+    }
+
+    if (activeGroup.id === "positioning" && contentPositioningSummary) {
+      add(
+        "positioning-cohorts",
+        <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />,
+      );
+    }
+    if ((activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview) {
+      add(
+        "rotation-share",
+        <RotationTimeSharePanel
+          overview={contentOverview}
+          playerName={playerName}
+          stats={contentStats}
+        />,
+      );
+    }
+
+    return panels;
+  }
+
+  function renderStatsContent(inputs: StatsContentInputs) {
+    return (
+      <>
+        {buildStatsPanels(inputs).map((panel) => (
+          <Fragment key={panel.key}>{panel.node}</Fragment>
+        ))}
+      </>
+    );
+  }
+
+  const outcomeBundleInputs = (bundle: PlayerStatsOutcomeBundle): StatsContentInputs | null =>
+    bundle.stats
+      ? {
+          contentKickoffFilterSummary: bundle.kickoffFilterSummary,
+          contentKickoffSupportSummary: bundle.kickoffSupportSummary,
+          contentKickoffTakerSummary: bundle.kickoffTakerSummary,
+          contentMovementSummary: bundle.movementSummary,
+          contentOverview: bundle.overview,
+          contentPossessionSummary: bundle.possessionSummary,
+          contentPositioningSummary: bundle.positioningSummary,
+          contentSearch: bundle.search,
+          contentStats: bundle.stats,
+          contentSupplementalError: null,
+          contentSupplementalLoading: false,
+        }
+      : null;
 
   return (
     <section className="stat-detail player-aggregate-stats">
@@ -3538,7 +4548,7 @@ function PlayerAggregateStatsSections({
             <Link
               key={group.id}
               className={`stat-group-link ${group.id === activeGroup.id ? "active" : ""}`}
-              to={playerStatGroupPath(platform, platformPlayerId, group.id, search)}
+              to={playerStatGroupPath(routeBasePath, group.id, search)}
             >
               <GroupIcon size={16} />
               <span>{group.label}</span>
@@ -3555,6 +4565,27 @@ function PlayerAggregateStatsSections({
             {activeGroup.label}
           </h2>
           <p>{activeGroup.description}</p>
+          {currentUser?.is_admin ? (
+            <label
+              className="toggle-row stat-materialized-toggle"
+              title="Admin only: read these stats from the materialized tables (fast) or recompute them live from events (slow, source of truth)."
+            >
+              <input
+                type="checkbox"
+                checked={materializedEnabled}
+                onChange={(event) =>
+                  navigate(
+                    materializedStatsParamPath(
+                      location.pathname,
+                      location.search,
+                      event.target.checked,
+                    ),
+                  )
+                }
+              />
+              <span>Materialized stats{materializedEnabled ? "" : " (live)"}</span>
+            </label>
+          ) : null}
         </div>
         {activeGroup.id === "kickoffs" ? (
           <div className="stat-detail-counts">
@@ -3575,7 +4606,7 @@ function PlayerAggregateStatsSections({
         )}
       </header>
 
-      {activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
+      {!splitOutcome && activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
         <KickoffSpawnBreakdown
           dimension={kickoffSpawnDimension}
           shapeFilter={kickoffShapeFilter}
@@ -3585,47 +4616,90 @@ function PlayerAggregateStatsSections({
         />
       ) : null}
 
-      {activeGroup.id === "kickoffs" ||
-      activeGroup.id === "boost" ||
-      activeGroup.id === "positioning" ||
-      activeGroup.id === "rotation" ? null : (
-        <PlayerRateComparisonChart stats={topStats} />
+      {splitOutcome ? (
+        <>
+          <StatusLine loading={outcomeState.loading} error={outcomeState.error} />
+          {(() => {
+            const readyBundles = outcomeState.bundles
+              .map((bundle) => {
+                const inputs = outcomeBundleInputs(bundle);
+                return inputs ? { bundle, inputs, panels: buildStatsPanels(inputs) } : null;
+              })
+              .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+            if (readyBundles.length === 0) return null;
+
+            // Union the panel keys across outcomes, preserving first-seen order, so
+            // each panel pairs its wins and losses variants on the same row.
+            const orderedKeys: string[] = [];
+            const seenKeys = new Set<string>();
+            for (const entry of readyBundles) {
+              for (const panel of entry.panels) {
+                if (!seenKeys.has(panel.key)) {
+                  seenKeys.add(panel.key);
+                  orderedKeys.push(panel.key);
+                }
+              }
+            }
+
+            return (
+              <div className="player-outcome-split">
+                <header className="player-outcome-split-summary">
+                  {readyBundles.map(({ bundle }) => (
+                    <div
+                      className="player-outcome-summary-cell"
+                      data-outcome={bundle.key}
+                      key={bundle.key}
+                    >
+                      <h3>{bundle.label}</h3>
+                      <span>
+                        {bundle.stats?.replay_count.toLocaleString()}{" "}
+                        {bundle.stats?.replay_count === 1 ? "game" : "games"}
+                      </span>
+                    </div>
+                  ))}
+                </header>
+                {orderedKeys.map((key) => (
+                  <div className="player-outcome-pair" key={key}>
+                    {readyBundles.map(({ bundle, panels }) => {
+                      const panel = panels.find((entry) => entry.key === key);
+                      return (
+                        <div
+                          className="player-outcome-pair-cell"
+                          data-outcome={bundle.key}
+                          key={bundle.key}
+                        >
+                          <span className="player-outcome-pair-tag">{bundle.label}</span>
+                          {panel ? (
+                            panel.node
+                          ) : (
+                            <p className="muted-text player-outcome-pair-empty">
+                              No {bundle.label.toLowerCase()} data
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+        </>
+      ) : (
+        renderStatsContent({
+          contentKickoffFilterSummary: kickoffFilterSummary,
+          contentKickoffSupportSummary: kickoffSupportSummary,
+          contentKickoffTakerSummary: kickoffTakerSummary,
+          contentMovementSummary: movementSummary,
+          contentOverview: overview,
+          contentPossessionSummary: possessionSummary,
+          contentPositioningSummary: positioningSummary,
+          contentSearch: requestSearch,
+          contentStats: stats,
+          contentSupplementalError: supplementalError,
+          contentSupplementalLoading: supplementalLoading,
+        })
       )}
-
-      {activeGroup.id === "boost" ? (
-        <BoostProfileDetail
-          platform={platform}
-          platformPlayerId={platformPlayerId}
-          playerName={playerName}
-          search={search}
-        />
-      ) : null}
-
-      {activeGroup.id === "goals" && overview ? <ScoringRatePanel overview={overview} /> : null}
-      {activeGroup.id === "goals" && overview ? (
-        <GoalTagSharePanel
-          overview={overview}
-          goalTypeHref={(kind) =>
-            `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals/${encodeURIComponent(kind)}`
-          }
-          allGoalsHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals`}
-        />
-      ) : null}
-      {activeGroup.id === "kickoffs" && kickoffTakerSummary ? (
-        <KickoffSummaryPanel role="taker" summary={kickoffTakerSummary} />
-      ) : null}
-      {activeGroup.id === "kickoffs" && kickoffSupportSummary ? (
-        <KickoffSummaryPanel role="support" summary={kickoffSupportSummary} />
-      ) : null}
-      {activeGroup.id === "possession" && possessionSummary ? (
-        <PossessionSummaryPanel summary={possessionSummary} />
-      ) : null}
-      {activeGroup.id === "positioning" && positioningSummary ? (
-        <PlayerPositioningCohorts response={positioningSummary} playerName={playerName} />
-      ) : null}
-      {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && overview ? (
-        <RotationTimeSharePanel overview={overview} stats={stats} />
-      ) : null}
     </section>
   );
 }
@@ -4173,7 +5247,6 @@ const mechanicEventTypeKeys = new Set([
   "pass",
   "speed_flip",
   "wall_aerial",
-  "wall_aerial_shot",
   "wavedash",
   "post_wall_dodge",
   "flip_reset_followup_dodge",
@@ -4204,6 +5277,7 @@ function eventCategorySortRank(category: string): number {
   const rank = [
     "mechanic",
     "mechanics",
+    "basic",
     "contact",
     "other",
     "core",
@@ -4222,6 +5296,7 @@ function eventCategoryLabel(category: string): string {
   const labels: Record<string, string> = {
     mechanic: "Mechanics",
     mechanics: "Mechanics",
+    basic: "Basic events",
     contact: "Contact",
     other: "Other",
     touch: "Touches",
@@ -4392,11 +5467,12 @@ function reviewStatusLabel(value: string): string {
 }
 
 function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean }) {
+  const navigate = useNavigate();
   const [token, setToken] = useState(() => getAccessToken() ?? "");
   const [devEmail, setDevEmail] = useState("");
   const [tokenStatus, setTokenStatus] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
-  const [loginOpen, setLoginOpen] = useState(initialLoginOpen);
+  const [loginOpen, setLoginOpen] = useState(() => initialLoginOpen || getAccessToken() == null);
   const [creatingSessionToken, setCreatingSessionToken] = useState(false);
   const [creatingDevToken, setCreatingDevToken] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -4425,6 +5501,12 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (!claims) {
+      setLoginOpen(true);
+    }
+  }, [claims]);
 
   function saveToken(event: FormEvent) {
     event.preventDefault();
@@ -4465,6 +5547,7 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
     setCopied(false);
     setLoginOpen(false);
     setTokenStatus("Logged out.");
+    navigate("/replays");
   }
 
   async function requestSessionToken() {
@@ -4505,6 +5588,27 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
     window.setTimeout(() => setCopied(false), 1800);
   }
 
+  function closeLoginModal() {
+    if (claims) {
+      setLoginOpen(false);
+    } else {
+      navigate("/replays");
+    }
+  }
+
+  if (!claims) {
+    return (
+      <section className="page account-page">
+        {loginOpen ? (
+          <LoginModal
+            onClose={closeLoginModal}
+            onAccessToken={(accessToken, message) => acceptLoginToken(accessToken, message)}
+          />
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <section className="page account-page">
       <header className="page-header">
@@ -4532,7 +5636,7 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
 
       {loginOpen ? (
         <LoginModal
-          onClose={() => setLoginOpen(false)}
+          onClose={closeLoginModal}
           onAccessToken={(accessToken, message) => acceptLoginToken(accessToken, message)}
         />
       ) : null}
@@ -5430,7 +6534,9 @@ function AboutPage() {
   }, []);
 
   const subtrActorSha = version?.subtr_actor_git_sha ?? null;
+  const subtrActorCommitTimestamp = version?.subtr_actor_git_commit_timestamp ?? null;
   const rocketSenseSha = version?.rocket_sense_git_sha ?? null;
+  const rocketSenseCommitTimestamp = version?.rocket_sense_git_commit_timestamp ?? null;
 
   return (
     <section className="page about-page">
@@ -5473,35 +6579,22 @@ function AboutPage() {
                 <th scope="row">subtr-actor</th>
                 <td>
                   {version.subtr_actor_version}
-                  {subtrActorSha ? (
-                    <>
-                      {" "}
-                      <a
-                        className="git-sha"
-                        href={`https://github.com/rlrml/subtr-actor/commit/${subtrActorSha}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        title={subtrActorSha}
-                      >
-                        {subtrActorSha.slice(0, 7)}
-                      </a>
-                    </>
-                  ) : null}
+                  <CommitMetadata
+                    sha={subtrActorSha}
+                    timestamp={subtrActorCommitTimestamp}
+                    repositoryUrl="https://github.com/rlrml/subtr-actor"
+                  />
                 </td>
               </tr>
               <tr>
                 <th scope="row">rocket-sense</th>
                 <td>
-                  {rocketSenseSha ? (
-                    <a
-                      className="git-sha"
-                      href={`https://github.com/rlrml/rocket-sense/commit/${rocketSenseSha}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      title={rocketSenseSha}
-                    >
-                      {rocketSenseSha.slice(0, 7)}
-                    </a>
+                  {rocketSenseSha || rocketSenseCommitTimestamp ? (
+                    <CommitMetadata
+                      sha={rocketSenseSha}
+                      timestamp={rocketSenseCommitTimestamp}
+                      repositoryUrl="https://github.com/rlrml/rocket-sense"
+                    />
                   ) : (
                     <span className="subtle">unknown</span>
                   )}
@@ -5588,6 +6681,44 @@ function AboutPage() {
         </div>
       </div>
     </section>
+  );
+}
+
+function CommitMetadata({
+  sha,
+  timestamp,
+  repositoryUrl,
+}: {
+  sha: string | null;
+  timestamp: string | null;
+  repositoryUrl: string;
+}) {
+  const commitSha = commitShaForUrl(sha);
+  return (
+    <>
+      {commitSha ? (
+        <>
+          {" "}
+          <a
+            className="git-sha"
+            href={`${repositoryUrl}/commit/${commitSha}`}
+            target="_blank"
+            rel="noreferrer"
+            title={sha ?? commitSha}
+          >
+            {shortCommitSha(sha)}
+          </a>
+        </>
+      ) : null}
+      {timestamp ? (
+        <>
+          {" "}
+          <time className="subtle" dateTime={timestamp}>
+            {formatDate(timestamp)}
+          </time>
+        </>
+      ) : null}
+    </>
   );
 }
 

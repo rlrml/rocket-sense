@@ -6,7 +6,6 @@ export const mechanicEventTypes = [
   "ceiling_shot",
   "backboard_bounce",
   "wall_aerial",
-  "wall_aerial_shot",
   "center",
   "flick",
   "musty_flick",
@@ -152,6 +151,7 @@ function MechanicLeaderboards({
                     <StatPlayerLabel
                       name={entry.name}
                       platform={entry.player.platform ?? null}
+                      platformPlayerId={entry.player.platform_player_id ?? null}
                       profilePath={playerProfilePath(
                         entry.player.platform,
                         entry.player.platform_player_id,
@@ -216,6 +216,7 @@ function PlayerMechanicLeaderboard({ rows }: { rows: PlayerMechanicRow[] }) {
                 <StatPlayerLabel
                   name={row.name}
                   platform={row.player?.platform ?? null}
+                  platformPlayerId={row.player?.platform_player_id ?? null}
                   profilePath={playerProfilePath(
                     row.player?.platform,
                     row.player?.platform_player_id,

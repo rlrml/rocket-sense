@@ -26,12 +26,29 @@ export interface ReplayPlayer {
   time_most_forward_seconds: number | null;
 }
 
+export interface ReplayUploaderResponse {
+  id: string;
+  primary_email: string | null;
+  display_name: string | null;
+  /** Auth provider the uploader signed in with (e.g. "steam", "epic", "google"). */
+  provider: string | null;
+}
+
+export interface UserProfileResponse {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  upload_count: number;
+}
+
 export interface ReplayResponse {
   id: string;
   file_sha256: string;
   byte_size: number;
   project_id: string | null;
   uploaded_by_user_id: string | null;
+  uploaded_by: ReplayUploaderResponse | null;
   storage_key: string;
   original_file_name: string | null;
   external_replay_id: string | null;
@@ -77,6 +94,19 @@ export interface ReplayGroupReplayUpdateResponse {
   group: ReplayGroupResponse;
   matched_replays: number;
   changed_replays: number;
+}
+
+export interface ReplayGroupManagerResponse {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  is_creator: boolean;
+  added_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface ListReplayGroupManagersResponse {
+  managers: ReplayGroupManagerResponse[];
 }
 
 export interface UploadsLeaderboardRow {
@@ -155,6 +185,7 @@ export interface StatLeaderboardRow {
   value: number;
   replay_count: number;
   active_time_seconds: number | null;
+  sample_count: number | null;
   value_per_game: number | null;
   value_per_active_minute: number | null;
   share_of_active_time: number | null;
@@ -195,7 +226,9 @@ export interface ProcessingVersionResponse {
   extractor_version: string;
   subtr_actor_version: string;
   subtr_actor_git_sha: string | null;
+  subtr_actor_git_commit_timestamp: string | null;
   rocket_sense_git_sha: string | null;
+  rocket_sense_git_commit_timestamp: string | null;
   schema_changelog: Array<{ version: string; note: string }>;
 }
 
@@ -345,6 +378,11 @@ export interface StatAggregateResponse {
   teammate_count_per_game: number | null;
   teammate_per_active_minute: number | null;
   teammate_per_non_demo_active_minute: number | null;
+  opponent_event_count: number;
+  opponent_appearance_count: number;
+  opponent_count_per_game: number | null;
+  opponent_per_active_minute: number | null;
+  opponent_per_non_demo_active_minute: number | null;
 }
 
 export interface StatAggregateSetResponse {
@@ -359,6 +397,11 @@ export interface StatAggregateSetResponse {
   teammate_non_demo_active_time_seconds: number | null;
   teammate_time_most_back_seconds: number | null;
   teammate_time_most_forward_seconds: number | null;
+  opponent_appearance_count: number | null;
+  opponent_active_time_seconds: number | null;
+  opponent_non_demo_active_time_seconds: number | null;
+  opponent_time_most_back_seconds: number | null;
+  opponent_time_most_forward_seconds: number | null;
   rotation_duration_bucket_seconds: number;
   rotation_duration_histogram: Array<{
     min_seconds: number;
@@ -370,8 +413,38 @@ export interface StatAggregateSetResponse {
     max_seconds: number;
     count: number;
   }> | null;
+  opponent_rotation_duration_histogram: Array<{
+    min_seconds: number;
+    max_seconds: number;
+    count: number;
+  }> | null;
+  touch_breakdown: TouchAggregateBreakdownResponse | null;
   stats: StatAggregateResponse[];
   groups: StatAggregateGroupResponse[];
+}
+
+export interface TouchAggregateBreakdownResponse {
+  cohorts: TouchAggregateCohortResponse[];
+}
+
+export interface TouchAggregateCohortResponse {
+  key: string;
+  label: string;
+  total_touch_count: number;
+  total_advance_distance: number;
+  active_time_seconds: number | null;
+  dimensions: TouchAggregateDimensionResponse[];
+}
+
+export interface TouchAggregateDimensionResponse {
+  key: string;
+  values: TouchAggregateValueResponse[];
+}
+
+export interface TouchAggregateValueResponse {
+  key: string;
+  touch_count: number;
+  advance_distance: number;
 }
 
 export interface StatAggregateGroupResponse {
@@ -389,6 +462,11 @@ export interface StatAggregateGroupResponse {
   teammate_non_demo_active_time_seconds: number | null;
   teammate_time_most_back_seconds: number | null;
   teammate_time_most_forward_seconds: number | null;
+  opponent_appearance_count: number | null;
+  opponent_active_time_seconds: number | null;
+  opponent_non_demo_active_time_seconds: number | null;
+  opponent_time_most_back_seconds: number | null;
+  opponent_time_most_forward_seconds: number | null;
   stats: StatAggregateResponse[];
 }
 
@@ -400,6 +478,8 @@ export interface GoalTagAggregateResponse {
   per_active_minute: number | null;
   teammate_count: number;
   teammate_per_active_minute: number | null;
+  opponent_count: number;
+  opponent_per_active_minute: number | null;
   avg_confidence: number | null;
 }
 
@@ -415,13 +495,17 @@ export interface ScoringRateResponse {
   per_active_minute: number | null;
   teammate_count: number;
   teammate_per_active_minute: number | null;
+  opponent_count: number;
+  opponent_per_active_minute: number | null;
 }
 
 export interface PlayerStatOverviewResponse {
   replay_count: number;
   goals_scored: number;
+  score: ScoringRateResponse;
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
+  shots?: ScoringRateResponse;
   goal_tags: GoalTagAggregateResponse[];
   rotation_roles: RotationTimeShareResponse[];
   rotation_depths: RotationTimeShareResponse[];
@@ -432,6 +516,32 @@ export interface EventStatMetricResponse {
   label: string;
   value: number | null;
   kind: string;
+}
+
+export interface MovementSummaryResponse {
+  replay_count: number;
+  player: MovementCohortSummary;
+  teammates: MovementCohortSummary | null;
+  opponents: MovementCohortSummary | null;
+}
+
+export interface MovementCohortSummary {
+  appearance_count: number;
+  active_seconds: number;
+  total_distance: number;
+  speed_weighted: number;
+  speed_weight: number;
+  slow_seconds: number;
+  boost_seconds: number;
+  supersonic_seconds: number;
+  ground_seconds: number;
+  low_air_seconds: number;
+  high_air_seconds: number;
+  powerslide_count: number;
+  powerslide_seconds: number;
+  speed_flips: number;
+  wavedashes: number;
+  half_flips: number;
 }
 
 export interface EventStatDimensionValueResponse {
@@ -472,6 +582,7 @@ export interface PossessionSummaryResponse {
   possessions: PossessionSpanSummary;
   controlled_plays: PossessionSpanSummary;
   teammates: PossessionTeammateComparison | null;
+  cohorts: PossessionCohortSummary[];
   touches: PossessionTouchSummary;
   locations: PossessionLocationSummary;
   // Team-level control oriented to the player's team, split by game result.
@@ -500,6 +611,17 @@ export interface PossessionTeamMetric {
 export interface PossessionTeammateComparison {
   appearance_count: number;
   controlled_plays: PossessionSpanSummary;
+}
+
+export interface PossessionCohortSummary {
+  key: string;
+  label: string;
+  appearance_count: number;
+  active_time_seconds: number | null;
+  possessions: PossessionSpanSummary;
+  controlled_plays: PossessionSpanSummary;
+  touches: PossessionTouchSummary;
+  locations: PossessionLocationSummary;
 }
 
 export interface PossessionSpanSummary {
@@ -794,4 +916,18 @@ export interface PlayerBoostTotalsResponse {
   player: PlayerBoostTotal;
   teammates: PlayerBoostTotal | null;
   opponents: PlayerBoostTotal | null;
+}
+
+export interface BoostPadControlPoint {
+  pad_id: string;
+  x: number;
+  y: number;
+  pad_size: "big" | "small";
+  player_count: number;
+  teammate_count: number;
+  opponent_count: number;
+}
+
+export interface BoostPadControlResponse {
+  points: BoostPadControlPoint[];
 }

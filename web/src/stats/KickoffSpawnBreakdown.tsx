@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { EventStatDimensionResponse, EventStatDimensionValueResponse } from "../types";
 import { KickoffShapeIcon } from "./KickoffShapeIcon";
+import { ComparisonBar } from "./shared";
 
 export type KickoffShapeFilter = "all" | "diagonal" | "center_offset" | "center";
 export type KickoffSideFilter = "all" | "left" | "right";
@@ -72,6 +73,7 @@ export function KickoffSpawnBreakdown({
   const total = buckets.reduce((sum, bucket) => sum + bucket.count, 0);
   const cards = buildSpawnCards(buckets, shapeFilter, sideFilter);
   const filteredCount = cards.reduce((sum, card) => sum + card.count, 0);
+  const hasSideBuckets = buckets.some((bucket) => bucket.side != null);
 
   const selectShape = (value: KickoffShapeFilter) => {
     if (onShapeFilterChange) {
@@ -111,15 +113,17 @@ export function KickoffSpawnBreakdown({
           selected={shapeFilter}
           onSelect={(value) => selectShape(value as KickoffShapeFilter)}
         />
-        <KickoffFilterGroup
-          label="Side"
-          options={sideOptions.map((option) => ({
-            ...option,
-            count: countBuckets(buckets, shapeFilter, option.key),
-          }))}
-          selected={sideFilter}
-          onSelect={(value) => selectSide(value as KickoffSideFilter)}
-        />
+        {hasSideBuckets ? (
+          <KickoffFilterGroup
+            label="Side"
+            options={sideOptions.map((option) => ({
+              ...option,
+              count: countBuckets(buckets, shapeFilter, option.key),
+            }))}
+            selected={sideFilter}
+            onSelect={(value) => selectSide(value as KickoffSideFilter)}
+          />
+        ) : null}
       </div>
       <div className="kickoff-spawn-card-grid">
         {cards.map((card) => (
@@ -166,7 +170,6 @@ export function KickoffFilterGroup({
 }
 
 function KickoffSpawnCardView({ card, total }: { card: KickoffSpawnCard; total: number }) {
-  const share = total > 0 ? card.count / total : null;
   const sideRows = card.buckets
     .filter((bucket) => bucket.side != null)
     .sort((left, right) => sideOrder(left.side) - sideOrder(right.side));
@@ -182,25 +185,41 @@ function KickoffSpawnCardView({ card, total }: { card: KickoffSpawnCard; total: 
           </span>
         </div>
       </div>
-      <div
-        className="kickoff-spawn-share-track"
-        aria-label={`${card.label}: ${formatShare(card.count, total)}`}
-      >
-        <span style={{ width: `${barPercent(share)}%` }} />
+      <div className="kickoff-spawn-share-track">
+        <ComparisonBar
+          ariaLabel={`${card.label}: ${formatShare(card.count, total)}`}
+          maxValue={total}
+          segments={[
+            {
+              key: "share",
+              className: "kickoff-spawn-fill",
+              label: card.label,
+              value: card.count,
+              title: `${card.label}: ${formatShare(card.count, total)} (${card.count.toLocaleString()})`,
+            },
+          ]}
+          total={card.count}
+        />
       </div>
       {sideRows.length > 1 ? (
         <div className="kickoff-spawn-side-rows">
           {sideRows.map((bucket) => (
             <div className="kickoff-spawn-side-row" key={bucket.key}>
               <span>{bucket.side ? sideLabels[bucket.side] : bucket.label}</span>
-              <div
-                className="kickoff-spawn-mini-track"
-                aria-label={`${bucket.label}: ${formatShare(bucket.count, card.count)}`}
-              >
-                <span
-                  style={{
-                    width: `${barPercent(card.count > 0 ? bucket.count / card.count : null)}%`,
-                  }}
+              <div className="kickoff-spawn-mini-track">
+                <ComparisonBar
+                  ariaLabel={`${bucket.label}: ${formatShare(bucket.count, card.count)}`}
+                  maxValue={card.count}
+                  segments={[
+                    {
+                      key: "share",
+                      className: "kickoff-spawn-fill",
+                      label: bucket.label,
+                      value: bucket.count,
+                      title: `${bucket.label}: ${formatShare(bucket.count, card.count)} (${bucket.count.toLocaleString()})`,
+                    },
+                  ]}
+                  total={bucket.count}
                 />
               </div>
               <strong>{formatShare(bucket.count, card.count)}</strong>
@@ -257,6 +276,16 @@ function parseSpawnValue(
   value: EventStatDimensionValueResponse,
 ): Omit<KickoffSpawnBucket, "count" | "values"> {
   switch (value.key) {
+    case "diagonal":
+      return { key: "diagonal", label: "Diagonal", shape: "diagonal", side: null };
+    case "center_offset":
+    case "off_center":
+      return {
+        key: "center_offset",
+        label: "Center offset",
+        shape: "center_offset",
+        side: null,
+      };
     case "diagonal_left":
       return { key: "diagonal_left", label: "Diagonal left", shape: "diagonal", side: "left" };
     case "diagonal_right":
@@ -389,11 +418,6 @@ function sideOrder(side: KickoffSpawnBucket["side"] | "both"): number {
     default:
       return 3;
   }
-}
-
-function barPercent(value: number | null): number {
-  if (value == null || !Number.isFinite(value)) return 0;
-  return Math.max(0, Math.min(100, value * 100));
 }
 
 function formatShare(value: number, total: number): string;

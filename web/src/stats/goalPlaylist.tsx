@@ -1,7 +1,14 @@
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { getPlayerProfile, getReplay, listPlayerEvents, listReplayEvents } from "../api";
+import { Link, useLocation, useParams } from "react-router-dom";
+import {
+  getPlayerProfile,
+  getPlayerProfileByRef,
+  getReplay,
+  listPlayerEvents,
+  listReplayEvents,
+} from "../api";
+import { playerProfileIdPath } from "../playerIdentity";
 import type { MechanicEventResponse } from "../types";
 import { EventClipPlayer } from "./EventClipPlayer";
 import { subtrActorPlayerUrl } from "../playerLink";
@@ -61,41 +68,63 @@ export function ReplayGoalPlaylistPage() {
 
 /** Playlist of every goal of one type scored by a player, across their replays. */
 export function PlayerGoalPlaylistPage() {
-  const { platform = "", platformPlayerId = "", goalType = "" } = useParams();
-  const playerId = `${platform}:${platformPlayerId}`;
-  const { events, loading, error } = useGoalEvents(
-    useCallback(() => listPlayerEvents(playerId, goalEventTypes), [playerId]),
+  const { platform = "", platformPlayerId, playerName, goalType = "" } = useParams();
+  const { search } = useLocation();
+  const routePlayerRef = platformPlayerId ?? playerName ?? "";
+  const routeUsesExplicitId = platformPlayerId != null;
+  const routeBasePath = routeUsesExplicitId
+    ? playerProfileIdPath(platform, routePlayerRef)
+    : `/players/${encodeURIComponent(platform)}/${encodeURIComponent(routePlayerRef)}`;
+  const [resolvedPlayerId, setResolvedPlayerId] = useState<string | null>(
+    routeUsesExplicitId ? `${platform}:${routePlayerRef}` : null,
   );
-  const [playerName, setPlayerName] = useState<string | null>(null);
+  // Carry the stats filter context (playlist, game mode, dates, …) through to
+  // the events request so the playlist matches the rates that linked here.
+  const filterParams = useMemo(() => new URLSearchParams(search), [search]);
+  const { events, loading, error } = useGoalEvents(
+    useCallback(
+      () =>
+        resolvedPlayerId ? listPlayerEvents(resolvedPlayerId, goalEventTypes, filterParams) : null,
+      [resolvedPlayerId, filterParams],
+    ),
+  );
+  const [resolvedPlayerName, setResolvedPlayerName] = useState<string | null>(null);
+  const [resolveError, setResolveError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    setPlayerName(null);
-    getPlayerProfile(platform, platformPlayerId, new URLSearchParams())
+    setResolvedPlayerName(null);
+    setResolveError(null);
+    setResolvedPlayerId(routeUsesExplicitId ? `${platform}:${routePlayerRef}` : null);
+    const request = routeUsesExplicitId ? getPlayerProfile : getPlayerProfileByRef;
+    request(platform, routePlayerRef, new URLSearchParams())
       .then((profile) => {
-        if (!cancelled) setPlayerName(profile.display_name);
+        if (cancelled) return;
+        setResolvedPlayerName(profile.display_name);
+        setResolvedPlayerId(`${profile.platform}:${profile.platform_player_id}`);
       })
-      .catch(() => {});
+      .catch((err: Error) => {
+        if (!cancelled) setResolveError(err.message);
+      });
     return () => {
       cancelled = true;
     };
-  }, [platform, platformPlayerId]);
+  }, [platform, routePlayerRef, routeUsesExplicitId]);
 
   const goals = useMemo(() => playlistGoals(events, goalType), [events, goalType]);
   const typeHref = useCallback(
-    (type: GoalType) =>
-      `/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/goals/${encodeURIComponent(type.key)}`,
-    [platform, platformPlayerId],
+    (type: GoalType) => `${routeBasePath}/goals/${encodeURIComponent(type.key)}${search}`,
+    [routeBasePath, search],
   );
 
   return (
     <GoalPlaylist
       goalTypeKey={goalType}
       goals={goals}
-      loading={loading}
-      error={error}
-      contextLabel={playerName ?? platformPlayerId}
-      backHref={`/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}/stats/goals`}
+      loading={loading || (!resolvedPlayerId && !resolveError)}
+      error={resolveError ?? error}
+      contextLabel={resolvedPlayerName ?? routePlayerRef}
+      backHref={`${routeBasePath}/stats/goals${search}`}
       typeHref={typeHref}
       gameHref={(goal) => `/replays/${encodeURIComponent(goal.event.replay_id)}/stats/goals`}
       showReplayGroups
@@ -103,7 +132,7 @@ export function PlayerGoalPlaylistPage() {
   );
 }
 
-function useGoalEvents(fetchEvents: () => Promise<{ events: MechanicEventResponse[] }>) {
+function useGoalEvents(fetchEvents: () => Promise<{ events: MechanicEventResponse[] }> | null) {
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -112,7 +141,15 @@ function useGoalEvents(fetchEvents: () => Promise<{ events: MechanicEventRespons
     let cancelled = false;
     setLoading(true);
     setError(null);
-    fetchEvents()
+    const request = fetchEvents();
+    if (!request) {
+      setEvents([]);
+      setLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+    request
       .then((response) => {
         if (!cancelled) setEvents(response.events);
       })
