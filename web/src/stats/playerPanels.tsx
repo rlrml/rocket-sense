@@ -23,10 +23,11 @@ import {
   careerRateValue,
   careerRateWindowLabel,
   type CareerCohortKey,
+  type ComparisonCard,
+  ComparisonCardGrid,
   ComparisonBar,
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
-  PlayerComparisonChart,
   StatPlayerLabel,
   statPercentWithValue,
   type ComparisonMarker,
@@ -55,6 +56,38 @@ export interface RankBenchmarkRowInfo {
   windowLabel?: string | null;
 }
 
+export function buildPlayerRateCards(
+  stats: StatAggregateResponse[],
+  playerName = "Player",
+  rankBenchmark?: RankBenchmarkRowInfo,
+  // When provided (wins/losses split), build exactly these cards in this order,
+  // regardless of how this side ranks them, so both outcome sides show the same
+  // card set; a canonical key absent from this side renders an empty placeholder
+  // card so the rows still pair up across outcomes.
+  orderedKeys?: Array<{ key: string; display_name: string }>,
+): ComparisonCard[] {
+  if (orderedKeys) {
+    const statByKey = new Map(stats.map((stat) => [stat.key, stat]));
+    return orderedKeys.slice(0, rateChartStatLimit).map(({ key, display_name }) => {
+      const stat = statByKey.get(key);
+      return {
+        key,
+        title: display_name,
+        rows: stat ? playerRateComparisonRows(stat, playerName, rankBenchmark) : [],
+      };
+    });
+  }
+  return stats
+    .filter((stat) => stat.per_active_minute != null)
+    .slice(0, rateChartStatLimit)
+    .map((stat) => ({
+      key: stat.key,
+      title: stat.display_name,
+      rows: playerRateComparisonRows(stat, playerName, rankBenchmark),
+    }))
+    .filter((card) => card.rows.length > 0);
+}
+
 export function PlayerRateComparisonChart({
   playerName = "Player",
   stats,
@@ -64,53 +97,13 @@ export function PlayerRateComparisonChart({
   playerName?: string;
   stats: StatAggregateResponse[];
   rankBenchmark?: RankBenchmarkRowInfo;
-  // When provided (wins/losses split), the chart renders exactly these cards in
-  // this order, regardless of how this side ranks them, so the two grids line up
-  // for comparison. A canonical key absent from this side renders a placeholder
-  // card, keeping the rows aligned across outcomes.
   orderedKeys?: Array<{ key: string; display_name: string }>;
 }) {
-  const cards = orderedKeys
-    ? (() => {
-        const statByKey = new Map(stats.map((stat) => [stat.key, stat]));
-        return orderedKeys.slice(0, rateChartStatLimit).map(({ key, display_name }) => {
-          const stat = statByKey.get(key);
-          return {
-            key,
-            title: display_name,
-            rows: stat ? playerRateComparisonRows(stat, playerName, rankBenchmark) : [],
-          };
-        });
-      })()
-    : stats
-        .filter((stat) => stat.per_active_minute != null)
-        .slice(0, rateChartStatLimit)
-        .map((stat) => ({
-          key: stat.key,
-          title: stat.display_name,
-          rows: playerRateComparisonRows(stat, playerName, rankBenchmark),
-        }))
-        .filter((card) => card.rows.length > 0);
-
+  const cards = buildPlayerRateCards(stats, playerName, rankBenchmark, orderedKeys);
   if (cards.length === 0) {
     return null;
   }
-
-  return (
-    <section className="full-span player-rate-chart">
-      <div className="stat-comparison-grid player-rate-comparison-grid">
-        {cards.map(({ key, title, rows }) => (
-          <PlayerComparisonChart
-            className="career-rate-card"
-            key={key}
-            rows={rows}
-            title={title}
-            emptyLabel="No data"
-          />
-        ))}
-      </div>
-    </section>
-  );
+  return <ComparisonCardGrid cards={cards} />;
 }
 
 function playerRateComparisonRows(
@@ -337,7 +330,20 @@ interface ProfileRateStat {
   opponentPerActiveMinute: number | null;
 }
 
-export function CoreProfileComparison({
+export function CoreProfileComparison(props: {
+  overview: PlayerStatOverviewResponse;
+  playerName: string;
+  stats: StatAggregateResponse[];
+  view?: CoreProfileView;
+}) {
+  return <ComparisonCardGrid cards={buildCoreProfileCards(props)} />;
+}
+
+// The Core section's metric cards, as data. The combined view renders them in a
+// single grid; the wins/losses split adds each card as its own pairable panel so
+// that — once the columns stack on a phone — a metric's win and loss cards sit
+// adjacent instead of all the wins landing above all the losses.
+export function buildCoreProfileCards({
   overview,
   playerName,
   stats,
@@ -350,7 +356,7 @@ export function CoreProfileComparison({
   // "team" sums the whole team (player + teammates) vs the opponent team and
   // shows per-game team totals (no per-player division).
   view?: CoreProfileView;
-}) {
+}): ComparisonCard[] {
   const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
   const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
   const score = scoringRateOrZero(overview.score);
@@ -447,20 +453,7 @@ export function CoreProfileComparison({
           },
         ];
 
-  return (
-    <section className="core-profile-comparison full-span">
-      <div className="stat-comparison-grid player-rate-comparison-grid">
-        {cards.map((card) => (
-          <PlayerComparisonChart
-            className="career-rate-card"
-            key={card.key}
-            rows={card.rows}
-            title={card.title}
-          />
-        ))}
-      </div>
-    </section>
-  );
+  return cards;
 }
 
 /**
@@ -1079,25 +1072,22 @@ export function ScoringRatePanel({
 }
 
 /** Goal tag proportions over the player's goals. */
-export function GoalTagSharePanel({
+export function buildGoalTagCards({
   overview,
   playerName = "Player",
   goalTypeHref,
-  allGoalsHref,
   orderedKeys,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName?: string;
-  /** When provided, each goal type row links to a playlist of those goals. */
+  /** When provided, each goal type card title links to a playlist of those goals. */
   goalTypeHref?: (kind: string) => string;
-  /** When provided, the header links to a playlist of every goal. */
-  allGoalsHref?: string;
-  // When provided (wins/losses split), the panel renders exactly these goal
-  // types in this order across every outcome side. A goal type this side never
-  // scored still renders a card (showing 0) instead of being dropped, so the
-  // wins and losses grids stay aligned card-for-card.
+  // When provided (wins/losses split), build exactly these goal types in this
+  // order across every outcome side. A goal type this side never scored still
+  // renders a card (showing 0) instead of being dropped, so the wins and losses
+  // grids stay aligned card-for-card.
   orderedKeys?: Array<{ kind: string; display_name: string }>;
-}) {
+}): ComparisonCard[] {
   const visibleTags = overview.goal_tags.filter((tag) => !isIgnoredGoalTag(tag.kind));
   const tagByKind = new Map(visibleTags.map((tag) => [tag.kind, tag] as const));
   const entries = orderedKeys
@@ -1108,7 +1098,7 @@ export function GoalTagSharePanel({
       }))
     : visibleTags.map((tag) => ({ kind: tag.kind, displayName: tag.display_name, tag }));
 
-  const cards = entries.map(({ kind, displayName, tag }) => {
+  return entries.map(({ kind, displayName, tag }) => {
     const rows = profileRateComparisonRows(
       tag
         ? {
@@ -1146,6 +1136,23 @@ export function GoalTagSharePanel({
     );
     return { key: kind, rows, title };
   });
+}
+
+/** Goal tag proportions over the player's goals. */
+export function GoalTagSharePanel({
+  overview,
+  playerName = "Player",
+  goalTypeHref,
+  allGoalsHref,
+}: {
+  overview: PlayerStatOverviewResponse;
+  playerName?: string;
+  /** When provided, each goal type row links to a playlist of those goals. */
+  goalTypeHref?: (kind: string) => string;
+  /** When provided, the header links to a playlist of every goal. */
+  allGoalsHref?: string;
+}) {
+  const cards = buildGoalTagCards({ overview, playerName, goalTypeHref });
 
   return (
     <section className="goal-tag-share-panel full-span">
@@ -1164,16 +1171,7 @@ export function GoalTagSharePanel({
       {cards.length === 0 ? (
         <p className="subtle">No tagged goals yet for this replay set.</p>
       ) : (
-        <div className="stat-comparison-grid player-rate-comparison-grid">
-          {cards.map((card) => (
-            <PlayerComparisonChart
-              className="career-rate-card"
-              key={card.key}
-              rows={card.rows}
-              title={card.title}
-            />
-          ))}
-        </div>
+        <ComparisonCardGrid cards={cards} />
       )}
     </section>
   );

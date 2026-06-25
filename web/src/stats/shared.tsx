@@ -529,6 +529,39 @@ export function PlayerComparisonChart({
   );
 }
 
+/**
+ * One titled comparison chart's worth of data. A "stat section" is, for most
+ * sections, just an ordered list of these. Keeping them as data (rather than
+ * pre-rendered JSX) lets the layout be shared: the combined view lays the cards
+ * out in a grid, while the wins/losses split (see App's player-outcome-split)
+ * pairs them card-by-card so each metric keeps its win and loss side by side —
+ * and stacks them on a phone — without any section knowing about that layout.
+ */
+export interface ComparisonCard {
+  key: string;
+  title: ReactNode;
+  rows: ComparisonRow[];
+}
+
+/** Render a single comparison card. Used both standalone (win/loss split pairs
+ * one of these per outcome) and inside {@link ComparisonCardGrid}. */
+export function ComparisonCardChart({ card }: { card: ComparisonCard }) {
+  return <PlayerComparisonChart className="career-rate-card" rows={card.rows} title={card.title} />;
+}
+
+/** The default combined-view layout for a list of comparison cards. */
+export function ComparisonCardGrid({ cards }: { cards: ComparisonCard[] }) {
+  return (
+    <section className="full-span">
+      <div className="stat-comparison-grid">
+        {cards.map((card) => (
+          <ComparisonCardChart card={card} key={card.key} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // At/above this fill percentage the bar is wide enough to print its value on the
 // colored bar; below it the value trails the tip on the open track instead.
 const BAR_VALUE_ON_BAR_MIN_PERCENT = 25;

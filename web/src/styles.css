@@ -7378,8 +7378,19 @@ tbody tr:last-child td {
   margin: 0;
 }
 
+/* Desktop pairs sit in aligned wins | losses columns, so the per-panel tag would
+   just repeat down each column; show it only on the first pair and let the
+   summary header label the columns. On mobile the columns stack, so every pair
+   keeps its tag to mark which block (win vs loss) you're reading. */
+@media (min-width: 821px) {
+  .player-outcome-pair:not(:first-of-type) .player-outcome-pair-tag {
+    display: none;
+  }
+}
+
 @media (max-width: 820px) {
-  .player-outcome-split-summary,
+  /* Stack each metric's win card above its loss card. The summary header stays
+     two-up — it's short enough and reads as a compact win/loss record. */
   .player-outcome-pair {
     grid-template-columns: minmax(0, 1fr);
   }
