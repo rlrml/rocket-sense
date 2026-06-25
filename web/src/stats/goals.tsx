@@ -13,6 +13,7 @@ import {
   useEventPreviewSelection,
 } from "./eventPreview";
 import { StatPlayerLabel, statPlayerRank } from "./shared";
+import { isIgnoredGoalTag } from "./goalTagFilters";
 
 export const goalEventTypes = ["goal_context"];
 
@@ -548,6 +549,7 @@ function goalTagRows(goals: GoalRow[]): GoalTagRow[] {
 
   for (const goal of goals) {
     for (const type of goal.types) {
+      if (isIgnoredGoalTag(type.key)) continue;
       const detailLabel = type.details
         .map((detail) => `${formatLabel(detail.key)}: ${formatLabel(detail.value)}`)
         .join(", ");
@@ -589,6 +591,7 @@ function countsFromGoalTypes(goals: GoalRow[]): CountRow[] {
   const counts = new Map<string, CountRow>();
   for (const goal of goals) {
     for (const type of goal.types) {
+      if (isIgnoredGoalTag(type.key)) continue;
       const label = type.subLabel ? `${type.subLabel} ${type.label}` : type.label;
       const row = counts.get(type.key);
       counts.set(type.key, { key: type.key, label, count: (row?.count ?? 0) + 1 });

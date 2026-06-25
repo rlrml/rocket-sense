@@ -10,6 +10,7 @@ import type {
   StatAggregateSetResponse,
 } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
+import { isIgnoredGoalTag } from "./goalTagFilters";
 import {
   careerCohortClassName,
   careerCohortKey,
@@ -710,33 +711,35 @@ export function GoalTagSharePanel({
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
 }) {
-  const cards = overview.goal_tags.map((tag) => {
-    const rows = profileRateComparisonRows(
-      {
-        key: tag.kind,
-        displayName: tag.display_name,
-        eventCount: tag.count,
-        perActiveMinute: tag.per_active_minute,
-        teammateEventCount: tag.teammate_count,
-        teammatePerActiveMinute: tag.teammate_per_active_minute,
-        opponentEventCount: tag.opponent_count,
-        opponentPerActiveMinute: tag.opponent_per_active_minute,
-      },
-      playerName,
-    );
-    const title = goalTypeHref ? (
-      <Link
-        className="goal-tag-card-title"
-        to={goalTypeHref(tag.kind)}
-        title={`Watch all ${tag.display_name.toLowerCase()} goals`}
-      >
-        {tag.display_name} (per 5 min)
-      </Link>
-    ) : (
-      `${tag.display_name} (per 5 min)`
-    );
-    return { key: tag.kind, rows, title };
-  });
+  const cards = overview.goal_tags
+    .filter((tag) => !isIgnoredGoalTag(tag.kind))
+    .map((tag) => {
+      const rows = profileRateComparisonRows(
+        {
+          key: tag.kind,
+          displayName: tag.display_name,
+          eventCount: tag.count,
+          perActiveMinute: tag.per_active_minute,
+          teammateEventCount: tag.teammate_count,
+          teammatePerActiveMinute: tag.teammate_per_active_minute,
+          opponentEventCount: tag.opponent_count,
+          opponentPerActiveMinute: tag.opponent_per_active_minute,
+        },
+        playerName,
+      );
+      const title = goalTypeHref ? (
+        <Link
+          className="goal-tag-card-title"
+          to={goalTypeHref(tag.kind)}
+          title={`Watch all ${tag.display_name.toLowerCase()} goals`}
+        >
+          {tag.display_name} (per 5 min)
+        </Link>
+      ) : (
+        `${tag.display_name} (per 5 min)`
+      );
+      return { key: tag.kind, rows, title };
+    });
 
   return (
     <section className="goal-tag-share-panel full-span">
