@@ -1990,7 +1990,8 @@ tbody tr:last-child td {
 .outcome-distribution-track.stat-segmented-track {
   height: 22px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  /* Pill rounding to match every other bar (`.metric-bar-track`) in the app. */
+  border-radius: 999px;
   background: var(--surface-subtle);
 }
 
