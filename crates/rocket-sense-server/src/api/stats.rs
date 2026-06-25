@@ -1878,7 +1878,10 @@ async fn load_rank_benchmark_cohort(
     for row in &population_rows {
         let grouping: String = row.try_get("rank_grouping")?;
         let value: i32 = row.try_get("rank_value")?;
-        let count: i64 = row.try_get("distinct_player_count")?;
+        // `distinct_player_count` is an INT4 column (see migration 0071 / the
+        // `::int` cast in the refresh job), so decode it as i32 and widen rather
+        // than asking sqlx for an i64 (which fails with a type mismatch).
+        let count: i64 = row.try_get::<i32, _>("distinct_player_count")?.into();
         if grouping == "group" {
             population_by_group.insert(value, count);
         } else {
