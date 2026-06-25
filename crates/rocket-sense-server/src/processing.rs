@@ -797,6 +797,50 @@ const INSERT_PLAYER_REPLAY_KICKOFF_SQL: &str = r#"
         ON CONFLICT DO NOTHING
         "#;
 
+// Per-replay materialization of `replay_team_control` for one analysis run ($1)
+// and replay ($2). Collapses the three ball-global streams (possession_state,
+// ball_half, ball_third) into one row of absolute team_zero/team_one/neutral
+// seconds. Mirrors the live per-event aggregation in api/possession_stats.rs;
+// the read orients these to the queried player's team. Only inserts when the
+// replay recorded any of these streams.
+const INSERT_REPLAY_TEAM_CONTROL_SQL: &str = r#"
+        INSERT INTO replay_team_control (
+            analysis_run_id, replay_id,
+            possession_team_zero_seconds, possession_team_one_seconds, possession_neutral_seconds,
+            ball_half_team_zero_seconds, ball_half_team_one_seconds, ball_half_neutral_seconds,
+            ball_third_team_zero_seconds, ball_third_team_one_seconds, ball_third_neutral_seconds
+        )
+        SELECT
+            $1, $2,
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'possession' AND value = 'team_zero'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'possession' AND value = 'team_one'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'possession' AND value = 'neutral'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_half' AND value = 'team_zero_side'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_half' AND value = 'team_one_side'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_half' AND value = 'neutral'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_third' AND value = 'team_zero_third'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_third' AND value = 'team_one_third'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_third' AND value = 'neutral_third'), 0.0)
+        FROM (
+            SELECT
+                event.source_stream AS stream,
+                CASE event.source_stream
+                    WHEN 'possession' THEN payload.payload ->> 'possession_state'
+                    WHEN 'ball_half' THEN payload.payload ->> 'field_half'
+                    WHEN 'ball_third' THEN payload.payload ->> 'field_third'
+                END AS value,
+                COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) AS dur
+            FROM play_events event
+            JOIN play_event_payloads payload ON payload.event_id = event.id
+            WHERE event.analysis_run_id = $1 AND event.replay_id = $2
+              AND event.source_stream IN ('possession', 'ball_half', 'ball_third')
+              AND COALESCE((payload.payload ->> 'active')::boolean, true)
+              AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
+        ) stream_rows
+        HAVING COALESCE(SUM(dur), 0.0) > 0.0
+        ON CONFLICT DO NOTHING
+        "#;
+
 // Per-replay materialization of `player_replay_possession` for one analysis run
 // ($1) and replay ($2). Aggregates each player's possession spans, classified
 // touches (with intention/surface jsonb mixes), and possession location. Mirrors
@@ -2285,6 +2329,7 @@ async fn persist_analysis_output(
     insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
+    insert_replay_team_control(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
@@ -2864,6 +2909,62 @@ pub async fn backfill_player_replay_possession(pool: &PgPool) -> Result<u64> {
         }
     }
     tracing::info!(backfilled, total, "possession backfill complete");
+    Ok(backfilled)
+}
+
+async fn insert_replay_team_control(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<()> {
+    sqlx::query("DELETE FROM replay_team_control WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear replay team control")?;
+
+    sqlx::query(INSERT_REPLAY_TEAM_CONTROL_SQL)
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to insert replay team control")?;
+    Ok(())
+}
+
+/// Populate `replay_team_control` for every canonical replay missing a row,
+/// from existing events (no re-parse). Resumable; returns replays backfilled.
+pub async fn backfill_replay_team_control(pool: &PgPool) -> Result<u64> {
+    let targets: Vec<(Uuid, Uuid)> = sqlx::query_as(
+        r#"
+        SELECT r.id, r.canonical_analysis_run_id
+        FROM replays r
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND NOT EXISTS (
+              SELECT 1
+              FROM replay_team_control control
+              WHERE control.replay_id = r.id
+                AND control.analysis_run_id = r.canonical_analysis_run_id
+          )
+        ORDER BY r.created_at, r.id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list replays needing team control backfill")?;
+
+    let total = targets.len();
+    tracing::info!(total, "starting replay team control backfill");
+    let mut backfilled = 0u64;
+    for (replay_id, analysis_run_id) in targets {
+        insert_replay_team_control(pool, analysis_run_id, replay_id).await?;
+        backfilled += 1;
+        if backfilled.is_multiple_of(500) {
+            tracing::info!(backfilled, total, "team control backfill progress");
+        }
+    }
+    tracing::info!(backfilled, total, "team control backfill complete");
     Ok(backfilled)
 }
 

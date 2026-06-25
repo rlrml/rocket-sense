@@ -16,6 +16,7 @@ use utoipa::{
         admin::backfill_movement,
         admin::backfill_touch_breakdowns,
         admin::backfill_possession,
+        admin::backfill_team_control,
         admin::backfill_boost,
         admin::backfill_kickoff,
         admin::backfill_profile_timing,

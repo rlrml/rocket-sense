@@ -1803,6 +1803,7 @@ async fn reprocess_populates_all_materialized_tables() {
         "player_replay_positioning",
         "player_replay_possession",
         "player_replay_boost",
+        "replay_team_control",
     ];
     let mut summary = Vec::new();
     for table in tables {
