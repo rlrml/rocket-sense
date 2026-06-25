@@ -480,10 +480,18 @@ export interface TouchAggregateValueResponse {
   advance_distance: number;
 }
 
+export interface StatAggregateGroupPlayer {
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+}
+
 export interface StatAggregateGroupResponse extends RankBenchmarkAggregateFields {
   group_by: string;
   key: string;
   display_name: string;
+  /** Present only for `group-by=player` rows; identifies the ranked player. */
+  player?: StatAggregateGroupPlayer | null;
   replay_count: number;
   player_appearance_count: number | null;
   active_time_seconds: number | null;
