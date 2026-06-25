@@ -125,6 +125,7 @@ import {
   KickoffSummaryPanel,
   PossessionSummaryPanel,
   CoreProfileComparison,
+  type CoreProfileView,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
@@ -4318,6 +4319,11 @@ function PlayerAggregateStatsSections({
     navigate(query ? `${location.pathname}?${query}` : location.pathname);
   };
   const splitOutcome = playerOutcomeSplitEnabled(search);
+  // Per-sub-page Player/Team view toggle (pilot: Core). Local state so it mirrors
+  // the existing per-stat touches/boost/possession toggles; the closure below
+  // applies it to both the combined and the wins/losses-split renders.
+  const [coreView, setCoreView] = useState<CoreProfileView>("player");
+  const showCoreViewToggle = activeGroup.id === "core" && overview?.team_size !== 1;
   const outcomeState = usePlayerOutcomeStatBundles({
     activeGroup,
     enabled: splitOutcome,
@@ -4416,6 +4422,7 @@ function PlayerAggregateStatsSections({
           overview={contentOverview}
           playerName={playerName}
           stats={contentSectionStats}
+          view={coreView}
         />,
       );
     }
@@ -4605,6 +4612,33 @@ function PlayerAggregateStatsSections({
           </div>
         )}
       </header>
+
+      {showCoreViewToggle ? (
+        <div className="boost-page-controls">
+          <div className="boost-comparison-tabs" role="tablist" aria-label="Stat view mode">
+            <button
+              className={coreView === "player" ? "active" : ""}
+              onClick={() => setCoreView("player")}
+              role="tab"
+              title="Compare the player to teammate and opponent per-player averages"
+              type="button"
+              aria-selected={coreView === "player"}
+            >
+              Player
+            </button>
+            <button
+              className={coreView === "team" ? "active" : ""}
+              onClick={() => setCoreView("team")}
+              role="tab"
+              title="Compare whole-team per-game totals: your team vs the opponent team"
+              type="button"
+              aria-selected={coreView === "team"}
+            >
+              Team
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {!splitOutcome && activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
         <KickoffSpawnBreakdown

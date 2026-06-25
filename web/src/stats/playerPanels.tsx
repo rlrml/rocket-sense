@@ -264,10 +264,15 @@ export function CoreProfileComparison({
   overview,
   playerName,
   stats,
+  view = "player",
 }: {
   overview: PlayerStatOverviewResponse;
   playerName: string;
   stats: StatAggregateResponse[];
+  // "player" compares the player to per-player teammate/opponent averages.
+  // "team" sums the whole team (player + teammates) vs the opponent team and
+  // shows per-game team totals (no per-player division).
+  view?: CoreProfileView;
 }) {
   const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
   const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
@@ -275,36 +280,95 @@ export function CoreProfileComparison({
   const goals = scoringRateOrZero(overview.goals);
   const assists = scoringRateOrZero(overview.assists);
   const shots = scoringRateOrZero(overview.shots);
-  const mvpRows = mvpComparisonRows(overview.mvp, playerName);
   const saves = scoringRateOrZero(overview.saves);
-  const cards = [
-    ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
-    rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
-    rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
-    rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
-    rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
-    rateCardFromOverview("saves", "Saves (per 5 min)", saves, playerName),
-    {
-      key: "demos",
-      title: "Demos (per 5 min)",
-      rows: profileRateComparisonRows(demos, playerName),
-    },
-    {
-      key: "deaths",
-      title: "Deaths (per 5 min)",
-      rows: profileRateComparisonRows(deaths, playerName),
-    },
-    {
-      key: "shooting-percentage",
-      title: "Shooting percentage (%)",
-      rows: shootingPercentageRows(goals, shots, playerName),
-    },
-    {
-      key: "assist-percentage",
-      title: "Assist percentage (%)",
-      rows: assistPercentageRows(goals, assists, playerName, overview.team_size),
-    },
-  ];
+  // MVP is a single-player crown (one per game) compared against a fair-share
+  // baseline, so it only renders in the player view; there is no teammate/
+  // opponent MVP breakdown in the response to pool into a team total.
+  const mvpRows = mvpComparisonRows(overview.mvp, playerName);
+  const cards =
+    view === "team"
+      ? [
+          teamRateCard("score", "Score (per game)", score, overview.replay_count),
+          teamRateCard("goals", "Goals (per game)", goals, overview.replay_count),
+          teamRateCard("assists", "Assists (per game)", assists, overview.replay_count),
+          teamRateCard("shots", "Shots (per game)", shots, overview.replay_count),
+          teamRateCard("saves", "Saves (per game)", saves, overview.replay_count),
+          {
+            key: "demos",
+            title: "Demos (per game)",
+            rows: teamCountCardRows(
+              "Demos",
+              demos.eventCount + demos.teammateEventCount,
+              demos.opponentEventCount,
+              overview.replay_count,
+            ),
+          },
+          {
+            key: "deaths",
+            title: "Deaths (per game)",
+            rows: teamCountCardRows(
+              "Deaths",
+              deaths.eventCount + deaths.teammateEventCount,
+              deaths.opponentEventCount,
+              overview.replay_count,
+            ),
+          },
+          {
+            key: "shooting-percentage",
+            title: "Shooting percentage (%)",
+            rows: teamPercentageCardRows(
+              "Shooting percentage",
+              "goals/shots",
+              goals.count + goals.teammate_count,
+              shots.count + shots.teammate_count,
+              goals.opponent_count,
+              shots.opponent_count,
+            ),
+          },
+          {
+            key: "assist-percentage",
+            title: "Assist percentage (%)",
+            // Team assist rate is the team's assists over the team's goals; the
+            // per-player self-scored-goal adjustment used in the player view
+            // does not apply once the whole team is pooled.
+            rows: teamPercentageCardRows(
+              "Assist percentage",
+              "assists/goals",
+              assists.count + assists.teammate_count,
+              goals.count + goals.teammate_count,
+              assists.opponent_count,
+              goals.opponent_count,
+            ),
+          },
+        ]
+      : [
+          ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
+          rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
+          rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
+          rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
+          rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
+          rateCardFromOverview("saves", "Saves (per 5 min)", saves, playerName),
+          {
+            key: "demos",
+            title: "Demos (per 5 min)",
+            rows: profileRateComparisonRows(demos, playerName),
+          },
+          {
+            key: "deaths",
+            title: "Deaths (per 5 min)",
+            rows: profileRateComparisonRows(deaths, playerName),
+          },
+          {
+            key: "shooting-percentage",
+            title: "Shooting percentage (%)",
+            rows: shootingPercentageRows(goals, shots, playerName),
+          },
+          {
+            key: "assist-percentage",
+            title: "Assist percentage (%)",
+            rows: assistPercentageRows(goals, assists, playerName, overview.team_size),
+          },
+        ];
 
   return (
     <section className="core-profile-comparison full-span">
@@ -679,6 +743,153 @@ function percentageComparisonRow({
     maxValue,
     valueLabel: <span title={`${totalLabel} ${totalName} ${totalKind}`}>{totalLabel} total</span>,
     placeholder: label,
+  };
+}
+
+export type CoreProfileView = "player" | "team";
+
+// The team view pools the player with their teammates into "your team" and
+// compares against the opponent team. We reuse the your-side / their-side cohort
+// colors (player vs opponents) since blue/orange swap game to game.
+type TeamSide = "team" | "opponentTeam";
+
+const TEAM_SIDE_LABEL: Record<TeamSide, string> = {
+  team: "Your team",
+  opponentTeam: "Opponent team",
+};
+
+function teamSideCohortKey(side: TeamSide): CareerCohortKey {
+  return side === "team" ? "player" : "opponents";
+}
+
+function teamRateCard(key: string, title: string, rate: ScoringRateLike, replayCount: number) {
+  return {
+    key,
+    title,
+    rows: teamCountCardRows(
+      title.replace(/\s*\(.*\)\s*$/, ""),
+      rate.count + rate.teammate_count,
+      rate.opponent_count,
+      replayCount,
+    ),
+  };
+}
+
+function teamCountCardRows(
+  statName: string,
+  teamCount: number,
+  opponentTeamCount: number,
+  replayCount: number,
+): ComparisonRow[] {
+  const games = Math.max(1, replayCount);
+  const teamPerGame = teamCount / games;
+  const opponentPerGame = opponentTeamCount / games;
+  const maxValue = Math.max(1, teamPerGame, opponentPerGame);
+  return [
+    teamCountRow("team", statName, teamCount, teamPerGame, maxValue),
+    teamCountRow("opponentTeam", statName, opponentTeamCount, opponentPerGame, maxValue),
+  ];
+}
+
+function teamCountRow(
+  side: TeamSide,
+  statName: string,
+  total: number,
+  perGame: number,
+  maxValue: number,
+): ComparisonRow {
+  const cohortKey = teamSideCohortKey(side);
+  const label = TEAM_SIDE_LABEL[side];
+  const perGameLabel = `${formatRate(perGame)}/game`;
+  const totalLabel = `${total.toLocaleString()} total`;
+  return {
+    key: side,
+    label: (
+      <StatPlayerLabel
+        className={careerCohortClassName(cohortKey)}
+        name={label}
+        platform={null}
+        platformPlayerId={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={`${label} · ${totalLabel}`}
+      />
+    ),
+    ariaLabel: `${label}: ${perGameLabel}`,
+    segments: [
+      {
+        key: "rate",
+        className: careerCohortSegmentClassName(cohortKey),
+        label: statName,
+        value: Math.max(0, perGame),
+        visibleLabel: perGame > 0 ? perGameLabel : undefined,
+        title: `${perGameLabel} (${totalLabel})`,
+      },
+    ],
+    total: Math.max(0, perGame),
+    maxValue,
+    valueLabel: <span title={totalLabel}>{totalLabel}</span>,
+    placeholder: perGameLabel,
+  };
+}
+
+function teamPercentageCardRows(
+  statName: string,
+  totalName: string,
+  teamNumerator: number,
+  teamDenominator: number,
+  opponentNumerator: number,
+  opponentDenominator: number,
+): ComparisonRow[] {
+  return [
+    teamPercentageRow("team", statName, totalName, teamNumerator, teamDenominator),
+    teamPercentageRow("opponentTeam", statName, totalName, opponentNumerator, opponentDenominator),
+  ];
+}
+
+function teamPercentageRow(
+  side: TeamSide,
+  statName: string,
+  totalName: string,
+  numerator: number,
+  denominator: number,
+): ComparisonRow {
+  const cohortKey = teamSideCohortKey(side);
+  const label = TEAM_SIDE_LABEL[side];
+  const pct = percentage(numerator, denominator);
+  const pctLabel = formatPercentage(pct);
+  const totalLabel = `${numerator.toLocaleString()}/${denominator.toLocaleString()}`;
+  const value = pct ?? 0;
+  return {
+    key: side,
+    label: (
+      <StatPlayerLabel
+        className={careerCohortClassName(cohortKey)}
+        name={label}
+        platform={null}
+        platformPlayerId={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={`${label} · ${totalLabel} total`}
+      />
+    ),
+    ariaLabel: `${label}: ${pctLabel}`,
+    segments: [
+      {
+        key: statName.toLowerCase().replaceAll(" ", "-"),
+        className: careerCohortSegmentClassName(cohortKey),
+        label: statName,
+        value,
+        visibleLabel: value > 0 ? pctLabel : undefined,
+        title: `${pctLabel} (${totalLabel} ${totalName} total)`,
+      },
+    ],
+    total: value,
+    maxValue: 100,
+    valueLabel: <span title={`${totalLabel} ${totalName} total`}>{totalLabel} total</span>,
+    placeholder: pctLabel,
   };
 }
 
