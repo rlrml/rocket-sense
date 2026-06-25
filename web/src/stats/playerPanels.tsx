@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import type { ReactNode } from "react";
 import type {
   EventStatDimensionResponse,
@@ -7,6 +8,8 @@ import type {
   PossessionMixValue,
   PossessionSpanSummary,
   PossessionSummaryResponse,
+  PossessionTeamSplit,
+  PossessionTeamSummary,
   PossessionTeammateComparison,
   PossessionTimeBucket,
   RotationTimeShareResponse,
@@ -1207,6 +1210,10 @@ export function PossessionSummaryPanel({ summary }: { summary: PossessionSummary
         </div>
       ) : null}
 
+      {summary.team && teamSummaryHasData(summary.team) ? (
+        <TeamPossessionBreakdown team={summary.team} />
+      ) : null}
+
       <div className="kickoff-dimension-grid possession-breakdown-grid">
         {playStyles.length > 0 ? (
           <div className="kickoff-dimension">
@@ -1314,6 +1321,101 @@ function PossessionLocationBreakdown({
 
 function possessionLocationShare(buckets: PossessionTimeBucket[], key: string): number | null {
   return buckets.find((bucket) => bucket.key === key)?.share ?? null;
+}
+
+type TeamSplitKey = "overall" | "wins" | "losses";
+
+function teamSplitHasData(split: PossessionTeamSplit): boolean {
+  return (
+    split.possession.total_duration_seconds > 0 ||
+    split.ball_halves.total_duration_seconds > 0 ||
+    split.ball_thirds.total_duration_seconds > 0
+  );
+}
+
+function teamSummaryHasData(team: PossessionTeamSummary): boolean {
+  return teamSplitHasData(team.overall);
+}
+
+/**
+ * Team-level ball control oriented to the player's team — possession share,
+ * which half/third the ball sat in — split by game result (all / wins /
+ * losses). Mirrors the player-relative possession breakdowns above so the two
+ * read as one design, just toggled across the win/loss dimension teams add.
+ */
+function TeamPossessionBreakdown({ team }: { team: PossessionTeamSummary }) {
+  const splits: Array<{ key: TeamSplitKey; label: string; split: PossessionTeamSplit }> = [
+    { key: "overall", label: "All games", split: team.overall },
+    { key: "wins", label: "Wins", split: team.wins },
+    { key: "losses", label: "Losses", split: team.losses },
+  ];
+  const [activeKey, setActiveKey] = useState<TeamSplitKey>("overall");
+  const active = splits.find((entry) => entry.key === activeKey) ?? splits[0];
+  const split = active.split;
+
+  return (
+    <div className="possession-team-section">
+      <div className="possession-team-header">
+        <h4>Team control</h4>
+        <div className="boost-page-controls">
+          <div
+            className="boost-comparison-tabs"
+            role="tablist"
+            aria-label="Team control game filter"
+          >
+            {splits.map((entry) => {
+              const disabled = entry.key !== "overall" && entry.split.replay_count === 0;
+              return (
+                <button
+                  aria-selected={entry.key === activeKey}
+                  className={entry.key === activeKey ? "active" : ""}
+                  disabled={disabled}
+                  key={entry.key}
+                  onClick={() => setActiveKey(entry.key)}
+                  role="tab"
+                  title={`${entry.label} · ${formatGameCount(entry.split.replay_count)}`}
+                  type="button"
+                >
+                  {entry.label}
+                  <span className="possession-team-tab-count">{entry.split.replay_count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+      {teamSplitHasData(split) ? (
+        <div className="possession-location-grid possession-team-grid">
+          <PossessionLocationBreakdown
+            ariaLabel="Team possession share"
+            buckets={split.possession.buckets}
+            title="Possession share"
+            totalSeconds={split.possession.total_duration_seconds}
+          />
+          <PossessionLocationBreakdown
+            ariaLabel="Ball time by half"
+            buckets={split.ball_halves.buckets}
+            title="Ball half"
+            totalSeconds={split.ball_halves.total_duration_seconds}
+          />
+          <PossessionLocationBreakdown
+            ariaLabel="Ball time by third"
+            buckets={split.ball_thirds.buckets}
+            title="Ball thirds"
+            totalSeconds={split.ball_thirds.total_duration_seconds}
+          />
+        </div>
+      ) : (
+        <div className="stat-empty">
+          No team control data is available for {active.label.toLowerCase()}.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function formatGameCount(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? "game" : "games"}`;
 }
 
 function ControlledPlayComparison({

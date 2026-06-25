@@ -36,6 +36,38 @@ pub struct PossessionSummaryResponse {
     pub teammates: Option<PossessionTeammateComparison>,
     pub touches: PossessionTouchSummary,
     pub locations: PossessionLocationSummary,
+    /// Team-level ball control (possession share, ball half, ball thirds)
+    /// oriented to the queried player's team and split by game result.
+    /// Only populated when the query targets a single player.
+    pub team: Option<PossessionTeamSummary>,
+}
+
+/// Team-level possession metrics over a replay set, oriented to the queried
+/// player's team (your side / neutral / opponents) and split into the games
+/// that player won, lost, or all games together.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionTeamSummary {
+    pub overall: PossessionTeamSplit,
+    pub wins: PossessionTeamSplit,
+    pub losses: PossessionTeamSplit,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionTeamSplit {
+    /// Replays contributing to this split (games won / lost / all graded).
+    pub replay_count: u64,
+    /// Share of ball-control time held by each team (your team / neutral / opponents).
+    pub possession: PossessionTeamMetric,
+    /// Time the ball spent in each half (your side / neutral / opponent side).
+    pub ball_halves: PossessionTeamMetric,
+    /// Time the ball spent in each third (your third / neutral / opponent third).
+    pub ball_thirds: PossessionTeamMetric,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PossessionTeamMetric {
+    pub total_duration_seconds: f64,
+    pub buckets: Vec<PossessionTimeBucket>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -195,6 +227,11 @@ async fn load_possession_summary(
     };
     let touches = load_possession_touch_summary(pool, filters).await?;
     let locations = load_possession_location_summary(pool, filters).await?;
+    let team = if filters.player.is_some() {
+        Some(load_possession_team_summary(pool, filters).await?)
+    } else {
+        None
+    };
     Ok(PossessionSummaryResponse {
         replay_count,
         possessions,
@@ -202,6 +239,7 @@ async fn load_possession_summary(
         teammates,
         touches,
         locations,
+        team,
     })
 }
 
@@ -653,6 +691,298 @@ fn field_half_label(field_half: &str) -> &'static str {
         "team_one_side" => "Orange half",
         _ => "Neutral",
     }
+}
+
+/// Ball-global event streams whose payloads describe where control / the ball
+/// sat, oriented to the queried player's team for career aggregation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TeamMetricKind {
+    /// `possession` stream `possession_state`: which team controlled the ball.
+    Possession,
+    /// `ball_half` stream `field_half`: which half the ball sat in.
+    BallHalf,
+    /// `ball_third` stream `field_third`: which third the ball sat in.
+    BallThird,
+}
+
+const TEAM_METRIC_KINDS: [TeamMetricKind; 3] = [
+    TeamMetricKind::Possession,
+    TeamMetricKind::BallHalf,
+    TeamMetricKind::BallThird,
+];
+
+impl TeamMetricKind {
+    fn source_stream(self) -> &'static str {
+        match self {
+            TeamMetricKind::Possession => "possession",
+            TeamMetricKind::BallHalf => "ball_half",
+            TeamMetricKind::BallThird => "ball_third",
+        }
+    }
+
+    fn payload_key(self) -> &'static str {
+        match self {
+            TeamMetricKind::Possession => "possession_state",
+            TeamMetricKind::BallHalf => "field_half",
+            TeamMetricKind::BallThird => "field_third",
+        }
+    }
+
+    /// Output buckets in display order: player's side, neutral, opponents.
+    fn bucket_keys(self) -> [(&'static str, &'static str); 3] {
+        match self {
+            TeamMetricKind::Possession => [
+                ("own_team", "Your team"),
+                ("neutral", "Neutral"),
+                ("opponent_team", "Opponents"),
+            ],
+            TeamMetricKind::BallHalf => [
+                ("own_side", "Your half"),
+                ("neutral", "Neutral"),
+                ("opponent_side", "Opponent half"),
+            ],
+            TeamMetricKind::BallThird => [
+                ("own_third", "Your third"),
+                ("neutral_third", "Neutral third"),
+                ("opponent_third", "Opponent third"),
+            ],
+        }
+    }
+
+    /// Orient a raw payload value to the queried player's team. Returns `None`
+    /// when the team is unknown or the value is unrecognized.
+    fn orient(self, raw: &str, player_team: Option<i32>) -> Option<&'static str> {
+        let own = player_team?;
+        let mine = |team: i32, own_key: &'static str, opp_key: &'static str| {
+            Some(if own == team { own_key } else { opp_key })
+        };
+        match self {
+            TeamMetricKind::Possession => match raw {
+                "neutral" => Some("neutral"),
+                "team_zero" => mine(0, "own_team", "opponent_team"),
+                "team_one" => mine(1, "own_team", "opponent_team"),
+                _ => None,
+            },
+            TeamMetricKind::BallHalf => match raw {
+                "neutral" => Some("neutral"),
+                "team_zero_side" => mine(0, "own_side", "opponent_side"),
+                "team_one_side" => mine(1, "own_side", "opponent_side"),
+                _ => None,
+            },
+            TeamMetricKind::BallThird => match raw {
+                "neutral_third" => Some("neutral_third"),
+                "team_zero_third" => mine(0, "own_third", "opponent_third"),
+                "team_one_third" => mine(1, "own_third", "opponent_third"),
+                _ => None,
+            },
+        }
+    }
+}
+
+/// Per-split accumulator: seconds per oriented bucket for each metric, kept in
+/// bucket-key display order so the rendered bars stay stable.
+struct TeamSplitAccumulator {
+    possession: Vec<(&'static str, f64)>,
+    ball_halves: Vec<(&'static str, f64)>,
+    ball_thirds: Vec<(&'static str, f64)>,
+}
+
+impl TeamSplitAccumulator {
+    fn new() -> Self {
+        let seed = |kind: TeamMetricKind| {
+            kind.bucket_keys()
+                .into_iter()
+                .map(|(key, _)| (key, 0.0))
+                .collect::<Vec<_>>()
+        };
+        Self {
+            possession: seed(TeamMetricKind::Possession),
+            ball_halves: seed(TeamMetricKind::BallHalf),
+            ball_thirds: seed(TeamMetricKind::BallThird),
+        }
+    }
+
+    fn slot(&mut self, kind: TeamMetricKind) -> &mut Vec<(&'static str, f64)> {
+        match kind {
+            TeamMetricKind::Possession => &mut self.possession,
+            TeamMetricKind::BallHalf => &mut self.ball_halves,
+            TeamMetricKind::BallThird => &mut self.ball_thirds,
+        }
+    }
+
+    fn add(&mut self, kind: TeamMetricKind, key: &'static str, duration: f64) {
+        if let Some((_, seconds)) = self.slot(kind).iter_mut().find(|(slot, _)| *slot == key) {
+            *seconds += duration;
+        }
+    }
+
+    fn into_split(self, replay_count: u64) -> PossessionTeamSplit {
+        PossessionTeamSplit {
+            replay_count,
+            possession: team_metric_from_slots(TeamMetricKind::Possession, &self.possession),
+            ball_halves: team_metric_from_slots(TeamMetricKind::BallHalf, &self.ball_halves),
+            ball_thirds: team_metric_from_slots(TeamMetricKind::BallThird, &self.ball_thirds),
+        }
+    }
+}
+
+fn team_metric_from_slots(
+    kind: TeamMetricKind,
+    slots: &[(&'static str, f64)],
+) -> PossessionTeamMetric {
+    let total: f64 = slots.iter().map(|(_, seconds)| *seconds).sum();
+    let labels = kind.bucket_keys();
+    let buckets = slots
+        .iter()
+        .map(|(key, seconds)| {
+            let label = labels
+                .iter()
+                .find(|(slot, _)| slot == key)
+                .map(|(_, label)| *label)
+                .unwrap_or(key);
+            possession_time_bucket(key, label, *seconds, total)
+        })
+        .collect();
+    PossessionTeamMetric {
+        total_duration_seconds: total,
+        buckets,
+    }
+}
+
+struct TeamResultCounts {
+    total: u64,
+    wins: u64,
+    losses: u64,
+}
+
+/// SQL `CASE` expression yielding whether the queried player's team won a
+/// replay (NULL when scores are missing). Assumes `r` and `rp` are in scope.
+const PLAYER_WON_CASE: &str = r#"
+    CASE
+        WHEN r.team_zero_score IS NULL OR r.team_one_score IS NULL THEN NULL
+        WHEN rp.team = 0 THEN (r.team_zero_score > r.team_one_score)
+        WHEN rp.team = 1 THEN (r.team_one_score > r.team_zero_score)
+        ELSE NULL
+    END
+"#;
+
+fn build_team_metric_query<'args>(
+    filters: &'args PossessionStatsQuery,
+    player: &'args PlayerStatFilter,
+    kind: TeamMetricKind,
+) -> QueryBuilder<'args, Postgres> {
+    let mut query = QueryBuilder::<Postgres>::new("SELECT payload.payload ->> ");
+    query.push_bind(kind.payload_key());
+    query.push(" AS bucket, rp.team AS player_team, (");
+    query.push(PLAYER_WON_CASE);
+    query.push(
+        r#") AS player_won,
+        COALESCE(SUM(COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0)), 0) AS duration
+        FROM replays r
+        JOIN replay_players rp ON rp.replay_id = r.id
+        "#,
+    );
+    query.push(" AND rp.platform = ");
+    query.push_bind(&player.platform);
+    query.push(" AND rp.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(
+        " JOIN play_events event ON event.analysis_run_id = r.canonical_analysis_run_id AND event.replay_id = r.id AND event.source_stream = ",
+    );
+    query.push_bind(kind.source_stream());
+    query.push(
+        r#"
+        JOIN play_event_payloads payload ON payload.event_id = event.id
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND COALESCE((payload.payload ->> 'active')::boolean, true)
+          AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
+        "#,
+    );
+    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(" GROUP BY 1, 2, 3");
+    query
+}
+
+async fn load_team_result_counts(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+    player: &PlayerStatFilter,
+) -> Result<TeamResultCounts, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            COUNT(*) AS total_count,
+            COUNT(*) FILTER (WHERE won IS TRUE) AS win_count,
+            COUNT(*) FILTER (WHERE won IS FALSE) AS loss_count
+        FROM (
+            SELECT DISTINCT r.id, (
+        "#,
+    );
+    query.push(PLAYER_WON_CASE);
+    query.push(
+        r#") AS won
+            FROM replays r
+            JOIN replay_players rp ON rp.replay_id = r.id
+        "#,
+    );
+    query.push(" AND rp.platform = ");
+    query.push_bind(&player.platform);
+    query.push(" AND rp.platform_player_id = ");
+    query.push_bind(&player.platform_player_id);
+    query.push(" WHERE r.canonical_analysis_run_id IS NOT NULL ");
+    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(") g");
+
+    let row = query.build().fetch_one(pool).await?;
+    Ok(TeamResultCounts {
+        total: count_column(&row, "total_count")?,
+        wins: count_column(&row, "win_count")?,
+        losses: count_column(&row, "loss_count")?,
+    })
+}
+
+async fn load_possession_team_summary(
+    pool: &sqlx::PgPool,
+    filters: &PossessionStatsQuery,
+) -> Result<PossessionTeamSummary, sqlx::Error> {
+    let player = filters
+        .player
+        .as_ref()
+        .expect("team possession summary requires a player filter");
+
+    let mut overall = TeamSplitAccumulator::new();
+    let mut wins = TeamSplitAccumulator::new();
+    let mut losses = TeamSplitAccumulator::new();
+
+    for kind in TEAM_METRIC_KINDS {
+        let mut query = build_team_metric_query(filters, player, kind);
+        let rows = query.build().fetch_all(pool).await?;
+        for row in rows {
+            let bucket: Option<String> = row.try_get("bucket")?;
+            let player_team: Option<i32> = row.try_get("player_team")?;
+            let player_won: Option<bool> = row.try_get("player_won")?;
+            let duration: f64 = row.try_get("duration")?;
+            let Some(raw) = bucket.as_deref() else {
+                continue;
+            };
+            let Some(key) = kind.orient(raw, player_team) else {
+                continue;
+            };
+            overall.add(kind, key, duration);
+            match player_won {
+                Some(true) => wins.add(kind, key, duration),
+                Some(false) => losses.add(kind, key, duration),
+                None => {}
+            }
+        }
+    }
+
+    let counts = load_team_result_counts(pool, filters, player).await?;
+    Ok(PossessionTeamSummary {
+        overall: overall.into_split(counts.total),
+        wins: wins.into_split(counts.wins),
+        losses: losses.into_split(counts.losses),
+    })
 }
 
 async fn load_touch_mix(
