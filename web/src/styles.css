@@ -4330,6 +4330,11 @@ tbody tr:last-child td {
   border-left-color: var(--career-cohort-color);
 }
 
+/* Reference line for a player's fair-share MVP rate (1 / winning team size). */
+.player-comparison-marker.mvp-fair-share-marker {
+  --career-cohort-color: #64748b;
+}
+
 .source-segment.career-cohort-player,
 .source-segment.career-cohort-teammates,
 .source-segment.career-cohort-opponents,

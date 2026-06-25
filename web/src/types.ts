@@ -499,11 +499,21 @@ export interface ScoringRateResponse {
   opponent_per_active_minute: number | null;
 }
 
+export interface MvpSummaryResponse {
+  /** Replays in which the player was MVP (top score on the winning team). */
+  count: number;
+  /** MVPs per game = count / replay_count, as a fraction (null when no games). */
+  rate: number | null;
+  /** Expected MVP rate if winning teammates were interchangeable scorers. */
+  fair_share_rate: number | null;
+}
+
 export interface PlayerStatOverviewResponse {
   replay_count: number;
   goals_scored: number;
   /** Team size shared by every replay in the set (2 = doubles), or null when mixed. */
   team_size?: number | null;
+  mvp?: MvpSummaryResponse;
   score: ScoringRateResponse;
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
