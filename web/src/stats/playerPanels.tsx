@@ -1704,8 +1704,8 @@ export function PossessionSummaryPanel({
       className="stat-comparison-grid possession-profile-grid"
       aria-label="Possession comparisons"
     >
-      <PossessionAdvancedCharts subjects={subjects} />
       <PossessionAdvancedCharts charts={teamCharts} />
+      <PossessionAdvancedCharts subjects={subjects} />
     </div>
   );
 }
