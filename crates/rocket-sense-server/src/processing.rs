@@ -821,6 +821,7 @@ const INSERT_REPLAY_TEAM_CONTROL_SQL: &str = r#"
         INSERT INTO replay_team_control (
             analysis_run_id, replay_id,
             possession_team_zero_seconds, possession_team_one_seconds, possession_neutral_seconds,
+            loose_team_zero_seconds, loose_team_one_seconds, loose_neutral_seconds,
             ball_half_team_zero_seconds, ball_half_team_one_seconds, ball_half_neutral_seconds,
             ball_third_team_zero_seconds, ball_third_team_one_seconds, ball_third_neutral_seconds
         )
@@ -829,6 +830,9 @@ const INSERT_REPLAY_TEAM_CONTROL_SQL: &str = r#"
             COALESCE(SUM(dur) FILTER (WHERE stream = 'possession' AND value = 'team_zero'), 0.0),
             COALESCE(SUM(dur) FILTER (WHERE stream = 'possession' AND value = 'team_one'), 0.0),
             COALESCE(SUM(dur) FILTER (WHERE stream = 'possession' AND value = 'neutral'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'loose_possession' AND value = 'team_zero'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'loose_possession' AND value = 'team_one'), 0.0),
+            COALESCE(SUM(dur) FILTER (WHERE stream = 'loose_possession' AND value = 'neutral'), 0.0),
             COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_half' AND value = 'team_zero_side'), 0.0),
             COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_half' AND value = 'team_one_side'), 0.0),
             COALESCE(SUM(dur) FILTER (WHERE stream = 'ball_half' AND value = 'neutral'), 0.0),
@@ -840,6 +844,7 @@ const INSERT_REPLAY_TEAM_CONTROL_SQL: &str = r#"
                 event.source_stream AS stream,
                 CASE event.source_stream
                     WHEN 'possession' THEN payload.payload ->> 'possession_state'
+                    WHEN 'loose_possession' THEN payload.payload ->> 'possession_state'
                     WHEN 'ball_half' THEN payload.payload ->> 'field_half'
                     WHEN 'ball_third' THEN payload.payload ->> 'field_third'
                 END AS value,
@@ -847,7 +852,7 @@ const INSERT_REPLAY_TEAM_CONTROL_SQL: &str = r#"
             FROM play_events event
             JOIN play_event_payloads payload ON payload.event_id = event.id
             WHERE event.analysis_run_id = $1 AND event.replay_id = $2
-              AND event.source_stream IN ('possession', 'ball_half', 'ball_third')
+              AND event.source_stream IN ('possession', 'loose_possession', 'ball_half', 'ball_third')
               AND COALESCE((payload.payload ->> 'active')::boolean, true)
               AND COALESCE(event.duration_seconds, (payload.payload ->> 'duration')::double precision, 0.0) > 0.0
         ) stream_rows

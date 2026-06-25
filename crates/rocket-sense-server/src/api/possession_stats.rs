@@ -52,8 +52,13 @@ pub struct PossessionSummaryResponse {
 /// oriented to the queried player's team: your side / neutral / opponents.
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct PossessionTeamControl {
-    /// Share of ball-control time held by each team (your team / neutral / opponents).
+    /// Strict "control": share of firmly-controlled ball time held by each team
+    /// (your team / neutral / opponents). Loose-ball tails count as neutral.
     pub possession: PossessionTeamMetric,
+    /// Loose possession: the last team to touch owns the ball until the opponent
+    /// takes it away (sticky through loose balls, passes, repelled 50-50s), so
+    /// this runs higher than `possession` and lines up with player possession.
+    pub loose_possession: PossessionTeamMetric,
     /// Time the ball spent in each half (your side / neutral / opponent side).
     pub ball_halves: PossessionTeamMetric,
     /// Time the ball spent in each third (your third / neutral / opponent third).
@@ -1501,16 +1506,19 @@ fn field_half_label(field_half: &str) -> &'static str {
 /// sat, oriented to the queried player's team for career aggregation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TeamMetricKind {
-    /// `possession` stream `possession_state`: which team controlled the ball.
+    /// `possession` stream `possession_state`: strict ball control per team.
     Possession,
+    /// `loose_possession` stream `possession_state`: loose possession per team.
+    LoosePossession,
     /// `ball_half` stream `field_half`: which half the ball sat in.
     BallHalf,
     /// `ball_third` stream `field_third`: which third the ball sat in.
     BallThird,
 }
 
-const TEAM_METRIC_KINDS: [TeamMetricKind; 3] = [
+const TEAM_METRIC_KINDS: [TeamMetricKind; 4] = [
     TeamMetricKind::Possession,
+    TeamMetricKind::LoosePossession,
     TeamMetricKind::BallHalf,
     TeamMetricKind::BallThird,
 ];
@@ -1525,6 +1533,11 @@ impl TeamMetricKind {
                 ("team_zero", "possession_team_zero"),
                 ("team_one", "possession_team_one"),
                 ("neutral", "possession_neutral"),
+            ],
+            TeamMetricKind::LoosePossession => [
+                ("team_zero", "loose_team_zero"),
+                ("team_one", "loose_team_one"),
+                ("neutral", "loose_neutral"),
             ],
             TeamMetricKind::BallHalf => [
                 ("team_zero_side", "ball_half_team_zero"),
@@ -1543,6 +1556,11 @@ impl TeamMetricKind {
     fn bucket_keys(self) -> [(&'static str, &'static str); 3] {
         match self {
             TeamMetricKind::Possession => [
+                ("own_team", "Your team"),
+                ("neutral", "Neutral"),
+                ("opponent_team", "Opponents"),
+            ],
+            TeamMetricKind::LoosePossession => [
                 ("own_team", "Your team"),
                 ("neutral", "Neutral"),
                 ("opponent_team", "Opponents"),
@@ -1568,7 +1586,7 @@ impl TeamMetricKind {
             Some(if own == team { own_key } else { opp_key })
         };
         match self {
-            TeamMetricKind::Possession => match raw {
+            TeamMetricKind::Possession | TeamMetricKind::LoosePossession => match raw {
                 "neutral" => Some("neutral"),
                 "team_zero" => mine(0, "own_team", "opponent_team"),
                 "team_one" => mine(1, "own_team", "opponent_team"),
@@ -1594,6 +1612,7 @@ impl TeamMetricKind {
 /// bucket-key display order so the rendered bars stay stable.
 struct TeamControlAccumulator {
     possession: Vec<(&'static str, f64)>,
+    loose_possession: Vec<(&'static str, f64)>,
     ball_halves: Vec<(&'static str, f64)>,
     ball_thirds: Vec<(&'static str, f64)>,
 }
@@ -1608,6 +1627,7 @@ impl TeamControlAccumulator {
         };
         Self {
             possession: seed(TeamMetricKind::Possession),
+            loose_possession: seed(TeamMetricKind::LoosePossession),
             ball_halves: seed(TeamMetricKind::BallHalf),
             ball_thirds: seed(TeamMetricKind::BallThird),
         }
@@ -1616,6 +1636,7 @@ impl TeamControlAccumulator {
     fn slot(&mut self, kind: TeamMetricKind) -> &mut Vec<(&'static str, f64)> {
         match kind {
             TeamMetricKind::Possession => &mut self.possession,
+            TeamMetricKind::LoosePossession => &mut self.loose_possession,
             TeamMetricKind::BallHalf => &mut self.ball_halves,
             TeamMetricKind::BallThird => &mut self.ball_thirds,
         }
@@ -1630,6 +1651,10 @@ impl TeamControlAccumulator {
     fn into_control(self) -> PossessionTeamControl {
         PossessionTeamControl {
             possession: team_metric_from_slots(TeamMetricKind::Possession, &self.possession),
+            loose_possession: team_metric_from_slots(
+                TeamMetricKind::LoosePossession,
+                &self.loose_possession,
+            ),
             ball_halves: team_metric_from_slots(TeamMetricKind::BallHalf, &self.ball_halves),
             ball_thirds: team_metric_from_slots(TeamMetricKind::BallThird, &self.ball_thirds),
         }
@@ -1680,6 +1705,9 @@ async fn load_possession_team_control(
             COALESCE(SUM(control.possession_team_zero_seconds), 0) AS possession_team_zero,
             COALESCE(SUM(control.possession_team_one_seconds), 0) AS possession_team_one,
             COALESCE(SUM(control.possession_neutral_seconds), 0) AS possession_neutral,
+            COALESCE(SUM(control.loose_team_zero_seconds), 0) AS loose_team_zero,
+            COALESCE(SUM(control.loose_team_one_seconds), 0) AS loose_team_one,
+            COALESCE(SUM(control.loose_neutral_seconds), 0) AS loose_neutral,
             COALESCE(SUM(control.ball_half_team_zero_seconds), 0) AS ball_half_team_zero,
             COALESCE(SUM(control.ball_half_team_one_seconds), 0) AS ball_half_team_one,
             COALESCE(SUM(control.ball_half_neutral_seconds), 0) AS ball_half_neutral,
