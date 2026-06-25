@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use std::{env, net::SocketAddr, path::PathBuf};
 
-use crate::rank_benchmark::{self, BenchmarkWindow};
+use crate::rank_benchmark::{self, BenchmarkWindow, CalcStyle};
 
 const DEV_JWT_SECRET: &str = "rocket-sense-local-dev-secret";
 const MIN_APP_JWT_SECRET_BYTES: usize = 32;
@@ -130,6 +130,9 @@ pub struct Settings {
     /// The `window_key` the read serves when a request has no
     /// `rank-benchmark-window` override. Defaults to `rolling-6m`.
     pub rank_benchmark_default_window: String,
+    /// How the refresh computes a stat's rate sample: per-appearance (default,
+    /// one rate per game) or per-player (one rate per player).
+    pub rank_benchmark_calc: CalcStyle,
     /// Normalized (trimmed, lowercased) email addresses that are automatically
     /// promoted to admin when they authenticate. Bootstraps the first admin(s);
     /// further admins are then granted through the admin API.
@@ -203,6 +206,10 @@ impl Settings {
                     .map(BenchmarkWindow::window_key)
                     .unwrap_or_else(|| "rolling-6m".to_owned())
             });
+        let rank_benchmark_calc = env::var("ROCKET_SENSE_RANK_BENCHMARK_CALC")
+            .ok()
+            .and_then(|value| CalcStyle::parse(&value))
+            .unwrap_or_default();
         let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
 
         Ok(Self {
@@ -221,6 +228,7 @@ impl Settings {
             rank_benchmark_enabled,
             rank_benchmark_windows,
             rank_benchmark_default_window,
+            rank_benchmark_calc,
             admin_emails,
         })
     }

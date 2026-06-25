@@ -25,6 +25,41 @@ pub const RARE_NONZERO_FRACTION: f64 = 0.5;
 /// season while the new one is still thin.
 pub const SEASON_CURRENT_MIN_SAMPLE: i64 = MIN_SAMPLE;
 
+/// Appearances shorter than this (AFK/disconnect slivers) are excluded so a
+/// 1-touch 20-second game cannot blow up a per-appearance rate.
+pub const MIN_APPEARANCE_SECONDS: f64 = 60.0;
+
+/// How a benchmark rate's "sample unit" is defined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CalcStyle {
+    /// One rate per (player, game). Maximizes sample size (every game counts),
+    /// so rare mechanics get many data points. The default.
+    #[default]
+    PerAppearance,
+    /// One rate per player (their per-active-minute rate across their games),
+    /// with a `MIN_PLAYER_GAMES` floor. "The typical player", smaller sample.
+    PerPlayer,
+}
+
+impl CalcStyle {
+    /// Token used in config and `rank_benchmark_meta.calc_style`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CalcStyle::PerAppearance => "per-appearance",
+            CalcStyle::PerPlayer => "per-player",
+        }
+    }
+
+    /// Parse the `ROCKET_SENSE_RANK_BENCHMARK_CALC` value; unknown -> default.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().replace('_', "-").as_str() {
+            "per-appearance" | "appearance" => Some(CalcStyle::PerAppearance),
+            "per-player" | "player" => Some(CalcStyle::PerPlayer),
+            _ => None,
+        }
+    }
+}
+
 /// Which season a [`BenchmarkWindow::Season`] targets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SeasonSelector {

@@ -88,9 +88,11 @@ CREATE TABLE rank_benchmark_meta (
     window_end timestamptz,
     season_code text,
     display_label text NOT NULL,
+    calc_style text NOT NULL DEFAULT 'per-appearance',
     computed_at timestamptz NOT NULL DEFAULT now(),
     CHECK (window_key <> ''),
-    CHECK (window_kind IN ('rolling', 'season'))
+    CHECK (window_kind IN ('rolling', 'season')),
+    CHECK (calc_style IN ('per-appearance', 'per-player'))
 );
 
 -- Reads look up a single (window, group, rank_grouping, rank_value, outcome) and

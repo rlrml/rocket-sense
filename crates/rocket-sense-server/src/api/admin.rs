@@ -762,8 +762,9 @@ pub async fn refresh_rank_benchmarks(
     require_admin(&state, &auth_user).await?;
     let pool = pool.clone();
     let windows = state.rank_benchmark_windows.to_vec();
+    let calc = state.rank_benchmark_calc;
     tokio::spawn(async move {
-        match crate::processing::refresh_rank_benchmark(&pool, &windows).await {
+        match crate::processing::refresh_rank_benchmark(&pool, &windows, calc).await {
             Ok(refreshed) => tracing::info!(refreshed, "rank benchmark refresh task finished"),
             Err(error) => tracing::error!(?error, "rank benchmark refresh task failed"),
         }

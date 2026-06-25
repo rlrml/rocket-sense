@@ -1,4 +1,8 @@
-use crate::{api, processing, rank_benchmark::BenchmarkWindow, settings, telemetry};
+use crate::{
+    api, processing,
+    rank_benchmark::{BenchmarkWindow, CalcStyle},
+    settings, telemetry,
+};
 use anyhow::Result;
 use axum::{extract::DefaultBodyLimit, Router};
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
@@ -29,6 +33,8 @@ pub struct AppState {
     pub rank_benchmark_windows: Arc<[BenchmarkWindow]>,
     /// `window_key` served when a request carries no `rank-benchmark-window`.
     pub rank_benchmark_default_window: Arc<str>,
+    /// How the refresh computes a stat's rate sample (per-appearance / per-player).
+    pub rank_benchmark_calc: CalcStyle,
     /// Email addresses that are auto-promoted to admin on authentication.
     pub admin_emails: Arc<[String]>,
 }
@@ -60,6 +66,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         rank_benchmark_enabled: settings.rank_benchmark_enabled,
         rank_benchmark_windows: Arc::from(settings.rank_benchmark_windows),
         rank_benchmark_default_window: Arc::from(settings.rank_benchmark_default_window),
+        rank_benchmark_calc: settings.rank_benchmark_calc,
         admin_emails: Arc::from(settings.admin_emails),
     };
 
@@ -76,6 +83,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
                     processing::start_rank_benchmark_refresh_job(
                         pool.clone(),
                         state.rank_benchmark_windows.to_vec(),
+                        state.rank_benchmark_calc,
                     );
                 }
                 match processing::enqueue_unfinished_replay_processing(pool).await {
@@ -122,6 +130,7 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
         processing::start_rank_benchmark_refresh_job(
             pool.clone(),
             settings.rank_benchmark_windows.clone(),
+            settings.rank_benchmark_calc,
         );
     }
 

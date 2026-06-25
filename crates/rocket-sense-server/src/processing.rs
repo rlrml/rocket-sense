@@ -1,4 +1,6 @@
-use crate::rank_benchmark::{BenchmarkWindow, SeasonSelector, SEASON_CURRENT_MIN_SAMPLE};
+use crate::rank_benchmark::{
+    BenchmarkWindow, CalcStyle, SeasonSelector, MIN_APPEARANCE_SECONDS, SEASON_CURRENT_MIN_SAMPLE,
+};
 use anyhow::{anyhow, Context, Result};
 use apalis::prelude::*;
 use apalis_postgres::{
@@ -3255,7 +3257,7 @@ pub fn start_event_stream_gc_sweeper(pool: PgPool, storage: Arc<dyn ObjectStorag
 const RANK_BENCHMARK_REFRESH_INITIAL_DELAY: std::time::Duration =
     std::time::Duration::from_secs(2 * 60);
 const RANK_BENCHMARK_REFRESH_INTERVAL: std::time::Duration =
-    std::time::Duration::from_secs(12 * 60 * 60);
+    std::time::Duration::from_secs(24 * 60 * 60);
 
 /// A [`BenchmarkWindow`] resolved against the database into concrete bounds and
 /// a display label, ready to drive both the predicate and the
@@ -3274,7 +3276,11 @@ struct ResolvedBenchmarkWindow {
 /// mirrors [`start_event_stream_gc_sweeper`] rather than using the apalis queue.
 /// Started only when `ROCKET_SENSE_RANK_BENCHMARK` is set, so exactly one
 /// service instance runs it.
-pub fn start_rank_benchmark_refresh_job(pool: PgPool, windows: Vec<BenchmarkWindow>) {
+pub fn start_rank_benchmark_refresh_job(
+    pool: PgPool,
+    windows: Vec<BenchmarkWindow>,
+    calc: CalcStyle,
+) {
     if windows.is_empty() {
         tracing::warn!("rank benchmark refresh job not started: no windows configured");
         return;
@@ -3282,7 +3288,7 @@ pub fn start_rank_benchmark_refresh_job(pool: PgPool, windows: Vec<BenchmarkWind
     tokio::spawn(async move {
         tokio::time::sleep(RANK_BENCHMARK_REFRESH_INITIAL_DELAY).await;
         loop {
-            match refresh_rank_benchmark(&pool, &windows).await {
+            match refresh_rank_benchmark(&pool, &windows, calc).await {
                 Ok(refreshed) => {
                     tracing::info!(refreshed, "rank benchmark refresh complete");
                 }
@@ -3300,7 +3306,11 @@ pub fn start_rank_benchmark_refresh_job(pool: PgPool, windows: Vec<BenchmarkWind
 
 /// Recompute the rank-median benchmark for each configured window, replacing
 /// that window's rows transactionally. Returns the number of windows refreshed.
-pub async fn refresh_rank_benchmark(pool: &PgPool, windows: &[BenchmarkWindow]) -> Result<u64> {
+pub async fn refresh_rank_benchmark(
+    pool: &PgPool,
+    windows: &[BenchmarkWindow],
+    calc: CalcStyle,
+) -> Result<u64> {
     let mut refreshed = 0u64;
     for window in windows {
         let Some(resolved) = resolve_benchmark_window(pool, window).await? else {
@@ -3310,7 +3320,7 @@ pub async fn refresh_rank_benchmark(pool: &PgPool, windows: &[BenchmarkWindow]) 
             );
             continue;
         };
-        refresh_rank_benchmark_window(pool, window, &resolved)
+        refresh_rank_benchmark_window(pool, window, &resolved, calc)
             .await
             .with_context(|| format!("refreshing rank benchmark window {}", resolved.window_key))?;
         refreshed += 1;
@@ -3415,6 +3425,7 @@ async fn refresh_rank_benchmark_window(
     pool: &PgPool,
     window: &BenchmarkWindow,
     resolved: &ResolvedBenchmarkWindow,
+    calc: CalcStyle,
 ) -> Result<()> {
     let mut tx = pool.begin().await?;
 
@@ -3463,8 +3474,10 @@ async fn refresh_rank_benchmark_window(
               AND btrim(rp.platform) <> ''
               AND rp.platform_player_id IS NOT NULL
               AND btrim(rp.platform_player_id) <> ''
-              AND "#,
+              AND rp.active_time_seconds >= "#,
     );
+    builder.push_bind(MIN_APPEARANCE_SECONDS);
+    builder.push(" AND ");
     match window {
         BenchmarkWindow::Rolling { .. } => {
             let start = resolved
@@ -3513,7 +3526,17 @@ async fn refresh_rank_benchmark_window(
         event_type_universe AS (
             SELECT DISTINCT event_type_id FROM player_replay_event_counts
         ),
-        -- Per (group, rank bucket, outcome, player) denominators: games + active time.
+        "#,
+    );
+
+    // Calc-style-specific: define `rate_units` (one row per sample unit ×
+    // event_type, zero-filled) and `population`. The sample unit is a player
+    // (per-player) or a (player, game) appearance (per-appearance).
+    match calc {
+        CalcStyle::PerPlayer => {
+            builder.push(
+                r#"
+        -- Per (group, rank bucket, outcome, player) denominators: games + active.
         player_denoms AS (
             SELECT playlist_group_key, rank_grouping, rank_value, outcome, player_subject_id,
                    COUNT(DISTINCT replay_id) AS games,
@@ -3522,12 +3545,11 @@ async fn refresh_rank_benchmark_window(
             FROM appearance_bucket
             GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, player_subject_id
             HAVING COUNT(DISTINCT replay_id) >= "#,
-    );
-    builder.push_bind(crate::rank_benchmark::MIN_PLAYER_GAMES);
-    builder.push(
-        r#"
+            );
+            builder.push_bind(crate::rank_benchmark::MIN_PLAYER_GAMES);
+            builder.push(
+                r#"
         ),
-        -- Summed events per (group, rank bucket, outcome, player, event_type).
         player_event_sums AS (
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    ab.player_subject_id, c.event_type_id, SUM(c.event_count) AS events
@@ -3539,10 +3561,9 @@ async fn refresh_rank_benchmark_window(
             GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                      ab.player_subject_id, c.event_type_id
         ),
-        -- Zero-filled per-player rates across the event-type universe: a
-        -- qualifying player who never performs event X has rate 0 for X and
-        -- still enters X's median (excluding them biases it upward).
-        player_rates AS (
+        -- One zero-filled rate per qualifying player: a player who never performs
+        -- event X has rate 0 for X and still enters X's median.
+        rate_units AS (
             SELECT d.playlist_group_key, d.rank_grouping, d.rank_value, d.outcome, et.event_type_id,
                    COALESCE(s.events, 0) AS events,
                    d.active_seconds, d.non_demo_active_seconds,
@@ -3558,32 +3579,7 @@ async fn refresh_rank_benchmark_window(
              AND s.player_subject_id = d.player_subject_id
              AND s.event_type_id = et.event_type_id
         ),
-        -- Per (group, rank bucket, outcome, event_type): the per-player median,
-        -- the pooled mean (sum events / sum active), and how many players ever
-        -- performed the event (drives the rare-stat aggregator choice).
-        stat_agg AS (
-            SELECT playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
-                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute) AS median_per_active_minute,
-                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute) AS median_per_non_demo_active_minute,
-                   CASE WHEN SUM(active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(active_seconds) END AS mean_per_active_minute,
-                   CASE WHEN SUM(non_demo_active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(non_demo_active_seconds) END AS mean_per_non_demo_active_minute,
-                   COUNT(*) FILTER (WHERE events > 0) AS nonzero_players,
-                   COUNT(*) AS total_players
-            FROM player_rates
-            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, event_type_id
-        ),
-        -- One aggregator per (group, event_type), consistent across ranks/outcomes
-        -- so a stat's bars stay comparable: 'mean' for rare events, else 'median'.
-        stat_aggregator AS (
-            SELECT playlist_group_key, event_type_id,
-                   CASE WHEN SUM(nonzero_players)::float8 / NULLIF(SUM(total_players), 0) < "#,
-    );
-    builder.push_bind(crate::rank_benchmark::RARE_NONZERO_FRACTION);
-    builder.push(
-        r#" THEN 'mean' ELSE 'median' END AS aggregator
-            FROM stat_agg
-            GROUP BY playlist_group_key, event_type_id
-        ),
+        -- Sample adequacy from the qualifying (>= min games) players only.
         population AS (
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    COUNT(DISTINCT ab.player_subject_id)::int AS distinct_player_count,
@@ -3596,6 +3592,66 @@ async fn refresh_rank_benchmark_window(
              AND d.outcome = ab.outcome
              AND d.player_subject_id = ab.player_subject_id
             GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome
+        ),
+        "#,
+            );
+        }
+        CalcStyle::PerAppearance => {
+            builder.push(
+                r#"
+        -- One zero-filled rate per (player, game) appearance. No min-games floor,
+        -- so every game counts -- many more samples for rare mechanics.
+        rate_units AS (
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome, et.event_type_id,
+                   COALESCE(c.event_count, 0) AS events,
+                   ab.active_seconds, ab.non_demo_active_seconds,
+                   CASE WHEN ab.active_seconds > 0 THEN COALESCE(c.event_count, 0) * 60.0 / ab.active_seconds END AS per_active_minute,
+                   CASE WHEN ab.non_demo_active_seconds > 0 THEN COALESCE(c.event_count, 0) * 60.0 / ab.non_demo_active_seconds END AS per_non_demo_active_minute
+            FROM appearance_bucket ab
+            CROSS JOIN event_type_universe et
+            LEFT JOIN player_replay_event_counts c
+              ON c.analysis_run_id = ab.analysis_run_id
+             AND c.replay_id = ab.replay_id
+             AND c.player_subject_id = ab.player_subject_id
+             AND c.event_type_id = et.event_type_id
+        ),
+        population AS (
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   COUNT(DISTINCT ab.player_subject_id)::int AS distinct_player_count,
+                   COUNT(DISTINCT ab.replay_id)::int AS replay_count
+            FROM appearance_bucket ab
+            GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome
+        ),
+        "#,
+            );
+        }
+    }
+
+    // Shared across calc styles: per-cell median + pooled mean + the rare-stat
+    // aggregator decision, then the transactional inserts.
+    builder.push(
+        r#"stat_agg AS (
+            SELECT playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute) AS median_per_active_minute,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute) AS median_per_non_demo_active_minute,
+                   CASE WHEN SUM(active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(active_seconds) END AS mean_per_active_minute,
+                   CASE WHEN SUM(non_demo_active_seconds) > 0 THEN SUM(events) * 60.0 / SUM(non_demo_active_seconds) END AS mean_per_non_demo_active_minute,
+                   COUNT(*) FILTER (WHERE events > 0) AS nonzero_units,
+                   COUNT(*) AS total_units
+            FROM rate_units
+            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, event_type_id
+        ),
+        -- One aggregator per (group, event_type), consistent across ranks/outcomes
+        -- so a stat's bars stay comparable: 'mean' for rare events, else 'median'.
+        stat_aggregator AS (
+            SELECT playlist_group_key, event_type_id,
+                   CASE WHEN SUM(nonzero_units)::float8 / NULLIF(SUM(total_units), 0) < "#,
+    );
+    builder.push_bind(crate::rank_benchmark::RARE_NONZERO_FRACTION);
+    builder.push(
+        r#" THEN 'mean' ELSE 'median' END AS aggregator
+            FROM stat_agg
+            GROUP BY playlist_group_key, event_type_id
         ),
         ins_stats AS (
             INSERT INTO rank_benchmark_stats (
@@ -3631,9 +3687,10 @@ async fn refresh_rank_benchmark_window(
     sqlx::query(
         r#"
         INSERT INTO rank_benchmark_meta (
-            window_key, window_kind, window_start, window_end, season_code, display_label, computed_at
+            window_key, window_kind, window_start, window_end, season_code, display_label,
+            calc_style, computed_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, now())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, now())
         "#,
     )
     .bind(&resolved.window_key)
@@ -3642,6 +3699,7 @@ async fn refresh_rank_benchmark_window(
     .bind(resolved.window_end)
     .bind(&resolved.season_code)
     .bind(&resolved.label)
+    .bind(calc.as_str())
     .execute(&mut *tx)
     .await?;
 
