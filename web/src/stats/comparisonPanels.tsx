@@ -104,8 +104,7 @@ export function subjectMagnitudeRows<T extends ComparisonSubject>(
         ],
         total: value,
         maxValue,
-        valueInBar: rawValue != null && value > 0 ? formatted : undefined,
-        placeholder: rawValue != null && value > 0 ? undefined : (options.placeholder ?? "0"),
+        barValue: rawValue != null && value > 0 ? formatted : (options.placeholder ?? "0"),
       };
     });
 }

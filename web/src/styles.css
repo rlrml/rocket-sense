@@ -4051,8 +4051,8 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
-/* Magnitude charts float their value on the bar (valueInBar) and set no
-   valueLabel, so ComparisonRows drops the right-hand value column. */
+/* Distribution bars whose values live inside the segments carry no `valueLabel`,
+   so ComparisonRows drops the right-hand value column. */
 .player-comparison-rows.no-value-column .player-comparison-row {
   grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
 }
@@ -4065,35 +4065,52 @@ tbody tr:last-child td {
   position: relative;
 }
 
-/* Keep magnitude values inside the colored fill. The minimum is capped by the
-   track, so very small values stay readable without escaping the bar. */
-.player-comparison-track .source-bar-fill.has-inbar-value {
-  min-width: min(100%, 6.5em);
+/* Single-value bars carry their number on the leading edge. Wide bars (`.on-bar`)
+   print it inside the colored segment, right-aligned at the tip (light on the
+   bar), so the bar keeps full width with no right-margin column. Short or empty
+   bars (`.trailing`) can't hold it, so the track becomes a flex [fill][value] row
+   and the number sits just past the tip (dark on the open track). Both labels are
+   in normal flow inside their box, so placement is reliable with no measurement.
+   The on-bar value may overflow its segment to the left onto the rest of the bar
+   (still on color) rather than clip, so the number stays whole. */
+.source-segment.has-bar-value-on-bar {
+  /* overflow:visible lets the number spill onto the bar rather than clip, but it
+     also stops the fill from rounding this segment's end, so round it directly. */
+  overflow: visible;
+  border-radius: inherit;
 }
 
-.player-comparison-inbar-value {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: max-content;
-  max-width: 100%;
+.bar-value-label.on-bar {
+  margin-left: auto;
+  padding: 0 6px;
+  color: #fff;
+  font-size: var(--bar-text-font-size);
+  font-weight: var(--bar-text-font-weight);
+  line-height: 1;
+  white-space: nowrap;
+  text-shadow: 0 1px 1px rgba(15, 23, 42, 0.45);
+  pointer-events: none;
+}
+
+.player-comparison-track.has-bar-value {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding: 0 6px;
-  box-sizing: border-box;
+}
+
+.player-comparison-track.has-bar-value .source-bar-fill {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.bar-value-label.trailing {
+  flex: 0 0 auto;
+  padding: 0 8px;
   color: var(--text-strong);
   font-size: var(--bar-text-font-size);
   font-weight: var(--bar-text-font-weight);
   line-height: 1;
   white-space: nowrap;
   pointer-events: none;
-  overflow: hidden;
-}
-
-.player-comparison-inbar-value.inside {
-  text-align: right;
 }
 
 .player-comparison-marker {
@@ -5152,12 +5169,6 @@ tbody tr:last-child td {
   display: grid;
   grid-template-columns: 1fr;
   gap: 16px;
-}
-
-/* Core bars carry their value inside the track (see .player-comparison-inbar-value),
-   so the row drops the right-hand value column. */
-.player-comparison-chart.core-chart .player-comparison-row {
-  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
 }
 
 /* Fixed per-metric magnitude hues for replay-group views (no replay-local team
@@ -8484,8 +8495,7 @@ tbody tr:last-child td {
 
 @media (max-width: 720px) {
   .player-comparison-row,
-  .possession-profile-grid .player-comparison-row,
-  .player-comparison-chart.core-chart .player-comparison-row {
+  .possession-profile-grid .player-comparison-row {
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       "label value"

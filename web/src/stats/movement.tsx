@@ -434,8 +434,7 @@ function careerMovementMagnitudeRows(
       ],
       total,
       maxValue,
-      valueInBar: metric != null && total > 0 ? formatted : undefined,
-      placeholder: metric != null && total > 0 ? undefined : formatted,
+      barValue: formatted,
     };
   });
 }
