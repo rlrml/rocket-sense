@@ -34,6 +34,10 @@ pub fn router() -> Router<AppState> {
 pub struct PlayerStatOverviewResponse {
     pub replay_count: u64,
     pub goals_scored: u64,
+    /// Team size shared by every replay in the filtered set (2 for doubles, 3
+    /// for standard), or `None` when the set mixes team sizes. Lets the UI apply
+    /// team-size-specific logic such as the 2v2 assist-percentage denominator.
+    pub team_size: Option<u32>,
     /// Headline score rate for the player vs the pooled teammate average.
     pub score: ScoringRateResponse,
     /// Headline goal rate for the player vs the pooled teammate average.
@@ -172,7 +176,7 @@ async fn load_player_stat_overview(
     query: &PlayerOverviewQuery,
 ) -> Result<PlayerStatOverviewResponse, sqlx::Error> {
     let (
-        (replay_count, goals_scored),
+        (replay_count, goals_scored, team_size),
         mut goal_tags,
         (rotation_roles, rotation_depths),
         (player_active_time_seconds, teammate_active_time_seconds, opponent_active_time_seconds),
@@ -226,6 +230,7 @@ async fn load_player_stat_overview(
     Ok(PlayerStatOverviewResponse {
         replay_count,
         goals_scored,
+        team_size,
         score: scoring_rate(
             counters.player_score,
             counters.teammate_score,
@@ -299,21 +304,44 @@ fn push_goal_events_cte(builder: &mut QueryBuilder<'_, Postgres>) {
 async fn load_goal_totals(
     pool: &sqlx::PgPool,
     query: &PlayerOverviewQuery,
-) -> Result<(u64, u64), sqlx::Error> {
+) -> Result<(u64, u64, Option<u32>), sqlx::Error> {
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
+    // `target_team_sizes` is the number of players on the target's team in each
+    // replay (the player plus their teammates). When every replay shares one
+    // size the set is a single playlist shape (e.g. all doubles), which the UI
+    // uses to gate team-size-specific math.
     builder.push(
         r#"
+        , target_team_sizes AS (
+            SELECT target.replay_id, COUNT(member.id) AS team_size
+            FROM target_appearances target
+            JOIN replay_players member
+              ON member.replay_id = target.replay_id
+             AND member.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND member.team = target.team
+            GROUP BY target.replay_id
+        )
         SELECT
             (SELECT COUNT(DISTINCT replay_id) FROM target_appearances) AS replay_count,
-            (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS goals_scored
+            (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS goals_scored,
+            (SELECT COUNT(DISTINCT team_size) FROM target_team_sizes) AS distinct_team_sizes,
+            (SELECT MIN(team_size) FROM target_team_sizes) AS uniform_team_size
         "#,
     );
 
     let row = builder.build().fetch_one(pool).await?;
+    let team_size = if count_column(&row, "distinct_team_sizes")? == 1 {
+        row.try_get::<Option<i64>, _>("uniform_team_size")?
+            .map(|size| size as u32)
+    } else {
+        None
+    };
     Ok((
         count_column(&row, "replay_count")?,
         count_column(&row, "goals_scored")?,
+        team_size,
     ))
 }
 
