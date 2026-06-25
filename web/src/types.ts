@@ -26,12 +26,29 @@ export interface ReplayPlayer {
   time_most_forward_seconds: number | null;
 }
 
+export interface ReplayUploaderResponse {
+  id: string;
+  primary_email: string | null;
+  display_name: string | null;
+  /** Auth provider the uploader signed in with (e.g. "steam", "epic", "google"). */
+  provider: string | null;
+}
+
+export interface UserProfileResponse {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  created_at: string;
+  upload_count: number;
+}
+
 export interface ReplayResponse {
   id: string;
   file_sha256: string;
   byte_size: number;
   project_id: string | null;
   uploaded_by_user_id: string | null;
+  uploaded_by: ReplayUploaderResponse | null;
   storage_key: string;
   original_file_name: string | null;
   external_replay_id: string | null;
@@ -515,13 +532,26 @@ export interface ScoringRateResponse {
   opponent_per_active_minute: number | null;
 }
 
+export interface MvpSummaryResponse {
+  /** Replays in which the player was MVP (top score on the winning team). */
+  count: number;
+  /** MVPs per game = count / replay_count, as a fraction (null when no games). */
+  rate: number | null;
+  /** Expected MVP rate if winning teammates were interchangeable scorers. */
+  fair_share_rate: number | null;
+}
+
 export interface PlayerStatOverviewResponse {
   replay_count: number;
   goals_scored: number;
+  /** Team size shared by every replay in the set (2 = doubles), or null when mixed. */
+  team_size?: number | null;
+  mvp?: MvpSummaryResponse;
   score: ScoringRateResponse;
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
   shots?: ScoringRateResponse;
+  saves?: ScoringRateResponse;
   goal_tags: GoalTagAggregateResponse[];
   rotation_roles: RotationTimeShareResponse[];
   rotation_depths: RotationTimeShareResponse[];
@@ -601,6 +631,21 @@ export interface PossessionSummaryResponse {
   cohorts: PossessionCohortSummary[];
   touches: PossessionTouchSummary;
   locations: PossessionLocationSummary;
+  // Team-level control oriented to the player's team, over the same filtered
+  // replay set as the rest of the summary (so the global win/loss outcome
+  // control applies). Only present when the summary targets a single player.
+  team: PossessionTeamControl | null;
+}
+
+export interface PossessionTeamControl {
+  possession: PossessionTeamMetric;
+  ball_halves: PossessionTeamMetric;
+  ball_thirds: PossessionTeamMetric;
+}
+
+export interface PossessionTeamMetric {
+  total_duration_seconds: number;
+  buckets: PossessionTimeBucket[];
 }
 
 export interface PossessionTeammateComparison {
@@ -911,4 +956,18 @@ export interface PlayerBoostTotalsResponse {
   player: PlayerBoostTotal;
   teammates: PlayerBoostTotal | null;
   opponents: PlayerBoostTotal | null;
+}
+
+export interface BoostPadControlPoint {
+  pad_id: string;
+  x: number;
+  y: number;
+  pad_size: "big" | "small";
+  player_count: number;
+  teammate_count: number;
+  opponent_count: number;
+}
+
+export interface BoostPadControlResponse {
+  points: BoostPadControlPoint[];
 }

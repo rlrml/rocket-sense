@@ -3,19 +3,24 @@ import type { ReactNode } from "react";
 import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
+  MvpSummaryResponse,
   PlayerStatOverviewResponse,
   PossessionSummaryResponse,
+  PossessionTeamControl,
+  PossessionTeamMetric,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
+import { isIgnoredGoalTag } from "./goalTagFilters";
 import {
   careerCohortClassName,
   careerCohortKey,
   careerCohortLabel,
   careerCohortSegmentClassName,
   careerCohortSubtitle,
+  careerRateValue,
   careerRateWindowLabel,
   type CareerCohortKey,
   ComparisonBar,
@@ -24,12 +29,13 @@ import {
   PlayerComparisonChart,
   StatPlayerLabel,
   statPercentWithValue,
+  type ComparisonMarker,
   type ComparisonRow,
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
 } from "./shared";
 import {
-  PossessionAdvancedComparisonGrid,
+  PossessionAdvancedCharts,
   possessionAdvancedCohortLabel,
   type PossessionAdvancedSubject,
 } from "./possessionAdvanced";
@@ -312,10 +318,15 @@ export function CoreProfileComparison({
   overview,
   playerName,
   stats,
+  view = "player",
 }: {
   overview: PlayerStatOverviewResponse;
   playerName: string;
   stats: StatAggregateResponse[];
+  // "player" compares the player to per-player teammate/opponent averages.
+  // "team" sums the whole team (player + teammates) vs the opponent team and
+  // shows per-game team totals (no per-player division).
+  view?: CoreProfileView;
 }) {
   const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
   const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
@@ -323,32 +334,95 @@ export function CoreProfileComparison({
   const goals = scoringRateOrZero(overview.goals);
   const assists = scoringRateOrZero(overview.assists);
   const shots = scoringRateOrZero(overview.shots);
-  const cards = [
-    rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
-    rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
-    rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
-    rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
-    {
-      key: "demos",
-      title: "Demos (per 5 min)",
-      rows: profileRateComparisonRows(demos, playerName),
-    },
-    {
-      key: "deaths",
-      title: "Deaths (per 5 min)",
-      rows: profileRateComparisonRows(deaths, playerName),
-    },
-    {
-      key: "shooting-percentage",
-      title: "Shooting percentage (%)",
-      rows: shootingPercentageRows(goals, shots, playerName),
-    },
-    {
-      key: "assist-percentage",
-      title: "Assist percentage (%)",
-      rows: assistPercentageRows(goals, assists, playerName),
-    },
-  ];
+  const saves = scoringRateOrZero(overview.saves);
+  // MVP is a single-player crown (one per game) compared against a fair-share
+  // baseline, so it only renders in the player view; there is no teammate/
+  // opponent MVP breakdown in the response to pool into a team total.
+  const mvpRows = mvpComparisonRows(overview.mvp, playerName);
+  const cards =
+    view === "team"
+      ? [
+          teamRateCard("score", "Score (per game)", score, overview.replay_count),
+          teamRateCard("goals", "Goals (per game)", goals, overview.replay_count),
+          teamRateCard("assists", "Assists (per game)", assists, overview.replay_count),
+          teamRateCard("shots", "Shots (per game)", shots, overview.replay_count),
+          teamRateCard("saves", "Saves (per game)", saves, overview.replay_count),
+          {
+            key: "demos",
+            title: "Demos (per game)",
+            rows: teamCountCardRows(
+              "Demos",
+              demos.eventCount + demos.teammateEventCount,
+              demos.opponentEventCount,
+              overview.replay_count,
+            ),
+          },
+          {
+            key: "deaths",
+            title: "Deaths (per game)",
+            rows: teamCountCardRows(
+              "Deaths",
+              deaths.eventCount + deaths.teammateEventCount,
+              deaths.opponentEventCount,
+              overview.replay_count,
+            ),
+          },
+          {
+            key: "shooting-percentage",
+            title: "Shooting percentage (%)",
+            rows: teamPercentageCardRows(
+              "Shooting percentage",
+              "goals/shots",
+              goals.count + goals.teammate_count,
+              shots.count + shots.teammate_count,
+              goals.opponent_count,
+              shots.opponent_count,
+            ),
+          },
+          {
+            key: "assist-percentage",
+            title: "Assist percentage (%)",
+            // Team assist rate is the team's assists over the team's goals; the
+            // per-player self-scored-goal adjustment used in the player view
+            // does not apply once the whole team is pooled.
+            rows: teamPercentageCardRows(
+              "Assist percentage",
+              "assists/goals",
+              assists.count + assists.teammate_count,
+              goals.count + goals.teammate_count,
+              assists.opponent_count,
+              goals.opponent_count,
+            ),
+          },
+        ]
+      : [
+          ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
+          rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
+          rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
+          rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
+          rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
+          rateCardFromOverview("saves", "Saves (per 5 min)", saves, playerName),
+          {
+            key: "demos",
+            title: "Demos (per 5 min)",
+            rows: profileRateComparisonRows(demos, playerName),
+          },
+          {
+            key: "deaths",
+            title: "Deaths (per 5 min)",
+            rows: profileRateComparisonRows(deaths, playerName),
+          },
+          {
+            key: "shooting-percentage",
+            title: "Shooting percentage (%)",
+            rows: shootingPercentageRows(goals, shots, playerName),
+          },
+          {
+            key: "assist-percentage",
+            title: "Assist percentage (%)",
+            rows: assistPercentageRows(goals, assists, playerName, overview.team_size),
+          },
+        ];
 
   return (
     <section className="core-profile-comparison full-span">
@@ -364,6 +438,82 @@ export function CoreProfileComparison({
       </div>
     </section>
   );
+}
+
+/**
+ * MVP rate as a single magnitude bar (player's MVPs/game) with the fair-share
+ * baseline drawn as a reference marker. MVP is a per-game crown — at most one per
+ * replay — so the field always averages to its fair share; the marker is what
+ * makes a player's rate read as above or below expectation. Returns no rows when
+ * the set has no games (rate is null) or MVP data is absent (older responses).
+ */
+function mvpComparisonRows(
+  mvp: MvpSummaryResponse | undefined,
+  playerName: string,
+): ComparisonRow[] {
+  if (!mvp || mvp.rate == null) return [];
+  const rate = Math.max(0, mvp.rate);
+  const fairShare = mvp.fair_share_rate != null ? Math.max(0, mvp.fair_share_rate) : null;
+  // Scale so an at-expectation rate sits near mid-track and the marker stays
+  // visible, while a standout rate still reads as filling most of the bar.
+  const maxValue = Math.max(rate * 1.15, (fairShare ?? 0) * 2, 0.05);
+  const rateLabel = formatMvpRate(rate);
+  const markers: ComparisonMarker[] =
+    fairShare == null
+      ? []
+      : [
+          {
+            key: "fair-share",
+            className: "mvp-fair-share-marker",
+            label: "Fair share",
+            value: fairShare,
+            title: `Fair share: ${formatMvpRate(
+              fairShare,
+            )} — expected if you and your winning teammates split MVP evenly`,
+          },
+        ];
+  return [
+    {
+      key: "player",
+      label: (
+        <StatPlayerLabel
+          className={careerCohortClassName("player")}
+          name={careerCohortLabel("player", playerName)}
+          platform={null}
+          platformPlayerId={null}
+          profilePath={null}
+          rank={null}
+          showPlatformBadge={false}
+          subtitle={`${careerCohortSubtitle("player")} · ${mvp.count.toLocaleString()} MVPs`}
+        />
+      ),
+      ariaLabel: `${playerName}: MVP in ${rateLabel} of games${
+        fairShare != null ? `, fair share ${formatMvpRate(fairShare)}` : ""
+      }`,
+      segments: [
+        {
+          key: "rate",
+          className: careerCohortSegmentClassName("player"),
+          label: "MVP rate",
+          value: rate,
+          visibleLabel: rate > 0 ? rateLabel : undefined,
+          title: `${rateLabel} MVP rate (${mvp.count.toLocaleString()} MVPs)`,
+        },
+      ],
+      total: rate,
+      maxValue,
+      markers,
+      valueLabel: <span title={`${mvp.count.toLocaleString()} MVPs`}>{rateLabel}</span>,
+      placeholder: rateLabel,
+    },
+  ];
+}
+
+function formatMvpRate(rate: number): string {
+  const percent = rate * 100;
+  // Sub-1% rates round to "0%" otherwise; keep one decimal so a rare MVP shows.
+  const digits = percent > 0 && percent < 1 ? 1 : 0;
+  return `${percent.toFixed(digits)}%`;
 }
 
 function rateCardFromOverview(
@@ -527,22 +677,38 @@ function assistPercentageRows(
   goals: ScoringRateLike,
   assists: ScoringRateLike,
   playerName: string,
+  teamSize?: number | null,
 ): ComparisonRow[] {
   const teamGoals = goals.count + goals.teammate_count;
   const opponentTeamGoals = goals.opponent_count;
-  const playerPercentage = percentage(assists.count, teamGoals);
-  const teammatePercentage = percentage(assists.teammate_count, teamGoals);
+  // Assist percentage is over goals the cohort could have assisted. For the
+  // individual player that excludes the goals they scored themselves (you can't
+  // assist your own goal), so the denominator is the goals their teammates
+  // scored.
+  const playerAssistableGoals = goals.teammate_count;
+  const playerPercentage = percentage(assists.count, playerAssistableGoals);
+  // The teammate cohort normally keeps the full team-goal denominator: in a pool
+  // a teammate can assist another teammate's goal, so self-scored goals can't be
+  // subtracted cleanly. In 2v2 there is exactly one teammate per game, whose only
+  // assistable goals are the player's own — so the denominator collapses to the
+  // player's goals, mirroring the player row. We only apply that when the whole
+  // set is doubles; mixing in 3v3 would make the player-goals denominator too
+  // small and inflate the percentage.
+  const teammateAssistableGoals = teamSize === 2 ? goals.count : teamGoals;
+  // The opponent cohort is the entire other team, so subtracting their goals
+  // would leave nothing; keep the full opponent-goal denominator.
+  const teammatePercentage = percentage(assists.teammate_count, teammateAssistableGoals);
   const opponentPercentage = percentage(assists.opponent_count, opponentTeamGoals);
   const rows: ComparisonRow[] = [
     percentageComparisonRow({
       cohortKey: "player",
-      denominator: teamGoals,
+      denominator: playerAssistableGoals,
       label: formatPercentage(playerPercentage),
       maxValue: 100,
       numerator: assists.count,
       playerName,
       statName: "Assist percentage",
-      totalName: "assists/team goals",
+      totalName: "assists/assistable goals",
       value: playerPercentage ?? 0,
     }),
   ];
@@ -550,13 +716,13 @@ function assistPercentageRows(
     rows.push(
       percentageComparisonRow({
         cohortKey: "teammates",
-        denominator: teamGoals,
+        denominator: teammateAssistableGoals,
         label: formatPercentage(teammatePercentage),
         maxValue: 100,
         numerator: assists.teammate_count,
         playerName,
         statName: "Assist percentage",
-        totalName: "assists/team goals",
+        totalName: teamSize === 2 ? "assists/your goals" : "assists/team goals",
         value: teammatePercentage ?? 0,
       }),
     );
@@ -631,6 +797,153 @@ function percentageComparisonRow({
     maxValue,
     valueLabel: <span title={`${totalLabel} ${totalName} ${totalKind}`}>{totalLabel} total</span>,
     placeholder: label,
+  };
+}
+
+export type CoreProfileView = "player" | "team";
+
+// The team view pools the player with their teammates into "your team" and
+// compares against the opponent team. We reuse the your-side / their-side cohort
+// colors (player vs opponents) since blue/orange swap game to game.
+type TeamSide = "team" | "opponentTeam";
+
+const TEAM_SIDE_LABEL: Record<TeamSide, string> = {
+  team: "Your team",
+  opponentTeam: "Opponent team",
+};
+
+function teamSideCohortKey(side: TeamSide): CareerCohortKey {
+  return side === "team" ? "player" : "opponents";
+}
+
+function teamRateCard(key: string, title: string, rate: ScoringRateLike, replayCount: number) {
+  return {
+    key,
+    title,
+    rows: teamCountCardRows(
+      title.replace(/\s*\(.*\)\s*$/, ""),
+      rate.count + rate.teammate_count,
+      rate.opponent_count,
+      replayCount,
+    ),
+  };
+}
+
+function teamCountCardRows(
+  statName: string,
+  teamCount: number,
+  opponentTeamCount: number,
+  replayCount: number,
+): ComparisonRow[] {
+  const games = Math.max(1, replayCount);
+  const teamPerGame = teamCount / games;
+  const opponentPerGame = opponentTeamCount / games;
+  const maxValue = Math.max(1, teamPerGame, opponentPerGame);
+  return [
+    teamCountRow("team", statName, teamCount, teamPerGame, maxValue),
+    teamCountRow("opponentTeam", statName, opponentTeamCount, opponentPerGame, maxValue),
+  ];
+}
+
+function teamCountRow(
+  side: TeamSide,
+  statName: string,
+  total: number,
+  perGame: number,
+  maxValue: number,
+): ComparisonRow {
+  const cohortKey = teamSideCohortKey(side);
+  const label = TEAM_SIDE_LABEL[side];
+  const perGameLabel = `${formatRate(perGame)}/game`;
+  const totalLabel = `${total.toLocaleString()} total`;
+  return {
+    key: side,
+    label: (
+      <StatPlayerLabel
+        className={careerCohortClassName(cohortKey)}
+        name={label}
+        platform={null}
+        platformPlayerId={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={`${label} · ${totalLabel}`}
+      />
+    ),
+    ariaLabel: `${label}: ${perGameLabel}`,
+    segments: [
+      {
+        key: "rate",
+        className: careerCohortSegmentClassName(cohortKey),
+        label: statName,
+        value: Math.max(0, perGame),
+        visibleLabel: perGame > 0 ? perGameLabel : undefined,
+        title: `${perGameLabel} (${totalLabel})`,
+      },
+    ],
+    total: Math.max(0, perGame),
+    maxValue,
+    valueLabel: <span title={totalLabel}>{totalLabel}</span>,
+    placeholder: perGameLabel,
+  };
+}
+
+function teamPercentageCardRows(
+  statName: string,
+  totalName: string,
+  teamNumerator: number,
+  teamDenominator: number,
+  opponentNumerator: number,
+  opponentDenominator: number,
+): ComparisonRow[] {
+  return [
+    teamPercentageRow("team", statName, totalName, teamNumerator, teamDenominator),
+    teamPercentageRow("opponentTeam", statName, totalName, opponentNumerator, opponentDenominator),
+  ];
+}
+
+function teamPercentageRow(
+  side: TeamSide,
+  statName: string,
+  totalName: string,
+  numerator: number,
+  denominator: number,
+): ComparisonRow {
+  const cohortKey = teamSideCohortKey(side);
+  const label = TEAM_SIDE_LABEL[side];
+  const pct = percentage(numerator, denominator);
+  const pctLabel = formatPercentage(pct);
+  const totalLabel = `${numerator.toLocaleString()}/${denominator.toLocaleString()}`;
+  const value = pct ?? 0;
+  return {
+    key: side,
+    label: (
+      <StatPlayerLabel
+        className={careerCohortClassName(cohortKey)}
+        name={label}
+        platform={null}
+        platformPlayerId={null}
+        profilePath={null}
+        rank={null}
+        showPlatformBadge={false}
+        subtitle={`${label} · ${totalLabel} total`}
+      />
+    ),
+    ariaLabel: `${label}: ${pctLabel}`,
+    segments: [
+      {
+        key: statName.toLowerCase().replaceAll(" ", "-"),
+        className: careerCohortSegmentClassName(cohortKey),
+        label: statName,
+        value,
+        visibleLabel: value > 0 ? pctLabel : undefined,
+        title: `${pctLabel} (${totalLabel} ${totalName} total)`,
+      },
+    ],
+    total: value,
+    maxValue: 100,
+    valueLabel: <span title={`${totalLabel} ${totalName} total`}>{totalLabel} total</span>,
+    placeholder: pctLabel,
   };
 }
 
@@ -756,33 +1069,35 @@ export function GoalTagSharePanel({
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
 }) {
-  const cards = overview.goal_tags.map((tag) => {
-    const rows = profileRateComparisonRows(
-      {
-        key: tag.kind,
-        displayName: tag.display_name,
-        eventCount: tag.count,
-        perActiveMinute: tag.per_active_minute,
-        teammateEventCount: tag.teammate_count,
-        teammatePerActiveMinute: tag.teammate_per_active_minute,
-        opponentEventCount: tag.opponent_count,
-        opponentPerActiveMinute: tag.opponent_per_active_minute,
-      },
-      playerName,
-    );
-    const title = goalTypeHref ? (
-      <Link
-        className="goal-tag-card-title"
-        to={goalTypeHref(tag.kind)}
-        title={`Watch all ${tag.display_name.toLowerCase()} goals`}
-      >
-        {tag.display_name} (per 5 min)
-      </Link>
-    ) : (
-      `${tag.display_name} (per 5 min)`
-    );
-    return { key: tag.kind, rows, title };
-  });
+  const cards = overview.goal_tags
+    .filter((tag) => !isIgnoredGoalTag(tag.kind))
+    .map((tag) => {
+      const rows = profileRateComparisonRows(
+        {
+          key: tag.kind,
+          displayName: tag.display_name,
+          eventCount: tag.count,
+          perActiveMinute: tag.per_active_minute,
+          teammateEventCount: tag.teammate_count,
+          teammatePerActiveMinute: tag.teammate_per_active_minute,
+          opponentEventCount: tag.opponent_count,
+          opponentPerActiveMinute: tag.opponent_per_active_minute,
+        },
+        playerName,
+      );
+      const title = goalTypeHref ? (
+        <Link
+          className="goal-tag-card-title"
+          to={goalTypeHref(tag.kind)}
+          title={`Watch all ${tag.display_name.toLowerCase()} goals`}
+        >
+          {tag.display_name} (per 5 min)
+        </Link>
+      ) : (
+        `${tag.display_name} (per 5 min)`
+      );
+      return { key: tag.kind, rows, title };
+    });
 
   return (
     <section className="goal-tag-share-panel full-span">
@@ -1727,14 +2042,92 @@ export function PossessionSummaryPanel({
   playerName?: string;
   summary: PossessionSummaryResponse;
 }) {
-  const subjects = possessionProfileSubjects(summary, playerName);
+  const subjects = possessionProfileSubjects(summary, playerName).map(
+    possessionAdvancedProfileSubject,
+  );
+  const teamCharts = summary.team ? teamControlCharts(summary.team) : [];
 
   return (
-    <PossessionAdvancedComparisonGrid
-      className="possession-profile-grid"
-      subjects={subjects.map(possessionAdvancedProfileSubject)}
-    />
+    <div
+      className="stat-comparison-grid possession-profile-grid"
+      aria-label="Possession comparisons"
+    >
+      <PossessionAdvancedCharts charts={teamCharts} />
+      <PossessionAdvancedCharts subjects={subjects} />
+    </div>
   );
+}
+
+interface TeamControlChart {
+  key: string;
+  title: string;
+  rows: ComparisonRow[];
+}
+
+/**
+ * Team-level ball control (possession share, ball half, ball thirds) oriented
+ * to the player's team, rendered as extra cards in the same possession grid so
+ * they ride the global win/loss outcome control like every other stat — each
+ * card shows your-team / neutral / opponents shares.
+ */
+function teamControlCharts(team: PossessionTeamControl): TeamControlChart[] {
+  return [
+    teamControlChart("team-possession-share", "Team possession", team.possession),
+    teamControlChart("ball-half", "Ball half", team.ball_halves),
+    teamControlChart("ball-thirds", "Ball thirds", team.ball_thirds),
+  ];
+}
+
+// Always renders the three buckets (your team / neutral / opponents); with no
+// tracked time they show as 0% so the cards stay visible and discoverable in
+// the possession tab rather than disappearing on empty data.
+function teamControlChart(
+  key: string,
+  title: string,
+  metric: PossessionTeamMetric,
+): TeamControlChart {
+  const total = metric.total_duration_seconds;
+  const buckets =
+    metric.buckets.length > 0
+      ? metric.buckets
+      : [
+          { key: "own", label: "Your team", duration_seconds: 0, share: 0 },
+          { key: "neutral", label: "Neutral", duration_seconds: 0, share: 0 },
+          { key: "opponent", label: "Opponents", duration_seconds: 0, share: 0 },
+        ];
+  const rows: ComparisonRow[] = buckets.map((bucket) => {
+    const share = total > 0 ? bucket.duration_seconds / total : 0;
+    const formatted = formatShare(share);
+    // Seconds in this bucket per 5 minutes of tracked time (share * 5 min).
+    const per5 = careerRateValue(bucket.duration_seconds, total) ?? 0;
+    const per5Label = `${formatDurationSeconds(per5)}/5m`;
+    return {
+      key: `${key}:${bucket.key}`,
+      label: <span className="possession-team-bucket-label">{bucket.label}</span>,
+      ariaLabel: `${bucket.label}: ${per5Label} (${formatted})`,
+      segments: [
+        {
+          key: "value",
+          className: teamControlClass(bucket.key),
+          label: bucket.label,
+          value: share,
+          title: `${bucket.label}: ${per5Label} (${formatted})`,
+        },
+      ],
+      total: share,
+      maxValue: 1,
+      barValue: `${per5Label} · ${formatted}`,
+    };
+  });
+  return { key, title, rows };
+}
+
+// Oriented keys (own_* / opponent_* / neutral*) map to the player's team
+// (blue) vs opponents (orange), reusing the possession-location palette.
+function teamControlClass(key: string): string {
+  if (key.includes("own")) return "possession-location-team-zero";
+  if (key.includes("opponent")) return "possession-location-team-one";
+  return "possession-location-neutral";
 }
 
 interface PossessionProfileSubject {

@@ -26,6 +26,15 @@ fn player_overview_query_parses_player_and_replay_set_filters() {
 }
 
 #[test]
+fn per_replay_rate_divides_by_games_and_guards_empty_sets() {
+    assert_eq!(per_replay_rate(0.0, 0), None);
+    assert_eq!(per_replay_rate(5.0, 0), None);
+    assert_eq!(per_replay_rate(5.0, 10), Some(0.5));
+    // Fair-share expected (e.g. 2 wins worth 1/3 each) over 12 games.
+    assert_eq!(per_replay_rate(2.0 / 3.0, 12), Some((2.0 / 3.0) / 12.0));
+}
+
+#[test]
 fn goal_tag_labels_strip_goal_suffix_and_title_case() {
     assert_eq!(goal_tag_label("aerial_goal"), "Aerial");
     assert_eq!(goal_tag_label("flip_reset_goal"), "Flip Reset");

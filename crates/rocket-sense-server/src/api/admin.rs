@@ -55,7 +55,12 @@ pub fn router() -> Router<AppState> {
             "/admin/stats/backfill-possession",
             post(backfill_possession),
         )
+        .route(
+            "/admin/stats/backfill-team-control",
+            post(backfill_team_control),
+        )
         .route("/admin/stats/backfill-boost", post(backfill_boost))
+        .route("/admin/stats/backfill-kickoff", post(backfill_kickoff))
         .route(
             "/admin/stats/refresh-rank-benchmarks",
             post(refresh_rank_benchmarks),
@@ -63,6 +68,15 @@ pub fn router() -> Router<AppState> {
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct BackfillMovementQuery {
+    /// Re-materialize every canonical replay, refreshing existing rows instead
+    /// of only filling replays that have no movement rows yet. Required to pick
+    /// up materialization SQL changes for already-processed replays.
+    #[serde(default)]
+    pub recompute: bool,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -616,11 +630,16 @@ pub async fn backfill_positioning(
 }
 
 /// Populate `player_replay_movement` from existing events for every canonical
-/// replay missing rows. Runs in the background and is resumable.
+/// replay missing rows. Runs in the background and is resumable. Pass
+/// `?recompute=true` to refresh existing rows (e.g. after materialization SQL
+/// changes) instead of only filling replays without rows.
 #[utoipa::path(
     post,
     path = "/api/v1/admin/stats/backfill-movement",
     tag = "admin",
+    params(
+        ("recompute" = Option<bool>, Query, description = "Re-materialize every canonical replay, refreshing existing rows")
+    ),
     responses(
         (status = 200, description = "Movement backfill started", body = BackfillEventCountsResponse),
         (status = 401, description = "Not authenticated"),
@@ -631,13 +650,17 @@ pub async fn backfill_positioning(
 pub async fn backfill_movement(
     auth_user: AuthUser,
     State(state): State<AppState>,
+    Query(query): Query<BackfillMovementQuery>,
 ) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
     let pool = require_db(&state)?;
     require_admin(&state, &auth_user).await?;
     let pool = pool.clone();
+    let recompute = query.recompute;
     tokio::spawn(async move {
-        match crate::processing::backfill_player_replay_movement(&pool).await {
-            Ok(backfilled) => tracing::info!(backfilled, "movement backfill task finished"),
+        match crate::processing::backfill_player_replay_movement(&pool, recompute).await {
+            Ok(backfilled) => {
+                tracing::info!(backfilled, recompute, "movement backfill task finished")
+            }
             Err(error) => tracing::error!(?error, "movement backfill task failed"),
         }
     });
@@ -710,6 +733,37 @@ pub async fn backfill_possession(
     }))
 }
 
+/// Populate `replay_team_control` from existing events for every canonical
+/// replay missing a row. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-team-control",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Team control backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_team_control(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_replay_team_control(&pool).await {
+            Ok(backfilled) => tracing::info!(backfilled, "team control backfill task finished"),
+            Err(error) => tracing::error!(?error, "team control backfill task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
 /// Populate `player_replay_boost` from existing tracks + events for every
 /// canonical replay missing rows. Runs in the background and is resumable.
 #[utoipa::path(
@@ -767,6 +821,37 @@ pub async fn refresh_rank_benchmarks(
         match crate::processing::refresh_rank_benchmark(&pool, &windows, calc).await {
             Ok(refreshed) => tracing::info!(refreshed, "rank benchmark refresh task finished"),
             Err(error) => tracing::error!(?error, "rank benchmark refresh task failed"),
+        }
+    });
+    Ok(Json(BackfillEventCountsResponse {
+        status: "started".to_owned(),
+    }))
+}
+
+/// Populate `player_replay_kickoff` from existing kickoff details for every
+/// canonical replay missing rows. Runs in the background and is resumable.
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/stats/backfill-kickoff",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Kickoff backfill started", body = BackfillEventCountsResponse),
+        (status = 401, description = "Not authenticated"),
+        (status = 403, description = "Not an admin"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn backfill_kickoff(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<BackfillEventCountsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let pool = pool.clone();
+    tokio::spawn(async move {
+        match crate::processing::backfill_player_replay_kickoff(&pool).await {
+            Ok(backfilled) => tracing::info!(backfilled, "kickoff backfill task finished"),
+            Err(error) => tracing::error!(?error, "kickoff backfill task failed"),
         }
     });
     Ok(Json(BackfillEventCountsResponse {

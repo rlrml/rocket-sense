@@ -17,6 +17,7 @@ mod replay_set;
 mod replays;
 mod spa;
 mod stats;
+mod users;
 
 /// Reused by `crate::processing` to key the rank-median benchmark population on
 /// the exact same playlist-group expression the read path filters by (a
@@ -68,6 +69,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(players::router())
         .merge(replays::router())
         .merge(stats::router())
+        .merge(users::router())
         .with_state(state)
 }
 

@@ -1,6 +1,7 @@
 import type {
   AccessTokenResponse,
   AuthOptionsResponse,
+  BoostPadControlResponse,
   BoostTracksResponse,
   CurrentUserResponse,
   EventStatSummaryResponse,
@@ -30,6 +31,7 @@ import type {
   StatAggregateSetResponse,
   PossessionSummaryResponse,
   PositioningSummaryResponse,
+  UserProfileResponse,
 } from "./types";
 
 const tokenKey = "rocket_sense_access_token";
@@ -110,6 +112,10 @@ export function listReplays(searchParams: URLSearchParams): Promise<ListReplaysR
     cacheReplays(response.replays);
     return response;
   });
+}
+
+export function getUserProfile(userId: string): Promise<UserProfileResponse> {
+  return request<UserProfileResponse>(`/api/v1/users/${encodeURIComponent(userId)}`);
 }
 
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {
@@ -313,6 +319,17 @@ export function getReplayGroupStatAggregates(groupId: string): Promise<StatAggre
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
 }
 
+// Stat reads default to the materialized tables (fast). The server also defaults
+// to materializing, but asserting it client-side keeps the UI fast regardless of
+// the server's ROCKET_SENSE_MATERIALIZED_STAT_COUNTS setting. An explicit
+// `materialized=false` (e.g. the admin live-recompute toggle) always wins.
+function withMaterializedStatsDefault(params: URLSearchParams): URLSearchParams {
+  if (!params.has("materialized")) {
+    params.set("materialized", "true");
+  }
+  return params;
+}
+
 export function getPlayerStatAggregates(
   platform: string,
   platformPlayerId: string,
@@ -336,6 +353,7 @@ export function getPlayerStatAggregates(
   for (const term of statTerms) {
     params.append("stat-term", term);
   }
+  withMaterializedStatsDefault(params);
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
 }
 
@@ -362,6 +380,7 @@ export function getPlayerStatOverview(
 ): Promise<PlayerStatOverviewResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
+  withMaterializedStatsDefault(params);
   return request<PlayerStatOverviewResponse>(`/api/v1/stats/player-overview?${params.toString()}`);
 }
 
@@ -377,6 +396,7 @@ export function getPlayerKickoffSummary(
     params.set("role", role);
   }
   params.set("include-samples", "false");
+  withMaterializedStatsDefault(params);
   return request<EventStatSummaryResponse>(
     `/api/v1/stats/events/kickoff/summary?${params.toString()}`,
   );
@@ -389,6 +409,7 @@ export function getPlayerPossessionSummary(
 ): Promise<PossessionSummaryResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
+  withMaterializedStatsDefault(params);
   return request<PossessionSummaryResponse>(
     `/api/v1/stats/possession/summary?${params.toString()}`,
   );
@@ -401,6 +422,7 @@ export function getPlayerPositioningSummary(
 ): Promise<PositioningSummaryResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
+  withMaterializedStatsDefault(params);
   return request<PositioningSummaryResponse>(
     `/api/v1/stats/positioning/summary?${params.toString()}`,
   );
@@ -413,6 +435,7 @@ export function getPlayerMovementSummary(
 ): Promise<MovementSummaryResponse> {
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
+  withMaterializedStatsDefault(params);
   return request<MovementSummaryResponse>(`/api/v1/stats/movement/summary?${params.toString()}`);
 }
 
@@ -561,7 +584,19 @@ export function getPlayerBoostTotals(
   const params = new URLSearchParams(searchParams);
   params.set("player-id", `${platform}:${platformPlayerId}`);
   params.set("include-teammates", "true");
+  withMaterializedStatsDefault(params);
   return request<PlayerBoostTotalsResponse>(`/api/v1/stats/boost-totals?${params.toString()}`);
+}
+
+export function getPlayerBoostPadControl(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<BoostPadControlResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  params.set("include-teammates", "true");
+  return request<BoostPadControlResponse>(`/api/v1/stats/boost-pad-control?${params.toString()}`);
 }
 
 export function getPlayerProfile(

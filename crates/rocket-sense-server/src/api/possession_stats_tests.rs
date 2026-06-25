@@ -63,6 +63,64 @@ fn field_thirds_orient_to_player_side_when_player_team_is_known() {
 }
 
 #[test]
+fn team_metrics_orient_raw_values_to_player_team() {
+    // Possession share.
+    assert_eq!(
+        TeamMetricKind::Possession.orient("team_zero", Some(0)),
+        Some("own_team")
+    );
+    assert_eq!(
+        TeamMetricKind::Possession.orient("team_zero", Some(1)),
+        Some("opponent_team")
+    );
+    assert_eq!(
+        TeamMetricKind::Possession.orient("team_one", Some(1)),
+        Some("own_team")
+    );
+    assert_eq!(
+        TeamMetricKind::Possession.orient("neutral", Some(0)),
+        Some("neutral")
+    );
+    // Ball half.
+    assert_eq!(
+        TeamMetricKind::BallHalf.orient("team_one_side", Some(0)),
+        Some("opponent_side")
+    );
+    assert_eq!(
+        TeamMetricKind::BallHalf.orient("team_one_side", Some(1)),
+        Some("own_side")
+    );
+    // Ball thirds.
+    assert_eq!(
+        TeamMetricKind::BallThird.orient("team_zero_third", Some(1)),
+        Some("opponent_third")
+    );
+    assert_eq!(
+        TeamMetricKind::BallThird.orient("neutral_third", Some(0)),
+        Some("neutral_third")
+    );
+    // Unknown team or unrecognized values drop out.
+    assert_eq!(TeamMetricKind::Possession.orient("team_zero", None), None);
+    assert_eq!(TeamMetricKind::BallHalf.orient("garbage", Some(0)), None);
+}
+
+#[test]
+fn team_metric_slots_preserve_bucket_order_and_share() {
+    let mut accumulator = TeamControlAccumulator::new();
+    accumulator.add(TeamMetricKind::BallHalf, "own_side", 3.0);
+    accumulator.add(TeamMetricKind::BallHalf, "opponent_side", 1.0);
+    let control = accumulator.into_control();
+
+    let halves = control.ball_halves;
+    assert_eq!(halves.total_duration_seconds, 4.0);
+    let keys: Vec<_> = halves.buckets.iter().map(|b| b.key.as_str()).collect();
+    assert_eq!(keys, vec!["own_side", "neutral", "opponent_side"]);
+    assert_eq!(halves.buckets[0].label, "Your half");
+    assert_eq!(halves.buckets[0].share, Some(0.75));
+    assert_eq!(halves.buckets[1].duration_seconds, 0.0);
+}
+
+#[test]
 fn possession_time_bucket_computes_share() {
     let bucket = possession_time_bucket("own_side", "Own half", 2.0, 5.0);
     assert_eq!(bucket.key, "own_side");

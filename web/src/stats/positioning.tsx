@@ -617,8 +617,7 @@ function PositioningDistanceChart({
       ],
       total: metric,
       maxValue: max,
-      valueInBar: metric > 0 ? format(metric) : undefined,
-      placeholder: metric > 0 ? undefined : format(metric),
+      barValue: format(metric),
     };
   });
 

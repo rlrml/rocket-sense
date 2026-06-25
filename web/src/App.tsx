@@ -35,7 +35,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { FormEvent, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -125,6 +125,7 @@ import {
   KickoffSummaryPanel,
   PossessionSummaryPanel,
   CoreProfileComparison,
+  type CoreProfileView,
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
@@ -152,6 +153,7 @@ import type {
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
+  ReplayUploaderResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "./types";
@@ -169,6 +171,9 @@ const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
 const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
 );
+const UserProfilePage = lazyWithChunkLoadRecovery(() =>
+  import("./UserProfilePage").then((module) => ({ default: module.UserProfilePage })),
+);
 
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
@@ -179,9 +184,13 @@ const navItems = [
   { to: "/about", label: "About", icon: Info },
 ];
 
-// Mirror the per-replay game stats: only show completed groups (Mechanics /
-// Touches / Rotation are hidden pending a rewrite — see stats/registry.tsx).
-const playerStatsSectionGroups: StatGroup[] = completedStatGroups;
+const replayStatsSectionGroups: StatGroup[] = completedStatGroups;
+const aggregateStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
+  (group) => group.id !== "shot-map",
+);
+// Mirror the aggregate-safe game stats: only show completed groups (Mechanics /
+// Rotation are hidden pending a rewrite — see stats/registry.tsx).
+const playerStatsSectionGroups: StatGroup[] = aggregateStatsSectionGroups;
 
 export function App() {
   const location = useLocation();
@@ -290,6 +299,14 @@ export function App() {
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <LeaderboardsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/users/:userId"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <UserProfilePage />
               </Suspense>
             }
           />
@@ -902,11 +919,7 @@ function ReplayListPage() {
                   <ReplayLink className="primary-link" replayId={replay.id}>
                     {replay.original_file_name || replay.id}
                   </ReplayLink>
-                  <span className="subtle">
-                    {replay.map_code ||
-                      replay.summary.match_guid ||
-                      replay.file_sha256.slice(0, 12)}
-                  </span>
+                  <UploaderPill uploader={replay.uploaded_by} />
                 </div>
               </div>
               <div className="replay-card-meta">
@@ -1375,6 +1388,29 @@ function filterValueLabel(key: string, value: string): string {
   if (key === "playlist") return playlistLabel(null, value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
+}
+
+// A pill identifying who uploaded the replay, badged with the platform/provider
+// glyph for the auth account they signed in with (Steam, Epic, Xbox, Google, ...).
+function UploaderPill({ uploader }: { uploader: ReplayUploaderResponse | null }) {
+  if (!uploader) {
+    return (
+      <Chip tone="muted" title="No uploader on record">
+        Unknown uploader
+      </Chip>
+    );
+  }
+  const name =
+    uploader.display_name?.trim() || uploader.primary_email?.trim() || "Unknown uploader";
+  const title = uploader.provider
+    ? `Uploaded by ${name} via ${providerLabel(uploader.provider)}`
+    : `Uploaded by ${name}`;
+  return (
+    <Chip tone="slate" className="uploader-pill" title={title}>
+      {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
+      <span className="uploader-pill-name">{name}</span>
+    </Chip>
+  );
 }
 
 // One small badge per game-type parameter: competitive context
@@ -2071,7 +2107,7 @@ function ReplayStatsPage() {
   const [eventsError, setEventsError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
-    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, replayStatsSectionGroups) ?? replayStatsSectionGroups[0],
     [statGroup],
   );
 
@@ -2302,7 +2338,7 @@ function ReplayStatsPage() {
           </div>
 
           <nav className="stat-group-nav" aria-label="Stat groups">
-            {completedStatGroups.map((group) => {
+            {replayStatsSectionGroups.map((group) => {
               const Icon = group.icon;
               return (
                 <Link
@@ -2366,7 +2402,7 @@ function ReplayStatsPage() {
 function ReplayGroupStatsPage() {
   const { groupId = "", statGroup } = useParams();
   const activeGroup = useMemo(
-    () => statGroupById(statGroup, completedStatGroups) ?? completedStatGroups[0],
+    () => statGroupById(statGroup, aggregateStatsSectionGroups) ?? aggregateStatsSectionGroups[0],
     [statGroup],
   );
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
@@ -2525,7 +2561,7 @@ function ReplayGroupStatsPage() {
           ) : null}
 
           <nav className="stat-group-nav" aria-label="Group stat sections">
-            {completedStatGroups.map((section) => {
+            {aggregateStatsSectionGroups.map((section) => {
               const Icon = section.icon;
               return (
                 <Link
@@ -3201,6 +3237,7 @@ type PlayerSupplementalErrorState = {
 function PlayerStatsPage() {
   const { platform = "", platformPlayerId, playerName, statGroup } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const routePlayerRef = platformPlayerId ?? playerName ?? "";
   const routeUsesExplicitId = platformPlayerId != null;
   const routeBasePath = routeUsesExplicitId
@@ -3228,6 +3265,15 @@ function PlayerStatsPage() {
     () => statGroupById(statGroup, playerStatsSectionGroups) ?? playerStatsSectionGroups[0]!,
     [statGroup],
   );
+  // Mirror the section + segment filters in the address bar so the current view
+  // is always shareable, even before the first nav click writes them explicitly.
+  useEffect(() => {
+    const canonical = canonicalPlayerStatsPath(routeBasePath, activeGroup.id, location.search);
+    const current = `${location.pathname}${location.search}`;
+    if (current !== canonical) {
+      navigate(canonical, { replace: true });
+    }
+  }, [activeGroup.id, location.pathname, location.search, navigate, routeBasePath]);
   const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({
     scope: "",
     groups: {},
@@ -3275,7 +3321,6 @@ function PlayerStatsPage() {
     supplementalLoading.scope === statsScope ? supplementalLoading.loading : {};
   const scopedSupplementalErrors =
     supplementalErrors.scope === statsScope ? supplementalErrors.errors : {};
-  const loadedSupplementalKeys = Object.keys(scopedSupplementalLoaded).sort().join("|");
   const activeSupplementalKeys = useMemo(
     () => playerSupplementalKeysForGroup(activeGroup.id),
     [activeGroup.id],
@@ -3497,7 +3542,6 @@ function PlayerStatsPage() {
     activeGroup.id,
     activeSupplementalKeyList,
     hasResolvedPlayer,
-    loadedSupplementalKeys,
     playerStatsSearch,
     resolvedPlatform,
     resolvedPlatformPlayerId,
@@ -3664,6 +3708,25 @@ function stripKickoffSpawnParams(params: URLSearchParams): URLSearchParams {
   return params;
 }
 
+// The fully explicit URL for the section + segment filters currently in view.
+// The section nav and segment bar already write these on interaction, but the
+// initial render falls back to implicit defaults (e.g. Core / 2v2 / Ranked with
+// a bare `…/stats` URL). Normalizing to this path keeps the address bar an exact
+// mirror of what's on screen, so any view is shareable from first load.
+function canonicalPlayerStatsPath(routeBasePath: string, groupId: string, search: string): string {
+  const params = new URLSearchParams(search);
+  if (groupId !== "kickoffs") {
+    stripKickoffSpawnParams(params);
+  }
+  const teamSize = playerSegmentValue(params, "team-size");
+  params.set("team-size", teamSize === "" ? allPlayerTeamSizes : teamSize);
+  const gameType = playerSegmentValue(params, "game-type");
+  params.set("game-type", gameType === "" ? anyPlayerGameType : gameType);
+  const query = params.toString();
+  const path = `${routeBasePath}/stats/${encodeURIComponent(groupId)}`;
+  return query ? `${path}?${query}` : path;
+}
+
 function playerAggregateSearchParams(groupId: string, search: string): URLSearchParams {
   const params = new URLSearchParams(search);
   return groupId === "kickoffs" ? params : stripKickoffSpawnParams(params);
@@ -3777,12 +3840,10 @@ function fetchPlayerSupplemental(
     return getPlayerKickoffSummary(platform, platformPlayerId, params, "support");
   }
   if (key === "kickoffFilter") {
-    return getPlayerKickoffSummary(
-      platform,
-      platformPlayerId,
-      stripKickoffSpawnParams(params),
-      "taker",
-    );
+    // This summary powers the spawn-shape controls. Keep it role-neutral so
+    // support appearances still contribute to the available kickoff types; the
+    // taker/support panels above fetch their own role-scoped summaries.
+    return getPlayerKickoffSummary(platform, platformPlayerId, stripKickoffSpawnParams(params));
   }
   if (key === "positioningSummary") {
     return getPlayerPositioningSummary(platform, platformPlayerId, params);
@@ -4010,6 +4071,45 @@ function playerStatsRequestSearchParams(search: string): URLSearchParams {
   return params;
 }
 
+// Link a goal-tag panel to the embedded goal playlist, carrying the active stats
+// filter context (playlist, game mode, dates, …) so the in-page player shows the
+// same goals the rates were computed from. The playlist itself filters by the
+// goal `kind` client-side, so only the replay/match filters need to ride along.
+function playerGoalPlaylistHref(
+  routeBasePath: string,
+  search: string,
+  options: { goalTag?: string } = {},
+): string {
+  const source = stripKickoffSpawnParams(new URLSearchParams(search));
+  const params = new URLSearchParams();
+  for (const key of [
+    "q",
+    "title",
+    "playlist",
+    "game-mode",
+    "game-type",
+    "team-size",
+    "map",
+    "pro",
+    "uploader",
+    "group",
+    "project",
+    "created-after",
+    "created-before",
+    "replay-date-after",
+    "replay-date-before",
+  ]) {
+    for (const value of source.getAll(key)) {
+      if (value) params.append(key, value);
+    }
+  }
+  const base = options.goalTag
+    ? `${routeBasePath}/goals/${encodeURIComponent(options.goalTag)}`
+    : `${routeBasePath}/goals`;
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 function playerSegmentValue(params: URLSearchParams, key: "team-size" | "game-type"): string {
   const value = params.get(key);
   if (key === "team-size") {
@@ -4051,6 +4151,31 @@ function outcomeSplitParamPath(pathname: string, search: string, enabled: boolea
 function playerOutcomeSplitEnabled(search: string): boolean {
   const value = new URLSearchParams(search).get("split-outcome");
   return value === "true" || value === "1" || value === "wins-losses";
+}
+
+// Whether the stat views should read from the materialized tables. The server
+// default materializes, so a bare URL (no `materialized` param) reads as enabled;
+// only an explicit opt-out forces a live recompute from events.
+function materializedStatsEnabled(search: string): boolean {
+  const value = new URLSearchParams(search).get("materialized");
+  if (value == null) {
+    return true;
+  }
+  return value !== "false" && value !== "0";
+}
+
+// Toggle the `materialized` param in the URL. Enabling drops the param to keep
+// URLs clean (the server default re-materializes); disabling pins `false` so the
+// override is explicit and shareable.
+function materializedStatsParamPath(pathname: string, search: string, enabled: boolean): string {
+  const params = new URLSearchParams(search);
+  if (enabled) {
+    params.delete("materialized");
+  } else {
+    params.set("materialized", "false");
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
 }
 
 function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): string {
@@ -4166,6 +4291,8 @@ function PlayerAggregateStatsSections({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = useCurrentUser();
+  const materializedEnabled = materializedStatsEnabled(location.search);
   const sectionStats = filterStatsForGroup(stats.stats, activeGroup)
     .slice()
     .sort(comparePlayerStatRates);
@@ -4174,9 +4301,13 @@ function PlayerAggregateStatsSections({
   const requestSearch = playerStatsRequestSearchParams(search).toString();
   const kickoffShapeFilter = kickoffShapeFilterFromSearch(search);
   const kickoffSideFilter = kickoffSideFilterFromSearch(search);
-  const kickoffSpawnDimension = kickoffFilterSummary?.dimensions.find(
-    (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
-  );
+  const kickoffSpawnDimension =
+    kickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "kickoff_type" && dimension.values.length > 0,
+    ) ??
+    kickoffFilterSummary?.dimensions.find(
+      (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
+    );
   const setKickoffFilter = (key: "kickoff-shape" | "kickoff-side", value: string) => {
     const params = new URLSearchParams(location.search);
     if (value === "all") {
@@ -4187,20 +4318,12 @@ function PlayerAggregateStatsSections({
     const query = params.toString();
     navigate(query ? `${location.pathname}?${query}` : location.pathname);
   };
-  const setRankBenchmarkParam = (
-    key: "rank-benchmark-tier" | "rank-benchmark-window",
-    value: string | null,
-  ) => {
-    const params = new URLSearchParams(location.search);
-    if (value == null || value === "") {
-      params.delete(key);
-    } else {
-      params.set(key, value);
-    }
-    const query = params.toString();
-    navigate(query ? `${location.pathname}?${query}` : location.pathname);
-  };
   const splitOutcome = playerOutcomeSplitEnabled(search);
+  // Per-sub-page Player/Team view toggle (pilot: Core). Local state so it mirrors
+  // the existing per-stat touches/boost/possession toggles; the closure below
+  // applies it to both the combined and the wins/losses-split renders.
+  const [coreView, setCoreView] = useState<CoreProfileView>("player");
+  const showCoreViewToggle = activeGroup.id === "core" && overview?.team_size !== 1;
   const outcomeState = usePlayerOutcomeStatBundles({
     activeGroup,
     enabled: splitOutcome,
@@ -4209,19 +4332,7 @@ function PlayerAggregateStatsSections({
     search,
   });
 
-  function renderStatsContent({
-    contentKickoffFilterSummary,
-    contentKickoffSupportSummary,
-    contentKickoffTakerSummary,
-    contentMovementSummary,
-    contentOverview,
-    contentPossessionSummary,
-    contentPositioningSummary,
-    contentSearch,
-    contentStats,
-    contentSupplementalError,
-    contentSupplementalLoading,
-  }: {
+  type StatsContentInputs = {
     contentKickoffFilterSummary: EventStatSummaryResponse | null;
     contentKickoffSupportSummary: EventStatSummaryResponse | null;
     contentKickoffTakerSummary: EventStatSummaryResponse | null;
@@ -4233,7 +4344,24 @@ function PlayerAggregateStatsSections({
     contentStats: StatAggregateSetResponse;
     contentSupplementalError: string | null;
     contentSupplementalLoading: boolean;
-  }) {
+  };
+
+  // Each stat section is composed of several heterogeneous panels. We build them
+  // as a keyed list so the combined view can render them in order, and the
+  // wins/losses split can pair the same panel for each outcome side by side.
+  function buildStatsPanels({
+    contentKickoffFilterSummary,
+    contentKickoffSupportSummary,
+    contentKickoffTakerSummary,
+    contentMovementSummary,
+    contentOverview,
+    contentPossessionSummary,
+    contentPositioningSummary,
+    contentSearch,
+    contentStats,
+    contentSupplementalError,
+    contentSupplementalLoading,
+  }: StatsContentInputs): Array<{ key: string; node: ReactNode }> {
     const contentSectionStats = filterStatsForGroup(contentStats.stats, activeGroup)
       .slice()
       .sort(comparePlayerStatRates);
@@ -4242,162 +4370,188 @@ function PlayerAggregateStatsSections({
       (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
     );
 
-    const rankBenchmarkTiers = contentStats.rank_benchmark_available_tiers ?? [];
-    const rankBenchmarkWindows = contentStats.rank_benchmark_available_windows ?? [];
-    const showRankBenchmarkPickers =
-      rankBenchmarkTiers.length > 0 || rankBenchmarkWindows.length > 1;
+    const panels: Array<{ key: string; node: ReactNode }> = [];
+    const add = (key: string, node: ReactNode) => panels.push({ key, node });
 
+    if (activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome) {
+      add(
+        "kickoff-spawn",
+        <KickoffSpawnBreakdown
+          dimension={contentKickoffSpawnDimension}
+          shapeFilter={kickoffShapeFilter}
+          sideFilter={kickoffSideFilter}
+          onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
+          onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
+        />,
+      );
+    }
+
+    if (
+      activeGroup.id !== "kickoffs" &&
+      activeGroup.id !== "boost" &&
+      activeGroup.id !== "core" &&
+      activeGroup.id !== "goals" &&
+      activeGroup.id !== "movement" &&
+      activeGroup.id !== "possession" &&
+      activeGroup.id !== "positioning" &&
+      activeGroup.id !== "rotation" &&
+      activeGroup.id !== "touches"
+    ) {
+      add(
+        "rate-comparison",
+        <PlayerRateComparisonChart
+          playerName={playerName}
+          stats={contentTopStats}
+          rankBenchmark={{
+            tierLabel: contentStats.rank_benchmark_tier_label,
+            windowLabel: contentStats.rank_benchmark_window_label,
+          }}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "boost") {
+      add(
+        "boost-profile",
+        <BoostProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "core" && contentOverview) {
+      add(
+        "core-profile",
+        <CoreProfileComparison
+          overview={contentOverview}
+          playerName={playerName}
+          stats={contentSectionStats}
+          view={coreView}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "movement" && contentMovementSummary) {
+      add(
+        "movement-cohorts",
+        <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />,
+      );
+    }
+    if (activeGroup.id === "movement" && contentSupplementalLoading) {
+      add("movement-loading", <SupplementalLoadingNotice label="Movement comparisons" />);
+    }
+    if (activeGroup.id === "movement" && contentSupplementalError) {
+      add(
+        "movement-error",
+        <ApiNotice label="Movement comparisons" message={contentSupplementalError} />,
+      );
+    }
+
+    if (activeGroup.id === "goals" && contentOverview) {
+      add(
+        "goal-share",
+        <GoalTagSharePanel
+          overview={contentOverview}
+          playerName={playerName}
+          goalTypeHref={(kind) =>
+            playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
+          }
+          allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
+        />,
+      );
+    }
+    if (activeGroup.id === "goals" && contentSupplementalLoading) {
+      add("goal-loading", <SupplementalLoadingNotice label="Goal types" />);
+    }
+    if (activeGroup.id === "goals" && contentSupplementalError) {
+      add("goal-error", <ApiNotice label="Goal types" message={contentSupplementalError} />);
+    }
+
+    if (activeGroup.id === "kickoffs" && contentKickoffTakerSummary) {
+      add(
+        "kickoff-taker",
+        <KickoffSummaryPanel role="taker" summary={contentKickoffTakerSummary} />,
+      );
+    }
+    if (activeGroup.id === "kickoffs" && contentKickoffSupportSummary) {
+      add(
+        "kickoff-support",
+        <KickoffSummaryPanel role="support" summary={contentKickoffSupportSummary} />,
+      );
+    }
+
+    if (activeGroup.id === "possession" && contentPossessionSummary) {
+      add(
+        "possession-summary",
+        <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />,
+      );
+    }
+    if (activeGroup.id === "possession" && contentSupplementalLoading) {
+      add("possession-loading", <SupplementalLoadingNotice label="Possession comparisons" />);
+    }
+    if (activeGroup.id === "possession" && contentSupplementalError) {
+      add(
+        "possession-error",
+        <ApiNotice label="Possession comparisons" message={contentSupplementalError} />,
+      );
+    }
+
+    if (activeGroup.id === "touches" && contentStats.touch_breakdown) {
+      add(
+        "touch-profile",
+        <TouchProfileComparison breakdown={contentStats.touch_breakdown} playerName={playerName} />,
+      );
+    }
+
+    if (activeGroup.id === "positioning" && contentPositioningSummary) {
+      add(
+        "positioning-cohorts",
+        <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />,
+      );
+    }
+    if ((activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview) {
+      add(
+        "rotation-share",
+        <RotationTimeSharePanel
+          overview={contentOverview}
+          playerName={playerName}
+          stats={contentStats}
+        />,
+      );
+    }
+
+    return panels;
+  }
+
+  function renderStatsContent(inputs: StatsContentInputs) {
     return (
       <>
-        {showRankBenchmarkPickers ? (
-          <div className="rank-benchmark-pickers">
-            {rankBenchmarkTiers.length > 0 ? (
-              <label className="rank-benchmark-picker">
-                <span className="rank-benchmark-picker-label">Rank median</span>
-                <select
-                  value={
-                    contentStats.rank_benchmark_is_player_default === false &&
-                    contentStats.rank_benchmark_tier != null
-                      ? String(contentStats.rank_benchmark_tier)
-                      : ""
-                  }
-                  onChange={(event) =>
-                    setRankBenchmarkParam("rank-benchmark-tier", event.target.value || null)
-                  }
-                >
-                  <option value="">Your rank{`${" "}(default)`}</option>
-                  {rankBenchmarkTiers.map((option) => (
-                    <option key={option.tier} value={String(option.tier)}>
-                      {option.label} ({option.distinct_player_count.toLocaleString()})
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-            {rankBenchmarkWindows.length > 1 ? (
-              <label className="rank-benchmark-picker">
-                <span className="rank-benchmark-picker-label">Window</span>
-                <select
-                  value={contentStats.rank_benchmark_window ?? ""}
-                  onChange={(event) =>
-                    setRankBenchmarkParam("rank-benchmark-window", event.target.value || null)
-                  }
-                >
-                  {rankBenchmarkWindows.map((option) => (
-                    <option key={option.key} value={option.key}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : null}
-          </div>
-        ) : null}
-
-        {activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome ? (
-          <KickoffSpawnBreakdown
-            dimension={contentKickoffSpawnDimension}
-            shapeFilter={kickoffShapeFilter}
-            sideFilter={kickoffSideFilter}
-            onShapeFilterChange={(value) => setKickoffFilter("kickoff-shape", value)}
-            onSideFilterChange={(value) => setKickoffFilter("kickoff-side", value)}
-          />
-        ) : null}
-
-        {activeGroup.id === "kickoffs" ||
-        activeGroup.id === "boost" ||
-        activeGroup.id === "core" ||
-        activeGroup.id === "goals" ||
-        activeGroup.id === "movement" ||
-        activeGroup.id === "possession" ||
-        activeGroup.id === "positioning" ||
-        activeGroup.id === "rotation" ||
-        activeGroup.id === "touches" ? null : (
-          <PlayerRateComparisonChart
-            playerName={playerName}
-            stats={contentTopStats}
-            rankBenchmark={{
-              tierLabel: contentStats.rank_benchmark_tier_label,
-              windowLabel: contentStats.rank_benchmark_window_label,
-            }}
-          />
-        )}
-
-        {activeGroup.id === "boost" ? (
-          <BoostProfileDetail
-            platform={platform}
-            platformPlayerId={platformPlayerId}
-            playerName={playerName}
-            search={contentSearch}
-          />
-        ) : null}
-
-        {activeGroup.id === "core" && contentOverview ? (
-          <CoreProfileComparison
-            overview={contentOverview}
-            playerName={playerName}
-            stats={contentSectionStats}
-          />
-        ) : null}
-
-        {activeGroup.id === "movement" && contentMovementSummary ? (
-          <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />
-        ) : null}
-        {activeGroup.id === "movement" && contentSupplementalLoading ? (
-          <SupplementalLoadingNotice label="Movement comparisons" />
-        ) : null}
-        {activeGroup.id === "movement" && contentSupplementalError ? (
-          <ApiNotice label="Movement comparisons" message={contentSupplementalError} />
-        ) : null}
-
-        {activeGroup.id === "goals" && contentOverview ? (
-          <GoalTagSharePanel
-            overview={contentOverview}
-            playerName={playerName}
-            goalTypeHref={(kind) => `${routeBasePath}/goals/${encodeURIComponent(kind)}`}
-            allGoalsHref={`${routeBasePath}/goals`}
-          />
-        ) : null}
-        {activeGroup.id === "goals" && contentSupplementalLoading ? (
-          <SupplementalLoadingNotice label="Goal types" />
-        ) : null}
-        {activeGroup.id === "goals" && contentSupplementalError ? (
-          <ApiNotice label="Goal types" message={contentSupplementalError} />
-        ) : null}
-        {activeGroup.id === "kickoffs" && contentKickoffTakerSummary ? (
-          <KickoffSummaryPanel role="taker" summary={contentKickoffTakerSummary} />
-        ) : null}
-        {activeGroup.id === "kickoffs" && contentKickoffSupportSummary ? (
-          <KickoffSummaryPanel role="support" summary={contentKickoffSupportSummary} />
-        ) : null}
-        {activeGroup.id === "possession" && contentPossessionSummary ? (
-          <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />
-        ) : null}
-        {activeGroup.id === "possession" && contentSupplementalLoading ? (
-          <SupplementalLoadingNotice label="Possession comparisons" />
-        ) : null}
-        {activeGroup.id === "possession" && contentSupplementalError ? (
-          <ApiNotice label="Possession comparisons" message={contentSupplementalError} />
-        ) : null}
-        {activeGroup.id === "touches" && contentStats.touch_breakdown ? (
-          <TouchProfileComparison
-            breakdown={contentStats.touch_breakdown}
-            playerName={playerName}
-          />
-        ) : null}
-        {activeGroup.id === "positioning" && contentPositioningSummary ? (
-          <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />
-        ) : null}
-        {(activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview ? (
-          <RotationTimeSharePanel
-            overview={contentOverview}
-            playerName={playerName}
-            stats={contentStats}
-          />
-        ) : null}
+        {buildStatsPanels(inputs).map((panel) => (
+          <Fragment key={panel.key}>{panel.node}</Fragment>
+        ))}
       </>
     );
   }
+
+  const outcomeBundleInputs = (bundle: PlayerStatsOutcomeBundle): StatsContentInputs | null =>
+    bundle.stats
+      ? {
+          contentKickoffFilterSummary: bundle.kickoffFilterSummary,
+          contentKickoffSupportSummary: bundle.kickoffSupportSummary,
+          contentKickoffTakerSummary: bundle.kickoffTakerSummary,
+          contentMovementSummary: bundle.movementSummary,
+          contentOverview: bundle.overview,
+          contentPossessionSummary: bundle.possessionSummary,
+          contentPositioningSummary: bundle.positioningSummary,
+          contentSearch: bundle.search,
+          contentStats: bundle.stats,
+          contentSupplementalError: null,
+          contentSupplementalLoading: false,
+        }
+      : null;
 
   return (
     <section className="stat-detail player-aggregate-stats">
@@ -4425,6 +4579,27 @@ function PlayerAggregateStatsSections({
             {activeGroup.label}
           </h2>
           <p>{activeGroup.description}</p>
+          {currentUser?.is_admin ? (
+            <label
+              className="toggle-row stat-materialized-toggle"
+              title="Admin only: read these stats from the materialized tables (fast) or recompute them live from events (slow, source of truth)."
+            >
+              <input
+                type="checkbox"
+                checked={materializedEnabled}
+                onChange={(event) =>
+                  navigate(
+                    materializedStatsParamPath(
+                      location.pathname,
+                      location.search,
+                      event.target.checked,
+                    ),
+                  )
+                }
+              />
+              <span>Materialized stats{materializedEnabled ? "" : " (live)"}</span>
+            </label>
+          ) : null}
         </div>
         {activeGroup.id === "kickoffs" ? (
           <div className="stat-detail-counts">
@@ -4445,6 +4620,33 @@ function PlayerAggregateStatsSections({
         )}
       </header>
 
+      {showCoreViewToggle ? (
+        <div className="boost-page-controls">
+          <div className="boost-comparison-tabs" role="tablist" aria-label="Stat view mode">
+            <button
+              className={coreView === "player" ? "active" : ""}
+              onClick={() => setCoreView("player")}
+              role="tab"
+              title="Compare the player to teammate and opponent per-player averages"
+              type="button"
+              aria-selected={coreView === "player"}
+            >
+              Player
+            </button>
+            <button
+              className={coreView === "team" ? "active" : ""}
+              onClick={() => setCoreView("team")}
+              role="tab"
+              title="Compare whole-team per-game totals: your team vs the opponent team"
+              type="button"
+              aria-selected={coreView === "team"}
+            >
+              Team
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {!splitOutcome && activeGroup.id === "kickoffs" && kickoffSpawnDimension ? (
         <KickoffSpawnBreakdown
           dimension={kickoffSpawnDimension}
@@ -4458,32 +4660,71 @@ function PlayerAggregateStatsSections({
       {splitOutcome ? (
         <>
           <StatusLine loading={outcomeState.loading} error={outcomeState.error} />
-          {outcomeState.bundles.map((bundle) =>
-            bundle.stats ? (
-              <section className="player-outcome-split-section" key={bundle.key}>
-                <header className="chart-panel-header">
-                  <h3>{bundle.label}</h3>
-                  <span>
-                    {bundle.stats.replay_count.toLocaleString()}{" "}
-                    {bundle.stats.replay_count === 1 ? "game" : "games"}
-                  </span>
+          {(() => {
+            const readyBundles = outcomeState.bundles
+              .map((bundle) => {
+                const inputs = outcomeBundleInputs(bundle);
+                return inputs ? { bundle, inputs, panels: buildStatsPanels(inputs) } : null;
+              })
+              .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+            if (readyBundles.length === 0) return null;
+
+            // Union the panel keys across outcomes, preserving first-seen order, so
+            // each panel pairs its wins and losses variants on the same row.
+            const orderedKeys: string[] = [];
+            const seenKeys = new Set<string>();
+            for (const entry of readyBundles) {
+              for (const panel of entry.panels) {
+                if (!seenKeys.has(panel.key)) {
+                  seenKeys.add(panel.key);
+                  orderedKeys.push(panel.key);
+                }
+              }
+            }
+
+            return (
+              <div className="player-outcome-split">
+                <header className="player-outcome-split-summary">
+                  {readyBundles.map(({ bundle }) => (
+                    <div
+                      className="player-outcome-summary-cell"
+                      data-outcome={bundle.key}
+                      key={bundle.key}
+                    >
+                      <h3>{bundle.label}</h3>
+                      <span>
+                        {bundle.stats?.replay_count.toLocaleString()}{" "}
+                        {bundle.stats?.replay_count === 1 ? "game" : "games"}
+                      </span>
+                    </div>
+                  ))}
                 </header>
-                {renderStatsContent({
-                  contentKickoffFilterSummary: bundle.kickoffFilterSummary,
-                  contentKickoffSupportSummary: bundle.kickoffSupportSummary,
-                  contentKickoffTakerSummary: bundle.kickoffTakerSummary,
-                  contentMovementSummary: bundle.movementSummary,
-                  contentOverview: bundle.overview,
-                  contentPossessionSummary: bundle.possessionSummary,
-                  contentPositioningSummary: bundle.positioningSummary,
-                  contentSearch: bundle.search,
-                  contentStats: bundle.stats,
-                  contentSupplementalError: null,
-                  contentSupplementalLoading: false,
-                })}
-              </section>
-            ) : null,
-          )}
+                {orderedKeys.map((key) => (
+                  <div className="player-outcome-pair" key={key}>
+                    {readyBundles.map(({ bundle, panels }) => {
+                      const panel = panels.find((entry) => entry.key === key);
+                      return (
+                        <div
+                          className="player-outcome-pair-cell"
+                          data-outcome={bundle.key}
+                          key={bundle.key}
+                        >
+                          <span className="player-outcome-pair-tag">{bundle.label}</span>
+                          {panel ? (
+                            panel.node
+                          ) : (
+                            <p className="muted-text player-outcome-pair-empty">
+                              No {bundle.label.toLowerCase()} data
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
         </>
       ) : (
         renderStatsContent({

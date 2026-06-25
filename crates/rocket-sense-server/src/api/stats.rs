@@ -2,6 +2,7 @@ use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sqlx::types::Json as SqlxJson;
 use sqlx::{Postgres, QueryBuilder, Row};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +33,10 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/stats/aggregates", get(get_stat_aggregates))
+        .route(
+            "/stats/boost-pad-control",
+            get(get_player_boost_pad_control),
+        )
         .route("/stats/boost-totals", get(get_player_boost_totals))
         .route(
             "/stats/processing-versions",
@@ -261,6 +266,24 @@ pub struct PlayerBoostTotalsResponse {
     pub player: PlayerBoostTotalResponse,
     pub teammates: Option<PlayerBoostTotalResponse>,
     pub opponents: Option<PlayerBoostTotalResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct BoostPadControlPointResponse {
+    pub pad_id: String,
+    /// Player-relative field X coordinate after rotating team-one appearances.
+    pub x: f64,
+    /// Player-relative field Y coordinate: negative is own half, positive is opponent half.
+    pub y: f64,
+    pub pad_size: String,
+    pub player_count: u64,
+    pub teammate_count: u64,
+    pub opponent_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct BoostPadControlResponse {
+    pub points: Vec<BoostPadControlPointResponse>,
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -697,6 +720,37 @@ pub async fn get_player_boost_totals(
 
 #[utoipa::path(
     get,
+    path = "/api/v1/stats/boost-pad-control",
+    tag = "stats",
+    params(StatAggregatesQuery),
+    responses(
+        (status = 200, description = "Lifetime boost pad pickup counts by player/team relationship", body = BoostPadControlResponse),
+        (status = 400, description = "Stats filters were invalid or player-id was omitted"),
+        (status = 503, description = "Postgres connection is not configured")
+    )
+)]
+pub async fn get_player_boost_pad_control(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
+    State(state): State<AppState>,
+    RawQuery(raw_query): RawQuery,
+) -> Result<Json<BoostPadControlResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
+    let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    if filters.player.is_none() {
+        return Err(ApiError::bad_request(
+            "boost pad control requires player-id",
+        ));
+    }
+    let response = load_player_boost_pad_control(db, &filters)
+        .await
+        .map_err(ApiError::internal)?;
+
+    Ok(Json(response))
+}
+
+#[utoipa::path(
+    get,
     path = "/api/v1/stats/processing-versions",
     tag = "stats",
     params(StatAggregatesQuery),
@@ -919,6 +973,120 @@ async fn load_player_boost_totals(
         teammates: (teammates.has_data()).then(|| teammates.into_response()),
         opponents: (opponents.has_data()).then(|| opponents.into_response()),
     })
+}
+
+async fn load_player_boost_pad_control(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<BoostPadControlResponse, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH target_appearances AS MATERIALIZED (
+            SELECT DISTINCT
+                rp.replay_id,
+                rp.team,
+                r.canonical_analysis_run_id AS run_id,
+                concat(rp.platform, ':', rp.platform_player_id) AS target_player_id
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+        "#,
+    );
+    append_target_player_filters(&mut query, filters);
+    query.push(
+        r#"
+              AND r.canonical_analysis_run_id IS NOT NULL
+        ),
+        boost_pickups AS MATERIALIZED (
+            SELECT
+                CASE
+                    WHEN concat(actor.platform, ':', actor.platform_player_id) = appearance.target_player_id THEN 'player'
+                    WHEN actor.team = appearance.team
+                     AND concat(actor.platform, ':', actor.platform_player_id) <> appearance.target_player_id THEN 'teammates'
+                    WHEN actor.team IS NOT NULL
+                     AND appearance.team IS NOT NULL
+                     AND actor.team <> appearance.team THEN 'opponents'
+                    ELSE NULL
+                END AS cohort,
+                appearance.team AS target_team,
+                COALESCE(payload.payload->>'pad_type', payload.payload->>'pad_size') AS pad_size,
+                COALESCE(payload.payload, '{}'::jsonb) AS payload
+            FROM target_appearances appearance
+            JOIN play_events event
+              ON event.replay_id = appearance.replay_id
+             AND event.analysis_run_id = appearance.run_id
+            JOIN event_types et
+              ON et.id = event.event_type_id
+             AND et.key = 'boost_pickup'
+            JOIN play_event_subjects subject
+              ON subject.event_id = event.id
+             AND subject.role = 'actor'
+             AND subject.replay_player_id IS NOT NULL
+            JOIN replay_players actor ON actor.id = subject.replay_player_id
+            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
+        )
+        SELECT cohort, target_team, pad_size, payload
+        FROM boost_pickups
+        WHERE cohort IS NOT NULL
+          AND pad_size IN ('big', 'small')
+          AND target_team IN (0, 1)
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let pad_locations = boost_pad_locations();
+    let mut counts: HashMap<String, BoostPadControlPointResponse> = pad_locations
+        .iter()
+        .map(|pad| {
+            (
+                pad.id.clone(),
+                BoostPadControlPointResponse {
+                    pad_id: pad.id.clone(),
+                    x: pad.x,
+                    y: pad.y,
+                    pad_size: pad.size.to_owned(),
+                    player_count: 0,
+                    teammate_count: 0,
+                    opponent_count: 0,
+                },
+            )
+        })
+        .collect();
+
+    for row in rows {
+        let cohort: String = row.try_get("cohort")?;
+        let target_team: i32 = row.try_get("target_team")?;
+        let pad_size: String = row.try_get("pad_size")?;
+        let SqlxJson(payload): SqlxJson<Value> = row.try_get("payload")?;
+        let Some(position) = boost_pickup_position(&payload) else {
+            continue;
+        };
+        let position = player_relative_field_position(position, target_team);
+        let Some(pad) = nearest_boost_pad(&pad_locations, position, &pad_size) else {
+            continue;
+        };
+        let Some(point) = counts.get_mut(&pad.id) else {
+            continue;
+        };
+        match cohort.as_str() {
+            "player" => point.player_count += 1,
+            "teammates" => point.teammate_count += 1,
+            "opponents" => point.opponent_count += 1,
+            _ => {}
+        }
+    }
+
+    let mut points: Vec<BoostPadControlPointResponse> = counts
+        .into_values()
+        .filter(|point| point.player_count + point.teammate_count + point.opponent_count > 0)
+        .collect();
+    points.sort_by(|left, right| {
+        left.pad_size
+            .cmp(&right.pad_size)
+            .then_with(|| left.y.total_cmp(&right.y))
+            .then_with(|| left.x.total_cmp(&right.x))
+    });
+
+    Ok(BoostPadControlResponse { points })
 }
 
 /// Pushes `WITH target_appearances, cohort_rows AS (...)` reconstructing the
@@ -1816,6 +1984,86 @@ async fn load_rank_benchmark_cohort(
     }))
 }
 
+#[derive(Clone)]
+struct BoostPadLocation {
+    id: String,
+    x: f64,
+    y: f64,
+    size: &'static str,
+}
+
+fn boost_pad_locations() -> Vec<BoostPadLocation> {
+    let mut pads = Vec::new();
+    mirror_boost_pad_y(&mut pads, 0.0, 4240.0, "small");
+    mirror_boost_pad_both(&mut pads, 1792.0, 4184.0, "small");
+    mirror_boost_pad_both(&mut pads, 3072.0, 4096.0, "big");
+    mirror_boost_pad_both(&mut pads, 940.0, 3308.0, "small");
+    mirror_boost_pad_y(&mut pads, 0.0, 2816.0, "small");
+    mirror_boost_pad_both(&mut pads, 3584.0, 2484.0, "small");
+    mirror_boost_pad_both(&mut pads, 1788.0, 2300.0, "small");
+    mirror_boost_pad_both(&mut pads, 2048.0, 1036.0, "small");
+    mirror_boost_pad_y(&mut pads, 0.0, 1024.0, "small");
+    mirror_boost_pad_x(&mut pads, 3584.0, 0.0, "big");
+    mirror_boost_pad_x(&mut pads, 1024.0, 0.0, "small");
+
+    pads
+}
+
+fn add_boost_pad(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    pads.push(BoostPadLocation {
+        id: format!("{size}:{}:{}", x.round(), y.round()),
+        x,
+        y,
+        size,
+    });
+}
+
+fn mirror_boost_pad_x(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    add_boost_pad(pads, -x, y, size);
+    add_boost_pad(pads, x, y, size);
+}
+
+fn mirror_boost_pad_y(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    add_boost_pad(pads, x, -y, size);
+    add_boost_pad(pads, x, y, size);
+}
+
+fn mirror_boost_pad_both(pads: &mut Vec<BoostPadLocation>, x: f64, y: f64, size: &'static str) {
+    mirror_boost_pad_x(pads, x, -y, size);
+    mirror_boost_pad_x(pads, x, y, size);
+}
+
+fn nearest_boost_pad<'a>(
+    pads: &'a [BoostPadLocation],
+    position: (f64, f64),
+    size: &str,
+) -> Option<&'a BoostPadLocation> {
+    pads.iter()
+        .filter(|pad| pad.size == size)
+        .min_by(|left, right| {
+            let left_distance = (position.0 - left.x).hypot(position.1 - left.y);
+            let right_distance = (position.0 - right.x).hypot(position.1 - right.y);
+            left_distance.total_cmp(&right_distance)
+        })
+}
+
+fn boost_pickup_position(payload: &Value) -> Option<(f64, f64)> {
+    let position = payload.get("player_position")?.as_array()?;
+    let x = position.first()?.as_f64()?;
+    let y = position.get(1)?.as_f64()?;
+    (x.is_finite() && y.is_finite()).then_some((x, y))
+}
+
+fn player_relative_field_position((x, y): (f64, f64), target_team: i32) -> (f64, f64) {
+    match target_team {
+        0 => (x, y),
+        // Team 1 attacks in the opposite direction. Rotate the field so the
+        // profile player's own half is always rendered at negative Y.
+        1 => (-x, -y),
+        _ => (x, y),
+    }
+}
+
 async fn load_stat_aggregates_base(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
@@ -2602,6 +2850,8 @@ struct TouchAggregateCohortAccumulator {
     kind_advance: HashMap<String, f64>,
     category_counts: HashMap<String, u64>,
     category_advance: HashMap<String, f64>,
+    location_counts: HashMap<String, u64>,
+    location_advance: HashMap<String, f64>,
     active_time_seconds: Option<f64>,
 }
 
@@ -2611,10 +2861,10 @@ impl TouchAggregateCohortAccumulator {
     }
 
     fn add(&mut self, dimension: String, value: String, count: u64, advance: f64) {
-        let (counts, advances) = if dimension == "kind" {
-            (&mut self.kind_counts, &mut self.kind_advance)
-        } else {
-            (&mut self.category_counts, &mut self.category_advance)
+        let (counts, advances) = match dimension.as_str() {
+            "kind" => (&mut self.kind_counts, &mut self.kind_advance),
+            "location" => (&mut self.location_counts, &mut self.location_advance),
+            _ => (&mut self.category_counts, &mut self.category_advance),
         };
         *counts.entry(value.clone()).or_insert(0) += count;
         *advances.entry(value).or_insert(0.0) += advance.max(0.0);
@@ -2645,6 +2895,10 @@ impl TouchAggregateCohortAccumulator {
                 TouchAggregateDimensionResponse {
                     key: "category".to_owned(),
                     values: touch_values_response(self.category_counts, self.category_advance),
+                },
+                TouchAggregateDimensionResponse {
+                    key: "location".to_owned(),
+                    values: touch_values_response(self.location_counts, self.location_advance),
                 },
             ],
         }
@@ -2698,6 +2952,13 @@ async fn load_touch_aggregate_breakdown(
                     WHEN detail.intention IN ('shot', 'pass', 'boom', 'control', 'advance', 'challenge', 'save', 'clear', 'neutral') THEN detail.intention
                     ELSE 'other'
                 END AS category,
+                CASE
+                    WHEN detail.surface = 'wall' THEN 'wall'
+                    WHEN detail.surface = 'ground' THEN 'ground'
+                    WHEN detail.surface = 'air' AND detail.height_band = 'high_air' THEN 'high_aerial'
+                    WHEN detail.surface = 'air' AND detail.height_band = 'low_air' THEN 'aerial'
+                    ELSE 'other'
+                END AS location,
                 COALESCE(GREATEST(detail.advance_distance, 0.0), 0.0) AS advance_distance
             FROM target_appearances appearance
             JOIN play_events event
@@ -2739,7 +3000,7 @@ async fn load_touch_aggregate_breakdown(
             GROUP BY cohort
         ),
         normalized AS (
-            SELECT cohort, kind, category, advance_distance
+            SELECT cohort, kind, category, location, advance_distance
             FROM touch_events
             WHERE cohort IS NOT NULL
         )
@@ -2768,6 +3029,15 @@ async fn load_touch_aggregate_breakdown(
                 COALESCE(SUM(advance_distance), 0.0) AS advance_distance
             FROM normalized
             GROUP BY cohort, category
+            UNION ALL
+            SELECT
+                cohort,
+                'location' AS dimension,
+                location AS value,
+                COUNT(*) AS touch_count,
+                COALESCE(SUM(advance_distance), 0.0) AS advance_distance
+            FROM normalized
+            GROUP BY cohort, location
         ) rows
         LEFT JOIN cohort_denominators denominator
           ON denominator.cohort = rows.cohort

@@ -541,3 +541,56 @@ fn boost_event_fields_writer_sql_groups_by_player_and_scales_to_percent() {
     assert!(sql.contains("* 100.0 / 255.0 AS boost_collected_big"));
     assert!(sql.contains("::bigint AS big_pads"));
 }
+
+#[test]
+fn touch_breakdown_accumulator_emits_location_dimension() {
+    let mut accumulator = TouchAggregateCohortAccumulator::default();
+    accumulator.add("kind".to_owned(), "control".to_owned(), 5, 100.0);
+    accumulator.add("category".to_owned(), "shot".to_owned(), 2, 40.0);
+    accumulator.add("location".to_owned(), "ground".to_owned(), 3, 60.0);
+    accumulator.add("location".to_owned(), "high_aerial".to_owned(), 2, 40.0);
+
+    let response = accumulator.into_response("player");
+    let location = response
+        .dimensions
+        .iter()
+        .find(|dimension| dimension.key == "location")
+        .expect("location dimension should be present");
+    let high_aerial = location
+        .values
+        .iter()
+        .find(|value| value.key == "high_aerial")
+        .expect("high_aerial value should be present");
+    assert_eq!(high_aerial.touch_count, 2);
+    assert_eq!(high_aerial.advance_distance, 40.0);
+    // Total comes from the kind axis, which still covers every touch.
+    assert_eq!(response.total_touch_count, 5);
+}
+
+#[test]
+fn touch_location_migration_widens_dimension_check_and_backfills() {
+    let migration =
+        include_str!("../../../../migrations/0070_player_replay_touch_breakdowns_location.sql");
+
+    assert!(migration.contains("dimension IN ('kind', 'category', 'location')"));
+    assert!(migration.contains("INSERT INTO player_replay_touch_breakdowns"));
+    assert!(migration.contains("'high_aerial'"));
+    // Only top up replays that already have breakdown rows; never-materialized
+    // replays stay owned by backfill_player_replay_touch_breakdowns.
+    assert!(migration.contains("EXISTS"));
+}
+
+#[test]
+fn live_touch_breakdown_query_includes_location_dimension() {
+    let source = include_str!("stats.rs");
+    let live_start = source
+        .find("async fn load_touch_aggregate_breakdown(")
+        .expect("live touch breakdown loader should exist");
+    let live_end = source[live_start..]
+        .find("async fn load_touch_aggregate_breakdown_materialized")
+        .map(|offset| live_start + offset)
+        .expect("live loader should end before the materialized loader");
+    let live = &source[live_start..live_end];
+
+    assert!(live.contains("'location' AS dimension"));
+}

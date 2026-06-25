@@ -178,8 +178,7 @@ function possessionAdvancedMagnitudeRows(
       ],
       total: scaledValue,
       maxValue: 1,
-      valueInBar: rawValue != null && value > 0 ? formatted : undefined,
-      placeholder: rawValue != null && value > 0 ? undefined : formatted,
+      barValue: formatted,
     };
   });
 }

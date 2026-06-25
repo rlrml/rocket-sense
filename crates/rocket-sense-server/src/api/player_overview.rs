@@ -34,6 +34,12 @@ pub fn router() -> Router<AppState> {
 pub struct PlayerStatOverviewResponse {
     pub replay_count: u64,
     pub goals_scored: u64,
+    /// Team size shared by every replay in the filtered set (2 for doubles, 3
+    /// for standard), or `None` when the set mixes team sizes. Lets the UI apply
+    /// team-size-specific logic such as the 2v2 assist-percentage denominator.
+    pub team_size: Option<u32>,
+    /// MVP rate (highest score on the winning team) vs the fair-share baseline.
+    pub mvp: MvpSummaryResponse,
     /// Headline score rate for the player vs the pooled teammate average.
     pub score: ScoringRateResponse,
     /// Headline goal rate for the player vs the pooled teammate average.
@@ -42,6 +48,8 @@ pub struct PlayerStatOverviewResponse {
     pub assists: ScoringRateResponse,
     /// Headline shot rate for the player vs the pooled teammate average.
     pub shots: ScoringRateResponse,
+    /// Headline save rate for the player vs the pooled teammate average.
+    pub saves: ScoringRateResponse,
     pub goal_tags: Vec<GoalTagAggregateResponse>,
     pub rotation_roles: Vec<RotationTimeShareResponse>,
     pub rotation_depths: Vec<RotationTimeShareResponse>,
@@ -58,6 +66,31 @@ pub struct ScoringRateResponse {
     pub teammate_per_active_minute: Option<f64>,
     pub opponent_count: u64,
     pub opponent_per_active_minute: Option<f64>,
+}
+
+/// MVP standing for the player across the filtered replay set. MVP mirrors the
+/// in-game crown: the highest scoreboard score on the winning team (no MVP in
+/// ties or in replays missing scoreboard scores). Because at most one MVP exists
+/// per game, `rate` is also "MVPs per game" expressed as a fraction.
+///
+/// The winning team is derived from the goal score (`team_*_score`), matching the
+/// rest of the app's win/loss logic. A forfeit is therefore credited correctly
+/// whenever the quitting team was behind, but a forfeit that ends level (e.g. a
+/// 0-0 early leave) reads as a tie and is awarded no MVP — the authoritative
+/// `MatchWinner` is in the network frames and is not yet captured. See the
+/// follow-up task to surface it and fix win/loss + MVP app-wide.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct MvpSummaryResponse {
+    /// Replays in which the player was MVP.
+    pub count: u64,
+    /// MVPs per game = `count / replay_count`, or null when no games are in set.
+    pub rate: Option<f64>,
+    /// Fair-share baseline: the MVP rate expected if the player and their winning
+    /// teammates were interchangeable scorers. Computed as the average over the
+    /// player's decisive wins of `1 / winning_team_size`, so a 3v3 win contributes
+    /// 1/3. The UI draws this as a reference marker so `rate` reads as above or
+    /// below expectation rather than against the fixed 1/n field average.
+    pub fair_share_rate: Option<f64>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -172,11 +205,12 @@ async fn load_player_stat_overview(
     query: &PlayerOverviewQuery,
 ) -> Result<PlayerStatOverviewResponse, sqlx::Error> {
     let (
-        (replay_count, goals_scored),
+        (replay_count, goals_scored, team_size),
         mut goal_tags,
         (rotation_roles, rotation_depths),
         (player_active_time_seconds, teammate_active_time_seconds, opponent_active_time_seconds),
         counters,
+        (mvp_count, mvp_expected),
     ) = tokio::try_join!(
         load_goal_totals(pool, query),
         async {
@@ -195,6 +229,7 @@ async fn load_player_stat_overview(
         },
         load_goal_rate_denominators(pool, query),
         load_scoring_counters(pool, query),
+        load_mvp_summary(pool, query),
     )?;
     for tag in &mut goal_tags {
         if goals_scored > 0 {
@@ -226,6 +261,12 @@ async fn load_player_stat_overview(
     Ok(PlayerStatOverviewResponse {
         replay_count,
         goals_scored,
+        team_size,
+        mvp: MvpSummaryResponse {
+            count: mvp_count,
+            rate: per_replay_rate(mvp_count as f64, replay_count),
+            fair_share_rate: per_replay_rate(mvp_expected, replay_count),
+        },
         score: scoring_rate(
             counters.player_score,
             counters.teammate_score,
@@ -246,6 +287,11 @@ async fn load_player_stat_overview(
             counters.teammate_shots,
             counters.opponent_shots,
         ),
+        saves: scoring_rate(
+            counters.player_saves,
+            counters.teammate_saves,
+            counters.opponent_saves,
+        ),
         goal_tags,
         rotation_roles,
         rotation_depths,
@@ -261,7 +307,7 @@ fn push_target_appearances_cte<'args>(
     builder.push(
         r#"
         WITH target_appearances AS MATERIALIZED (
-            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id, rp.team, rp.active_time_seconds, rp.score, rp.goals, rp.assists, rp.shots
+            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id, rp.team, rp.active_time_seconds, rp.score, rp.goals, rp.assists, rp.shots, rp.saves
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
         "#,
@@ -299,21 +345,44 @@ fn push_goal_events_cte(builder: &mut QueryBuilder<'_, Postgres>) {
 async fn load_goal_totals(
     pool: &sqlx::PgPool,
     query: &PlayerOverviewQuery,
-) -> Result<(u64, u64), sqlx::Error> {
+) -> Result<(u64, u64, Option<u32>), sqlx::Error> {
     let mut builder = QueryBuilder::<Postgres>::new("");
     push_target_appearances_cte(&mut builder, query);
+    // `target_team_sizes` is the number of players on the target's team in each
+    // replay (the player plus their teammates). When every replay shares one
+    // size the set is a single playlist shape (e.g. all doubles), which the UI
+    // uses to gate team-size-specific math.
     builder.push(
         r#"
+        , target_team_sizes AS (
+            SELECT target.replay_id, COUNT(member.id) AS team_size
+            FROM target_appearances target
+            JOIN replay_players member
+              ON member.replay_id = target.replay_id
+             AND member.team IS NOT NULL
+             AND target.team IS NOT NULL
+             AND member.team = target.team
+            GROUP BY target.replay_id
+        )
         SELECT
             (SELECT COUNT(DISTINCT replay_id) FROM target_appearances) AS replay_count,
-            (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS goals_scored
+            (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS goals_scored,
+            (SELECT COUNT(DISTINCT team_size) FROM target_team_sizes) AS distinct_team_sizes,
+            (SELECT MIN(team_size) FROM target_team_sizes) AS uniform_team_size
         "#,
     );
 
     let row = builder.build().fetch_one(pool).await?;
+    let team_size = if count_column(&row, "distinct_team_sizes")? == 1 {
+        row.try_get::<Option<i64>, _>("uniform_team_size")?
+            .map(|size| size as u32)
+    } else {
+        None
+    };
     Ok((
         count_column(&row, "replay_count")?,
         count_column(&row, "goals_scored")?,
+        team_size,
     ))
 }
 
@@ -516,14 +585,17 @@ struct ScoringCounters {
     player_goals: u64,
     player_assists: u64,
     player_shots: u64,
+    player_saves: u64,
     teammate_score: u64,
     teammate_goals: u64,
     teammate_assists: u64,
     teammate_shots: u64,
+    teammate_saves: u64,
     opponent_score: u64,
     opponent_goals: u64,
     opponent_assists: u64,
     opponent_shots: u64,
+    opponent_saves: u64,
 }
 
 /// Sum the scoreboard counters for the target player and the pooled
@@ -537,7 +609,7 @@ async fn load_scoring_counters(
     builder.push(
         r#"
         , teammate_appearances AS (
-            SELECT DISTINCT teammate.id, teammate.score, teammate.goals, teammate.assists, teammate.shots
+            SELECT DISTINCT teammate.id, teammate.score, teammate.goals, teammate.assists, teammate.shots, teammate.saves
             FROM target_appearances target
             JOIN replay_players teammate
               ON teammate.replay_id = target.replay_id
@@ -545,7 +617,7 @@ async fn load_scoring_counters(
              AND teammate.id <> target.id
         ),
         opponent_appearances AS (
-            SELECT DISTINCT opponent.id, opponent.score, opponent.goals, opponent.assists, opponent.shots
+            SELECT DISTINCT opponent.id, opponent.score, opponent.goals, opponent.assists, opponent.shots, opponent.saves
             FROM target_appearances target
             JOIN replay_players opponent
               ON opponent.replay_id = target.replay_id
@@ -558,14 +630,17 @@ async fn load_scoring_counters(
             (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS player_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM target_appearances) AS player_assists,
             (SELECT COALESCE(SUM(shots), 0) FROM target_appearances) AS player_shots,
+            (SELECT COALESCE(SUM(saves), 0) FROM target_appearances) AS player_saves,
             (SELECT COALESCE(SUM(score), 0) FROM teammate_appearances) AS teammate_score,
             (SELECT COALESCE(SUM(goals), 0) FROM teammate_appearances) AS teammate_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM teammate_appearances) AS teammate_assists,
             (SELECT COALESCE(SUM(shots), 0) FROM teammate_appearances) AS teammate_shots,
+            (SELECT COALESCE(SUM(saves), 0) FROM teammate_appearances) AS teammate_saves,
             (SELECT COALESCE(SUM(score), 0) FROM opponent_appearances) AS opponent_score,
             (SELECT COALESCE(SUM(goals), 0) FROM opponent_appearances) AS opponent_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM opponent_appearances) AS opponent_assists,
-            (SELECT COALESCE(SUM(shots), 0) FROM opponent_appearances) AS opponent_shots
+            (SELECT COALESCE(SUM(shots), 0) FROM opponent_appearances) AS opponent_shots,
+            (SELECT COALESCE(SUM(saves), 0) FROM opponent_appearances) AS opponent_saves
         "#,
     );
 
@@ -575,15 +650,96 @@ async fn load_scoring_counters(
         player_goals: count_column(&row, "player_goals")?,
         player_assists: count_column(&row, "player_assists")?,
         player_shots: count_column(&row, "player_shots")?,
+        player_saves: count_column(&row, "player_saves")?,
         teammate_score: count_column(&row, "teammate_score")?,
         teammate_goals: count_column(&row, "teammate_goals")?,
         teammate_assists: count_column(&row, "teammate_assists")?,
         teammate_shots: count_column(&row, "teammate_shots")?,
+        teammate_saves: count_column(&row, "teammate_saves")?,
         opponent_score: count_column(&row, "opponent_score")?,
         opponent_goals: count_column(&row, "opponent_goals")?,
         opponent_assists: count_column(&row, "opponent_assists")?,
         opponent_shots: count_column(&row, "opponent_shots")?,
+        opponent_saves: count_column(&row, "opponent_saves")?,
     })
+}
+
+/// Count the player's MVP replays and accumulate the fair-share baseline.
+///
+/// One row per replay (deduped to the player's highest-scoring appearance) is
+/// joined to the winning team's scoreboard. The player is MVP when they are on
+/// the winning team and their score ties the team's top score — ties credit
+/// every tied player, but exact scoreboard ties are vanishingly rare. The
+/// fair-share sum adds `1 / winning_team_size` for each decidable win (a game
+/// with scoreboard scores), the rate the player would average if MVP were shared
+/// evenly among the winning side.
+async fn load_mvp_summary(
+    pool: &sqlx::PgPool,
+    query: &PlayerOverviewQuery,
+) -> Result<(u64, f64), sqlx::Error> {
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_target_appearances_cte(&mut builder, query);
+    builder.push(
+        r#"
+        , mvp_replays AS (
+            SELECT DISTINCT ON (ta.replay_id)
+                ta.replay_id,
+                ta.team AS target_team,
+                ta.score AS target_score,
+                CASE
+                    WHEN r.team_zero_score IS NULL OR r.team_one_score IS NULL
+                        OR r.team_zero_score = r.team_one_score THEN NULL
+                    WHEN r.team_zero_score > r.team_one_score THEN 0
+                    ELSE 1
+                END AS winning_team
+            FROM target_appearances ta
+            JOIN replays r ON r.id = ta.replay_id
+            ORDER BY ta.replay_id, ta.score DESC NULLS LAST
+        )
+        SELECT
+            COUNT(*) FILTER (
+                WHERE mr.winning_team IS NOT NULL
+                  AND mr.target_team = mr.winning_team
+                  AND mr.target_score IS NOT NULL
+                  AND win.win_max_score IS NOT NULL
+                  AND mr.target_score = win.win_max_score
+            ) AS mvp_count,
+            COALESCE(SUM(
+                CASE
+                    WHEN mr.winning_team IS NOT NULL
+                        AND mr.target_team = mr.winning_team
+                        AND win.win_max_score IS NOT NULL
+                        AND win.win_size > 0
+                    THEN 1.0 / win.win_size
+                    ELSE 0
+                END
+            ), 0) AS mvp_expected
+        FROM mvp_replays mr
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS win_size, MAX(wrp.score) AS win_max_score
+            FROM replay_players wrp
+            WHERE wrp.replay_id = mr.replay_id
+              AND wrp.team = mr.winning_team
+        ) win ON mr.winning_team IS NOT NULL
+        "#,
+    );
+
+    let row = builder.build().fetch_one(pool).await?;
+    let count = count_column(&row, "mvp_count")?;
+    let expected = finite_value(row.try_get("mvp_expected")?)
+        .filter(|value| *value >= 0.0)
+        .unwrap_or(0.0);
+    Ok((count, expected))
+}
+
+/// Per-game rate (numerator over the replay count), or null when no games are in
+/// the filtered set.
+fn per_replay_rate(numerator: f64, replay_count: u64) -> Option<f64> {
+    if replay_count == 0 {
+        return None;
+    }
+    let rate = numerator / replay_count as f64;
+    rate.is_finite().then_some(rate)
 }
 
 fn nonnegative_seconds(value: Option<f64>) -> Option<f64> {
