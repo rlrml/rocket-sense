@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type {
   EventStatDimensionResponse,
   EventStatSummaryResponse,
+  MvpSummaryResponse,
   PlayerStatOverviewResponse,
   PossessionSummaryResponse,
   PossessionTeamControl,
@@ -28,6 +29,7 @@ import {
   PlayerComparisonChart,
   StatPlayerLabel,
   statPercentWithValue,
+  type ComparisonMarker,
   type ComparisonRow,
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
@@ -273,7 +275,9 @@ export function CoreProfileComparison({
   const goals = scoringRateOrZero(overview.goals);
   const assists = scoringRateOrZero(overview.assists);
   const shots = scoringRateOrZero(overview.shots);
+  const mvpRows = mvpComparisonRows(overview.mvp, playerName);
   const cards = [
+    ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
     rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
     rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
     rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
@@ -314,6 +318,82 @@ export function CoreProfileComparison({
       </div>
     </section>
   );
+}
+
+/**
+ * MVP rate as a single magnitude bar (player's MVPs/game) with the fair-share
+ * baseline drawn as a reference marker. MVP is a per-game crown — at most one per
+ * replay — so the field always averages to its fair share; the marker is what
+ * makes a player's rate read as above or below expectation. Returns no rows when
+ * the set has no games (rate is null) or MVP data is absent (older responses).
+ */
+function mvpComparisonRows(
+  mvp: MvpSummaryResponse | undefined,
+  playerName: string,
+): ComparisonRow[] {
+  if (!mvp || mvp.rate == null) return [];
+  const rate = Math.max(0, mvp.rate);
+  const fairShare = mvp.fair_share_rate != null ? Math.max(0, mvp.fair_share_rate) : null;
+  // Scale so an at-expectation rate sits near mid-track and the marker stays
+  // visible, while a standout rate still reads as filling most of the bar.
+  const maxValue = Math.max(rate * 1.15, (fairShare ?? 0) * 2, 0.05);
+  const rateLabel = formatMvpRate(rate);
+  const markers: ComparisonMarker[] =
+    fairShare == null
+      ? []
+      : [
+          {
+            key: "fair-share",
+            className: "mvp-fair-share-marker",
+            label: "Fair share",
+            value: fairShare,
+            title: `Fair share: ${formatMvpRate(
+              fairShare,
+            )} — expected if you and your winning teammates split MVP evenly`,
+          },
+        ];
+  return [
+    {
+      key: "player",
+      label: (
+        <StatPlayerLabel
+          className={careerCohortClassName("player")}
+          name={careerCohortLabel("player", playerName)}
+          platform={null}
+          platformPlayerId={null}
+          profilePath={null}
+          rank={null}
+          showPlatformBadge={false}
+          subtitle={`${careerCohortSubtitle("player")} · ${mvp.count.toLocaleString()} MVPs`}
+        />
+      ),
+      ariaLabel: `${playerName}: MVP in ${rateLabel} of games${
+        fairShare != null ? `, fair share ${formatMvpRate(fairShare)}` : ""
+      }`,
+      segments: [
+        {
+          key: "rate",
+          className: careerCohortSegmentClassName("player"),
+          label: "MVP rate",
+          value: rate,
+          visibleLabel: rate > 0 ? rateLabel : undefined,
+          title: `${rateLabel} MVP rate (${mvp.count.toLocaleString()} MVPs)`,
+        },
+      ],
+      total: rate,
+      maxValue,
+      markers,
+      valueLabel: <span title={`${mvp.count.toLocaleString()} MVPs`}>{rateLabel}</span>,
+      placeholder: rateLabel,
+    },
+  ];
+}
+
+function formatMvpRate(rate: number): string {
+  const percent = rate * 100;
+  // Sub-1% rates round to "0%" otherwise; keep one decimal so a rare MVP shows.
+  const digits = percent > 0 && percent < 1 ? 1 : 0;
+  return `${percent.toFixed(digits)}%`;
 }
 
 function rateCardFromOverview(

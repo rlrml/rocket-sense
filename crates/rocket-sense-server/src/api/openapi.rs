@@ -122,6 +122,7 @@ use utoipa::{
             players::PlayerProfileReplayResponse,
             players::PlayerProfileReplayTeamScoresResponse,
             player_overview::PlayerStatOverviewResponse,
+            player_overview::MvpSummaryResponse,
             player_overview::GoalTagAggregateResponse,
             player_overview::ScoringRateResponse,
             player_overview::RotationTimeShareResponse,
