@@ -56,6 +56,40 @@ pub fn rank_tier_label(tier: i32) -> String {
         .unwrap_or_else(|| format!("Tier {tier}"))
 }
 
+/// Rank-group names (a rank's three divisions pooled into one bucket): index
+/// `0` Bronze .. `7` Supersonic Legend. Used by the rank-median benchmark when a
+/// single tier is too sparse to sample.
+const RANK_GROUP_NAMES: [&str; 8] = [
+    "Bronze",
+    "Silver",
+    "Gold",
+    "Platinum",
+    "Diamond",
+    "Champion",
+    "Grand Champion",
+    "Supersonic Legend",
+];
+
+/// The pooled rank-group id (0..7) for a tier index. Kept in sync with the SQL
+/// `CASE WHEN tier = 22 THEN 7 ELSE (tier - 1) / 3 END` in the benchmark refresh.
+/// Only meaningful for ranked tiers (`tier >= 1`).
+pub fn rank_group_id(tier: i32) -> i32 {
+    if tier >= 22 {
+        7
+    } else {
+        (tier - 1) / 3
+    }
+}
+
+/// Human label for a rank-group id, e.g. `2` -> `"Gold"`.
+pub fn rank_group_label(group_id: i32) -> String {
+    usize::try_from(group_id)
+        .ok()
+        .and_then(|index| RANK_GROUP_NAMES.get(index))
+        .map(|name| (*name).to_owned())
+        .unwrap_or_else(|| format!("Group {group_id}"))
+}
+
 /// A skill snapshot at a single point in time (before or after the match).
 /// `mu`/`sigma` are the raw TrueSkill values; `mmr` is the derived display
 /// value (`mu * 20 + 100`). Any field may be absent.

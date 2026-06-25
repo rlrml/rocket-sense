@@ -389,6 +389,8 @@ export interface RankBenchmarkWindowOption {
 export interface RankBenchmarkAggregateFields {
   rank_benchmark_tier?: number | null;
   rank_benchmark_tier_label?: string | null;
+  // "tier" (exact tier) or "group" (pooled rank group used when the tier was too sparse).
+  rank_benchmark_rank_grouping?: string | null;
   rank_benchmark_is_player_default?: boolean | null;
   rank_benchmark_distinct_player_count?: number | null;
   rank_benchmark_window?: string | null;

@@ -26,34 +26,45 @@
 
 -- Median per (window, playlist group, tier, outcome, event type). One scalar
 -- per cell -- medians are not additive, so we cannot store sums and divide.
+--
+-- `rank_grouping` picks the rank granularity: 'tier' rows key on the exact
+-- PsyNet tier (`rank_value` = 1..22), 'group' rows pool a rank's three
+-- divisions into one bucket (`rank_value` = 0 Bronze .. 7 Supersonic Legend) so
+-- sparse tiers still get a usable sample. The read path serves the exact tier
+-- when its population clears the sample gate, else falls back to the group.
 CREATE TABLE rank_benchmark_stats (
     window_key text NOT NULL,
     playlist_group_key text NOT NULL,
-    rank_tier integer NOT NULL,
+    rank_grouping text NOT NULL,
+    rank_value integer NOT NULL,
     outcome text NOT NULL,
     event_type_id integer NOT NULL REFERENCES event_types(id),
     median_per_active_minute double precision,
     median_per_non_demo_active_minute double precision,
     created_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (window_key, playlist_group_key, rank_tier, outcome, event_type_id),
+    PRIMARY KEY (window_key, playlist_group_key, rank_grouping, rank_value, outcome, event_type_id),
     CHECK (window_key <> ''),
     CHECK (playlist_group_key <> ''),
+    CHECK (rank_grouping IN ('tier', 'group')),
     CHECK (outcome IN ('all', 'win', 'loss'))
 );
 
--- Sample adequacy per (window, playlist group, tier, outcome). distinct_player_count
--- gates noisy tiers and feeds the tier picker; replay_count is informational.
+-- Sample adequacy per (window, group, rank_grouping, rank_value, outcome).
+-- distinct_player_count gates noisy buckets, feeds the tier picker, and drives
+-- the tier->group fallback; replay_count is informational.
 CREATE TABLE rank_benchmark_population (
     window_key text NOT NULL,
     playlist_group_key text NOT NULL,
-    rank_tier integer NOT NULL,
+    rank_grouping text NOT NULL,
+    rank_value integer NOT NULL,
     outcome text NOT NULL,
     distinct_player_count integer NOT NULL,
     replay_count integer NOT NULL,
     created_at timestamptz NOT NULL DEFAULT now(),
-    PRIMARY KEY (window_key, playlist_group_key, rank_tier, outcome),
+    PRIMARY KEY (window_key, playlist_group_key, rank_grouping, rank_value, outcome),
     CHECK (window_key <> ''),
     CHECK (playlist_group_key <> ''),
+    CHECK (rank_grouping IN ('tier', 'group')),
     CHECK (outcome IN ('all', 'win', 'loss'))
 );
 
@@ -73,13 +84,13 @@ CREATE TABLE rank_benchmark_meta (
     CHECK (window_kind IN ('rolling', 'season'))
 );
 
--- Reads look up a single (window, group, tier, outcome) and fan out over event
--- types; the PK already orders by that prefix, but an explicit index keeps the
--- per-cell lookup covering when the PK is not chosen.
+-- Reads look up a single (window, group, rank_grouping, rank_value, outcome) and
+-- fan out over event types; the PK already orders by that prefix, but an
+-- explicit index keeps the per-cell lookup covering when the PK is not chosen.
 CREATE INDEX rank_benchmark_stats_lookup_idx
-    ON rank_benchmark_stats (window_key, playlist_group_key, rank_tier, outcome);
+    ON rank_benchmark_stats (window_key, playlist_group_key, rank_grouping, rank_value, outcome);
 
--- The tier/window picker scans all tiers for a (window, group): population rows
--- keyed by the same prefix serve the available-tier list and sample gate.
+-- The tier/window picker scans all buckets for a (window, group): population
+-- rows keyed by the same prefix serve the available-tier list and sample gate.
 CREATE INDEX rank_benchmark_population_lookup_idx
-    ON rank_benchmark_population (window_key, playlist_group_key, rank_tier, outcome);
+    ON rank_benchmark_population (window_key, playlist_group_key, rank_grouping, rank_value, outcome);

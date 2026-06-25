@@ -3458,7 +3458,7 @@ async fn refresh_rank_benchmark_window(
             JOIN replays r
               ON r.id = rp.replay_id
              AND r.canonical_analysis_run_id IS NOT NULL
-            WHERE rp.rank_tier IS NOT NULL
+            WHERE rp.rank_tier >= 1
               AND rp.platform IS NOT NULL
               AND btrim(rp.platform) <> ''
               AND rp.platform_player_id IS NOT NULL
@@ -3491,11 +3491,19 @@ async fn refresh_rank_benchmark_window(
         ),
         -- Each appearance feeds the combined 'all' bucket plus its own decided
         -- outcome ('win'/'loss'); medians are not additive so 'all' is computed
-        -- directly here, never reconstructed from win+loss.
+        -- directly here, never reconstructed from win+loss. It also feeds two
+        -- rank granularities: the exact 'tier' and the pooled 'group' (a rank's
+        -- three divisions), so sparse tiers can fall back to the group bucket.
         appearance_bucket AS (
-            SELECT a.analysis_run_id, a.replay_id, a.player_subject_id, a.rank_tier,
+            SELECT a.analysis_run_id, a.replay_id, a.player_subject_id,
+                   rank.grouping AS rank_grouping, rank.value AS rank_value,
                    a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, bucket.outcome
             FROM appearance_keyed a
+            CROSS JOIN LATERAL (
+                SELECT 'tier'::text AS grouping, a.rank_tier AS value
+                UNION ALL
+                SELECT 'group'::text, CASE WHEN a.rank_tier = 22 THEN 7 ELSE (a.rank_tier - 1) / 3 END
+            ) rank
             CROSS JOIN LATERAL (
                 SELECT 'all'::text AS outcome
                 UNION ALL
@@ -3505,83 +3513,86 @@ async fn refresh_rank_benchmark_window(
         event_type_universe AS (
             SELECT DISTINCT event_type_id FROM player_replay_event_counts
         ),
-        -- Per (group, tier, outcome, player) denominators: games + active time.
+        -- Per (group, rank bucket, outcome, player) denominators: games + active time.
         player_denoms AS (
-            SELECT playlist_group_key, rank_tier, outcome, player_subject_id,
+            SELECT playlist_group_key, rank_grouping, rank_value, outcome, player_subject_id,
                    COUNT(DISTINCT replay_id) AS games,
                    SUM(active_seconds) AS active_seconds,
                    SUM(non_demo_active_seconds) AS non_demo_active_seconds
             FROM appearance_bucket
-            GROUP BY playlist_group_key, rank_tier, outcome, player_subject_id
+            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, player_subject_id
             HAVING COUNT(DISTINCT replay_id) >= "#,
     );
     builder.push_bind(crate::rank_benchmark::MIN_PLAYER_GAMES);
     builder.push(
         r#"
         ),
-        -- Summed events per (group, tier, outcome, player, event_type).
+        -- Summed events per (group, rank bucket, outcome, player, event_type).
         player_event_sums AS (
-            SELECT ab.playlist_group_key, ab.rank_tier, ab.outcome, ab.player_subject_id,
-                   c.event_type_id, SUM(c.event_count) AS events
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.player_subject_id, c.event_type_id, SUM(c.event_count) AS events
             FROM appearance_bucket ab
             JOIN player_replay_event_counts c
               ON c.analysis_run_id = ab.analysis_run_id
              AND c.replay_id = ab.replay_id
              AND c.player_subject_id = ab.player_subject_id
-            GROUP BY ab.playlist_group_key, ab.rank_tier, ab.outcome, ab.player_subject_id, c.event_type_id
+            GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                     ab.player_subject_id, c.event_type_id
         ),
         -- Zero-filled per-player rates across the event-type universe: a
         -- qualifying player who never performs event X has rate 0 for X and
         -- still enters X's median (excluding them biases it upward).
         player_rates AS (
-            SELECT d.playlist_group_key, d.rank_tier, d.outcome, et.event_type_id,
+            SELECT d.playlist_group_key, d.rank_grouping, d.rank_value, d.outcome, et.event_type_id,
                    CASE WHEN d.active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.active_seconds END AS per_active_minute,
                    CASE WHEN d.non_demo_active_seconds > 0 THEN COALESCE(s.events, 0) * 60.0 / d.non_demo_active_seconds END AS per_non_demo_active_minute
             FROM player_denoms d
             CROSS JOIN event_type_universe et
             LEFT JOIN player_event_sums s
               ON s.playlist_group_key = d.playlist_group_key
-             AND s.rank_tier = d.rank_tier
+             AND s.rank_grouping = d.rank_grouping
+             AND s.rank_value = d.rank_value
              AND s.outcome = d.outcome
              AND s.player_subject_id = d.player_subject_id
              AND s.event_type_id = et.event_type_id
         ),
         population AS (
-            SELECT ab.playlist_group_key, ab.rank_tier, ab.outcome,
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    COUNT(DISTINCT ab.player_subject_id)::int AS distinct_player_count,
                    COUNT(DISTINCT ab.replay_id)::int AS replay_count
             FROM appearance_bucket ab
             JOIN player_denoms d
               ON d.playlist_group_key = ab.playlist_group_key
-             AND d.rank_tier = ab.rank_tier
+             AND d.rank_grouping = ab.rank_grouping
+             AND d.rank_value = ab.rank_value
              AND d.outcome = ab.outcome
              AND d.player_subject_id = ab.player_subject_id
-            GROUP BY ab.playlist_group_key, ab.rank_tier, ab.outcome
+            GROUP BY ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome
         ),
         ins_stats AS (
             INSERT INTO rank_benchmark_stats (
-                window_key, playlist_group_key, rank_tier, outcome, event_type_id,
+                window_key, playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
                 median_per_active_minute, median_per_non_demo_active_minute
             )
             SELECT "#,
     );
     builder.push_bind(&resolved.window_key);
     builder.push(
-        r#", playlist_group_key, rank_tier, outcome, event_type_id,
+        r#", playlist_group_key, rank_grouping, rank_value, outcome, event_type_id,
                    percentile_cont(0.5) WITHIN GROUP (ORDER BY per_active_minute),
                    percentile_cont(0.5) WITHIN GROUP (ORDER BY per_non_demo_active_minute)
             FROM player_rates
-            GROUP BY playlist_group_key, rank_tier, outcome, event_type_id
+            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, event_type_id
             RETURNING 1
         )
         INSERT INTO rank_benchmark_population (
-            window_key, playlist_group_key, rank_tier, outcome, distinct_player_count, replay_count
+            window_key, playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
         )
         SELECT "#,
     );
     builder.push_bind(&resolved.window_key);
     builder.push(
-        r#", playlist_group_key, rank_tier, outcome, distinct_player_count, replay_count
+        r#", playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
         FROM population"#,
     );
     builder.build().execute(&mut *tx).await?;

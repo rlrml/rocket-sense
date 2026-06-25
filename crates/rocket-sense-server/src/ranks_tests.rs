@@ -1,6 +1,26 @@
 use super::*;
 
 #[test]
+fn rank_group_mapping_matches_refresh_sql() {
+    // Must stay in sync with the benchmark refresh CASE
+    // `WHEN tier = 22 THEN 7 ELSE (tier - 1) / 3 END`.
+    assert_eq!(rank_group_id(1), 0); // Bronze I
+    assert_eq!(rank_group_id(3), 0); // Bronze III
+    assert_eq!(rank_group_id(7), 2); // Gold I
+    assert_eq!(rank_group_id(9), 2); // Gold III
+    assert_eq!(rank_group_id(10), 3); // Platinum I
+    assert_eq!(rank_group_id(12), 3); // Platinum III
+    assert_eq!(rank_group_id(19), 6); // Grand Champion I
+    assert_eq!(rank_group_id(21), 6); // Grand Champion III
+    assert_eq!(rank_group_id(22), 7); // Supersonic Legend
+
+    assert_eq!(rank_group_label(2), "Gold");
+    assert_eq!(rank_group_label(3), "Platinum");
+    assert_eq!(rank_group_label(7), "Supersonic Legend");
+    assert_eq!(rank_tier_label(14), "Diamond II");
+}
+
+#[test]
 fn normalize_platform_maps_common_spellings() {
     assert_eq!(normalize_platform("Steam").as_deref(), Some("steam"));
     assert_eq!(normalize_platform("Epic").as_deref(), Some("epic"));
