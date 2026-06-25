@@ -5695,6 +5695,14 @@ tbody tr:last-child td {
   accent-color: var(--blue);
 }
 
+.stat-materialized-toggle {
+  min-height: 0;
+  margin-top: 10px;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  color: var(--muted);
+}
+
 .admin-diagnostics-table table {
   min-width: 1120px;
 }

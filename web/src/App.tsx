@@ -4152,6 +4152,31 @@ function playerOutcomeSplitEnabled(search: string): boolean {
   return value === "true" || value === "1" || value === "wins-losses";
 }
 
+// Whether the stat views should read from the materialized tables. The server
+// default materializes, so a bare URL (no `materialized` param) reads as enabled;
+// only an explicit opt-out forces a live recompute from events.
+function materializedStatsEnabled(search: string): boolean {
+  const value = new URLSearchParams(search).get("materialized");
+  if (value == null) {
+    return true;
+  }
+  return value !== "false" && value !== "0";
+}
+
+// Toggle the `materialized` param in the URL. Enabling drops the param to keep
+// URLs clean (the server default re-materializes); disabling pins `false` so the
+// override is explicit and shareable.
+function materializedStatsParamPath(pathname: string, search: string, enabled: boolean): string {
+  const params = new URLSearchParams(search);
+  if (enabled) {
+    params.delete("materialized");
+  } else {
+    params.set("materialized", "false");
+  }
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
 function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): string {
   const params = playerStatsRequestSearchParams(search);
   params.delete("split-outcome");
@@ -4265,6 +4290,8 @@ function PlayerAggregateStatsSections({
 }) {
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = useCurrentUser();
+  const materializedEnabled = materializedStatsEnabled(location.search);
   const sectionStats = filterStatsForGroup(stats.stats, activeGroup)
     .slice()
     .sort(comparePlayerStatRates);
@@ -4538,6 +4565,27 @@ function PlayerAggregateStatsSections({
             {activeGroup.label}
           </h2>
           <p>{activeGroup.description}</p>
+          {currentUser?.is_admin ? (
+            <label
+              className="toggle-row stat-materialized-toggle"
+              title="Admin only: read these stats from the materialized tables (fast) or recompute them live from events (slow, source of truth)."
+            >
+              <input
+                type="checkbox"
+                checked={materializedEnabled}
+                onChange={(event) =>
+                  navigate(
+                    materializedStatsParamPath(
+                      location.pathname,
+                      location.search,
+                      event.target.checked,
+                    ),
+                  )
+                }
+              />
+              <span>Materialized stats{materializedEnabled ? "" : " (live)"}</span>
+            </label>
+          ) : null}
         </div>
         {activeGroup.id === "kickoffs" ? (
           <div className="stat-detail-counts">
