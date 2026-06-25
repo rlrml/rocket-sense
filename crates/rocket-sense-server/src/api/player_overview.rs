@@ -48,6 +48,8 @@ pub struct PlayerStatOverviewResponse {
     pub assists: ScoringRateResponse,
     /// Headline shot rate for the player vs the pooled teammate average.
     pub shots: ScoringRateResponse,
+    /// Headline save rate for the player vs the pooled teammate average.
+    pub saves: ScoringRateResponse,
     pub goal_tags: Vec<GoalTagAggregateResponse>,
     pub rotation_roles: Vec<RotationTimeShareResponse>,
     pub rotation_depths: Vec<RotationTimeShareResponse>,
@@ -285,6 +287,11 @@ async fn load_player_stat_overview(
             counters.teammate_shots,
             counters.opponent_shots,
         ),
+        saves: scoring_rate(
+            counters.player_saves,
+            counters.teammate_saves,
+            counters.opponent_saves,
+        ),
         goal_tags,
         rotation_roles,
         rotation_depths,
@@ -300,7 +307,7 @@ fn push_target_appearances_cte<'args>(
     builder.push(
         r#"
         WITH target_appearances AS MATERIALIZED (
-            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id, rp.team, rp.active_time_seconds, rp.score, rp.goals, rp.assists, rp.shots
+            SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id, rp.team, rp.active_time_seconds, rp.score, rp.goals, rp.assists, rp.shots, rp.saves
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
         "#,
@@ -578,14 +585,17 @@ struct ScoringCounters {
     player_goals: u64,
     player_assists: u64,
     player_shots: u64,
+    player_saves: u64,
     teammate_score: u64,
     teammate_goals: u64,
     teammate_assists: u64,
     teammate_shots: u64,
+    teammate_saves: u64,
     opponent_score: u64,
     opponent_goals: u64,
     opponent_assists: u64,
     opponent_shots: u64,
+    opponent_saves: u64,
 }
 
 /// Sum the scoreboard counters for the target player and the pooled
@@ -599,7 +609,7 @@ async fn load_scoring_counters(
     builder.push(
         r#"
         , teammate_appearances AS (
-            SELECT DISTINCT teammate.id, teammate.score, teammate.goals, teammate.assists, teammate.shots
+            SELECT DISTINCT teammate.id, teammate.score, teammate.goals, teammate.assists, teammate.shots, teammate.saves
             FROM target_appearances target
             JOIN replay_players teammate
               ON teammate.replay_id = target.replay_id
@@ -607,7 +617,7 @@ async fn load_scoring_counters(
              AND teammate.id <> target.id
         ),
         opponent_appearances AS (
-            SELECT DISTINCT opponent.id, opponent.score, opponent.goals, opponent.assists, opponent.shots
+            SELECT DISTINCT opponent.id, opponent.score, opponent.goals, opponent.assists, opponent.shots, opponent.saves
             FROM target_appearances target
             JOIN replay_players opponent
               ON opponent.replay_id = target.replay_id
@@ -620,14 +630,17 @@ async fn load_scoring_counters(
             (SELECT COALESCE(SUM(goals), 0) FROM target_appearances) AS player_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM target_appearances) AS player_assists,
             (SELECT COALESCE(SUM(shots), 0) FROM target_appearances) AS player_shots,
+            (SELECT COALESCE(SUM(saves), 0) FROM target_appearances) AS player_saves,
             (SELECT COALESCE(SUM(score), 0) FROM teammate_appearances) AS teammate_score,
             (SELECT COALESCE(SUM(goals), 0) FROM teammate_appearances) AS teammate_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM teammate_appearances) AS teammate_assists,
             (SELECT COALESCE(SUM(shots), 0) FROM teammate_appearances) AS teammate_shots,
+            (SELECT COALESCE(SUM(saves), 0) FROM teammate_appearances) AS teammate_saves,
             (SELECT COALESCE(SUM(score), 0) FROM opponent_appearances) AS opponent_score,
             (SELECT COALESCE(SUM(goals), 0) FROM opponent_appearances) AS opponent_goals,
             (SELECT COALESCE(SUM(assists), 0) FROM opponent_appearances) AS opponent_assists,
-            (SELECT COALESCE(SUM(shots), 0) FROM opponent_appearances) AS opponent_shots
+            (SELECT COALESCE(SUM(shots), 0) FROM opponent_appearances) AS opponent_shots,
+            (SELECT COALESCE(SUM(saves), 0) FROM opponent_appearances) AS opponent_saves
         "#,
     );
 
@@ -637,14 +650,17 @@ async fn load_scoring_counters(
         player_goals: count_column(&row, "player_goals")?,
         player_assists: count_column(&row, "player_assists")?,
         player_shots: count_column(&row, "player_shots")?,
+        player_saves: count_column(&row, "player_saves")?,
         teammate_score: count_column(&row, "teammate_score")?,
         teammate_goals: count_column(&row, "teammate_goals")?,
         teammate_assists: count_column(&row, "teammate_assists")?,
         teammate_shots: count_column(&row, "teammate_shots")?,
+        teammate_saves: count_column(&row, "teammate_saves")?,
         opponent_score: count_column(&row, "opponent_score")?,
         opponent_goals: count_column(&row, "opponent_goals")?,
         opponent_assists: count_column(&row, "opponent_assists")?,
         opponent_shots: count_column(&row, "opponent_shots")?,
+        opponent_saves: count_column(&row, "opponent_saves")?,
     })
 }
 

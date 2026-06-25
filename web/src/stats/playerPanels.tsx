@@ -276,12 +276,14 @@ export function CoreProfileComparison({
   const assists = scoringRateOrZero(overview.assists);
   const shots = scoringRateOrZero(overview.shots);
   const mvpRows = mvpComparisonRows(overview.mvp, playerName);
+  const saves = scoringRateOrZero(overview.saves);
   const cards = [
     ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
     rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
     rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
     rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
     rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
+    rateCardFromOverview("saves", "Saves (per 5 min)", saves, playerName),
     {
       key: "demos",
       title: "Demos (per 5 min)",

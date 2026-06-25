@@ -518,6 +518,7 @@ export interface PlayerStatOverviewResponse {
   goals: ScoringRateResponse;
   assists: ScoringRateResponse;
   shots?: ScoringRateResponse;
+  saves?: ScoringRateResponse;
   goal_tags: GoalTagAggregateResponse[];
   rotation_roles: RotationTimeShareResponse[];
   rotation_depths: RotationTimeShareResponse[];
