@@ -8424,32 +8424,36 @@ tbody tr:last-child td {
   background: var(--possession-neutral, #94a3b8);
 }
 
-.possession-location-team-zero {
-  background: var(--blue);
-  fill: var(--blue);
+/* Player-relative "your team vs opponents" palette (teal -> grey -> purple),
+   matching PLAYER_RELATIVE_OUTCOME_COLORS and the positioning/cohort views.
+   Lifetime possession aggregates a player who switches teams game to game, so
+   blue/orange would be meaningless here. */
+.possession-team-own {
+  background: var(--possession-team-own, #0f766e);
+  fill: var(--possession-team-own, #0f766e);
 }
 
-.possession-location-team-one {
-  background: var(--orange);
-  fill: var(--orange);
+.possession-team-opponent {
+  background: var(--possession-team-opponent, #7c3aed);
+  fill: var(--possession-team-opponent, #7c3aed);
 }
 
-.possession-location-neutral {
+.possession-team-neutral {
   background: var(--possession-neutral, #94a3b8);
   fill: var(--possession-neutral, #94a3b8);
 }
 
-.possession-location-row.possession-location-team-zero {
-  border-left-color: var(--blue);
+.possession-location-row.possession-team-own {
+  border-left-color: var(--possession-team-own, #0f766e);
   background: transparent;
 }
 
-.possession-location-row.possession-location-team-one {
-  border-left-color: var(--orange);
+.possession-location-row.possession-team-opponent {
+  border-left-color: var(--possession-team-opponent, #7c3aed);
   background: transparent;
 }
 
-.possession-location-row.possession-location-neutral {
+.possession-location-row.possession-team-neutral {
   border-left-color: var(--possession-neutral, #94a3b8);
   background: transparent;
 }

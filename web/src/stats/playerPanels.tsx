@@ -2182,12 +2182,14 @@ function teamControlChart(
   return { key, title, rows };
 }
 
-// Oriented keys (own_* / opponent_* / neutral*) map to the player's team
-// (blue) vs opponents (orange), reusing the possession-location palette.
+// Oriented keys (own_* / opponent_* / neutral*) are player-relative, so they
+// use the career "your team vs opponents" palette (teal -> grey -> purple) like
+// the positioning/cohort views — not per-game blue/orange, which is meaningless
+// across a lifetime where the player switches teams game to game.
 function teamControlClass(key: string): string {
-  if (key.includes("own")) return "possession-location-team-zero";
-  if (key.includes("opponent")) return "possession-location-team-one";
-  return "possession-location-neutral";
+  if (key.includes("own")) return "possession-team-own";
+  if (key.includes("opponent")) return "possession-team-opponent";
+  return "possession-team-neutral";
 }
 
 interface PossessionProfileSubject {
