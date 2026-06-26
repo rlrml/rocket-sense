@@ -40,9 +40,18 @@ export function rankLabel(
 }
 
 // Official in-game rank icons, one per tier index (assets/ranks/<tier>.png).
-function rankIconUrl(tier: number): string | null {
+export function rankIconUrl(tier: number): string | null {
   if (tier < 0 || tier >= tierNames.length) return null;
   return new URL(`./assets/ranks/${tier}.png`, import.meta.url).href;
+}
+
+// The rank benchmark groups a rank's three divisions into one bucket (0 Bronze
+// .. 7 Supersonic Legend). Pick a representative tier so the group can reuse the
+// per-tier icon: the middle division (e.g. Gold group -> Gold II), clamped to
+// the Supersonic Legend tier at the top.
+export function rankGroupIconUrl(groupId: number): string | null {
+  const tier = Math.min(groupId * 3 + 2, 22);
+  return rankIconUrl(tier);
 }
 
 export function RankBadge({
