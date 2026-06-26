@@ -847,6 +847,47 @@ tbody tr:last-child td {
   border-color: var(--team-orange);
 }
 
+.replay-group-subgroups {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.replay-group-subgroups-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.replay-group-subgroups-header h2 {
+  margin: 0;
+  font-size: var(--text-lg, 1.05rem);
+}
+
+.replay-group-subgroup-list {
+  flex-wrap: wrap;
+}
+
+.replay-group-subgroup-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.replay-group-subgroup-create input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
 .link-button {
   min-height: 0;
   padding: 0;

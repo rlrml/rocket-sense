@@ -38,7 +38,16 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  Fragment,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Link,
   NavLink,
@@ -97,6 +106,7 @@ import {
   reprocessReplay,
   reprocessReplayClient,
   setAccessToken,
+  updateReplayGroup,
   uploadReplay,
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
@@ -1223,6 +1233,84 @@ function useReplayFilterOptions(): ReplayListFilterOptions {
   return filterOptions;
 }
 
+interface GroupTreeNode {
+  group: ReplayGroupResponse;
+  depth: number;
+  children: GroupTreeNode[];
+}
+
+/// Build a forest of groups from a flat list using `parent_group_id`. A group
+/// whose parent is missing from the list is treated as a root; the `seen` guard
+/// keeps a stray parent cycle from recursing forever.
+function buildGroupForest(groups: ReplayGroupResponse[]): GroupTreeNode[] {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const childrenByParent = new Map<string | null, ReplayGroupResponse[]>();
+  for (const group of groups) {
+    const parentKey =
+      group.parent_group_id && byId.has(group.parent_group_id) ? group.parent_group_id : null;
+    const siblings = childrenByParent.get(parentKey) ?? [];
+    siblings.push(group);
+    childrenByParent.set(parentKey, siblings);
+  }
+  const build = (parentKey: string | null, depth: number, seen: Set<string>): GroupTreeNode[] =>
+    (childrenByParent.get(parentKey) ?? [])
+      .filter((group) => !seen.has(group.id))
+      .map((group) => {
+        seen.add(group.id);
+        return { group, depth, children: build(group.id, depth + 1, seen) };
+      });
+  return build(null, 0, new Set());
+}
+
+function flattenGroupForest(nodes: GroupTreeNode[]): GroupTreeNode[] {
+  const out: GroupTreeNode[] = [];
+  const walk = (subtree: GroupTreeNode[]) => {
+    for (const node of subtree) {
+      out.push(node);
+      walk(node.children);
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/// Ids of a group and every group nested beneath it. Used to keep a group from
+/// being moved under itself or one of its own descendants.
+function groupSubtreeIds(groups: ReplayGroupResponse[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string, ReplayGroupResponse[]>();
+  for (const group of groups) {
+    if (!group.parent_group_id) continue;
+    const siblings = childrenByParent.get(group.parent_group_id) ?? [];
+    siblings.push(group);
+    childrenByParent.set(group.parent_group_id, siblings);
+  }
+  const ids = new Set<string>();
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const id = queue.pop() as string;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    for (const child of childrenByParent.get(id) ?? []) queue.push(child.id);
+  }
+  return ids;
+}
+
+/// Root-to-parent chain of a group (excludes the group itself).
+function groupAncestors(groups: ReplayGroupResponse[], groupId: string): ReplayGroupResponse[] {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const chain: ReplayGroupResponse[] = [];
+  const seen = new Set<string>([groupId]);
+  let parentId = byId.get(groupId)?.parent_group_id ?? null;
+  while (parentId && !seen.has(parentId)) {
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    seen.add(parent.id);
+    chain.unshift(parent);
+    parentId = parent.parent_group_id ?? null;
+  }
+  return chain;
+}
+
 function ReplayGroupListPage() {
   const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1247,6 +1335,8 @@ function ReplayGroupListPage() {
     };
   }, []);
 
+  const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
+
   return (
     <section className="page replay-group-list-page">
       <header className="page-header">
@@ -1259,18 +1349,33 @@ function ReplayGroupListPage() {
       <StatusLine loading={loading} error={error} />
 
       <div className="replay-card-list group-card-list">
-        {groups.map((group) => (
-          <article className="replay-card group-card" key={group.id}>
+        {orderedGroups.map(({ group, depth }) => (
+          <article
+            className="replay-card group-card"
+            key={group.id}
+            style={depth > 0 ? { marginLeft: depth * 24 } : undefined}
+          >
             <header className="replay-card-header">
               <div className="replay-card-title">
                 <Link className="primary-link" to={`/replay-groups/${group.id}/stats`}>
+                  {group.child_group_count > 0 ? (
+                    <FolderOpen size={16} style={{ marginRight: 6, verticalAlign: "-2px" }} />
+                  ) : null}
                   {group.name}
                 </Link>
                 <span className="subtle">{group.description || group.id}</span>
               </div>
               <div className="replay-card-meta">
                 <span>{group.replay_count.toLocaleString()} replays</span>
-                <span className="subtle">Updated {formatDate(group.updated_at)}</span>
+                {group.child_group_count > 0 ? (
+                  <span className="subtle">
+                    {group.total_replay_count.toLocaleString()} in subtree ·{" "}
+                    {group.child_group_count.toLocaleString()}{" "}
+                    {group.child_group_count === 1 ? "subgroup" : "subgroups"}
+                  </span>
+                ) : (
+                  <span className="subtle">Updated {formatDate(group.updated_at)}</span>
+                )}
               </div>
             </header>
             <div className="button-row">
@@ -1876,6 +1981,7 @@ function GroupSelectionBar({
 
   const creating = targetGroupId === NEW_GROUP_OPTION;
   const targetGroup = groups.find((group) => group.id === targetGroupId) ?? null;
+  const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
   const selectedCount = selectedIds.size;
   const allSelected = replayCount > 0 && selectedCount >= replayCount;
 
@@ -1973,9 +2079,9 @@ function GroupSelectionBar({
             disabled={busy}
           >
             <option value="">Choose a group…</option>
-            {groups.map((group) => (
+            {orderedGroups.map(({ group, depth }) => (
               <option key={group.id} value={group.id}>
-                {group.name} ({group.replay_count})
+                {`${"  ".repeat(depth)}${depth > 0 ? "└ " : ""}${group.name} (${group.replay_count})`}
               </option>
             ))}
             <option value={NEW_GROUP_OPTION}>+ New group…</option>
@@ -2749,12 +2855,161 @@ function GroupStatExplorerSection({
   );
 }
 
+function ReplayGroupSubgroups({
+  parentGroup,
+  childGroups,
+  allGroups,
+  onChanged,
+}: {
+  parentGroup: ReplayGroupResponse;
+  childGroups: ReplayGroupResponse[];
+  allGroups: ReplayGroupResponse[];
+  onChanged: () => void;
+}) {
+  const currentUser = useCurrentUser();
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Valid move targets exclude this group and its descendants (which would form
+  // a cycle), presented in tree order so the hierarchy is legible.
+  const moveTargets = useMemo(() => {
+    const blocked = groupSubtreeIds(allGroups, parentGroup.id);
+    return flattenGroupForest(buildGroupForest(allGroups)).filter(
+      ({ group }) => !blocked.has(group.id),
+    );
+  }, [allGroups, parentGroup.id]);
+
+  async function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await createReplayGroup({ name: trimmed, parent_id: parentGroup.id });
+      setName("");
+      setCreating(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create subgroup");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMove(parentId: string | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateReplayGroup(parentGroup.id, { parent_id: parentId });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to move group");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (childGroups.length === 0 && !currentUser) return null;
+
+  return (
+    <div className="replay-group-subgroups">
+      <div className="replay-group-subgroups-header">
+        <h2>Subgroups</h2>
+        {currentUser ? (
+          <div className="button-row">
+            <label className="replay-selection-group">
+              <FolderOpen size={16} />
+              <select
+                value={parentGroup.parent_group_id ?? ""}
+                onChange={(event) => handleMove(event.currentTarget.value || null)}
+                disabled={busy}
+                title="Nest this group under another group"
+              >
+                <option value="">Top level (no parent)</option>
+                {moveTargets.map(({ group, depth }) => (
+                  <option key={group.id} value={group.id}>
+                    {`${"  ".repeat(depth)}${depth > 0 ? "└ " : ""}${group.name}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setCreating((value) => !value)}
+              disabled={busy}
+            >
+              <FolderPlus size={16} />
+              New subgroup
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {childGroups.length > 0 ? (
+        <>
+          <p className="subtle">Stats below include every replay in these subgroups.</p>
+          <div className="button-row replay-group-subgroup-list">
+            {childGroups.map((child) => (
+              <Link
+                key={child.id}
+                className="secondary-button"
+                to={`/replay-groups/${child.id}/stats`}
+              >
+                <FolderOpen size={16} />
+                {child.name}
+                <span className="subtle"> ({child.total_replay_count.toLocaleString()})</span>
+              </Link>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="subtle">No subgroups yet.</p>
+      )}
+      {creating ? (
+        <form className="replay-group-subgroup-create" onSubmit={handleCreate}>
+          <input
+            type="text"
+            value={name}
+            autoFocus
+            placeholder="Subgroup name"
+            onChange={(event) => setName(event.currentTarget.value)}
+            disabled={busy}
+          />
+          <button type="submit" disabled={busy || name.trim() === ""}>
+            <Plus size={16} />
+            Create
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setCreating(false);
+              setName("");
+              setError(null);
+            }}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+        </form>
+      ) : null}
+      {error ? <p className="replay-selection-feedback is-error">{error}</p> : null}
+    </div>
+  );
+}
+
 function ReplayGroupStatsPage() {
   const { groupId = "" } = useParams();
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
   const [groupLoading, setGroupLoading] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
+  const [allGroups, setAllGroups] = useState<ReplayGroupResponse[]>([]);
+  const [groupsNonce, setGroupsNonce] = useState(0);
+  const refreshGroups = useCallback(() => setGroupsNonce((value) => value + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2777,7 +3032,29 @@ function ReplayGroupStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [groupId]);
+  }, [groupId, groupsNonce]);
+
+  // The full group list powers the ancestor breadcrumb and the child-subgroup
+  // navigation; it is cheap and refetched when a subgroup is created.
+  useEffect(() => {
+    let cancelled = false;
+    listReplayGroups()
+      .then((response) => {
+        if (!cancelled) setAllGroups(response.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setAllGroups([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupsNonce]);
+
+  const ancestors = useMemo(() => groupAncestors(allGroups, groupId), [allGroups, groupId]);
+  const childGroups = useMemo(
+    () => allGroups.filter((candidate) => candidate.parent_group_id === groupId),
+    [allGroups, groupId],
+  );
 
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
   const groupDurationSeconds = sumReplayDurations(replays);
@@ -2787,7 +3064,19 @@ function ReplayGroupStatsPage() {
     <section className="page stats-page replay-group-page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Replay group stats</p>
+          <p className="eyebrow">
+            <Link className="subtle" to="/replay-groups">
+              Replay groups
+            </Link>
+            {ancestors.map((ancestor) => (
+              <Fragment key={ancestor.id}>
+                {" / "}
+                <Link className="subtle" to={`/replay-groups/${ancestor.id}/stats`}>
+                  {ancestor.name}
+                </Link>
+              </Fragment>
+            ))}
+          </p>
           <h1>{group?.name || "Replay group"}</h1>
           {group?.description ? <p className="page-header-note">{group.description}</p> : null}
         </div>
@@ -2800,6 +3089,15 @@ function ReplayGroupStatsPage() {
       </header>
 
       <StatusLine loading={groupLoading} error={groupError} />
+
+      {group ? (
+        <ReplayGroupSubgroups
+          parentGroup={group}
+          childGroups={childGroups}
+          allGroups={allGroups}
+          onChanged={refreshGroups}
+        />
+      ) : null}
 
       {group ? (
         <>

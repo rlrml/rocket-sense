@@ -183,9 +183,25 @@ export function getStatLeaderboard(
 export function createReplayGroup(body: {
   name: string;
   description?: string;
+  parent_id?: string | null;
 }): Promise<ReplayGroupResponse> {
   return request<ReplayGroupResponse>("/api/v1/replay-groups", {
     method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function updateReplayGroup(
+  groupId: string,
+  body: {
+    name?: string;
+    description?: string | null;
+    parent_id?: string | null;
+  },
+): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`, {
+    method: "PATCH",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
