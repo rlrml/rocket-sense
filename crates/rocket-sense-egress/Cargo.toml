@@ -1,0 +1,21 @@
+[package]
+name = "rocket-sense-egress"
+description = "Round-robin HTTP egress pool over a set of SOCKS5 exits (e.g. Mullvad per-relay proxies)"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+
+[dependencies]
+# `socks` adds SOCKS5 proxy support on top of the workspace feature set
+# (default-features off + json + rustls-tls). `socks5h://` URLs resolve DNS
+# through the proxy so we don't leak a real-region resolver alongside a
+# rotated exit IP.
+reqwest = { workspace = true, features = ["socks"] }
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }

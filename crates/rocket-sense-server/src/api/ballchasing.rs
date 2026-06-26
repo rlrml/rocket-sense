@@ -1,10 +1,10 @@
 use axum::{
-    extract::Path,
+    extract::{Path, State},
     http::{
         header::{
             ACCEPT, ACCESS_CONTROL_ALLOW_HEADERS, ACCESS_CONTROL_ALLOW_METHODS,
             ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_EXPOSE_HEADERS, AUTHORIZATION,
-            CONTENT_DISPOSITION, CONTENT_TYPE, USER_AGENT,
+            CONTENT_DISPOSITION, CONTENT_TYPE,
         },
         HeaderMap, HeaderName, HeaderValue, StatusCode,
     },
@@ -12,13 +12,13 @@ use axum::{
     routing::get,
     Router,
 };
+use rocket_sense_egress::{EgressError, EgressPool};
 
 use crate::app::AppState;
 
 use super::replays::ApiError;
 
 const BALLCHASING_REPLAY_FILE_BASE_URL: &str = "https://ballchasing.com/api/replays";
-const ROCKET_SENSE_USER_AGENT: &str = "rocket-sense";
 
 #[cfg(test)]
 #[path = "ballchasing_tests.rs"]
@@ -74,11 +74,13 @@ pub async fn load_ballchasing_replay(
     )
 )]
 pub async fn proxy_ballchasing_replay_file(
+    State(state): State<AppState>,
     Path(ballchasing_replay_id): Path<String>,
     request_headers: HeaderMap,
 ) -> Result<Response, ApiError> {
     validate_ballchasing_replay_id(&ballchasing_replay_id)?;
     let upstream = fetch_ballchasing_replay_file(
+        &state.egress,
         &ballchasing_replay_id,
         request_headers
             .get(AUTHORIZATION)
@@ -114,23 +116,28 @@ struct BallchasingReplayFile {
 }
 
 async fn fetch_ballchasing_replay_file(
+    egress: &EgressPool,
     ballchasing_replay_id: &str,
     authorization: Option<&str>,
 ) -> Result<BallchasingReplayFile, ApiError> {
     let url = ballchasing_replay_file_url(ballchasing_replay_id);
-    let client = reqwest::Client::new();
-    let mut request = client
-        .get(url)
-        .header(USER_AGENT.as_str(), ROCKET_SENSE_USER_AGENT)
-        .header(ACCEPT.as_str(), "application/octet-stream");
-    if let Some(authorization) = authorization {
-        request = request.header(AUTHORIZATION.as_str(), authorization);
-    }
-
-    let response = request
-        .send()
+    // Dispatch through the egress pool so the download rotates across exit IPs
+    // and backs off a rate-limited exit instead of hammering one IP. The
+    // `User-Agent` is baked into the pool's clients.
+    let outcome = egress
+        .execute(|client| {
+            let request = client
+                .get(&url)
+                .header(ACCEPT.as_str(), "application/octet-stream");
+            match authorization {
+                Some(authorization) => request.header(AUTHORIZATION.as_str(), authorization),
+                None => request,
+            }
+        })
         .await
-        .map_err(|error| upstream_error("failed to fetch Ballchasing replay", error))?;
+        .map_err(egress_error)?;
+
+    let response = outcome.response;
     let status = response.status();
     if !status.is_success() {
         return Err(ballchasing_status_error(status));
@@ -175,6 +182,23 @@ fn ballchasing_status_error(status: reqwest::StatusCode) -> ApiError {
 fn upstream_error(message: &'static str, error: reqwest::Error) -> ApiError {
     tracing::warn!(%error, "Ballchasing replay download failed");
     ApiError::new(StatusCode::BAD_GATEWAY, message)
+}
+
+fn egress_error(error: EgressError) -> ApiError {
+    tracing::warn!(%error, "Ballchasing replay download failed via egress pool");
+    // When every exit was exhausted on an upstream status (e.g. a persistent 429
+    // or a 404), surface that status to the client as the direct path used to,
+    // rather than collapsing everything to 502. Transport failures stay 502.
+    match error {
+        EgressError::Exhausted {
+            last_status: Some(status),
+            ..
+        } => ballchasing_status_error(status),
+        _ => ApiError::new(
+            StatusCode::BAD_GATEWAY,
+            "failed to fetch Ballchasing replay",
+        ),
+    }
 }
 
 fn validate_ballchasing_replay_id(ballchasing_replay_id: &str) -> Result<(), ApiError> {

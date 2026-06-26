@@ -5,6 +5,7 @@ use crate::{
 };
 use anyhow::Result;
 use axum::{extract::DefaultBodyLimit, Router};
+use rocket_sense_egress::EgressPool;
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
 use sqlx::PgPool;
 use std::sync::Arc;
@@ -40,6 +41,9 @@ pub struct AppState {
     /// Ballchasing.com API key for mirroring ballchasing groups. `None` disables
     /// the ballchasing mirror endpoints.
     pub ballchasing_api_key: Option<Arc<str>>,
+    /// Round-robin SOCKS5 egress pool for rate-limited upstreams (ballchasing
+    /// replay-file proxying). A single direct exit unless proxies are configured.
+    pub egress: Arc<EgressPool>,
 }
 
 pub async fn build(settings: settings::Settings) -> Result<Router> {
@@ -54,6 +58,12 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         tracing::warn!("DATABASE_URL is not set; starting without postgres connection");
         None
     };
+
+    let egress = Arc::new(EgressPool::new(
+        settings.egress.pool.clone(),
+        settings.egress.exits.clone(),
+    )?);
+    tracing::info!(exits = egress.len(), "egress pool initialized");
 
     let state = AppState {
         db,
@@ -72,6 +82,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         rank_benchmark_calc: settings.rank_benchmark_calc,
         admin_emails: Arc::from(settings.admin_emails),
         ballchasing_api_key: settings.ballchasing_api_key.map(Arc::from),
+        egress,
     };
 
     if state.process_replays_in_background {
