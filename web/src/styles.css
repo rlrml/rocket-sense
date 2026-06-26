@@ -3673,6 +3673,11 @@ tbody tr:last-child td {
   background: var(--aerial-wall-aerial);
 }
 
+.source-segment.aerial-seg-mix-ceiling-shot,
+.chart-legend .aerial-seg-mix-ceiling-shot::before {
+  background: var(--aerial-ceiling-shot);
+}
+
 .source-segment.aerial-seg-origin-ground,
 .chart-legend .aerial-seg-origin-ground::before {
   background: var(--aerial-origin-ground);

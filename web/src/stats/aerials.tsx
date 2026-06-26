@@ -14,8 +14,9 @@ import { touchPayloadValue } from "./touchTags";
 
 // Every aerial panel ranks all participants on its own, so this group loads the
 // streams those rankings draw from:
-//   - flip_reset / double_tap / wall_aerial: detected mechanic events. Flip
-//     resets are confirmed only once the reset is later used by a dodge touch.
+//   - flip_reset / double_tap / wall_aerial / ceiling_shot: detected mechanic
+//     events. Flip resets are confirmed only once the reset is later used by a
+//     dodge touch.
 //   - air_dribble: a dedicated stream (NOT ball_carry, which is ground carries);
 //     its payload carries air_dribble_origin (ground_to_air / wall_to_air)
 //   - goal_context: goal tags flag which finishes were aerial
@@ -25,6 +26,7 @@ export const aerialEventTypes = [
   "double_tap",
   "air_dribble",
   "wall_aerial",
+  "ceiling_shot",
   "goal_context",
   "touch",
 ];
@@ -66,6 +68,7 @@ const MECHANIC_PANELS: MechanicPanelConfig[] = [
   { kind: "double_tap", title: "Double taps", segmentClass: "aerial-seg-mix-double-tap" },
   { kind: "air_dribble", title: "Air dribbles", segmentClass: "aerial-seg-mix-air-dribble" },
   { kind: "wall_aerial", title: "Wall aerials", segmentClass: "aerial-seg-mix-wall-aerial" },
+  { kind: "ceiling_shot", title: "Ceiling shots", segmentClass: "aerial-seg-mix-ceiling-shot" },
 ];
 
 // AirDribbleOrigin from subtr-actor: where the dribble was started from.
@@ -322,6 +325,9 @@ function accumulate(subject: AerialSubject, event: MechanicEventResponse) {
       break;
     case "double_tap":
       bump(subject, "mix", "double_tap");
+      break;
+    case "ceiling_shot":
+      bump(subject, "mix", "ceiling_shot");
       break;
     case "wall_aerial": {
       bump(subject, "mix", "wall_aerial");
