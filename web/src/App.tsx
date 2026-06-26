@@ -1065,16 +1065,18 @@ const rankFilterOptions = [
 const LEGACY_SEASON_COUNT = 12;
 const FREE_TO_PLAY_SEASON_COUNT = 23;
 
+// Listed newest-first (free-to-play era descending, then legacy descending) so
+// the most recent season sits at the top of the range selects.
 const seasonFilterOptions: FilterOptionConfig[] = [
   { value: "", label: "Any" },
-  ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => ({
-    value: `s${index + 1}`,
-    label: `Legacy S${index + 1}`,
-  })),
-  ...Array.from({ length: FREE_TO_PLAY_SEASON_COUNT }, (_, index) => ({
-    value: `f${index + 1}`,
-    label: `Free-to-play S${index + 1}`,
-  })),
+  ...Array.from({ length: FREE_TO_PLAY_SEASON_COUNT }, (_, index) => {
+    const number = FREE_TO_PLAY_SEASON_COUNT - index;
+    return { value: `f${number}`, label: `Free-to-play S${number}` };
+  }),
+  ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => {
+    const number = LEGACY_SEASON_COUNT - index;
+    return { value: `s${number}`, label: `Legacy S${number}` };
+  }),
 ];
 
 interface FilterOptionConfig {
