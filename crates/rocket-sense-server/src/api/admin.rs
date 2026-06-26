@@ -32,6 +32,10 @@ pub fn router() -> Router<AppState> {
             "/admin/replays/processing-diagnostics",
             get(list_replay_processing_diagnostics),
         )
+        .route(
+            "/admin/replays/recently-processed",
+            get(list_recently_processed_replays),
+        )
         .route("/admin/replays/queue", get(list_replay_processing_queue))
         .route(
             "/admin/replays/queue/reprocess-failed",
@@ -217,6 +221,37 @@ pub struct AnalysisRunDiagnosticResponse {
     pub error_message: Option<String>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct RecentlyProcessedReplaysQuery {
+    pub count: Option<u32>,
+    pub offset: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecentlyProcessedReplaysResponse {
+    pub replays: Vec<RecentlyProcessedReplayResponse>,
+    pub count: u32,
+    pub offset: u32,
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RecentlyProcessedReplayResponse {
+    pub replay_id: Uuid,
+    pub original_file_name: Option<String>,
+    pub processing_status: String,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub canonical_run_id: Option<Uuid>,
+    pub canonical_run_status: Option<String>,
+    pub extractor_name: Option<String>,
+    pub extractor_version: Option<String>,
+    /// When the canonical analysis run finished — i.e. when the replay became
+    /// processed.
+    pub processed_at: Option<DateTime<Utc>>,
+    pub event_count: u64,
+}
+
 #[derive(Debug, Default, Deserialize, ToSchema)]
 pub struct ReprocessReplaysRequest {
     #[serde(default)]
@@ -318,6 +353,106 @@ pub async fn list_replay_processing_diagnostics(
         count,
         offset,
         total,
+        next_offset,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/replays/recently-processed",
+    tag = "admin",
+    params(
+        ("count" = Option<u32>, Query, description = "Page size"),
+        ("offset" = Option<u32>, Query, description = "Page offset")
+    ),
+    responses(
+        (status = 200, description = "Recently processed replays", body = RecentlyProcessedReplaysResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_recently_processed_replays(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Query(query): Query<RecentlyProcessedReplaysQuery>,
+) -> Result<Json<RecentlyProcessedReplaysResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let count = query
+        .count
+        .unwrap_or(DEFAULT_DIAGNOSTIC_COUNT)
+        .clamp(1, MAX_DIAGNOSTIC_COUNT);
+    let offset = query.offset.unwrap_or(0);
+
+    // Drive the ordering off the canonical run's finished_at (the moment the
+    // replay became processed). The per-row event count only runs for the page
+    // we return, never the whole table.
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            r.id AS replay_id,
+            r.original_file_name,
+            r.processing_status,
+            r.created_at,
+            r.updated_at,
+            canonical_run.id AS canonical_run_id,
+            canonical_run.status AS canonical_run_status,
+            canonical_run.extractor_name AS extractor_name,
+            canonical_run.extractor_version AS extractor_version,
+            canonical_run.finished_at AS processed_at,
+            COALESCE(events.event_count, 0)::bigint AS event_count
+        FROM replays r
+        JOIN analysis_runs canonical_run
+          ON canonical_run.id = r.canonical_analysis_run_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS event_count
+            FROM play_events event
+            WHERE event.analysis_run_id = r.canonical_analysis_run_id
+        ) events ON true
+        WHERE r.processing_status = 'processed'
+          AND canonical_run.finished_at IS NOT NULL
+        ORDER BY canonical_run.finished_at DESC, r.id DESC
+        LIMIT $1 OFFSET $2
+        "#,
+    )
+    .bind(i64::from(count))
+    .bind(i64::from(offset))
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let replays = rows
+        .into_iter()
+        .map(|row| {
+            Ok(RecentlyProcessedReplayResponse {
+                replay_id: row.try_get("replay_id")?,
+                original_file_name: row.try_get("original_file_name")?,
+                processing_status: row.try_get("processing_status")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+                canonical_run_id: row.try_get("canonical_run_id")?,
+                canonical_run_status: row.try_get("canonical_run_status")?,
+                extractor_name: row.try_get("extractor_name")?,
+                extractor_version: row.try_get("extractor_version")?,
+                processed_at: row.try_get("processed_at")?,
+                event_count: signed_count_to_u64(row.try_get("event_count")?),
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(ApiError::internal)?;
+
+    let next_offset = (replays.len() as u32 == count)
+        .then(|| offset.checked_add(count))
+        .flatten();
+
+    Ok(Json(RecentlyProcessedReplaysResponse {
+        replays,
+        count,
+        offset,
         next_offset,
     }))
 }
@@ -1240,7 +1375,7 @@ async fn load_processing_diagnostics_total(
     include_healthy: bool,
 ) -> Result<u64, ApiError> {
     let mut query = sqlx::QueryBuilder::new("SELECT COUNT(*)::bigint AS replay_count FROM (");
-    push_processing_diagnostics_rows_query(&mut query);
+    push_processing_diagnostics_base_query(&mut query);
     query.push(") diagnostic WHERE 1 = 1");
     push_processing_diagnostics_filters(&mut query, status, include_healthy);
 
@@ -1261,8 +1396,14 @@ async fn load_processing_diagnostic_rows(
     count: u32,
     offset: u32,
 ) -> Result<Vec<ReplayProcessingDiagnosticResponse>, ApiError> {
-    let mut query = sqlx::QueryBuilder::new("SELECT * FROM (");
-    push_processing_diagnostics_rows_query(&mut query);
+    // Select the page first (the base query is cheap: it only touches `replays`,
+    // the canonical run, and a per-replay EXISTS probe), then attach the heavy
+    // display-only data — latest run, canonical event count, and the apalis
+    // queue summary — to just the rows we actually return. The queue summary in
+    // particular has to parse every job's JSON payload to recover its
+    // replay_id, so it must never run across the whole `replays` table.
+    let mut query = sqlx::QueryBuilder::new("WITH filtered AS (SELECT * FROM (");
+    push_processing_diagnostics_base_query(&mut query);
     query.push(") diagnostic WHERE 1 = 1");
     push_processing_diagnostics_filters(&mut query, status, include_healthy);
     query.push(
@@ -1283,6 +1424,81 @@ async fn load_processing_diagnostic_rows(
     query.push_bind(i64::from(count));
     query.push(" OFFSET ");
     query.push_bind(i64::from(offset));
+    query.push(
+        r#"
+        ),
+        queue_summary AS (
+            SELECT
+                (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid AS replay_id,
+                COUNT(*) FILTER (WHERE lower(job.status) IN ('pending', 'queued'))::bigint AS queued_jobs,
+                COUNT(*) FILTER (WHERE lower(job.status) IN ('running'))::bigint AS running_jobs,
+                COUNT(*) FILTER (WHERE lower(job.status) = 'failed')::bigint AS failed_jobs,
+                COUNT(*) FILTER (WHERE lower(job.status) IN ('done', 'completed'))::bigint AS finished_jobs,
+                MIN(job.run_at) FILTER (WHERE lower(job.status) IN ('pending', 'queued', 'failed')) AS next_queue_run_at,
+                MAX(job.lock_at) AS last_queue_started_at,
+                MAX(job.done_at) AS last_queue_done_at,
+                MAX(job.last_result::text) FILTER (WHERE job.last_result IS NOT NULL) AS last_queue_error
+            FROM apalis.jobs job
+            WHERE job.job_type =
+        "#,
+    );
+    query.push_bind(REPLAY_PROCESSING_QUEUE_NAME);
+    query.push(
+        r#"
+              AND (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid IN (
+                  SELECT replay_id FROM filtered
+              )
+            GROUP BY 1
+        )
+        SELECT
+            filtered.*,
+            latest_run.id AS latest_run_id,
+            latest_run.status AS latest_run_status,
+            latest_run.extractor_name AS latest_run_extractor_name,
+            latest_run.extractor_version AS latest_run_extractor_version,
+            latest_run.event_stream_schema_version AS latest_run_event_stream_schema_version,
+            latest_run.event_stream_object_key AS latest_run_event_stream_object_key,
+            latest_run.started_at AS latest_run_started_at,
+            latest_run.finished_at AS latest_run_finished_at,
+            latest_run.error_message AS latest_run_error_message,
+            COALESCE(canonical_events.event_count, 0)::bigint AS canonical_event_count,
+            false AS needs_reanalysis,
+            false AS needs_reindex,
+            ARRAY[]::text[] AS stale_reasons,
+            COALESCE(queue_summary.queued_jobs, 0)::bigint AS queued_jobs,
+            COALESCE(queue_summary.running_jobs, 0)::bigint AS running_jobs,
+            COALESCE(queue_summary.failed_jobs, 0)::bigint AS failed_jobs,
+            COALESCE(queue_summary.finished_jobs, 0)::bigint AS finished_jobs,
+            queue_summary.next_queue_run_at,
+            queue_summary.last_queue_started_at,
+            queue_summary.last_queue_done_at,
+            queue_summary.last_queue_error
+        FROM filtered
+        LEFT JOIN LATERAL (
+            SELECT *
+            FROM analysis_runs run
+            WHERE run.replay_id = filtered.replay_id
+            ORDER BY run.started_at DESC, run.created_at DESC, run.id DESC
+            LIMIT 1
+        ) latest_run ON true
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS event_count
+            FROM play_events event
+            WHERE event.analysis_run_id = filtered.canonical_analysis_run_id
+        ) canonical_events ON true
+        LEFT JOIN queue_summary ON queue_summary.replay_id = filtered.replay_id
+        ORDER BY
+            filtered.problem DESC,
+            CASE filtered.processing_status
+                WHEN 'failed' THEN 0
+                WHEN 'processing' THEN 1
+                WHEN 'pending' THEN 2
+                ELSE 3
+            END,
+            filtered.updated_at DESC,
+            filtered.replay_id DESC
+        "#,
+    );
 
     query
         .build()
@@ -1295,7 +1511,13 @@ async fn load_processing_diagnostic_rows(
         .map_err(ApiError::internal)
 }
 
-fn push_processing_diagnostics_rows_query<'args>(
+/// Cheap projection of every replay's processing health. Used directly by the
+/// total-count query and as the inner select that the rows query paginates
+/// before attaching heavier display-only joins. It deliberately avoids the
+/// apalis queue scan and the play_events COUNT: the `problem` flag only needs
+/// to know whether *any* canonical event exists, so it uses an EXISTS probe
+/// that stops at the first matching row instead of counting every event.
+fn push_processing_diagnostics_base_query<'args>(
     query: &mut sqlx::QueryBuilder<'args, sqlx::Postgres>,
 ) {
     query.push(
@@ -1317,69 +1539,21 @@ fn push_processing_diagnostics_rows_query<'args>(
             canonical_run.started_at AS canonical_run_started_at,
             canonical_run.finished_at AS canonical_run_finished_at,
             canonical_run.error_message AS canonical_run_error_message,
-            latest_run.id AS latest_run_id,
-            latest_run.status AS latest_run_status,
-            latest_run.extractor_name AS latest_run_extractor_name,
-            latest_run.extractor_version AS latest_run_extractor_version,
-            latest_run.event_stream_schema_version AS latest_run_event_stream_schema_version,
-            latest_run.event_stream_object_key AS latest_run_event_stream_object_key,
-            latest_run.started_at AS latest_run_started_at,
-            latest_run.finished_at AS latest_run_finished_at,
-            latest_run.error_message AS latest_run_error_message,
-            COALESCE(canonical_events.event_count, 0)::bigint AS canonical_event_count,
-            false AS needs_reanalysis,
-            false AS needs_reindex,
-            ARRAY[]::text[] AS stale_reasons,
-            COALESCE(queue_summary.queued_jobs, 0)::bigint AS queued_jobs,
-            COALESCE(queue_summary.running_jobs, 0)::bigint AS running_jobs,
-            COALESCE(queue_summary.failed_jobs, 0)::bigint AS failed_jobs,
-            COALESCE(queue_summary.finished_jobs, 0)::bigint AS finished_jobs,
-            queue_summary.next_queue_run_at,
-            queue_summary.last_queue_started_at,
-            queue_summary.last_queue_done_at,
-            queue_summary.last_queue_error,
             (
                 r.processing_status <> 'processed'
                 OR r.canonical_analysis_run_id IS NULL
                 OR canonical_run.id IS NULL
                 OR canonical_run.status IS DISTINCT FROM 'succeeded'
                 OR canonical_run.event_stream_object_key IS NULL
-                OR COALESCE(canonical_events.event_count, 0) = 0
+                OR NOT EXISTS (
+                    SELECT 1
+                    FROM play_events event
+                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                )
             ) AS problem
         FROM replays r
         LEFT JOIN analysis_runs canonical_run
           ON canonical_run.id = r.canonical_analysis_run_id
-        LEFT JOIN LATERAL (
-            SELECT *
-            FROM analysis_runs run
-            WHERE run.replay_id = r.id
-            ORDER BY run.started_at DESC, run.created_at DESC, run.id DESC
-            LIMIT 1
-        ) latest_run ON true
-        LEFT JOIN LATERAL (
-            SELECT COUNT(*)::bigint AS event_count
-            FROM play_events event
-            WHERE event.analysis_run_id = r.canonical_analysis_run_id
-        ) canonical_events ON true
-        LEFT JOIN LATERAL (
-            SELECT
-                COUNT(*) FILTER (WHERE lower(job.status) IN ('pending', 'queued'))::bigint AS queued_jobs,
-                COUNT(*) FILTER (WHERE lower(job.status) IN ('running'))::bigint AS running_jobs,
-                COUNT(*) FILTER (WHERE lower(job.status) = 'failed')::bigint AS failed_jobs,
-                COUNT(*) FILTER (WHERE lower(job.status) IN ('done', 'completed'))::bigint AS finished_jobs,
-                MIN(job.run_at) FILTER (WHERE lower(job.status) IN ('pending', 'queued', 'failed')) AS next_queue_run_at,
-                MAX(job.lock_at) AS last_queue_started_at,
-                MAX(job.done_at) AS last_queue_done_at,
-                MAX(job.last_result::text) FILTER (WHERE job.last_result IS NOT NULL) AS last_queue_error
-            FROM apalis.jobs job
-            WHERE job.job_type =
-        "#,
-    );
-    query.push_bind(REPLAY_PROCESSING_QUEUE_NAME);
-    query.push(
-        r#"
-              AND (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid = r.id
-        ) queue_summary ON true
         "#,
     );
 }

@@ -14,6 +14,7 @@ import {
   FolderOpen,
   FolderPlus,
   Github,
+  History,
   Info,
   ListOrdered,
   ListPlus,
@@ -92,6 +93,7 @@ import {
   listReplayEvents,
   listReplayFilterOptions,
   listLinkedIdentities,
+  listRecentlyProcessedReplays,
   listReplayProcessingDiagnostics,
   listReplayProcessingQueue,
   reprocessFailedQueueJobs,
@@ -179,6 +181,7 @@ import type {
   PossessionSummaryResponse,
   ProcessingVersionResponse,
   RankBenchmarkCohortsResponse,
+  RecentlyProcessedReplaysResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayProcessingQueueResponse,
@@ -454,6 +457,7 @@ export function App() {
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
+          <Route path="/admin/recently-processed" element={<AdminRecentlyProcessedPage />} />
           <Route path="/admin/queue" element={<AdminQueuePage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/login" element={<AccountPage initialLoginOpen />} />
@@ -6896,6 +6900,10 @@ function AdminProcessingPage() {
             <ListOrdered size={16} />
             Live queue
           </Link>
+          <Link className="secondary-button" to="/admin/recently-processed">
+            <History size={16} />
+            Recently processed
+          </Link>
           <a className="secondary-button" href="/api/v1/admin/replays/processing-diagnostics">
             <ExternalLink size={16} />
             JSON
@@ -7283,6 +7291,10 @@ function AdminQueuePage() {
             <ServerCog size={16} />
             Diagnostics
           </Link>
+          <Link className="secondary-button" to="/admin/recently-processed">
+            <History size={16} />
+            Recently processed
+          </Link>
           <a className="secondary-button" href="/api/v1/admin/replays/queue">
             <ExternalLink size={16} />
             JSON
@@ -7392,6 +7404,179 @@ function AdminQueuePage() {
               <tr>
                 <td colSpan={6} className="empty-cell">
                   Queue is empty — no outstanding replay-processing jobs.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AdminRecentlyProcessedPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const [response, setResponse] = useState<RecentlyProcessedReplaysResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listRecentlyProcessedReplays(searchParams)
+      .then((nextResponse) => {
+        if (!cancelled) setResponse(nextResponse);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, refreshKey]);
+
+  function goToOffset(offset: number) {
+    const params = new URLSearchParams(searchParams);
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    } else {
+      params.delete("offset");
+    }
+    navigate(`/admin/recently-processed?${params.toString()}`);
+  }
+
+  const replays = response?.replays ?? [];
+  const offset = positiveIntegerParam(searchParams, "offset", 0);
+  const pageSize = positiveIntegerParam(searchParams, "count", 100);
+  const canPageBackward = offset > 0;
+  const canPageForward = response?.next_offset != null;
+  const previousOffset = Math.max(0, offset - pageSize);
+  const nextOffset = response?.next_offset ?? offset + pageSize;
+
+  return (
+    <section className="page admin-processing-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>Recently Processed</h1>
+        </div>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? "spin" : undefined} />
+            Refresh
+          </button>
+          <Link className="secondary-button" to="/admin/processing">
+            <ServerCog size={16} />
+            Diagnostics
+          </Link>
+          <a className="secondary-button" href="/api/v1/admin/replays/recently-processed">
+            <ExternalLink size={16} />
+            JSON
+          </a>
+        </div>
+      </header>
+
+      <p className="subtle">
+        Replays whose canonical analysis run has finished, newest first — i.e. what the workers most
+        recently turned into processed replays.
+      </p>
+
+      <div className="replay-list-controls">
+        <div className="results-readout">
+          <ListOrdered size={16} />
+          <span>
+            {loading
+              ? "Loading replays"
+              : `${replays.length.toLocaleString()} processed ${
+                  replays.length === 1 ? "replay" : "replays"
+                }`}
+          </span>
+        </div>
+        <div className="pagination-controls">
+          <button
+            type="button"
+            className="icon-button"
+            title="Previous page"
+            disabled={!canPageBackward || loading}
+            onClick={() => goToOffset(previousOffset)}
+          >
+            <ChevronLeft size={17} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Next page"
+            disabled={!canPageForward || loading}
+            onClick={() => goToOffset(nextOffset)}
+          >
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <StatusLine loading={loading} error={error} />
+
+      <div className="table-frame admin-diagnostics-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Replay</th>
+              <th>Processed</th>
+              <th>Status</th>
+              <th>Extractor</th>
+              <th>Events</th>
+            </tr>
+          </thead>
+          <tbody>
+            {replays.map((replay) => (
+              <tr key={replay.replay_id}>
+                <td className="admin-replay-cell">
+                  <ReplayLink className="primary-link" replayId={replay.replay_id}>
+                    {replay.original_file_name || replay.replay_id}
+                  </ReplayLink>
+                  <div className="subtle">{replay.replay_id.slice(0, 8)}</div>
+                </td>
+                <td className="admin-date-cell">
+                  {replay.processed_at ? (
+                    <div>{formatDate(replay.processed_at)}</div>
+                  ) : (
+                    <span className="subtle">—</span>
+                  )}
+                </td>
+                <td>
+                  <span className={`status-badge status-${replay.processing_status}`}>
+                    {replay.processing_status}
+                  </span>
+                </td>
+                <td>
+                  {replay.extractor_version ? (
+                    <code className="subtle">
+                      {replay.extractor_name ? `${replay.extractor_name} ` : ""}
+                      {replay.extractor_version}
+                    </code>
+                  ) : (
+                    <span className="subtle">—</span>
+                  )}
+                </td>
+                <td>{replay.event_count.toLocaleString()}</td>
+              </tr>
+            ))}
+            {!loading && replays.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="empty-cell">
+                  No processed replays found.
                 </td>
               </tr>
             ) : null}
