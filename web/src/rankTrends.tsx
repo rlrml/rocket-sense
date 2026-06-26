@@ -32,6 +32,8 @@ const FEATURED_KEYS = [
   "fact:ball-advance",
   "boost:collected",
   "positioning:behind_ball_share",
+  "goaltag:high_aerial_goal",
+  "goaltag:flip_reset_goal",
 ];
 
 interface MetricFormat {
