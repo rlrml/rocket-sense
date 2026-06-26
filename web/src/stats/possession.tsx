@@ -25,6 +25,7 @@ import {
   type SegmentedBarSegment,
   type StatPlayerRank,
 } from "./shared";
+import { useSearchParamState } from "./useSearchParamState";
 
 export const possessionEventTypes = ["possession", "player_possession", "ball_half", "ball_third"];
 
@@ -34,6 +35,15 @@ type FieldHalf = "team_zero_side" | "neutral" | "team_one_side";
 type PossessionComparisonMode = "teams" | "players";
 type PossessionZone = "offensive" | "neutral" | "defensive";
 type GroupPossessionView = "leaderboard" | "share" | "ball-half" | "ball-thirds" | "zones";
+
+const POSSESSION_COMPARISON_MODES = ["teams", "players"] as const;
+const GROUP_POSSESSION_VIEWS = [
+  "leaderboard",
+  "share",
+  "ball-half",
+  "ball-thirds",
+  "zones",
+] as const;
 
 interface PossessionSpan {
   key: string;
@@ -103,8 +113,16 @@ export function PossessionDetail({
   const playerTrackedSeconds = sumPlayerPossessionSeconds(playerSpans);
   const ballThirdsTrackedSeconds = sumObjectValues(ballThirdsTotals);
   const ballHalfTrackedSeconds = sumObjectValues(ballHalfTotals);
-  const [comparisonMode, setComparisonMode] = useState<PossessionComparisonMode>("players");
-  const [groupView, setGroupView] = useState<GroupPossessionView>("leaderboard");
+  const [comparisonMode, setComparisonMode] = useSearchParamState<PossessionComparisonMode>(
+    "compare",
+    "players",
+    POSSESSION_COMPARISON_MODES,
+  );
+  const [groupView, setGroupView] = useSearchParamState<GroupPossessionView>(
+    "view",
+    "leaderboard",
+    GROUP_POSSESSION_VIEWS,
+  );
   const playerSummaries = playerPossessionSummaries(players, playerSpans);
   const {
     error: advancedError,
