@@ -281,25 +281,37 @@
           default = rocketSenseServer;
           rocket-sense-server = rocketSenseServer;
           rocket-sense-web = rocketSenseWeb;
-          rocket-sense-server-image = pkgs.dockerTools.buildLayeredImage {
-            name = "localhost:5279/rocket-sense-server";
-            tag = "dev";
-            contents = [
-              pkgs.cacert
-            ];
-            config = {
-              Cmd = [
-                "${rocketSenseServer}/bin/rocket-sense-server"
+          rocket-sense-server-image =
+            let
+              # Entrypoint that optionally brings up the Mullvad/onetun egress
+              # tunnel (when a WG key is provided) before exec'ing the server, so
+              # the tunnel ships in-image with no sidecar / Deployment edits.
+              # See scripts/container-entrypoint.sh.
+              entrypoint = pkgs.writeShellScriptBin "rocket-sense-entrypoint" ''
+                export PATH=${pkgs.lib.makeBinPath [ pkgs.onetun pkgs.dnsutils pkgs.coreutils ]}''${PATH:+:$PATH}
+                exec ${pkgs.bash}/bin/bash ${./scripts/container-entrypoint.sh} "$@"
+              '';
+            in
+            pkgs.dockerTools.buildLayeredImage {
+              name = "localhost:5279/rocket-sense-server";
+              tag = "dev";
+              contents = [
+                pkgs.cacert
               ];
-              Env = [
-                "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
-                "ROCKET_SENSE_BIND_ADDR=0.0.0.0:8080"
-              ];
-              ExposedPorts = {
-                "8080/tcp" = {};
+              config = {
+                Cmd = [
+                  "${entrypoint}/bin/rocket-sense-entrypoint"
+                ];
+                Env = [
+                  "SSL_CERT_FILE=${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt"
+                  "ROCKET_SENSE_BIND_ADDR=0.0.0.0:8080"
+                  "ROCKET_SENSE_SERVER_BIN=${rocketSenseServer}/bin/rocket-sense-server"
+                ];
+                ExposedPorts = {
+                  "8080/tcp" = {};
+                };
               };
             };
-          };
         };
 
         devShells.default = pkgs.mkShell {
