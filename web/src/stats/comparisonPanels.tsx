@@ -71,10 +71,12 @@ export function subjectMagnitudeRows<T extends ComparisonSubject>(
     label: (subject: T) => ReactNode;
     placeholder?: ReactNode;
     ariaSuffix?: string;
+    // Share the scale with extra rows the caller appends (e.g. rank-average rows).
+    maxValueOverride?: number;
   },
 ): ComparisonRow[] {
   const measuredMaxValue = Math.max(...subjects.map((subject) => options.metric(subject) ?? 0));
-  const maxValue = measuredMaxValue > 0 ? measuredMaxValue : 1;
+  const maxValue = options.maxValueOverride ?? (measuredMaxValue > 0 ? measuredMaxValue : 1);
   return [...subjects]
     .sort(
       (left, right) =>

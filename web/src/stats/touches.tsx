@@ -20,11 +20,14 @@ import {
   CAREER_RATE_WINDOW_SECONDS,
   careerRateValue,
   careerRateWindowLabel,
+  rankCohortMagnitudeRows,
+  rankCohortValues,
   StatPlayerLabel,
   statPlayerRank,
   type CareerCohortKey,
   type StatPlayerRank,
 } from "./shared";
+import type { RankBenchmarkCohort } from "../types";
 import { useSearchParamState } from "./useSearchParamState";
 import { touchIntentionValue, touchPayloadValue } from "./touchTags";
 
@@ -228,11 +231,18 @@ export function TouchesDetail({
 export function TouchProfileComparison({
   breakdown,
   playerName = "Player",
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   breakdown: TouchAggregateBreakdownResponse;
   playerName?: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
   const rateWindowSeconds = profileRateWindowSeconds(breakdown);
+  // Benchmark touch counts are per active minute, so only comparable in the
+  // per-5-min rate mode (career view), not the raw-count fallback.
+  const rankEnabled = rateWindowSeconds != null;
   const subjects = useMemo(
     () => touchProfileSubjects(breakdown, rateWindowSeconds, playerName),
     [breakdown, playerName, rateWindowSeconds],
@@ -254,6 +264,21 @@ export function TouchProfileComparison({
   return (
     <div className="touches-detail">
       <StatComparisonGrid contained={false}>
+        <TouchValuePanel
+          key="profile-total-count"
+          title="Total touches"
+          contextLabel={countContext}
+          subjects={subjects}
+          valueId="total"
+          metric="count"
+          format={countFormat}
+          subjectMetric={(subject) => subject.totalTouches}
+          groupClassName="touch-seg-other"
+          rankCohorts={rankCohorts}
+          rankMetricKey="touch"
+          rankWindowLabel={rankWindowLabel}
+          rankEnabled={rankEnabled}
+        />
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
             key={`profile-touches-${dimension.id}`}
@@ -289,6 +314,10 @@ export function TouchProfileComparison({
           valueId="high_aerial"
           metric="count"
           format={countFormat}
+          rankCohorts={rankCohorts}
+          rankMetricKey="fact:high-aerial-touch-count"
+          rankWindowLabel={rankWindowLabel}
+          rankEnabled={rankEnabled}
         />
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
@@ -347,6 +376,12 @@ function TouchValuePanel({
   valueId,
   metric,
   format,
+  subjectMetric,
+  groupClassName,
+  rankCohorts = [],
+  rankMetricKey,
+  rankWindowLabel,
+  rankEnabled = false,
 }: {
   title: string;
   contextLabel: string;
@@ -354,18 +389,46 @@ function TouchValuePanel({
   valueId: string;
   metric: TouchMetric;
   format: (value: number) => string;
+  // Override the per-subject value (e.g. total touches, which is not a location).
+  subjectMetric?: (subject: TouchSubject) => number;
+  groupClassName?: string;
+  // When the benchmark has a per-active-minute metric for this value, show a
+  // slate rank-average row per selected rank (rate mode only).
+  rankCohorts?: RankBenchmarkCohort[];
+  rankMetricKey?: string;
+  rankWindowLabel?: string | null;
+  rankEnabled?: boolean;
 }) {
   const value =
     LOCATION_DIMENSION.values.find((candidate) => candidate.id === valueId) ??
     LOCATION_DIMENSION.other;
+  const metricFn =
+    subjectMetric ?? ((subject) => metricMap(subject, LOCATION_DIMENSION, metric)[valueId] ?? 0);
+  const showRanks = rankEnabled && rankMetricKey != null;
+  // Benchmark counts are per active minute; subjects are scaled per 5 min.
+  const rankValues = showRanks ? rankCohortValues(rankCohorts, rankMetricKey!, (v) => v * 5) : [];
+  const maxValue = Math.max(1, ...subjects.map(metricFn), ...rankValues);
   const rows = subjectMagnitudeRows(subjects, {
-    metric: (subject) => metricMap(subject, LOCATION_DIMENSION, metric)[valueId] ?? 0,
+    metric: metricFn,
     format,
-    groupClassName: value.segmentClass,
+    groupClassName: groupClassName ?? value.segmentClass,
     teamColored: false,
     subjectIndexByKey: new Map(),
     label: touchSubjectLabel,
+    maxValueOverride: maxValue,
   });
+  if (showRanks) {
+    rows.push(
+      ...rankCohortMagnitudeRows({
+        cohorts: rankCohorts,
+        metricKey: rankMetricKey!,
+        toValue: (v) => v * 5,
+        format,
+        maxValue,
+        windowLabel: rankWindowLabel,
+      }),
+    );
+  }
 
   return (
     <StatComparisonPanel
