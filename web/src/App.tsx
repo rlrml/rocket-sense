@@ -686,7 +686,7 @@ function ReplayListPage() {
   const seasonOptions = replayOptionChoices(filters.season, [
     ...filterOptions.seasons,
     ...seasonOptionsFromReplays(replays),
-  ]);
+  ]).sort(compareSeasonOptions);
   const replayOrder = replayOrderFromParams(searchParams);
   const activeGroupId = searchParams.get("group");
   const replayFilterFields: FilterFieldConfig[] = [
@@ -730,7 +730,10 @@ function ReplayListPage() {
       value: filters.season,
       options: [
         { value: "", label: "Any" },
-        ...seasonOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
+        ...seasonOptions.map((option) => ({
+          value: option.value,
+          label: optionLabel({ ...option, label: seasonLabel(option.value) }),
+        })),
       ],
       onChange: (value) => setFilters({ ...filters, season: value }),
     },
@@ -1028,16 +1031,28 @@ const playlistFilterOptions = [
   { value: "tournament", label: "Tournament" },
 ];
 
+// Every ranked tier and its three divisions, matching the slugs the API's
+// parse_rank_filter accepts (bronze-1 .. grand-champion-3), bookended by the
+// division-less Unranked and Supersonic Legend tiers.
+const rankFilterGroups = [
+  { slug: "bronze", label: "Bronze" },
+  { slug: "silver", label: "Silver" },
+  { slug: "gold", label: "Gold" },
+  { slug: "platinum", label: "Platinum" },
+  { slug: "diamond", label: "Diamond" },
+  { slug: "champion", label: "Champion" },
+  { slug: "grand-champion", label: "Grand Champion" },
+];
+const rankDivisionNumerals = ["I", "II", "III"];
 const rankFilterOptions = [
   { value: "", label: "Any" },
   { value: "unranked", label: "Unranked" },
-  { value: "bronze-1", label: "Bronze I" },
-  { value: "silver-1", label: "Silver I" },
-  { value: "gold-1", label: "Gold I" },
-  { value: "platinum-1", label: "Platinum I" },
-  { value: "diamond-1", label: "Diamond I" },
-  { value: "champion-1", label: "Champion I" },
-  { value: "grand-champion-1", label: "Grand Champion I" },
+  ...rankFilterGroups.flatMap((group) =>
+    rankDivisionNumerals.map((numeral, index) => ({
+      value: `${group.slug}-${index + 1}`,
+      label: `${group.label} ${numeral}`,
+    })),
+  ),
   { value: "supersonic-legend", label: "Supersonic Legend" },
 ];
 
@@ -1370,6 +1385,30 @@ function mapOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] 
 
 function seasonOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] {
   return replayFieldOptions(replays.map((replay) => replay.summary.season));
+}
+
+// Season codes are era-prefixed (`s1`..`s14` legacy, then `f1`.. free-to-play),
+// so a higher key means more recent. Unrecognized codes sort to the bottom.
+function seasonRecencyKey(code: string): number {
+  const match = /^([sf])(\d+)$/i.exec(code.trim());
+  if (!match) return -1;
+  const era = match[1].toLowerCase() === "f" ? 1 : 0;
+  return era * 1000 + Number(match[2]);
+}
+
+// Newest season first, oldest last (ties — e.g. unrecognized codes — by label).
+function compareSeasonOptions(left: ReplayFilterOption, right: ReplayFilterOption): number {
+  const delta = seasonRecencyKey(right.value) - seasonRecencyKey(left.value);
+  return delta !== 0 ? delta : right.label.localeCompare(left.label);
+}
+
+// Human-friendly season name from an era-prefixed code: `s14` -> "Season 14"
+// (legacy), `f21` -> "Free to Play S21". Unrecognized codes render as-is.
+function seasonLabel(code: string): string {
+  const match = /^([sf])(\d+)$/i.exec(code.trim());
+  if (!match) return code;
+  const number = Number(match[2]);
+  return match[1].toLowerCase() === "f" ? `Free to Play S${number}` : `Season ${number}`;
 }
 
 function replayFieldOptions(values: Array<string | null>): ReplayFilterOption[] {
