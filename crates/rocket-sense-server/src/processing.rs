@@ -4294,7 +4294,8 @@ async fn refresh_rank_benchmark_window(
                 ('positioning:ahead_of_ball_share', pos.ahead_of_ball_seconds, NULLIF(pos.tracked_seconds, 0)),
                 ('positioning:most_back_share', pos.role_most_back_seconds, NULLIF(pos.tracked_seconds, 0)),
                 ('positioning:most_forward_share', pos.role_most_forward_seconds, NULLIF(pos.tracked_seconds, 0)),
-                ('positioning:distance_to_ball', pos.distance_to_ball_weighted, NULLIF(pos.distance_to_ball_weight, 0))
+                ('positioning:distance_to_ball', pos.distance_to_ball_weighted, NULLIF(pos.distance_to_ball_weight, 0)),
+                ('positioning:distance_to_teammates', pos.distance_to_teammates_weighted, NULLIF(pos.distance_to_teammates_weight, 0))
             ) AS m(metric_key, numerator, denom)
             UNION ALL
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
