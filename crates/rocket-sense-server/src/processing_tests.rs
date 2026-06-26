@@ -1872,7 +1872,12 @@ async fn stats_read_paths_decode_after_reprocess() {
         "/../../vendor/subtr-actor/assets/recent-ranked-standard-2026-03-10-b.replay"
     );
     let bytes = std::fs::read(fixture).expect("read replay fixture");
-    let file_sha256 = sha256_hex(&bytes);
+    // Salt the content hash so this replay row never collides with
+    // `reprocess_populates_all_materialized_tables` (same fixture) on the shared
+    // CI database -- or with a prior run of this test against a persistent DB.
+    // `process_replay` reads the bytes by storage key and doesn't verify the
+    // hash, so a synthetic sha is fine.
+    let file_sha256 = sha256_hex(&[bytes.as_slice(), Uuid::now_v7().as_bytes()].concat());
     let storage_root = std::env::temp_dir().join(format!("rs-decode-check-{}", Uuid::now_v7()));
     std::fs::create_dir_all(&storage_root).expect("create storage root");
     let storage: Arc<dyn rocket_sense_storage::ObjectStorage> = Arc::new(
