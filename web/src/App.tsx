@@ -765,7 +765,7 @@ function ReplayListPage() {
         { value: "", label: "Any" },
         ...seasonOptions.map((option) => ({
           value: option.value,
-          label: optionLabel({ ...option, label: seasonLabel(option.value) }),
+          label: seasonLabel(option.value),
         })),
       ],
       onChange: (value) => setFilters({ ...filters, season: value }),
