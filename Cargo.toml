@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/rocket-sense-db",
+    "crates/rocket-sense-egress",
     "crates/rocket-sense-server",
     "crates/rocket-sense-storage",
 ]
@@ -46,4 +47,5 @@ uuid = { version = "1", features = ["serde", "v4", "v5", "v7"] }
 zstd = "0.13"
 
 rocket-sense-db = { path = "crates/rocket-sense-db" }
+rocket-sense-egress = { path = "crates/rocket-sense-egress" }
 rocket-sense-storage = { path = "crates/rocket-sense-storage" }

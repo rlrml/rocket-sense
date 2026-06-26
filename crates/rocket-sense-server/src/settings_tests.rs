@@ -69,3 +69,25 @@ fn dev_auth_allows_public_bind_with_explicit_override() {
     )
     .expect("explicit insecure dev override should be honored");
 }
+
+#[test]
+fn egress_proxies_unset_yields_no_exits() {
+    assert!(parse_egress_proxies(None).is_none());
+    assert!(parse_egress_proxies(Some("  ,  ".to_owned())).is_none());
+}
+
+#[test]
+fn egress_proxies_parse_bare_and_named_entries() {
+    let exits = parse_egress_proxies(Some(
+        "socks5h://127.0.0.1:9001, nl-ams = socks5h://127.0.0.1:9002 ".to_owned(),
+    ))
+    .expect("should parse two exits");
+
+    assert_eq!(exits.len(), 2);
+    // Bare entry: the URL doubles as the label.
+    assert_eq!(exits[0].name, "socks5h://127.0.0.1:9001");
+    assert_eq!(exits[0].proxy.as_deref(), Some("socks5h://127.0.0.1:9001"));
+    // `name = url` entry is split and trimmed.
+    assert_eq!(exits[1].name, "nl-ams");
+    assert_eq!(exits[1].proxy.as_deref(), Some("socks5h://127.0.0.1:9002"));
+}
