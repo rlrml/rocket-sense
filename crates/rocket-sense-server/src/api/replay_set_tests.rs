@@ -100,6 +100,122 @@ fn player_outcome_filter_renders_score_predicate() {
 }
 
 #[test]
+fn rank_range_filter_parses_slugs_and_tiers() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        min_rank: Some("diamond-1".to_owned()),
+        max_rank: Some("18".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("rank range should parse");
+
+    assert_eq!(filters.min_rank_tier, Some(13));
+    assert_eq!(filters.max_rank_tier, Some(18));
+}
+
+#[test]
+fn rank_range_filter_rejects_inverted_bounds() {
+    let error = filters_from_input(ReplaySetFilterInput {
+        min_rank: Some("grand-champion-1".to_owned()),
+        max_rank: Some("diamond-1".to_owned()),
+        ..ReplaySetFilterInput::default()
+    });
+    assert!(error.is_err());
+}
+
+#[test]
+fn rank_range_filter_scopes_to_target_player_when_present() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        target_player_id: Some("steam:abc123".to_owned()),
+        min_rank: Some("champion-1".to_owned()),
+        max_rank: Some("ssl".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("rank range should parse");
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("EXISTS (SELECT 1 FROM replay_players stats_rank_player"));
+    assert!(sql.contains("stats_rank_player.replay_id = r.id"));
+    assert!(sql.contains("stats_rank_player.platform = "));
+    assert!(sql.contains("stats_rank_player.platform_player_id = "));
+    assert!(sql.contains("stats_rank_player.rank_tier >= "));
+    assert!(sql.contains("stats_rank_player.rank_tier <= "));
+}
+
+#[test]
+fn rank_range_filter_matches_any_player_without_target() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        min_rank: Some("champion-1".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("rank range should parse");
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("stats_rank_player.rank_tier >= "));
+    // No target player => no player-identity predicate scopes the EXISTS.
+    assert!(!sql.contains("stats_rank_player.platform = "));
+}
+
+#[test]
+fn season_range_filter_parses_eras_into_ordinals() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        min_season: Some("s12".to_owned()),
+        max_season: Some("F1".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("season range should parse");
+
+    // Legacy s12 sorts strictly before free-to-play f1.
+    assert_eq!(filters.min_season_ord, Some(12));
+    assert_eq!(filters.max_season_ord, Some(SEASON_ERA_STRIDE + 1));
+    assert!(filters.min_season_ord < filters.max_season_ord);
+}
+
+#[test]
+fn season_range_filter_rejects_inverted_bounds() {
+    let error = filters_from_input(ReplaySetFilterInput {
+        min_season: Some("f5".to_owned()),
+        max_season: Some("s12".to_owned()),
+        ..ReplaySetFilterInput::default()
+    });
+    assert!(error.is_err());
+}
+
+#[test]
+fn season_range_filter_rejects_malformed_codes() {
+    for value in ["", "x3", "s", "s0", "12", "f-3"] {
+        let error = filters_from_input(ReplaySetFilterInput {
+            min_season: Some(value.to_owned()),
+            ..ReplaySetFilterInput::default()
+        });
+        assert!(error.is_err(), "{value} should be rejected");
+    }
+}
+
+#[test]
+fn season_range_filter_renders_ordinal_expression() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        min_season: Some("f1".to_owned()),
+        max_season: Some("f23".to_owned()),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("season range should parse");
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("lower(btrim(r.season)) ~ '^[sf][0-9]+$'"));
+    assert!(sql.contains(">= "));
+    assert!(sql.contains("<= "));
+}
+
+#[test]
 fn playlist_group_key_combines_context_and_team_size() {
     let mut builder = QueryBuilder::<Postgres>::new("SELECT ");
     push_playlist_group_key_expression(&mut builder, "r");

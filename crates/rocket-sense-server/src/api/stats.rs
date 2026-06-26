@@ -380,6 +380,19 @@ pub struct StatAggregatesQuery {
     pub uploader: Option<String>,
     /// Replay processing status.
     pub status: Option<String>,
+    /// Lower bound (inclusive) of the focused player's per-replay rank, as a rank
+    /// slug (`diamond-1`) or tier number. Scoped to `player-id` when present.
+    #[serde(rename = "min-rank", alias = "min_rank")]
+    pub min_rank: Option<String>,
+    /// Upper bound (inclusive) of the focused player's per-replay rank.
+    #[serde(rename = "max-rank", alias = "max_rank")]
+    pub max_rank: Option<String>,
+    /// Lower bound (inclusive) of the replay's competitive season (`s12`, `f23`).
+    #[serde(rename = "min-season", alias = "min_season")]
+    pub min_season: Option<String>,
+    /// Upper bound (inclusive) of the replay's competitive season.
+    #[serde(rename = "max-season", alias = "max_season")]
+    pub max_season: Option<String>,
     /// Optional player focus in `platform:id` form.
     #[serde(rename = "player-id")]
     pub player_id: Option<String>,
@@ -549,6 +562,10 @@ impl StatAggregateFilters {
                 created_before: query.created_before,
                 replay_date_after: query.replay_date_after,
                 replay_date_before: query.replay_date_before,
+                min_rank: query.min_rank,
+                max_rank: query.max_rank,
+                min_season: query.min_season,
+                max_season: query.max_season,
                 target_player_id: query.player_id.clone(),
                 player_outcome: query.player_outcome,
             },
@@ -617,6 +634,10 @@ impl StatAggregatesQuery {
             created_before: replay_set.created_before,
             replay_date_after: replay_set.replay_date_after,
             replay_date_before: replay_set.replay_date_before,
+            min_rank: replay_set.min_rank,
+            max_rank: replay_set.max_rank,
+            min_season: replay_set.min_season,
+            max_season: replay_set.max_season,
             count: params
                 .first(&["count"])
                 .map(|value| parse_u32_filter("count", &value))
