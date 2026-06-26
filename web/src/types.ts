@@ -64,6 +64,7 @@ export interface ReplayResponse {
       orange: number | null;
     };
     duration_seconds: number | null;
+    active_seconds: number | null;
     overtime_seconds: number | null;
     match_guid: string | null;
     season: string | null;

@@ -1308,6 +1308,59 @@ fn stats_timeline_with_events(
     }
 }
 
+fn summary_frame(
+    frame_number: usize,
+    time: f32,
+    dt: f32,
+    is_live_play: bool,
+) -> subtr_actor::ReplayStatsFrameScaffold {
+    subtr_actor::ReplayStatsFrameScaffold {
+        frame_number,
+        time,
+        dt,
+        seconds_remaining: None,
+        game_state: None,
+        ball_has_been_hit: Some(is_live_play),
+        kickoff_countdown_time: None,
+        gameplay_phase: if is_live_play {
+            subtr_actor::GameplayPhase::ActivePlay
+        } else {
+            subtr_actor::GameplayPhase::PostGoal
+        },
+        is_live_play,
+        team_zero: BTreeMap::new(),
+        team_one: BTreeMap::new(),
+        players: vec![],
+    }
+}
+
+#[test]
+fn replay_summary_metadata_active_seconds_sums_live_play_frame_dt() {
+    let mut timeline = stats_timeline_with_events(timeline_events_from(vec![]));
+    // Wall clock advances by dt every frame; only live-play frames count toward
+    // active time. 3 live frames (0.5s) + 2 non-live frames (skipped) → 1.5s.
+    timeline.frames = vec![
+        summary_frame(0, 0.0, 0.5, true),
+        summary_frame(1, 0.5, 0.5, true),
+        summary_frame(2, 1.0, 0.5, false),
+        summary_frame(3, 1.5, 0.5, false),
+        summary_frame(4, 2.0, 0.5, true),
+    ];
+
+    let summary = replay_summary_metadata(&timeline);
+
+    assert_eq!(summary.duration_seconds, Some(2.0));
+    assert_eq!(summary.active_seconds, Some(1.5));
+}
+
+#[test]
+fn replay_summary_metadata_active_seconds_absent_without_frames() {
+    let timeline = stats_timeline_with_events(timeline_events_from(vec![]));
+    let summary = replay_summary_metadata(&timeline);
+    assert_eq!(summary.duration_seconds, None);
+    assert_eq!(summary.active_seconds, None);
+}
+
 fn stats_timeline_fixture_for_client_json(
     steam_player: RemoteId,
     ps4_player: RemoteId,

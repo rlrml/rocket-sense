@@ -1476,6 +1476,11 @@ struct ReplayGameTypeMetadata {
 #[derive(Debug, Clone, Default, PartialEq)]
 struct ReplaySummaryMetadata {
     duration_seconds: Option<f64>,
+    /// Active in-game time: the sum of frame `dt` over live-play (game-clock
+    /// running) frames, excluding kickoff countdowns, the pre-touch kickoff
+    /// wait, and post-goal celebrations. Contrasts with `duration_seconds`,
+    /// which is the wall-clock length of the replay.
+    active_seconds: Option<f64>,
     overtime_seconds: Option<f64>,
     team_zero_score: Option<i32>,
     team_one_score: Option<i32>,
@@ -5023,6 +5028,22 @@ fn replay_summary_metadata_json(scaffold: &Value, all_headers: &[Value]) -> Repl
         .and_then(|frame| frame.get("time"))
         .and_then(Value::as_f64)
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+    let active_seconds = duration_seconds.map(|_| {
+        scaffold
+            .get("frames")
+            .and_then(Value::as_array)
+            .map(|frames| {
+                frames
+                    .iter()
+                    .filter(|frame| {
+                        frame.get("is_live_play").and_then(Value::as_bool) == Some(true)
+                    })
+                    .filter_map(|frame| frame.get("dt").and_then(Value::as_f64))
+                    .filter(|dt| dt.is_finite() && *dt >= 0.0)
+                    .sum::<f64>()
+            })
+            .unwrap_or(0.0)
+    });
     let overtime_seconds = last_frame
         .and_then(|frame| frame.get("seconds_remaining"))
         .and_then(Value::as_i64)
@@ -5031,6 +5052,7 @@ fn replay_summary_metadata_json(scaffold: &Value, all_headers: &[Value]) -> Repl
 
     ReplaySummaryMetadata {
         duration_seconds,
+        active_seconds,
         overtime_seconds,
         team_zero_score: Some(team_score_from_events_json(scaffold, true)),
         team_one_score: Some(team_score_from_events_json(scaffold, false)),
@@ -5422,6 +5444,15 @@ fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySumm
     let duration_seconds = last_frame
         .map(|frame| f64::from(frame.time))
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+    let active_seconds = duration_seconds.map(|_| {
+        timeline
+            .frames
+            .iter()
+            .filter(|frame| frame.is_live_play)
+            .map(|frame| f64::from(frame.dt))
+            .filter(|dt| dt.is_finite() && *dt >= 0.0)
+            .sum::<f64>()
+    });
     let overtime_seconds = last_frame
         .and_then(|frame| frame.seconds_remaining)
         .filter(|seconds_remaining| *seconds_remaining < 0)
@@ -5429,6 +5460,7 @@ fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySumm
 
     ReplaySummaryMetadata {
         duration_seconds,
+        active_seconds,
         overtime_seconds,
         team_zero_score: Some(team_score_from_events(timeline, true)),
         team_one_score: Some(team_score_from_events(timeline, false)),
@@ -5952,6 +5984,7 @@ async fn upsert_replay_search_metadata(
             match_guid = COALESCE($13, match_guid),
             has_pro_player = has_pro_player OR $14,
             season = COALESCE($15, season),
+            active_seconds = COALESCE($16, active_seconds),
             updated_at = now()
         WHERE id = $1
         "#,
@@ -5971,6 +6004,7 @@ async fn upsert_replay_search_metadata(
     .bind(&metadata.summary.match_guid)
     .bind(metadata.has_pro_player)
     .bind(&metadata.season)
+    .bind(metadata.summary.active_seconds)
     .execute(pool)
     .await
     .context("failed to update replay search metadata")?;
