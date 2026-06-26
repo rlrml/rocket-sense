@@ -43,7 +43,6 @@ import {
   StatPlayerLabel,
   statPlayerRank,
   type StatPlayerRank,
-  tierToRankGroupId,
 } from "./shared";
 import { useSearchParamState } from "./useSearchParamState";
 
@@ -1840,10 +1839,10 @@ function rankBoostComparisonRow(
   value: number,
   rankWindowLabel?: string | null,
 ): BoostComparisonRow {
+  // For group grouping `rank_value` is already a group id (0..7); pick the middle
+  // division as the representative tier for the icon (matches rankGroupIconUrl).
   const tier =
-    cohort.rank_grouping === "tier"
-      ? cohort.rank_value
-      : Math.min(tierToRankGroupId(cohort.rank_value) * 3 + 2, 22);
+    cohort.rank_grouping === "tier" ? cohort.rank_value : Math.min(cohort.rank_value * 3 + 2, 22);
   const label = `${formatNumber(value)}/m`;
   return {
     key: `rank-${cohort.rank_value}`,
