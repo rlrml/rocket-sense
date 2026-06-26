@@ -2042,6 +2042,7 @@ async fn stats_read_paths_decode_after_reprocess() {
         format!("/api/v1/stats/positioning/summary?{q}"),
         format!("/api/v1/stats/movement/summary?{q}"),
         format!("/api/v1/stats/events/kickoff/summary?{q}&include-samples=false"),
+        format!("/api/v1/stats/rank-benchmark?{q}&rank-benchmark-grouping=tier"),
     ];
     for uri in &endpoints {
         let response = app
@@ -2057,15 +2058,17 @@ async fn stats_read_paths_decode_after_reprocess() {
         assert_eq!(status, StatusCode::OK, "{uri} -> {status}: {body}");
     }
 
-    // Prove the benchmark decode path actually ran: `available_tiers` is built
-    // straight from the seeded population row (independent of tier resolution),
-    // so a non-empty list means the `distinct_player_count` decode executed.
+    // Prove the benchmark decode path actually ran: the rank-benchmark cohorts
+    // endpoint builds `available_ranks` straight from the seeded population row
+    // (independent of rank resolution), so a non-empty list means the
+    // `distinct_player_count` decode executed. The seed is at `tier` grouping, so
+    // query that grouping.
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(format!(
-                    "/api/v1/stats/aggregates?{q}&include-teammates=true&count=200"
+                    "/api/v1/stats/rank-benchmark?{q}&rank-benchmark-grouping=tier"
                 ))
                 .body(Body::empty())
                 .unwrap(),
@@ -2074,15 +2077,15 @@ async fn stats_read_paths_decode_after_reprocess() {
         .expect("router responds");
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
-        .expect("read aggregates body");
-    let json: serde_json::Value = serde_json::from_slice(&body).expect("aggregates json");
-    let tiers = json
-        .get("rank_benchmark_available_tiers")
+        .expect("read rank-benchmark body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("rank-benchmark json");
+    let ranks = json
+        .get("available_ranks")
         .and_then(|v| v.as_array())
         .map(|a| a.len())
         .unwrap_or(0);
     assert!(
-        tiers > 0,
+        ranks > 0,
         "benchmark population decode did not run (group_key={group_key}); \
          seed did not match the resolved cohort"
     );
