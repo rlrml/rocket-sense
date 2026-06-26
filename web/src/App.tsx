@@ -5031,7 +5031,12 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "touches" && contentStats.touch_breakdown) {
       add(
         "touch-profile",
-        <TouchProfileComparison breakdown={contentStats.touch_breakdown} playerName={playerName} />,
+        <TouchProfileComparison
+          breakdown={contentStats.touch_breakdown}
+          playerName={playerName}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
       );
     }
 
