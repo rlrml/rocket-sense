@@ -728,3 +728,25 @@ fn accumulate_group_boost_tracks_ignores_tracks_without_a_player() {
     // ...but no per-player totals are recorded for an absent player id.
     assert!(accumulators.is_empty());
 }
+
+#[test]
+fn upload_external_source_requires_a_complete_pair() {
+    assert!(validate_upload_external_source_pair(Some("ballchasing"), Some("abc-123")).is_ok());
+    assert!(validate_upload_external_source_pair(None, None).is_ok());
+    assert!(validate_upload_external_source_pair(Some("ballchasing"), None).is_err());
+    assert!(validate_upload_external_source_pair(None, Some("abc-123")).is_err());
+}
+
+#[test]
+fn upload_external_source_values_are_path_safe() {
+    assert_eq!(
+        normalize_upload_external_value("external_id", Some(" abc-123_DEF.45 ".to_owned()))
+            .unwrap(),
+        Some("abc-123_DEF.45".to_owned())
+    );
+    assert_eq!(
+        normalize_upload_external_value("external_id", Some("   ".to_owned())).unwrap(),
+        None
+    );
+    assert!(normalize_upload_external_value("external_id", Some("../abc".to_owned())).is_err());
+}

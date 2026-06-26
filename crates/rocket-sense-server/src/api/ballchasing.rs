@@ -117,8 +117,16 @@ async fn fetch_ballchasing_replay_file(
     ballchasing_replay_id: &str,
     authorization: Option<&str>,
 ) -> Result<BallchasingReplayFile, ApiError> {
-    let url = ballchasing_replay_file_url(ballchasing_replay_id);
     let client = reqwest::Client::new();
+    fetch_ballchasing_replay_file_with_client(&client, ballchasing_replay_id, authorization).await
+}
+
+async fn fetch_ballchasing_replay_file_with_client(
+    client: &reqwest::Client,
+    ballchasing_replay_id: &str,
+    authorization: Option<&str>,
+) -> Result<BallchasingReplayFile, ApiError> {
+    let url = ballchasing_replay_file_url(ballchasing_replay_id);
     let mut request = client
         .get(url)
         .header(USER_AGENT.as_str(), ROCKET_SENSE_USER_AGENT)
@@ -163,6 +171,7 @@ fn ballchasing_status_error(status: reqwest::StatusCode) -> ApiError {
     let axum_status = StatusCode::from_u16(status.as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let message = match axum_status {
         StatusCode::NOT_FOUND => "Ballchasing replay not found",
+        StatusCode::TOO_MANY_REQUESTS => "Ballchasing rate limit exceeded",
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN => {
             "Ballchasing rejected the replay download request"
         }

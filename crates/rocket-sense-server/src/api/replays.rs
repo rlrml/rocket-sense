@@ -498,7 +498,6 @@ pub async fn create_replay(
         email = ?auth_user.email,
         "authenticated replay upload"
     );
-    let db = require_db(&state)?;
     let upload_encoding = parse_encoding_query(
         raw_query.as_deref(),
         &["upload-encoding", "upload_encoding"],
@@ -513,6 +512,9 @@ pub async fn create_replay(
     let mut replay_bytes = None;
     let mut original_file_name = None;
     let mut rank_submission: Option<RankSubmission> = None;
+    let mut external_source = None;
+    let mut external_id = None;
+    let mut replay_group_id = None;
 
     while let Some(field) = multipart
         .next_field()
@@ -548,6 +550,16 @@ pub async fn create_replay(
                     rank_submission = Some(parsed);
                 }
             }
+            Some("external_source") => {
+                external_source = Some(field.text().await.map_err(ApiError::bad_request)?);
+            }
+            Some("external_id") => {
+                external_id = Some(field.text().await.map_err(ApiError::bad_request)?);
+            }
+            Some("replay_group_id") => {
+                let value = field.text().await.map_err(ApiError::bad_request)?;
+                replay_group_id = Some(parse_upload_replay_group_id(&value)?);
+            }
             // Drain any other field so the multipart stream keeps advancing.
             _ => {
                 let _ = field.bytes().await;
@@ -555,12 +567,63 @@ pub async fn create_replay(
         }
     }
 
+    let db = require_db(&state)?;
+    let external_source = normalize_upload_external_value("external_source", external_source)?;
+    let external_id = normalize_upload_external_value("external_id", external_id)?;
+    validate_upload_external_source_pair(external_source.as_deref(), external_id.as_deref())?;
+    if let Some(group_id) = replay_group_id {
+        require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    }
+
     let uploaded_bytes =
         replay_bytes.ok_or_else(|| ApiError::bad_request("missing multipart field `file`"))?;
     let bytes = decode_transfer_bytes(uploaded_bytes, upload_encoding)?;
+    let result = ingest_replay_bytes(
+        &auth_user,
+        &state,
+        IngestReplayBytesInput {
+            bytes,
+            original_file_name,
+            storage_encoding,
+            rank_submission: rank_submission.as_ref(),
+        },
+    )
+    .await?;
+    if let (Some(source), Some(external_id)) = (external_source.as_deref(), external_id.as_deref())
+    {
+        upsert_replay_external_source(db, result.replay.id, source, external_id, auth_user.id)
+            .await?;
+    }
+    if let Some(group_id) = replay_group_id {
+        add_replay_to_group(db, group_id, result.replay.id, auth_user.id)
+            .await
+            .map_err(ApiError::internal)?;
+    }
+
+    let status = if result.created {
+        StatusCode::CREATED
+    } else {
+        StatusCode::OK
+    };
+    Ok((status, Json(result)))
+}
+
+pub(super) struct IngestReplayBytesInput<'a> {
+    pub bytes: Bytes,
+    pub original_file_name: Option<String>,
+    pub storage_encoding: StorageEncoding,
+    pub rank_submission: Option<&'a RankSubmission>,
+}
+
+pub(super) async fn ingest_replay_bytes(
+    auth_user: &AuthUser,
+    state: &AppState,
+    input: IngestReplayBytesInput<'_>,
+) -> Result<CreateReplayResponse, ApiError> {
+    let db = require_db(state)?;
     let replay_id = Uuid::now_v7();
-    let file_sha256 = sha256_hex(&bytes);
-    upsert_user(db, &auth_user)
+    let file_sha256 = sha256_hex(&input.bytes);
+    upsert_user(db, auth_user)
         .await
         .map_err(ApiError::internal)?;
 
@@ -568,26 +631,23 @@ pub async fn create_replay(
         .await
         .map_err(ApiError::internal)?
     {
-        let replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
-        ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
-        maybe_enqueue_replay_processing(&state, db, &replay).await?;
-        return Ok((
-            StatusCode::OK,
-            Json(CreateReplayResponse {
-                replay,
-                created: false,
-                deduplicated: true,
-            }),
-        ));
+        let replay = maybe_upsert_preflight_metadata(db, replay, input.bytes.clone()).await?;
+        ingest_bundled_ranks(db, replay.id, input.rank_submission).await;
+        maybe_enqueue_replay_processing(state, db, &replay).await?;
+        return Ok(CreateReplayResponse {
+            replay,
+            created: false,
+            deduplicated: true,
+        });
     }
 
     let stored = state
         .storage
         .put_with_encoding(
             &raw_replay_key(&file_sha256),
-            bytes.clone(),
+            input.bytes.clone(),
             Some(replay_mime_type()),
-            storage_encoding,
+            input.storage_encoding,
         )
         .await
         .map_err(ApiError::internal)?;
@@ -596,7 +656,7 @@ pub async fn create_replay(
         NewReplayMetadata {
             replay_id,
             file_sha256: &file_sha256,
-            original_file_name: original_file_name.as_deref(),
+            original_file_name: input.original_file_name.as_deref(),
             byte_size: stored.byte_size,
             storage_key: &stored.key,
             storage_encoding: stored.storage_encoding,
@@ -608,26 +668,66 @@ pub async fn create_replay(
     .map_err(ApiError::internal)?;
     let replay = insert_result.replay;
 
-    let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
-    ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
+    let replay = maybe_upsert_preflight_metadata(db, replay, input.bytes).await?;
+    ingest_bundled_ranks(db, replay.id, input.rank_submission).await;
 
     if insert_result.created {
-        maybe_enqueue_replay_processing(&state, db, &replay).await?;
+        maybe_enqueue_replay_processing(state, db, &replay).await?;
     }
 
-    let status = if insert_result.created {
-        StatusCode::CREATED
-    } else {
-        StatusCode::OK
+    Ok(CreateReplayResponse {
+        replay,
+        created: insert_result.created,
+        deduplicated: !insert_result.created,
+    })
+}
+
+fn parse_upload_replay_group_id(value: &str) -> Result<Uuid, ApiError> {
+    Uuid::parse_str(value.trim())
+        .map_err(|_| ApiError::bad_request("replay_group_id must be a Rocket Sense group UUID"))
+}
+
+fn normalize_upload_external_value(
+    name: &str,
+    value: Option<String>,
+) -> Result<Option<String>, ApiError> {
+    let Some(value) = value else {
+        return Ok(None);
     };
-    Ok((
-        status,
-        Json(CreateReplayResponse {
-            replay,
-            created: insert_result.created,
-            deduplicated: !insert_result.created,
-        }),
-    ))
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() > 256 {
+        return Err(ApiError::bad_request(format!(
+            "{name} must be at most 256 characters"
+        )));
+    }
+    if !value
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+    {
+        return Err(ApiError::bad_request(format!(
+            "{name} must contain only letters, numbers, hyphens, underscores, periods, or colons"
+        )));
+    }
+
+    Ok(Some(value.to_owned()))
+}
+
+fn validate_upload_external_source_pair(
+    external_source: Option<&str>,
+    external_id: Option<&str>,
+) -> Result<(), ApiError> {
+    match (external_source, external_id) {
+        (Some(_), Some(_)) | (None, None) => Ok(()),
+        (Some(_), None) => Err(ApiError::bad_request(
+            "external_id is required when external_source is provided",
+        )),
+        (None, Some(_)) => Err(ApiError::bad_request(
+            "external_source is required when external_id is provided",
+        )),
+    }
 }
 
 /// Ingests rank metadata bundled with an upload. Best-effort: a malformed
@@ -2267,7 +2367,7 @@ async fn require_replay_group(pool: &PgPool, group_id: Uuid) -> Result<(), ApiEr
     }
 }
 
-async fn require_replay_group_manager(
+pub(super) async fn require_replay_group_manager(
     state: &AppState,
     pool: &PgPool,
     group_id: Uuid,
@@ -2296,6 +2396,72 @@ async fn require_replay_group_manager(
             "you do not have permission to modify this replay group",
         ))
     }
+}
+
+pub(super) async fn upsert_replay_external_source(
+    pool: &PgPool,
+    replay_id: Uuid,
+    source: &str,
+    external_id: &str,
+    created_by_user_id: Uuid,
+) -> Result<(), ApiError> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO replay_external_sources (
+            id,
+            replay_id,
+            source,
+            external_id,
+            created_by_user_id
+        )
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (source, external_id) DO UPDATE
+        SET updated_at = now()
+        WHERE replay_external_sources.replay_id = EXCLUDED.replay_id
+        "#,
+    )
+    .bind(Uuid::now_v7())
+    .bind(replay_id)
+    .bind(source)
+    .bind(external_id)
+    .bind(created_by_user_id)
+    .execute(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "external replay id is already linked to another replay",
+        ));
+    }
+
+    Ok(())
+}
+
+pub(super) async fn add_replay_to_group(
+    pool: &PgPool,
+    group_id: Uuid,
+    replay_id: Uuid,
+    added_by_user_id: Uuid,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        INSERT INTO replay_group_replays (
+            group_id,
+            replay_id,
+            added_by_user_id
+        )
+        VALUES ($1, $2, $3)
+        ON CONFLICT DO NOTHING
+        "#,
+    )
+    .bind(group_id)
+    .bind(replay_id)
+    .bind(added_by_user_id)
+    .execute(pool)
+    .await?;
+
+    Ok(result.rows_affected() > 0)
 }
 
 async fn count_replay_group_replays(pool: &PgPool, group_id: Uuid) -> Result<u64, sqlx::Error> {
