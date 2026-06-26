@@ -292,6 +292,182 @@ a {
   margin: 0 auto;
 }
 
+/* Replay browser with a pinned-profiles sidebar. Stacks on narrow screens
+   (sidebar above the list); becomes a fixed-width left rail once there is room. */
+.page-with-favorites {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.page-with-favorites > .page {
+  margin: 0;
+  max-width: none;
+}
+
+@media (min-width: 1100px) {
+  .page-with-favorites {
+    grid-template-columns: 240px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .favorites-sidebar {
+    position: sticky;
+    top: 18px;
+  }
+}
+
+.favorites-sidebar {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+
+.favorites-sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+
+.favorites-sidebar-title svg {
+  color: #f5a623;
+}
+
+.favorites-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.favorites-section {
+  display: grid;
+  gap: 6px;
+}
+
+.favorites-section-title {
+  margin: 0;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.favorites-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.favorites-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.favorites-item:hover {
+  background: var(--surface-subtle);
+}
+
+.favorites-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.favorites-item-meta {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.favorites-item-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  object-fit: cover;
+}
+
+.favorites-item-icon {
+  color: var(--muted);
+}
+
+/* Unmarked favorites dropdown hung off the home logo. No affordance: it only
+   appears on hover/focus of the brand, and the component renders nothing unless
+   the signed-in user has favorites. */
+.brand-dropdown-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.logo-favorites-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 60;
+  /* Transparent bridge so the cursor can travel from logo to panel without the
+     hover state dropping. */
+  padding-top: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease,
+    visibility 0s linear 0.12s;
+}
+
+.brand-dropdown-host:hover .logo-favorites-menu,
+.brand-dropdown-host:focus-within .logo-favorites-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.logo-favorites-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 240px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 32px rgb(15 23 42 / 0.18);
+}
+
+/* Favorited state for the star toggle on profile pages. */
+.favorite-toggle.favorited {
+  border-color: #f5a623;
+  color: #b8770a;
+}
+
+.favorite-toggle.favorited svg {
+  color: #f5a623;
+}
+
 .page-header {
   display: flex;
   align-items: center;

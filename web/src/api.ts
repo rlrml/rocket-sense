@@ -6,6 +6,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypesResponse,
+  FavoritesResponse,
   GroupBoostTotalsResponse,
   LinkedIdentitiesResponse,
   ListReplayGroupsResponse,
@@ -735,6 +736,47 @@ export function getCurrentUser(): Promise<CurrentUserResponse> {
 
 export function listLinkedIdentities(): Promise<LinkedIdentitiesResponse> {
   return request<LinkedIdentitiesResponse>("/api/v1/me/linked-identities");
+}
+
+export function getFavorites(): Promise<FavoritesResponse> {
+  return request<FavoritesResponse>("/api/v1/me/favorites");
+}
+
+// The favorite mutation endpoints return 204 with no body, so they bypass the
+// JSON `request` helper that always parses a response body.
+async function favoriteMutation(path: string, method: "PUT" | "DELETE"): Promise<void> {
+  const token = getAccessToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(path, { method, headers });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(apiErrorMessage(body) || `${response.status} ${response.statusText}`);
+  }
+}
+
+export function addFavoritePlayer(platform: string, platformPlayerId: string): Promise<void> {
+  return favoriteMutation(
+    `/api/v1/me/favorites/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`,
+    "PUT",
+  );
+}
+
+export function removeFavoritePlayer(platform: string, platformPlayerId: string): Promise<void> {
+  return favoriteMutation(
+    `/api/v1/me/favorites/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`,
+    "DELETE",
+  );
+}
+
+export function addFavoriteUploader(userId: string): Promise<void> {
+  return favoriteMutation(`/api/v1/me/favorites/uploaders/${encodeURIComponent(userId)}`, "PUT");
+}
+
+export function removeFavoriteUploader(userId: string): Promise<void> {
+  return favoriteMutation(`/api/v1/me/favorites/uploaders/${encodeURIComponent(userId)}`, "DELETE");
 }
 
 export function reprocessReplay(

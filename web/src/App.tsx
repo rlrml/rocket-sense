@@ -116,6 +116,7 @@ import { BoostProfileDetail } from "./stats/boost";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
+import { FavoritesSidebar, LogoFavoritesMenu, PlayerFavoriteButton } from "./favorites";
 import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl } from "./platform";
 import { ProviderLoginIcon, providerLabel } from "./providerIcons";
 import { Chip } from "./chip";
@@ -273,9 +274,12 @@ export function App() {
         >
           {primaryNavOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
-        <Link className="brand" to="/replays" aria-label="Rocket Sense home">
-          <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
-        </Link>
+        <div className="brand-dropdown-host">
+          <Link className="brand" to="/replays" aria-label="Rocket Sense home">
+            <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
+          </Link>
+          <LogoFavoritesMenu enabled={currentUser != null} />
+        </div>
         <nav id="primary-navigation" className="nav-list" aria-label="Primary navigation">
           {visibleNavItems.map((item) => (
             <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
@@ -841,178 +845,181 @@ function ReplayListPage() {
   ];
 
   return (
-    <section className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Replay library</p>
-          <h1>Replays</h1>
-        </div>
-        <label className="upload-button">
-          <Upload size={17} />
-          <span>{uploading ? "Uploading" : "Upload"}</span>
-          <input
-            type="file"
-            accept=".replay"
-            disabled={uploading}
-            onChange={(event) => void onUpload(event.currentTarget.files?.[0])}
-          />
-        </label>
-        {activeGroupId ? (
-          <Link
-            className="secondary-button"
-            to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}
-          >
-            <BarChart3 size={16} />
-            Group stats
-          </Link>
-        ) : null}
-      </header>
-
-      <form className="search-filter-panel replay-search-panel" onSubmit={submitSearch}>
-        <div className="replay-search-row">
-          <label className="search-box">
-            <Search size={17} />
+    <div className="page-with-favorites">
+      <FavoritesSidebar enabled={currentUser != null} />
+      <section className="page">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Replay library</p>
+            <h1>Replays</h1>
+          </div>
+          <label className="upload-button">
+            <Upload size={17} />
+            <span>{uploading ? "Uploading" : "Upload"}</span>
             <input
-              value={filters.q}
-              onChange={(event) => setFilters({ ...filters, q: event.currentTarget.value })}
-              placeholder="Search filename, player, map, match GUID, SHA"
+              type="file"
+              accept=".replay"
+              disabled={uploading}
+              onChange={(event) => void onUpload(event.currentTarget.files?.[0])}
             />
           </label>
-          <button type="submit">
-            <Search size={16} />
-            Search
-          </button>
-          <button type="button" className="secondary-button" onClick={clearFilters}>
-            <RotateCcw size={16} />
-            Reset
-          </button>
-        </div>
-
-        <FilterGrid fields={replayFilterFields} />
-      </form>
-
-      <div className="replay-list-controls">
-        <div className="results-readout">
-          <SlidersHorizontal size={16} />
-          <span>
-            {loading
-              ? "Loading replays"
-              : total == null
-                ? `${replays.length.toLocaleString()} replays`
-                : `${start.toLocaleString()}-${end.toLocaleString()} of ${total.toLocaleString()} replays`}
-          </span>
-        </div>
-        <div className="pagination-controls">
-          <label>
-            Order
-            <select
-              value={replayOrder}
-              onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}
+          {activeGroupId ? (
+            <Link
+              className="secondary-button"
+              to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}
             >
-              {replayOrderOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Page size
-            <select
-              value={String(pageSize)}
-              onChange={(event) => updatePageSize(event.currentTarget.value)}
+              <BarChart3 size={16} />
+              Group stats
+            </Link>
+          ) : null}
+        </header>
+
+        <form className="search-filter-panel replay-search-panel" onSubmit={submitSearch}>
+          <div className="replay-search-row">
+            <label className="search-box">
+              <Search size={17} />
+              <input
+                value={filters.q}
+                onChange={(event) => setFilters({ ...filters, q: event.currentTarget.value })}
+                placeholder="Search filename, player, map, match GUID, SHA"
+              />
+            </label>
+            <button type="submit">
+              <Search size={16} />
+              Search
+            </button>
+            <button type="button" className="secondary-button" onClick={clearFilters}>
+              <RotateCcw size={16} />
+              Reset
+            </button>
+          </div>
+
+          <FilterGrid fields={replayFilterFields} />
+        </form>
+
+        <div className="replay-list-controls">
+          <div className="results-readout">
+            <SlidersHorizontal size={16} />
+            <span>
+              {loading
+                ? "Loading replays"
+                : total == null
+                  ? `${replays.length.toLocaleString()} replays`
+                  : `${start.toLocaleString()}-${end.toLocaleString()} of ${total.toLocaleString()} replays`}
+            </span>
+          </div>
+          <div className="pagination-controls">
+            <label>
+              Order
+              <select
+                value={replayOrder}
+                onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}
+              >
+                {replayOrderOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Page size
+              <select
+                value={String(pageSize)}
+                onChange={(event) => updatePageSize(event.currentTarget.value)}
+              >
+                {visiblePageSizeOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="icon-button"
+              title="Previous page"
+              disabled={!canPageBackward || loading}
+              onClick={() => goToOffset(previousOffset)}
             >
-              {visiblePageSizeOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="icon-button"
-            title="Previous page"
-            disabled={!canPageBackward || loading}
-            onClick={() => goToOffset(previousOffset)}
-          >
-            <ChevronLeft size={17} />
-          </button>
-          <span className="page-count">
-            {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
-          </span>
-          <button
-            type="button"
-            className="icon-button"
-            title="Next page"
-            disabled={!canPageForward || loading}
-            onClick={() => goToOffset(nextOffset)}
-          >
-            <ChevronRight size={17} />
-          </button>
+              <ChevronLeft size={17} />
+            </button>
+            <span className="page-count">
+              {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
+            </span>
+            <button
+              type="button"
+              className="icon-button"
+              title="Next page"
+              disabled={!canPageForward || loading}
+              onClick={() => goToOffset(nextOffset)}
+            >
+              <ChevronRight size={17} />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {activeFilterChips.length > 0 ? (
-        <div className="filter-chips" aria-label="Active filters">
-          {activeFilterChips.map((chip) => (
-            <span key={chip}>{chip}</span>
-          ))}
-        </div>
-      ) : null}
-
-      <StatusLine loading={false} error={error} />
-
-      {currentUser && selectedIds.size > 0 ? (
-        <GroupSelectionBar
-          selectedIds={selectedIds}
-          replayCount={replays.length}
-          groups={groups}
-          onSelectAll={selectAllOnPage}
-          onClear={clearSelection}
-          onGroupsChanged={refreshGroups}
-        />
-      ) : null}
-
-      <div className="replay-card-list">
-        {replays.map((replay) => (
-          <article
-            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
-            key={replay.id}
-          >
-            <header className="replay-card-header">
-              <div className="replay-card-heading">
-                {currentUser ? (
-                  <input
-                    type="checkbox"
-                    className="replay-select"
-                    aria-label={`Select ${replay.original_file_name || replay.id}`}
-                    checked={selectedIds.has(replay.id)}
-                    onChange={() => toggleSelected(replay.id)}
-                  />
-                ) : null}
-                <div className="replay-card-title">
-                  <ReplayLink className="primary-link" replayId={replay.id}>
-                    {replay.original_file_name || replay.id}
-                  </ReplayLink>
-                  <UploaderPill uploader={replay.uploaded_by} />
-                </div>
-              </div>
-              <div className="replay-card-meta">
-                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
-                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
-                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
-                <ReplayStatusChip replay={replay} currentUser={currentUser} />
-              </div>
-            </header>
-            <ReplayTeams replay={replay} />
-          </article>
-        ))}
-        {!loading && replays.length === 0 ? (
-          <div className="status-line">No replays found.</div>
+        {activeFilterChips.length > 0 ? (
+          <div className="filter-chips" aria-label="Active filters">
+            {activeFilterChips.map((chip) => (
+              <span key={chip}>{chip}</span>
+            ))}
+          </div>
         ) : null}
-      </div>
-    </section>
+
+        <StatusLine loading={false} error={error} />
+
+        {currentUser && selectedIds.size > 0 ? (
+          <GroupSelectionBar
+            selectedIds={selectedIds}
+            replayCount={replays.length}
+            groups={groups}
+            onSelectAll={selectAllOnPage}
+            onClear={clearSelection}
+            onGroupsChanged={refreshGroups}
+          />
+        ) : null}
+
+        <div className="replay-card-list">
+          {replays.map((replay) => (
+            <article
+              className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+              key={replay.id}
+            >
+              <header className="replay-card-header">
+                <div className="replay-card-heading">
+                  {currentUser ? (
+                    <input
+                      type="checkbox"
+                      className="replay-select"
+                      aria-label={`Select ${replay.original_file_name || replay.id}`}
+                      checked={selectedIds.has(replay.id)}
+                      onChange={() => toggleSelected(replay.id)}
+                    />
+                  ) : null}
+                  <div className="replay-card-title">
+                    <ReplayLink className="primary-link" replayId={replay.id}>
+                      {replay.original_file_name || replay.id}
+                    </ReplayLink>
+                    <UploaderPill uploader={replay.uploaded_by} />
+                  </div>
+                </div>
+                <div className="replay-card-meta">
+                  <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
+                  <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
+                  <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
+                  <ReplayStatusChip replay={replay} currentUser={currentUser} />
+                </div>
+              </header>
+              <ReplayTeams replay={replay} />
+            </article>
+          ))}
+          {!loading && replays.length === 0 ? (
+            <div className="status-line">No replays found.</div>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -3339,6 +3346,7 @@ function PlayerStatsPage() {
   const { platform = "", platformPlayerId, playerName, statGroup } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const currentUser = useCurrentUser();
   const routePlayerRef = platformPlayerId ?? playerName ?? "";
   const routeUsesExplicitId = platformPlayerId != null;
   const routeBasePath = routeUsesExplicitId
@@ -3734,6 +3742,13 @@ function PlayerStatsPage() {
               <FileVideo size={16} />
               Replays
             </Link>
+          ) : null}
+          {hasResolvedPlayer ? (
+            <PlayerFavoriteButton
+              enabled={currentUser != null}
+              platform={resolvedPlatform}
+              platformPlayerId={resolvedPlatformPlayerId}
+            />
           ) : null}
         </div>
       </header>

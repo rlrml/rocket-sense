@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getUserProfile, listReplays } from "./api";
+import { getCurrentUser, getUserProfile, listReplays } from "./api";
+import { UploaderFavoriteButton } from "./favorites";
 import { playerProfileIdPath } from "./playerIdentity";
 import { ProviderLoginIcon, providerLabel } from "./providerIcons";
 import type {
@@ -89,6 +90,23 @@ export function UserProfilePage() {
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Only signed-in visitors see the favorite control, and never on their own
+  // profile. A failed `/me` (signed out) simply leaves the button hidden.
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentUser()
+      .then((user) => {
+        if (!cancelled) setCurrentUserId(user.id);
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentUserId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,6 +186,10 @@ export function UserProfilePage() {
           <Link className="secondary-button" to={uploadsHref}>
             View all uploads
           </Link>
+          <UploaderFavoriteButton
+            enabled={currentUserId != null && currentUserId !== profile.id}
+            userId={profile.id}
+          />
         </div>
       </header>
 

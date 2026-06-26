@@ -870,6 +870,27 @@ export interface LinkedIdentitiesResponse {
   identities: LinkedIdentityResponse[];
 }
 
+export interface FavoritePlayerResponse {
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  appearance_count: number;
+  favorited_at: string;
+}
+
+export interface FavoriteUploaderResponse {
+  user_id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  upload_count: number;
+  favorited_at: string;
+}
+
+export interface FavoritesResponse {
+  players: FavoritePlayerResponse[];
+  uploaders: FavoriteUploaderResponse[];
+}
+
 export interface ReprocessReplayResponse {
   replay_id: string;
   enqueued: boolean;
