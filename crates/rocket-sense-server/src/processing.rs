@@ -4,7 +4,7 @@ use crate::rank_benchmark::{
 use anyhow::{anyhow, Context, Result};
 use apalis::prelude::*;
 use apalis_postgres::{
-    CompactType, Config as ApalisPostgresConfig, JsonCodec, PgNotify, PostgresStorage,
+    CompactType, Config as ApalisPostgresConfig, JsonCodec, PgContext, PgNotify, PostgresStorage,
 };
 use boxcars::{HeaderProp, RemoteId};
 use bytes::Bytes;
@@ -1555,6 +1555,29 @@ pub struct ReplayProcessingJob {
     force: bool,
 }
 
+// Replay processing jobs all share one apalis queue (`job_type`), so the
+// worker's `ORDER BY priority DESC` fetch ranks them against each other. Three
+// tiers, highest first:
+
+/// Queue priority for a freshly uploaded replay whose owner is waiting on it.
+/// Top tier so a live upload drains ahead of both the crash-recovery backlog
+/// and any reprocess flood.
+const NEW_UPLOAD_JOB_PRIORITY: i32 = 10;
+
+/// Queue priority for replays re-enqueued by the startup sweep — uploads that
+/// were interrupted mid-processing by a restart. Below a live upload (no one is
+/// actively waiting on the originating request) but above reprocess.
+const RESUME_JOB_PRIORITY: i32 = 0;
+
+/// Queue priority for queued force-reprocess jobs. Strictly below the other
+/// tiers so a new upload is always picked ahead of the entire reprocess
+/// backlog: a bulk reprocess can flood the queue without delaying new uploads
+/// beyond the single reprocess parse already in flight. Lowering priority
+/// (rather than adding a second, dedicated worker) keeps a single bounded
+/// worker pool, preserving the per-parse memory ceiling that
+/// `MAX_REPLAY_PROCESSING_CONCURRENCY` guards.
+const REPROCESS_JOB_PRIORITY: i32 = -1;
+
 #[derive(Clone)]
 struct ReplayProcessingWorkerState {
     pool: PgPool,
@@ -1656,24 +1679,29 @@ pub fn start_replay_processing_workers(
     });
 }
 
+/// Enqueue processing for a freshly uploaded replay. Runs at the top priority
+/// tier so a live upload (its owner is waiting) jumps ahead of the startup
+/// resume backlog and any reprocess flood.
 pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
-    enqueue_replay_processing_job_inner(pool, replay_id, false)
+    enqueue_replay_processing_job_inner(pool, replay_id, false, NEW_UPLOAD_JOB_PRIORITY)
         .await
         .map(|_| ())
 }
 
 /// Enqueue a force-reprocess job: the worker reprocesses the replay even if it
 /// is already processed. Used by the durable, queue-backed reprocess path so
-/// progress survives restarts and can be drained by the worker fleet. Returns
-/// whether a new job was enqueued (false if one was already outstanding).
+/// progress survives restarts and can be drained by the worker fleet. Runs at
+/// the lowest priority tier so it never delays new uploads. Returns whether a
+/// new job was enqueued (false if one was already outstanding).
 pub async fn enqueue_replay_reprocessing_job(pool: &PgPool, replay_id: Uuid) -> Result<bool> {
-    enqueue_replay_processing_job_inner(pool, replay_id, true).await
+    enqueue_replay_processing_job_inner(pool, replay_id, true, REPROCESS_JOB_PRIORITY).await
 }
 
 async fn enqueue_replay_processing_job_inner(
     pool: &PgPool,
     replay_id: Uuid,
     force: bool,
+    priority: i32,
 ) -> Result<bool> {
     // Startup re-enqueue sweeps and repeated reprocess requests would
     // otherwise pile up duplicate jobs for the same replay; one outstanding
@@ -1699,8 +1727,14 @@ async fn enqueue_replay_processing_job_inner(
     }
 
     let mut backend = replay_processing_storage(pool);
+    // The worker fetch orders by `priority DESC`, so the caller-supplied tier
+    // decides whether this job drains ahead of others on the shared queue.
+    let task = Task::new_with_ctx(
+        ReplayProcessingJob { replay_id, force },
+        PgContext::new().with_priority(priority),
+    );
     backend
-        .push(ReplayProcessingJob { replay_id, force })
+        .push_task(task)
         .await
         .with_context(|| format!("failed to enqueue replay processing job for {replay_id}"))?;
     Ok(true)
@@ -1763,7 +1797,10 @@ pub async fn enqueue_unfinished_replay_processing(pool: &PgPool) -> Result<usize
     let targets = unfinished_replay_processing_targets(pool).await?;
     let enqueued_replays = targets.len();
     for target in targets {
-        enqueue_replay_processing_job(pool, target.replay_id).await?;
+        // Resume backlog: below live uploads (no one is waiting on the original
+        // request) but above reprocess.
+        enqueue_replay_processing_job_inner(pool, target.replay_id, false, RESUME_JOB_PRIORITY)
+            .await?;
     }
 
     Ok(enqueued_replays)
