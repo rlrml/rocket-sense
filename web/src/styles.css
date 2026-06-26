@@ -9542,6 +9542,39 @@ tbody tr:last-child td {
   margin-bottom: 12px;
 }
 
+.gse-controls-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.gse-copy-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.gse-copy-link:hover {
+  border-color: #2563eb;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
 .gse-picker-toggle {
   display: inline-flex;
   align-items: center;
