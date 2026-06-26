@@ -38,16 +38,7 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import {
-  FormEvent,
-  Fragment,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { FormEvent, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
   NavLink,
@@ -80,6 +71,7 @@ import {
   getPlayerStatAggregates,
   getPlayerStatOverview,
   getProcessingVersion,
+  getPlayerBoostTotals,
   getRankBenchmarkCohorts,
   getReplay,
   getReplayGroup,
@@ -89,6 +81,7 @@ import {
   listReplayGroups,
   listReplayGroupManagers,
   listReplayGroupReplays,
+  listReplayGroupEvents,
   listReplayEvents,
   listReplayFilterOptions,
   listLinkedIdentities,
@@ -120,14 +113,8 @@ import {
   warmPreviewPlayerForReplay,
 } from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
-import {
-  completedStatGroups,
-  eventTypesForGroup,
-  statGroupById,
-  statGroupLayout,
-} from "./stats/registry";
+import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
-import { leaderboardRankIndex, StatLeaderboard } from "./stats/StatLeaderboard";
 import { StalenessChip } from "./staleness";
 import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl } from "./platform";
 import { ProviderLoginIcon, providerLabel } from "./providerIcons";
@@ -161,7 +148,15 @@ import {
   ComparisonCardChart,
   ComparisonCardGrid,
   rankAverageEnabled,
+  statPlayerRank,
 } from "./stats/shared";
+import { buildGroupStatMetrics, GroupStatExplorer, identityKey } from "./stats/groupStatExplorer";
+import type { LeaderboardParticipant } from "./stats/groupLeaderboard";
+import {
+  computeKickoffSummaries,
+  kickoffEventTypes,
+  type PlayerKickoffSummary,
+} from "./stats/kickoffs";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
 import { aerialPlaylistKinds as aerialPlaylistKindList } from "./stats/aerialKinds";
 import { buildMovementCohortCards } from "./stats/movement";
@@ -191,10 +186,11 @@ import type {
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
+  PlayerBoostTotal,
   ReplayUploaderResponse,
-  StatAggregateGroupPlayer,
   StatAggregateResponse,
   StatAggregateSetResponse,
+  TouchAggregateBreakdownResponse,
 } from "./types";
 import type { LocalReprocessProgress } from "./stats/replayModel";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -2580,20 +2576,178 @@ function ReplayStatsPage() {
   );
 }
 
-function ReplayGroupStatsPage() {
-  const { groupId = "", statGroup } = useParams();
-  const activeGroup = useMemo(
-    () => statGroupById(statGroup, aggregateStatsSectionGroups) ?? aggregateStatsSectionGroups[0],
-    [statGroup],
+// The participant set is every player with an aggregate block in the group (the
+// `group-by=player` rows, up to 200) — not just the consistent roster, so a
+// tournament group still ranks everyone. Ranks come from the replay rosters when
+// available (players outside the consistent set may have none).
+function buildExplorerParticipants(
+  aggregates: StatAggregateSetResponse | null,
+  rankByIdentity: Map<string, ReturnType<typeof statPlayerRank>>,
+  groupId: string,
+): LeaderboardParticipant[] {
+  const out: LeaderboardParticipant[] = [];
+  const seen = new Set<string>();
+  for (const group of aggregates?.groups ?? []) {
+    const player = group.player;
+    const id = identityKey(player?.platform, player?.platform_player_id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      key: id,
+      name: player?.display_name || id,
+      platform: player?.platform ?? null,
+      platformPlayerId: player?.platform_player_id ?? null,
+      profilePath:
+        player?.platform && player.platform_player_id
+          ? groupScopedPlayerStatsPath(player.platform, player.platform_player_id, "core", groupId)
+          : null,
+      rank: rankByIdentity.get(id) ?? null,
+      cohort: "player",
+    });
+  }
+  return out;
+}
+
+// Above this many participants we skip the per-player boost fan-out (BPM / pad
+// rates) — a 200-player tournament group would otherwise fire a request storm.
+const GROUP_BOOST_FETCH_CAP = 40;
+
+// One unified, searchable stat table for the whole group: pull every per-player
+// metric source (flat aggregates, derived ratios, event-derived kickoffs, and
+// group-scoped boost totals) and hand them to the explorer.
+function GroupStatExplorerSection({
+  groupId,
+  players,
+}: {
+  groupId: string;
+  players: ReplayPlayer[];
+}) {
+  const [aggregates, setAggregates] = useState<StatAggregateSetResponse | null>(null);
+  const [kickoffEvents, setKickoffEvents] = useState<MechanicEventResponse[]>([]);
+  const [boost, setBoost] = useState<Map<string, PlayerBoostTotal>>(new Map());
+  const [touch, setTouch] = useState<Map<string, TouchAggregateBreakdownResponse>>(new Map());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setAggregates(null);
+    setKickoffEvents([]);
+    Promise.all([
+      getReplayGroupPlayerAggregates(groupId, undefined, []),
+      listReplayGroupEvents(groupId, [...kickoffEventTypes, "possession"]),
+    ])
+      .then(([aggResponse, eventsResponse]) => {
+        if (cancelled) return;
+        setAggregates(aggResponse);
+        setKickoffEvents(eventsResponse.events);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+
+  const rankByIdentity = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof statPlayerRank>>();
+    for (const player of players) {
+      const id = identityKey(player.platform, player.platform_player_id);
+      if (id && !map.has(id)) map.set(id, statPlayerRank(player));
+    }
+    return map;
+  }, [players]);
+
+  const participants = useMemo(
+    () => buildExplorerParticipants(aggregates, rankByIdentity, groupId),
+    [aggregates, rankByIdentity, groupId],
   );
-  const layout = statGroupLayout(activeGroup);
+
+  // Boost totals and the touch breakdown only exist per player (no group-by=player
+  // variant), so fan out one request each per participant, scoped to the group.
+  // Capped so a huge tournament group doesn't fire hundreds of requests.
+  useEffect(() => {
+    let cancelled = false;
+    setBoost(new Map());
+    setTouch(new Map());
+    const identities = participants
+      .map((participant) => ({
+        key: participant.key,
+        platform: participant.platform,
+        id: participant.platformPlayerId,
+      }))
+      .filter((entry): entry is { key: string; platform: string; id: string } =>
+        Boolean(entry.platform && entry.id),
+      );
+    if (identities.length === 0 || identities.length > GROUP_BOOST_FETCH_CAP) return;
+    const params = new URLSearchParams({ group: groupId });
+    Promise.all(
+      identities.map((entry) =>
+        Promise.all([
+          getPlayerBoostTotals(entry.platform, entry.id, params)
+            .then((response) => response.player)
+            .catch(() => null),
+          getPlayerStatAggregates(
+            entry.platform,
+            entry.id,
+            new URLSearchParams({ group: groupId }),
+            ["touch"],
+          )
+            .then((response) => response.touch_breakdown)
+            .catch(() => null),
+        ]).then(([boostTotal, touchBreakdown]) => ({ key: entry.key, boostTotal, touchBreakdown })),
+      ),
+    ).then((results) => {
+      if (cancelled) return;
+      const boostMap = new Map<string, PlayerBoostTotal>();
+      const touchMap = new Map<string, TouchAggregateBreakdownResponse>();
+      for (const result of results) {
+        if (result.boostTotal) boostMap.set(result.key, result.boostTotal);
+        if (result.touchBreakdown) touchMap.set(result.key, result.touchBreakdown);
+      }
+      setBoost(boostMap);
+      setTouch(touchMap);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [participants, groupId]);
+
+  const kickoffSummaries = useMemo(() => {
+    const map = new Map<string, PlayerKickoffSummary>();
+    for (const summary of computeKickoffSummaries(kickoffEvents, players)) {
+      const id = identityKey(summary.platform, summary.platform_player_id);
+      if (id) map.set(id, summary);
+    }
+    return map;
+  }, [kickoffEvents, players]);
+
+  const metrics = useMemo(
+    () => buildGroupStatMetrics({ aggregates, kickoffSummaries, boost, touch }),
+    [aggregates, kickoffSummaries, boost, touch],
+  );
+
+  return (
+    <>
+      {error ? <ApiNotice label="Group stats" message={error} /> : null}
+      {loading ? <StatusLine loading error={null} /> : null}
+      <GroupStatExplorer participants={participants} metrics={metrics} />
+    </>
+  );
+}
+
+function ReplayGroupStatsPage() {
+  const { groupId = "" } = useParams();
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
-  const [playerAggregates, setPlayerAggregates] = useState<StatAggregateSetResponse | null>(null);
   const [groupLoading, setGroupLoading] = useState(true);
-  const [playerAggregatesLoading, setPlayerAggregatesLoading] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
-  const [playerAggregatesError, setPlayerAggregatesError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2618,49 +2772,7 @@ function ReplayGroupStatsPage() {
     };
   }, [groupId]);
 
-  // The group leaderboard fetches one aggregate block per participant
-  // (`group-by=player`), scoped to the group's replays. Drill-down-only sections
-  // (e.g. boost) skip this — they route into each player's group-scoped view.
-  useEffect(() => {
-    let cancelled = false;
-    if (layout !== "leaderboard") {
-      setPlayerAggregates(null);
-      setPlayerAggregatesLoading(false);
-      setPlayerAggregatesError(null);
-      return;
-    }
-    setPlayerAggregatesLoading(true);
-    setPlayerAggregatesError(null);
-    getReplayGroupPlayerAggregates(groupId, undefined, activeGroup.terms)
-      .then((response) => {
-        if (!cancelled) setPlayerAggregates(response);
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setPlayerAggregatesError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setPlayerAggregatesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [layout, groupId, activeGroup]);
-
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
-  const rankIndex = useMemo(
-    () => leaderboardRankIndex(participantAnalysis.players),
-    [participantAnalysis.players],
-  );
-  const buildPlayerHref = useCallback(
-    (player: StatAggregateGroupPlayer) =>
-      groupScopedPlayerStatsPath(
-        player.platform,
-        player.platform_player_id,
-        activeGroup.id,
-        groupId,
-      ),
-    [activeGroup.id, groupId],
-  );
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -2722,57 +2834,7 @@ function ReplayGroupStatsPage() {
             </div>
           ) : null}
 
-          <nav className="stat-group-nav" aria-label="Group stat sections">
-            {aggregateStatsSectionGroups.map((section) => {
-              const Icon = section.icon;
-              return (
-                <Link
-                  key={section.id}
-                  className={`stat-group-link ${section.id === activeGroup.id ? "active" : ""}`}
-                  to={`/replay-groups/${groupId}/stats/${section.id}`}
-                >
-                  <Icon size={16} />
-                  <span>{section.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-
-          <section className="stat-detail">
-            <header className="stat-detail-header">
-              <div>
-                <p className="eyebrow">{activeGroup.label}</p>
-                <h2>
-                  {activeGroup.label} {layout === "drill-down-only" ? "per player" : "leaderboard"}
-                </h2>
-                <p>{activeGroup.description}</p>
-              </div>
-            </header>
-
-            {playerAggregatesError ? (
-              <ApiNotice
-                label={`${activeGroup.label} leaderboard`}
-                message={playerAggregatesError}
-              />
-            ) : null}
-            {playerAggregatesLoading ? <StatusLine loading error={null} /> : null}
-
-            {layout === "drill-down-only" ? (
-              <GroupSectionDrillDown
-                section={activeGroup}
-                players={participantAnalysis.players}
-                groupId={groupId}
-              />
-            ) : (
-              <StatLeaderboard
-                title={`${activeGroup.label} leaderboard`}
-                groups={playerAggregates?.groups ?? []}
-                rankIndex={rankIndex}
-                buildPlayerHref={buildPlayerHref}
-                defaultStatKeys={activeGroup.leaderboardStats}
-              />
-            )}
-          </section>
+          <GroupStatExplorerSection groupId={groupId} players={participantAnalysis.players} />
 
           <section className="stat-panel">
             <h2>Games in group</h2>
@@ -3179,61 +3241,6 @@ function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): num
   if ((left.team ?? 9) !== (right.team ?? 9)) return (left.team ?? 9) - (right.team ?? 9);
   return (left.name || left.platform_player_id || "").localeCompare(
     right.name || right.platform_player_id || "",
-  );
-}
-
-// Group sections that don't reduce to a single leaderboard (e.g. the boost
-// pad-control diagram is a per-player spatial chart) route into each player's
-// group-scoped career view for that section instead of rendering a group panel.
-function GroupSectionDrillDown({
-  section,
-  players,
-  groupId,
-}: {
-  section: StatGroup;
-  players: ReplayPlayer[];
-  groupId: string;
-}) {
-  const linkablePlayers = players.filter((player) => player.platform && player.platform_player_id);
-  const sectionLabel = section.label.toLowerCase();
-  return (
-    <section className="stat-panel full-span group-leaderboard-panel">
-      <div className="stat-panel-heading">
-        <h3>{section.label} per player</h3>
-        <span>{linkablePlayers.length.toLocaleString()} players</span>
-      </div>
-      <p className="stat-detail-note">
-        {section.label} centers on a per-player view that doesn&rsquo;t reduce to a single
-        leaderboard. Open a player to see their {sectionLabel} across this group.
-      </p>
-      {linkablePlayers.length > 0 ? (
-        <div className="group-participant-strip" aria-label={`${section.label} per player`}>
-          {linkablePlayers.map((player, index) => (
-            <Link
-              key={groupParticipantKey(player, index)}
-              className="group-participant-chip-link"
-              to={groupScopedPlayerStatsPath(
-                player.platform!,
-                player.platform_player_id!,
-                section.id,
-                groupId,
-              )}
-            >
-              <PlayerIdentity
-                className="group-participant-chip"
-                player={player}
-                showRank
-                link={false}
-              />
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="stat-empty">
-          No identifiable participants are available for this group yet.
-        </div>
-      )}
-    </section>
   );
 }
 

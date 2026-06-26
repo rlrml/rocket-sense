@@ -46,7 +46,13 @@ import {
   type OutcomeDistributionLevel,
   type OutcomeDistributionSegment,
   type SegmentedBarSegment,
+  type StatPlayerRank,
 } from "./shared";
+import {
+  GroupMetricLeaderboard,
+  type LeaderboardMetric,
+  type LeaderboardParticipant,
+} from "./groupLeaderboard";
 import { useSearchParamState } from "./useSearchParamState";
 
 const KickoffShapeDiagram = lazy(() =>
@@ -186,7 +192,7 @@ interface KickoffPlayerBehavior {
   distanceToBallAtFirstTouch: number | null;
 }
 
-interface PlayerKickoffSummary {
+export interface PlayerKickoffSummary {
   key: string;
   name: string;
   platform: string | null;
@@ -3123,4 +3129,324 @@ function formatDistance(value: number | null): string {
 
 function formatSharePercent(value: number): string {
   return `${Math.round(value * 100)}%`;
+}
+
+// ---------------------------------------------------------------------------
+// Group leaderboard
+//
+// The kickoff career stats (advantage bands, goals for/against, time-to-ball)
+// are computed per-event client-side — they have no flat aggregate counterpart,
+// so the group view can't rank them through the generic stat-aggregate
+// leaderboard. Instead we fold the group's kickoff events into the same
+// `PlayerKickoffSummary` the per-player charts use and expose every interesting
+// rate/ratio as a sortable metric.
+// ---------------------------------------------------------------------------
+
+export interface KickoffLeaderboardPlayerMeta {
+  /** Active seconds across the group (from the per-player aggregate block). */
+  activeSeconds: number | null;
+  /** Games the player appeared in across the group. */
+  games: number | null;
+}
+
+function kickoffLeaderboardRank(summary: PlayerKickoffSummary): StatPlayerRank | null {
+  if (summary.rank_tier == null && summary.rank_mmr == null) return null;
+  return {
+    tier: summary.rank_tier,
+    division: summary.rank_division,
+    mmr: summary.rank_mmr,
+    approximate: summary.rank_is_fallback,
+    approximateAsOf: summary.rank_fallback_replay_date ?? null,
+  };
+}
+
+function clearBandTotal(summary: PlayerKickoffSummary): number {
+  const clear = summary.strengthOutcomes.clear;
+  return clear.wins + clear.losses + clear.neutral;
+}
+
+function ratioOrNull(numerator: number, denominator: number): number | null {
+  return denominator > 0 ? numerator / denominator : null;
+}
+
+function avgOrNull(sum: number, count: number): number | null {
+  return count > 0 ? sum / count : null;
+}
+
+function formatLeaderboardCount(value: number): string {
+  return Math.round(value).toLocaleString();
+}
+
+function formatLeaderboardPercent(value: number): string {
+  return `${Math.round(value)}%`;
+}
+
+function formatLeaderboardRate(value: number): string {
+  if (value >= 100) return value.toFixed(0);
+  if (value >= 10) return value.toFixed(1);
+  if (value >= 1) return value.toFixed(2);
+  return value.toFixed(3);
+}
+
+function formatLeaderboardSeconds(value: number): string {
+  return `${value.toFixed(2)}s`;
+}
+
+/**
+ * Fold a group's kickoff + possession events into per-player kickoff summaries
+ * (the same shape the per-player charts use), so a group view can rank any
+ * kickoff rate/ratio without a flat aggregate counterpart.
+ */
+export function computeKickoffSummaries(
+  events: MechanicEventResponse[],
+  players: ReplayPlayer[],
+): PlayerKickoffSummary[] {
+  const possessionSpans = events
+    .filter((event) => event.event_type === "possession")
+    .map((event) => possessionSpan(event, players))
+    .filter((span): span is PossessionSpan => Boolean(span))
+    .sort(
+      (left, right) =>
+        (left.startTime ?? Number.POSITIVE_INFINITY) -
+        (right.startTime ?? Number.POSITIVE_INFINITY),
+    );
+  const kickoffs = events
+    .filter((event) => event.event_type === "kickoff")
+    .map((event, index) => kickoffRow(event, index, players, possessionSpans));
+  return kickoffPlayerSummaries(kickoffs, players);
+}
+
+export function buildKickoffMetrics(
+  byKey: Map<string, PlayerKickoffSummary>,
+  metaFor: (key: string) => KickoffLeaderboardPlayerMeta | undefined,
+): LeaderboardMetric[] {
+  const of = (key: string) => byKey.get(key) ?? null;
+  const metric = (
+    config: Omit<LeaderboardMetric, "value"> & {
+      compute: (
+        summary: PlayerKickoffSummary,
+        meta: KickoffLeaderboardPlayerMeta | undefined,
+      ) => number | null;
+    },
+  ): LeaderboardMetric => ({
+    key: config.key,
+    label: config.label,
+    group: config.group,
+    measurable: config.measurable,
+    lowerIsBetter: config.lowerIsBetter,
+    format: config.format,
+    value: (participantKey) => {
+      const summary = of(participantKey);
+      if (!summary) return null;
+      return config.compute(summary, metaFor(participantKey));
+    },
+  });
+
+  // A countable kickoff stat that responds to the explorer's total / per-game /
+  // per-5-min toggle (rather than baking the unit into its own label).
+  const measurableCount = (
+    config: { key: string; label: string; group?: string; format?: LeaderboardMetric["format"] },
+    raw: (summary: PlayerKickoffSummary) => number,
+  ): LeaderboardMetric => ({
+    key: config.key,
+    label: config.label,
+    group: config.group,
+    measurable: true,
+    format:
+      config.format ??
+      ((value, measure) =>
+        measure === "total" ? formatLeaderboardCount(value) : formatLeaderboardRate(value)),
+    value: (participantKey, measure) => {
+      const summary = of(participantKey);
+      if (!summary) return null;
+      const value = raw(summary);
+      if (measure === "total") return value;
+      const meta = metaFor(participantKey);
+      if (measure === "perGame") {
+        const games = meta?.games ?? null;
+        return games && games > 0 ? value / games : null;
+      }
+      const seconds = meta?.activeSeconds ?? null;
+      return seconds && seconds > 0 ? (value / seconds) * 300 : null;
+    },
+  });
+
+  return [
+    metric({
+      key: "kickoffs_total",
+      label: "Kickoffs",
+      group: "Volume",
+      format: formatLeaderboardCount,
+      compute: (s) => s.takerCount + s.supportCount,
+    }),
+    metric({
+      key: "kickoffs_taken",
+      label: "Kickoffs taken",
+      group: "Volume",
+      format: formatLeaderboardCount,
+      compute: (s) => s.takerCount,
+    }),
+    metric({
+      key: "kickoff_first_touch_rate",
+      label: "First-touch rate",
+      group: "Volume",
+      format: formatLeaderboardPercent,
+      compute: (s) => {
+        const rate = ratioOrNull(s.firstTouchesAsTaker, s.takerCount);
+        return rate == null ? null : rate * 100;
+      },
+    }),
+    metric({
+      key: "kickoff_advantage_rate",
+      label: "Advantage rate",
+      group: "Advantage",
+      format: formatLeaderboardPercent,
+      compute: (s) => {
+        const rate = ratioOrNull(s.advantagesFor, s.advantagesFor + s.advantagesAgainst);
+        return rate == null ? null : rate * 100;
+      },
+    }),
+    metric({
+      key: "kickoff_clear_wins",
+      label: "Clear-margin wins",
+      group: "Advantage",
+      format: formatLeaderboardCount,
+      compute: (s) => s.strengthOutcomes.clear.wins,
+    }),
+    metric({
+      key: "kickoff_clear_win_rate",
+      label: "Clear-margin win rate",
+      group: "Advantage",
+      format: formatLeaderboardPercent,
+      compute: (s) => {
+        const rate = ratioOrNull(s.strengthOutcomes.clear.wins, clearBandTotal(s));
+        return rate == null ? null : rate * 100;
+      },
+    }),
+    measurableCount(
+      { key: "kickoff_goals_for", label: "Kickoff goals for", group: "Goals" },
+      (s) => s.kickoffGoalsFor,
+    ),
+    measurableCount(
+      { key: "kickoff_goals_against", label: "Kickoff goals against", group: "Goals" },
+      (s) => s.kickoffGoalsAgainst,
+    ),
+    measurableCount(
+      {
+        key: "kickoff_goals_net",
+        label: "Net kickoff goals",
+        group: "Goals",
+        format: (value, measure) => {
+          const magnitude =
+            measure === "total"
+              ? formatLeaderboardCount(Math.abs(value))
+              : formatLeaderboardRate(Math.abs(value));
+          if (value > 0) return `+${magnitude}`;
+          if (value < 0) return `-${magnitude}`;
+          return magnitude;
+        },
+      },
+      (s) => s.kickoffGoalsFor - s.kickoffGoalsAgainst,
+    ),
+    metric({
+      key: "kickoff_goal_share",
+      label: "Kickoff goal share",
+      group: "Goals",
+      format: formatLeaderboardPercent,
+      compute: (s) => {
+        const share = ratioOrNull(s.kickoffGoalsFor, s.kickoffGoalsFor + s.kickoffGoalsAgainst);
+        return share == null ? null : share * 100;
+      },
+    }),
+    metric({
+      key: "kickoff_goals_per_kickoff",
+      label: "Kickoff goals / kickoff",
+      group: "Goals",
+      format: formatLeaderboardRate,
+      compute: (s) => ratioOrNull(s.kickoffGoalsFor, s.takerCount + s.supportCount),
+    }),
+    metric({
+      key: "kickoff_goals_against_per_kickoff",
+      label: "Kickoff goals against / kickoff",
+      group: "Goals",
+      format: formatLeaderboardRate,
+      compute: (s) => ratioOrNull(s.kickoffGoalsAgainst, s.takerCount + s.supportCount),
+    }),
+    metric({
+      key: "kickoff_time_to_ball",
+      label: "Avg time to ball",
+      group: "Tempo",
+      lowerIsBetter: true,
+      format: formatLeaderboardSeconds,
+      compute: (s) => avgOrNull(s.timeToBallSum, s.timeToBallCount),
+    }),
+    metric({
+      key: "kickoff_boost_used",
+      label: "Avg boost used (taker)",
+      group: "Tempo",
+      format: (value) => formatBoostPercent(value),
+      compute: (s) => avgOrNull(s.boostUsedSum, s.boostUsedCount),
+    }),
+  ];
+}
+
+export function KickoffGroupLeaderboard({
+  events,
+  players,
+  playerMeta,
+  buildPlayerHref,
+  title = "Kickoffs leaderboard",
+}: {
+  events: MechanicEventResponse[];
+  players: ReplayPlayer[];
+  /** identity (`platform:platform_player_id`, lowercased) → group meta. */
+  playerMeta?: Map<string, KickoffLeaderboardPlayerMeta>;
+  buildPlayerHref?: (platform: string, platformPlayerId: string) => string | null;
+  title?: ReactNode;
+}) {
+  const summaries = useMemo(() => computeKickoffSummaries(events, players), [events, players]);
+  const summaryByKey = useMemo(
+    () => new Map(summaries.map((summary) => [summary.key, summary])),
+    [summaries],
+  );
+
+  const participants = useMemo<LeaderboardParticipant[]>(
+    () =>
+      summaries
+        .filter((summary) => summary.takerCount + summary.supportCount > 0)
+        .map((summary) => ({
+          key: summary.key,
+          name: summary.name,
+          platform: summary.platform,
+          platformPlayerId: summary.platform_player_id,
+          profilePath:
+            summary.platform && summary.platform_player_id
+              ? (buildPlayerHref?.(summary.platform, summary.platform_player_id) ?? null)
+              : null,
+          rank: kickoffLeaderboardRank(summary),
+          cohort: "player",
+        })),
+    [summaries, buildPlayerHref],
+  );
+
+  const metrics = useMemo<LeaderboardMetric[]>(
+    () =>
+      buildKickoffMetrics(summaryByKey, (key) => {
+        const summary = summaryByKey.get(key);
+        if (!summary?.platform || !summary.platform_player_id) return undefined;
+        return playerMeta?.get(`${summary.platform.toLowerCase()}:${summary.platform_player_id}`);
+      }),
+    [summaryByKey, playerMeta],
+  );
+
+  return (
+    <GroupMetricLeaderboard
+      title={title}
+      participants={participants}
+      metrics={metrics}
+      defaultMetricKey="kickoff_goal_share"
+      countLabel={`${participants.length.toLocaleString()} players`}
+      emptyLabel="No kickoff data is available for this group yet."
+    />
+  );
 }
