@@ -1,7 +1,7 @@
 use super::{
-    admin, auth, ballchasing, health, leaderboards, meta, movement_stats, player_overview, players,
-    positioning_stats, possession_stats, rank_benchmark_cohorts, rank_trends, replays, stats,
-    users,
+    admin, auth, ballchasing, favorites, health, leaderboards, meta, movement_stats,
+    player_overview, players, positioning_stats, possession_stats, rank_benchmark_cohorts,
+    rank_trends, replays, stats, users,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -36,6 +36,11 @@ use utoipa::{
         auth::logout,
         auth::get_current_user,
         auth::list_current_user_identities,
+        favorites::list_favorites,
+        favorites::add_favorite_player,
+        favorites::remove_favorite_player,
+        favorites::add_favorite_uploader,
+        favorites::remove_favorite_uploader,
         ballchasing::load_ballchasing_replay,
         ballchasing::proxy_ballchasing_replay_file,
         health::health,
@@ -86,6 +91,9 @@ use utoipa::{
             auth::AuthProviderResponse,
             auth::LinkedIdentitiesResponse,
             auth::LinkedIdentityResponse,
+            favorites::FavoritesResponse,
+            favorites::FavoritePlayerResponse,
+            favorites::FavoriteUploaderResponse,
             admin::BackfillEventCountsResponse,
             admin::BackfillProfileTimingRequest,
             admin::BackfillProfileTimingResponse,
