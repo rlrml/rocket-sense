@@ -319,6 +319,21 @@ export function TouchProfileComparison({
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
         />
+        <TouchValuePanel
+          key="profile-control-count"
+          title="Control touches"
+          contextLabel={countContext}
+          subjects={subjects}
+          valueId="control"
+          metric="count"
+          format={countFormat}
+          subjectMetric={(subject) => metricMap(subject, KIND_DIMENSION, "count").control ?? 0}
+          groupClassName="touch-seg-kind-control"
+          rankCohorts={rankCohorts}
+          rankMetricKey="fact:control-touch-count"
+          rankWindowLabel={rankWindowLabel}
+          rankEnabled={rankEnabled}
+        />
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
             key={`profile-advance-${dimension.id}`}

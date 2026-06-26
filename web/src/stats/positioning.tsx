@@ -498,7 +498,7 @@ export function PositioningSummariesView({
           </p>
           <PositioningDistanceChart
             colors={distanceColors}
-            summaries={summaries}
+            summaries={withRanks}
             value={(summary) =>
               weightedAverage(
                 summary.distanceToTeammatesWeighted,
@@ -722,6 +722,7 @@ function rankPositioningSummary(cohort: RankBenchmarkCohort): PlayerPositioningS
   const mostBack = stat("positioning:most_back_share");
   const mostForward = stat("positioning:most_forward_share");
   const distance = stat("positioning:distance_to_ball");
+  const teammateDistance = stat("positioning:distance_to_teammates");
   return {
     key: `rank-${cohort.rank_value}`,
     name: cohort.label,
@@ -754,8 +755,8 @@ function rankPositioningSummary(cohort: RankBenchmarkCohort): PlayerPositioningS
     farthestSeconds: 0,
     distanceToBallWeighted: distance,
     distanceToBallWeight: distance > 0 ? 1 : 0,
-    distanceToTeammatesWeighted: 0,
-    distanceToTeammatesWeight: 0,
+    distanceToTeammatesWeighted: teammateDistance,
+    distanceToTeammatesWeight: teammateDistance > 0 ? 1 : 0,
     caughtAheadGoals: 0,
   };
 }
