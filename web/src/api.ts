@@ -251,6 +251,24 @@ export async function deleteReplayGroup(groupId: string): Promise<void> {
   }
 }
 
+// Deletes a replay and all of its derived data. Returns 204 with no body, so it
+// bypasses the JSON `request` helper. Allowed for the replay's uploader or an admin.
+export async function deleteReplay(replayId: string): Promise<void> {
+  const token = getAccessToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`/api/v1/replays/${encodeURIComponent(replayId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(apiErrorMessage(body) || `${response.status} ${response.statusText}`);
+  }
+}
+
 export function listReplayProcessingDiagnostics(
   searchParams: URLSearchParams,
 ): Promise<ReplayProcessingDiagnosticsResponse> {
