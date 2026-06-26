@@ -63,6 +63,7 @@ import {
   addReplaysToGroup,
   authChangeEvent,
   clearAccessToken,
+  createBallchasingMirror,
   createDevToken,
   createReplayGroup,
   createAccountToken,
@@ -106,6 +107,7 @@ import {
   reprocessReplay,
   reprocessReplayClient,
   setAccessToken,
+  syncBallchasingGroup,
   updateReplayGroup,
   uploadReplay,
 } from "./api";
@@ -1311,6 +1313,61 @@ function groupAncestors(groups: ReplayGroupResponse[], groupId: string): ReplayG
   return chain;
 }
 
+function BallchasingMirrorForm() {
+  const currentUser = useCurrentUser();
+  const navigate = useNavigate();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  if (!currentUser) return null;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const group = value.trim();
+    if (!group) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const created = await createBallchasingMirror({ group });
+      setValue("");
+      navigate(`/replay-groups/${created.id}/stats`);
+    } catch (err) {
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Failed to create mirror",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="ballchasing-mirror-form" onSubmit={submit}>
+      <input
+        type="text"
+        value={value}
+        placeholder="Ballchasing group id or URL to mirror…"
+        onChange={(event) => setValue(event.currentTarget.value)}
+        disabled={busy}
+      />
+      <button type="submit" disabled={busy || value.trim() === ""}>
+        <Plus size={16} />
+        Mirror ballchasing group
+      </button>
+      {feedback ? (
+        <p
+          className={`replay-selection-feedback ${
+            feedback.kind === "error" ? "is-error" : "is-ok"
+          }`}
+        >
+          {feedback.message}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
 function ReplayGroupListPage() {
   const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1346,6 +1403,8 @@ function ReplayGroupListPage() {
         </div>
       </header>
 
+      <BallchasingMirrorForm />
+
       <StatusLine loading={loading} error={error} />
 
       <div className="replay-card-list group-card-list">
@@ -1364,6 +1423,15 @@ function ReplayGroupListPage() {
                   {group.name}
                 </Link>
                 <span className="subtle">{group.description || group.id}</span>
+                {group.ballchasing_group_id ? (
+                  <span
+                    className={`mirror-status-pill is-${
+                      group.ballchasing_sync_status ?? "pending"
+                    }`}
+                  >
+                    Ballchasing: {group.ballchasing_sync_status ?? "pending"}
+                  </span>
+                ) : null}
               </div>
               <div className="replay-card-meta">
                 <span>{group.replay_count.toLocaleString()} replays</span>
@@ -2855,6 +2923,64 @@ function GroupStatExplorerSection({
   );
 }
 
+function BallchasingMirrorStatus({
+  group,
+  onSynced,
+}: {
+  group: ReplayGroupResponse;
+  onSynced: () => void;
+}) {
+  const currentUser = useCurrentUser();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!group.ballchasing_group_id) return null;
+  const status = group.ballchasing_sync_status ?? "pending";
+
+  async function sync() {
+    setBusy(true);
+    setError(null);
+    try {
+      await syncBallchasingGroup(group.id);
+      onSynced();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start sync");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ballchasing-mirror-status">
+      <span className={`mirror-status-pill is-${status}`}>Ballchasing: {status}</span>
+      <span className="subtle">
+        Mirrors{" "}
+        <a
+          className="primary-link"
+          href={`https://ballchasing.com/group/${group.ballchasing_group_id}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {group.ballchasing_group_id}
+        </a>
+      </span>
+      {group.ballchasing_synced_at ? (
+        <span className="subtle">Last synced {formatDate(group.ballchasing_synced_at)}</span>
+      ) : null}
+      {currentUser ? (
+        <button type="button" className="secondary-button" onClick={sync} disabled={busy}>
+          <RefreshCw size={16} />
+          {busy ? "Starting…" : "Sync now"}
+        </button>
+      ) : null}
+      {status === "failed" && group.ballchasing_sync_error ? (
+        <p className="replay-selection-feedback is-error">{group.ballchasing_sync_error}</p>
+      ) : null}
+      {error ? <p className="replay-selection-feedback is-error">{error}</p> : null}
+    </div>
+  );
+}
+
 function ReplayGroupSubgroups({
   parentGroup,
   childGroups,
@@ -3089,6 +3215,8 @@ function ReplayGroupStatsPage() {
       </header>
 
       <StatusLine loading={groupLoading} error={groupError} />
+
+      {group ? <BallchasingMirrorStatus group={group} onSynced={refreshGroups} /> : null}
 
       {group ? (
         <ReplayGroupSubgroups

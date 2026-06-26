@@ -22,7 +22,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use rocket_sense_storage::{
     decode_bytes_with_limit, encode_bytes, raw_replay_key, replay_mime_type, sha256_hex,
-    StorageEncoding, StorageError, DEFAULT_STORAGE_ENCODING,
+    ObjectStorage, StorageEncoding, StorageError, DEFAULT_STORAGE_ENCODING,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
@@ -79,6 +79,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/replay-groups",
             get(list_replay_groups).post(create_replay_group),
+        )
+        .route(
+            "/replay-groups/ballchasing-mirror",
+            post(create_ballchasing_mirror_group),
+        )
+        .route(
+            "/replay-groups/{group_id}/ballchasing-sync",
+            post(trigger_ballchasing_group_sync),
         )
         .route(
             "/replay-groups/{group_id}",
@@ -330,6 +338,19 @@ pub struct CreateReplayGroupRequest {
     pub parent_id: Option<Uuid>,
 }
 
+/// Create a replay group that mirrors a ballchasing.com group.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct CreateBallchasingMirrorRequest {
+    /// Ballchasing group id or URL to mirror.
+    pub group: String,
+    /// Optional parent group to nest the mirror under (requires manage rights).
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+    /// Optional name override; defaults to the ballchasing group's own name.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
 /// Patch a replay group. Every field is optional; an omitted field is left
 /// unchanged. For `description` and `parent_id`, an explicit `null` clears the
 /// value (detaches the group to the top level) while omission leaves it as-is.
@@ -367,6 +388,14 @@ pub struct ReplayGroupResponse {
     pub total_replay_count: u64,
     /// Number of direct child groups.
     pub child_group_count: u64,
+    /// When set, this group mirrors the named ballchasing.com group.
+    pub ballchasing_group_id: Option<String>,
+    /// Timestamp of the last successful ballchasing sync.
+    pub ballchasing_synced_at: Option<DateTime<Utc>>,
+    /// Latest sync lifecycle state: `pending` | `syncing` | `synced` | `failed`.
+    pub ballchasing_sync_status: Option<String>,
+    /// Error message from the last failed sync, if any.
+    pub ballchasing_sync_error: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -690,6 +719,7 @@ pub async fn create_replay(
             storage_encoding: stored.storage_encoding,
             storage_byte_size: stored.storage_byte_size,
             uploaded_by_user_id: auth_user.id,
+            external_replay_id: None,
         },
     )
     .await
@@ -757,6 +787,8 @@ struct NewReplayMetadata<'a> {
     storage_encoding: StorageEncoding,
     storage_byte_size: u64,
     uploaded_by_user_id: Uuid,
+    /// Optional source replay id (e.g. ballchasing) recorded on insert.
+    external_replay_id: Option<&'a str>,
 }
 
 async fn maybe_upsert_preflight_metadata(
@@ -1108,6 +1140,186 @@ pub async fn create_replay_group(
     .execute(db)
     .await
     .map_err(ApiError::internal)?;
+
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(group))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replay-groups/ballchasing-mirror",
+    tag = "replay-groups",
+    request_body = CreateBallchasingMirrorRequest,
+    responses(
+        (status = 200, description = "Created mirror group; a sync was enqueued", body = ReplayGroupResponse),
+        (status = 400, description = "Request was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 409, description = "Ballchasing group is already mirrored"),
+        (status = 502, description = "Failed to reach ballchasing"),
+        (status = 503, description = "Ballchasing integration is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn create_ballchasing_mirror_group(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<CreateBallchasingMirrorRequest>,
+) -> Result<Json<ReplayGroupResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let api_key = state.ballchasing_api_key.as_deref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ballchasing integration is not configured",
+        )
+    })?;
+    let ballchasing_group_id =
+        crate::ballchasing::parse_group_id(&request.group).map_err(ApiError::bad_request)?;
+
+    // Nesting under a parent is a structural change to that parent.
+    if let Some(parent_id) = request.parent_id {
+        require_replay_group_manager(&state, db, parent_id, &auth_user).await?;
+    }
+
+    // A ballchasing group is mirrored by at most one replay group.
+    let existing: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM replay_groups WHERE ballchasing_group_id = $1")
+            .bind(&ballchasing_group_id)
+            .fetch_optional(db)
+            .await
+            .map_err(ApiError::internal)?;
+    if let Some(existing_id) = existing {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            format!("ballchasing group is already mirrored by group {existing_id}"),
+        ));
+    }
+
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+
+    // Resolve a name: explicit override, otherwise the ballchasing group's name.
+    let name = match request
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        Some(name) => name.to_owned(),
+        None => {
+            let client = crate::ballchasing::BallchasingClient::new(api_key.to_owned());
+            client
+                .get_group(&ballchasing_group_id)
+                .await
+                .map_err(|error| {
+                    ApiError::new(
+                        StatusCode::BAD_GATEWAY,
+                        format!("failed to fetch ballchasing group: {error}"),
+                    )
+                })?
+                .name
+        }
+    };
+    let name = validate_replay_group_name(&name)?;
+
+    let group_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO replay_groups (
+            id,
+            parent_group_id,
+            name,
+            created_by_user_id,
+            ballchasing_group_id,
+            ballchasing_sync_status
+        )
+        VALUES ($1, $2, $3, $4, $5, 'pending')
+        "#,
+    )
+    .bind(group_id)
+    .bind(request.parent_id)
+    .bind(name)
+    .bind(auth_user.id)
+    .bind(&ballchasing_group_id)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    crate::ballchasing_sync::enqueue_ballchasing_group_sync(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(group))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/replay-groups/{group_id}/ballchasing-sync",
+    tag = "replay-groups",
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Sync enqueued", body = ReplayGroupResponse),
+        (status = 400, description = "Group does not mirror a ballchasing group"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not manage this replay group"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Ballchasing integration is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn trigger_ballchasing_group_sync(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<ReplayGroupResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    if state.ballchasing_api_key.is_none() {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "ballchasing integration is not configured",
+        ));
+    }
+
+    let ballchasing_group_id: Option<String> =
+        sqlx::query_scalar("SELECT ballchasing_group_id FROM replay_groups WHERE id = $1")
+            .bind(group_id)
+            .fetch_optional(db)
+            .await
+            .map_err(ApiError::internal)?
+            .flatten();
+    if ballchasing_group_id.is_none() {
+        return Err(ApiError::bad_request(
+            "this replay group does not mirror a ballchasing group",
+        ));
+    }
+
+    sqlx::query(
+        "UPDATE replay_groups SET ballchasing_sync_status = 'pending', updated_at = now() WHERE id = $1",
+    )
+    .bind(group_id)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    crate::ballchasing_sync::enqueue_ballchasing_group_sync(db, group_id)
+        .await
+        .map_err(ApiError::internal)?;
 
     let group = load_replay_group(db, group_id)
         .await
@@ -1919,7 +2131,7 @@ fn serve_subtr_actor_asset(path: &str) -> Result<impl IntoResponse, StatusCode> 
 }
 
 #[derive(Debug)]
-pub(super) struct ApiError {
+pub(crate) struct ApiError {
     status: StatusCode,
     message: String,
 }
@@ -1930,6 +2142,12 @@ impl ApiError {
             status,
             message: message.into(),
         }
+    }
+
+    /// The human-readable error message, for callers outside `api` (e.g. the
+    /// ballchasing sync job) that need to log a failed import.
+    pub(crate) fn message(&self) -> &str {
+        &self.message
     }
 
     pub(super) fn bad_request(error: impl std::fmt::Display) -> Self {
@@ -2676,6 +2894,129 @@ async fn find_replay_by_sha256(
         .transpose()
 }
 
+/// Look up a replay by the source replay id (e.g. ballchasing) it was imported
+/// from. Lets the mirror sync skip downloading replays already present.
+pub async fn find_replay_by_external_replay_id(
+    pool: &PgPool,
+    external_replay_id: &str,
+) -> Result<Option<ReplayResponse>, sqlx::Error> {
+    let sql = replay_select_sql("WHERE r.external_replay_id = $1");
+    sqlx::query(sql.as_str())
+        .bind(external_replay_id)
+        .fetch_optional(pool)
+        .await?
+        .map(replay_from_row)
+        .transpose()
+}
+
+/// Record a source replay id on a replay that does not yet have one (e.g. a file
+/// that was uploaded manually before we knew its ballchasing id).
+async fn set_replay_external_replay_id_if_absent(
+    pool: &PgPool,
+    replay_id: Uuid,
+    external_replay_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE replays SET external_replay_id = $1, updated_at = now() \
+         WHERE id = $2 AND external_replay_id IS NULL",
+    )
+    .bind(external_replay_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// A replay to import from raw bytes (used by the ballchasing mirror sync).
+pub struct ReplayImportRequest<'a> {
+    pub bytes: Bytes,
+    pub original_file_name: Option<&'a str>,
+    pub external_replay_id: Option<&'a str>,
+    pub uploaded_by_user_id: Uuid,
+}
+
+/// Programmatic equivalent of `create_replay`: store the bytes (dedup by
+/// SHA-256), insert the replay row, run preflight metadata extraction, and
+/// enqueue processing. Reused by background importers so they exercise the exact
+/// same path as a user upload, without the HTTP/multipart layer.
+pub async fn import_replay_from_bytes(
+    db: &PgPool,
+    storage: &dyn ObjectStorage,
+    process_in_background: bool,
+    request: ReplayImportRequest<'_>,
+) -> Result<ReplayResponse, ApiError> {
+    let ReplayImportRequest {
+        bytes,
+        original_file_name,
+        external_replay_id,
+        uploaded_by_user_id,
+    } = request;
+    let file_sha256 = sha256_hex(&bytes);
+
+    if let Some(replay) = find_replay_by_sha256(db, &file_sha256)
+        .await
+        .map_err(ApiError::internal)?
+    {
+        if let Some(external) = external_replay_id {
+            set_replay_external_replay_id_if_absent(db, replay.id, external)
+                .await
+                .map_err(ApiError::internal)?;
+        }
+        let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
+        maybe_enqueue_replay_processing_with(db, process_in_background, &replay).await?;
+        return Ok(replay);
+    }
+
+    let stored = storage
+        .put_with_encoding(
+            &raw_replay_key(&file_sha256),
+            bytes.clone(),
+            Some(replay_mime_type()),
+            DEFAULT_STORAGE_ENCODING,
+        )
+        .await
+        .map_err(ApiError::internal)?;
+    let insert_result = insert_replay_metadata(
+        db,
+        NewReplayMetadata {
+            replay_id: Uuid::now_v7(),
+            file_sha256: &file_sha256,
+            original_file_name,
+            byte_size: stored.byte_size,
+            storage_key: &stored.key,
+            storage_encoding: stored.storage_encoding,
+            storage_byte_size: stored.storage_byte_size,
+            uploaded_by_user_id,
+            external_replay_id,
+        },
+    )
+    .await
+    .map_err(ApiError::internal)?;
+
+    let replay = maybe_upsert_preflight_metadata(db, insert_result.replay, bytes).await?;
+    if insert_result.created {
+        maybe_enqueue_replay_processing_with(db, process_in_background, &replay).await?;
+    }
+    Ok(replay)
+}
+
+/// Like `maybe_enqueue_replay_processing` but without an `AppState` (callable
+/// from background workers).
+async fn maybe_enqueue_replay_processing_with(
+    db: &PgPool,
+    process_in_background: bool,
+    replay: &ReplayResponse,
+) -> Result<(), ApiError> {
+    if process_in_background
+        && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
+    {
+        enqueue_replay_processing_job(db, replay.id)
+            .await
+            .map_err(ApiError::internal)?;
+    }
+    Ok(())
+}
+
 async fn load_replay_groups(pool: &PgPool) -> Result<Vec<ReplayGroupResponse>, sqlx::Error> {
     let rows = sqlx::query(replay_group_select_sql("").as_str())
         .fetch_all(pool)
@@ -3008,6 +3349,10 @@ fn replay_group_select_sql(where_clause: &str) -> String {
             COALESCE(replay_counts.replay_count, 0) AS replay_count,
             COALESCE(subtree_counts.total_replay_count, 0) AS total_replay_count,
             COALESCE(child_counts.child_group_count, 0) AS child_group_count,
+            replay_group.ballchasing_group_id,
+            replay_group.ballchasing_synced_at,
+            replay_group.ballchasing_sync_status,
+            replay_group.ballchasing_sync_error,
             replay_group.created_at,
             replay_group.updated_at
         FROM replay_groups replay_group
@@ -3047,6 +3392,10 @@ fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupRespon
         replay_count: replay_count.max(0) as u64,
         total_replay_count: total_replay_count.max(0) as u64,
         child_group_count: child_group_count.max(0) as u64,
+        ballchasing_group_id: row.try_get("ballchasing_group_id")?,
+        ballchasing_synced_at: row.try_get("ballchasing_synced_at")?,
+        ballchasing_sync_status: row.try_get("ballchasing_sync_status")?,
+        ballchasing_sync_error: row.try_get("ballchasing_sync_error")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
@@ -3082,9 +3431,10 @@ async fn insert_replay_metadata(
                 byte_size,
                 storage_key,
                 storage_encoding,
-                storage_byte_size
+                storage_byte_size,
+                external_replay_id
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (file_sha256) DO NOTHING
             RETURNING id, TRUE AS created
         )
@@ -3106,6 +3456,7 @@ async fn insert_replay_metadata(
     .bind(metadata.storage_key)
     .bind(metadata.storage_encoding.as_str())
     .bind(metadata.storage_byte_size as i64)
+    .bind(metadata.external_replay_id)
     .fetch_one(pool)
     .await?;
     let stored_replay_id: Uuid = row.try_get("id")?;

@@ -137,6 +137,9 @@ pub struct Settings {
     /// promoted to admin when they authenticate. Bootstraps the first admin(s);
     /// further admins are then granted through the admin API.
     pub admin_emails: Vec<String>,
+    /// Ballchasing.com API key used to mirror/sync ballchasing groups. When
+    /// absent, ballchasing mirror endpoints are disabled.
+    pub ballchasing_api_key: Option<String>,
 }
 
 impl Settings {
@@ -211,6 +214,10 @@ impl Settings {
             .and_then(|value| CalcStyle::parse(&value))
             .unwrap_or_default();
         let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
+        let ballchasing_api_key = env::var("BALLCHASING_API_KEY")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
 
         Ok(Self {
             service_mode,
@@ -230,6 +237,7 @@ impl Settings {
             rank_benchmark_default_window,
             rank_benchmark_calc,
             admin_emails,
+            ballchasing_api_key,
         })
     }
 }

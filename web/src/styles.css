@@ -888,6 +888,59 @@ tbody tr:last-child td {
   background: #fff;
 }
 
+.ballchasing-mirror-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.ballchasing-mirror-form input {
+  flex: 1 1 280px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ballchasing-mirror-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.mirror-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-sm, 0.8rem);
+  font-weight: var(--fw-medium);
+  background: var(--surface-muted, #eef1f5);
+  color: var(--text-muted, #556);
+  text-transform: capitalize;
+}
+
+.mirror-status-pill.is-synced {
+  background: color-mix(in srgb, var(--boost-big) 18%, transparent);
+  color: var(--boost-big);
+}
+
+.mirror-status-pill.is-syncing,
+.mirror-status-pill.is-pending {
+  background: color-mix(in srgb, var(--team-blue) 16%, transparent);
+  color: var(--team-blue);
+}
+
+.mirror-status-pill.is-failed {
+  background: color-mix(in srgb, var(--team-orange) 18%, transparent);
+  color: var(--team-orange);
+}
+
 .link-button {
   min-height: 0;
   padding: 0;

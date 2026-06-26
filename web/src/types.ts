@@ -96,6 +96,10 @@ export interface ReplayGroupResponse {
   replay_count: number;
   total_replay_count: number;
   child_group_count: number;
+  ballchasing_group_id: string | null;
+  ballchasing_synced_at: string | null;
+  ballchasing_sync_status: string | null;
+  ballchasing_sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -296,6 +300,10 @@ export interface ReplayGroupResponse {
   replay_count: number;
   total_replay_count: number;
   child_group_count: number;
+  ballchasing_group_id: string | null;
+  ballchasing_synced_at: string | null;
+  ballchasing_sync_status: string | null;
+  ballchasing_sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
