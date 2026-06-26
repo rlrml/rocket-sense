@@ -24,6 +24,7 @@ import type {
   ProcessingVersionResponse,
   RankBenchmarkCohortsResponse,
   RankTrendsResponse,
+  RecentlyProcessedReplaysResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayProcessingQueueResponse,
   ReprocessFailedQueueJobsResponse,
@@ -294,6 +295,21 @@ export function listReplayProcessingDiagnostics(
   }
   return request<ReplayProcessingDiagnosticsResponse>(
     `/api/v1/admin/replays/processing-diagnostics?${params.toString()}`,
+    {
+      includeAccessToken: false,
+    },
+  );
+}
+
+export function listRecentlyProcessedReplays(
+  searchParams: URLSearchParams,
+): Promise<RecentlyProcessedReplaysResponse> {
+  const params = new URLSearchParams(searchParams);
+  if (!params.has("count")) {
+    params.set("count", "100");
+  }
+  return request<RecentlyProcessedReplaysResponse>(
+    `/api/v1/admin/replays/recently-processed?${params.toString()}`,
     {
       includeAccessToken: false,
     },

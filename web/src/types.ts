@@ -354,6 +354,28 @@ export interface ReplayProcessingDiagnostic {
   reasons: string[];
 }
 
+export interface RecentlyProcessedReplaysResponse {
+  replays: RecentlyProcessedReplay[];
+  count: number;
+  offset: number;
+  next_offset: number | null;
+}
+
+export interface RecentlyProcessedReplay {
+  replay_id: string;
+  original_file_name: string | null;
+  processing_status: ReplayProcessingStatus;
+  created_at: string;
+  updated_at: string;
+  canonical_run_id: string | null;
+  canonical_run_status: string | null;
+  extractor_name: string | null;
+  extractor_version: string | null;
+  /** When the canonical analysis run finished — i.e. when the replay became processed. */
+  processed_at: string | null;
+  event_count: number;
+}
+
 export interface ReplayProcessingQueueResponse {
   jobs: ReplayProcessingQueueJob[];
   count: number;
