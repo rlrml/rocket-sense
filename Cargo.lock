@@ -1856,6 +1856,7 @@ dependencies = [
  "sqlx",
  "subtr-actor",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
