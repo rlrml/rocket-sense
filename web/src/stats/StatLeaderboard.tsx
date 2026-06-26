@@ -1,9 +1,5 @@
 import { type ReactNode, useMemo, useState } from "react";
-import type {
-  ReplayPlayer,
-  StatAggregateGroupPlayer,
-  StatAggregateGroupResponse,
-} from "../types";
+import type { ReplayPlayer, StatAggregateGroupPlayer, StatAggregateGroupResponse } from "../types";
 import {
   careerCohortClassName,
   type ComparisonRow,
@@ -118,7 +114,11 @@ export function StatLeaderboard({
 
   const rows = useMemo<ComparisonRow[]>(() => {
     if (!activeKey) return [];
-    const valueOf = (stat: { event_count: number; count_per_game: number; per_active_minute: number | null }) => {
+    const valueOf = (stat: {
+      event_count: number;
+      count_per_game: number;
+      per_active_minute: number | null;
+    }) => {
       if (measure === "total") return stat.event_count;
       if (measure === "perGame") return stat.count_per_game;
       return (stat.per_active_minute ?? 0) * 5;

@@ -3985,7 +3985,9 @@ fn parse_stat_group_by(value: &str) -> Result<StatAggregateGroupBy, ApiError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "playlist" | "game-mode" | "game_mode" => Ok(StatAggregateGroupBy::Playlist),
         "player" => Ok(StatAggregateGroupBy::Player),
-        _ => Err(ApiError::bad_request("group-by must be one of: playlist, player")),
+        _ => Err(ApiError::bad_request(
+            "group-by must be one of: playlist, player",
+        )),
     }
 }
 

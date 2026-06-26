@@ -2584,15 +2584,17 @@ function ReplayGroupStatsPage() {
               <div>
                 <p className="eyebrow">{activeGroup.label}</p>
                 <h2>
-                  {activeGroup.label}{" "}
-                  {layout === "drill-down-only" ? "per player" : "leaderboard"}
+                  {activeGroup.label} {layout === "drill-down-only" ? "per player" : "leaderboard"}
                 </h2>
                 <p>{activeGroup.description}</p>
               </div>
             </header>
 
             {playerAggregatesError ? (
-              <ApiNotice label={`${activeGroup.label} leaderboard`} message={playerAggregatesError} />
+              <ApiNotice
+                label={`${activeGroup.label} leaderboard`}
+                message={playerAggregatesError}
+              />
             ) : null}
             {playerAggregatesLoading ? <StatusLine loading error={null} /> : null}
 
@@ -3033,9 +3035,7 @@ function GroupSectionDrillDown({
   players: ReplayPlayer[];
   groupId: string;
 }) {
-  const linkablePlayers = players.filter(
-    (player) => player.platform && player.platform_player_id,
-  );
+  const linkablePlayers = players.filter((player) => player.platform && player.platform_player_id);
   const sectionLabel = section.label.toLowerCase();
   return (
     <section className="stat-panel full-span group-leaderboard-panel">
