@@ -305,6 +305,10 @@ export function TouchProfileComparison({
           valueId="aerial"
           metric="count"
           format={countFormat}
+          rankCohorts={rankCohorts}
+          rankMetricKey="fact:aerial-touch-count"
+          rankWindowLabel={rankWindowLabel}
+          rankEnabled={rankEnabled}
         />
         <TouchValuePanel
           key="profile-high-aerial-count"
@@ -331,6 +335,21 @@ export function TouchProfileComparison({
           groupClassName="touch-seg-kind-control"
           rankCohorts={rankCohorts}
           rankMetricKey="fact:control-touch-count"
+          rankWindowLabel={rankWindowLabel}
+          rankEnabled={rankEnabled}
+        />
+        <TouchValuePanel
+          key="profile-total-advance"
+          title="Ball advanced"
+          contextLabel={advanceContext}
+          subjects={subjects}
+          valueId="total"
+          metric="advance"
+          format={formatDistance}
+          subjectMetric={(subject) => subject.totalAdvance}
+          groupClassName="touch-seg-other"
+          rankCohorts={rankCohorts}
+          rankMetricKey="fact:ball-advance"
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
         />
