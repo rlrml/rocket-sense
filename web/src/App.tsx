@@ -1019,6 +1019,27 @@ const rankFilterOptions = [
   { value: "supersonic-legend", label: "Supersonic Legend" },
 ];
 
+// Canonical competitive-season list in chronological order: the legacy (`s`) era
+// (Seasons 1-12, pre-Sep-2020) then the free-to-play (`f`) era (Season 1
+// onward). Codes match `replays.season` and subtr-actor's `ReplaySeason::code`.
+// The two eras both number from 1, so labels carry the era to disambiguate. Bump
+// FREE_TO_PLAY_SEASON_COUNT when Psyonix ships a new season; the server-side
+// range filter already tolerates seasons beyond this list.
+const LEGACY_SEASON_COUNT = 12;
+const FREE_TO_PLAY_SEASON_COUNT = 23;
+
+const seasonFilterOptions: FilterOptionConfig[] = [
+  { value: "", label: "Any" },
+  ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => ({
+    value: `s${index + 1}`,
+    label: `Legacy S${index + 1}`,
+  })),
+  ...Array.from({ length: FREE_TO_PLAY_SEASON_COUNT }, (_, index) => ({
+    value: `f${index + 1}`,
+    label: `Free-to-play S${index + 1}`,
+  })),
+];
+
 interface FilterOptionConfig {
   value: string;
   label: string;
@@ -4194,10 +4215,25 @@ function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): strin
 
 function PlayerStatsSegmentBar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
   const teamSize = playerSegmentValue(params, "team-size");
   const gameType = playerSegmentValue(params, "game-type");
   const splitOutcome = playerOutcomeSplitEnabled(location.search);
+
+  // Rank/season ranges live directly in the URL query (`min-rank`, `max-rank`,
+  // `min-season`, `max-season`); the aggregate/overview/possession/etc. requests
+  // forward the whole search string, so setting the param is all that's needed.
+  const setRangeParam = (key: string, value: string) => {
+    const next = new URLSearchParams(location.search);
+    if (value) {
+      next.set(key, value);
+    } else {
+      next.delete(key);
+    }
+    const query = next.toString();
+    navigate(query ? `${location.pathname}?${query}` : location.pathname);
+  };
 
   return (
     <div className="player-segment-bar">
@@ -4234,6 +4270,64 @@ function PlayerStatsSegmentBar() {
             {option.label}
           </Link>
         ))}
+      </nav>
+      <nav className="stat-group-nav" aria-label="Rank range">
+        <span className="segment-bar-label">Rank</span>
+        <label className="segment-bar-select">
+          <span className="segment-bar-select-label">Min</span>
+          <select
+            value={params.get("min-rank") ?? ""}
+            onChange={(event) => setRangeParam("min-rank", event.currentTarget.value)}
+          >
+            {rankFilterOptions.map((option) => (
+              <option key={`min-rank-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="segment-bar-select">
+          <span className="segment-bar-select-label">Max</span>
+          <select
+            value={params.get("max-rank") ?? ""}
+            onChange={(event) => setRangeParam("max-rank", event.currentTarget.value)}
+          >
+            {rankFilterOptions.map((option) => (
+              <option key={`max-rank-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      </nav>
+      <nav className="stat-group-nav" aria-label="Season range">
+        <span className="segment-bar-label">Season</span>
+        <label className="segment-bar-select">
+          <span className="segment-bar-select-label">Min</span>
+          <select
+            value={params.get("min-season") ?? ""}
+            onChange={(event) => setRangeParam("min-season", event.currentTarget.value)}
+          >
+            {seasonFilterOptions.map((option) => (
+              <option key={`min-season-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="segment-bar-select">
+          <span className="segment-bar-select-label">Max</span>
+          <select
+            value={params.get("max-season") ?? ""}
+            onChange={(event) => setRangeParam("max-season", event.currentTarget.value)}
+          >
+            {seasonFilterOptions.map((option) => (
+              <option key={`max-season-${option.value}`} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
       </nav>
       <nav className="stat-group-nav" aria-label="Outcome split">
         <span className="segment-bar-label">Outcome</span>
