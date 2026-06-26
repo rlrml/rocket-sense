@@ -354,6 +354,38 @@ export interface ReplayProcessingDiagnostic {
   reasons: string[];
 }
 
+export interface ReplayProcessingQueueResponse {
+  jobs: ReplayProcessingQueueJob[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+}
+
+export interface ReplayProcessingQueueJob {
+  job_id: string;
+  replay_id: string;
+  original_file_name: string | null;
+  force: boolean;
+  status: string;
+  /** Failed job that has exhausted its retries; apalis will never rerun it on its own. */
+  terminal: boolean;
+  attempts: number;
+  max_attempts: number;
+  priority: number;
+  run_at: string;
+  lock_by: string | null;
+  lock_at: string | null;
+  started_at: string | null;
+  last_result: string | null;
+}
+
+export interface ReprocessFailedQueueJobsResponse {
+  failed_replays: number;
+  enqueued_replays: number;
+  skipped_replays: number;
+}
+
 export interface AnalysisRunDiagnostic {
   id: string;
   status: string;

@@ -25,6 +25,8 @@ import type {
   RankBenchmarkCohortsResponse,
   RankTrendsResponse,
   ReplayProcessingDiagnosticsResponse,
+  ReplayProcessingQueueResponse,
+  ReprocessFailedQueueJobsResponse,
   ReplayFilterOptionsResponse,
   ReplayGroupResponse,
   ReplayGroupReplayUpdateResponse,
@@ -296,6 +298,29 @@ export function listReplayProcessingDiagnostics(
       includeAccessToken: false,
     },
   );
+}
+
+export function listReplayProcessingQueue(
+  searchParams: URLSearchParams,
+): Promise<ReplayProcessingQueueResponse> {
+  const params = new URLSearchParams(searchParams);
+  if (!params.has("count")) {
+    params.set("count", "200");
+  }
+  return request<ReplayProcessingQueueResponse>(
+    `/api/v1/admin/replays/queue?${params.toString()}`,
+    {
+      includeAccessToken: false,
+    },
+  );
+}
+
+// Admin: force-reprocess every replay that currently has a failed job in the
+// queue (both retriable and retry-exhausted failures).
+export function reprocessFailedQueueJobs(): Promise<ReprocessFailedQueueJobsResponse> {
+  return request<ReprocessFailedQueueJobsResponse>("/api/v1/admin/replays/queue/reprocess-failed", {
+    method: "POST",
+  });
 }
 
 type GetReplayOptions = {
