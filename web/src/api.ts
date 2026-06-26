@@ -207,6 +207,25 @@ export function updateReplayGroup(
   });
 }
 
+export function createBallchasingMirror(body: {
+  group: string;
+  parent_id?: string | null;
+  name?: string;
+}): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>("/api/v1/replay-groups/ballchasing-mirror", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function syncBallchasingGroup(groupId: string): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/ballchasing-sync`,
+    { method: "POST" },
+  );
+}
+
 export function addReplaysToGroup(
   groupId: string,
   replayIds: string[],

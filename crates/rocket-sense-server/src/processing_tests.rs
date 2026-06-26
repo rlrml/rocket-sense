@@ -2076,6 +2076,7 @@ async fn stats_read_paths_decode_after_reprocess() {
         rank_benchmark_default_window: Arc::from(window_key),
         rank_benchmark_calc: crate::rank_benchmark::CalcStyle::PerAppearance,
         admin_emails: Arc::from(Vec::new()),
+        ballchasing_api_key: None,
     };
     let app = crate::api::router(state);
 
