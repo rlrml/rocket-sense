@@ -429,8 +429,15 @@ export function buildCoreProfileCards({
         ]
       : [
           ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
-          // Score has no benchmark metric_key, so it gets no rank row.
-          rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
+          rateCardFromOverview(
+            "score",
+            "Score (per 5 min)",
+            score,
+            playerName,
+            rankCohorts,
+            "score",
+            rankWindowLabel,
+          ),
           rateCardFromOverview(
             "goals",
             "Goals (per 5 min)",

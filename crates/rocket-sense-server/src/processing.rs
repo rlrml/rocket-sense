@@ -4081,6 +4081,7 @@ async fn refresh_rank_benchmark_window(
                 rp.replay_id,
                 concat(rp.platform, ':', rp.platform_player_id) AS player_subject_id,
                 rp.rank_tier,
+                rp.score AS score,
                 "#,
     );
     crate::api::push_playlist_group_key_expression(&mut builder, "r");
@@ -4140,7 +4141,8 @@ async fn refresh_rank_benchmark_window(
         appearance_bucket AS (
             SELECT a.analysis_run_id, a.replay_id, a.player_subject_id,
                    rank.grouping AS rank_grouping, rank.value AS rank_value,
-                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, bucket.outcome
+                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, a.score,
+                   bucket.outcome
             FROM appearance_keyed a
             CROSS JOIN LATERAL (
                 SELECT 'tier'::text AS grouping, a.rank_tier AS value
@@ -4206,6 +4208,14 @@ async fn refresh_rank_benchmark_window(
              AND c.replay_id = ab.replay_id
              AND c.player_subject_id = ab.player_subject_id
              AND c.event_type_id = etu.event_type_id
+            UNION ALL
+            -- Scoreboard score as a per-active-minute rate (the headline Core
+            -- stat). Only emitted where the replay carried a scoreboard score.
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'score',
+                   ab.score * 60.0, ab.active_seconds, ab.non_demo_active_seconds
+            FROM appearance_bucket ab
+            WHERE ab.score IS NOT NULL
             UNION ALL
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
