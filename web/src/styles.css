@@ -4511,6 +4511,43 @@ tbody tr:last-child td {
   border-left-color: var(--career-cohort-color);
 }
 
+/*
+ * Rank-average cohorts: a slate ramp keyed by rank GROUP id (0 Bronze .. 7 SSL)
+ * so the same rank is always the same shade regardless of how many ranks are
+ * shown or in what order. Bronze lightest -> SSL darkest. The base class sets
+ * the slate hue; the rank-shade-N class overrides it with the ladder position.
+ */
+.career-cohort-rank-avg {
+  --career-cohort-color: #64748b;
+  --seg-color: var(--career-cohort-color);
+  border-left-color: var(--career-cohort-color);
+}
+
+.career-cohort-rank-avg.rank-shade-0 {
+  --career-cohort-color: #cbd5e1;
+}
+.career-cohort-rank-avg.rank-shade-1 {
+  --career-cohort-color: #b5c0cd;
+}
+.career-cohort-rank-avg.rank-shade-2 {
+  --career-cohort-color: #a0abb9;
+}
+.career-cohort-rank-avg.rank-shade-3 {
+  --career-cohort-color: #8a96a5;
+}
+.career-cohort-rank-avg.rank-shade-4 {
+  --career-cohort-color: #748191;
+}
+.career-cohort-rank-avg.rank-shade-5 {
+  --career-cohort-color: #5f6c7d;
+}
+.career-cohort-rank-avg.rank-shade-6 {
+  --career-cohort-color: #495669;
+}
+.career-cohort-rank-avg.rank-shade-7 {
+  --career-cohort-color: #334155;
+}
+
 /* Reference line for a player's fair-share MVP rate (1 / winning team size). */
 .player-comparison-marker.mvp-fair-share-marker {
   --career-cohort-color: #64748b;
@@ -4519,8 +4556,72 @@ tbody tr:last-child td {
 .source-segment.career-cohort-player,
 .source-segment.career-cohort-teammates,
 .source-segment.career-cohort-opponents,
-.source-segment.career-cohort-rank-peers {
+.source-segment.career-cohort-rank-peers,
+.source-segment.career-cohort-rank-avg {
   background: var(--seg-color);
+}
+
+/* Rank-average inline multi-select chips in the player segment bar. */
+.rank-average-chip,
+.rank-average-grouping-toggle {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.rank-average-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  opacity: 0.55;
+}
+
+.rank-average-chip.active {
+  opacity: 1;
+}
+
+.rank-average-chip-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+/* Small dot marking the server-estimated current rank. */
+.rank-average-chip-default::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--career-cohort-color, #64748b);
+}
+
+.rank-average-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.rank-average-window-select {
+  font-size: var(--text-xs);
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--surface-border, #2a2f3a);
+  background: transparent;
+  color: inherit;
+}
+
+/* Rank icon shown at the start of a rank-average comparison bar row. */
+.rank-cohort-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
 .player-bar-label strong {

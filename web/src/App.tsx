@@ -79,6 +79,7 @@ import {
   getPlayerStatAggregates,
   getPlayerStatOverview,
   getProcessingVersion,
+  getRankBenchmarkCohorts,
   getReplay,
   getReplayGroup,
   getReplayGroupPlayerAggregates,
@@ -134,7 +135,7 @@ import {
   playerStatProfileIdPath,
   replayLocalTeamLabel,
 } from "./playerIdentity";
-import { RankBadge } from "./rank";
+import { RankBadge, rankGroupIconUrl, rankIconUrl } from "./rank";
 import {
   KickoffSpawnBreakdown,
   type KickoffShapeFilter,
@@ -150,7 +151,12 @@ import {
   buildPlayerRateCards,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
-import { type ComparisonCard, ComparisonCardChart, ComparisonCardGrid } from "./stats/shared";
+import {
+  type ComparisonCard,
+  ComparisonCardChart,
+  ComparisonCardGrid,
+  rankAverageEnabled,
+} from "./stats/shared";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
 import { aerialPlaylistKinds as aerialPlaylistKindList } from "./stats/aerialKinds";
 import { buildMovementCohortCards } from "./stats/movement";
@@ -169,6 +175,7 @@ import type {
   PositioningSummaryResponse,
   PossessionSummaryResponse,
   ProcessingVersionResponse,
+  RankBenchmarkCohortsResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOption,
@@ -3292,7 +3299,8 @@ type PlayerSupplementalKey =
   | "kickoffFilter"
   | "movementSummary"
   | "possession"
-  | "positioningSummary";
+  | "positioningSummary"
+  | "rankBenchmark";
 
 type PlayerSupplementalLoadedState = {
   scope: string;
@@ -3393,6 +3401,8 @@ function PlayerStatsPage() {
   const [positioningSummary, setPositioningSummary] = useState<PositioningSummaryResponse | null>(
     null,
   );
+  const [rankBenchmarkCohorts, setRankBenchmarkCohorts] =
+    useState<RankBenchmarkCohortsResponse | null>(null);
   const [supplementalLoaded, setSupplementalLoaded] = useState<PlayerSupplementalLoadedState>({
     scope: "",
     loaded: {},
@@ -3482,6 +3492,7 @@ function PlayerStatsPage() {
     setMovementSummary(null);
     setPossessionSummary(null);
     setPositioningSummary(null);
+    setRankBenchmarkCohorts(null);
   }, [statsScope]);
 
   useEffect(() => {
@@ -3543,7 +3554,8 @@ function PlayerStatsPage() {
       | EventStatSummaryResponse
       | MovementSummaryResponse
       | PossessionSummaryResponse
-      | PositioningSummaryResponse,
+      | PositioningSummaryResponse
+      | RankBenchmarkCohortsResponse,
   ) {
     if (isPlayerOverviewSupplementalKey(key)) {
       setOverviews((current) => ({
@@ -3560,6 +3572,8 @@ function PlayerStatsPage() {
       setMovementSummary(response as MovementSummaryResponse);
     } else if (key === "possession") {
       setPossessionSummary(response as PossessionSummaryResponse);
+    } else if (key === "rankBenchmark") {
+      setRankBenchmarkCohorts(response as RankBenchmarkCohortsResponse);
     } else {
       setPositioningSummary(response as PositioningSummaryResponse);
     }
@@ -3736,7 +3750,7 @@ function PlayerStatsPage() {
             </div>
           ) : null}
 
-          <PlayerStatsSegmentBar />
+          <PlayerStatsSegmentBar rankBenchmark={rankBenchmarkCohorts} />
           <StatusLine loading={statsLoading} error={null} />
           {statsError ? <ApiNotice label="Player stats" message={statsError} /> : null}
           {stats ? (
@@ -3748,6 +3762,7 @@ function PlayerStatsPage() {
               movementSummary={movementSummary}
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
+              rankBenchmarkCohorts={rankBenchmarkCohorts}
               supplementalError={activeSupplementalError}
               supplementalLoading={activeSupplementalLoading}
               overview={overview}
@@ -3918,6 +3933,21 @@ function playerOverviewForGroup(
 
 function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
   const overviewKey = overviewSupplementalKeyForGroup(groupId);
+  const keys = playerSupplementalBaseKeysForGroup(groupId, overviewKey);
+  // The rank-average cohorts back the rate cards (every non-kickoff group) and
+  // the movement/boost/possession/positioning cohort charts, so fetch them for
+  // any group that renders those. Kickoffs has no rate cards. Gated centrally so
+  // the provisional cohort can be disabled in one place (AGENTS.md).
+  if (rankAverageEnabled() && groupId !== "kickoffs") {
+    keys.push("rankBenchmark");
+  }
+  return keys;
+}
+
+function playerSupplementalBaseKeysForGroup(
+  groupId: string,
+  overviewKey: PlayerOverviewSupplementalKey | null,
+): PlayerSupplementalKey[] {
   if (groupId === "core" && overviewKey) {
     return [overviewKey];
   }
@@ -3953,6 +3983,7 @@ function fetchPlayerSupplemental(
   | MovementSummaryResponse
   | PossessionSummaryResponse
   | PositioningSummaryResponse
+  | RankBenchmarkCohortsResponse
 > {
   const params = new URLSearchParams(search);
   if (isPlayerOverviewSupplementalKey(key)) {
@@ -3978,6 +4009,9 @@ function fetchPlayerSupplemental(
   if (key === "movementSummary") {
     return getPlayerMovementSummary(platform, platformPlayerId, params);
   }
+  if (key === "rankBenchmark") {
+    return getRankBenchmarkCohorts(platform, platformPlayerId, params);
+  }
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
 
@@ -3994,6 +4028,7 @@ type PlayerStatsOutcomeBundle = {
   movementSummary: MovementSummaryResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
+  rankBenchmarkCohorts: RankBenchmarkCohortsResponse | null;
   search: string;
 };
 
@@ -4028,6 +4063,7 @@ function emptyPlayerStatsOutcomeBundle(
     movementSummary: null,
     possessionSummary: null,
     positioningSummary: null,
+    rankBenchmarkCohorts: null,
     search,
   };
 }
@@ -4040,7 +4076,8 @@ function bundleWithSupplementalResponse(
     | EventStatSummaryResponse
     | MovementSummaryResponse
     | PossessionSummaryResponse
-    | PositioningSummaryResponse,
+    | PositioningSummaryResponse
+    | RankBenchmarkCohortsResponse,
 ): PlayerStatsOutcomeBundle {
   if (isPlayerOverviewSupplementalKey(key)) {
     return { ...bundle, overview: response as PlayerStatOverviewResponse };
@@ -4059,6 +4096,9 @@ function bundleWithSupplementalResponse(
   }
   if (key === "possession") {
     return { ...bundle, possessionSummary: response as PossessionSummaryResponse };
+  }
+  if (key === "rankBenchmark") {
+    return { ...bundle, rankBenchmarkCohorts: response as RankBenchmarkCohortsResponse };
   }
   return { ...bundle, positioningSummary: response as PositioningSummaryResponse };
 }
@@ -4352,7 +4392,175 @@ function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): strin
   return query ? `?${query}` : "";
 }
 
-function PlayerStatsSegmentBar() {
+// Backend query params for the rank-average comparison. The dropdown writes
+// these straight into the URL so they flow through the shared stats search
+// string into the /stats/rank-benchmark request unchanged.
+const RANK_BENCHMARK_RANK_PARAM = "rank-benchmark-rank";
+const RANK_BENCHMARK_GROUPING_PARAM = "rank-benchmark-grouping";
+const RANK_BENCHMARK_WINDOW_PARAM = "rank-benchmark-window";
+
+// Explicitly-selected rank values, or null when the URL carries none (so the
+// server's estimated default applies). An empty array means the user
+// deselected every rank (sentinel `none`).
+function selectedRankValuesFromSearch(search: string): number[] | null {
+  const raw = new URLSearchParams(search).getAll(RANK_BENCHMARK_RANK_PARAM);
+  if (raw.length === 0) return null;
+  const values: number[] = [];
+  let explicitNone = false;
+  for (const item of raw) {
+    for (const token of item.split(",")) {
+      const trimmed = token.trim();
+      if (!trimmed) continue;
+      if (trimmed.toLowerCase() === "none") {
+        explicitNone = true;
+        continue;
+      }
+      const parsed = Number.parseInt(trimmed, 10);
+      if (Number.isFinite(parsed)) values.push(parsed);
+    }
+  }
+  if (values.length === 0 && !explicitNone) return null;
+  return values;
+}
+
+function rankBenchmarkGroupingFromSearch(search: string): "group" | "tier" {
+  return new URLSearchParams(search).get(RANK_BENCHMARK_GROUPING_PARAM) === "tier"
+    ? "tier"
+    : "group";
+}
+
+function rankAverageParamPath(
+  pathname: string,
+  search: string,
+  mutate: (params: URLSearchParams) => void,
+): string {
+  const params = new URLSearchParams(search);
+  mutate(params);
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+// Multi-select rank-average control: an always-visible row of rank chips (icons)
+// that toggle on/off, so multiple ranks can be compared at once, plus the time
+// window and group/tier grouping. Defaults to the server's estimate of the
+// player's current rank. Sits beside the other top-level toggles.
+function RankAverageSelect({
+  rankBenchmark,
+}: {
+  rankBenchmark: RankBenchmarkCohortsResponse | null;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  if (!rankAverageEnabled() || !rankBenchmark || rankBenchmark.available_ranks.length === 0) {
+    return null;
+  }
+  const grouping = rankBenchmarkGroupingFromSearch(location.search);
+  const explicit = selectedRankValuesFromSearch(location.search);
+  const defaultValue = rankBenchmark.default_rank_value;
+  const selected = new Set<number>(explicit ?? (defaultValue != null ? [defaultValue] : []));
+
+  const toggleRank = (rankValue: number) => {
+    const next = new Set(selected);
+    if (next.has(rankValue)) {
+      next.delete(rankValue);
+    } else {
+      next.add(rankValue);
+    }
+    navigate(
+      rankAverageParamPath(location.pathname, location.search, (params) => {
+        params.delete(RANK_BENCHMARK_RANK_PARAM);
+        if (next.size === 0) {
+          params.set(RANK_BENCHMARK_RANK_PARAM, "none");
+        } else {
+          params.set(RANK_BENCHMARK_RANK_PARAM, [...next].sort((a, b) => a - b).join(","));
+        }
+      }),
+    );
+  };
+
+  const rankIcon = (rankValue: number): string | null =>
+    grouping === "tier" ? rankIconUrl(rankValue) : rankGroupIconUrl(rankValue);
+
+  return (
+    <nav className="stat-group-nav rank-average-select" aria-label="Rank average comparison">
+      <span className="segment-bar-label">Rank avg</span>
+      {rankBenchmark.available_ranks.map((rank) => {
+        const iconUrl = rankIcon(rank.rank_value);
+        const isDefault = defaultValue === rank.rank_value;
+        const count =
+          rank.distinct_player_count != null
+            ? ` · n=${rank.distinct_player_count.toLocaleString()}`
+            : "";
+        return (
+          <button
+            key={rank.rank_value}
+            type="button"
+            aria-pressed={selected.has(rank.rank_value)}
+            className={`stat-group-link rank-average-chip ${selected.has(rank.rank_value) ? "active" : ""}`}
+            title={`${rank.label}${count}${isDefault ? " · estimated current rank" : ""}`}
+            onClick={() => toggleRank(rank.rank_value)}
+          >
+            {iconUrl ? (
+              <img src={iconUrl} alt={rank.label} className="rank-average-chip-icon" />
+            ) : (
+              <span>{rank.label}</span>
+            )}
+            {isDefault ? <span className="rank-average-chip-default" aria-hidden /> : null}
+          </button>
+        );
+      })}
+      <span className="rank-average-controls">
+        {rankBenchmark.available_windows.length > 1 ? (
+          <select
+            className="rank-average-window-select"
+            aria-label="Rank average time window"
+            value={rankBenchmark.window ?? ""}
+            onChange={(event) =>
+              navigate(
+                rankAverageParamPath(location.pathname, location.search, (params) => {
+                  params.set(RANK_BENCHMARK_WINDOW_PARAM, event.target.value);
+                }),
+              )
+            }
+          >
+            {rankBenchmark.available_windows.map((window) => (
+              <option key={window.key} value={window.key}>
+                {window.label}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <button
+          type="button"
+          className={`stat-group-link rank-average-grouping-toggle ${grouping === "tier" ? "active" : ""}`}
+          title="Toggle between pooled rank groups and exact division tiers"
+          onClick={() =>
+            navigate(
+              rankAverageParamPath(location.pathname, location.search, (params) => {
+                // Rank values live in a different id space per grouping, so reset
+                // the selection to the new grouping's default.
+                params.delete(RANK_BENCHMARK_RANK_PARAM);
+                if (grouping === "group") {
+                  params.set(RANK_BENCHMARK_GROUPING_PARAM, "tier");
+                } else {
+                  params.delete(RANK_BENCHMARK_GROUPING_PARAM);
+                }
+              }),
+            )
+          }
+        >
+          {grouping === "tier" ? "Tiers" : "Groups"}
+        </button>
+      </span>
+    </nav>
+  );
+}
+
+function PlayerStatsSegmentBar({
+  rankBenchmark,
+}: {
+  rankBenchmark: RankBenchmarkCohortsResponse | null;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
@@ -4483,6 +4691,7 @@ function PlayerStatsSegmentBar() {
           Wins / losses
         </Link>
       </nav>
+      <RankAverageSelect rankBenchmark={rankBenchmark} />
       {teamSize === "" ? (
         <p className="muted-text segment-bar-note">
           Showing all modes blended — rates mix 1v1/2v2/3v3 dynamics. Pick a mode for cleaner
@@ -4515,6 +4724,7 @@ function PlayerAggregateStatsSections({
   movementSummary,
   possessionSummary,
   positioningSummary,
+  rankBenchmarkCohorts,
   platform,
   platformPlayerId,
   playerName,
@@ -4532,6 +4742,7 @@ function PlayerAggregateStatsSections({
   movementSummary: MovementSummaryResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
+  rankBenchmarkCohorts: RankBenchmarkCohortsResponse | null;
   platform: string;
   platformPlayerId: string;
   playerName: string;
@@ -4592,6 +4803,7 @@ function PlayerAggregateStatsSections({
     contentOverview: PlayerStatOverviewResponse | null;
     contentPossessionSummary: PossessionSummaryResponse | null;
     contentPositioningSummary: PositioningSummaryResponse | null;
+    contentRankBenchmarkCohorts: RankBenchmarkCohortsResponse | null;
     contentSearch: string;
     contentStats: StatAggregateSetResponse;
     contentSupplementalError: string | null;
@@ -4610,6 +4822,7 @@ function PlayerAggregateStatsSections({
       contentOverview,
       contentPossessionSummary,
       contentPositioningSummary,
+      contentRankBenchmarkCohorts,
       contentSearch,
       contentStats,
       contentSupplementalError,
@@ -4681,10 +4894,8 @@ function PlayerAggregateStatsSections({
       const rateCards = buildPlayerRateCards(
         order ? contentSectionStats : contentTopStats,
         playerName,
-        {
-          tierLabel: contentStats.rank_benchmark_tier_label,
-          windowLabel: contentStats.rank_benchmark_window_label,
-        },
+        contentRankBenchmarkCohorts?.cohorts ?? [],
+        contentRankBenchmarkCohorts?.window_label,
         order?.rateKeys,
         rateCardTitleHref,
       );
@@ -4701,6 +4912,8 @@ function PlayerAggregateStatsSections({
           platformPlayerId={platformPlayerId}
           playerName={playerName}
           search={contentSearch}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
         />,
       );
     }
@@ -4713,6 +4926,8 @@ function PlayerAggregateStatsSections({
           playerName,
           stats: contentSectionStats,
           view: coreView,
+          rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
+          rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
         }),
       );
     }
@@ -4720,7 +4935,12 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "movement" && contentMovementSummary) {
       addCards(
         "movement-cohorts",
-        buildMovementCohortCards({ response: contentMovementSummary, playerName }),
+        buildMovementCohortCards({
+          response: contentMovementSummary,
+          playerName,
+          rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
+          rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
+        }),
       );
     }
     if (activeGroup.id === "movement" && contentSupplementalLoading) {
@@ -4786,7 +5006,12 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "possession" && contentPossessionSummary) {
       add(
         "possession-summary",
-        <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />,
+        <PossessionSummaryPanel
+          playerName={playerName}
+          summary={contentPossessionSummary}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
       );
     }
     if (activeGroup.id === "possession" && contentSupplementalLoading) {
@@ -4809,7 +5034,12 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "positioning" && contentPositioningSummary) {
       add(
         "positioning-cohorts",
-        <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />,
+        <PlayerPositioningCohorts
+          response={contentPositioningSummary}
+          playerName={playerName}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
       );
     }
     if ((activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview) {
@@ -4864,6 +5094,7 @@ function PlayerAggregateStatsSections({
           contentOverview: bundle.overview,
           contentPossessionSummary: bundle.possessionSummary,
           contentPositioningSummary: bundle.positioningSummary,
+          contentRankBenchmarkCohorts: bundle.rankBenchmarkCohorts,
           contentSearch: bundle.search,
           contentStats: bundle.stats,
           contentSupplementalError: null,
@@ -5092,6 +5323,7 @@ function PlayerAggregateStatsSections({
           contentOverview: overview,
           contentPossessionSummary: possessionSummary,
           contentPositioningSummary: positioningSummary,
+          contentRankBenchmarkCohorts: rankBenchmarkCohorts,
           contentSearch: requestSearch,
           contentStats: stats,
           contentSupplementalError: supplementalError,

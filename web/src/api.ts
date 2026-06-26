@@ -22,6 +22,7 @@ import type {
   PlayerStatOverviewResponse,
   ProcessingVersionBreakdownResponse,
   ProcessingVersionResponse,
+  RankBenchmarkCohortsResponse,
   RankTrendsResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
@@ -122,6 +123,19 @@ export function getUserProfile(userId: string): Promise<UserProfileResponse> {
 export function getRankTrends(searchParams: URLSearchParams): Promise<RankTrendsResponse> {
   const query = searchParams.toString();
   return request<RankTrendsResponse>(`/api/v1/stats/rank-trends${query ? `?${query}` : ""}`);
+}
+
+// The career-stats "rank average" cohorts for the viewed player's filter
+// context. player-id drives the default current-rank estimate; the caller adds
+// the rank-benchmark-rank / -grouping / -window selection params.
+export function getRankBenchmarkCohorts(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<RankBenchmarkCohortsResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<RankBenchmarkCohortsResponse>(`/api/v1/stats/rank-benchmark?${params.toString()}`);
 }
 
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {

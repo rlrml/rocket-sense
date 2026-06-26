@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { getRankTrends } from "./api";
 import { rankGroupIconUrl, rankIconUrl } from "./rank";
+import { metricFormat } from "./stats/metricFormats";
 import type { RankTrendMetric, RankTrendsResponse } from "./types";
 
 const outcomeOptions = [
@@ -115,40 +116,6 @@ function displayLabel(metric: RankTrendMetric): string {
   if (override) return override;
   // The "% of time" unit already conveys "share"; drop the redundant suffix.
   return metric.label.replace(/ Share$/, "");
-}
-
-interface MetricFormat {
-  unit: string;
-  // Scale applied to the stored value before display (rates are stored per
-  // active minute; the app shows player rates per 5 minutes).
-  scale: number;
-  format: (value: number) => string;
-}
-
-function numberFormat(v: number): string {
-  const abs = Math.abs(v);
-  if (abs >= 1000) return Math.round(v).toLocaleString();
-  if (abs >= 100) return v.toFixed(0);
-  if (abs >= 1) return v.toFixed(2);
-  return v.toFixed(3);
-}
-
-function metricFormat(key: string): MetricFormat {
-  // Gauges and shares are levels, not rates — never scaled to a time window.
-  if (key.endsWith("_share")) {
-    return { unit: "% of time", scale: 1, format: (v) => `${(v * 100).toFixed(1)}%` };
-  }
-  if (key === "movement:avg_speed") {
-    return { unit: "uu/s", scale: 1, format: (v) => Math.round(v).toLocaleString() };
-  }
-  if (key === "positioning:distance_to_ball") {
-    return { unit: "uu", scale: 1, format: (v) => Math.round(v).toLocaleString() };
-  }
-  if (key === "boost:avg_amount") {
-    return { unit: "avg boost", scale: 1, format: (v) => v.toFixed(0) };
-  }
-  // Counts / per-minute rates -> shown per 5 minutes, like the rest of the app.
-  return { unit: "per 5 min", scale: 5, format: numberFormat };
 }
 
 function formatPlaylistGroup(key: string): string {
