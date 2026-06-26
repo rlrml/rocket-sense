@@ -383,42 +383,9 @@ export interface StatAggregateResponse {
   opponent_count_per_game: number | null;
   opponent_per_active_minute: number | null;
   opponent_per_non_demo_active_minute: number | null;
-  // The `rank-peers` benchmark cohort (a typical player at the served tier).
-  // Optional: a flagged-off / undeployed backend omits these.
-  rank_benchmark_per_active_minute?: number | null;
-  rank_benchmark_per_non_demo_active_minute?: number | null;
-  // "median" (typical player) or "mean" (pooled rate, for rare mechanics).
-  rank_benchmark_aggregator?: string | null;
 }
 
-export interface RankBenchmarkTierOption {
-  tier: number;
-  label: string;
-  distinct_player_count: number;
-}
-
-export interface RankBenchmarkWindowOption {
-  key: string;
-  label: string;
-}
-
-// The served rank-benchmark cohort metadata + picker option lists, shared by the
-// aggregate set and per-playlist group responses. All optional so an
-// undeployed / flagged-off backend simply omits them.
-export interface RankBenchmarkAggregateFields {
-  rank_benchmark_tier?: number | null;
-  rank_benchmark_tier_label?: string | null;
-  // "tier" (exact tier) or "group" (pooled rank group used when the tier was too sparse).
-  rank_benchmark_rank_grouping?: string | null;
-  rank_benchmark_is_player_default?: boolean | null;
-  rank_benchmark_distinct_player_count?: number | null;
-  rank_benchmark_window?: string | null;
-  rank_benchmark_window_label?: string | null;
-  rank_benchmark_available_tiers?: RankBenchmarkTierOption[];
-  rank_benchmark_available_windows?: RankBenchmarkWindowOption[];
-}
-
-export interface StatAggregateSetResponse extends RankBenchmarkAggregateFields {
+export interface StatAggregateSetResponse {
   replay_count: number;
   player_appearance_count: number | null;
   active_time_seconds: number | null;
@@ -486,7 +453,7 @@ export interface StatAggregateGroupPlayer {
   display_name: string | null;
 }
 
-export interface StatAggregateGroupResponse extends RankBenchmarkAggregateFields {
+export interface StatAggregateGroupResponse {
   group_by: string;
   key: string;
   display_name: string;
@@ -1014,4 +981,46 @@ export interface RankTrendsResponse {
   metrics: RankTrendMetric[];
   available_playlist_groups: string[];
   available_windows: RankTrendsWindow[];
+}
+
+// Career-stats "rank average" comparison cohorts. The benchmark value for a
+// stat is looked up by its metric_key in `RankBenchmarkCohort.per_stat`; the
+// value is in the metric's natural units (per-active-minute rate, 0..1 share,
+// or raw average) — see web/src/stats/metricFormats.ts for scaling/formatting.
+export interface RankBenchmarkWindowOption {
+  key: string;
+  label: string;
+}
+
+export interface RankBenchmarkRankOption {
+  rank_value: number;
+  label: string;
+  distinct_player_count: number | null;
+}
+
+export interface RankBenchmarkCohortStat {
+  value: number | null;
+  // "median" (typical player) or "mean" (pooled, for rare metrics).
+  aggregator: string;
+}
+
+export interface RankBenchmarkCohort {
+  rank_value: number;
+  label: string;
+  rank_grouping: string;
+  // True when this cohort is the server-resolved current-rank estimate.
+  is_player_default: boolean;
+  distinct_player_count: number | null;
+  per_stat: Record<string, RankBenchmarkCohortStat>;
+}
+
+export interface RankBenchmarkCohortsResponse {
+  rank_grouping: string;
+  window: string | null;
+  window_label: string | null;
+  playlist_group_key: string | null;
+  default_rank_value: number | null;
+  available_ranks: RankBenchmarkRankOption[];
+  available_windows: RankBenchmarkWindowOption[];
+  cohorts: RankBenchmarkCohort[];
 }

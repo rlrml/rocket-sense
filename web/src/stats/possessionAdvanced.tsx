@@ -1,12 +1,22 @@
 import type { ReactNode } from "react";
-import type { PossessionCohortSummary, PossessionTimeBucket } from "../types";
+import type { PossessionCohortSummary, PossessionTimeBucket, RankBenchmarkCohort } from "../types";
 import {
   careerRateValue,
   careerRateWindowLabel,
   PlayerComparisonChart,
+  rankAverageShadeClass,
+  rankCohortLabel,
   StatPlayerLabel,
   type ComparisonRow,
 } from "./shared";
+
+// A benchmark mapping for a possession chart: the metric_key and how to scale
+// its stored value into the chart's units (per-5-min count, per-5-min seconds,
+// or a 0..1 share). Only the charts whose units match the benchmark carry one.
+interface PossessionRankMetric {
+  key: string;
+  toValue: (raw: number) => number;
+}
 
 export interface PossessionAdvancedSubject {
   key: string;
@@ -42,9 +52,13 @@ export function PossessionAdvancedComparisonGrid({
 
 export function PossessionAdvancedCharts({
   subjects,
-  charts = possessionAdvancedMetricCharts(subjects ?? []),
+  rankCohorts = [],
+  rankWindowLabel,
+  charts = possessionAdvancedMetricCharts(subjects ?? [], rankCohorts, rankWindowLabel),
 }: {
   subjects?: PossessionAdvancedSubject[];
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
   charts?: PossessionAdvancedChart[];
 }) {
   return (
@@ -58,6 +72,8 @@ export function PossessionAdvancedCharts({
 
 function possessionAdvancedMetricCharts(
   subjects: PossessionAdvancedSubject[],
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): PossessionAdvancedChart[] {
   const definitions: Array<{
     key: string;
@@ -65,6 +81,9 @@ function possessionAdvancedMetricCharts(
     metric: (subject: PossessionAdvancedSubject) => number | null;
     format: (value: number) => string;
     maxValue?: number;
+    // Only set where the benchmark stores a unit-compatible metric; the other
+    // charts are per-possession averages the per-minute benchmark can't match.
+    rankMetric?: PossessionRankMetric;
   }> = [
     {
       key: "possessions-per-5-active-min",
@@ -72,6 +91,8 @@ function possessionAdvancedMetricCharts(
       metric: (subject) =>
         careerRateValue(subject.cohort.possessions.possession_count, subject.activeTimeSeconds),
       format: formatRate,
+      // benchmark possession:count is per active minute -> per 5 min.
+      rankMetric: { key: "possession:count", toValue: (raw) => raw * 5 },
     },
     {
       key: "possession-time-per-5-active-min",
@@ -82,6 +103,9 @@ function possessionAdvancedMetricCharts(
           subject.activeTimeSeconds,
         ),
       format: formatDurationSeconds,
+      // benchmark possession:duration_share is a fraction of active time -> the
+      // seconds spent in possession per 5 active minutes (share * 300s).
+      rankMetric: { key: "possession:duration_share", toValue: (raw) => raw * 300 },
     },
     {
       key: "average-possession-length",
@@ -119,6 +143,7 @@ function possessionAdvancedMetricCharts(
       title: "Carry time share",
       metric: (subject) => subject.cohort.possessions.carry_time_share,
       format: formatShareRequired,
+      rankMetric: { key: "possession:carry_time_share", toValue: (raw) => raw },
     },
     {
       key: "first-touch-control-rate",
@@ -139,7 +164,12 @@ function possessionAdvancedMetricCharts(
   ];
 
   return definitions.flatMap((definition) => {
-    const rows = possessionAdvancedMagnitudeRows(subjects, definition);
+    const rows = possessionAdvancedMagnitudeRows(
+      subjects,
+      definition,
+      rankCohorts,
+      rankWindowLabel,
+    );
     return rows.length > 0 ? [{ key: definition.key, title: definition.title, rows }] : [];
   });
 }
@@ -151,14 +181,29 @@ function possessionAdvancedMagnitudeRows(
     metric: (subject: PossessionAdvancedSubject) => number | null;
     format: (value: number) => string;
     maxValue?: number;
+    rankMetric?: PossessionRankMetric;
   },
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
   const values = subjects.map((subject) => definition.metric(subject));
   if (!values.some((value) => value != null)) return [];
-  const measuredMaxValue = Math.max(...values.map((value) => value ?? 0));
+  // Rank values participate in the shared scale only when this chart has a
+  // unit-compatible benchmark metric.
+  const rankRows = definition.rankMetric
+    ? rankCohorts.flatMap((cohort) => {
+        const raw = cohort.per_stat[definition.rankMetric!.key]?.value;
+        if (raw == null || !Number.isFinite(raw)) return [];
+        return [{ cohort, value: definition.rankMetric!.toValue(raw) }];
+      })
+    : [];
+  const measuredMaxValue = Math.max(
+    ...values.map((value) => value ?? 0),
+    ...rankRows.map((rankRow) => rankRow.value),
+  );
   const maxValue = definition.maxValue ?? (measuredMaxValue > 0 ? measuredMaxValue : 1);
 
-  return subjects.map((subject) => {
+  const rows: ComparisonRow[] = subjects.map((subject) => {
     const rawValue = definition.metric(subject);
     const value = rawValue ?? 0;
     const scaledValue = maxValue > 0 ? value / maxValue : 0;
@@ -181,6 +226,30 @@ function possessionAdvancedMagnitudeRows(
       barValue: formatted,
     };
   });
+
+  for (const { cohort, value } of rankRows) {
+    const scaledValue = maxValue > 0 ? value / maxValue : 0;
+    const formatted = definition.format(value);
+    rows.push({
+      key: `${definition.key}:rank-${cohort.rank_value}`,
+      label: rankCohortLabel(cohort, rankWindowLabel),
+      ariaLabel: `Rank (${cohort.label}): ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+          label: cohort.label,
+          value: scaledValue,
+          title: `Rank (${cohort.label}): ${formatted}`,
+        },
+      ],
+      total: scaledValue,
+      maxValue: 1,
+      barValue: formatted,
+    });
+  }
+
+  return rows;
 }
 
 export function possessionAdvancedCohortLabel({
