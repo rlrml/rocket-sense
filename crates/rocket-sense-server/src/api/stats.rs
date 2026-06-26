@@ -2281,101 +2281,47 @@ async fn load_rotation_duration_histogram(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
-    if filters.player.is_some() && filters.materialized_stat_counts {
+    // First-man stint durations are served entirely from the materialized
+    // `player_replay_first_man_stints` table. The dense `rotation_role` rows the
+    // live histogram used to scan are dropped after materialization, and
+    // `rotation_first_man_stint` is a retired stream, so there is no raw-event
+    // path to fall back to.
+    if filters.player.is_some() {
         return load_rotation_duration_histogram_materialized(pool, filters).await;
     }
-    let mut query = if filters.player.is_some() {
-        let mut query = QueryBuilder::<Postgres>::new(
-            r#"
-            WITH target_appearances AS MATERIALIZED (
-                SELECT rp.id, rp.replay_id, r.canonical_analysis_run_id AS run_id
-                FROM replay_players rp
-                JOIN replays r ON r.id = rp.replay_id
-            "#,
-        );
-        append_target_player_filters(&mut query, filters);
-        query.push(
-            r#"
-            ),
-            rotation_events AS MATERIALIZED (
-                SELECT event.duration_seconds
-                FROM target_appearances appearance
-                JOIN play_event_subjects subject
-                  ON subject.replay_player_id = appearance.id
-                 AND subject.role = 'actor'
-                JOIN play_events event
-                  ON event.id = subject.event_id
-                 AND event.analysis_run_id = appearance.run_id
-                 AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
-                JOIN event_types et
-                  ON et.id = event.event_type_id
-                LEFT JOIN play_event_attributes attributes
-                  ON attributes.event_id = event.id
-                WHERE (
-                    event.source_stream = 'rotation_first_man_stint'
-                    AND et.key = 'rotation_first_man_stint'
-                ) OR (
-                    event.source_stream = 'rotation_role'
-                    AND attributes.attributes->>'state' = 'first_man'
-                )
-            ),
-            bucketed AS (
-                SELECT floor(duration_seconds /
-            "#,
-        );
-        query
-    } else {
-        let mut query = QueryBuilder::<Postgres>::new(
-            r#"
-            WITH rotation_events AS (
-                SELECT event.duration_seconds
-                FROM replays r
-                JOIN play_events event
-                  ON event.replay_id = r.id
-                 AND event.analysis_run_id = r.canonical_analysis_run_id
-                 AND event.source_stream IN ('rotation_first_man_stint', 'rotation_role')
-                JOIN event_types et
-                  ON et.id = event.event_type_id
-                LEFT JOIN play_event_attributes attributes
-                  ON attributes.event_id = event.id
-                WHERE r.canonical_analysis_run_id IS NOT NULL
-                  AND (
-                    (
-                        event.source_stream = 'rotation_first_man_stint'
-                        AND et.key = 'rotation_first_man_stint'
-                    ) OR (
-                        event.source_stream = 'rotation_role'
-                        AND attributes.attributes->>'state' = 'first_man'
-                    )
-                  )
-            "#,
-        );
-        append_replay_filters(&mut query, filters, "r");
-        query.push(
-            r#"
-            ),
-            bucketed AS (
-                SELECT floor(duration_seconds /
-            "#,
-        );
-        query
-    };
+    load_rotation_duration_histogram_aggregate_materialized(pool, filters).await
+}
 
+/// Buckets every first-man stint across the matched replay set from the
+/// materialized `player_replay_first_man_stints` table. This is the aggregate
+/// (no-player) counterpart to `load_rotation_duration_histogram_materialized`.
+async fn load_rotation_duration_histogram_aggregate_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<RotationDurationBucketResponse>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT floor(stint.duration_seconds / "#,
+    );
     query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
     query.push(") * ");
     query.push_bind(ROTATION_DURATION_BUCKET_SECONDS);
     query.push(
-        r#" AS bucket_start_seconds
-        FROM rotation_events
-        WHERE duration_seconds IS NOT NULL AND duration_seconds > 0.0
-    )
-    SELECT bucket_start_seconds, COUNT(*) AS count
-    FROM bucketed
-    GROUP BY bucket_start_seconds
-    ORDER BY bucket_start_seconds
-    "#,
+        r#" AS bucket_start_seconds, COUNT(*) AS count
+        FROM player_replay_first_man_stints stint
+        JOIN replays r
+          ON r.id = stint.replay_id
+         AND r.canonical_analysis_run_id = stint.analysis_run_id
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+        "#,
     );
-
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    query.push(
+        r#"
+        GROUP BY bucket_start_seconds
+        ORDER BY bucket_start_seconds
+        "#,
+    );
     let rows = query.build().fetch_all(pool).await?;
     rows.into_iter()
         .map(rotation_duration_bucket_row_from_db)

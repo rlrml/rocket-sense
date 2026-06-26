@@ -97,14 +97,12 @@ struct PlayerOverviewQuery {
     player: PlayerStatFilter,
     include_goal_tags: bool,
     include_rotation: bool,
-    materialized: bool,
 }
 
 impl PlayerOverviewQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
-        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -123,18 +121,12 @@ impl PlayerOverviewQuery {
             .map(|value| parse_bool_filter("include-rotation", &value))
             .transpose()?
             .unwrap_or(true);
-        let materialized = params
-            .first(&["materialized"])
-            .map(|value| parse_bool_filter("materialized", &value))
-            .transpose()?
-            .unwrap_or(materialized_default);
 
         Ok(Self {
             replay_set,
             player,
             include_goal_tags,
             include_rotation,
-            materialized,
         })
     }
 }
@@ -158,7 +150,6 @@ pub async fn get_player_stat_overview(
     let query = PlayerOverviewQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
-        state.materialized_stat_counts,
     )?;
     let response = load_player_stat_overview(db, &query)
         .await
@@ -606,74 +597,10 @@ async fn load_rotation_time_shares(
     ),
     sqlx::Error,
 > {
-    if query.materialized {
-        return load_rotation_time_shares_materialized(pool, query).await;
-    }
-
-    let mut builder = QueryBuilder::<Postgres>::new("");
-    push_target_appearances_cte(&mut builder, query);
-    builder.push(
-        r#"
-        SELECT
-            event.source_stream AS stream,
-            CASE
-                WHEN event.source_stream IN ('rotation_role', 'ball_depth') THEN
-                    COALESCE(attributes.attributes->>'state', 'unknown')
-                ELSE et.key
-            END AS key,
-            MIN(
-                CASE
-                    WHEN event.source_stream IN ('rotation_role', 'ball_depth') THEN
-                        COALESCE(attributes.attributes->>'state', 'unknown')
-                    ELSE et.display_name
-                END
-            ) AS display_name,
-            SUM(event.duration_seconds) AS seconds,
-            COUNT(*) AS span_count
-        FROM target_appearances appearance
-        JOIN play_event_subjects subject
-          ON subject.replay_player_id = appearance.id
-         AND subject.role = 'actor'
-        JOIN play_events event
-          ON event.id = subject.event_id
-         AND event.analysis_run_id = appearance.run_id
-         AND event.source_stream IN ('rotation_role_span', 'rotation_depth_span', 'rotation_role', 'ball_depth')
-        JOIN event_types et
-          ON et.id = event.event_type_id
-        LEFT JOIN play_event_attributes attributes
-          ON attributes.event_id = event.id
-        WHERE event.duration_seconds IS NOT NULL
-        GROUP BY
-            event.source_stream,
-            CASE
-                WHEN event.source_stream IN ('rotation_role', 'ball_depth') THEN
-                    COALESCE(attributes.attributes->>'state', 'unknown')
-                ELSE et.key
-            END
-        ORDER BY SUM(event.duration_seconds) DESC, key
-        "#,
-    );
-
-    let rows = builder.build().fetch_all(pool).await?;
-    let mut roles = Vec::new();
-    let mut depths = Vec::new();
-    for row in rows {
-        let stream: String = row.try_get("stream")?;
-        let seconds: Option<f64> = row.try_get("seconds")?;
-        let share = RotationTimeShareResponse {
-            key: row.try_get("key")?,
-            display_name: display_label(&row.try_get::<String, _>("display_name")?),
-            seconds: finite_value(seconds).unwrap_or(0.0).max(0.0),
-            span_count: count_column(&row, "span_count")?,
-        };
-        match stream.as_str() {
-            "rotation_role_span" | "rotation_role" => roles.push(share),
-            "rotation_depth_span" | "ball_depth" => depths.push(share),
-            _ => {}
-        }
-    }
-
-    Ok((roles, depths))
+    // The dense `rotation_role`/`ball_depth` rows are dropped after
+    // materialization, so the profile's rotation time shares are always served
+    // from the materialized `player_replay_*` tables.
+    load_rotation_time_shares_materialized(pool, query).await
 }
 
 async fn load_rotation_time_shares_materialized(

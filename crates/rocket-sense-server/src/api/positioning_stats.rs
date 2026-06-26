@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::{
     event_stats::count_column,
-    query::{parse_bool_filter, QueryParams},
+    query::QueryParams,
     replay_set::{
         append_replay_set_filters, PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters,
     },
@@ -25,21 +25,6 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new().route("/stats/positioning/summary", get(get_positioning_summary))
 }
-
-// Per-facet span streams the positioning page reads. `ball_depth` is emitted
-// under the rotation profile-timing list but is a positioning facet here, so it
-// is queried by stream name alongside the rest. Retired pre-PlayerStateSpan
-// streams (`positioning`, fractional zone payloads) are intentionally excluded;
-// the career aggregate only spans reprocessed (>= v6) analysis runs.
-const POSITIONING_SUMMARY_STREAMS: [&str; 7] = [
-    "player_activity",
-    "field_third",
-    "field_half",
-    "ball_depth",
-    "depth_role",
-    "ball_proximity",
-    "positioning_distance",
-];
 
 /// Career positioning summary over a replay set, split into the target player's
 /// own spans plus the pooled teammate and opponent cohorts that shared those
@@ -85,16 +70,12 @@ pub struct PositioningCohortSummary {
 struct PositioningStatsQuery {
     replay_set: ReplaySetFilters,
     player: PlayerStatFilter,
-    /// Whether to read the materialized `player_replay_positioning` table.
-    /// Resolved from the server default with a per-request `?materialized=` override.
-    materialized: bool,
 }
 
 impl PositioningStatsQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
-        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -106,16 +87,7 @@ impl PositioningStatsQuery {
             .ok_or_else(|| {
                 ApiError::bad_request("positioning summary requires a player-id filter")
             })?;
-        let materialized = params
-            .first(&["materialized"])
-            .map(|value| parse_bool_filter("materialized", &value))
-            .transpose()?
-            .unwrap_or(materialized_default);
-        Ok(Self {
-            replay_set,
-            player,
-            materialized,
-        })
+        Ok(Self { replay_set, player })
     }
 }
 
@@ -138,7 +110,6 @@ pub async fn get_positioning_summary(
     let query = PositioningStatsQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
-        state.materialized_stat_counts,
     )?;
     let response = load_positioning_summary(db, &query)
         .await
@@ -150,11 +121,7 @@ async fn load_positioning_summary(
     pool: &sqlx::PgPool,
     filters: &PositioningStatsQuery,
 ) -> Result<PositioningSummaryResponse, sqlx::Error> {
-    let mut query = if filters.materialized {
-        build_positioning_summary_query_materialized(filters)
-    } else {
-        build_positioning_summary_query(filters)
-    };
+    let mut query = build_positioning_summary_query_materialized(filters);
     let rows = query.build().fetch_all(pool).await?;
 
     let mut player = None;
@@ -180,102 +147,9 @@ async fn load_positioning_summary(
     })
 }
 
-fn build_positioning_summary_query(filters: &PositioningStatsQuery) -> QueryBuilder<'_, Postgres> {
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS MATERIALIZED (
-            SELECT
-                rp.replay_id,
-                rp.team AS target_team,
-                concat(rp.platform, ':', rp.platform_player_id) AS target_subject_id,
-                r.canonical_analysis_run_id AS run_id
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-            WHERE r.canonical_analysis_run_id IS NOT NULL
-        "#,
-    );
-    query.push(" AND rp.platform = ");
-    query.push_bind(&filters.player.platform);
-    query.push(" AND rp.platform_player_id = ");
-    query.push_bind(&filters.player.platform_player_id);
-    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
-    query.push(
-        r#"
-        ),
-        positioning_events AS (
-            SELECT
-                CASE
-                    WHEN event.primary_subject_id = ta.target_subject_id THEN 'self'
-                    WHEN actor.team = ta.target_team THEN 'teammate'
-                    ELSE 'opponent'
-                END AS cohort,
-                event.replay_id AS replay_id,
-                event.primary_subject_id AS subject_id,
-                event.source_stream AS stream,
-                COALESCE(
-                    event.duration_seconds,
-                    CASE
-                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
-                        THEN GREATEST(event.end_time - event.start_time, 0)
-                        ELSE 0
-                    END,
-                    0
-                ) AS duration,
-                COALESCE(payload.payload, '{}'::jsonb) AS payload
-            FROM target_appearances ta
-            JOIN play_events event
-              ON event.replay_id = ta.replay_id
-             AND event.analysis_run_id = ta.run_id
-             AND event.source_stream = ANY(
-        "#,
-    );
-    query.push_bind(positioning_summary_streams());
-    query.push(
-        r#"
-             )
-            JOIN replay_players actor
-              ON actor.replay_id = event.replay_id
-             AND actor.platform IS NOT NULL
-             AND actor.platform_player_id IS NOT NULL
-             AND concat(actor.platform, ':', actor.platform_player_id) = event.primary_subject_id
-            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
-        )
-        SELECT
-            cohort,
-            COUNT(DISTINCT replay_id::text || ':' || subject_id) AS appearance_count,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'player_activity'), 0.0) AS active_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third'), 0.0) AS tracked_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'defensive'), 0.0) AS defensive_third_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'neutral'), 0.0) AS neutral_third_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_third' AND payload->>'state' = 'offensive'), 0.0) AS offensive_third_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_half' AND payload->>'state' = 'defensive'), 0.0) AS defensive_half_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'field_half' AND payload->>'state' = 'offensive'), 0.0) AS offensive_half_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'behind_ball'), 0.0) AS behind_ball_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'level_with_ball'), 0.0) AS level_with_ball_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_depth' AND payload->>'state' = 'ahead_of_ball'), 0.0) AS ahead_of_ball_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'most_back'), 0.0) AS role_most_back_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'mid'), 0.0) AS role_mid_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'most_forward'), 0.0) AS role_most_forward_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'other'), 0.0) AS role_other_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'depth_role' AND payload->>'state' = 'no_teammates'), 0.0) AS role_no_teammates_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'closest_to_ball_team' = 'true'), 0.0) AS closest_team_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'closest_to_ball_absolute' = 'true'), 0.0) AS closest_absolute_seconds,
-            COALESCE(SUM(duration) FILTER (WHERE stream = 'ball_proximity' AND payload->'state'->>'farthest_from_ball' = 'true'), 0.0) AS farthest_seconds,
-            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_ball') = 'number' THEN (payload->>'distance_to_ball')::float8 * duration ELSE 0 END), 0.0) AS distance_to_ball_weighted,
-            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_ball') = 'number' THEN duration ELSE 0 END), 0.0) AS distance_to_ball_weight,
-            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_teammates') = 'number' THEN (payload->>'distance_to_teammates')::float8 * duration ELSE 0 END), 0.0) AS distance_to_teammates_weighted,
-            COALESCE(SUM(CASE WHEN stream = 'positioning_distance' AND jsonb_typeof(payload->'distance_to_teammates') = 'number' THEN duration ELSE 0 END), 0.0) AS distance_to_teammates_weight
-        FROM positioning_events
-        GROUP BY cohort
-        "#,
-    );
-    query
-}
-
 /// Materialized variant: sum per-(replay, player) positioning durations from
 /// `player_replay_positioning` and split into self/teammate/opponent cohorts by
-/// joining the target's (replay, team) appearances. Produces the same columns as
-/// `build_positioning_summary_query` so the row parser is shared.
+/// joining the target's (replay, team) appearances.
 fn build_positioning_summary_query_materialized(
     filters: &PositioningStatsQuery,
 ) -> QueryBuilder<'_, Postgres> {
@@ -363,13 +237,6 @@ fn build_positioning_summary_query_materialized(
         "#,
     );
     query
-}
-
-fn positioning_summary_streams() -> Vec<String> {
-    POSITIONING_SUMMARY_STREAMS
-        .iter()
-        .map(|stream| (*stream).to_owned())
-        .collect()
 }
 
 fn positioning_cohort_from_row(

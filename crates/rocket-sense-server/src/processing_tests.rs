@@ -10,6 +10,38 @@ fn player_replay_event_counts_role_map_demolition_subjects() {
 }
 
 #[test]
+fn materialized_dense_streams_are_excluded_from_event_counts() {
+    // Dense rows are deleted only after `INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL`
+    // has run, but the count query must also EXCLUDE them so a dropped stream can
+    // never change a count regardless of ordering. Guard that the drop set is a
+    // subset of the event-count exclusion list.
+    for stream in MATERIALIZED_DENSE_SOURCE_STREAMS {
+        assert!(
+            INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL.contains(&format!("'{stream}'")),
+            "{stream} is dropped post-materialization but is not excluded from \
+             INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL; deleting it would change counts"
+        );
+    }
+}
+
+#[test]
+fn materialized_dense_stream_set_retains_live_read_streams() {
+    // Streams still read at request time or counted must never be dropped.
+    for kept in [
+        "boost_pickup",
+        "possession",
+        "player_possession",
+        "touch",
+        "ball_half",
+    ] {
+        assert!(
+            !MATERIALIZED_DENSE_SOURCE_STREAMS.contains(&kept),
+            "{kept} is read live / counted and must not be dropped post-materialization"
+        );
+    }
+}
+
+#[test]
 fn ball_opponent_half_facts_are_clipped_to_player_activity_spans() {
     assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("source_stream = 'player_activity'"));
     assert!(INSERT_BALL_OPPONENT_HALF_FACTS_SQL.contains("JOIN play_event_subjects subject"));
