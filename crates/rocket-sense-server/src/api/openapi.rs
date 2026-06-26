@@ -116,6 +116,7 @@ use utoipa::{
             admin::ReplayProcessingQueueResponse,
             admin::ReplayProcessingQueueJobResponse,
             admin::ReplayProcessingQueueQuery,
+            admin::QueueView,
             admin::ReprocessFailedQueueJobsResponse,
             admin::ReprocessReplaysRequest,
             admin::ReprocessReplaysResponse,

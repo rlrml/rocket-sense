@@ -6270,6 +6270,10 @@ tbody tr:last-child td {
   max-width: 1440px;
 }
 
+.admin-queue-views {
+  margin-top: 4px;
+}
+
 .admin-summary-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }

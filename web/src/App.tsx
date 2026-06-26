@@ -7626,13 +7626,29 @@ function queueStatusClassName(status: string): string {
   switch (status.toLowerCase()) {
     case "running":
       return "status-badge status-processing";
+    case "done":
+      return "status-badge status-processed";
     case "failed":
+    case "killed":
       return "status-badge status-failed";
     case "pending":
     case "queued":
     default:
       return "status-badge status-pending";
   }
+}
+
+const QUEUE_VIEWS = [
+  { key: "outstanding", label: "Outstanding" },
+  { key: "completed", label: "Completed" },
+  { key: "all", label: "All" },
+] as const;
+
+type QueueViewKey = (typeof QUEUE_VIEWS)[number]["key"];
+
+function queueViewParam(params: URLSearchParams): QueueViewKey {
+  const raw = params.get("view");
+  return QUEUE_VIEWS.some((view) => view.key === raw) ? (raw as QueueViewKey) : "outstanding";
 }
 
 function AdminQueuePage() {
@@ -7705,6 +7721,29 @@ function AdminQueuePage() {
     navigate(`/admin/queue?${params.toString()}`);
   }
 
+  function goToView(nextView: QueueViewKey) {
+    const params = new URLSearchParams(searchParams);
+    if (nextView === "outstanding") {
+      params.delete("view");
+    } else {
+      params.set("view", nextView);
+    }
+    // Each view is a different result set, so start back at the first page.
+    params.delete("offset");
+    navigate(`/admin/queue?${params.toString()}`);
+  }
+
+  const view = queueViewParam(searchParams);
+  const showFinished = view !== "outstanding";
+  const columnCount = showFinished ? 7 : 6;
+  const viewBlurb: Record<QueueViewKey, string> = {
+    outstanding:
+      "Outstanding jobs (pending, queued, running, and failed), ordered the way a worker pops them.",
+    completed:
+      "Finished history — succeeded (Done) and permanently failed (Killed) jobs, most recent first.",
+    all: "Every replay-processing job, regardless of status, with the most recent activity first.",
+  };
+
   const jobs = response?.jobs ?? [];
   const failedInView = jobs.filter((job) => job.status.toLowerCase() === "failed").length;
   const total = response?.total ?? null;
@@ -7723,23 +7762,25 @@ function AdminQueuePage() {
           <h1>Processing Queue</h1>
         </div>
         <div className="page-header-actions">
-          <button
-            type="button"
-            className="secondary-button"
-            onClick={() => void reprocessFailed()}
-            disabled={reprocessFailedState?.phase === "pending"}
-            title="Force-reprocess every replay with a failed job in the queue"
-          >
-            <RotateCcw
-              size={16}
-              className={reprocessFailedState?.phase === "pending" ? "spin" : undefined}
-            />
-            {reprocessFailedState?.phase === "pending"
-              ? "Reprocessing…"
-              : failedInView > 0
-                ? `Reprocess failed (${failedInView.toLocaleString()})`
-                : "Reprocess failed"}
-          </button>
+          {view !== "completed" ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void reprocessFailed()}
+              disabled={reprocessFailedState?.phase === "pending"}
+              title="Force-reprocess every replay with a failed job in the queue"
+            >
+              <RotateCcw
+                size={16}
+                className={reprocessFailedState?.phase === "pending" ? "spin" : undefined}
+              />
+              {reprocessFailedState?.phase === "pending"
+                ? "Reprocessing…"
+                : failedInView > 0
+                  ? `Reprocess failed (${failedInView.toLocaleString()})`
+                  : "Reprocess failed"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="secondary-button"
@@ -7757,16 +7798,34 @@ function AdminQueuePage() {
             <History size={16} />
             Recently processed
           </Link>
-          <a className="secondary-button" href="/api/v1/admin/replays/queue">
+          <a
+            className="secondary-button"
+            href={`/api/v1/admin/replays/queue${
+              searchParams.toString() ? `?${searchParams.toString()}` : ""
+            }`}
+          >
             <ExternalLink size={16} />
             JSON
           </a>
         </div>
       </header>
 
+      <nav className="stat-group-nav admin-queue-views" aria-label="Queue view">
+        {QUEUE_VIEWS.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            className={`stat-group-link ${view === option.key ? "active" : ""}`}
+            aria-pressed={view === option.key}
+            onClick={() => goToView(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </nav>
+
       <p className="subtle">
-        Outstanding jobs in the apalis <code>rocket-sense:replay-processing</code> queue (pending,
-        queued, running, and failed), ordered the way a worker pops them.
+        The apalis <code>rocket-sense:replay-processing</code> queue. {viewBlurb[view]}
       </p>
 
       {reprocessFailedState ? (
@@ -7782,8 +7841,8 @@ function AdminQueuePage() {
             {loading
               ? "Loading queue"
               : total == null
-                ? `${jobs.length.toLocaleString()} queued jobs`
-                : `${jobs.length.toLocaleString()} of ${total.toLocaleString()} queued jobs`}
+                ? `${jobs.length.toLocaleString()} jobs`
+                : `${jobs.length.toLocaleString()} of ${total.toLocaleString()} jobs`}
           </span>
         </div>
         <div className="pagination-controls">
@@ -7818,6 +7877,7 @@ function AdminQueuePage() {
               <th>Status</th>
               <th>Attempts</th>
               <th>Run at</th>
+              {showFinished ? <th>Finished</th> : null}
               <th>Worker</th>
               <th>Last result</th>
             </tr>
@@ -7850,6 +7910,11 @@ function AdminQueuePage() {
                   <div>{formatDate(job.run_at)}</div>
                   {job.lock_at ? <small>Locked {formatDate(job.lock_at)}</small> : null}
                 </td>
+                {showFinished ? (
+                  <td className="admin-date-cell">
+                    {job.done_at ? formatDate(job.done_at) : <span className="subtle">—</span>}
+                  </td>
+                ) : null}
                 <td>
                   {job.lock_by ? <code>{job.lock_by}</code> : <span className="subtle">—</span>}
                 </td>
@@ -7864,8 +7929,12 @@ function AdminQueuePage() {
             ))}
             {!loading && jobs.length === 0 ? (
               <tr>
-                <td colSpan={6} className="empty-cell">
-                  Queue is empty — no outstanding replay-processing jobs.
+                <td colSpan={columnCount} className="empty-cell">
+                  {view === "completed"
+                    ? "No finished jobs yet."
+                    : view === "all"
+                      ? "No replay-processing jobs found."
+                      : "Queue is empty — no outstanding replay-processing jobs."}
                 </td>
               </tr>
             ) : null}

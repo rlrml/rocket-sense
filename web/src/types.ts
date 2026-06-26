@@ -423,6 +423,7 @@ export interface ReplayProcessingQueueJob {
   run_at: string;
   lock_by: string | null;
   lock_at: string | null;
+  done_at: string | null;
   last_result: string | null;
 }
 

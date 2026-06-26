@@ -177,6 +177,44 @@ pub struct ReplayProcessingDiagnosticResponse {
 pub struct ReplayProcessingQueueQuery {
     pub count: Option<u32>,
     pub offset: Option<u32>,
+    /// Which slice of the queue to return. Defaults to `outstanding`.
+    pub view: Option<QueueView>,
+}
+
+/// Which jobs the queue listing should return.
+#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueView {
+    /// Work the worker still has to do: Pending/Queued/Running plus retriable Failed.
+    #[default]
+    Outstanding,
+    /// Finished history: succeeded (Done) and permanently failed (Killed).
+    Completed,
+    /// Every replay-processing job, regardless of status.
+    All,
+}
+
+impl QueueView {
+    /// `apalis.jobs`-aliased (`job`) status predicate for this view.
+    fn status_filter(self) -> &'static str {
+        match self {
+            QueueView::Outstanding => "job.status IN ('Pending', 'Queued', 'Running', 'Failed')",
+            QueueView::Completed => "job.status IN ('Done', 'Killed')",
+            QueueView::All => "TRUE",
+        }
+    }
+
+    /// ORDER BY clause (without the `ORDER BY` keyword).
+    fn order_by(self) -> &'static str {
+        match self {
+            // Same order the worker pops jobs (apalis.get_jobs).
+            QueueView::Outstanding => "job.priority DESC, job.run_at ASC, job.id ASC",
+            // Most-recently finished first.
+            QueueView::Completed => "job.done_at DESC NULLS LAST, job.id DESC",
+            // Newest activity first across every status.
+            QueueView::All => "COALESCE(job.done_at, job.lock_at, job.run_at) DESC, job.id DESC",
+        }
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -197,10 +235,10 @@ pub struct ReplayProcessingQueueJobResponse {
     pub original_file_name: Option<String>,
     /// True when the job was enqueued as a force-reprocess.
     pub force: bool,
-    /// Raw apalis status: Pending, Queued, Running, or Failed.
+    /// Raw apalis status: Pending, Queued, Running, Failed, Done, or Killed.
     pub status: String,
-    /// True for a Failed job that has exhausted its retries
-    /// (`attempts >= max_attempts`); apalis will never run it again on its own.
+    /// True for a job apalis will never run again on its own: a Killed job, or
+    /// a Failed job that has exhausted its retries (`attempts >= max_attempts`).
     pub terminal: bool,
     pub attempts: i32,
     pub max_attempts: i32,
@@ -210,6 +248,8 @@ pub struct ReplayProcessingQueueJobResponse {
     /// Worker currently holding the job, if locked.
     pub lock_by: Option<String>,
     pub lock_at: Option<DateTime<Utc>>,
+    /// When the job finished (succeeded or was killed); null while outstanding.
+    pub done_at: Option<DateTime<Utc>>,
     /// Last error/result recorded by apalis (raw JSON text).
     pub last_result: Option<String>,
 }
@@ -483,7 +523,8 @@ pub async fn list_recently_processed_replays(
     tag = "admin",
     params(
         ("count" = Option<u32>, Query, description = "Page size"),
-        ("offset" = Option<u32>, Query, description = "Page offset")
+        ("offset" = Option<u32>, Query, description = "Page offset"),
+        ("view" = Option<QueueView>, Query, description = "Which slice: outstanding (default), completed, or all")
     ),
     responses(
         (status = 200, description = "Live replay-processing queue jobs", body = ReplayProcessingQueueResponse),
@@ -507,56 +548,68 @@ pub async fn list_replay_processing_queue(
         .unwrap_or(DEFAULT_QUEUE_COUNT)
         .clamp(1, MAX_QUEUE_COUNT);
     let offset = query.offset.unwrap_or(0);
+    let view = query.view.unwrap_or_default();
 
-    // Outstanding + failed work: Pending/Queued/Running plus every Failed job
-    // (both retriable and retry-exhausted "terminal" failures, flagged per row
-    // so the trigger to reprocess failed jobs has something to act on). Ordered
-    // the same way the worker pops jobs (apalis.get_jobs): priority desc, run_at.
-    let total: i64 = sqlx::query_scalar(
+    // The status predicate and ordering both come from `view` (a fixed enum, so
+    // these fragments are never user-controlled and safe to interpolate):
+    //   - outstanding: Pending/Queued/Running + retriable Failed, in worker-pop order.
+    //   - completed:   finished history (Done success + Killed permanent-failure),
+    //                  most-recently finished first.
+    //   - all:         every replay-processing job, newest activity first.
+    // A job is "terminal" when apalis won't rerun it on its own: Killed, or a
+    // Failed job that has already burned through its retries.
+    let status_filter = view.status_filter();
+    let order_by = view.order_by();
+
+    let count_sql = format!(
         r#"
         SELECT COUNT(*)::bigint
-        FROM apalis.jobs
-        WHERE job_type = $1
-          AND status IN ('Pending', 'Queued', 'Running', 'Failed')
-        "#,
-    )
-    .bind(REPLAY_PROCESSING_QUEUE_NAME)
-    .fetch_one(pool)
-    .await
-    .map_err(ApiError::internal)?;
+        FROM apalis.jobs job
+        WHERE job.job_type = $1
+          AND {status_filter}
+        "#
+    );
+    let total: i64 = sqlx::query_scalar(&count_sql)
+        .bind(REPLAY_PROCESSING_QUEUE_NAME)
+        .fetch_one(pool)
+        .await
+        .map_err(ApiError::internal)?;
     let total = signed_count_to_u64(total);
 
-    let rows = sqlx::query(
+    let rows_sql = format!(
         r#"
         SELECT
             job.id AS job_id,
             (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid AS replay_id,
             COALESCE((convert_from(job.job, 'UTF8')::jsonb ->> 'force')::boolean, false) AS force,
             job.status,
-            (job.status = 'Failed' AND job.attempts >= job.max_attempts) AS terminal,
+            (job.status = 'Killed'
+                OR (job.status = 'Failed' AND job.attempts >= job.max_attempts)) AS terminal,
             job.attempts,
             job.max_attempts,
             job.priority,
             job.run_at,
             job.lock_by,
             job.lock_at,
+            job.done_at,
             job.last_result::text AS last_result,
             replay.original_file_name
         FROM apalis.jobs job
         LEFT JOIN replays replay
             ON replay.id = (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid
         WHERE job.job_type = $1
-          AND job.status IN ('Pending', 'Queued', 'Running', 'Failed')
-        ORDER BY job.priority DESC, job.run_at ASC, job.id ASC
+          AND {status_filter}
+        ORDER BY {order_by}
         LIMIT $2 OFFSET $3
-        "#,
-    )
-    .bind(REPLAY_PROCESSING_QUEUE_NAME)
-    .bind(i64::from(count))
-    .bind(i64::from(offset))
-    .fetch_all(pool)
-    .await
-    .map_err(ApiError::internal)?;
+        "#
+    );
+    let rows = sqlx::query(&rows_sql)
+        .bind(REPLAY_PROCESSING_QUEUE_NAME)
+        .bind(i64::from(count))
+        .bind(i64::from(offset))
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
 
     let jobs = rows
         .into_iter()
@@ -574,6 +627,7 @@ pub async fn list_replay_processing_queue(
                 run_at: row.try_get("run_at")?,
                 lock_by: row.try_get("lock_by")?,
                 lock_at: row.try_get("lock_at")?,
+                done_at: row.try_get("done_at")?,
                 last_result: row.try_get("last_result")?,
             })
         })
