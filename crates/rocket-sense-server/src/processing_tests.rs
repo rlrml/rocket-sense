@@ -1828,3 +1828,227 @@ async fn reprocess_populates_all_materialized_tables() {
         assert!(count > 0, "{table} had no rows after reprocess");
     }
 }
+
+/// Regression guard for the sqlx **decode-type** bug class: a Rust
+/// `row.try_get::<T>()` whose `T` doesn't match the SQL column type (e.g. `i64`
+/// for an `INT4` column, or `f64` for a `NUMERIC` expression) compiles fine and
+/// only 500s at runtime, when a row is actually decoded -- so neither
+/// `cargo check` nor the SQL-string unit tests catch it.
+///
+/// This ingests a real replay (so every read path has rows to decode), seeds a
+/// rank-benchmark population + stats row (so the benchmark read path actually
+/// decodes `distinct_player_count`), then fires every player stat endpoint at
+/// the real router and asserts each returns 200. Would have caught both the
+/// `distinct_player_count` (INT4 vs i64) and `mvp_expected` (NUMERIC vs f64)
+/// production 500s.
+///
+/// Same env gating as `reprocess_populates_all_materialized_tables`: set
+/// `RS_REPROCESS_TEST_DATABASE_URL` to a FRESH, EMPTY database. Run with:
+///   RS_REPROCESS_TEST_DATABASE_URL=postgres://... cargo test -p rocket-sense-server \
+///     stats_read_paths_decode_after_reprocess -- --ignored --nocapture
+#[tokio::test]
+#[ignore = "requires RS_REPROCESS_TEST_DATABASE_URL"]
+async fn stats_read_paths_decode_after_reprocess() {
+    use axum::body::{to_bytes, Body};
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    let Ok(database_url) = std::env::var("RS_REPROCESS_TEST_DATABASE_URL") else {
+        eprintln!("skipping: RS_REPROCESS_TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let pool = rocket_sense_db::connect(&database_url)
+        .await
+        .expect("connect to test db");
+    rocket_sense_db::run_migrations(&pool)
+        .await
+        .expect("run migrations");
+
+    // Ingest a real replay so every read path has populated rows to decode.
+    let fixture = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../vendor/subtr-actor/assets/recent-ranked-standard-2026-03-10-b.replay"
+    );
+    let bytes = std::fs::read(fixture).expect("read replay fixture");
+    let file_sha256 = sha256_hex(&bytes);
+    let storage_root = std::env::temp_dir().join(format!("rs-decode-check-{}", Uuid::now_v7()));
+    std::fs::create_dir_all(&storage_root).expect("create storage root");
+    let storage: Arc<dyn rocket_sense_storage::ObjectStorage> = Arc::new(
+        rocket_sense_storage::LocalStorage::new(storage_root.clone()),
+    );
+    let storage_key = format!("replays/{file_sha256}.replay");
+    let stored = storage
+        .put(&storage_key, bytes::Bytes::from(bytes.clone()), None)
+        .await
+        .expect("store replay bytes");
+    let replay_id = Uuid::now_v7();
+    sqlx::query(
+        r#"
+        INSERT INTO replays (
+            id, uploaded_by_user_id, file_sha256, original_file_name,
+            byte_size, storage_key, storage_encoding, storage_byte_size
+        )
+        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)
+        "#,
+    )
+    .bind(replay_id)
+    .bind(&file_sha256)
+    .bind("decode-check.replay")
+    .bind(bytes.len() as i64)
+    .bind(&stored.key)
+    .bind(stored.storage_encoding.to_string())
+    .bind(stored.storage_byte_size as i64)
+    .execute(&pool)
+    .await
+    .expect("insert replays row");
+    process_replay(
+        pool.clone(),
+        storage.clone(),
+        replay_id,
+        file_sha256,
+        stored.key.clone(),
+    )
+    .await
+    .expect("process_replay succeeds");
+
+    // A player from the replay, plus the playlist group key (game type + team
+    // size) the read path resolves for it -- derived the same way as
+    // `push_playlist_group_key_expression`.
+    let (platform, platform_player_id): (String, String) = sqlx::query_as(
+        "SELECT platform, platform_player_id FROM replay_players \
+         WHERE replay_id = $1 AND platform IS NOT NULL AND platform_player_id IS NOT NULL LIMIT 1",
+    )
+    .bind(replay_id)
+    .fetch_one(&pool)
+    .await
+    .expect("a player with platform identity");
+    let (game_type, team_size): (String, i32) = sqlx::query_as(
+        "SELECT COALESCE(r.replay_game_type, 'ranked') AS game, \
+                (SELECT MAX(c)::int FROM ( \
+                    SELECT COUNT(*) c FROM replay_players p \
+                    WHERE p.replay_id = r.id AND p.team IS NOT NULL GROUP BY p.team \
+                 ) t) AS size \
+         FROM replays r WHERE r.id = $1",
+    )
+    .bind(replay_id)
+    .fetch_one(&pool)
+    .await
+    .expect("derive playlist group key");
+    let group_key = format!("{game_type}-{team_size}v{team_size}");
+    let window_key = "rolling-6m";
+
+    // Seed one rank-benchmark population (tier) + stats row so the benchmark
+    // read path returns a row and actually decodes `distinct_player_count`. A
+    // single fixture replay won't clear the refresh job's sample thresholds, so
+    // seed directly. The `available_tiers` assertion below proves it ran (guards
+    // against a silent group-key mismatch making this a no-op).
+    let tier = 15i32;
+    sqlx::query(
+        "INSERT INTO rank_benchmark_population \
+         (window_key, playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count) \
+         VALUES ($1, $2, 'tier', $3, 'all', 5, 3)",
+    )
+    .bind(window_key)
+    .bind(&group_key)
+    .bind(tier)
+    .execute(&pool)
+    .await
+    .expect("seed rank_benchmark_population");
+    sqlx::query(
+        "INSERT INTO rank_benchmark_stats \
+         (window_key, playlist_group_key, rank_grouping, rank_value, outcome, metric_key, \
+          median_per_active_minute, mean_per_active_minute, aggregator) \
+         VALUES ($1, $2, 'tier', $3, 'all', 'goal', 0.5, 0.5, 'median')",
+    )
+    .bind(window_key)
+    .bind(&group_key)
+    .bind(tier)
+    .execute(&pool)
+    .await
+    .expect("seed rank_benchmark_stats");
+
+    // Router wired like prod: materialized reads on, benchmark enabled.
+    let state = crate::app::AppState {
+        db: Some(pool.clone()),
+        storage: storage.clone(),
+        auth_mode: crate::settings::AuthMode::Dev,
+        app_jwt_secret: Arc::from("test-secret"),
+        oauth_providers: Arc::from(Vec::new()),
+        process_replays_in_background: false,
+        background_processing_permits: Arc::new(tokio::sync::Semaphore::new(1)),
+        materialized_stat_counts: true,
+        rank_benchmark_enabled: true,
+        rank_benchmark_windows: Arc::from(vec![crate::rank_benchmark::BenchmarkWindow::Rolling {
+            months: 6,
+        }]),
+        rank_benchmark_default_window: Arc::from(window_key),
+        rank_benchmark_calc: crate::rank_benchmark::CalcStyle::PerAppearance,
+        admin_emails: Arc::from(Vec::new()),
+    };
+    let app = crate::api::router(state);
+
+    let pid = format!("{platform}:{platform_player_id}");
+    let q = format!("player-id={pid}&team-size={team_size}&game-type={game_type}");
+    // Every read path the Core/Scoring/Boost/etc. player views hit, across the
+    // materialized + live + outcome-split variants.
+    let endpoints = [
+        format!("/api/v1/stats/aggregates?{q}&include-teammates=true&count=200"),
+        format!("/api/v1/stats/aggregates?{q}&include-teammates=true&count=200&materialized=false"),
+        format!("/api/v1/stats/aggregates?{q}&include-teammates=true&count=200&split-outcome=true"),
+        format!("/api/v1/stats/player-overview?{q}&materialized=true"),
+        format!("/api/v1/stats/player-overview?{q}&materialized=true&include-goal-tags=true&include-rotation=true"),
+        format!("/api/v1/stats/player-overview?{q}&materialized=true&player-outcome=win"),
+        format!("/api/v1/stats/boost-totals?{q}"),
+        format!("/api/v1/stats/possession/summary?{q}"),
+        format!("/api/v1/stats/positioning/summary?{q}"),
+        format!("/api/v1/stats/movement/summary?{q}"),
+        format!("/api/v1/stats/events/kickoff/summary?{q}&include-samples=false"),
+    ];
+    for uri in &endpoints {
+        let response = app
+            .clone()
+            .oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+            .await
+            .expect("router responds");
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .map(|b| String::from_utf8_lossy(&b).into_owned())
+            .unwrap_or_default();
+        assert_eq!(status, StatusCode::OK, "{uri} -> {status}: {body}");
+    }
+
+    // Prove the benchmark decode path actually ran: `available_tiers` is built
+    // straight from the seeded population row (independent of tier resolution),
+    // so a non-empty list means the `distinct_player_count` decode executed.
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/stats/aggregates?{q}&include-teammates=true&count=200"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("router responds");
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read aggregates body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("aggregates json");
+    let tiers = json
+        .get("rank_benchmark_available_tiers")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    assert!(
+        tiers > 0,
+        "benchmark population decode did not run (group_key={group_key}); \
+         seed did not match the resolved cohort"
+    );
+
+    let _ = std::fs::remove_dir_all(&storage_root);
+}

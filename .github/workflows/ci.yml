@@ -13,6 +13,24 @@ jobs:
   ci:
     name: fmt + clippy + test + web
     runs-on: ubuntu-latest
+    services:
+      # Postgres for the DB-backed integration tests (the `#[ignore]`d tests in
+      # processing_tests.rs). These run real queries against a migrated schema,
+      # which is the only thing that catches sqlx decode-type vs SQL column-type
+      # mismatches -- they 500 only at runtime, never at compile time.
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: rocket_sense_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,6 +89,15 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      # The `#[ignore]`d DB-backed tests: ingest a real replay, then exercise
+      # every stats read path against the migrated schema so a wrong sqlx decode
+      # type (e.g. i64 for an INT4 column) fails here instead of in prod. Run
+      # single-threaded since both tests share the one database.
+      - name: Test (DB-backed)
+        env:
+          RS_REPROCESS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/rocket_sense_test
+        run: cargo test --workspace -- --ignored --test-threads=1
 
   nix-image:
     name: Nix deploy image

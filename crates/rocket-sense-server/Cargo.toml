@@ -31,3 +31,8 @@ tracing-subscriber.workspace = true
 utoipa.workspace = true
 url.workspace = true
 uuid.workspace = true
+
+[dev-dependencies]
+# DB-backed integration tests fire real HTTP requests at the router via
+# `ServiceExt::oneshot`; `tower` is only needed for that test path.
+tower = { version = "0.5", features = ["util"] }
