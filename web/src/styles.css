@@ -911,6 +911,34 @@ tbody tr:last-child td {
 .uploader-pill-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  /* ellipsis needs an explicit nowrap; line-height < 1.2 + overflow:hidden would
+     clip descenders (the 'g' in @gmail.com), so give the line box some room. */
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+/* The uploader pill is a link to the uploader's profile. Keep the chip's look
+   but signal interactivity on hover. */
+.uploader-pill-link {
+  display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+  color: inherit;
+}
+
+.uploader-pill-link:hover .uploader-pill,
+.uploader-pill-link:focus-visible .uploader-pill {
+  background: #e2e8f1;
+  color: #2b3a4b;
+}
+
+.uploader-pill-link:focus-visible {
+  outline: none;
+}
+
+.uploader-pill-link:focus-visible .uploader-pill {
+  outline: 2px solid var(--focus-ring, #2563eb);
+  outline-offset: 1px;
 }
 
 /* A chip that is itself a clickable <button> (e.g. the stale status chip). */
@@ -6161,6 +6189,62 @@ tbody tr:last-child td {
 
 .linked-identity-meta {
   text-align: right;
+}
+
+/* Uploader profile: linked in-game player profiles (Steam/Epic login + claims). */
+.profile-section {
+  margin: 20px 0 0;
+}
+
+.profile-section-title {
+  margin: 0 0 10px;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+}
+
+.game-identity-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.game-identity-card {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+
+.game-identity-card:hover,
+.game-identity-card:focus-visible {
+  border-color: var(--focus-ring, #2563eb);
+  outline: none;
+}
+
+.game-identity-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.game-identity-main strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-identity-meta {
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 .modal-backdrop {
