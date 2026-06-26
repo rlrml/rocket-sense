@@ -2120,7 +2120,8 @@ interface TeamControlChart {
  */
 function teamControlCharts(team: PossessionTeamControl): TeamControlChart[] {
   return [
-    teamControlChart("team-possession-share", "Team possession", team.possession),
+    teamControlChart("team-possession-share", "Team possession", team.loose_possession),
+    teamControlChart("team-control-share", "Team control", team.possession),
     teamControlChart("ball-half", "Ball half", team.ball_halves),
     teamControlChart("ball-thirds", "Ball thirds", team.ball_thirds),
   ];

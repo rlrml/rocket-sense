@@ -652,6 +652,33 @@ export function reprocessReplay(
   );
 }
 
+export interface ReprocessReplaysBatchResponse {
+  matched_replays: number;
+  enqueued_replays: number;
+  skipped_replays: number;
+  concurrency: number;
+  force: boolean;
+}
+
+// Admin: enqueue reprocessing for a set of replays. An empty `replay_ids`
+// targets every replay; pass `force` to ignore staleness checks (needed when
+// the subtr-actor build changed but the schema version did not).
+export function reprocessReplaysBatch(options: {
+  replayIds?: string[];
+  force?: boolean;
+  concurrency?: number;
+}): Promise<ReprocessReplaysBatchResponse> {
+  return request<ReprocessReplaysBatchResponse>("/api/v1/admin/replays/reprocess", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      replay_ids: options.replayIds ?? [],
+      force: options.force ?? false,
+      concurrency: options.concurrency,
+    }),
+  });
+}
+
 export interface ReprocessReplayClientResponse {
   replay_id: string;
   analysis_run_id: string;

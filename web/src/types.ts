@@ -638,7 +638,11 @@ export interface PossessionSummaryResponse {
 }
 
 export interface PossessionTeamControl {
+  // Strict "control": firmly-controlled ball time only (loose tails -> neutral).
   possession: PossessionTeamMetric;
+  // Loose possession: last team to touch owns it until the opponent takes it
+  // away (sticky through loose balls, passes, repelled 50-50s).
+  loose_possession: PossessionTeamMetric;
   ball_halves: PossessionTeamMetric;
   ball_thirds: PossessionTeamMetric;
 }
