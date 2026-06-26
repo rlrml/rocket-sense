@@ -3986,14 +3986,44 @@ tbody tr:last-child td {
   background: var(--aerial-origin-wall);
 }
 
-.source-segment.aerial-seg-wall-side,
-.chart-legend .aerial-seg-wall-side::before {
-  background: var(--aerial-wall-side);
+.source-segment.aerial-seg-wall-left,
+.chart-legend .aerial-seg-wall-left::before {
+  background: var(--aerial-wall-left);
+}
+
+.source-segment.aerial-seg-wall-front-left,
+.chart-legend .aerial-seg-wall-front-left::before {
+  background: var(--aerial-wall-front-left);
+}
+
+.source-segment.aerial-seg-wall-front,
+.chart-legend .aerial-seg-wall-front::before {
+  background: var(--aerial-wall-front);
+}
+
+.source-segment.aerial-seg-wall-front-right,
+.chart-legend .aerial-seg-wall-front-right::before {
+  background: var(--aerial-wall-front-right);
+}
+
+.source-segment.aerial-seg-wall-right,
+.chart-legend .aerial-seg-wall-right::before {
+  background: var(--aerial-wall-right);
+}
+
+.source-segment.aerial-seg-wall-back-right,
+.chart-legend .aerial-seg-wall-back-right::before {
+  background: var(--aerial-wall-back-right);
 }
 
 .source-segment.aerial-seg-wall-back,
 .chart-legend .aerial-seg-wall-back::before {
   background: var(--aerial-wall-back);
+}
+
+.source-segment.aerial-seg-wall-back-left,
+.chart-legend .aerial-seg-wall-back-left::before {
+  background: var(--aerial-wall-back-left);
 }
 
 .source-segment.aerial-seg-goal-aerial,
