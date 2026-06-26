@@ -8938,3 +8938,8 @@ tbody tr:last-child td {
   font-size: 15px;
   font-weight: 600;
 }
+
+.rank-trends-tabs {
+  margin: 16px 0 4px;
+  flex-wrap: wrap;
+}

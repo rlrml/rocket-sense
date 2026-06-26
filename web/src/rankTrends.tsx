@@ -1,5 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import {
+  BatteryCharging,
+  Gauge,
+  Goal,
+  Hand,
+  type LucideIcon,
+  Map as MapIcon,
+  MapPinned,
+  Sparkles,
+  Star,
+  Trophy,
+} from "lucide-react";
 import { getRankTrends } from "./api";
 import { rankGroupIconUrl, rankIconUrl } from "./rank";
 import type { RankTrendMetric, RankTrendsResponse } from "./types";
@@ -36,34 +48,103 @@ const FEATURED_KEYS = [
   "goaltag:flip_reset_goal",
 ];
 
+// Category sub-pages, aligned with the career-stats stat groups.
+interface TrendSection {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+}
+const SECTIONS: TrendSection[] = [
+  { id: "featured", label: "Featured", icon: Star },
+  { id: "core", label: "Core", icon: Trophy },
+  { id: "goals", label: "Scoring", icon: Goal },
+  { id: "mechanics", label: "Mechanics", icon: Sparkles },
+  { id: "movement", label: "Movement", icon: Gauge },
+  { id: "boost", label: "Boost", icon: BatteryCharging },
+  { id: "positioning", label: "Positioning", icon: MapPinned },
+  { id: "possession", label: "Possession", icon: MapIcon },
+  { id: "touches", label: "Touches", icon: Hand },
+];
+
+// Map a metric to its sub-page (roughly the career-stats grouping).
+function metricSection(metric: RankTrendMetric): string {
+  const key = metric.key;
+  if (key.startsWith("goaltag:")) return "goals";
+  if (key.startsWith("boost:")) return "boost";
+  if (key.startsWith("movement:")) return "movement";
+  if (key.startsWith("possession:")) return "possession";
+  if (key.startsWith("positioning:")) return "positioning";
+  if (key.startsWith("fact:")) return "touches";
+  if (key === "boost_pickup" || key === "boost_respawn") return "boost";
+  if (key === "possession" || key === "player_possession" || key === "controlled_play")
+    return "possession";
+  if (key === "touch" || key === "center") return "touches";
+  if (metric.category === "mechanic") return "mechanics";
+  if (metric.category === "positioning") return "positioning";
+  return "core";
+}
+
+// Clearer display labels than the auto-humanized key suffix (e.g. "Count").
+const LABEL_OVERRIDES: Record<string, string> = {
+  "possession:count": "Possessions",
+  "possession:touch_count": "Possession Touches",
+  "possession:advance_distance": "Ball Advance (possession)",
+  "possession:duration_share": "Time in Possession",
+  "possession:carry_time_share": "Carry Time",
+  "possession:air_dribble_time_share": "Air Dribble Time",
+  "boost:avg_amount": "Average Boost",
+  "boost:collected": "Boost Collected",
+  "boost:big_pads": "Big Pads",
+  "boost:small_pads": "Small Pads",
+  "movement:avg_speed": "Average Speed",
+  "movement:powerslides": "Powerslides",
+  "movement:distance": "Distance Travelled",
+  "fact:ball-advance": "Ball Advanced",
+  "fact:high-aerial-touch-count": "High Aerial Touches",
+  "fact:control-touch-count": "Control Touches",
+  "fact:possession-time": "Possession Time",
+  "positioning:distance_to_ball": "Distance to Ball",
+};
+
+function displayLabel(metric: RankTrendMetric): string {
+  const override = LABEL_OVERRIDES[metric.key];
+  if (override) return override;
+  // The "% of time" unit already conveys "share"; drop the redundant suffix.
+  return metric.label.replace(/ Share$/, "");
+}
+
 interface MetricFormat {
   unit: string;
+  // Scale applied to the stored value before display (rates are stored per
+  // active minute; the app shows player rates per 5 minutes).
+  scale: number;
   format: (value: number) => string;
 }
 
+function numberFormat(v: number): string {
+  const abs = Math.abs(v);
+  if (abs >= 1000) return Math.round(v).toLocaleString();
+  if (abs >= 100) return v.toFixed(0);
+  if (abs >= 1) return v.toFixed(2);
+  return v.toFixed(3);
+}
+
 function metricFormat(key: string): MetricFormat {
+  // Gauges and shares are levels, not rates — never scaled to a time window.
   if (key.endsWith("_share")) {
-    return { unit: "% of time", format: (v) => `${(v * 100).toFixed(1)}%` };
+    return { unit: "% of time", scale: 1, format: (v) => `${(v * 100).toFixed(1)}%` };
   }
   if (key === "movement:avg_speed") {
-    return { unit: "uu/s", format: (v) => Math.round(v).toLocaleString() };
+    return { unit: "uu/s", scale: 1, format: (v) => Math.round(v).toLocaleString() };
   }
   if (key === "positioning:distance_to_ball") {
-    return { unit: "uu", format: (v) => Math.round(v).toLocaleString() };
+    return { unit: "uu", scale: 1, format: (v) => Math.round(v).toLocaleString() };
   }
   if (key === "boost:avg_amount") {
-    return { unit: "avg boost", format: (v) => v.toFixed(0) };
+    return { unit: "avg boost", scale: 1, format: (v) => v.toFixed(0) };
   }
-  return {
-    unit: "per min",
-    format: (v) => {
-      const abs = Math.abs(v);
-      if (abs >= 1000) return Math.round(v).toLocaleString();
-      if (abs >= 100) return v.toFixed(0);
-      if (abs >= 1) return v.toFixed(2);
-      return v.toFixed(3);
-    },
-  };
+  // Counts / per-minute rates -> shown per 5 minutes, like the rest of the app.
+  return { unit: "per 5 min", scale: 5, format: numberFormat };
 }
 
 function formatPlaylistGroup(key: string): string {
@@ -79,17 +160,27 @@ interface RankAxisEntry {
   iconUrl: string | null;
 }
 
+// Compact rank labels for the x-axis (full names are cramped under the icons).
+function shortRankLabel(label: string): string {
+  if (label === "Supersonic Legend") return "SSL";
+  if (label.startsWith("Grand Champion")) return label.replace("Grand Champion", "GC");
+  return label;
+}
+
 /** One full-width line chart of a metric across the rank ladder. */
 function MetricChart({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: RankAxisEntry[] }) {
   const fmt = metricFormat(metric.key);
+  const values = metric.values.map((v) =>
+    v == null || !Number.isFinite(v) ? null : v * fmt.scale,
+  );
   const W = 1000;
   const H = 300;
   const m = { left: 84, right: 40, top: 24, bottom: 84 };
   const plotW = W - m.left - m.right;
   const plotH = H - m.top - m.bottom;
-  const n = metric.values.length;
+  const n = values.length;
 
-  const finite = metric.values.filter((v): v is number => v != null && Number.isFinite(v));
+  const finite = values.filter((v): v is number => v != null && Number.isFinite(v));
   const hasData = finite.length > 0;
   const rawMin = hasData ? Math.min(...finite) : 0;
   const rawMax = hasData ? Math.max(...finite) : 1;
@@ -104,8 +195,8 @@ function MetricChart({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: 
   const tickCount = 4;
   const yTicks = Array.from({ length: tickCount + 1 }, (_, i) => yMin + (ySpan * i) / tickCount);
 
-  const first = metric.values.find((v) => v != null) ?? null;
-  const last = [...metric.values].reverse().find((v) => v != null) ?? null;
+  const first = values.find((v) => v != null) ?? null;
+  const last = [...values].reverse().find((v) => v != null) ?? null;
   const direction =
     first != null && last != null ? (last > first ? "up" : last < first ? "down" : "flat") : "flat";
   const stroke = direction === "up" ? "#0f766e" : direction === "down" ? "#7c3aed" : "#64748b";
@@ -113,7 +204,7 @@ function MetricChart({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: 
   // Connected segments (skip null gaps).
   const segments: string[] = [];
   let current: string[] = [];
-  metric.values.forEach((v, i) => {
+  values.forEach((v, i) => {
     if (v == null || !Number.isFinite(v)) {
       if (current.length) segments.push(current.join(" "));
       current = [];
@@ -129,7 +220,7 @@ function MetricChart({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: 
       viewBox={`0 0 ${W} ${H}`}
       preserveAspectRatio="xMidYMid meet"
       role="img"
-      aria-label={`${metric.label} across ranks (${fmt.unit})`}
+      aria-label={`${displayLabel(metric)} across ranks (${fmt.unit})`}
     >
       {yTicks.map((t, i) => (
         <g key={i}>
@@ -176,7 +267,7 @@ function MetricChart({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: 
           {segments.map((pts, si) => (
             <polyline key={si} fill="none" stroke={stroke} strokeWidth={2.5} points={pts} />
           ))}
-          {metric.values.map((v, i) =>
+          {values.map((v, i) =>
             v != null && Number.isFinite(v) ? (
               <g key={i}>
                 <circle cx={x(i)} cy={y(v)} r={4} fill={stroke} />
@@ -201,7 +292,7 @@ function MetricCard({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: R
     <div className="rank-trend-card">
       <div className="rank-trend-card-head">
         <h3 className="rank-trend-card-title" title={metric.key}>
-          {metric.label}
+          {displayLabel(metric)}
         </h3>
         <span className="rank-trend-card-meta">
           <span className="rank-trend-tag">{metric.category}</span>
@@ -228,6 +319,7 @@ export function RankTrendsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [section, setSection] = useState("featured");
 
   const query = searchParams.toString();
   useEffect(() => {
@@ -260,16 +352,31 @@ export function RankTrendsPage() {
     if (!data) return [];
     const grouping = data.rank_grouping;
     return data.ranks.map((r) => ({
-      label: r.label,
+      label: shortRankLabel(r.label),
       count: r.distinct_player_count,
       iconUrl: grouping === "group" ? rankGroupIconUrl(r.rank_value) : rankIconUrl(r.rank_value),
     }));
   }, [data]);
 
+  // Which sub-pages actually have metrics (always offer Featured).
+  const sectionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const metric of data?.metrics ?? []) {
+      const id = metricSection(metric);
+      counts.set(id, (counts.get(id) ?? 0) + 1);
+    }
+    return counts;
+  }, [data]);
+  const sections = useMemo(
+    () => SECTIONS.filter((s) => s.id === "featured" || (sectionCounts.get(s.id) ?? 0) > 0),
+    [sectionCounts],
+  );
+
   const visibleMetrics: RankTrendMetric[] = useMemo(() => {
     if (!data) return [];
     const term = search.trim().toLowerCase();
     if (term) {
+      // Search spans every sub-page.
       return data.metrics
         .filter(
           (metric) =>
@@ -279,11 +386,16 @@ export function RankTrendsPage() {
         )
         .sort((a, b) => a.category.localeCompare(b.category) || a.label.localeCompare(b.label));
     }
-    const order = new Map(FEATURED_KEYS.map((key, i) => [key, i]));
+    if (section === "featured") {
+      const order = new Map(FEATURED_KEYS.map((key, i) => [key, i]));
+      return data.metrics
+        .filter((metric) => order.has(metric.key))
+        .sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0));
+    }
     return data.metrics
-      .filter((metric) => order.has(metric.key))
-      .sort((a, b) => (order.get(a.key) ?? 0) - (order.get(b.key) ?? 0));
-  }, [data, search]);
+      .filter((metric) => metricSection(metric) === section)
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [data, search, section]);
 
   const total = data?.metrics.length ?? 0;
 
@@ -353,18 +465,39 @@ export function RankTrendsPage() {
         </div>
       </header>
 
+      <nav className="stat-group-nav rank-trends-tabs" aria-label="Rank trend categories">
+        {sections.map((s) => {
+          const Icon = s.icon;
+          const active = !search.trim() && section === s.id;
+          return (
+            <button
+              key={s.id}
+              type="button"
+              className={`stat-group-link ${active ? "active" : ""}`}
+              onClick={() => {
+                setSearch("");
+                setSection(s.id);
+              }}
+            >
+              <Icon size={16} aria-hidden />
+              <span>{s.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+
       <div className="rank-trends-searchbar">
         <input
           type="search"
           className="rank-trends-search"
-          placeholder="Search stats (e.g. flip reset, boost, speed, behind ball)…"
+          placeholder="Search every stat (e.g. flip reset, boost, speed, behind ball)…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
         <span className="rank-trends-count">
           {search.trim()
             ? `${visibleMetrics.length} of ${total} stats`
-            : `Featured · search to explore all ${total} stats`}
+            : `${visibleMetrics.length} stats · search spans all ${total}`}
         </span>
       </div>
 
