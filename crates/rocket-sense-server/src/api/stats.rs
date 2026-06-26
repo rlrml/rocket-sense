@@ -10,13 +10,13 @@ use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::rank_benchmark::{BenchmarkWindow, MIN_SAMPLE};
+use crate::rank_benchmark::BenchmarkWindow;
 
 use super::{
     event_stats::{count_column, push_kickoff_event_spawn_filter, KickoffSpawnFilter},
     query::{
-        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_i32_filter,
-        parse_u32_filter, QueryParams,
+        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_u32_filter,
+        QueryParams,
     },
     replay_set::{
         append_replay_set_filters, append_target_player_replay_set_filters,
@@ -84,27 +84,6 @@ pub struct StatAggregateSetResponse {
     pub opponent_non_demo_active_time_seconds: Option<f64>,
     pub opponent_time_most_back_seconds: Option<f64>,
     pub opponent_time_most_forward_seconds: Option<f64>,
-    /// Served rank tier for the `rank-peers` benchmark cohort (the player's
-    /// derived default unless overridden). `None` when the benchmark is disabled
-    /// or no tier could be resolved.
-    pub rank_benchmark_tier: Option<i32>,
-    pub rank_benchmark_tier_label: Option<String>,
-    /// Which grain backs the served bar: `"tier"` (exact tier) or `"group"` (the
-    /// pooled rank group, when the exact tier was too sparse to sample).
-    pub rank_benchmark_rank_grouping: Option<String>,
-    /// Whether the served tier is the viewed player's own derived default (vs a
-    /// manual override).
-    pub rank_benchmark_is_player_default: Option<bool>,
-    /// Distinct qualifying players behind the served `(window, group, tier,
-    /// outcome)` cell -- the sample-adequacy signal for the UI.
-    pub rank_benchmark_distinct_player_count: Option<i64>,
-    /// Served benchmark window key + label.
-    pub rank_benchmark_window: Option<String>,
-    pub rank_benchmark_window_label: Option<String>,
-    /// Tier and window picker options so the UI builds both selectors without an
-    /// extra request. Empty when the benchmark is disabled.
-    pub rank_benchmark_available_tiers: Vec<RankBenchmarkTierOption>,
-    pub rank_benchmark_available_windows: Vec<RankBenchmarkWindowOption>,
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub teammate_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
@@ -175,16 +154,6 @@ pub struct StatAggregateGroupResponse {
     pub opponent_non_demo_active_time_seconds: Option<f64>,
     pub opponent_time_most_back_seconds: Option<f64>,
     pub opponent_time_most_forward_seconds: Option<f64>,
-    /// Served rank tier for this group's `rank-peers` benchmark cohort.
-    pub rank_benchmark_tier: Option<i32>,
-    pub rank_benchmark_tier_label: Option<String>,
-    pub rank_benchmark_rank_grouping: Option<String>,
-    pub rank_benchmark_is_player_default: Option<bool>,
-    pub rank_benchmark_distinct_player_count: Option<i64>,
-    pub rank_benchmark_window: Option<String>,
-    pub rank_benchmark_window_label: Option<String>,
-    pub rank_benchmark_available_tiers: Vec<RankBenchmarkTierOption>,
-    pub rank_benchmark_available_windows: Vec<RankBenchmarkWindowOption>,
     pub stats: Vec<StatAggregateResponse>,
 }
 
@@ -214,22 +183,6 @@ pub struct StatAggregateResponse {
     pub opponent_count_per_game: Option<f64>,
     pub opponent_per_active_minute: Option<f64>,
     pub opponent_per_non_demo_active_minute: Option<f64>,
-    /// Served per-active-minute benchmark rate of a typical player at the served
-    /// rank tier (the `rank-peers` cohort). `None` when the benchmark is disabled
-    /// or the tier/event has no materialized cell.
-    pub rank_benchmark_per_active_minute: Option<f64>,
-    pub rank_benchmark_per_non_demo_active_minute: Option<f64>,
-    /// How that rate was aggregated: `"median"` (typical player) or `"mean"`
-    /// (pooled rate, used for rare mechanics whose median is 0).
-    pub rank_benchmark_aggregator: Option<String>,
-}
-
-/// One selectable rank tier for the benchmark picker, with its sample size.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct RankBenchmarkTierOption {
-    pub tier: i32,
-    pub label: String,
-    pub distinct_player_count: i64,
 }
 
 /// One selectable benchmark window (`rolling-6m`, `season:current`, ...).
@@ -460,12 +413,8 @@ pub struct StatAggregatesQuery {
     /// `materialized=true` forces the materialized path. Absent uses the server
     /// default. Lets any view run a query both ways for comparison/verification.
     pub materialized: Option<bool>,
-    /// Manual rank-tier override for the `rank-peers` benchmark cohort. Absent
-    /// uses the viewed player's derived tier.
-    #[serde(rename = "rank-benchmark-tier", alias = "rank_benchmark_tier")]
-    pub rank_benchmark_tier: Option<i32>,
-    /// Manual benchmark-window override (`rolling-6m`, `season:current`, ...).
-    /// Absent uses the server default window.
+    /// Benchmark-window override (`rolling-6m`, `season:current`, ...) for the
+    /// rank-average cohorts; absent uses the server default window.
     #[serde(rename = "rank-benchmark-window", alias = "rank_benchmark_window")]
     pub rank_benchmark_window: Option<String>,
 }
@@ -492,8 +441,6 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) rank_benchmark_windows: Arc<[BenchmarkWindow]>,
     /// `window_key` served when a request carries no `rank-benchmark-window`.
     pub(crate) rank_benchmark_default_window: Arc<str>,
-    /// Manual tier override (`rank-benchmark-tier`), else the player's derived tier.
-    pub(crate) rank_benchmark_tier: Option<i32>,
     /// Manual window override (`rank-benchmark-window`), else the default window.
     pub(crate) rank_benchmark_window: Option<String>,
 }
@@ -610,7 +557,6 @@ impl StatAggregateFilters {
             rank_benchmark_enabled: false,
             rank_benchmark_windows: Arc::from(Vec::new()),
             rank_benchmark_default_window: Arc::from(""),
-            rank_benchmark_tier: query.rank_benchmark_tier,
             rank_benchmark_window: query
                 .rank_benchmark_window
                 .map(|window| window.trim().to_owned())
@@ -620,7 +566,7 @@ impl StatAggregateFilters {
 }
 
 impl StatAggregatesQuery {
-    fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
+    pub(crate) fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set = ReplaySetFilterInput::from_query_params(&params)?;
         Ok(Self {
@@ -668,10 +614,6 @@ impl StatAggregatesQuery {
             materialized: params
                 .first(&["materialized"])
                 .map(|value| parse_bool_filter("materialized", &value))
-                .transpose()?,
-            rank_benchmark_tier: params
-                .first(&["rank-benchmark-tier", "rank_benchmark_tier"])
-                .map(|value| parse_i32_filter("rank-benchmark-tier", &value))
                 .transpose()?,
             rank_benchmark_window: params
                 .first(&["rank-benchmark-window", "rank_benchmark_window"]),
@@ -1717,34 +1659,8 @@ pub(crate) fn player_boost_band_index(percent: f64) -> usize {
     }
 }
 
-/// One stat's served benchmark rates (the `rank-peers` cohort), keyed by the
-/// event-type key in [`RankBenchmarkCohort::per_stat`]. The values are already
-/// the aggregator's pick (median for common stats, pooled mean for rare ones);
-/// `aggregator` is carried so the UI can label which it is.
-struct RankBenchmarkStatValue {
-    per_active_minute: Option<f64>,
-    per_non_demo_active_minute: Option<f64>,
-    aggregator: String,
-}
-
-/// The resolved rank-median benchmark cohort for a single `(window, playlist
-/// group, tier, outcome)` cell, plus the picker option lists.
-struct RankBenchmarkCohort {
-    tier: Option<i32>,
-    tier_label: Option<String>,
-    /// Which grain was actually served: `"tier"` or the pooled `"group"`.
-    rank_grouping: Option<String>,
-    is_player_default: bool,
-    distinct_player_count: Option<i64>,
-    window_key: String,
-    window_label: Option<String>,
-    available_tiers: Vec<RankBenchmarkTierOption>,
-    available_windows: Vec<RankBenchmarkWindowOption>,
-    per_stat: HashMap<String, RankBenchmarkStatValue>,
-}
-
 /// `all` / `win` / `loss` for the benchmark, mirroring the player-outcome filter.
-fn rank_benchmark_outcome_key(filters: &StatAggregateFilters) -> &'static str {
+pub(crate) fn rank_benchmark_outcome_key(filters: &StatAggregateFilters) -> &'static str {
     match filters
         .replay_set
         .player_outcome
@@ -1759,7 +1675,7 @@ fn rank_benchmark_outcome_key(filters: &StatAggregateFilters) -> &'static str {
 
 /// The served benchmark window: the request override when it names a configured
 /// window, otherwise the server default.
-fn resolve_rank_benchmark_window_key(filters: &StatAggregateFilters) -> String {
+pub(crate) fn resolve_rank_benchmark_window_key(filters: &StatAggregateFilters) -> String {
     if let Some(override_key) = &filters.rank_benchmark_window {
         if filters
             .rank_benchmark_windows
@@ -1776,7 +1692,7 @@ fn resolve_rank_benchmark_window_key(filters: &StatAggregateFilters) -> String {
 /// most recent ranked replays in the group, within the served window's bounds.
 /// `None` when there is no player, no qualifying ranked replay, or no window
 /// metadata (the benchmark has not been materialized yet).
-async fn load_player_rank_tier(
+pub(crate) async fn load_player_rank_tier(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
     group_key: &str,
@@ -1838,190 +1754,6 @@ async fn load_player_rank_tier(
         }
     }
     Ok(best)
-}
-
-/// Load the `rank-peers` benchmark cohort for the served window/group/outcome.
-/// Returns `None` when the benchmark is disabled or the view has no single
-/// playlist group (the all-playlists view has no single tier to compare to).
-async fn load_rank_benchmark_cohort(
-    pool: &sqlx::PgPool,
-    filters: &StatAggregateFilters,
-) -> Result<Option<RankBenchmarkCohort>, sqlx::Error> {
-    if !filters.rank_benchmark_enabled {
-        return Ok(None);
-    }
-    // The benchmark needs one playlist group to compare against. Use the
-    // explicit per-group key when set (group expansion); otherwise resolve the
-    // filtered set's group via the same expression and only proceed when it
-    // collapses to exactly one (the all-playlists view has no single tier).
-    let group_key = match filters.replay_set.playlist_group_key.clone() {
-        Some(group_key) => group_key,
-        None => {
-            let mut groups = load_stat_group_playlists(pool, filters).await?;
-            if groups.len() == 1 {
-                groups.remove(0)
-            } else {
-                return Ok(None);
-            }
-        }
-    };
-    let window_key = resolve_rank_benchmark_window_key(filters);
-    let outcome = rank_benchmark_outcome_key(filters);
-
-    // Picker: every configured window, labelled from its meta row when present.
-    let configured_keys: Vec<String> = filters
-        .rank_benchmark_windows
-        .iter()
-        .map(|window| window.window_key())
-        .collect();
-    let meta_rows = sqlx::query(
-        "SELECT window_key, display_label FROM rank_benchmark_meta WHERE window_key = ANY($1)",
-    )
-    .bind(&configured_keys)
-    .fetch_all(pool)
-    .await?;
-    let mut meta_labels: HashMap<String, String> = HashMap::new();
-    for row in &meta_rows {
-        meta_labels.insert(row.try_get("window_key")?, row.try_get("display_label")?);
-    }
-    let available_windows: Vec<RankBenchmarkWindowOption> = filters
-        .rank_benchmark_windows
-        .iter()
-        .map(|window| {
-            let key = window.window_key();
-            let label = meta_labels
-                .get(&key)
-                .cloned()
-                .unwrap_or_else(|| window.default_label());
-            RankBenchmarkWindowOption { key, label }
-        })
-        .collect();
-    let window_label = meta_labels.get(&window_key).cloned();
-
-    // Picker + sample gate: every materialized bucket at this cell. 'tier' rows
-    // feed the tier picker; 'group' rows back the sparse-tier fallback.
-    let population_rows = sqlx::query(
-        "SELECT rank_grouping, rank_value, distinct_player_count FROM rank_benchmark_population \
-         WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 ORDER BY rank_value",
-    )
-    .bind(&window_key)
-    .bind(&group_key)
-    .bind(outcome)
-    .fetch_all(pool)
-    .await?;
-    let mut available_tiers = Vec::new();
-    let mut population_by_tier: HashMap<i32, i64> = HashMap::new();
-    let mut population_by_group: HashMap<i32, i64> = HashMap::new();
-    for row in &population_rows {
-        let grouping: String = row.try_get("rank_grouping")?;
-        let value: i32 = row.try_get("rank_value")?;
-        // `distinct_player_count` is an INT4 column (see migration 0071 / the
-        // `::int` cast in the refresh job), so decode it as i32 and widen rather
-        // than asking sqlx for an i64 (which fails with a type mismatch).
-        let count: i64 = row.try_get::<i32, _>("distinct_player_count")?.into();
-        if grouping == "group" {
-            population_by_group.insert(value, count);
-        } else {
-            population_by_tier.insert(value, count);
-            available_tiers.push(RankBenchmarkTierOption {
-                tier: value,
-                label: crate::ranks::rank_tier_label(value),
-                distinct_player_count: count,
-            });
-        }
-    }
-
-    let (tier, is_player_default) = match filters.rank_benchmark_tier {
-        Some(tier) => (Some(tier), false),
-        None => (
-            load_player_rank_tier(pool, filters, &group_key, &window_key).await?,
-            true,
-        ),
-    };
-
-    // Resolve the served bucket: the exact tier when its sample clears
-    // MIN_SAMPLE, else the pooled rank group, else the (thin) tier if that is
-    // all we have.
-    let served = tier.and_then(|tier| {
-        let tier_count = population_by_tier.get(&tier).copied();
-        if tier_count.is_some_and(|count| count >= MIN_SAMPLE) {
-            return Some((
-                "tier",
-                tier,
-                crate::ranks::rank_tier_label(tier),
-                tier_count,
-            ));
-        }
-        let group_id = crate::ranks::rank_group_id(tier);
-        if let Some(group_count) = population_by_group.get(&group_id).copied() {
-            return Some((
-                "group",
-                group_id,
-                crate::ranks::rank_group_label(group_id),
-                Some(group_count),
-            ));
-        }
-        tier_count.map(|count| {
-            (
-                "tier",
-                tier,
-                crate::ranks::rank_tier_label(tier),
-                Some(count),
-            )
-        })
-    });
-
-    let (rank_grouping, tier_label, distinct_player_count, per_stat) = if let Some((
-        grouping,
-        value,
-        label,
-        count,
-    )) = served
-    {
-        let stat_rows = sqlx::query(
-                "SELECT s.metric_key AS stat_key, s.aggregator, \
-                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_active_minute ELSE s.median_per_active_minute END AS per_active_minute, \
-                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_non_demo_active_minute ELSE s.median_per_non_demo_active_minute END AS per_non_demo_active_minute \
-                 FROM rank_benchmark_stats s \
-                 WHERE s.window_key = $1 AND s.playlist_group_key = $2 AND s.rank_grouping = $3 \
-                   AND s.rank_value = $4 AND s.outcome = $5",
-            )
-            .bind(&window_key)
-            .bind(&group_key)
-            .bind(grouping)
-            .bind(value)
-            .bind(outcome)
-            .fetch_all(pool)
-            .await?;
-        let mut per_stat = HashMap::with_capacity(stat_rows.len());
-        for row in &stat_rows {
-            let key: String = row.try_get("stat_key")?;
-            per_stat.insert(
-                key,
-                RankBenchmarkStatValue {
-                    per_active_minute: row.try_get("per_active_minute")?,
-                    per_non_demo_active_minute: row.try_get("per_non_demo_active_minute")?,
-                    aggregator: row.try_get("aggregator")?,
-                },
-            );
-        }
-        (Some(grouping.to_owned()), Some(label), count, per_stat)
-    } else {
-        (None, None, None, HashMap::new())
-    };
-
-    Ok(Some(RankBenchmarkCohort {
-        tier,
-        tier_label,
-        rank_grouping,
-        is_player_default,
-        distinct_player_count,
-        window_key,
-        window_label,
-        available_tiers,
-        available_windows,
-        per_stat,
-    }))
 }
 
 #[derive(Clone)]
@@ -2183,7 +1915,6 @@ async fn load_stat_aggregates_base(
         teammate_rotation_duration_histogram,
         opponent_rotation_duration_histogram,
         touch_breakdown,
-        rank_benchmark_cohort,
     ) = tokio::try_join!(
         load_target_denominators(pool, filters),
         teammate_fut,
@@ -2193,7 +1924,6 @@ async fn load_stat_aggregates_base(
         teammate_histogram_fut,
         opponent_histogram_fut,
         touch_breakdown_fut,
-        load_rank_benchmark_cohort(pool, filters),
     )?;
     let target_replay_count = target_denominators.replay_count.max(1) as f64;
     let teammate_appearance_count = teammate_denominators
@@ -2231,53 +1961,41 @@ async fn load_stat_aggregates_base(
 
     let stats = rows
         .into_iter()
-        .map(|row| {
-            let benchmark = rank_benchmark_cohort
-                .as_ref()
-                .and_then(|cohort| cohort.per_stat.get(&row.key));
-            StatAggregateResponse {
-                key: row.key,
-                display_name: row.display_name,
-                category: row.category,
-                event_count: row.event_count,
-                count_per_game: row.event_count as f64 / target_replay_count,
-                per_active_minute: per_minute(
-                    row.event_count,
-                    target_denominators.active_time_seconds,
-                ),
-                per_non_demo_active_minute: per_minute(
-                    row.event_count,
-                    target_denominators.non_demo_active_time_seconds,
-                ),
-                teammate_event_count: row.teammate_event_count,
-                teammate_appearance_count,
-                teammate_count_per_game: (teammate_appearance_count > 0)
-                    .then(|| row.teammate_event_count as f64 / teammate_appearance_count as f64),
-                teammate_per_active_minute: per_minute(
-                    row.teammate_event_count,
-                    teammate_active_time_seconds,
-                ),
-                teammate_per_non_demo_active_minute: per_minute(
-                    row.teammate_event_count,
-                    teammate_non_demo_active_time_seconds,
-                ),
-                opponent_event_count: row.opponent_event_count,
-                opponent_appearance_count,
-                opponent_count_per_game: (opponent_appearance_count > 0)
-                    .then(|| row.opponent_event_count as f64 / opponent_appearance_count as f64),
-                opponent_per_active_minute: per_minute(
-                    row.opponent_event_count,
-                    opponent_active_time_seconds,
-                ),
-                opponent_per_non_demo_active_minute: per_minute(
-                    row.opponent_event_count,
-                    opponent_non_demo_active_time_seconds,
-                ),
-                rank_benchmark_per_active_minute: benchmark.and_then(|v| v.per_active_minute),
-                rank_benchmark_per_non_demo_active_minute: benchmark
-                    .and_then(|v| v.per_non_demo_active_minute),
-                rank_benchmark_aggregator: benchmark.map(|v| v.aggregator.clone()),
-            }
+        .map(|row| StatAggregateResponse {
+            key: row.key,
+            display_name: row.display_name,
+            category: row.category,
+            event_count: row.event_count,
+            count_per_game: row.event_count as f64 / target_replay_count,
+            per_active_minute: per_minute(row.event_count, target_denominators.active_time_seconds),
+            per_non_demo_active_minute: per_minute(
+                row.event_count,
+                target_denominators.non_demo_active_time_seconds,
+            ),
+            teammate_event_count: row.teammate_event_count,
+            teammate_appearance_count,
+            teammate_count_per_game: (teammate_appearance_count > 0)
+                .then(|| row.teammate_event_count as f64 / teammate_appearance_count as f64),
+            teammate_per_active_minute: per_minute(
+                row.teammate_event_count,
+                teammate_active_time_seconds,
+            ),
+            teammate_per_non_demo_active_minute: per_minute(
+                row.teammate_event_count,
+                teammate_non_demo_active_time_seconds,
+            ),
+            opponent_event_count: row.opponent_event_count,
+            opponent_appearance_count,
+            opponent_count_per_game: (opponent_appearance_count > 0)
+                .then(|| row.opponent_event_count as f64 / opponent_appearance_count as f64),
+            opponent_per_active_minute: per_minute(
+                row.opponent_event_count,
+                opponent_active_time_seconds,
+            ),
+            opponent_per_non_demo_active_minute: per_minute(
+                row.opponent_event_count,
+                opponent_non_demo_active_time_seconds,
+            ),
         })
         .collect();
 
@@ -2302,36 +2020,6 @@ async fn load_stat_aggregates_base(
         opponent_non_demo_active_time_seconds,
         opponent_time_most_back_seconds,
         opponent_time_most_forward_seconds,
-        rank_benchmark_tier: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.tier),
-        rank_benchmark_tier_label: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.tier_label.clone()),
-        rank_benchmark_rank_grouping: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.rank_grouping.clone()),
-        rank_benchmark_is_player_default: rank_benchmark_cohort
-            .as_ref()
-            .filter(|cohort| cohort.tier.is_some())
-            .map(|cohort| cohort.is_player_default),
-        rank_benchmark_distinct_player_count: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.distinct_player_count),
-        rank_benchmark_window: rank_benchmark_cohort
-            .as_ref()
-            .map(|cohort| cohort.window_key.clone()),
-        rank_benchmark_window_label: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.window_label.clone()),
-        rank_benchmark_available_tiers: rank_benchmark_cohort
-            .as_ref()
-            .map(|cohort| cohort.available_tiers.clone())
-            .unwrap_or_default(),
-        rank_benchmark_available_windows: rank_benchmark_cohort
-            .as_ref()
-            .map(|cohort| cohort.available_windows.clone())
-            .unwrap_or_default(),
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
         teammate_rotation_duration_histogram,
@@ -2403,15 +2091,6 @@ async fn load_playlist_stat_aggregate_groups(
             opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
             opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
             opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
-            rank_benchmark_tier: aggregates.rank_benchmark_tier,
-            rank_benchmark_tier_label: aggregates.rank_benchmark_tier_label,
-            rank_benchmark_rank_grouping: aggregates.rank_benchmark_rank_grouping,
-            rank_benchmark_is_player_default: aggregates.rank_benchmark_is_player_default,
-            rank_benchmark_distinct_player_count: aggregates.rank_benchmark_distinct_player_count,
-            rank_benchmark_window: aggregates.rank_benchmark_window,
-            rank_benchmark_window_label: aggregates.rank_benchmark_window_label,
-            rank_benchmark_available_tiers: aggregates.rank_benchmark_available_tiers,
-            rank_benchmark_available_windows: aggregates.rank_benchmark_available_windows,
             stats: aggregates.stats,
         })
     }))
@@ -2420,7 +2099,7 @@ async fn load_playlist_stat_aggregate_groups(
     .await
 }
 
-async fn load_stat_group_playlists(
+pub(crate) async fn load_stat_group_playlists(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<String>, sqlx::Error> {
@@ -2540,15 +2219,6 @@ async fn load_player_stat_aggregate_groups(
             opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
             opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
             opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
-            rank_benchmark_tier: aggregates.rank_benchmark_tier,
-            rank_benchmark_tier_label: aggregates.rank_benchmark_tier_label,
-            rank_benchmark_rank_grouping: aggregates.rank_benchmark_rank_grouping,
-            rank_benchmark_is_player_default: aggregates.rank_benchmark_is_player_default,
-            rank_benchmark_distinct_player_count: aggregates.rank_benchmark_distinct_player_count,
-            rank_benchmark_window: aggregates.rank_benchmark_window,
-            rank_benchmark_window_label: aggregates.rank_benchmark_window_label,
-            rank_benchmark_available_tiers: aggregates.rank_benchmark_available_tiers,
-            rank_benchmark_available_windows: aggregates.rank_benchmark_available_windows,
             stats: aggregates.stats,
         })
     }))

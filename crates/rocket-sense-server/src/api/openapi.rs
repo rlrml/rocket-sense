@@ -1,6 +1,7 @@
 use super::{
     admin, auth, ballchasing, health, leaderboards, meta, movement_stats, player_overview, players,
-    positioning_stats, possession_stats, rank_trends, replays, stats, users,
+    positioning_stats, possession_stats, rank_benchmark_cohorts, rank_trends, replays, stats,
+    users,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -48,6 +49,7 @@ use utoipa::{
         positioning_stats::get_positioning_summary,
         possession_stats::get_possession_summary,
         rank_trends::get_rank_trends,
+        rank_benchmark_cohorts::get_rank_benchmark_cohorts,
         stats::get_stat_aggregates,
         stats::get_player_boost_pad_control,
         stats::get_player_boost_totals,
@@ -118,6 +120,11 @@ use utoipa::{
             rank_trends::RankTrendRank,
             rank_trends::RankTrendMetric,
             rank_trends::RankTrendsWindow,
+            rank_benchmark_cohorts::RankBenchmarkCohortsResponse,
+            rank_benchmark_cohorts::RankBenchmarkCohort,
+            rank_benchmark_cohorts::RankBenchmarkCohortStat,
+            rank_benchmark_cohorts::RankBenchmarkRankOption,
+            stats::RankBenchmarkWindowOption,
             movement_stats::MovementSummaryResponse,
             movement_stats::MovementCohortSummary,
             players::PlayerNameHistoryEntryResponse,

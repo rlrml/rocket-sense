@@ -13,6 +13,7 @@ mod players;
 mod positioning_stats;
 mod possession_stats;
 mod query;
+mod rank_benchmark_cohorts;
 mod rank_trends;
 mod replay_set;
 mod replays;
@@ -68,6 +69,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(positioning_stats::router())
         .merge(possession_stats::router())
         .merge(players::router())
+        .merge(rank_benchmark_cohorts::router())
         .merge(rank_trends::router())
         .merge(replays::router())
         .merge(stats::router())
