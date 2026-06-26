@@ -1549,50 +1549,62 @@ pub async fn setup_replay_processing_queue(pool: &PgPool) -> Result<()> {
     Ok(())
 }
 
+/// Hard ceiling on simultaneous replay parses, regardless of configuration.
+/// Each parse holds the fully decoded replay plus its materialized event set in
+/// memory (~1-2 GiB), so this cap is what keeps a flooded queue from exhausting
+/// the worker pod's memory — and, before pod memory limits existed, the whole
+/// host: unbounded concurrency OOM-rebooted the node on 2026-06-25.
+const MAX_REPLAY_PROCESSING_CONCURRENCY: usize = 4;
+
 pub fn start_replay_processing_workers(
     pool: PgPool,
     storage: Arc<dyn ObjectStorage>,
-    worker_count: usize,
+    concurrency: usize,
 ) {
-    let worker_count = worker_count.clamp(1, 4);
+    // `concurrency` is the number of replay parses allowed in flight at once.
+    // apalis drives the job handler through a tower stack, so `.concurrency()`
+    // (a `ConcurrencyLimitLayer`) applies real backpressure: one worker fetches
+    // and runs at most this many jobs concurrently and leaves the rest Pending
+    // on the queue. Without it an apalis worker runs its whole fetched batch as
+    // concurrent futures, so the startup re-enqueue of an unprocessed backlog
+    // spawned dozens of parses at once and OOM-rebooted the node on 2026-06-25.
+    let concurrency = concurrency.clamp(1, MAX_REPLAY_PROCESSING_CONCURRENCY);
     let state = ReplayProcessingWorkerState { pool, storage };
 
-    for worker_index in 0..worker_count {
-        let state = state.clone();
-        tokio::spawn(async move {
-            loop {
-                // Worker ids are registered in apalis.workers behind a
-                // session-scoped advisory lock that is never released, so a
-                // static name collides with other processes (api + worker
-                // pods) and across our own restarts; registration then fails
-                // with WORKER_ALREADY_EXISTS and the worker dies silently. A
-                // fresh suffix per attempt sidesteps the collision, and the
-                // retry loop keeps a worker alive instead of leaving a
-                // healthy-looking pod that consumes nothing.
-                let instance = Uuid::new_v4().simple().to_string();
-                let worker_name = format!("replay-processing-{worker_index}-{instance}");
-                let worker = WorkerBuilder::new(worker_name.clone())
-                    .backend(replay_processing_consumer(&state.pool))
-                    .data(state.clone())
-                    .build(process_replay_job);
+    tokio::spawn(async move {
+        loop {
+            // Worker ids are registered in apalis.workers behind a
+            // session-scoped advisory lock that is never released, so a static
+            // name collides with other processes (api + worker pods) and across
+            // our own restarts; registration then fails with
+            // WORKER_ALREADY_EXISTS and the worker dies silently. A fresh suffix
+            // per attempt sidesteps the collision, and the retry loop keeps a
+            // worker alive instead of leaving a healthy-looking pod that
+            // consumes nothing.
+            let instance = Uuid::new_v4().simple().to_string();
+            let worker_name = format!("replay-processing-{instance}");
+            let worker = WorkerBuilder::new(worker_name.clone())
+                .backend(replay_processing_consumer(&state.pool))
+                .concurrency(concurrency)
+                .data(state.clone())
+                .build(process_replay_job);
 
-                match worker.run().await {
-                    Ok(()) => {
-                        tracing::info!(worker = worker_name, "replay processing worker exited");
-                        break;
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            worker = worker_name,
-                            error = %error,
-                            "replay processing worker stopped; restarting in 5s"
-                        );
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    }
+            match worker.run().await {
+                Ok(()) => {
+                    tracing::info!(worker = worker_name, "replay processing worker exited");
+                    break;
+                }
+                Err(error) => {
+                    tracing::error!(
+                        worker = worker_name,
+                        error = %error,
+                        "replay processing worker stopped; restarting in 5s"
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
                 }
             }
-        });
-    }
+        }
+    });
 }
 
 pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
