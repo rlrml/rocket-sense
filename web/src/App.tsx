@@ -2609,7 +2609,7 @@ function ReplayStatsPage() {
           <p className="eyebrow">Game stats</p>
           <h1>{replay?.original_file_name || "Replay stats"}</h1>
         </div>
-        <div className="button-row">
+        <div className="page-header-actions">
           {replay?.staleness.is_stale ? (
             <StalenessChip
               staleness={replay.staleness}
