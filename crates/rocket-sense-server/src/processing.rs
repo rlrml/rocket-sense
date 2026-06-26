@@ -1201,6 +1201,7 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
             SELECT
                 subject.replay_player_id,
                 COUNT(DISTINCT event.id) FILTER (WHERE detail.height_band = 'high_air') AS high_aerial_touch_count,
+                COUNT(DISTINCT event.id) FILTER (WHERE detail.surface = 'air' AND detail.height_band = 'low_air') AS aerial_touch_count,
                 COUNT(DISTINCT event.id) FILTER (WHERE detail.kind = 'control') AS control_touch_count
             FROM play_events event
             JOIN play_event_subjects subject
@@ -1224,6 +1225,7 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
                 rp.team,
                 rp.active_time_seconds,
                 COALESCE(counts.high_aerial_touch_count, 0) AS high_aerial_touch_count,
+                COALESCE(counts.aerial_touch_count, 0) AS aerial_touch_count,
                 COALESCE(counts.control_touch_count, 0) AS control_touch_count
             FROM replay_players rp
             LEFT JOIN player_touch_counts counts ON counts.replay_player_id = rp.id
@@ -1243,6 +1245,18 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
                 team,
                 'high-aerial-touch-count'::text AS stat_key,
                 high_aerial_touch_count::double precision AS value,
+                active_time_seconds
+            FROM touch_counts
+            UNION ALL
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                'aerial-touch-count'::text AS stat_key,
+                aerial_touch_count::double precision AS value,
                 active_time_seconds
             FROM touch_counts
             UNION ALL
