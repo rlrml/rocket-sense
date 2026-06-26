@@ -1,5 +1,5 @@
 import { Check, Link2, Search, X } from "lucide-react";
-import { type ReactNode, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
   PlayerBoostTotal,
@@ -65,7 +65,6 @@ const STAT_KEY_CATEGORY: Record<string, string> = {
   ceiling_shot: "Aerials",
   double_tap: "Aerials",
   dodge_reset: "Aerials",
-  flick: "Aerials",
   half_volley: "Aerials",
   touch: "Touches",
   backboard_bounce: "Touches",
@@ -74,6 +73,8 @@ const STAT_KEY_CATEGORY: Record<string, string> = {
   fifty_fifty: "Touches",
   whiff: "Touches",
   bump: "Touches",
+  flick: "Ground Play",
+  musty_flick: "Ground Play",
   speed_flip: "Movement",
   wavedash: "Movement",
   half_flip: "Movement",
@@ -87,14 +88,18 @@ const STAT_KEY_CATEGORY: Record<string, string> = {
   ball_carry: "Possession",
   depth_role: "Positioning",
   positioning_distance: "Positioning",
-  player_activity: "Positioning",
   shadow_defense: "Positioning",
 };
+
+// Aggregate stat keys we never surface as explorer columns. `player_activity` is
+// an internal active-time span stream, not a meaningful per-player metric.
+const IGNORED_STAT_KEYS: ReadonlySet<string> = new Set(["player_activity"]);
 
 const CATEGORY_ORDER = [
   "Scoring",
   "Kickoffs",
   "Aerials",
+  "Ground Play",
   "Touches",
   "Possession",
   "Positioning",
@@ -120,13 +125,6 @@ function formatCount(value: number, measure: LeaderboardMeasure): string {
 
 function formatPercent(value: number): string {
   return `${Math.round(value)}%`;
-}
-
-function formatRate(value: number): string {
-  if (value >= 100) return value.toFixed(0);
-  if (value >= 10) return value.toFixed(1);
-  if (value >= 1) return value.toFixed(2);
-  return value.toFixed(3);
 }
 
 function statValue(
@@ -182,6 +180,7 @@ export function buildGroupStatMetrics({
   for (const group of aggByIdentity.values()) {
     for (const stat of group.stats) {
       if (stat.category === "context") continue;
+      if (IGNORED_STAT_KEYS.has(stat.key)) continue;
       if (!seen.has(stat.key))
         seen.set(stat.key, { display_name: stat.display_name, category: stat.category });
     }
@@ -265,18 +264,6 @@ export function buildGroupStatMetrics({
           return games && games > 0 ? raw / games : null;
         }
         return total.tracked_seconds > 0 ? (raw / total.tracked_seconds) * 300 : null;
-      },
-    });
-    metrics.push({
-      key: "boost:bpm",
-      label: "BPM (boost used / min)",
-      group: "Boost",
-      format: formatRate,
-      value: (id) => {
-        const total = boostOf(id);
-        return total && total.tracked_seconds > 0
-          ? (total.boost_used / total.tracked_seconds) * 60
-          : null;
       },
     });
     metrics.push(rateMetric("used", "Boost used", (t) => t.boost_used));
@@ -373,14 +360,10 @@ function sortCategories(
   return ordered.map((category) => ({ category, metrics: byCategory.get(category)! }));
 }
 
-const DEFAULT_COLUMN_PREFERENCES = [
-  "stat:goal",
-  "stat:save",
-  "stat:shot",
-  "stat:demolition",
-  "stat:touch",
-  "kickoff:kickoff_goal_share",
-];
+// The table opens on goals alone; everything else is one click away in the
+// picker. Kept as a list so the fallback logic below can drop any key that is
+// missing for a given group.
+const DEFAULT_COLUMN_PREFERENCES = ["stat:goal"];
 
 export function GroupStatExplorer({
   participants,
@@ -425,6 +408,23 @@ export function GroupStatExplorer({
   const columns = (
     colsParam != null ? colsParam.split(",").filter(Boolean) : defaultColumns
   ).filter((key) => metricByKey.has(key));
+
+  // Always materialize the default selection into the URL so a freshly-opened
+  // table lands on a fully-encoded, shareable link (e.g. `?cols=stat%3Agoal`)
+  // instead of a bare path. Runs once the metrics needed to resolve the default
+  // are available; `replace` keeps it out of the back-button history.
+  useEffect(() => {
+    if (colsParam == null && defaultColumns.length > 0) {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set("cols", defaultColumns.join(","));
+          return next;
+        },
+        { replace: true },
+      );
+    }
+  }, [colsParam, defaultColumns, setSearchParams]);
 
   const measureParam = searchParams.get("measure");
   const measure: LeaderboardMeasure =
