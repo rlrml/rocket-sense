@@ -1887,7 +1887,7 @@ fn parse_project_filter(value: &str) -> Result<Uuid, ApiError> {
         .map_err(|_| ApiError::bad_request("project must be a Rocket Sense project UUID"))
 }
 
-fn parse_rank_filter(name: &str, value: &str) -> Result<i32, ApiError> {
+pub(crate) fn parse_rank_filter(name: &str, value: &str) -> Result<i32, ApiError> {
     let normalized = value.trim().to_lowercase().replace('_', "-");
     if normalized.is_empty() {
         return Err(ApiError::bad_request(format!("{name} must not be empty")));

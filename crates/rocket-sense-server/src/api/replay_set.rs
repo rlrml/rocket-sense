@@ -4,8 +4,14 @@ use uuid::Uuid;
 
 use super::{
     query::{parse_bool_filter, parse_datetime_filter, parse_uuid_values, QueryParams},
-    replays::ApiError,
+    replays::{parse_rank_filter, ApiError},
 };
+
+/// Stride separating season-numbering eras in the season ordinal space. Legacy
+/// (`s`) seasons occupy `1..STRIDE`; free-to-play (`f`) seasons occupy
+/// `STRIDE+1..`. Kept well above any real season number so the two eras never
+/// overlap. The same value is inlined into `push_season_ordinal_expression`.
+const SEASON_ERA_STRIDE: i32 = 1000;
 
 #[cfg(test)]
 #[path = "replay_set_tests.rs"]
@@ -32,6 +38,10 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) created_before: Option<DateTime<Utc>>,
     pub(crate) replay_date_after: Option<DateTime<Utc>>,
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
+    pub(crate) min_rank: Option<String>,
+    pub(crate) max_rank: Option<String>,
+    pub(crate) min_season: Option<String>,
+    pub(crate) max_season: Option<String>,
     pub(crate) target_player_id: Option<String>,
     pub(crate) player_outcome: Option<String>,
 }
@@ -76,6 +86,10 @@ impl ReplaySetFilterInput {
                 .first(&["replay-date-before", "replay_date_before"])
                 .map(|value| parse_datetime_filter("replay-date-before", &value))
                 .transpose()?,
+            min_rank: params.first(&["min-rank", "min_rank"]),
+            max_rank: params.first(&["max-rank", "max_rank"]),
+            min_season: params.first(&["min-season", "min_season"]),
+            max_season: params.first(&["max-season", "max_season"]),
             target_player_id: params.first(&["player-id", "player_id"]),
             player_outcome: params.first(&["player-outcome", "player_outcome"]),
         })
@@ -101,6 +115,14 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) created_before: Option<DateTime<Utc>>,
     pub(crate) replay_date_after: Option<DateTime<Utc>>,
     pub(crate) replay_date_before: Option<DateTime<Utc>>,
+    pub(crate) min_rank_tier: Option<i32>,
+    pub(crate) max_rank_tier: Option<i32>,
+    /// When set, the rank-tier range filter is scoped to this player's per-replay
+    /// rank (the profile/career use case: "my stats when I was Diamond"). When
+    /// `None` but a rank range is set, it matches any player in the replay.
+    pub(crate) rank_scope_player: Option<PlayerStatFilter>,
+    pub(crate) min_season_ord: Option<i32>,
+    pub(crate) max_season_ord: Option<i32>,
     pub(crate) playlist_group_key: Option<String>,
     pub(crate) player_outcome: Option<PlayerReplayOutcomeFilter>,
 }
@@ -157,18 +179,54 @@ impl ReplaySetFilters {
             .uploader
             .map(|uploader| parse_uploader_filter(&uploader, auth_user_id))
             .transpose()?;
+        let target_player = input
+            .target_player_id
+            .as_deref()
+            .map(PlayerStatFilter::from_query)
+            .transpose()?;
         let player_outcome = input
             .player_outcome
             .map(|outcome| {
-                let player = input.target_player_id.as_deref().ok_or_else(|| {
+                let player = target_player.clone().ok_or_else(|| {
                     ApiError::bad_request("player-outcome requires a player-id filter")
                 })?;
                 Ok::<_, ApiError>(PlayerReplayOutcomeFilter {
-                    player: PlayerStatFilter::from_query(player)?,
+                    player,
                     outcome: parse_replay_outcome_filter(&outcome)?,
                 })
             })
             .transpose()?;
+
+        let min_rank_tier = input
+            .min_rank
+            .map(|rank| parse_rank_filter("min-rank", &rank))
+            .transpose()?;
+        let max_rank_tier = input
+            .max_rank
+            .map(|rank| parse_rank_filter("max-rank", &rank))
+            .transpose()?;
+        if let (Some(min), Some(max)) = (min_rank_tier, max_rank_tier) {
+            if min > max {
+                return Err(ApiError::bad_request(
+                    "min-rank must not be greater than max-rank",
+                ));
+            }
+        }
+        let min_season_ord = input
+            .min_season
+            .map(|season| parse_season_filter("min-season", &season))
+            .transpose()?;
+        let max_season_ord = input
+            .max_season
+            .map(|season| parse_season_filter("max-season", &season))
+            .transpose()?;
+        if let (Some(min), Some(max)) = (min_season_ord, max_season_ord) {
+            if min > max {
+                return Err(ApiError::bad_request(
+                    "min-season must not be later than max-season",
+                ));
+            }
+        }
 
         Ok(Self {
             search_pattern: search.map(|term| format!("%{}%", escape_like_term(&term))),
@@ -200,6 +258,11 @@ impl ReplaySetFilters {
             created_before: input.created_before,
             replay_date_after: input.replay_date_after,
             replay_date_before: input.replay_date_before,
+            min_rank_tier,
+            max_rank_tier,
+            rank_scope_player: target_player,
+            min_season_ord,
+            max_season_ord,
             playlist_group_key: None,
             player_outcome,
         })
@@ -228,6 +291,10 @@ impl ReplaySetFilters {
             && self.created_before.is_none()
             && self.replay_date_after.is_none()
             && self.replay_date_before.is_none()
+            && self.min_rank_tier.is_none()
+            && self.max_rank_tier.is_none()
+            && self.min_season_ord.is_none()
+            && self.max_season_ord.is_none()
             && self.playlist_group_key.is_none()
             && self.player_outcome.is_none()
     }
@@ -423,9 +490,85 @@ pub(crate) fn append_replay_set_filters<'args>(
             .push(".replay_date <= ")
             .push_bind(replay_date_before);
     }
+    if filters.min_rank_tier.is_some() || filters.max_rank_tier.is_some() {
+        builder.push(" AND EXISTS (SELECT 1 FROM replay_players stats_rank_player WHERE stats_rank_player.replay_id = ");
+        builder.push(replay_alias);
+        builder.push(".id AND stats_rank_player.rank_tier IS NOT NULL");
+        if let Some(scope) = &filters.rank_scope_player {
+            builder
+                .push(" AND stats_rank_player.platform = ")
+                .push_bind(&scope.platform)
+                .push(" AND stats_rank_player.platform_player_id = ")
+                .push_bind(&scope.platform_player_id);
+        }
+        if let Some(min_rank_tier) = filters.min_rank_tier {
+            builder
+                .push(" AND stats_rank_player.rank_tier >= ")
+                .push_bind(min_rank_tier);
+        }
+        if let Some(max_rank_tier) = filters.max_rank_tier {
+            builder
+                .push(" AND stats_rank_player.rank_tier <= ")
+                .push_bind(max_rank_tier);
+        }
+        builder.push(")");
+    }
+    if let Some(min_season_ord) = filters.min_season_ord {
+        builder.push(" AND ");
+        push_season_ordinal_expression(builder, replay_alias);
+        builder.push(" >= ").push_bind(min_season_ord);
+    }
+    if let Some(max_season_ord) = filters.max_season_ord {
+        builder.push(" AND ");
+        push_season_ordinal_expression(builder, replay_alias);
+        builder.push(" <= ").push_bind(max_season_ord);
+    }
     if let Some(outcome) = &filters.player_outcome {
         append_player_replay_outcome_filter(builder, outcome, replay_alias);
     }
+}
+
+/// Maps a replay's textual `season` code (e.g. `s12`, `f23`) to its total-order
+/// ordinal, mirroring `parse_season_filter` so range bounds compare against the
+/// same scale. Non-conforming / NULL seasons evaluate to NULL, which excludes
+/// them from any bounded range (correct: their position is unknown).
+fn push_season_ordinal_expression<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+) {
+    let season = format!("lower(btrim({replay_alias}.season))");
+    builder.push("(CASE WHEN ");
+    builder.push(&season);
+    builder.push(" ~ '^[sf][0-9]+$' THEN (CASE left(");
+    builder.push(&season);
+    builder.push(", 1) WHEN 's' THEN 0 ELSE ");
+    builder.push(SEASON_ERA_STRIDE.to_string());
+    builder.push(" END) + substring(");
+    builder.push(&season);
+    builder.push(" from 2)::int END)");
+}
+
+/// Parses a season code like `s12` (legacy) or `f23` (free-to-play) into a
+/// total-order ordinal. Legacy seasons sort before free-to-play seasons, then by
+/// number, so a `[min, max]` pair resolves to a contiguous slice of the season
+/// timeline. Mirrored in SQL by `push_season_ordinal_expression`.
+fn parse_season_filter(name: &str, value: &str) -> Result<i32, ApiError> {
+    let normalized = value.trim().to_lowercase();
+    let invalid =
+        || ApiError::bad_request(format!("{name} must be a season code like `s12` or `f23`"));
+    let (era_base, digits) = if let Some(rest) = normalized.strip_prefix('s') {
+        (0, rest)
+    } else if let Some(rest) = normalized.strip_prefix('f') {
+        (SEASON_ERA_STRIDE, rest)
+    } else {
+        return Err(invalid());
+    };
+    let number: i32 = digits
+        .parse()
+        .ok()
+        .filter(|number| (1..SEASON_ERA_STRIDE).contains(number))
+        .ok_or_else(invalid)?;
+    Ok(era_base + number)
 }
 
 fn append_player_replay_outcome_filter<'args>(
