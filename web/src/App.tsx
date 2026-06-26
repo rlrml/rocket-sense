@@ -6729,6 +6729,9 @@ function AdminProcessingPage() {
   const [includeHealthy, setIncludeHealthy] = useState(
     searchParams.get("include_healthy") === "true",
   );
+  const [currentlyFailed, setCurrentlyFailed] = useState(
+    searchParams.get("currently_failed") === "true",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -6762,6 +6765,7 @@ function AdminProcessingPage() {
   useEffect(() => {
     setStatus(searchParams.get("status") ?? "");
     setIncludeHealthy(searchParams.get("include_healthy") === "true");
+    setCurrentlyFailed(searchParams.get("currently_failed") === "true");
   }, [searchParams]);
 
   useEffect(() => {
@@ -6819,6 +6823,11 @@ function AdminProcessingPage() {
       params.set("include_healthy", "true");
     } else {
       params.delete("include_healthy");
+    }
+    if (currentlyFailed) {
+      params.set("currently_failed", "true");
+    } else {
+      params.delete("currently_failed");
     }
     params.delete("offset");
     navigate(`/admin/processing?${params.toString()}`);
@@ -6898,6 +6907,10 @@ function AdminProcessingPage() {
             label="Problem replays"
             value={response.summary.problem_replays.toLocaleString()}
           />
+          <Metric
+            label="Currently failed"
+            value={response.summary.currently_failed_replays.toLocaleString()}
+          />
           <Metric label="Total replays" value={response.summary.total_replays.toLocaleString()} />
           <Metric label="Processing status" value={formatCounts(response.summary.status_counts)} />
           <Metric label="Queue counts" value={formatCounts(response.summary.queue_counts)} />
@@ -6968,6 +6981,14 @@ function AdminProcessingPage() {
           ]}
           className="admin-filter-grid"
         />
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={currentlyFailed}
+            onChange={(event) => setCurrentlyFailed(event.currentTarget.checked)}
+          />
+          <span>Only currently failed (no successful run since last failure)</span>
+        </label>
         <label className="toggle-row">
           <input
             type="checkbox"

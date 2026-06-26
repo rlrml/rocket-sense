@@ -321,6 +321,7 @@ export interface ReplayProcessingDiagnosticsResponse {
 export interface ReplayProcessingDiagnosticsSummary {
   total_replays: number;
   problem_replays: number;
+  currently_failed_replays: number;
   status_counts: Array<{
     status: string;
     count: number;
