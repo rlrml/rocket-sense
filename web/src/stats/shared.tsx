@@ -427,6 +427,48 @@ export function rankCohortMagnitudeRows(config: {
 }
 
 /**
+ * Like {@link rankCohortMagnitudeRows} but the row value is derived from the
+ * cohort's whole `per_stat` map (e.g. a ratio of two benchmark metrics such as
+ * shooting % = goals/shots). `derive` returns null to skip that rank.
+ */
+export function rankCohortDerivedRows(config: {
+  cohorts: RankBenchmarkCohort[];
+  derive: (perStat: RankBenchmarkCohort["per_stat"]) => number | null;
+  format: (value: number) => string;
+  maxValue: number;
+  windowLabel?: string | null;
+  valueColumn?: boolean;
+}): ComparisonRow[] {
+  const { cohorts, derive, format, maxValue, windowLabel, valueColumn } = config;
+  const rows: ComparisonRow[] = [];
+  for (const cohort of cohorts) {
+    const value = derive(cohort.per_stat);
+    if (value == null || !Number.isFinite(value)) continue;
+    const formatted = format(value);
+    const safe = Math.max(0, value);
+    rows.push({
+      key: `rank-${cohort.rank_value}`,
+      label: rankCohortLabelNode(cohort, "median", windowLabel),
+      ariaLabel: `Rank median (${cohort.label}): ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+          label: cohort.label,
+          value: safe,
+          title: `Rank median (${cohort.label}): ${formatted}`,
+        },
+      ],
+      total: safe,
+      maxValue,
+      ...(valueColumn ? { valueLabel: formatted } : { barValue: formatted }),
+      placeholder: formatted,
+    });
+  }
+  return rows;
+}
+
+/**
  * One distribution (parts-of-a-whole) bar row per selected rank, where each band
  * reads a 0..1 share straight from the cohort's `per_stat[band.metricKey]`. Bands
  * reuse the same tone classes the player/teammate/opponent rows use so the only

@@ -4967,6 +4967,8 @@ function PlayerAggregateStatsSections({
             orderedKeys: order?.goalTagKeys,
             goalTypeHref: (kind) =>
               playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind }),
+            rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
+            rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
           }),
         );
       } else {
@@ -4979,6 +4981,8 @@ function PlayerAggregateStatsSections({
               playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
             }
             allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
+            rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+            rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
           />,
         );
       }

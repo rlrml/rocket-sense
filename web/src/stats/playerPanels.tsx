@@ -29,6 +29,7 @@ import {
   ComparisonBar,
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
+  rankCohortDerivedRows,
   rankCohortMagnitudeRows,
   rankCohortValues,
   StatPlayerLabel,
@@ -499,12 +500,19 @@ export function buildCoreProfileCards({
           {
             key: "shooting-percentage",
             title: "Shooting percentage (%)",
-            rows: shootingPercentageRows(goals, shots, playerName),
+            rows: shootingPercentageRows(goals, shots, playerName, rankCohorts, rankWindowLabel),
           },
           {
             key: "assist-percentage",
             title: "Assist percentage (%)",
-            rows: assistPercentageRows(goals, assists, playerName, overview.team_size),
+            rows: assistPercentageRows(
+              goals,
+              assists,
+              playerName,
+              overview.team_size,
+              rankCohorts,
+              rankWindowLabel,
+            ),
           },
         ];
 
@@ -731,6 +739,8 @@ function shootingPercentageRows(
   goals: ScoringRateLike,
   shots: ScoringRateLike,
   playerName: string,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
   const playerPercentage = percentage(goals.count, shots.count);
   const teammatePercentage = percentage(goals.teammate_count, shots.teammate_count);
@@ -772,6 +782,23 @@ function shootingPercentageRows(
       }),
     );
   }
+  // Typical-rank shooting %: the rank's goal rate over its shot rate (the
+  // per-minute denominators cancel).
+  rows.push(
+    ...rankCohortDerivedRows({
+      cohorts: rankCohorts,
+      derive: (perStat) => {
+        const goalRate = perStat.goal?.value;
+        const shotRate = perStat.shot?.value;
+        if (goalRate == null || shotRate == null || shotRate <= 0) return null;
+        return (goalRate / shotRate) * 100;
+      },
+      format: (value) => formatPercentage(value),
+      maxValue: 100,
+      windowLabel: rankWindowLabel,
+      valueColumn: true,
+    }),
+  );
   return rows;
 }
 
@@ -780,6 +807,8 @@ function assistPercentageRows(
   assists: ScoringRateLike,
   playerName: string,
   teamSize?: number | null,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
   const teamGoals = goals.count + goals.teammate_count;
   const opponentTeamGoals = goals.opponent_count;
@@ -844,6 +873,22 @@ function assistPercentageRows(
       }),
     );
   }
+  // Typical-rank assist %: the rank's assist rate over its goal rate.
+  rows.push(
+    ...rankCohortDerivedRows({
+      cohorts: rankCohorts,
+      derive: (perStat) => {
+        const assistRate = perStat.assist?.value;
+        const goalRate = perStat.goal?.value;
+        if (assistRate == null || goalRate == null || goalRate <= 0) return null;
+        return (assistRate / goalRate) * 100;
+      },
+      format: (value) => formatPercentage(value),
+      maxValue: 100,
+      windowLabel: rankWindowLabel,
+      valueColumn: true,
+    }),
+  );
   return rows;
 }
 
@@ -1163,6 +1208,8 @@ export function buildGoalTagCards({
   playerName = "Player",
   goalTypeHref,
   orderedKeys,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName?: string;
@@ -1173,6 +1220,8 @@ export function buildGoalTagCards({
   // renders a card (showing 0) instead of being dropped, so the wins and losses
   // grids stay aligned card-for-card.
   orderedKeys?: Array<{ kind: string; display_name: string }>;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }): ComparisonCard[] {
   const visibleTags = overview.goal_tags.filter((tag) => !isIgnoredGoalTag(tag.kind));
   const tagByKind = new Map(visibleTags.map((tag) => [tag.kind, tag] as const));
@@ -1208,6 +1257,9 @@ export function buildGoalTagCards({
             opponentPerActiveMinute: null,
           },
       playerName,
+      rankCohorts,
+      `goaltag:${kind}`,
+      rankWindowLabel,
     );
     const title = goalTypeHref ? (
       <Link
@@ -1230,6 +1282,8 @@ export function GoalTagSharePanel({
   playerName = "Player",
   goalTypeHref,
   allGoalsHref,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName?: string;
@@ -1237,8 +1291,16 @@ export function GoalTagSharePanel({
   goalTypeHref?: (kind: string) => string;
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
-  const cards = buildGoalTagCards({ overview, playerName, goalTypeHref });
+  const cards = buildGoalTagCards({
+    overview,
+    playerName,
+    goalTypeHref,
+    rankCohorts,
+    rankWindowLabel,
+  });
 
   return (
     <section className="goal-tag-share-panel full-span">
