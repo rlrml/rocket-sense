@@ -22,6 +22,7 @@ import type {
   PlayerStatOverviewResponse,
   ProcessingVersionBreakdownResponse,
   ProcessingVersionResponse,
+  RankTrendsResponse,
   ReplayProcessingDiagnosticsResponse,
   ReplayFilterOptionsResponse,
   ReplayGroupResponse,
@@ -116,6 +117,11 @@ export function listReplays(searchParams: URLSearchParams): Promise<ListReplaysR
 
 export function getUserProfile(userId: string): Promise<UserProfileResponse> {
   return request<UserProfileResponse>(`/api/v1/users/${encodeURIComponent(userId)}`);
+}
+
+export function getRankTrends(searchParams: URLSearchParams): Promise<RankTrendsResponse> {
+  const query = searchParams.toString();
+  return request<RankTrendsResponse>(`/api/v1/stats/rank-trends${query ? `?${query}` : ""}`);
 }
 
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {

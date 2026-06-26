@@ -26,6 +26,7 @@ import {
   RotateCcw,
   ServerCog,
   SlidersHorizontal,
+  TrendingUp,
   Trophy,
   Users,
   UserPlus,
@@ -94,6 +95,7 @@ import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
+import { RankTrendsPage } from "./rankTrends";
 import {
   getPreviewPlayerWarmupStatus,
   schedulePreviewPlayerWarmup,
@@ -179,6 +181,7 @@ const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
   { to: "/replay-groups", label: "Groups", icon: FolderOpen, end: true },
   { to: "/leaderboards", label: "Leaderboards", icon: Trophy, end: true },
+  { to: "/rank-trends", label: "Rank Trends", icon: TrendingUp },
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/admin/processing", label: "Admin", icon: ServerCog, adminOnly: true },
   { to: "/about", label: "About", icon: Info },
@@ -382,6 +385,7 @@ export function App() {
               </Suspense>
             }
           />
+          <Route path="/rank-trends" element={<RankTrendsPage />} />
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />

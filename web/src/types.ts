@@ -971,3 +971,35 @@ export interface BoostPadControlPoint {
 export interface BoostPadControlResponse {
   points: BoostPadControlPoint[];
 }
+
+export interface RankTrendRank {
+  rank_value: number;
+  label: string;
+  distinct_player_count: number | null;
+}
+
+export interface RankTrendMetric {
+  key: string;
+  label: string;
+  category: string;
+  // "median" (typical player) or "mean" (pooled, for rare metrics).
+  aggregator: string;
+  // Aligned to RankTrendsResponse.ranks order.
+  values: Array<number | null>;
+}
+
+export interface RankTrendsWindow {
+  key: string;
+  label: string;
+}
+
+export interface RankTrendsResponse {
+  playlist_group_key: string | null;
+  window: RankTrendsWindow | null;
+  outcome: string;
+  rank_grouping: string;
+  ranks: RankTrendRank[];
+  metrics: RankTrendMetric[];
+  available_playlist_groups: string[];
+  available_windows: RankTrendsWindow[];
+}
