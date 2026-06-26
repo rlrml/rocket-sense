@@ -4312,15 +4312,15 @@ async fn refresh_rank_benchmark_window(
             FROM rate_units
             GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, metric_key
         ),
-        -- One aggregator per (group, metric), consistent across ranks/outcomes
-        -- so a stat's bars stay comparable: 'mean' for rare metrics, else 'median'.
+        -- One aggregator per (group, metric): pooled mean across the board. The
+        -- benchmark is then computed the same way as the player's own stat
+        -- (sum(numerator)/sum(denom)), so the two are directly comparable. A median
+        -- line sits systematically below any mean-based number on right-skewed rate
+        -- stats (median player < mean), which made every player -- and their
+        -- teammates and opponents -- read "above the line" regardless of playstyle.
+        -- median_* columns are still materialized for a future percentile view.
         stat_aggregator AS (
-            SELECT playlist_group_key, metric_key,
-                   CASE WHEN SUM(nonzero_units)::float8 / NULLIF(SUM(total_units), 0) < "#,
-    );
-    builder.push_bind(crate::rank_benchmark::RARE_NONZERO_FRACTION);
-    builder.push(
-        r#" THEN 'mean' ELSE 'median' END AS aggregator
+            SELECT playlist_group_key, metric_key, 'mean' AS aggregator
             FROM stat_agg
             GROUP BY playlist_group_key, metric_key
         ),
