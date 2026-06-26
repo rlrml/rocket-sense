@@ -34,12 +34,22 @@ export interface ReplayUploaderResponse {
   provider: string | null;
 }
 
+export interface UserGameIdentity {
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  appearance_count: number;
+  /** How the link was established: "login" (auto from OAuth subject) or "claim". */
+  source: string;
+}
+
 export interface UserProfileResponse {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
   created_at: string;
   upload_count: number;
+  game_identities: UserGameIdentity[];
 }
 
 export interface ReplayResponse {

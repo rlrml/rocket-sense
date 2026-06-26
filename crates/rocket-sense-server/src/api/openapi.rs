@@ -193,6 +193,7 @@ use utoipa::{
             crate::ranks::SubmittedRank,
             crate::ranks::SkillSnapshot,
             users::UserProfileResponse,
+            users::UserGameIdentity,
         )
     ),
     tags(

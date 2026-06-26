@@ -57,7 +57,6 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { siDiscord, siEpicgames, siGithub, siGoogle, siSteam } from "simple-icons";
 import { lazyWithChunkLoadRecovery } from "./chunkLoadRecovery";
 import {
   addReplayGroupManager,
@@ -130,7 +129,8 @@ import {
 import type { StatGroup } from "./stats/registry";
 import { leaderboardRankIndex, StatLeaderboard } from "./stats/StatLeaderboard";
 import { StalenessChip } from "./staleness";
-import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
+import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl } from "./platform";
+import { ProviderLoginIcon, providerLabel } from "./providerIcons";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
 import {
@@ -1543,13 +1543,15 @@ function UploaderPill({ uploader }: { uploader: ReplayUploaderResponse | null })
   const name =
     uploader.display_name?.trim() || uploader.primary_email?.trim() || "Unknown uploader";
   const title = uploader.provider
-    ? `Uploaded by ${name} via ${providerLabel(uploader.provider)}`
-    : `Uploaded by ${name}`;
+    ? `View ${name}'s uploads (signed in via ${providerLabel(uploader.provider)})`
+    : `View ${name}'s uploads`;
   return (
-    <Chip tone="slate" className="uploader-pill" title={title}>
-      {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
-      <span className="uploader-pill-name">{name}</span>
-    </Chip>
+    <Link className="uploader-pill-link" to={`/users/${encodeURIComponent(uploader.id)}`}>
+      <Chip tone="slate" className="uploader-pill" title={title}>
+        {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
+        <span className="uploader-pill-name">{name}</span>
+      </Chip>
+    </Link>
   );
 }
 
@@ -6470,55 +6472,6 @@ function accountSummary(claims: AccessTokenClaims | null): string {
     return `Connected through ${providerLabel(claims.provider_name)}.`;
   }
   return "This account is tied to the current Rocket Sense token.";
-}
-
-function providerLabel(provider: string): string {
-  switch (provider) {
-    case "dev":
-      return "development";
-    case "google":
-      return "Google";
-    case "github":
-      return "GitHub";
-    case "discord":
-      return "Discord";
-    case "epic":
-      return "Epic Games";
-    case "xbox":
-      return "Xbox";
-    case "steam":
-      return "Steam";
-    default:
-      return provider;
-  }
-}
-
-const providerLoginIconPaths: Record<string, string> = {
-  google: siGoogle.path,
-  github: siGithub.path,
-  discord: siDiscord.path,
-  epic: siEpicgames.path,
-  xbox: xboxBrandPath,
-  steam: siSteam.path,
-};
-
-function ProviderLoginIcon({ providerId }: { providerId: string }) {
-  const path = providerLoginIconPaths[providerId];
-  if (path) {
-    return (
-      <svg
-        className="provider-login-icon"
-        viewBox="0 0 24 24"
-        width="16"
-        height="16"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d={path} fill="currentColor" />
-      </svg>
-    );
-  }
-  return <LogIn size={16} className="provider-login-icon" />;
 }
 
 function LoginModal({
