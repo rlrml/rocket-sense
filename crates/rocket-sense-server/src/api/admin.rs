@@ -2,7 +2,8 @@ use crate::{
     app::AppState,
     auth::AuthUser,
     processing::{
-        enqueue_profile_timing_backfill, enqueue_replay_reprocessing, gc_superseded_event_streams,
+        enqueue_profile_timing_backfill, enqueue_replay_reprocessing,
+        enqueue_replay_reprocessing_job, gc_superseded_event_streams,
         ReplayProfileTimingBackfillOptions, ReplayReprocessOptions,
     },
 };
@@ -22,12 +23,19 @@ use uuid::Uuid;
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const DEFAULT_DIAGNOSTIC_COUNT: u32 = 100;
 const MAX_DIAGNOSTIC_COUNT: u32 = 500;
+const DEFAULT_QUEUE_COUNT: u32 = 200;
+const MAX_QUEUE_COUNT: u32 = 1000;
 
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
             "/admin/replays/processing-diagnostics",
             get(list_replay_processing_diagnostics),
+        )
+        .route("/admin/replays/queue", get(list_replay_processing_queue))
+        .route(
+            "/admin/replays/queue/reprocess-failed",
+            post(reprocess_failed_queue_jobs),
         )
         .route("/admin/replays/reprocess", post(reprocess_replays))
         .route(
@@ -154,6 +162,48 @@ pub struct ReplayProcessingDiagnosticResponse {
     pub reasons: Vec<String>,
 }
 
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReplayProcessingQueueQuery {
+    pub count: Option<u32>,
+    pub offset: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayProcessingQueueResponse {
+    pub jobs: Vec<ReplayProcessingQueueJobResponse>,
+    pub count: u32,
+    pub offset: u32,
+    pub total: u64,
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReplayProcessingQueueJobResponse {
+    /// apalis job id (primary key in apalis.jobs).
+    pub job_id: String,
+    /// Replay id extracted from the JSON job payload.
+    pub replay_id: Uuid,
+    pub original_file_name: Option<String>,
+    /// True when the job was enqueued as a force-reprocess.
+    pub force: bool,
+    /// Raw apalis status: Pending, Queued, Running, or Failed.
+    pub status: String,
+    /// True for a Failed job that has exhausted its retries
+    /// (`attempts >= max_attempts`); apalis will never run it again on its own.
+    pub terminal: bool,
+    pub attempts: i32,
+    pub max_attempts: i32,
+    pub priority: i32,
+    /// When the job becomes (or became) eligible to run.
+    pub run_at: DateTime<Utc>,
+    /// Worker currently holding the job, if locked.
+    pub lock_by: Option<String>,
+    pub lock_at: Option<DateTime<Utc>>,
+    pub started_at: Option<DateTime<Utc>>,
+    /// Last error/result recorded by apalis (raw JSON text).
+    pub last_result: Option<String>,
+}
+
 #[derive(Debug, Serialize, ToSchema)]
 pub struct AnalysisRunDiagnosticResponse {
     pub id: Uuid,
@@ -269,6 +319,190 @@ pub async fn list_replay_processing_diagnostics(
         offset,
         total,
         next_offset,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/replays/queue",
+    tag = "admin",
+    params(
+        ("count" = Option<u32>, Query, description = "Page size"),
+        ("offset" = Option<u32>, Query, description = "Page offset")
+    ),
+    responses(
+        (status = 200, description = "Live replay-processing queue jobs", body = ReplayProcessingQueueResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_replay_processing_queue(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Query(query): Query<ReplayProcessingQueueQuery>,
+) -> Result<Json<ReplayProcessingQueueResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let count = query
+        .count
+        .unwrap_or(DEFAULT_QUEUE_COUNT)
+        .clamp(1, MAX_QUEUE_COUNT);
+    let offset = query.offset.unwrap_or(0);
+
+    // Outstanding + failed work: Pending/Queued/Running plus every Failed job
+    // (both retriable and retry-exhausted "terminal" failures, flagged per row
+    // so the trigger to reprocess failed jobs has something to act on). Ordered
+    // the same way the worker pops jobs (apalis.get_jobs): priority desc, run_at.
+    let total: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::bigint
+        FROM apalis.jobs
+        WHERE job_type = $1
+          AND status IN ('Pending', 'Queued', 'Running', 'Failed')
+        "#,
+    )
+    .bind(REPLAY_PROCESSING_QUEUE_NAME)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    let total = signed_count_to_u64(total);
+
+    let rows = sqlx::query(
+        r#"
+        SELECT
+            job.id AS job_id,
+            (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid AS replay_id,
+            COALESCE((convert_from(job.job, 'UTF8')::jsonb ->> 'force')::boolean, false) AS force,
+            job.status,
+            (job.status = 'Failed' AND job.attempts >= job.max_attempts) AS terminal,
+            job.attempts,
+            job.max_attempts,
+            job.priority,
+            job.run_at,
+            job.lock_by,
+            job.lock_at,
+            job.started_at,
+            job.last_result::text AS last_result,
+            replay.original_file_name
+        FROM apalis.jobs job
+        LEFT JOIN replays replay
+            ON replay.id = (convert_from(job.job, 'UTF8')::jsonb ->> 'replay_id')::uuid
+        WHERE job.job_type = $1
+          AND job.status IN ('Pending', 'Queued', 'Running', 'Failed')
+        ORDER BY job.priority DESC, job.run_at ASC, job.id ASC
+        LIMIT $2 OFFSET $3
+        "#,
+    )
+    .bind(REPLAY_PROCESSING_QUEUE_NAME)
+    .bind(i64::from(count))
+    .bind(i64::from(offset))
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let jobs = rows
+        .into_iter()
+        .map(|row| {
+            Ok(ReplayProcessingQueueJobResponse {
+                job_id: row.try_get("job_id")?,
+                replay_id: row.try_get("replay_id")?,
+                original_file_name: row.try_get("original_file_name")?,
+                force: row.try_get("force")?,
+                status: row.try_get("status")?,
+                terminal: row.try_get("terminal")?,
+                attempts: row.try_get("attempts")?,
+                max_attempts: row.try_get("max_attempts")?,
+                priority: row.try_get("priority")?,
+                run_at: row.try_get("run_at")?,
+                lock_by: row.try_get("lock_by")?,
+                lock_at: row.try_get("lock_at")?,
+                started_at: row.try_get("started_at")?,
+                last_result: row.try_get("last_result")?,
+            })
+        })
+        .collect::<Result<Vec<_>, sqlx::Error>>()
+        .map_err(ApiError::internal)?;
+
+    let next_offset = offset
+        .checked_add(count)
+        .filter(|next_offset| u64::from(*next_offset) < total);
+
+    Ok(Json(ReplayProcessingQueueResponse {
+        jobs,
+        count,
+        offset,
+        total,
+        next_offset,
+    }))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ReprocessFailedQueueJobsResponse {
+    /// Replays that had at least one Failed job in the queue.
+    pub failed_replays: u64,
+    /// Replays for which a fresh force-reprocess job was enqueued.
+    pub enqueued_replays: u64,
+    /// Replays skipped because a job was already outstanding (Pending/Queued/Running).
+    pub skipped_replays: u64,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/replays/queue/reprocess-failed",
+    tag = "admin",
+    responses(
+        (status = 200, description = "Failed queue jobs re-enqueued", body = ReprocessFailedQueueJobsResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn reprocess_failed_queue_jobs(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+) -> Result<Json<ReprocessFailedQueueJobsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+
+    // Every replay with a Failed job in the queue — both retriable failures and
+    // retry-exhausted "terminal" ones that apalis will never run again. The
+    // force-enqueue path (push → notify) wakes the worker immediately and dedups
+    // against any job that is still outstanding for the same replay.
+    let failed_replay_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT (convert_from(job, 'UTF8')::jsonb ->> 'replay_id')::uuid AS replay_id
+        FROM apalis.jobs
+        WHERE job_type = $1
+          AND status = 'Failed'
+        "#,
+    )
+    .bind(REPLAY_PROCESSING_QUEUE_NAME)
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let failed_replays = failed_replay_ids.len() as u64;
+    let mut enqueued_replays = 0u64;
+    for replay_id in failed_replay_ids {
+        if enqueue_replay_reprocessing_job(pool, replay_id)
+            .await
+            .map_err(ApiError::internal)?
+        {
+            enqueued_replays += 1;
+        }
+    }
+
+    Ok(Json(ReprocessFailedQueueJobsResponse {
+        failed_replays,
+        enqueued_replays,
+        skipped_replays: failed_replays - enqueued_replays,
     }))
 }
 

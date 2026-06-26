@@ -15,6 +15,7 @@ import {
   FolderPlus,
   Github,
   Info,
+  ListOrdered,
   ListPlus,
   LogIn,
   LogOut,
@@ -92,6 +93,8 @@ import {
   listReplayFilterOptions,
   listLinkedIdentities,
   listReplayProcessingDiagnostics,
+  listReplayProcessingQueue,
+  reprocessFailedQueueJobs,
   reprocessReplaysBatch,
   listReplays,
   logout,
@@ -178,6 +181,7 @@ import type {
   RankBenchmarkCohortsResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
+  ReplayProcessingQueueResponse,
   ReplayFilterOption,
   ReplayGroupResponse,
   ReplayGroupManagerResponse,
@@ -450,6 +454,7 @@ export function App() {
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
+          <Route path="/admin/queue" element={<AdminQueuePage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/login" element={<AccountPage initialLoginOpen />} />
           <Route path="/about" element={<AboutPage />} />
@@ -6887,6 +6892,10 @@ function AdminProcessingPage() {
             <RefreshCw size={16} />
             {reprocessAllState?.phase === "pending" ? "Reprocessing…" : "Reprocess all (force)"}
           </button>
+          <Link className="secondary-button" to="/admin/queue">
+            <ListOrdered size={16} />
+            Live queue
+          </Link>
           <a className="secondary-button" href="/api/v1/admin/replays/processing-diagnostics">
             <ExternalLink size={16} />
             JSON
@@ -7133,6 +7142,256 @@ function AdminProcessingPage() {
               <tr>
                 <td colSpan={6} className="empty-cell">
                   No replay processing diagnostics matched.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function queueStatusClassName(status: string): string {
+  switch (status.toLowerCase()) {
+    case "running":
+      return "status-badge status-processing";
+    case "failed":
+      return "status-badge status-failed";
+    case "pending":
+    case "queued":
+    default:
+      return "status-badge status-pending";
+  }
+}
+
+function AdminQueuePage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const [response, setResponse] = useState<ReplayProcessingQueueResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [reprocessFailedState, setReprocessFailedState] = useState<RequeueResult | null>(null);
+
+  async function reprocessFailed() {
+    if (
+      !window.confirm(
+        "Force-reprocess every replay with a failed job in the queue? This re-enqueues them for the workers.",
+      )
+    ) {
+      return;
+    }
+    setReprocessFailedState({ phase: "pending", message: "Re-enqueuing failed jobs…" });
+    try {
+      const result = await reprocessFailedQueueJobs();
+      setReprocessFailedState({
+        phase: "done",
+        message:
+          result.failed_replays === 0
+            ? "No failed jobs to reprocess."
+            : `Re-enqueued ${result.enqueued_replays.toLocaleString()} of ${result.failed_replays.toLocaleString()} failed ${result.failed_replays === 1 ? "replay" : "replays"}${
+                result.skipped_replays > 0
+                  ? ` (${result.skipped_replays.toLocaleString()} already queued)`
+                  : ""
+              }.`,
+      });
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      setReprocessFailedState({
+        phase: "error",
+        message: `Reprocess failed: ${(err as Error).message}`,
+      });
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listReplayProcessingQueue(searchParams)
+      .then((nextResponse) => {
+        if (!cancelled) setResponse(nextResponse);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, refreshKey]);
+
+  function goToOffset(offset: number) {
+    const params = new URLSearchParams(searchParams);
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    } else {
+      params.delete("offset");
+    }
+    navigate(`/admin/queue?${params.toString()}`);
+  }
+
+  const jobs = response?.jobs ?? [];
+  const failedInView = jobs.filter((job) => job.status.toLowerCase() === "failed").length;
+  const total = response?.total ?? null;
+  const offset = positiveIntegerParam(searchParams, "offset", 0);
+  const pageSize = positiveIntegerParam(searchParams, "count", 200);
+  const canPageBackward = offset > 0;
+  const canPageForward = response?.next_offset != null;
+  const previousOffset = Math.max(0, offset - pageSize);
+  const nextOffset = response?.next_offset ?? offset + pageSize;
+
+  return (
+    <section className="page admin-processing-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>Processing Queue</h1>
+        </div>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => void reprocessFailed()}
+            disabled={reprocessFailedState?.phase === "pending"}
+            title="Force-reprocess every replay with a failed job in the queue"
+          >
+            <RotateCcw
+              size={16}
+              className={reprocessFailedState?.phase === "pending" ? "spin" : undefined}
+            />
+            {reprocessFailedState?.phase === "pending"
+              ? "Reprocessing…"
+              : failedInView > 0
+                ? `Reprocess failed (${failedInView.toLocaleString()})`
+                : "Reprocess failed"}
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? "spin" : undefined} />
+            Refresh
+          </button>
+          <Link className="secondary-button" to="/admin/processing">
+            <ServerCog size={16} />
+            Diagnostics
+          </Link>
+          <a className="secondary-button" href="/api/v1/admin/replays/queue">
+            <ExternalLink size={16} />
+            JSON
+          </a>
+        </div>
+      </header>
+
+      <p className="subtle">
+        Outstanding jobs in the apalis <code>rocket-sense:replay-processing</code> queue (pending,
+        queued, running, and failed), ordered the way a worker pops them.
+      </p>
+
+      {reprocessFailedState ? (
+        <p className={`requeue-result requeue-${reprocessFailedState.phase}`}>
+          {reprocessFailedState.message}
+        </p>
+      ) : null}
+
+      <div className="replay-list-controls">
+        <div className="results-readout">
+          <ListOrdered size={16} />
+          <span>
+            {loading
+              ? "Loading queue"
+              : total == null
+                ? `${jobs.length.toLocaleString()} queued jobs`
+                : `${jobs.length.toLocaleString()} of ${total.toLocaleString()} queued jobs`}
+          </span>
+        </div>
+        <div className="pagination-controls">
+          <button
+            type="button"
+            className="icon-button"
+            title="Previous page"
+            disabled={!canPageBackward || loading}
+            onClick={() => goToOffset(previousOffset)}
+          >
+            <ChevronLeft size={17} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Next page"
+            disabled={!canPageForward || loading}
+            onClick={() => goToOffset(nextOffset)}
+          >
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <StatusLine loading={loading} error={error} />
+
+      <div className="table-frame admin-diagnostics-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Replay</th>
+              <th>Status</th>
+              <th>Attempts</th>
+              <th>Run at</th>
+              <th>Worker</th>
+              <th>Last result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map((job) => (
+              <tr key={job.job_id}>
+                <td className="admin-replay-cell">
+                  <ReplayLink className="primary-link" replayId={job.replay_id}>
+                    {job.original_file_name || job.replay_id}
+                  </ReplayLink>
+                  <div className="subtle">{job.replay_id.slice(0, 8)}</div>
+                  {job.force ? <span className="status-badge status-pending">force</span> : null}
+                </td>
+                <td>
+                  <span className={queueStatusClassName(job.status)}>{job.status}</span>
+                  {job.terminal ? (
+                    <div
+                      className="subtle"
+                      title="Retries exhausted — apalis will not rerun this on its own"
+                    >
+                      retries exhausted
+                    </div>
+                  ) : null}
+                </td>
+                <td>
+                  {job.attempts.toLocaleString()} / {job.max_attempts.toLocaleString()}
+                </td>
+                <td className="admin-date-cell">
+                  <div>{formatDate(job.run_at)}</div>
+                  {job.lock_at ? <small>Locked {formatDate(job.lock_at)}</small> : null}
+                </td>
+                <td>
+                  {job.lock_by ? <code>{job.lock_by}</code> : <span className="subtle">—</span>}
+                </td>
+                <td>
+                  {job.last_result ? (
+                    <code className="subtle">{job.last_result.slice(0, 120)}</code>
+                  ) : (
+                    <span className="subtle">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!loading && jobs.length === 0 ? (
+              <tr>
+                <td colSpan={6} className="empty-cell">
+                  Queue is empty — no outstanding replay-processing jobs.
                 </td>
               </tr>
             ) : null}
