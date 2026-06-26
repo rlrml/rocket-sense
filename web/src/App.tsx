@@ -82,6 +82,7 @@ import {
   listReplayFilterOptions,
   listLinkedIdentities,
   listReplayProcessingDiagnostics,
+  reprocessReplaysBatch,
   listReplays,
   logout,
   removeReplayGroupManager,
@@ -6213,6 +6214,31 @@ function AdminProcessingPage() {
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [requeueResults, setRequeueResults] = useState<Record<string, RequeueResult>>({});
+  const [reprocessAllState, setReprocessAllState] = useState<RequeueResult | null>(null);
+
+  async function reprocessAllReplays() {
+    if (
+      !window.confirm(
+        "Force-reprocess EVERY replay? This re-parses all replays and is expensive. Only do this after a subtr-actor / processing change that needs a full rebuild.",
+      )
+    ) {
+      return;
+    }
+    setReprocessAllState({ phase: "pending", message: "Enqueuing full reprocess…" });
+    try {
+      const result = await reprocessReplaysBatch({ force: true, concurrency: 4 });
+      setReprocessAllState({
+        phase: "done",
+        message: `Enqueued ${result.enqueued_replays.toLocaleString()} of ${result.matched_replays.toLocaleString()} replays (force). They will work through the processing queue.`,
+      });
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      setReprocessAllState({
+        phase: "error",
+        message: `Full reprocess failed: ${(err as Error).message}`,
+      });
+    }
+  }
 
   useEffect(() => {
     setStatus(searchParams.get("status") ?? "");
@@ -6315,11 +6341,29 @@ function AdminProcessingPage() {
           <p className="eyebrow">Admin</p>
           <h1>Replay Processing</h1>
         </div>
-        <a className="secondary-button" href="/api/v1/admin/replays/processing-diagnostics">
-          <ExternalLink size={16} />
-          JSON
-        </a>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={reprocessAllReplays}
+            disabled={reprocessAllState?.phase === "pending"}
+            title="Force-reprocess every replay (re-parses all replays)"
+          >
+            <RefreshCw size={16} />
+            {reprocessAllState?.phase === "pending" ? "Reprocessing…" : "Reprocess all (force)"}
+          </button>
+          <a className="secondary-button" href="/api/v1/admin/replays/processing-diagnostics">
+            <ExternalLink size={16} />
+            JSON
+          </a>
+        </div>
       </header>
+
+      {reprocessAllState ? (
+        <p className={`requeue-result requeue-${reprocessAllState.phase}`}>
+          {reprocessAllState.message}
+        </p>
+      ) : null}
 
       {response ? (
         <div className="summary-grid admin-summary-grid">
