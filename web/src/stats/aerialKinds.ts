@@ -9,6 +9,7 @@ export const AERIAL_KIND_LABELS: Record<string, string> = {
   double_tap: "Double tap",
   air_dribble: "Air dribble",
   wall_aerial: "Wall aerial",
+  ceiling_shot: "Ceiling shot",
 };
 
 export const aerialPlaylistKinds = Object.keys(AERIAL_KIND_LABELS);
