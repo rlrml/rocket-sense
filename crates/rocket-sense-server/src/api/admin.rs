@@ -210,7 +210,6 @@ pub struct ReplayProcessingQueueJobResponse {
     /// Worker currently holding the job, if locked.
     pub lock_by: Option<String>,
     pub lock_at: Option<DateTime<Utc>>,
-    pub started_at: Option<DateTime<Utc>>,
     /// Last error/result recorded by apalis (raw JSON text).
     pub last_result: Option<String>,
 }
@@ -541,7 +540,6 @@ pub async fn list_replay_processing_queue(
             job.run_at,
             job.lock_by,
             job.lock_at,
-            job.started_at,
             job.last_result::text AS last_result,
             replay.original_file_name
         FROM apalis.jobs job
@@ -576,7 +574,6 @@ pub async fn list_replay_processing_queue(
                 run_at: row.try_get("run_at")?,
                 lock_by: row.try_get("lock_by")?,
                 lock_at: row.try_get("lock_at")?,
-                started_at: row.try_get("started_at")?,
                 last_result: row.try_get("last_result")?,
             })
         })
