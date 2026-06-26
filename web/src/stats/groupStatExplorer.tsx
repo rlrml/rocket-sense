@@ -1,5 +1,6 @@
-import { Search, X } from "lucide-react";
+import { Check, Link2, Search, X } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import type {
   PlayerBoostTotal,
   StatAggregateGroupResponse,
@@ -404,27 +405,67 @@ export function GroupStatExplorer({
     return metrics.slice(0, 5).map((metric) => metric.key);
   }, [metricByKey, metrics]);
 
-  const [selected, setSelected] = useState<string[] | null>(null);
-  const columns = (selected ?? defaultColumns).filter((key) => metricByKey.has(key));
-  const [measure, setMeasure] = useState<LeaderboardMeasure>("per5m");
-  const [search, setSearch] = useState("");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [sort, setSort] = useState<{ key: string; dir: "asc" | "desc" } | null>(null);
-
-  const toggleColumn = (key: string) => {
-    setSelected((current) => {
-      const base = (current ?? defaultColumns).filter((entry) => metricByKey.has(entry));
-      return base.includes(key) ? base.filter((entry) => entry !== key) : [...base, key];
-    });
+  // The full table configuration (chosen columns, measure, sort) lives in the URL
+  // query string so a particular setup can be shared by copying the link. Local
+  // UI-only state (search text, picker open, copied flash) stays in component
+  // state. Updates use replace so toggling columns doesn't spam browser history.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const updateParams = (mutate: (params: URLSearchParams) => void) => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        mutate(next);
+        return next;
+      },
+      { replace: true },
+    );
   };
 
+  const colsParam = searchParams.get("cols");
+  const columns = (
+    colsParam != null ? colsParam.split(",").filter(Boolean) : defaultColumns
+  ).filter((key) => metricByKey.has(key));
+
+  const measureParam = searchParams.get("measure");
+  const measure: LeaderboardMeasure =
+    measureParam === "perGame" || measureParam === "total" ? measureParam : "per5m";
+  const setMeasure = (next: LeaderboardMeasure) =>
+    updateParams((params) => {
+      if (next === "per5m") params.delete("measure");
+      else params.set("measure", next);
+    });
+
+  const [search, setSearch] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const toggleColumn = (key: string) => {
+    const next = columns.includes(key)
+      ? columns.filter((entry) => entry !== key)
+      : [...columns, key];
+    updateParams((params) => params.set("cols", next.join(",")));
+  };
+
+  const sortKeyParam = searchParams.get("sort");
+  const sortDir: "asc" | "desc" = searchParams.get("dir") === "asc" ? "asc" : "desc";
   const activeSort =
-    sort && metricByKey.has(sort.key)
-      ? sort
+    sortKeyParam && columns.includes(sortKeyParam)
+      ? { key: sortKeyParam, dir: sortDir }
       : columns[0]
         ? { key: columns[0], dir: "desc" as const }
         : null;
   const hasMeasurableColumn = columns.some((key) => metricByKey.get(key)?.measurable);
+
+  const copyShareLink = () => {
+    if (!navigator.clipboard) return;
+    navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {});
+  };
 
   const rows = useMemo(() => {
     const computed = participants.map((participant) => {
@@ -467,11 +508,12 @@ export function GroupStatExplorer({
   }, [columns, rows]);
 
   const onHeaderClick = (key: string) => {
-    setSort((current) =>
-      current && current.key === key
-        ? { key, dir: current.dir === "desc" ? "asc" : "desc" }
-        : { key, dir: "desc" },
-    );
+    const nextDir =
+      activeSort && activeSort.key === key && activeSort.dir === "desc" ? "asc" : "desc";
+    updateParams((params) => {
+      params.set("sort", key);
+      params.set("dir", nextDir);
+    });
   };
 
   const filteredCategories = useMemo(() => {
@@ -502,19 +544,30 @@ export function GroupStatExplorer({
           Add stats
           <span className="gse-column-count">{columns.length}</span>
         </button>
-        <div className="leaderboard-measure-toggle" role="group" aria-label="Measure">
-          {LEADERBOARD_MEASURES.map((entry) => (
-            <button
-              key={entry.key}
-              type="button"
-              className={`leaderboard-measure-button${entry.key === measure ? " active" : ""}`}
-              onClick={() => setMeasure(entry.key)}
-              disabled={!hasMeasurableColumn}
-              title={hasMeasurableColumn ? undefined : "Add a count stat to switch measures"}
-            >
-              {entry.label}
-            </button>
-          ))}
+        <div className="gse-controls-right">
+          <div className="leaderboard-measure-toggle" role="group" aria-label="Measure">
+            {LEADERBOARD_MEASURES.map((entry) => (
+              <button
+                key={entry.key}
+                type="button"
+                className={`leaderboard-measure-button${entry.key === measure ? " active" : ""}`}
+                onClick={() => setMeasure(entry.key)}
+                disabled={!hasMeasurableColumn}
+                title={hasMeasurableColumn ? undefined : "Add a count stat to switch measures"}
+              >
+                {entry.label}
+              </button>
+            ))}
+          </div>
+          <button
+            type="button"
+            className="gse-copy-link"
+            onClick={copyShareLink}
+            title="Copy a shareable link to this exact table"
+          >
+            {copied ? <Check size={14} /> : <Link2 size={14} />}
+            {copied ? "Copied" : "Copy link"}
+          </button>
         </div>
       </div>
 
