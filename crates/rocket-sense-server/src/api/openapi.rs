@@ -68,6 +68,7 @@ use utoipa::{
         replays::remove_replay_group_manager,
         replays::download_replay_file,
         replays::get_replay,
+        replays::delete_replay,
         replays::reprocess_replay,
         replays::reprocess_replay_client,
         replays::set_replay_ranks,

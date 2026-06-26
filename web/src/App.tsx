@@ -65,6 +65,7 @@ import {
   createDevToken,
   createReplayGroup,
   createAccountToken,
+  deleteReplay,
   deleteReplayGroup,
   getAccessToken,
   getAuthOptions,
@@ -2181,9 +2182,12 @@ function RequeueResultChip({ result }: { result: RequeueResult }) {
 
 function ReplayStatsPage() {
   const { replayId = "", statGroup } = useParams();
+  const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<RequeueResult | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<RequeueResult | null>(null);
   const [reprocessingLocal, setReprocessingLocal] = useState(false);
   const [localReprocessProgress, setLocalReprocessProgress] =
     useState<LocalReprocessProgress | null>(null);
@@ -2279,6 +2283,29 @@ function ReplayStatsPage() {
     currentUser &&
     (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
   );
+  // A replay can be deleted by its uploader or by an admin (mirrors the backend
+  // authorization on DELETE /api/v1/replays/{id}).
+  const canDelete = canReprocess;
+
+  async function handleDelete() {
+    const label = replay?.original_file_name || "this replay";
+    const confirmed = window.confirm(
+      `Delete ${label}? This permanently removes the game and all of its stats. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    setDeleting(true);
+    setDeleteResult(null);
+    try {
+      await deleteReplay(replayId);
+      navigate("/replays");
+    } catch (err) {
+      setDeleteResult({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Delete request failed.",
+      });
+      setDeleting(false);
+    }
+  }
 
   async function handleReprocess(force = false) {
     setReprocessing(true);
@@ -2390,7 +2417,20 @@ function ReplayStatsPage() {
             <Zap size={16} />
             Player
           </a>
+          {canDelete ? (
+            <button
+              className="secondary-button is-danger"
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              title="Permanently delete this replay and all of its stats"
+            >
+              <Trash2 size={16} />
+              {deleting ? "Deleting" : "Delete"}
+            </button>
+          ) : null}
           {reprocessResult ? <RequeueResultChip result={reprocessResult} /> : null}
+          {deleteResult ? <RequeueResultChip result={deleteResult} /> : null}
           <LocalReprocessProgressBar progress={localReprocessProgress} />
           {reprocessResult?.phase === "skipped" ? (
             <button

@@ -58,7 +58,10 @@ pub fn router() -> Router<AppState> {
             "/replays/{replay_id}/stats/boost-tracks",
             get(get_replay_boost_tracks),
         )
-        .route("/replays/{replay_id}", get(get_replay))
+        .route(
+            "/replays/{replay_id}",
+            get(get_replay).delete(delete_replay),
+        )
         .route(
             "/replay-groups",
             get(list_replay_groups).post(create_replay_group),
@@ -828,6 +831,136 @@ pub async fn get_replay(
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
 
     Ok(Json(replay))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/replays/{replay_id}",
+    tag = "replays",
+    params(
+        ("replay_id" = Uuid, Path, description = "The replay to delete")
+    ),
+    responses(
+        (status = 204, description = "Replay was deleted"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not have permission to delete this replay"),
+        (status = 404, description = "Replay not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn delete_replay(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<StatusCode, ApiError> {
+    let db = require_db(&state)?;
+
+    let uploaded_by = sqlx::query_scalar::<_, Option<Uuid>>(
+        "SELECT uploaded_by_user_id FROM replays WHERE id = $1",
+    )
+    .bind(replay_id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+
+    // A replay can be deleted by the user who uploaded it, or by any admin.
+    let is_owner = uploaded_by == Some(auth_user.id);
+    if !is_owner {
+        let is_admin = crate::auth::resolve_is_admin(db, &auth_user, &state.admin_emails)
+            .await
+            .map_err(ApiError::internal)?;
+        if !is_admin {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "you do not have permission to delete this replay",
+            ));
+        }
+    }
+
+    // Collect the storage objects tied to this replay before its rows cascade
+    // away. Raw replay files and event streams are content-addressed, so the
+    // same key can be shared by duplicate uploads; we only delete an object once
+    // nothing else references its key (checked after the cascade below).
+    let object_keys = sqlx::query_scalar::<_, String>(
+        "SELECT storage_key FROM replay_objects WHERE replay_id = $1",
+    )
+    .bind(replay_id)
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    let event_stream_keys = sqlx::query_scalar::<_, String>(
+        "SELECT event_stream_object_key FROM analysis_runs \
+         WHERE replay_id = $1 AND event_stream_object_key IS NOT NULL",
+    )
+    .bind(replay_id)
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    // Deleting the replay row cascades to analysis_runs, play_events, every
+    // player_replay_* materialized table, replay_objects, rank submissions, and
+    // group membership via the ON DELETE CASCADE foreign keys.
+    let result = sqlx::query("DELETE FROM replays WHERE id = $1")
+        .bind(replay_id)
+        .execute(db)
+        .await
+        .map_err(ApiError::internal)?;
+
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+    }
+
+    // Best-effort storage cleanup. The DB delete is the source of truth and has
+    // already committed; a leftover object is harmless and re-importable, so we
+    // log and continue rather than failing the request.
+    for key in object_keys {
+        if storage_key_still_referenced(db, &key).await {
+            continue;
+        }
+        if let Err(error) = state.storage.delete(&key).await {
+            tracing::warn!(%error, storage_key = %key, "failed to delete replay object during replay deletion");
+        }
+    }
+    for key in event_stream_keys {
+        if storage_key_still_referenced_event_stream(db, &key).await {
+            continue;
+        }
+        if let Err(error) = state.storage.delete(&key).await {
+            tracing::warn!(%error, storage_key = %key, "failed to delete event stream object during replay deletion");
+        }
+    }
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// Whether any surviving `replay_objects` row still points at `storage_key`.
+/// On a query error we conservatively report `true` so a shared/uncertain
+/// object is never deleted out from under another replay.
+async fn storage_key_still_referenced(db: &PgPool, storage_key: &str) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM replay_objects WHERE storage_key = $1)",
+    )
+    .bind(storage_key)
+    .fetch_one(db)
+    .await
+    .unwrap_or(true)
+}
+
+/// Whether any surviving `analysis_runs` row still points at this event-stream
+/// object key. Conservatively reports `true` on error.
+async fn storage_key_still_referenced_event_stream(db: &PgPool, storage_key: &str) -> bool {
+    sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM analysis_runs WHERE event_stream_object_key = $1)",
+    )
+    .bind(storage_key)
+    .fetch_one(db)
+    .await
+    .unwrap_or(true)
 }
 
 #[utoipa::path(
