@@ -5,7 +5,7 @@ import {
 } from "@rlrml/player";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
-import { eventDisplayTime, numberField } from "./eventPreview";
+import { eventAnchorFrame, eventDisplayTime, numberField } from "./eventPreview";
 import { PLAYER_ASSET_BASE } from "./playerAssets";
 import { preloadReplay } from "./replayModel";
 import type { GoalRow } from "./goals";
@@ -41,6 +41,12 @@ export interface ScoringTouchPoint {
   team: number | null;
   position: { x: number; y: number; z: number };
   time: number | null;
+  /**
+   * Event anchor frame. The replay player rebases frame times to start at 0, so
+   * raw event timestamps (`time`) do not match the player clock, but frame
+   * indices do. Clips seek via this frame so playback lands on the actual event.
+   */
+  frame: number | null;
   ballSpeed: number | null;
 }
 
@@ -256,6 +262,7 @@ function shotMapPoints(goals: GoalRow[], shotEvents: MechanicEventResponse[]): S
         team: event.team,
         position,
         time: eventDisplayTime(event),
+        frame: eventAnchorFrame(event),
         ballSpeed: numberField(payload, "ball_speed_change"),
       },
     ];
@@ -279,6 +286,7 @@ function shotMapPoints(goals: GoalRow[], shotEvents: MechanicEventResponse[]): S
           z: touch.ball.z ?? BALL_RADIUS_UU,
         },
         time: goal.time,
+        frame: goal.anchorFrame,
         ballSpeed: goal.ballSpeed,
       },
     ];

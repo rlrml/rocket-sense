@@ -96,8 +96,12 @@ function buildShotMapClip(point: ScoringTouchPoint | null): EventClip | null {
   const prerollSeconds = point.kind === "goal" ? 9 : 7;
   const postrollSeconds = point.kind === "goal" ? 2.5 : 2;
   return {
+    // start/end are inert fallbacks in the upstream time base. anchorFrame drives
+    // the actual seek: the player resolves it through the parsed frames (its own
+    // rebased clock), so playback lands on the event instead of an offset moment.
     start: Math.max(0, point.time - prerollSeconds),
     end: point.time + postrollSeconds,
+    anchorFrame: point.frame,
     prerollSeconds,
     postrollSeconds,
     camera: (camera) => {
