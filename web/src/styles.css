@@ -3995,19 +3995,36 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
-.chart-legend span {
+.chart-legend span,
+.chart-legend a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.chart-legend span::before {
+.chart-legend span::before,
+.chart-legend a::before {
   content: "";
   display: inline-block;
   width: 16px;
   height: 8px;
   border-radius: 2px;
   background: var(--muted);
+}
+
+/* Legend tags that deep-link to a clip playlist read as the legend text, but
+   gain a pointer + underline on hover so the affordance is discoverable. */
+.chart-legend a.chart-legend-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.chart-legend a.chart-legend-link:hover,
+.chart-legend a.chart-legend-link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .team-blue,
@@ -8176,6 +8193,25 @@ tbody tr:last-child td {
 .goal-tag-card-title {
   color: inherit;
   text-decoration: none;
+}
+
+/* Aerial rate-card titles (career view) and per-mechanic panel titles (game
+   view) link to a clip playlist of that mechanic. Keep the uppercase title look,
+   add a hover underline to signal the link. */
+.rate-card-title-link,
+.stat-panel-title-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rate-card-title-link:hover,
+.rate-card-title-link:focus-visible,
+.stat-panel-title-link:hover,
+.stat-panel-title-link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .goal-tag-card-title:hover,

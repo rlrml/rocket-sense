@@ -65,14 +65,27 @@ export function buildPlayerRateCards(
   // card set; a canonical key absent from this side renders an empty placeholder
   // card so the rows still pair up across outcomes.
   orderedKeys?: Array<{ key: string; display_name: string }>,
+  // When provided and it returns a path for a stat key, that card's title links
+  // to it (e.g. a clip playlist of those events).
+  titleHref?: (key: string) => string | undefined,
 ): ComparisonCard[] {
+  const cardTitle = (key: string, displayName: string): ReactNode => {
+    const href = titleHref?.(key);
+    return href ? (
+      <Link className="rate-card-title-link" to={href} title={`Watch ${displayName} clips`}>
+        {displayName}
+      </Link>
+    ) : (
+      displayName
+    );
+  };
   if (orderedKeys) {
     const statByKey = new Map(stats.map((stat) => [stat.key, stat]));
     return orderedKeys.slice(0, rateChartStatLimit).map(({ key, display_name }) => {
       const stat = statByKey.get(key);
       return {
         key,
-        title: display_name,
+        title: cardTitle(key, display_name),
         rows: stat ? playerRateComparisonRows(stat, playerName, rankBenchmark) : [],
       };
     });
@@ -82,7 +95,7 @@ export function buildPlayerRateCards(
     .slice(0, rateChartStatLimit)
     .map((stat) => ({
       key: stat.key,
-      title: stat.display_name,
+      title: cardTitle(stat.key, stat.display_name),
       rows: playerRateComparisonRows(stat, playerName, rankBenchmark),
     }))
     .filter((card) => card.rows.length > 0);
