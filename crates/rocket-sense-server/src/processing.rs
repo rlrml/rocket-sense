@@ -158,9 +158,8 @@ const INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL: &str = r#"
 
 // Per-replay materialization of `player_replay_positioning` for one analysis run
 // ($1) and replay ($2). One row per player, summing each positioning stream's
-// durations. Mirrors the per-event aggregation in api/positioning_stats.rs
-// (build_positioning_summary_query) but grouped per absolute player rather than
-// per target-relative cohort -- the read reconstructs cohorts by (replay, team).
+// durations. Aggregates positioning streams per absolute player; the read in
+// api/positioning_stats.rs reconstructs target-relative cohorts by (replay, team).
 const INSERT_PLAYER_REPLAY_POSITIONING_SQL: &str = r#"
         INSERT INTO player_replay_positioning (
             analysis_run_id, replay_id, replay_player_id, player_subject_id,
@@ -1351,6 +1350,37 @@ const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
 // same-state frames into spans, so they are indexed normally.
 const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["goal_tags", "touch_last_touch"];
 
+// Dense per-frame telemetry streams whose raw `play_events` rows are deleted
+// immediately after per-replay materialization (see
+// `delete_materialized_dense_stream_events`). These streams dominate row count
+// (~62% of all events) but are never read at request time: they are already
+// excluded from the user-facing aggregate event counts (kept in sync with
+// `AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL` / the exclusion list in
+// `INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL`) and their stats are served entirely
+// from the materialized `player_replay_*` tables. The canonical event stream is
+// always retained as a JSON object in storage, so dropping the relational index
+// loses nothing recoverable -- reprocessing rebuilds it. `boost_state` /
+// `boost_ledger` were retired by the subtr-actor boost-model rewrite (see the
+// v3 -> v4 note below) and are listed here only so any lingering rows from old
+// runs are reclaimed too. Streams that are still counted or read live
+// (`depth_role`, `player_activity`, `positioning_distance`, `possession`,
+// `touch`, `boost_pickup`, ...) are intentionally absent.
+const MATERIALIZED_DENSE_SOURCE_STREAMS: &[&str] = &[
+    "positioning",
+    "boost_state",
+    "boost_ledger",
+    "movement",
+    "rotation_player",
+    "rotation_role_span",
+    "rotation_depth_span",
+    "rotation_role",
+    "ball_depth",
+    "field_third",
+    "field_half",
+    "ball_proximity",
+    "powerslide",
+];
+
 struct ReplayAnalysisOutput {
     event_stream: Value,
     indexed_events: Vec<IndexedEvent>,
@@ -2223,6 +2253,39 @@ async fn delete_profile_timing_streams(
     Ok(())
 }
 
+/// Delete the dense per-frame telemetry rows for one analysis run after its
+/// summary tables have been materialized. The materializers
+/// (`insert_player_replay_*`) read these rows from `play_events` first, so this
+/// must run only once all of them have completed for the run. The delete
+/// cascades to `play_event_payloads` / `_attributes` / `_subjects` and the
+/// detail tables (all `ON DELETE CASCADE`), clearing the bulk of the per-replay
+/// row fan-out. Returns the number of `play_events` rows removed.
+async fn delete_materialized_dense_stream_events(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+) -> Result<u64> {
+    let source_streams = MATERIALIZED_DENSE_SOURCE_STREAMS
+        .iter()
+        .map(|stream| (*stream).to_owned())
+        .collect::<Vec<_>>();
+    let result = sqlx::query(
+        r#"
+        DELETE FROM play_events
+        WHERE analysis_run_id = $1
+          AND replay_id = $2
+          AND source_stream = ANY($3)
+        "#,
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .bind(&source_streams)
+    .execute(pool)
+    .await
+    .context("failed to delete materialized dense-stream play events")?;
+    Ok(result.rows_affected())
+}
+
 fn is_rotation_profile_timing_stream(source_stream: &str) -> bool {
     ROTATION_PROFILE_TIMING_STREAMS.contains(&source_stream)
 }
@@ -2363,6 +2426,19 @@ async fn persist_analysis_output(
     insert_replay_team_control(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
+    // Every materializer above has now consumed the dense per-frame streams, so
+    // drop their raw rows to keep them from accumulating in the relational index.
+    // The full event stream stays in object storage as the source of truth.
+    let dropped_dense_events =
+        delete_materialized_dense_stream_events(pool, analysis_run_id, replay_id).await?;
+    if dropped_dense_events > 0 {
+        tracing::debug!(
+            %replay_id,
+            %analysis_run_id,
+            dropped_dense_events,
+            "deleted materialized dense-stream play events"
+        );
+    }
     let carried_reviews = carry_forward_event_reviews(pool, replay_id, analysis_run_id).await?;
     if carried_reviews > 0 {
         tracing::info!(

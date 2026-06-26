@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use super::{
     event_stats::{count_column, finite_value},
-    query::{parse_bool_filter, QueryParams},
+    query::QueryParams,
     replay_set::{
         append_replay_set_filters, PlayerStatFilter, ReplaySetFilterInput, ReplaySetFilters,
     },
@@ -25,9 +25,6 @@ mod tests;
 pub fn router() -> Router<AppState> {
     Router::new().route("/stats/movement/summary", get(get_movement_summary))
 }
-
-const MOVEMENT_SUMMARY_STREAMS: [&str; 2] = ["movement", "powerslide"];
-const MOVEMENT_MECHANIC_EVENT_TYPES: [&str; 3] = ["speed_flip", "wavedash", "half_flip"];
 
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MovementSummaryResponse {
@@ -61,16 +58,12 @@ pub struct MovementCohortSummary {
 struct MovementStatsQuery {
     replay_set: ReplaySetFilters,
     player: PlayerStatFilter,
-    /// Whether to read the materialized `player_replay_movement` table.
-    /// Resolved from the server default with a per-request `?materialized=` override.
-    materialized: bool,
 }
 
 impl MovementStatsQuery {
     fn from_raw_query(
         raw_query: Option<&str>,
         auth_user_id: Option<Uuid>,
-        materialized_default: bool,
     ) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set_input = ReplaySetFilterInput::from_query_params(&params)?;
@@ -80,16 +73,7 @@ impl MovementStatsQuery {
             .map(|player_id| PlayerStatFilter::from_query(&player_id))
             .transpose()?
             .ok_or_else(|| ApiError::bad_request("movement summary requires a player-id filter"))?;
-        let materialized = params
-            .first(&["materialized"])
-            .map(|value| parse_bool_filter("materialized", &value))
-            .transpose()?
-            .unwrap_or(materialized_default);
-        Ok(Self {
-            replay_set,
-            player,
-            materialized,
-        })
+        Ok(Self { replay_set, player })
     }
 }
 
@@ -112,7 +96,6 @@ pub async fn get_movement_summary(
     let query = MovementStatsQuery::from_raw_query(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
-        state.materialized_stat_counts,
     )?;
     let response = load_movement_summary(db, &query)
         .await
@@ -124,11 +107,7 @@ async fn load_movement_summary(
     pool: &sqlx::PgPool,
     filters: &MovementStatsQuery,
 ) -> Result<MovementSummaryResponse, sqlx::Error> {
-    let mut query = if filters.materialized {
-        build_movement_summary_query_materialized(filters)
-    } else {
-        build_movement_summary_query(filters)
-    };
+    let mut query = build_movement_summary_query_materialized(filters);
     let rows = query.build().fetch_all(pool).await?;
 
     let mut player = None;
@@ -154,276 +133,9 @@ async fn load_movement_summary(
     })
 }
 
-fn build_movement_summary_query(filters: &MovementStatsQuery) -> QueryBuilder<'_, Postgres> {
-    let distance = json_number_expr(
-        "payload",
-        &[
-            "total_distance",
-            "distance",
-            "distance_traveled",
-            "distance_uu",
-        ],
-    );
-    let avg_speed = json_number_expr("payload", &["avg_speed", "average_speed", "speed"]);
-    // These per-state second expressions are summed in `event_aggregates`, which
-    // is `FROM movement_events` -- a CTE that already projects the resolved
-    // per-event `duration` as a column. Reference that column, NOT the raw
-    // `event.*` columns: those are only in scope inside `movement_events` itself,
-    // so embedding them here produced `missing FROM-clause entry for table
-    // "event"` and 500'd the whole movement summary.
-    let duration = "duration";
-    let slow_seconds = seconds_expr(
-        "payload",
-        &[
-            "time_slow_speed",
-            "slow_speed_seconds",
-            "slow_speed_time_seconds",
-            "time_slow_speed_seconds",
-        ],
-        duration,
-        &["slow_speed", "slow"],
-    );
-    let boost_seconds = seconds_expr(
-        "payload",
-        &[
-            "time_boost_speed",
-            "boost_speed_seconds",
-            "boost_speed_time_seconds",
-            "time_boost_speed_seconds",
-        ],
-        duration,
-        &["boost_speed", "boost"],
-    );
-    let supersonic_seconds = seconds_expr(
-        "payload",
-        &[
-            "time_supersonic_speed",
-            "supersonic_seconds",
-            "supersonic_speed_time_seconds",
-            "time_supersonic_speed_seconds",
-        ],
-        duration,
-        &["supersonic_speed", "supersonic"],
-    );
-    let ground_seconds = seconds_expr(
-        "payload",
-        &[
-            "time_ground",
-            "ground_seconds",
-            "ground_time_seconds",
-            "time_on_ground",
-        ],
-        duration,
-        &["ground", "on_ground"],
-    );
-    let low_air_seconds = seconds_expr(
-        "payload",
-        &["time_low_air", "low_air_seconds", "low_air_time_seconds"],
-        duration,
-        &["low_air", "low"],
-    );
-    let high_air_seconds = seconds_expr(
-        "payload",
-        &["time_high_air", "high_air_seconds", "high_air_time_seconds"],
-        duration,
-        &["high_air", "high"],
-    );
-
-    let mut query = QueryBuilder::<Postgres>::new(
-        r#"
-        WITH target_appearances AS MATERIALIZED (
-            SELECT
-                rp.replay_id,
-                rp.team AS target_team,
-                concat(rp.platform, ':', rp.platform_player_id) AS target_subject_id,
-                r.canonical_analysis_run_id AS run_id
-            FROM replay_players rp
-            JOIN replays r ON r.id = rp.replay_id
-            WHERE r.canonical_analysis_run_id IS NOT NULL
-        "#,
-    );
-    query.push(" AND rp.platform = ");
-    query.push_bind(&filters.player.platform);
-    query.push(" AND rp.platform_player_id = ");
-    query.push_bind(&filters.player.platform_player_id);
-    super::replay_set::append_replay_set_filters(&mut query, &filters.replay_set, "r");
-    query.push(
-        r#"
-        ),
-        subject_appearances AS MATERIALIZED (
-            SELECT
-                CASE
-                    WHEN concat(actor.platform, ':', actor.platform_player_id) = ta.target_subject_id THEN 'self'
-                    WHEN actor.team = ta.target_team THEN 'teammate'
-                    ELSE 'opponent'
-                END AS cohort,
-                actor.replay_id,
-                concat(actor.platform, ':', actor.platform_player_id) AS subject_id,
-                ta.run_id,
-                GREATEST(COALESCE(actor.active_time_seconds, 0.0), 0.0) AS active_seconds
-            FROM target_appearances ta
-            JOIN replay_players actor
-              ON actor.replay_id = ta.replay_id
-             AND actor.platform IS NOT NULL
-             AND actor.platform_player_id IS NOT NULL
-        ),
-        movement_events AS (
-            SELECT
-                sa.cohort,
-                sa.replay_id,
-                sa.subject_id,
-                event_type.key AS event_type,
-                event.source_stream,
-                COALESCE(
-                    event.duration_seconds,
-                    CASE
-                        WHEN event.start_time IS NOT NULL AND event.end_time IS NOT NULL
-                        THEN GREATEST(event.end_time - event.start_time, 0)
-                        ELSE 0
-                    END,
-                    0
-                ) AS duration,
-                COALESCE(payload.payload, '{}'::jsonb) AS payload
-            FROM subject_appearances sa
-            JOIN play_events event
-              ON event.replay_id = sa.replay_id
-             AND event.analysis_run_id = sa.run_id
-             AND event.primary_subject_id = sa.subject_id
-            JOIN event_types event_type ON event_type.id = event.event_type_id
-            LEFT JOIN play_event_payloads payload ON payload.event_id = event.id
-            WHERE event.source_stream = ANY(
-        "#,
-    );
-    query.push_bind(movement_summary_streams());
-    query.push(") OR event_type.key = ANY(");
-    query.push_bind(movement_mechanic_event_types());
-    query.push(
-        r#"
-            )
-        ),
-        appearance_aggregates AS (
-            SELECT
-                cohort,
-                COUNT(DISTINCT replay_id::text || ':' || subject_id) AS appearance_count,
-                COALESCE(SUM(active_seconds), 0.0) AS active_seconds
-            FROM subject_appearances
-            GROUP BY cohort
-        ),
-        event_aggregates AS (
-            SELECT
-                cohort,
-                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN
-        "#,
-    );
-    query.push(&distance);
-    query.push(
-        r#"
-                    ELSE 0 END), 0.0) AS total_distance,
-                COALESCE(SUM(CASE WHEN event_type = 'movement' THEN
-        "#,
-    );
-    query.push(&avg_speed);
-    query.push(" * NULLIF(duration, 0) ELSE 0 END), 0.0) AS speed_weighted,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' AND ");
-    query.push(&avg_speed);
-    query.push(" IS NOT NULL AND duration > 0 THEN duration ELSE 0 END), 0.0) AS speed_weight,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' THEN ");
-    query.push(&slow_seconds);
-    query.push(" ELSE 0 END), 0.0) AS slow_seconds,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' THEN ");
-    query.push(&boost_seconds);
-    query.push(" ELSE 0 END), 0.0) AS boost_seconds,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' THEN ");
-    query.push(&supersonic_seconds);
-    query.push(" ELSE 0 END), 0.0) AS supersonic_seconds,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' THEN ");
-    query.push(&ground_seconds);
-    query.push(" ELSE 0 END), 0.0) AS ground_seconds,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' THEN ");
-    query.push(&low_air_seconds);
-    query.push(" ELSE 0 END), 0.0) AS low_air_seconds,");
-    query.push(" COALESCE(SUM(CASE WHEN event_type = 'movement' THEN ");
-    query.push(&high_air_seconds);
-    query.push(
-        r#"
-                    ELSE 0 END), 0.0) AS high_air_seconds,
-                COUNT(*) FILTER (WHERE event_type = 'speed_flip') AS speed_flips,
-                COUNT(*) FILTER (WHERE event_type = 'wavedash') AS wavedashes,
-                COUNT(*) FILTER (WHERE event_type = 'half_flip') AS half_flips
-            FROM movement_events
-            GROUP BY cohort
-        ),
-        powerslide_toggles AS (
-            -- Powerslide events are instantaneous on/off toggles (payload.active),
-            -- not spans, so summing per-event `duration` is always zero. Pair each
-            -- slide's leading `active:true` toggle with its trailing `active:false`
-            -- toggle, mirroring the per-replay client logic in web/src/stats/movement.tsx.
-            SELECT
-                cohort,
-                replay_id,
-                subject_id,
-                COALESCE(CASE WHEN jsonb_typeof(payload->'time') = 'number' THEN (payload->>'time')::float8 END, 0.0) AS toggle_time,
-                COALESCE(CASE WHEN jsonb_typeof(payload->'frame') = 'number' THEN (payload->>'frame')::float8 END, 0.0) AS toggle_order,
-                ((payload->>'active') IS DISTINCT FROM 'false') AS active
-            FROM movement_events
-            WHERE event_type = 'powerslide'
-        ),
-        powerslide_edges AS (
-            SELECT
-                cohort, replay_id, subject_id, toggle_time, toggle_order, active,
-                (active IS DISTINCT FROM LAG(active) OVER w) AS is_edge
-            FROM powerslide_toggles
-            WINDOW w AS (PARTITION BY cohort, replay_id, subject_id ORDER BY toggle_time, toggle_order)
-        ),
-        powerslide_paired AS (
-            -- After dropping repeated same-state toggles, edges strictly alternate;
-            -- each slide-start (active) is closed by the next edge's timestamp.
-            SELECT
-                cohort, active, toggle_time,
-                LEAD(toggle_time) OVER (
-                    PARTITION BY cohort, replay_id, subject_id ORDER BY toggle_time, toggle_order
-                ) AS close_time
-            FROM powerslide_edges
-            WHERE is_edge
-        ),
-        powerslide_spans AS (
-            SELECT
-                cohort,
-                COUNT(*) FILTER (WHERE active) AS powerslide_count,
-                COALESCE(SUM(CASE WHEN active THEN GREATEST(close_time - toggle_time, 0.0) ELSE 0.0 END), 0.0) AS powerslide_seconds
-            FROM powerslide_paired
-            GROUP BY cohort
-        )
-        SELECT
-            appearances.cohort,
-            appearances.appearance_count,
-            appearances.active_seconds,
-            COALESCE(events.total_distance, 0.0) AS total_distance,
-            COALESCE(events.speed_weighted, 0.0) AS speed_weighted,
-            COALESCE(events.speed_weight, 0.0) AS speed_weight,
-            COALESCE(events.slow_seconds, 0.0) AS slow_seconds,
-            COALESCE(events.boost_seconds, 0.0) AS boost_seconds,
-            COALESCE(events.supersonic_seconds, 0.0) AS supersonic_seconds,
-            COALESCE(events.ground_seconds, 0.0) AS ground_seconds,
-            COALESCE(events.low_air_seconds, 0.0) AS low_air_seconds,
-            COALESCE(events.high_air_seconds, 0.0) AS high_air_seconds,
-            COALESCE(slides.powerslide_count, 0) AS powerslide_count,
-            COALESCE(slides.powerslide_seconds, 0.0) AS powerslide_seconds,
-            COALESCE(events.speed_flips, 0) AS speed_flips,
-            COALESCE(events.wavedashes, 0) AS wavedashes,
-            COALESCE(events.half_flips, 0) AS half_flips
-        FROM appearance_aggregates appearances
-        LEFT JOIN event_aggregates events USING (cohort)
-        LEFT JOIN powerslide_spans slides USING (cohort)
-        "#,
-    );
-    query
-}
-
 /// Materialized variant: sum per-(replay, player) movement rows from
 /// `player_replay_movement` and split into self/teammate/opponent cohorts by
-/// joining the target's (replay, team) appearances. Produces the same columns as
-/// `build_movement_summary_query` so the row parser is shared.
+/// joining the target's (replay, team) appearances.
 fn build_movement_summary_query_materialized(
     filters: &MovementStatsQuery,
 ) -> QueryBuilder<'_, Postgres> {
@@ -504,61 +216,6 @@ fn build_movement_summary_query_materialized(
         "#,
     );
     query
-}
-
-fn movement_summary_streams() -> Vec<String> {
-    MOVEMENT_SUMMARY_STREAMS
-        .iter()
-        .map(|stream| (*stream).to_owned())
-        .collect()
-}
-
-fn movement_mechanic_event_types() -> Vec<String> {
-    MOVEMENT_MECHANIC_EVENT_TYPES
-        .iter()
-        .map(|event_type| (*event_type).to_owned())
-        .collect()
-}
-
-fn json_number_expr(payload_alias: &str, keys: &[&str]) -> String {
-    let parts = keys
-        .iter()
-        .map(|key| {
-            format!(
-                "CASE WHEN jsonb_typeof({payload_alias}->'{key}') = 'number' THEN ({payload_alias}->>'{key}')::float8 END"
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("COALESCE({parts}, 0.0)")
-}
-
-fn seconds_expr(
-    payload_alias: &str,
-    explicit_keys: &[&str],
-    duration_expr: &str,
-    states: &[&str],
-) -> String {
-    let explicit = json_number_expr(payload_alias, explicit_keys);
-    let state_checks = states
-        .iter()
-        .flat_map(|state| {
-            [
-                format!("{payload_alias}->>'speed_band' = '{state}'"),
-                format!("{payload_alias}->>'band' = '{state}'"),
-                format!("{payload_alias}->>'speed_state' = '{state}'"),
-                format!("{payload_alias}->>'height_band' = '{state}'"),
-                format!("{payload_alias}->>'surface' = '{state}'"),
-                format!("{payload_alias}->>'air_state' = '{state}'"),
-                format!("{payload_alias}->>'state' = '{state}'"),
-                format!("{payload_alias}->>'kind' = '{state}'"),
-            ]
-        })
-        .collect::<Vec<_>>()
-        .join(" OR ");
-    format!(
-        "CASE WHEN {explicit} > 0 THEN {explicit} WHEN {state_checks} THEN {duration_expr} ELSE 0 END"
-    )
 }
 
 fn movement_cohort_from_row(
