@@ -9091,6 +9091,15 @@ tbody tr:last-child td {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* Reset native <button> chrome (and the global 40px button min-height) so the
+     copy control is a compact icon matching the adjacent link, not a tall pill. */
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  min-height: 0;
+  min-width: 0;
   color: #94a3b8;
   border-radius: 6px;
   padding: 2px;
