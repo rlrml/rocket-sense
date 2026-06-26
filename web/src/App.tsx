@@ -407,6 +407,7 @@ export function App() {
             }
           />
           <Route path="/rank-trends" element={<RankTrendsPage />} />
+          <Route path="/rank-trends/:metricKey" element={<RankTrendsPage />} />
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
