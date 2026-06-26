@@ -1751,6 +1751,16 @@ async fn reprocess_populates_all_materialized_tables() {
     let bytes = std::fs::read(fixture).expect("read replay fixture");
     let file_sha256 = sha256_hex(&bytes);
 
+    // Both DB-backed tests share one single-threaded database and ingest the same
+    // fixture (same file_sha256, which is uniquely constrained). Clear any prior
+    // run's row (cascades to every materialized table) so the insert below can't
+    // collide with the sibling test or a re-run.
+    sqlx::query("DELETE FROM replays WHERE file_sha256 = $1")
+        .bind(&file_sha256)
+        .execute(&pool)
+        .await
+        .expect("clear prior replay row");
+
     let storage_root = std::env::temp_dir().join(format!("rs-reprocess-check-{}", Uuid::now_v7()));
     std::fs::create_dir_all(&storage_root).expect("create storage root");
     let storage: Arc<dyn rocket_sense_storage::ObjectStorage> = Arc::new(
@@ -1873,6 +1883,14 @@ async fn stats_read_paths_decode_after_reprocess() {
     );
     let bytes = std::fs::read(fixture).expect("read replay fixture");
     let file_sha256 = sha256_hex(&bytes);
+    // Shared single-threaded DB: clear any prior run's row for this fixture
+    // (cascades to child tables) so the uniquely-constrained file_sha256 insert
+    // below can't collide with the sibling DB-backed test.
+    sqlx::query("DELETE FROM replays WHERE file_sha256 = $1")
+        .bind(&file_sha256)
+        .execute(&pool)
+        .await
+        .expect("clear prior replay row");
     let storage_root = std::env::temp_dir().join(format!("rs-decode-check-{}", Uuid::now_v7()));
     std::fs::create_dir_all(&storage_root).expect("create storage root");
     let storage: Arc<dyn rocket_sense_storage::ObjectStorage> = Arc::new(
@@ -1948,7 +1966,8 @@ async fn stats_read_paths_decode_after_reprocess() {
     sqlx::query(
         "INSERT INTO rank_benchmark_population \
          (window_key, playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count) \
-         VALUES ($1, $2, 'tier', $3, 'all', 5, 3)",
+         VALUES ($1, $2, 'tier', $3, 'all', 5, 3) \
+         ON CONFLICT DO NOTHING",
     )
     .bind(window_key)
     .bind(&group_key)
@@ -1960,7 +1979,8 @@ async fn stats_read_paths_decode_after_reprocess() {
         "INSERT INTO rank_benchmark_stats \
          (window_key, playlist_group_key, rank_grouping, rank_value, outcome, metric_key, \
           median_per_active_minute, mean_per_active_minute, aggregator) \
-         VALUES ($1, $2, 'tier', $3, 'all', 'goal', 0.5, 0.5, 'median')",
+         VALUES ($1, $2, 'tier', $3, 'all', 'goal', 0.5, 0.5, 'median') \
+         ON CONFLICT DO NOTHING",
     )
     .bind(window_key)
     .bind(&group_key)
