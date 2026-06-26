@@ -171,6 +171,7 @@ import {
   type PlayerKickoffSummary,
 } from "./stats/kickoffs";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
+import { buildGoalRows, goalEventTypes, GoalTagLeaderboard, type GoalRow } from "./stats/goals";
 import { aerialPlaylistKinds as aerialPlaylistKindList } from "./stats/aerialKinds";
 import { buildMovementCohortCards } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
@@ -2923,6 +2924,43 @@ function GroupStatExplorerSection({
   );
 }
 
+function GroupGoalTagsSection({ groupId }: { groupId: string }) {
+  const [goals, setGoals] = useState<GoalRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setGoals([]);
+    listReplayGroupEvents(groupId, goalEventTypes)
+      .then((response) => {
+        if (!cancelled) setGoals(buildGoalRows(response.events));
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+
+  return (
+    <section className="stat-panel full-span">
+      <div className="stat-panel-heading">
+        <h3>Goal tags</h3>
+        <span>{goals.length.toLocaleString()} goals</span>
+      </div>
+      {error ? <ApiNotice label="Goal tags" message={error} /> : null}
+      {loading ? <StatusLine loading error={null} /> : <GoalTagLeaderboard goals={goals} />}
+    </section>
+  );
+}
+
 function BallchasingMirrorStatus({
   group,
   onSynced,
@@ -3268,6 +3306,8 @@ function ReplayGroupStatsPage() {
           ) : null}
 
           <GroupStatExplorerSection groupId={groupId} players={participantAnalysis.players} />
+
+          <GroupGoalTagsSection groupId={groupId} />
 
           <section className="stat-panel">
             <h2>Games in group</h2>

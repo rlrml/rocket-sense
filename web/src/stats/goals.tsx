@@ -248,7 +248,7 @@ function GoalScorerLeaderboard({ goals, players }: { goals: GoalRow[]; players: 
   );
 }
 
-function GoalTagLeaderboard({ goals }: { goals: GoalRow[] }) {
+export function GoalTagLeaderboard({ goals }: { goals: GoalRow[] }) {
   const rows = goalTagRows(goals);
 
   if (!rows.length) {
