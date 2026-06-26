@@ -9,6 +9,7 @@ import {
   comparisonSubjectLabel,
   StatComparisonGrid,
   StatComparisonPanel,
+  subjectMagnitudeRows,
   subjectSplitRows,
 } from "./comparisonPanels";
 import {
@@ -265,6 +266,30 @@ export function TouchProfileComparison({
             format={countFormat}
           />
         ))}
+        {/*
+          Aerial and high-aerial touches each get a dedicated single-value chart
+          (sorted by that one value) on top of the stacked "Touches by location"
+          breakdown above. The standalone sort makes per-cohort rank comparisons
+          easy to read instead of having to eyeball one segment of a stacked bar.
+        */}
+        <TouchValuePanel
+          key="profile-aerial-count"
+          title="Aerial touches"
+          contextLabel={countContext}
+          subjects={subjects}
+          valueId="aerial"
+          metric="count"
+          format={countFormat}
+        />
+        <TouchValuePanel
+          key="profile-high-aerial-count"
+          title="High aerial touches"
+          contextLabel={countContext}
+          subjects={subjects}
+          valueId="high_aerial"
+          metric="count"
+          format={countFormat}
+        />
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
             key={`profile-advance-${dimension.id}`}
@@ -306,6 +331,45 @@ function TouchChartPanel({
     <StatComparisonPanel
       emptyLabel="No classified touches are available yet."
       footer={<TouchLegend values={activeValues} />}
+      rows={rows}
+      title={`${title} · ${contextLabel}`}
+    />
+  );
+}
+
+// A single location value (e.g. just "Aerial") rendered as its own sorted bar
+// chart rather than one segment of the stacked location breakdown. Subjects are
+// ranked by that value alone, which is what makes cohort comparisons legible.
+function TouchValuePanel({
+  title,
+  contextLabel,
+  subjects,
+  valueId,
+  metric,
+  format,
+}: {
+  title: string;
+  contextLabel: string;
+  subjects: TouchSubject[];
+  valueId: string;
+  metric: TouchMetric;
+  format: (value: number) => string;
+}) {
+  const value =
+    LOCATION_DIMENSION.values.find((candidate) => candidate.id === valueId) ??
+    LOCATION_DIMENSION.other;
+  const rows = subjectMagnitudeRows(subjects, {
+    metric: (subject) => metricMap(subject, LOCATION_DIMENSION, metric)[valueId] ?? 0,
+    format,
+    groupClassName: value.segmentClass,
+    teamColored: false,
+    subjectIndexByKey: new Map(),
+    label: touchSubjectLabel,
+  });
+
+  return (
+    <StatComparisonPanel
+      emptyLabel="No classified touches are available yet."
       rows={rows}
       title={`${title} · ${contextLabel}`}
     />
