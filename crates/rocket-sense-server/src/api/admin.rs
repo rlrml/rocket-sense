@@ -96,6 +96,10 @@ pub struct ReplayProcessingDiagnosticsQuery {
     pub status: Option<String>,
     #[serde(default)]
     pub include_healthy: bool,
+    /// Restrict to replays whose most recent analysis run failed, i.e. they have
+    /// not had a successful run since their last failure.
+    #[serde(default)]
+    pub currently_failed: bool,
     pub count: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -114,6 +118,9 @@ pub struct ReplayProcessingDiagnosticsResponse {
 pub struct ReplayProcessingDiagnosticsSummaryResponse {
     pub total_replays: u64,
     pub problem_replays: u64,
+    /// Replays whose most recent analysis run failed (no successful run since
+    /// the last failure).
+    pub currently_failed_replays: u64,
     pub status_counts: Vec<ReplayProcessingStatusCountResponse>,
     pub queue_counts: Vec<ReplayProcessingQueueCountResponse>,
     pub workers: Vec<ReplayProcessingWorkerResponse>,
@@ -310,6 +317,7 @@ pub struct GcEventStreamsResponse {
     params(
         ("status" = Option<String>, Query, description = "Filter by replay processing status"),
         ("include_healthy" = Option<bool>, Query, description = "Include fully processed replays"),
+        ("currently_failed" = Option<bool>, Query, description = "Only replays whose most recent analysis run failed"),
         ("count" = Option<u32>, Query, description = "Page size"),
         ("offset" = Option<u32>, Query, description = "Page offset")
     ),
@@ -332,6 +340,7 @@ pub async fn list_replay_processing_diagnostics(
     require_admin(&state, &auth_user).await?;
     let status = normalized_status_filter(query.status)?;
     let include_healthy = query.include_healthy;
+    let currently_failed = query.currently_failed;
     let count = query
         .count
         .unwrap_or(DEFAULT_DIAGNOSTIC_COUNT)
@@ -339,10 +348,22 @@ pub async fn list_replay_processing_diagnostics(
     let offset = query.offset.unwrap_or(0);
 
     let summary = load_processing_diagnostics_summary(pool).await?;
-    let total = load_processing_diagnostics_total(pool, status.as_deref(), include_healthy).await?;
-    let replays =
-        load_processing_diagnostic_rows(pool, status.as_deref(), include_healthy, count, offset)
-            .await?;
+    let total = load_processing_diagnostics_total(
+        pool,
+        status.as_deref(),
+        include_healthy,
+        currently_failed,
+    )
+    .await?;
+    let replays = load_processing_diagnostic_rows(
+        pool,
+        status.as_deref(),
+        include_healthy,
+        currently_failed,
+        count,
+        offset,
+    )
+    .await?;
     let next_offset = offset
         .checked_add(count)
         .filter(|next_offset| u64::from(*next_offset) < total);
@@ -1294,7 +1315,9 @@ async fn load_processing_diagnostics_summary(
         .collect::<Result<Vec<_>, sqlx::Error>>()
         .map_err(ApiError::internal)?;
 
-    let problem_replays = load_processing_diagnostics_total(pool, None, false).await?;
+    let problem_replays = load_processing_diagnostics_total(pool, None, false, false).await?;
+    let currently_failed_replays =
+        load_processing_diagnostics_total(pool, None, true, true).await?;
 
     let queue_rows = sqlx::query(
         r#"
@@ -1363,6 +1386,7 @@ async fn load_processing_diagnostics_summary(
     Ok(ReplayProcessingDiagnosticsSummaryResponse {
         total_replays,
         problem_replays,
+        currently_failed_replays,
         status_counts,
         queue_counts,
         workers,
@@ -1373,11 +1397,12 @@ async fn load_processing_diagnostics_total(
     pool: &PgPool,
     status: Option<&str>,
     include_healthy: bool,
+    currently_failed: bool,
 ) -> Result<u64, ApiError> {
     let mut query = sqlx::QueryBuilder::new("SELECT COUNT(*)::bigint AS replay_count FROM (");
     push_processing_diagnostics_base_query(&mut query);
     query.push(") diagnostic WHERE 1 = 1");
-    push_processing_diagnostics_filters(&mut query, status, include_healthy);
+    push_processing_diagnostics_filters(&mut query, status, include_healthy, currently_failed);
 
     let row = query
         .build()
@@ -1393,6 +1418,7 @@ async fn load_processing_diagnostic_rows(
     pool: &PgPool,
     status: Option<&str>,
     include_healthy: bool,
+    currently_failed: bool,
     count: u32,
     offset: u32,
 ) -> Result<Vec<ReplayProcessingDiagnosticResponse>, ApiError> {
@@ -1405,7 +1431,7 @@ async fn load_processing_diagnostic_rows(
     let mut query = sqlx::QueryBuilder::new("WITH filtered AS (SELECT * FROM (");
     push_processing_diagnostics_base_query(&mut query);
     query.push(") diagnostic WHERE 1 = 1");
-    push_processing_diagnostics_filters(&mut query, status, include_healthy);
+    push_processing_diagnostics_filters(&mut query, status, include_healthy, currently_failed);
     query.push(
         r#"
         ORDER BY
@@ -1550,7 +1576,17 @@ fn push_processing_diagnostics_base_query<'args>(
                     FROM play_events event
                     WHERE event.analysis_run_id = r.canonical_analysis_run_id
                 )
-            ) AS problem
+            ) AS problem,
+            -- "Currently failed": the most recent analysis run failed, i.e. there
+            -- has been no successful run since the last failure. NULL (no runs at
+            -- all) is treated as not-failed by the `AND latest_run_failed` filter.
+            (
+                SELECT latest.status = 'failed'
+                FROM analysis_runs latest
+                WHERE latest.replay_id = r.id
+                ORDER BY latest.started_at DESC, latest.created_at DESC, latest.id DESC
+                LIMIT 1
+            ) AS latest_run_failed
         FROM replays r
         LEFT JOIN analysis_runs canonical_run
           ON canonical_run.id = r.canonical_analysis_run_id
@@ -1562,10 +1598,14 @@ fn push_processing_diagnostics_filters<'args>(
     query: &mut sqlx::QueryBuilder<'args, sqlx::Postgres>,
     status: Option<&str>,
     include_healthy: bool,
+    currently_failed: bool,
 ) {
     if let Some(status) = status {
         query.push(" AND processing_status = ");
         query.push_bind(status.to_owned());
+    }
+    if currently_failed {
+        query.push(" AND latest_run_failed");
     }
     if !include_healthy {
         query.push(" AND problem");
