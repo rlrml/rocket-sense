@@ -131,6 +131,7 @@ import {
   PlayerRateComparisonChart,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
+import { isIgnoredGoalTag } from "./stats/goalTagFilters";
 import { PlayerMovementCohorts } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
 import { TouchProfileComparison } from "./stats/touches";
@@ -4370,7 +4371,11 @@ function PlayerAggregateStatsSections({
     // In the wins/losses split we pass a canonical ordering derived from the
     // overall (non-split) stats so every outcome side sorts identically. Without
     // it each side would sort by its own frequency and the cards wouldn't line up.
-    order?: { index: Map<string, number>; rateKeys: Array<{ key: string; display_name: string }> },
+    order?: {
+      index: Map<string, number>;
+      rateKeys: Array<{ key: string; display_name: string }>;
+      goalTagKeys: Array<{ kind: string; display_name: string }>;
+    },
   ): Array<{ key: string; node: ReactNode }> {
     const orderComparator = order
       ? (left: StatAggregateResponse, right: StatAggregateResponse) =>
@@ -4473,6 +4478,7 @@ function PlayerAggregateStatsSections({
         <GoalTagSharePanel
           overview={contentOverview}
           playerName={playerName}
+          orderedKeys={order?.goalTagKeys}
           goalTypeHref={(kind) =>
             playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
           }
@@ -4684,11 +4690,36 @@ function PlayerAggregateStatsSections({
             // own frequency. rateKeys also defines which cards appear on both
             // sides, so a stat present on one side renders a placeholder on the
             // other rather than shifting the grid out of alignment.
+            // Union the goal types across outcomes (ordered by combined count) so
+            // a goal type scored only in wins still appears as a 0 card in losses
+            // and vice versa, keeping the two grids aligned card-for-card.
+            const goalTagTotals = new Map<
+              string,
+              { kind: string; display_name: string; count: number }
+            >();
+            for (const bundle of outcomeState.bundles) {
+              for (const tag of bundle.overview?.goal_tags ?? []) {
+                if (isIgnoredGoalTag(tag.kind)) continue;
+                const existing = goalTagTotals.get(tag.kind);
+                if (existing) {
+                  existing.count += tag.count;
+                } else {
+                  goalTagTotals.set(tag.kind, {
+                    kind: tag.kind,
+                    display_name: tag.display_name,
+                    count: tag.count,
+                  });
+                }
+              }
+            }
             const splitOrder = {
               index: new Map(sectionStats.map((stat, idx) => [stat.key, idx] as const)),
               rateKeys: sectionStats
                 .filter((stat) => stat.per_active_minute != null)
                 .map((stat) => ({ key: stat.key, display_name: stat.display_name })),
+              goalTagKeys: [...goalTagTotals.values()]
+                .sort((a, b) => b.count - a.count || a.display_name.localeCompare(b.display_name))
+                .map(({ kind, display_name }) => ({ kind, display_name })),
             };
             const readyBundles = outcomeState.bundles
               .map((bundle) => {

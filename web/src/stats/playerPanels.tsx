@@ -1084,6 +1084,7 @@ export function GoalTagSharePanel({
   playerName = "Player",
   goalTypeHref,
   allGoalsHref,
+  orderedKeys,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName?: string;
@@ -1091,36 +1092,60 @@ export function GoalTagSharePanel({
   goalTypeHref?: (kind: string) => string;
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
+  // When provided (wins/losses split), the panel renders exactly these goal
+  // types in this order across every outcome side. A goal type this side never
+  // scored still renders a card (showing 0) instead of being dropped, so the
+  // wins and losses grids stay aligned card-for-card.
+  orderedKeys?: Array<{ kind: string; display_name: string }>;
 }) {
-  const cards = overview.goal_tags
-    .filter((tag) => !isIgnoredGoalTag(tag.kind))
-    .map((tag) => {
-      const rows = profileRateComparisonRows(
-        {
-          key: tag.kind,
-          displayName: tag.display_name,
-          eventCount: tag.count,
-          perActiveMinute: tag.per_active_minute,
-          teammateEventCount: tag.teammate_count,
-          teammatePerActiveMinute: tag.teammate_per_active_minute,
-          opponentEventCount: tag.opponent_count,
-          opponentPerActiveMinute: tag.opponent_per_active_minute,
-        },
-        playerName,
-      );
-      const title = goalTypeHref ? (
-        <Link
-          className="goal-tag-card-title"
-          to={goalTypeHref(tag.kind)}
-          title={`Watch all ${tag.display_name.toLowerCase()} goals`}
-        >
-          {tag.display_name} (per 5 min)
-        </Link>
-      ) : (
-        `${tag.display_name} (per 5 min)`
-      );
-      return { key: tag.kind, rows, title };
-    });
+  const visibleTags = overview.goal_tags.filter((tag) => !isIgnoredGoalTag(tag.kind));
+  const tagByKind = new Map(visibleTags.map((tag) => [tag.kind, tag] as const));
+  const entries = orderedKeys
+    ? orderedKeys.map(({ kind, display_name }) => ({
+        kind,
+        displayName: display_name,
+        tag: tagByKind.get(kind) ?? null,
+      }))
+    : visibleTags.map((tag) => ({ kind: tag.kind, displayName: tag.display_name, tag }));
+
+  const cards = entries.map(({ kind, displayName, tag }) => {
+    const rows = profileRateComparisonRows(
+      tag
+        ? {
+            key: tag.kind,
+            displayName: tag.display_name,
+            eventCount: tag.count,
+            perActiveMinute: tag.per_active_minute,
+            teammateEventCount: tag.teammate_count,
+            teammatePerActiveMinute: tag.teammate_per_active_minute,
+            opponentEventCount: tag.opponent_count,
+            opponentPerActiveMinute: tag.opponent_per_active_minute,
+          }
+        : {
+            key: kind,
+            displayName,
+            eventCount: 0,
+            perActiveMinute: 0,
+            teammateEventCount: 0,
+            teammatePerActiveMinute: null,
+            opponentEventCount: 0,
+            opponentPerActiveMinute: null,
+          },
+      playerName,
+    );
+    const title = goalTypeHref ? (
+      <Link
+        className="goal-tag-card-title"
+        to={goalTypeHref(kind)}
+        title={`Watch all ${displayName.toLowerCase()} goals`}
+      >
+        {displayName} (per 5 min)
+      </Link>
+    ) : (
+      `${displayName} (per 5 min)`
+    );
+    return { key: kind, rows, title };
+  });
 
   return (
     <section className="goal-tag-share-panel full-span">
