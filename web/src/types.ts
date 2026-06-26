@@ -89,10 +89,13 @@ export interface ReplayResponse {
 export interface ReplayGroupResponse {
   id: string;
   project_id: string | null;
+  parent_group_id: string | null;
   name: string;
   description: string | null;
   created_by_user_id: string | null;
   replay_count: number;
+  total_replay_count: number;
+  child_group_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -286,10 +289,13 @@ export interface ListReplaysResponse {
 export interface ReplayGroupResponse {
   id: string;
   project_id: string | null;
+  parent_group_id: string | null;
   name: string;
   description: string | null;
   created_by_user_id: string | null;
   replay_count: number;
+  total_replay_count: number;
+  child_group_count: number;
   created_at: string;
   updated_at: string;
 }
