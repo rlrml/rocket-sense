@@ -35,6 +35,20 @@ use super::query::{
     deserialize_string_vec, parse_bool_filter, parse_datetime_filter, parse_u32_filter, QueryParams,
 };
 
+/// Deserialize an optional field into `Option<Option<T>>` so a PATCH body can
+/// distinguish three cases: the field is absent (`None` → leave unchanged), the
+/// field is explicit `null` (`Some(None)` → clear), or the field has a value
+/// (`Some(Some(v))` → set). Plain `#[serde(default)]` on `Option<Option<T>>`
+/// collapses an explicit `null` to the absent case, so we deserialize through
+/// an inner `Option<T>` and wrap it.
+fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Deserialize::deserialize(deserializer).map(Some)
+}
+
 #[cfg(test)]
 #[path = "replays_tests.rs"]
 mod tests;
@@ -68,7 +82,9 @@ pub fn router() -> Router<AppState> {
         )
         .route(
             "/replay-groups/{group_id}",
-            get(get_replay_group).delete(delete_replay_group),
+            get(get_replay_group)
+                .patch(update_replay_group)
+                .delete(delete_replay_group),
         )
         .route(
             "/replay-groups/{group_id}/replays",
@@ -308,6 +324,23 @@ pub struct CreateReplayGroupRequest {
     pub name: String,
     pub description: Option<String>,
     pub project_id: Option<Uuid>,
+    /// Optional parent group to nest the new group under. Requires manage
+    /// rights on the parent.
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+}
+
+/// Patch a replay group. Every field is optional; an omitted field is left
+/// unchanged. For `description` and `parent_id`, an explicit `null` clears the
+/// value (detaches the group to the top level) while omission leaves it as-is.
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct UpdateReplayGroupRequest {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub description: Option<Option<String>>,
+    #[serde(default, deserialize_with = "double_option")]
+    pub parent_id: Option<Option<Uuid>>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -322,10 +355,18 @@ pub struct ReplayGroupReplayUpdateRequest {
 pub struct ReplayGroupResponse {
     pub id: Uuid,
     pub project_id: Option<Uuid>,
+    /// Parent group this group is nested under, if any.
+    pub parent_group_id: Option<Uuid>,
     pub name: String,
     pub description: Option<String>,
     pub created_by_user_id: Option<Uuid>,
+    /// Replays attached directly to this group.
     pub replay_count: u64,
+    /// Distinct replays across this group and every descendant group. Equals
+    /// `replay_count` for a leaf group.
+    pub total_replay_count: u64,
+    /// Number of direct child groups.
+    pub child_group_count: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1035,6 +1076,11 @@ pub async fn create_replay_group(
 ) -> Result<Json<ReplayGroupResponse>, ApiError> {
     let db = require_db(&state)?;
     let name = validate_replay_group_name(&request.name)?;
+    // Nesting under a parent is a structural change to that parent, so it
+    // requires manage rights on the parent.
+    if let Some(parent_id) = request.parent_id {
+        require_replay_group_manager(&state, db, parent_id, &auth_user).await?;
+    }
     upsert_user(db, &auth_user)
         .await
         .map_err(ApiError::internal)?;
@@ -1045,15 +1091,17 @@ pub async fn create_replay_group(
         INSERT INTO replay_groups (
             id,
             project_id,
+            parent_group_id,
             name,
             description,
             created_by_user_id
         )
-        VALUES ($1, $2, $3, $4, $5)
+        VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
     .bind(group_id)
     .bind(request.project_id)
+    .bind(request.parent_id)
     .bind(name)
     .bind(request.description.filter(|value| !value.trim().is_empty()))
     .bind(auth_user.id)
@@ -1087,6 +1135,90 @@ pub async fn get_replay_group(
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<ReplayGroupResponse>, ApiError> {
     let db = require_db(&state)?;
+    let group = load_replay_group(db, group_id)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+
+    Ok(Json(group))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/replay-groups/{group_id}",
+    tag = "replay-groups",
+    request_body = UpdateReplayGroupRequest,
+    params(
+        ("group_id" = Uuid, Path, description = "Replay group id")
+    ),
+    responses(
+        (status = 200, description = "Updated replay group", body = ReplayGroupResponse),
+        (status = 400, description = "Replay group update request was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "You do not manage this replay group"),
+        (status = 404, description = "Replay group was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn update_replay_group(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+    Json(request): Json<UpdateReplayGroupRequest>,
+) -> Result<Json<ReplayGroupResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+
+    let mut updates: QueryBuilder<Postgres> = QueryBuilder::new("UPDATE replay_groups SET ");
+    let mut separated = updates.separated(", ");
+    let mut has_change = false;
+
+    if let Some(name) = &request.name {
+        let name = validate_replay_group_name(name)?;
+        separated.push("name = ");
+        separated.push_bind_unseparated(name);
+        has_change = true;
+    }
+
+    if let Some(description) = request.description {
+        let description = description.filter(|value| !value.trim().is_empty());
+        separated.push("description = ");
+        separated.push_bind_unseparated(description);
+        has_change = true;
+    }
+
+    if let Some(parent_id) = request.parent_id {
+        validate_replay_group_parent(&state, db, group_id, parent_id, &auth_user).await?;
+        separated.push("parent_group_id = ");
+        separated.push_bind_unseparated(parent_id);
+        has_change = true;
+    }
+
+    if !has_change {
+        return Err(ApiError::bad_request(
+            "replay group update must change at least one field",
+        ));
+    }
+
+    separated.push("updated_at = now()");
+    updates.push(" WHERE id = ");
+    updates.push_bind(group_id);
+
+    let result = updates
+        .build()
+        .execute(db)
+        .await
+        .map_err(ApiError::internal)?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "replay group not found",
+        ));
+    }
+
     let group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
@@ -2627,6 +2759,40 @@ async fn require_replay_group_manager(
     }
 }
 
+/// Validate a requested new parent for `group_id`. Clearing the parent (moving
+/// the group to the top level) is always allowed. Otherwise the parent must
+/// exist, must not be the group itself or one of its descendants (which would
+/// create a cycle), and the caller must be able to manage the parent.
+async fn validate_replay_group_parent(
+    state: &AppState,
+    pool: &PgPool,
+    group_id: Uuid,
+    parent_id: Option<Uuid>,
+    auth_user: &AuthUser,
+) -> Result<(), ApiError> {
+    let Some(parent_id) = parent_id else {
+        return Ok(());
+    };
+
+    // `group_id` is in its own subtree, so this also rejects self-parenting.
+    let creates_cycle: bool = sqlx::query_scalar(&format!(
+        "SELECT $2 IN {}",
+        group_subtree_ids_subquery("$1")
+    ))
+    .bind(group_id)
+    .bind(parent_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    if creates_cycle {
+        return Err(ApiError::bad_request(
+            "a replay group cannot be nested under itself or one of its descendants",
+        ));
+    }
+
+    require_replay_group_manager(state, pool, parent_id, auth_user).await
+}
+
 /// Return everyone who can administer the group: the creator (`is_creator =
 /// true`, listed first) followed by any invited co-managers, alphabetised by
 /// display name then email.
@@ -2724,16 +2890,16 @@ async fn resolve_manager_target_user(
 }
 
 async fn count_replay_group_replays(pool: &PgPool, group_id: Uuid) -> Result<u64, sqlx::Error> {
-    let total: i64 = sqlx::query_scalar(
-        r#"
-        SELECT COUNT(*)
-        FROM replay_group_replays
-        WHERE group_id = $1
-        "#,
-    )
-    .bind(group_id)
-    .fetch_one(pool)
-    .await?;
+    // Count distinct replays across this group and all descendant groups, so a
+    // non-leaf group reports its full subtree.
+    let sql = format!(
+        "SELECT COUNT(DISTINCT replay_id) FROM replay_group_replays WHERE group_id IN {}",
+        group_subtree_ids_subquery("$1")
+    );
+    let total: i64 = sqlx::query_scalar(sql.as_str())
+        .bind(group_id)
+        .fetch_one(pool)
+        .await?;
 
     Ok(total.max(0) as u64)
 }
@@ -2742,14 +2908,19 @@ async fn load_replay_group_replays(
     pool: &PgPool,
     group_id: Uuid,
 ) -> Result<Vec<ReplayResponse>, sqlx::Error> {
-    let sql = replay_select_sql(
+    // EXISTS against the subtree id set returns each replay once even when it is
+    // attached to several descendant groups.
+    let sql = replay_select_sql(&format!(
         r#"
-        JOIN replay_group_replays group_replay
-          ON group_replay.replay_id = r.id
-        WHERE group_replay.group_id = $1
+        WHERE EXISTS (
+            SELECT 1 FROM replay_group_replays group_replay
+            WHERE group_replay.replay_id = r.id
+              AND group_replay.group_id IN {}
+        )
         ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC
         "#,
-    );
+        group_subtree_ids_subquery("$1")
+    ));
 
     let rows = sqlx::query(sql.as_str())
         .bind(group_id)
@@ -2807,16 +2978,36 @@ fn validate_replay_group_name(value: &str) -> Result<String, ApiError> {
     Ok(name.to_owned())
 }
 
+/// A scalar subquery that expands to the id of `root_group_id_expr` plus the
+/// ids of every group nested beneath it (its whole subtree). Pass a column
+/// reference (e.g. `replay_group.id`) or a bind placeholder (e.g. `$1`) as the
+/// root. UNION (not UNION ALL) dedupes and guarantees termination even if a
+/// parent cycle ever slips past the API-level guard.
+fn group_subtree_ids_subquery(root_group_id_expr: &str) -> String {
+    format!(
+        "(WITH RECURSIVE group_subtree AS (\
+            SELECT {root_group_id_expr} AS id \
+            UNION \
+            SELECT child.id FROM replay_groups child \
+            JOIN group_subtree parent ON child.parent_group_id = parent.id\
+        ) SELECT id FROM group_subtree)"
+    )
+}
+
 fn replay_group_select_sql(where_clause: &str) -> String {
+    let subtree_ids = group_subtree_ids_subquery("replay_group.id");
     format!(
         r#"
         SELECT
             replay_group.id,
             replay_group.project_id,
+            replay_group.parent_group_id,
             replay_group.name,
             replay_group.description,
             replay_group.created_by_user_id,
             COALESCE(replay_counts.replay_count, 0) AS replay_count,
+            COALESCE(subtree_counts.total_replay_count, 0) AS total_replay_count,
+            COALESCE(child_counts.child_group_count, 0) AS child_group_count,
             replay_group.created_at,
             replay_group.updated_at
         FROM replay_groups replay_group
@@ -2825,6 +3016,16 @@ fn replay_group_select_sql(where_clause: &str) -> String {
             FROM replay_group_replays group_replay
             WHERE group_replay.group_id = replay_group.id
         ) replay_counts ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(DISTINCT subtree_member.replay_id) AS total_replay_count
+            FROM replay_group_replays subtree_member
+            WHERE subtree_member.group_id IN {subtree_ids}
+        ) subtree_counts ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS child_group_count
+            FROM replay_groups child
+            WHERE child.parent_group_id = replay_group.id
+        ) child_counts ON TRUE
         {where_clause}
         ORDER BY replay_group.updated_at DESC, replay_group.created_at DESC, replay_group.name
         "#
@@ -2833,14 +3034,19 @@ fn replay_group_select_sql(where_clause: &str) -> String {
 
 fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupResponse, sqlx::Error> {
     let replay_count: i64 = row.try_get("replay_count")?;
+    let total_replay_count: i64 = row.try_get("total_replay_count")?;
+    let child_group_count: i64 = row.try_get("child_group_count")?;
 
     Ok(ReplayGroupResponse {
         id: row.try_get("id")?,
         project_id: row.try_get("project_id")?,
+        parent_group_id: row.try_get("parent_group_id")?,
         name: row.try_get("name")?,
         description: row.try_get("description")?,
         created_by_user_id: row.try_get("created_by_user_id")?,
         replay_count: replay_count.max(0) as u64,
+        total_replay_count: total_replay_count.max(0) as u64,
+        child_group_count: child_group_count.max(0) as u64,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
