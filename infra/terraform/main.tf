@@ -365,6 +365,20 @@ resource "kubernetes_deployment_v1" "server" {
             value = "false"
           }
 
+          # Enables the ballchasing group-mirror endpoints. Optional: when the
+          # key is absent the mirror endpoints return 503. The actual sync runs
+          # in the worker pod (which also reads this key).
+          env {
+            name = "BALLCHASING_API_KEY"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "BALLCHASING_API_KEY"
+                optional = true
+              }
+            }
+          }
+
           env {
             name  = "ROCKET_SENSE_STORAGE_ROOT"
             value = "/var/lib/rocket-sense/storage"
@@ -630,6 +644,19 @@ resource "kubernetes_deployment_v1" "worker" {
           env {
             name  = "ROCKET_SENSE_BACKGROUND_PROCESSING_CONCURRENCY"
             value = tostring(var.worker_processing_concurrency)
+          }
+
+          # Starts the ballchasing group-sync worker and authenticates its API
+          # calls. Optional: when the key is absent no sync worker starts.
+          env {
+            name = "BALLCHASING_API_KEY"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "BALLCHASING_API_KEY"
+                optional = true
+              }
+            }
           }
 
           # The worker runs the daily rank-benchmark refresh job; gate it on too.

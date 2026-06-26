@@ -50,6 +50,9 @@ at least these keys:
 - `XBOX_OAUTH_CLIENT_ID`
 - `XBOX_OAUTH_CLIENT_SECRET`
 - `STEAM_WEB_API_KEY`
+- `BALLCHASING_API_KEY` (optional) — enables mirroring ballchasing.com groups.
+  Both the server (mirror endpoints) and worker (sync job) read it; without it
+  the mirror endpoints return 503 and no sync worker starts.
 
 Terraform references that Secret by name but never reads or stores the values.
 
