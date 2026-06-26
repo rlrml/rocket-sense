@@ -565,6 +565,15 @@ resource "kubernetes_deployment_v1" "server" {
             name       = "rocket-sense-storage"
             mount_path = "/var/lib/rocket-sense/storage"
           }
+
+          resources {
+            limits = {
+              memory = var.server_memory_limit
+            }
+            requests = {
+              memory = var.server_memory_request
+            }
+          }
         }
 
         volume {
@@ -799,6 +808,15 @@ resource "kubernetes_deployment_v1" "worker" {
           volume_mount {
             name       = "rocket-sense-storage"
             mount_path = "/var/lib/rocket-sense/storage"
+          }
+
+          resources {
+            limits = {
+              memory = var.worker_memory_limit
+            }
+            requests = {
+              memory = var.worker_memory_request
+            }
           }
         }
 

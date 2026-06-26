@@ -79,6 +79,36 @@ variable "worker_processing_concurrency" {
   default     = 1
 }
 
+# Memory limits exist to contain a runaway replay-processing job to its own pod
+# cgroup. On 2026-06-25 a single job's in-heap event materialization grew to
+# ~31G on a 31Gi host (no limits set), exhausting host RAM and hard-rebooting
+# railbird-sf in a loop. With a limit the kernel OOM-kills just the pod, the
+# host stays up, and apalis marks the job failed instead of taking the node
+# down. Keep the worker limit comfortably below host RAM minus Postgres.
+variable "worker_memory_limit" {
+  description = "Memory limit for each replay processing worker pod (cgroup OOM cap)."
+  type        = string
+  default     = "8Gi"
+}
+
+variable "worker_memory_request" {
+  description = "Memory request for each replay processing worker pod."
+  type        = string
+  default     = "512Mi"
+}
+
+variable "server_memory_limit" {
+  description = "Memory limit for the API server pod (does not process replays; bounds stat-query memory)."
+  type        = string
+  default     = "4Gi"
+}
+
+variable "server_memory_request" {
+  description = "Memory request for the API server pod."
+  type        = string
+  default     = "256Mi"
+}
+
 variable "public_base_url" {
   description = "Public HTTPS origin used for OAuth redirect URI construction."
   type        = string
