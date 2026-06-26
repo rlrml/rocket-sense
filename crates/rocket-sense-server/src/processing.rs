@@ -4068,6 +4068,35 @@ async fn refresh_rank_benchmark_window(
         event_type_universe AS (
             SELECT DISTINCT event_type_id FROM player_replay_event_counts
         ),
+        -- Goals split by flavor (aerial, flip reset, ...), from the JSONB `tags`
+        -- on the scorer's `goal_context` event. Classified live here (not
+        -- materialized) since the daily refresh can absorb the canonical-goal
+        -- scan; 0-filled across kinds below so a player who scored no aerial
+        -- goals enters that kind's distribution at 0.
+        goal_tag_counts AS (
+            SELECT ev.analysis_run_id,
+                   scorer_rp.replay_id,
+                   concat(scorer_rp.platform, ':', scorer_rp.platform_player_id) AS player_subject_id,
+                   tag->>'kind' AS kind,
+                   COUNT(*) AS goals
+            FROM play_events ev
+            JOIN event_types goal_et ON goal_et.id = ev.event_type_id AND goal_et.key = 'goal_context'
+            JOIN replays gr ON gr.canonical_analysis_run_id = ev.analysis_run_id
+            JOIN play_event_subjects scorer ON scorer.event_id = ev.id AND scorer.role = 'scorer'
+            JOIN replay_players scorer_rp ON scorer_rp.id = scorer.replay_player_id
+            JOIN play_event_payloads payload ON payload.event_id = ev.id
+            CROSS JOIN LATERAL jsonb_array_elements(
+                CASE jsonb_typeof(payload.payload->'tags')
+                    WHEN 'array' THEN payload.payload->'tags'
+                    ELSE '[]'::jsonb
+                END
+            ) AS tag
+            WHERE tag->>'kind' IS NOT NULL
+              AND scorer_rp.platform IS NOT NULL AND btrim(scorer_rp.platform) <> ''
+              AND scorer_rp.platform_player_id IS NOT NULL AND btrim(scorer_rp.platform_player_id) <> ''
+            GROUP BY ev.analysis_run_id, scorer_rp.replay_id, player_subject_id, tag->>'kind'
+        ),
+        goal_tag_kinds AS (SELECT DISTINCT kind FROM goal_tag_counts),
         -- Every lifetime-stat metric, long-format, one row per (appearance,
         -- metric). Each metric reduces to a (numerator, denom) pair so the same
         -- median/mean machinery covers counts, rates and gauges: rate metrics use
@@ -4164,6 +4193,17 @@ async fn refresh_rank_benchmark_window(
                 ('positioning:most_forward_share', pos.role_most_forward_seconds, NULLIF(pos.tracked_seconds, 0)),
                 ('positioning:distance_to_ball', pos.distance_to_ball_weighted, NULLIF(pos.distance_to_ball_weight, 0))
             ) AS m(metric_key, numerator, denom)
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'goaltag:' || k.kind,
+                   COALESCE(gtc.goals, 0) * 60.0, ab.active_seconds, ab.non_demo_active_seconds
+            FROM appearance_bucket ab
+            CROSS JOIN goal_tag_kinds k
+            LEFT JOIN goal_tag_counts gtc
+              ON gtc.analysis_run_id = ab.analysis_run_id
+             AND gtc.replay_id = ab.replay_id
+             AND gtc.player_subject_id = ab.player_subject_id
+             AND gtc.kind = k.kind
         ),
         "#,
     );

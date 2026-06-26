@@ -297,6 +297,10 @@ fn metric_label_category(
     if let Some((display, category)) = event_types.get(key) {
         return (display.clone(), category.clone());
     }
+    // Goal flavors: `goaltag:high_aerial_goal` -> "High Aerial Goal" in "goals".
+    if let Some(kind) = key.strip_prefix("goaltag:") {
+        return (humanize(kind), "goals".to_owned());
+    }
     if let Some((prefix, suffix)) = key.split_once(':') {
         return (humanize(suffix), prefix.to_owned());
     }
