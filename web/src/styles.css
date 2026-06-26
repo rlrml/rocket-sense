@@ -8982,6 +8982,53 @@ tbody tr:last-child td {
   border-radius: 6px;
   padding: 1px 7px;
 }
+.rank-trend-permalink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  border-radius: 6px;
+  padding: 2px;
+  line-height: 0;
+}
+.rank-trend-permalink:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+.rank-trends-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #2563eb;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  margin-bottom: 8px;
+}
+.rank-trends-back:hover {
+  text-decoration: underline;
+}
+.rank-trends-focus-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rank-trends-copy-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+.rank-trends-copy-link:hover {
+  background: #dbeafe;
+}
 .rank-trend-chart {
   width: 100%;
   height: auto;
