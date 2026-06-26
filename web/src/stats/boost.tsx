@@ -42,6 +42,7 @@ import {
   statPlayerRank,
   type StatPlayerRank,
 } from "./shared";
+import { useSearchParamState } from "./useSearchParamState";
 
 // subtr-actor's consolidated boost model emits one rich pickup event per pad
 // collection (with a `detection` provenance attribute) plus respawn events.
@@ -138,6 +139,8 @@ type BoostLevelDistributionRow = {
 const boostPadLocations = createBoostPadLocations();
 
 type BoostComparisonMode = "players" | "teams";
+
+const BOOST_COMPARISON_MODES = ["players", "teams"] as const;
 type BoostComparisonValueMode = "totals" | "per-minute";
 type BigPadZone = "offensive" | "neutral" | "defensive";
 
@@ -215,7 +218,7 @@ export function BoostDetail({
   );
   const isOneVOne = isOneVOneMatch(players);
   const [selectedComparisonMode, setSelectedComparisonMode] =
-    useState<BoostComparisonMode>("players");
+    useSearchParamState<BoostComparisonMode>("compare", "players", BOOST_COMPARISON_MODES);
   const comparisonMode = isOneVOne ? "players" : selectedComparisonMode;
 
   return (

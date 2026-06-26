@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import type {
   MechanicEventResponse,
   ReplayPlayer,
@@ -24,6 +24,7 @@ import {
   type CareerCohortKey,
   type StatPlayerRank,
 } from "./shared";
+import { useSearchParamState } from "./useSearchParamState";
 import { touchIntentionValue, touchPayloadValue } from "./touchTags";
 
 // Only the classified touch stream feeds this section. Each event carries three
@@ -36,6 +37,8 @@ export const touchEventTypes = ["touch"];
 
 type TouchComparisonMode = "players" | "teams";
 type TouchMetric = "count" | "advance";
+
+const TOUCH_COMPARISON_MODES = ["players", "teams"] as const;
 
 export interface TouchDimensionValue {
   id: string;
@@ -156,7 +159,11 @@ export function TouchesDetail({
   const teamSubjects = useMemo(() => teamTouchSubjects(touchEvents), [touchEvents]);
 
   const oneVOne = isOneVOneMatch(players);
-  const [selectedMode, setSelectedMode] = useState<TouchComparisonMode>("players");
+  const [selectedMode, setSelectedMode] = useSearchParamState<TouchComparisonMode>(
+    "compare",
+    "players",
+    TOUCH_COMPARISON_MODES,
+  );
   const hasPlayerSubjects = playerSubjects.length > 0;
   const effectiveMode: TouchComparisonMode = !hasPlayerSubjects
     ? "teams"

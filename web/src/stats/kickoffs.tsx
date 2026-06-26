@@ -47,6 +47,7 @@ import {
   type OutcomeDistributionSegment,
   type SegmentedBarSegment,
 } from "./shared";
+import { useSearchParamState } from "./useSearchParamState";
 
 const KickoffShapeDiagram = lazy(() =>
   import("./KickoffShapeDiagram").then((module) => ({ default: module.KickoffShapeDiagram })),
@@ -56,6 +57,8 @@ const KickoffContactImage = lazy(() =>
 );
 
 export const kickoffEventTypes = ["kickoff"];
+
+const KICKOFF_TABS = ["stats", "byKickoff"] as const;
 
 // Kickoff clips are driven entirely by frame indices, which align between the
 // upstream event payload and the parsed replay. (Absolute event timestamps do
@@ -288,7 +291,7 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
   // the team-outcome summary and the per-kickoff cards below stay on the full set.
   const [shapeFilter, setShapeFilter] = useState<KickoffShapeFilter>("all");
   const [sideFilter, setSideFilter] = useState<KickoffSideFilter>("all");
-  const [tab, setTab] = useState<"stats" | "byKickoff">("stats");
+  const [tab, setTab] = useSearchParamState<"stats" | "byKickoff">("view", "stats", KICKOFF_TABS);
   const behaviorKickoffs = useMemo(
     () => kickoffs.filter((kickoff) => matchesKickoffFilter(kickoff, shapeFilter, sideFilter)),
     [kickoffs, shapeFilter, sideFilter],
