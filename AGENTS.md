@@ -168,6 +168,22 @@ catch those locally without running the whole suite:
 - `just clippy` - run clippy with warnings as errors.
 - `just dev` - run the binary locally.
 
+## Running a local server / sharing a preview
+
+- **Pick a random high port; never reuse a fixed default.** Multiple worktrees,
+  agents, and stale processes routinely collide on `8080`. Set
+  `ROCKET_SENSE_BIND_ADDR` to a random free port (e.g.
+  `127.0.0.1:$((20000 + RANDOM % 20000))`) instead of the default, and pass an
+  explicit `--port` to the web dev server (`vite`). The local Postgres should get
+  a random `-p` port too.
+- **Share over Tailscale, not `localhost`/LAN.** When handing a URL to a person or
+  another device, prefer this machine's Tailscale address — `tailscale ip -4` (the
+  `100.x.y.z`) or the MagicDNS hostname from `tailscale status` — so it opens from
+  anywhere on the tailnet, never `127.0.0.1`, `localhost`, or a LAN IP. Bind the
+  server to all interfaces (or the `100.x` IP) so the link actually connects, and
+  `curl` the `100.x` URL to confirm reachability before sharing. Note dev-auth mode
+  only binds a non-loopback address when `ROCKET_SENSE_ALLOW_INSECURE_DEV_AUTH=true`.
+
 ## Deploying (railbird-sf)
 
 There is **no CD** — deploys are manual and ship whatever image you build, so

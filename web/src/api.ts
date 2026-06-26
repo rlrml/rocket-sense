@@ -317,11 +317,34 @@ export function getReplayStatAggregates(replayId: string): Promise<StatAggregate
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
 }
 
-export function getReplayGroupStatAggregates(groupId: string): Promise<StatAggregateSetResponse> {
-  const params = new URLSearchParams({
-    group: groupId,
-    count: "200",
-  });
+export function getReplayGroupStatAggregates(
+  groupId: string,
+  searchParams?: URLSearchParams,
+): Promise<StatAggregateSetResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("group", groupId);
+  params.set("count", "200");
+  withMaterializedStatsDefault(params);
+  return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
+}
+
+// Per-player breakdown across a replay group: one aggregate block per
+// participant (in `groups[]`), the data source for the group leaderboard. Each
+// block is that player's own stats restricted to the group's replays — i.e. the
+// same numbers the career view shows, scoped to the group.
+export function getReplayGroupPlayerAggregates(
+  groupId: string,
+  searchParams?: URLSearchParams,
+  statTerms: readonly string[] = [],
+): Promise<StatAggregateSetResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("group", groupId);
+  params.set("group-by", "player");
+  params.set("count", "200");
+  for (const term of statTerms) {
+    params.append("stat-term", term);
+  }
+  withMaterializedStatsDefault(params);
   return request<StatAggregateSetResponse>(`/api/v1/stats/aggregates?${params.toString()}`);
 }
 

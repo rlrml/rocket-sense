@@ -1460,6 +1460,101 @@ tbody tr:last-child td {
   text-transform: uppercase;
 }
 
+/* A participant chip that is itself a drill-down link (group → per-player
+   group-scoped view). The chip keeps its card look; the link only adds hover. */
+.group-participant-chip-link {
+  display: inline-flex;
+  text-decoration: none;
+}
+
+.group-participant-chip-link:hover .group-participant-chip {
+  border-color: #9fb4d9;
+  background: #eaf1ff;
+}
+
+/* Group leaderboard toolbar: stat selector + measure toggle above the bars. */
+.leaderboard-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.leaderboard-stat-select {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #5d6b80;
+  font-size: var(--text-sm);
+}
+
+.leaderboard-stat-select select {
+  height: 36px;
+  min-width: 14rem;
+  padding: 0 32px 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: #fff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235d6b80' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.leaderboard-measure-toggle {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.leaderboard-measure-button {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.leaderboard-measure-button:not(.active):hover {
+  border-color: #9fb4d9;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.leaderboard-measure-button.active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.stat-detail-note {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.eyebrow-scope-note {
+  color: var(--muted);
+  font-weight: var(--fw-medium);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .stat-group-nav {
   display: flex;
   gap: 8px;

@@ -36,7 +36,16 @@ import {
   Upload,
   Zap,
 } from "lucide-react";
-import { FormEvent, Fragment, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import {
+  FormEvent,
+  Fragment,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Link,
   NavLink,
@@ -71,11 +80,10 @@ import {
   getProcessingVersion,
   getReplay,
   getReplayGroup,
-  getReplayGroupStatAggregates,
+  getReplayGroupPlayerAggregates,
   getReplayStatAggregates,
   listEventTypes,
   listReplayGroups,
-  listReplayGroupEvents,
   listReplayGroupManagers,
   listReplayGroupReplays,
   listReplayEvents,
@@ -105,8 +113,14 @@ import {
   warmPreviewPlayerForReplay,
 } from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
-import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
+import {
+  completedStatGroups,
+  eventTypesForGroup,
+  statGroupById,
+  statGroupLayout,
+} from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
+import { leaderboardRankIndex, StatLeaderboard } from "./stats/StatLeaderboard";
 import { StalenessChip } from "./staleness";
 import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
 import { Chip } from "./chip";
@@ -115,6 +129,7 @@ import {
   PlayerIdentity,
   playerIdentityKey,
   playerProfileIdPath,
+  playerStatProfileIdPath,
   replayLocalTeamLabel,
 } from "./playerIdentity";
 import { RankBadge } from "./rank";
@@ -160,6 +175,7 @@ import type {
   ReplayPlaylistMetadata,
   ReplayResponse,
   ReplayUploaderResponse,
+  StatAggregateGroupPlayer,
   StatAggregateResponse,
   StatAggregateSetResponse,
 } from "./types";
@@ -2413,16 +2429,14 @@ function ReplayGroupStatsPage() {
     () => statGroupById(statGroup, aggregateStatsSectionGroups) ?? aggregateStatsSectionGroups[0],
     [statGroup],
   );
+  const layout = statGroupLayout(activeGroup);
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
-  const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
-  const [events, setEvents] = useState<MechanicEventResponse[]>([]);
+  const [playerAggregates, setPlayerAggregates] = useState<StatAggregateSetResponse | null>(null);
   const [groupLoading, setGroupLoading] = useState(true);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [eventsLoading, setEventsLoading] = useState(true);
+  const [playerAggregatesLoading, setPlayerAggregatesLoading] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
-  const [statsError, setStatsError] = useState<string | null>(null);
-  const [eventsError, setEventsError] = useState<string | null>(null);
+  const [playerAggregatesError, setPlayerAggregatesError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -2447,66 +2461,49 @@ function ReplayGroupStatsPage() {
     };
   }, [groupId]);
 
+  // The group leaderboard fetches one aggregate block per participant
+  // (`group-by=player`), scoped to the group's replays. Drill-down-only sections
+  // (e.g. boost) skip this — they route into each player's group-scoped view.
   useEffect(() => {
     let cancelled = false;
-    setStatsLoading(true);
-    setStatsError(null);
-    if (!activeGroup.usesAggregateStats) {
-      setStats(null);
-      setStatsLoading(false);
-    } else {
-      getReplayGroupStatAggregates(groupId)
-        .then((response) => {
-          if (!cancelled) setStats(response);
-        })
-        .catch((err: Error) => {
-          if (!cancelled) setStatsError(err.message);
-        })
-        .finally(() => {
-          if (!cancelled) setStatsLoading(false);
-        });
+    if (layout !== "leaderboard") {
+      setPlayerAggregates(null);
+      setPlayerAggregatesLoading(false);
+      setPlayerAggregatesError(null);
+      return;
     }
-    return () => {
-      cancelled = true;
-    };
-  }, [activeGroup.usesAggregateStats, groupId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setEventsLoading(true);
-    setEventsError(null);
-    listReplayGroupEvents(groupId, eventTypesForGroup(activeGroup.id))
+    setPlayerAggregatesLoading(true);
+    setPlayerAggregatesError(null);
+    getReplayGroupPlayerAggregates(groupId, undefined, activeGroup.terms)
       .then((response) => {
-        if (!cancelled) setEvents(response.events);
+        if (!cancelled) setPlayerAggregates(response);
       })
       .catch((err: Error) => {
-        if (!cancelled) setEventsError(err.message);
+        if (!cancelled) setPlayerAggregatesError(err.message);
       })
       .finally(() => {
-        if (!cancelled) setEventsLoading(false);
+        if (!cancelled) setPlayerAggregatesLoading(false);
       });
     return () => {
       cancelled = true;
     };
-  }, [activeGroup.id, groupId]);
+  }, [layout, groupId, activeGroup]);
 
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
-  const activeStats = useMemo(
-    () => filterStatsForGroup(stats?.stats ?? [], activeGroup),
-    [activeGroup, stats],
+  const rankIndex = useMemo(
+    () => leaderboardRankIndex(participantAnalysis.players),
+    [participantAnalysis.players],
   );
-  const activeEvents = useMemo(
-    () => filterEventsForGroup(events, activeGroup.terms),
-    [activeGroup, events],
+  const buildPlayerHref = useCallback(
+    (player: StatAggregateGroupPlayer) =>
+      groupScopedPlayerStatsPath(
+        player.platform,
+        player.platform_player_id,
+        activeGroup.id,
+        groupId,
+      ),
+    [activeGroup.id, groupId],
   );
-  const ActiveDetail = activeGroup.Detail;
-  const detailEvents = ActiveDetail ? events : activeEvents;
-  const canRenderGroupDetail =
-    participantAnalysis.consistent ||
-    activeGroup.id === "goals" ||
-    activeGroup.id === "mechanics" ||
-    activeGroup.id === "positioning" ||
-    activeGroup.id === "possession-territory";
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -2585,50 +2582,38 @@ function ReplayGroupStatsPage() {
           </nav>
 
           <section className="stat-detail">
-            {!ActiveDetail || !canRenderGroupDetail ? (
-              <header className="stat-detail-header">
-                <div>
-                  <p className="eyebrow">{activeGroup.label}</p>
-                  <h2>{activeGroup.label} detail</h2>
-                  <p>{activeGroup.description}</p>
-                </div>
-                <div className="stat-detail-counts">
-                  <Metric label="Stats" value={activeStats.length.toLocaleString()} />
-                  <Metric label="Events" value={activeEvents.length.toLocaleString()} />
-                </div>
-              </header>
-            ) : null}
+            <header className="stat-detail-header">
+              <div>
+                <p className="eyebrow">{activeGroup.label}</p>
+                <h2>
+                  {activeGroup.label} {layout === "drill-down-only" ? "per player" : "leaderboard"}
+                </h2>
+                <p>{activeGroup.description}</p>
+              </div>
+            </header>
 
-            {eventsError ? (
+            {playerAggregatesError ? (
               <ApiNotice
-                label={ActiveDetail ? `${activeGroup.label} data` : "Indexed events"}
-                message={eventsError}
+                label={`${activeGroup.label} leaderboard`}
+                message={playerAggregatesError}
               />
             ) : null}
-            {statsError ? <ApiNotice label="Group stats" message={statsError} /> : null}
-            {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
+            {playerAggregatesLoading ? <StatusLine loading error={null} /> : null}
 
-            {!participantAnalysis.consistent && !(ActiveDetail && canRenderGroupDetail) ? (
-              <GroupParticipantLeaderboard
-                events={activeEvents}
+            {layout === "drill-down-only" ? (
+              <GroupSectionDrillDown
+                section={activeGroup}
                 players={participantAnalysis.players}
-                title={`${activeGroup.label} leaderboard`}
-              />
-            ) : null}
-
-            {ActiveDetail && canRenderGroupDetail ? (
-              <ActiveDetail
-                events={detailEvents}
-                players={participantAnalysis.players}
-                durationSeconds={groupDurationSeconds}
                 groupId={groupId}
-                scope="group"
               />
             ) : (
-              <div className="stat-section-grid">
-                <StatRows title="Top stats" stats={activeStats} />
-                <EventRows title="Indexed events" events={activeEvents} />
-              </div>
+              <StatLeaderboard
+                title={`${activeGroup.label} leaderboard`}
+                groups={playerAggregates?.groups ?? []}
+                rankIndex={rankIndex}
+                buildPlayerHref={buildPlayerHref}
+                defaultStatKeys={activeGroup.leaderboardStats}
+              />
             )}
           </section>
 
@@ -2874,7 +2859,7 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
       players,
       colorSwitching,
       reason:
-        "These replays do not all contain the same participant identities, so group views fall back to event and aggregate tables.",
+        "These replays don't all share the same participants. The leaderboard still ranks every player across the group; per-player drill-downs span only the games each player appears in.",
     };
   }
 
@@ -3040,67 +3025,51 @@ function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): num
   );
 }
 
-function GroupParticipantLeaderboard({
-  events,
+// Group sections that don't reduce to a single leaderboard (e.g. the boost
+// pad-control diagram is a per-player spatial chart) route into each player's
+// group-scoped career view for that section instead of rendering a group panel.
+function GroupSectionDrillDown({
+  section,
   players,
-  title,
+  groupId,
 }: {
-  events: MechanicEventResponse[];
+  section: StatGroup;
   players: ReplayPlayer[];
-  title: string;
+  groupId: string;
 }) {
-  const eventCounts = participantEventCounts(players, events);
-  const rows = players
-    .map((player, index) => ({
-      player,
-      key: groupParticipantKey(player, index),
-      events: eventCounts.get(groupParticipantKey(player, index)) ?? 0,
-    }))
-    .sort((left, right) => {
-      if (right.events !== left.events) return right.events - left.events;
-      if ((right.player.score ?? 0) !== (left.player.score ?? 0))
-        return (right.player.score ?? 0) - (left.player.score ?? 0);
-      return (right.player.appearance_count ?? 0) - (left.player.appearance_count ?? 0);
-    });
-
+  const linkablePlayers = players.filter((player) => player.platform && player.platform_player_id);
+  const sectionLabel = section.label.toLowerCase();
   return (
     <section className="stat-panel full-span group-leaderboard-panel">
       <div className="stat-panel-heading">
-        <h3>{title}</h3>
-        <span>{players.length.toLocaleString()} participants</span>
+        <h3>{section.label} per player</h3>
+        <span>{linkablePlayers.length.toLocaleString()} players</span>
       </div>
-      {rows.length > 0 ? (
-        <div className="table-frame compact-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Games</th>
-                <th>Score</th>
-                <th>G/A/S/Sh</th>
-                <th>Active</th>
-                <th>Events</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ player, key, events: eventCount }) => (
-                <tr key={key}>
-                  <td>
-                    <PlayerIdentity
-                      detail={`${(player.appearance_count ?? 0).toLocaleString()} games`}
-                      player={player}
-                      showRank
-                    />
-                  </td>
-                  <td>{(player.appearance_count ?? 0).toLocaleString()}</td>
-                  <td>{formatNullableInteger(player.score)}</td>
-                  <td>{scoreboardLine(player)}</td>
-                  <td>{formatSeconds(player.active_time_seconds)}</td>
-                  <td>{eventCount.toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      <p className="stat-detail-note">
+        {section.label} centers on a per-player view that doesn&rsquo;t reduce to a single
+        leaderboard. Open a player to see their {sectionLabel} across this group.
+      </p>
+      {linkablePlayers.length > 0 ? (
+        <div className="group-participant-strip" aria-label={`${section.label} per player`}>
+          {linkablePlayers.map((player, index) => (
+            <Link
+              key={groupParticipantKey(player, index)}
+              className="group-participant-chip-link"
+              to={groupScopedPlayerStatsPath(
+                player.platform!,
+                player.platform_player_id!,
+                section.id,
+                groupId,
+              )}
+            >
+              <PlayerIdentity
+                className="group-participant-chip"
+                player={player}
+                showRank
+                link={false}
+              />
+            </Link>
+          ))}
         </div>
       ) : (
         <div className="stat-empty">
@@ -3109,47 +3078,6 @@ function GroupParticipantLeaderboard({
       )}
     </section>
   );
-}
-
-function participantEventCounts(
-  players: ReplayPlayer[],
-  events: MechanicEventResponse[],
-): Map<string, number> {
-  const counts = new Map<string, number>();
-  for (const event of events) {
-    const index = players.findIndex((player) => eventMatchesPlayer(player, event));
-    if (index < 0) continue;
-    const key = groupParticipantKey(players[index], index);
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return counts;
-}
-
-function eventMatchesPlayer(player: ReplayPlayer, event: MechanicEventResponse): boolean {
-  const eventPlayerId = (event.player_id ?? stringPayloadValue(event.payload, "player_id"))?.trim();
-  if (
-    eventPlayerId &&
-    (player.platform_player_id === eventPlayerId || replayPlayerIdentity(player) === eventPlayerId)
-  ) {
-    return true;
-  }
-  const eventName = event.player_name?.trim().toLowerCase();
-  return Boolean(eventName && player.name?.trim().toLowerCase() === eventName);
-}
-
-function stringPayloadValue(payload: Record<string, unknown>, key: string): string | null {
-  const value = payload[key];
-  return typeof value === "string" && value.length > 0 ? value : null;
-}
-
-function scoreboardLine(player: ReplayPlayer): string {
-  return [player.goals, player.assists, player.saves, player.shots]
-    .map(formatNullableInteger)
-    .join(" / ");
-}
-
-function formatNullableInteger(value: number | null | undefined): string {
-  return value == null ? "0" : Math.round(value).toLocaleString();
 }
 
 function normalizeReplayPlatform(value: string): string {
@@ -3282,6 +3210,28 @@ function PlayerStatsPage() {
       navigate(canonical, { replace: true });
     }
   }, [activeGroup.id, location.pathname, location.search, navigate, routeBasePath]);
+  // When reached via a replay-group leaderboard drill-down, the `group` param is
+  // already threaded into every stat fetch (so the numbers are group-scoped);
+  // resolve the group here only to label the banner + offer a way back.
+  const groupScopeId = playerStatsSearchParams.get("group");
+  const [groupScope, setGroupScope] = useState<ReplayGroupResponse | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (!groupScopeId) {
+      setGroupScope(null);
+      return;
+    }
+    getReplayGroup(groupScopeId)
+      .then((response) => {
+        if (!cancelled) setGroupScope(response);
+      })
+      .catch(() => {
+        if (!cancelled) setGroupScope(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupScopeId]);
   const [statsByGroup, setStatsByGroup] = useState<PlayerStatsByGroupState>({
     scope: "",
     groups: {},
@@ -3560,7 +3510,19 @@ function PlayerStatsPage() {
     <section className="page player-stats-page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Player stats</p>
+          {groupScopeId ? (
+            <p className="eyebrow">
+              <Link
+                className="primary-link"
+                to={`/replay-groups/${encodeURIComponent(groupScopeId)}/stats/${activeGroup.id}`}
+              >
+                ← {groupScope?.name ?? "Replay group"}
+              </Link>
+              <span className="eyebrow-scope-note"> · stats scoped to this group</span>
+            </p>
+          ) : (
+            <p className="eyebrow">Player stats</p>
+          )}
           <h1 className="player-profile-title">
             {playerSummary ? (
               <PlatformIcon
@@ -3733,6 +3695,24 @@ function canonicalPlayerStatsPath(routeBasePath: string, groupId: string, search
   const query = params.toString();
   const path = `${routeBasePath}/stats/${encodeURIComponent(groupId)}`;
   return query ? `${path}?${query}` : path;
+}
+
+// Drill-down from a replay group into a player's group-scoped career view. The
+// `group` filter restricts every stat fetch to the group's replays; team-size
+// and game-type are pinned to all/any so the career view's usual 2v2/ranked
+// defaults don't hide a group whose games are a different mode.
+function groupScopedPlayerStatsPath(
+  platform: string,
+  platformPlayerId: string,
+  statGroup: string,
+  groupId: string,
+): string {
+  const params = new URLSearchParams({
+    group: groupId,
+    "team-size": allPlayerTeamSizes,
+    "game-type": anyPlayerGameType,
+  });
+  return `${playerStatProfileIdPath(platform, platformPlayerId, statGroup)}?${params.toString()}`;
 }
 
 function playerAggregateSearchParams(groupId: string, search: string): URLSearchParams {
