@@ -102,6 +102,7 @@ import {
 } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { commitShaForUrl, shortCommitSha } from "./gitSha";
+import { mapDisplayName } from "./maps";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import { RankTrendsPage } from "./rankTrends";
@@ -716,7 +717,10 @@ function ReplayListPage() {
       value: filters.map,
       options: [
         { value: "", label: "Any" },
-        ...mapOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
+        ...mapOptions.map((option) => ({
+          value: option.value,
+          label: optionLabel({ ...option, label: mapDisplayName(option.value) }),
+        })),
       ],
       onChange: (value) => setFilters({ ...filters, map: value }),
     },
@@ -1410,6 +1414,7 @@ function filterValueLabel(key: string, value: string): string {
     return dateInputFromParam(value) || value;
   }
   if (key === "playlist") return playlistLabel(null, value);
+  if (key === "map") return mapDisplayName(value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
 }
