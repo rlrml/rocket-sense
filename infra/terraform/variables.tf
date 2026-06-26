@@ -74,9 +74,14 @@ variable "worker_replicas" {
 }
 
 variable "worker_processing_concurrency" {
-  description = "Number of replay processing jobs each worker pod can run concurrently."
+  description = <<-EOT
+    Max replay processing jobs a worker pod parses concurrently. Each parse holds
+    the decoded replay + its event set in memory (~1-2 GiB), so this trades
+    throughput against the worker pod memory limit; the code hard-caps it at 4
+    (MAX_REPLAY_PROCESSING_CONCURRENCY) regardless of this value.
+  EOT
   type        = number
-  default     = 1
+  default     = 2
 }
 
 # Memory limits exist to contain a runaway replay-processing job to its own pod
