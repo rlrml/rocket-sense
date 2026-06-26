@@ -239,6 +239,10 @@ pub struct ReplayPlayerResponse {
 pub struct ReplaySummaryResponse {
     pub team_scores: ReplayTeamScoresResponse,
     pub duration_seconds: Option<u32>,
+    /// Active in-game time (game clock running), excluding kickoff countdowns,
+    /// pre-touch kickoff waits, and post-goal celebrations. `duration_seconds`
+    /// is the wall-clock length of the replay.
+    pub active_seconds: Option<u32>,
     pub overtime_seconds: Option<u32>,
     pub match_guid: Option<String>,
     pub season: Option<String>,
@@ -3046,6 +3050,7 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.replay_date,
             r.season,
             r.duration_seconds,
+            r.active_seconds,
             r.overtime_seconds,
             r.team_zero_score,
             r.team_one_score,
@@ -3130,6 +3135,7 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
     let summary = ReplaySummaryResponse {
         season: row.try_get("season").unwrap_or(None),
         duration_seconds: optional_seconds_to_u32(row.try_get("duration_seconds").unwrap_or(None)),
+        active_seconds: optional_seconds_to_u32(row.try_get("active_seconds").unwrap_or(None)),
         overtime_seconds: optional_seconds_to_u32(row.try_get("overtime_seconds").unwrap_or(None)),
         match_guid: row.try_get("match_guid").unwrap_or(None),
         team_scores: ReplayTeamScoresResponse {

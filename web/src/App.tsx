@@ -2420,7 +2420,7 @@ function ReplayStatsPage() {
             </div>
             <div>
               <span>Duration</span>
-              <strong>{formatDuration(replay.summary.duration_seconds)}</strong>
+              <strong>{formatGameDuration(replay.summary)}</strong>
             </div>
             <div>
               <span>Date</span>
@@ -7198,6 +7198,20 @@ function formatDuration(value: number | null): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+// Prefer the active (in-game, clock-running) duration, with the wall-clock
+// length of the replay shown in parentheses. Falls back to wall-clock alone
+// when active time is unavailable (e.g. replays processed before active time
+// was tracked).
+function formatGameDuration(summary: {
+  active_seconds: number | null;
+  duration_seconds: number | null;
+}): string {
+  const { active_seconds, duration_seconds } = summary;
+  if (active_seconds == null) return formatDuration(duration_seconds);
+  if (duration_seconds == null) return formatDuration(active_seconds);
+  return `${formatDuration(active_seconds)} (${formatDuration(duration_seconds)})`;
 }
 
 function formatDate(value: string | null): string {
