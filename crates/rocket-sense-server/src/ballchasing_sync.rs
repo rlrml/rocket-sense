@@ -68,7 +68,10 @@ pub async fn sync_mirror_group(
 
     mark_sync_started(pool, root_group_id).await?;
 
-    let client = BallchasingClient::new(api_key.to_owned());
+    let mut client = BallchasingClient::new(api_key.to_owned());
+    if let Err(error) = client.detect_rate_limit().await {
+        tracing::warn!(%error, "ballchasing tier detection failed; using default rate");
+    }
     let result = walk_tree(
         &client,
         pool,

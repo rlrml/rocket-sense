@@ -2,10 +2,11 @@
 //! sync needs: walk a group's nested subgroups, list each group's direct
 //! replays, and download replay files.
 //!
-//! The public ballchasing API is rate limited (a regular account gets 2
-//! calls/second and 500/hour). The client serializes every request behind a
-//! minimum inter-request delay and retries on HTTP 429, so a long sync degrades
-//! to "slow" rather than "failed".
+//! The public ballchasing API is rate limited per patron tier (regular 2/s,
+//! gold 2/s, diamond 4/s, champion 8/s, grand-champion 16/s). The client
+//! serializes every request behind a minimum inter-request delay sized to the
+//! account's tier (detected from the `/api/` ping) and retries on HTTP 429, so a
+//! long sync degrades to "slow" rather than "failed".
 
 use std::time::Duration;
 
@@ -18,8 +19,9 @@ use tokio::time::{sleep, Instant};
 
 const BALLCHASING_API_BASE: &str = "https://ballchasing.com/api";
 const ROCKET_SENSE_USER_AGENT: &str = "rocket-sense";
-/// Conservative spacing between requests: a regular account is capped at 2/sec.
-const MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(550);
+/// Conservative default spacing (≈2/sec) used until the account tier is detected,
+/// and as the fallback when detection fails.
+const DEFAULT_MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(550);
 /// Page size for list endpoints (ballchasing caps `count` at 200).
 const LIST_PAGE_SIZE: u32 = 200;
 /// How many times to retry a single request after a 429 before giving up.
@@ -65,6 +67,8 @@ struct ReplayListResponse {
 pub struct BallchasingClient {
     http: Client,
     api_key: String,
+    /// Minimum spacing between requests, sized to the account's patron tier.
+    min_interval: Duration,
     /// Timestamp of the last issued request; guards the min-interval throttle.
     last_request: Mutex<Option<Instant>>,
 }
@@ -74,8 +78,34 @@ impl BallchasingClient {
         Self {
             http: Client::new(),
             api_key: api_key.into(),
+            min_interval: DEFAULT_MIN_REQUEST_INTERVAL,
             last_request: Mutex::new(None),
         }
+    }
+
+    /// Detect the account's patron tier from the `/api/` ping and size the
+    /// request throttle to its per-second cap. Best-effort: on any failure the
+    /// conservative default interval is kept.
+    pub async fn detect_rate_limit(&mut self) -> Result<()> {
+        #[derive(Deserialize)]
+        struct Ping {
+            #[serde(default)]
+            r#type: Option<String>,
+        }
+        let bytes = self
+            .get_json_bytes(&format!("{BALLCHASING_API_BASE}/"))
+            .await?;
+        let ping: Ping =
+            serde_json::from_slice(&bytes).context("failed to parse ballchasing ping")?;
+        if let Some(tier) = ping.r#type.as_deref() {
+            self.min_interval = interval_for_tier(tier);
+            tracing::info!(
+                tier,
+                interval_ms = self.min_interval.as_millis() as u64,
+                "ballchasing request rate sized to patron tier"
+            );
+        }
+        Ok(())
     }
 
     /// Fetch a single group's metadata. Used to resolve the mirror root's name.
@@ -180,11 +210,23 @@ impl BallchasingClient {
         let mut guard = self.last_request.lock().await;
         if let Some(previous) = *guard {
             let elapsed = previous.elapsed();
-            if elapsed < MIN_REQUEST_INTERVAL {
-                sleep(MIN_REQUEST_INTERVAL - elapsed).await;
+            if elapsed < self.min_interval {
+                sleep(self.min_interval - elapsed).await;
             }
         }
         *guard = Some(Instant::now());
+    }
+}
+
+/// Minimum inter-request spacing for a patron tier, sized just under each tier's
+/// documented per-second cap to keep a safety margin.
+fn interval_for_tier(tier: &str) -> Duration {
+    match tier {
+        "grand-champion" | "gc" => Duration::from_millis(70), // 16/s
+        "champion" => Duration::from_millis(140),             // 8/s
+        "diamond" => Duration::from_millis(260),              // 4/s
+        // gold / regular / unknown: stay at the safe ~2/s default.
+        _ => DEFAULT_MIN_REQUEST_INTERVAL,
     }
 }
 
