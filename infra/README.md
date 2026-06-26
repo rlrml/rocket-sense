@@ -50,6 +50,7 @@ at least these keys:
 - `XBOX_OAUTH_CLIENT_ID`
 - `XBOX_OAUTH_CLIENT_SECRET`
 - `STEAM_WEB_API_KEY`
+- `BALLCHASING_API_KEY`
 
 Terraform references that Secret by name but never reads or stores the values.
 
