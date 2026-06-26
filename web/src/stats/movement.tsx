@@ -18,12 +18,13 @@ import {
   careerCohortSubtitle,
   careerRateValue,
   type CareerCohortKey,
+  type ComparisonCard,
+  ComparisonCardGrid,
   type ComparisonRow,
   type OutcomeDistributionColors,
   type OutcomeDistributionLevel,
   outcomeDistributionColorStyle,
   outcomeSegmentClassName,
-  PlayerComparisonChart,
   type SegmentedBarSegment,
   StatPlayerLabel,
   statPercentWithValue,
@@ -247,13 +248,20 @@ type CareerMovementSummary = PlayerMovementSummary & {
   appearanceCount: number;
 };
 
-export function PlayerMovementCohorts({
+export function PlayerMovementCohorts(props: {
+  response: MovementSummaryResponse;
+  playerName: string;
+}) {
+  return <ComparisonCardGrid cards={buildMovementCohortCards(props)} />;
+}
+
+export function buildMovementCohortCards({
   response,
   playerName,
 }: {
   response: MovementSummaryResponse;
   playerName: string;
-}) {
+}): ComparisonCard[] {
   const summaries: CareerMovementSummary[] = [
     movementCohortSummary("cohort-self", "player", playerName || "Player", response.player),
   ];
@@ -361,20 +369,7 @@ export function PlayerMovementCohorts({
     },
   ];
 
-  return (
-    <section className="movement-profile-detail full-span">
-      <div className="stat-comparison-grid player-rate-comparison-grid">
-        {cards.map((card) => (
-          <PlayerComparisonChart
-            className="career-rate-card"
-            key={card.key}
-            rows={card.rows}
-            title={card.title}
-          />
-        ))}
-      </div>
-    </section>
-  );
+  return cards;
 }
 
 function movementCohortSummary(

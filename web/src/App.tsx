@@ -127,13 +127,15 @@ import {
   GoalTagSharePanel,
   KickoffSummaryPanel,
   PossessionSummaryPanel,
-  CoreProfileComparison,
   type CoreProfileView,
-  PlayerRateComparisonChart,
+  buildCoreProfileCards,
+  buildGoalTagCards,
+  buildPlayerRateCards,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
+import { type ComparisonCard, ComparisonCardChart, ComparisonCardGrid } from "./stats/shared";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
-import { PlayerMovementCohorts } from "./stats/movement";
+import { buildMovementCohortCards } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
 import { TouchProfileComparison } from "./stats/touches";
 import type {
@@ -4260,6 +4262,19 @@ function PlayerStatsSegmentBar() {
   );
 }
 
+// A stat section renders as an ordered list of panels. A "cards" panel is a
+// list of comparison cards: the combined view lays them out in a grid, and the
+// wins/losses split pairs them card-by-card so each metric keeps its win and
+// loss together (stacked on a phone). A "node" panel is an opaque, cohesive
+// visualization that pairs as a single unit. All the split/combined layout lives
+// in one place (see buildStatsPanels' consumers) so sections only supply data.
+type StatPanel =
+  | { kind: "node"; key: string; node: ReactNode }
+  | { kind: "cards"; key: string; cards: ComparisonCard[] };
+
+// One pairable cell in the wins/losses split (a whole node panel, or one card).
+type SplitUnit = { key: string; node: ReactNode };
+
 function PlayerAggregateStatsSections({
   activeGroup,
   kickoffFilterSummary,
@@ -4377,7 +4392,7 @@ function PlayerAggregateStatsSections({
       rateKeys: Array<{ key: string; display_name: string }>;
       goalTagKeys: Array<{ kind: string; display_name: string }>;
     },
-  ): Array<{ key: string; node: ReactNode }> {
+  ): StatPanel[] {
     const orderComparator = order
       ? (left: StatAggregateResponse, right: StatAggregateResponse) =>
           (order.index.get(left.key) ?? Number.POSITIVE_INFINITY) -
@@ -4392,8 +4407,10 @@ function PlayerAggregateStatsSections({
       (dimension) => dimension.key === "spawn_position" && dimension.values.length > 0,
     );
 
-    const panels: Array<{ key: string; node: ReactNode }> = [];
-    const add = (key: string, node: ReactNode) => panels.push({ key, node });
+    const panels: StatPanel[] = [];
+    const add = (key: string, node: ReactNode) => panels.push({ kind: "node", key, node });
+    const addCards = (key: string, cards: ComparisonCard[]) =>
+      panels.push({ kind: "cards", key, cards });
 
     if (activeGroup.id === "kickoffs" && contentKickoffSpawnDimension && splitOutcome) {
       add(
@@ -4419,18 +4436,18 @@ function PlayerAggregateStatsSections({
       activeGroup.id !== "rotation" &&
       activeGroup.id !== "touches"
     ) {
-      add(
-        "rate-comparison",
-        <PlayerRateComparisonChart
-          playerName={playerName}
-          stats={order ? contentSectionStats : contentTopStats}
-          orderedKeys={order?.rateKeys}
-          rankBenchmark={{
-            tierLabel: contentStats.rank_benchmark_tier_label,
-            windowLabel: contentStats.rank_benchmark_window_label,
-          }}
-        />,
+      const rateCards = buildPlayerRateCards(
+        order ? contentSectionStats : contentTopStats,
+        playerName,
+        {
+          tierLabel: contentStats.rank_benchmark_tier_label,
+          windowLabel: contentStats.rank_benchmark_window_label,
+        },
+        order?.rateKeys,
       );
+      if (rateCards.length > 0) {
+        addCards("rate-comparison", rateCards);
+      }
     }
 
     if (activeGroup.id === "boost") {
@@ -4446,21 +4463,21 @@ function PlayerAggregateStatsSections({
     }
 
     if (activeGroup.id === "core" && contentOverview) {
-      add(
-        "core-profile",
-        <CoreProfileComparison
-          overview={contentOverview}
-          playerName={playerName}
-          stats={contentSectionStats}
-          view={coreView}
-        />,
+      addCards(
+        "core",
+        buildCoreProfileCards({
+          overview: contentOverview,
+          playerName,
+          stats: contentSectionStats,
+          view: coreView,
+        }),
       );
     }
 
     if (activeGroup.id === "movement" && contentMovementSummary) {
-      add(
+      addCards(
         "movement-cohorts",
-        <PlayerMovementCohorts response={contentMovementSummary} playerName={playerName} />,
+        buildMovementCohortCards({ response: contentMovementSummary, playerName }),
       );
     }
     if (activeGroup.id === "movement" && contentSupplementalLoading) {
@@ -4474,18 +4491,34 @@ function PlayerAggregateStatsSections({
     }
 
     if (activeGroup.id === "goals" && contentOverview) {
-      add(
-        "goal-share",
-        <GoalTagSharePanel
-          overview={contentOverview}
-          playerName={playerName}
-          orderedKeys={order?.goalTagKeys}
-          goalTypeHref={(kind) =>
-            playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
-          }
-          allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
-        />,
-      );
+      // Combined: the full panel (with its "Goal types" header). Split: drop the
+      // header — which doesn't belong per-outcome — and pair each goal type on
+      // its own row via the shared card path, using the canonical order so both
+      // sides show the same goal types.
+      if (splitOutcome) {
+        addCards(
+          "goals",
+          buildGoalTagCards({
+            overview: contentOverview,
+            playerName,
+            orderedKeys: order?.goalTagKeys,
+            goalTypeHref: (kind) =>
+              playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind }),
+          }),
+        );
+      } else {
+        add(
+          "goal-share",
+          <GoalTagSharePanel
+            overview={contentOverview}
+            playerName={playerName}
+            goalTypeHref={(kind) =>
+              playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
+            }
+            allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
+          />,
+        );
+      }
     }
     if (activeGroup.id === "goals" && contentSupplementalLoading) {
       add("goal-loading", <SupplementalLoadingNotice label="Goal types" />);
@@ -4550,13 +4583,31 @@ function PlayerAggregateStatsSections({
     return panels;
   }
 
+  function renderStatPanel(panel: StatPanel): ReactNode {
+    return panel.kind === "cards" ? <ComparisonCardGrid cards={panel.cards} /> : panel.node;
+  }
+
   function renderStatsContent(inputs: StatsContentInputs) {
     return (
       <>
         {buildStatsPanels(inputs).map((panel) => (
-          <Fragment key={panel.key}>{panel.node}</Fragment>
+          <Fragment key={panel.key}>{renderStatPanel(panel)}</Fragment>
         ))}
       </>
+    );
+  }
+
+  // Flatten a section's panels into the units the wins/losses split pairs: a
+  // "cards" panel contributes one unit per card (so each metric pairs on its own
+  // row and stacks win-above-loss on a phone); a "node" panel contributes itself.
+  function splitUnits(panels: StatPanel[]): SplitUnit[] {
+    return panels.flatMap((panel): SplitUnit[] =>
+      panel.kind === "cards"
+        ? panel.cards.map((card) => ({
+            key: `${panel.key}::${card.key}`,
+            node: <ComparisonCardChart card={card} />,
+          }))
+        : [{ key: panel.key, node: panel.node }],
     );
   }
 
@@ -4726,21 +4777,21 @@ function PlayerAggregateStatsSections({
               .map((bundle) => {
                 const inputs = outcomeBundleInputs(bundle);
                 return inputs
-                  ? { bundle, inputs, panels: buildStatsPanels(inputs, splitOrder) }
+                  ? { bundle, inputs, units: splitUnits(buildStatsPanels(inputs, splitOrder)) }
                   : null;
               })
               .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
             if (readyBundles.length === 0) return null;
 
-            // Union the panel keys across outcomes, preserving first-seen order, so
-            // each panel pairs its wins and losses variants on the same row.
+            // Union the unit keys across outcomes, preserving first-seen order, so
+            // each metric pairs its wins and losses variants on the same row.
             const orderedKeys: string[] = [];
             const seenKeys = new Set<string>();
             for (const entry of readyBundles) {
-              for (const panel of entry.panels) {
-                if (!seenKeys.has(panel.key)) {
-                  seenKeys.add(panel.key);
-                  orderedKeys.push(panel.key);
+              for (const unit of entry.units) {
+                if (!seenKeys.has(unit.key)) {
+                  seenKeys.add(unit.key);
+                  orderedKeys.push(unit.key);
                 }
               }
             }
@@ -4764,8 +4815,8 @@ function PlayerAggregateStatsSections({
                 </header>
                 {orderedKeys.map((key) => (
                   <div className="player-outcome-pair" key={key}>
-                    {readyBundles.map(({ bundle, panels }) => {
-                      const panel = panels.find((entry) => entry.key === key);
+                    {readyBundles.map(({ bundle, units }) => {
+                      const unit = units.find((entry) => entry.key === key);
                       return (
                         <div
                           className="player-outcome-pair-cell"
@@ -4773,8 +4824,8 @@ function PlayerAggregateStatsSections({
                           key={bundle.key}
                         >
                           <span className="player-outcome-pair-tag">{bundle.label}</span>
-                          {panel ? (
-                            panel.node
+                          {unit ? (
+                            unit.node
                           ) : (
                             <p className="muted-text player-outcome-pair-empty">
                               No {bundle.label.toLowerCase()} data
