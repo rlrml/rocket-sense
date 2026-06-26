@@ -152,6 +152,7 @@ import {
 } from "./stats/playerPanels";
 import { type ComparisonCard, ComparisonCardChart, ComparisonCardGrid } from "./stats/shared";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
+import { aerialPlaylistKinds as aerialPlaylistKindList } from "./stats/aerialKinds";
 import { buildMovementCohortCards } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
 import { TouchProfileComparison } from "./stats/touches";
@@ -191,6 +192,12 @@ const ReplayGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
 );
 const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.PlayerGoalPlaylistPage })),
+);
+const ReplayAerialPlaylistPage = lazyWithChunkLoadRecovery(() =>
+  import("./stats/aerialPlaylist").then((module) => ({ default: module.ReplayAerialPlaylistPage })),
+);
+const PlayerAerialPlaylistPage = lazyWithChunkLoadRecovery(() =>
+  import("./stats/aerialPlaylist").then((module) => ({ default: module.PlayerAerialPlaylistPage })),
 );
 const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
@@ -360,6 +367,14 @@ export function App() {
               </Suspense>
             }
           />
+          <Route
+            path="/replays/:replayId/aerials/:aerialKind"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <ReplayAerialPlaylistPage />
+              </Suspense>
+            }
+          />
           <Route path="/players/:platform/id/:platformPlayerId" element={<PlayerStatsPage />} />
           <Route
             path="/players/:platform/id/:platformPlayerId/stats"
@@ -385,6 +400,14 @@ export function App() {
               </Suspense>
             }
           />
+          <Route
+            path="/players/:platform/id/:platformPlayerId/aerials/:aerialKind"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerAerialPlaylistPage />
+              </Suspense>
+            }
+          />
           <Route path="/players/:platform/:playerName" element={<PlayerStatsPage />} />
           <Route path="/players/:platform/:playerName/stats" element={<PlayerStatsPage />} />
           <Route
@@ -404,6 +427,14 @@ export function App() {
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
                 <PlayerGoalPlaylistPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/players/:platform/:playerName/aerials/:aerialKind"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerAerialPlaylistPage />
               </Suspense>
             }
           />
@@ -4205,6 +4236,45 @@ function playerGoalPlaylistHref(
   return query ? `${base}?${query}` : base;
 }
 
+const aerialPlaylistKinds = new Set(aerialPlaylistKindList);
+
+// Link an aerial mechanic to the embedded aerial clip playlist, carrying the
+// active stats filter context (playlist, game mode, dates, …) so the in-page
+// player shows the same mechanics the rates were computed from. The playlist
+// filters by the mechanic's event type server-side via listPlayerEvents.
+function playerAerialPlaylistHref(
+  routeBasePath: string,
+  search: string,
+  aerialKind: string,
+): string {
+  const source = stripKickoffSpawnParams(new URLSearchParams(search));
+  const params = new URLSearchParams();
+  for (const key of [
+    "q",
+    "title",
+    "playlist",
+    "game-mode",
+    "game-type",
+    "team-size",
+    "map",
+    "pro",
+    "uploader",
+    "group",
+    "project",
+    "created-after",
+    "created-before",
+    "replay-date-after",
+    "replay-date-before",
+  ]) {
+    for (const value of source.getAll(key)) {
+      if (value) params.append(key, value);
+    }
+  }
+  const base = `${routeBasePath}/aerials/${encodeURIComponent(aerialKind)}`;
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 function playerSegmentValue(params: URLSearchParams, key: "team-size" | "game-type"): string {
   const value = params.get(key);
   if (key === "team-size") {
@@ -4596,6 +4666,17 @@ function PlayerAggregateStatsSections({
       activeGroup.id !== "rotation" &&
       activeGroup.id !== "touches"
     ) {
+      // On the aerials section, link each mechanic rate card to a clip playlist
+      // of that mechanic across this player's replays (mirrors the goal-tag links
+      // on the scoring section). Only the discrete, time-anchored mechanics are
+      // watchable, so unrelated aerial stats render plain titles.
+      const rateCardTitleHref =
+        activeGroup.id === "aerials"
+          ? (key: string) =>
+              aerialPlaylistKinds.has(key)
+                ? playerAerialPlaylistHref(routeBasePath, contentSearch, key)
+                : undefined
+          : undefined;
       const rateCards = buildPlayerRateCards(
         order ? contentSectionStats : contentTopStats,
         playerName,
@@ -4604,6 +4685,7 @@ function PlayerAggregateStatsSections({
           windowLabel: contentStats.rank_benchmark_window_label,
         },
         order?.rateKeys,
+        rateCardTitleHref,
       );
       if (rateCards.length > 0) {
         addCards("rate-comparison", rateCards);
