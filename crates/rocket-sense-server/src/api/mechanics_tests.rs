@@ -532,6 +532,7 @@ fn review_playlist_exposes_next_page_when_page_is_full() {
             payload: serde_json::json!({}),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         })
         .collect();
@@ -579,6 +580,7 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
             payload: serde_json::json!({ "kind": "speed_flip" }),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         },
     );
@@ -635,6 +637,7 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
             payload: serde_json::json!({ "kind": "speed_flip" }),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         },
     );
@@ -681,6 +684,7 @@ fn review_playlist_items_support_non_mechanic_events() {
             payload: serde_json::json!({ "player": { "type": "steam", "value": 123 } }),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         },
     );

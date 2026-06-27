@@ -844,6 +844,8 @@ export interface MechanicEventResponse {
   reason: string | null;
   payload: Record<string, unknown>;
   review_status: string | null;
+  /** Distinct free-form user tags applied to this event (see event_tags). */
+  tags?: string[];
 }
 
 export interface MechanicEventsResponse {
