@@ -204,6 +204,24 @@ fn materialized_touch_breakdown_uses_touch_breakdown_table() {
 }
 
 #[test]
+fn processing_version_breakdown_uses_current_replay_version_columns() {
+    let source = include_str!("stats.rs");
+    let query_start = source
+        .find("pub(crate) async fn load_processing_version_breakdown")
+        .expect("processing version breakdown loader should exist");
+    let query_end = source[query_start..]
+        .find("pub(crate) async fn load_stat_aggregates")
+        .map(|offset| query_start + offset)
+        .expect("processing version breakdown loader should end before aggregates");
+    let loader = &source[query_start..query_end];
+
+    assert!(loader.contains("r.processed_with_event_stream_schema_version"));
+    assert!(loader.contains("r.processed_with_subtr_actor_version"));
+    assert!(loader.contains("r.processed_with_subtr_actor_git_sha"));
+    assert!(!loader.contains("r.parsed_with_"));
+}
+
+#[test]
 fn touch_breakdown_materialization_migration_creates_indexed_table() {
     let migration = include_str!("../../../../migrations/0067_player_replay_touch_breakdowns.sql");
 

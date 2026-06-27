@@ -769,9 +769,9 @@ pub(crate) async fn load_processing_version_breakdown(
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
-                r.parsed_with_event_stream_schema_version AS schema_version,
-                r.parsed_with_subtr_actor_version AS subtr_actor_version,
-                r.parsed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                r.processed_with_event_stream_schema_version AS schema_version,
+                r.processed_with_subtr_actor_version AS subtr_actor_version,
+                r.processed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
                 COUNT(DISTINCT rp.replay_id) AS replay_count
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
@@ -784,9 +784,9 @@ pub(crate) async fn load_processing_version_breakdown(
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
-                r.parsed_with_event_stream_schema_version AS schema_version,
-                r.parsed_with_subtr_actor_version AS subtr_actor_version,
-                r.parsed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                r.processed_with_event_stream_schema_version AS schema_version,
+                r.processed_with_subtr_actor_version AS subtr_actor_version,
+                r.processed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
                 COUNT(DISTINCT r.id) AS replay_count
             FROM replays r
             WHERE r.canonical_analysis_run_id IS NOT NULL
