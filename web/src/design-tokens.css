@@ -162,6 +162,24 @@
   --aerial-height-low: #38bdf8;
   --aerial-height-high: #1d4ed8;
 
+  /* Ground-play swatches. Like the Aerials section, each panel is its own ranked
+     bar set, so colors only need to stay distinct within a panel. The magnitude
+     panels (flicks / power / pop / carry) use these in group/career scope where
+     bars aren't team-colored; the type and side panels are stacked composition
+     bars whose segments must each be internally distinct. */
+  --ground-flicks: #6366f1;
+  --ground-power: #ef4444;
+  --ground-pop: #14b8a6;
+  --ground-carry-time: #8b5cf6;
+  --ground-carry-touches: #22c55e;
+  --ground-type-forward: #2563eb;
+  --ground-type-reverse: #db2777;
+  --ground-type-side: #f59e0b;
+  --ground-type-other: #64748b;
+  --ground-side-left: #0ea5e9;
+  --ground-side-center: #94a3b8;
+  --ground-side-right: #f97316;
+
   --status-processed-bg: #dcfce7;
   --status-processed-fg: #166534;
   --status-failed-bg: #fee2e2;

@@ -4061,6 +4061,63 @@ tbody tr:last-child td {
   background: var(--aerial-height-high);
 }
 
+/* Ground-play section: magnitude-panel bar colors (group/career scope) and the
+   flick type / side composition-bar segments + legend swatches. */
+.source-segment.ground-seg-flicks {
+  background: var(--ground-flicks);
+}
+
+.source-segment.ground-seg-power {
+  background: var(--ground-power);
+}
+
+.source-segment.ground-seg-pop {
+  background: var(--ground-pop);
+}
+
+.source-segment.ground-seg-carry-time {
+  background: var(--ground-carry-time);
+}
+
+.source-segment.ground-seg-carry-touches {
+  background: var(--ground-carry-touches);
+}
+
+.source-segment.ground-seg-type-forward,
+.chart-legend .ground-seg-type-forward::before {
+  background: var(--ground-type-forward);
+}
+
+.source-segment.ground-seg-type-reverse,
+.chart-legend .ground-seg-type-reverse::before {
+  background: var(--ground-type-reverse);
+}
+
+.source-segment.ground-seg-type-side,
+.chart-legend .ground-seg-type-side::before {
+  background: var(--ground-type-side);
+}
+
+.source-segment.ground-seg-type-other,
+.chart-legend .ground-seg-type-other::before {
+  background: var(--ground-type-other);
+}
+
+.source-segment.ground-seg-side-left,
+.chart-legend .ground-seg-side-left::before {
+  background: var(--ground-side-left);
+}
+
+.source-segment.ground-seg-side-center,
+.chart-legend .ground-seg-side-center::before {
+  background: var(--ground-side-center);
+}
+
+.source-segment.ground-seg-side-right,
+.chart-legend .ground-seg-side-right::before {
+  background: var(--ground-side-right);
+}
+
 .movement-meter-speed {
   background: #0f766e;
 }
