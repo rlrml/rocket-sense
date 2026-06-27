@@ -5,6 +5,7 @@ import type {
   PositioningSummaryResponse,
   RankBenchmarkCohort,
   ReplayPlayer,
+  ReplayPlayerPositioningSummary,
 } from "../types";
 import {
   careerCohortClassName,
@@ -94,16 +95,21 @@ export function PositioningDetail({
   events,
   players,
   scope,
+  positioningSummaries,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   scope?: "replay" | "group";
+  positioningSummaries?: ReplayPlayerPositioningSummary[];
 }) {
   // Single game and replay group both fold raw span events into one row per
   // player; the group variant just spans every replay (summaries dedupe by
   // player key). Both render through the shared view below.
-  const summaries = playerPositioningSummaries(players, events);
+  const summaries = applyReplayPositioningSummaries(
+    playerPositioningSummaries(players, events),
+    positioningSummaries,
+  );
   // A player can appear on either team across a group's replays, so their
   // aggregated `team` is null and team-relative colouring would collapse every
   // bar to grey. Render the group in cohort mode (the team-independent fixed
@@ -973,6 +979,80 @@ function playerPositioningSummaries(
   }
 
   return summaries.sort(compareSummaries);
+}
+
+function applyReplayPositioningSummaries(
+  summaries: PlayerPositioningSummary[],
+  positioningSummaries?: ReplayPlayerPositioningSummary[],
+): PlayerPositioningSummary[] {
+  if (!positioningSummaries || positioningSummaries.length === 0) return summaries;
+  const byKey = new Map(
+    positioningSummaries.flatMap((summary) => {
+      const key = replayPositioningSummaryKey(summary);
+      return key ? [[key, summary.summary] as const] : [];
+    }),
+  );
+
+  return summaries.map((summary) => {
+    const positioning = byKey.get(summary.key);
+    if (!positioning || !positioningCohortHasData(positioning)) return summary;
+    return {
+      ...summary,
+      activeSeconds: positioning.active_seconds,
+      trackedSeconds: positioning.tracked_seconds,
+      defensiveThirdSeconds: positioning.defensive_third_seconds,
+      neutralThirdSeconds: positioning.neutral_third_seconds,
+      offensiveThirdSeconds: positioning.offensive_third_seconds,
+      defensiveHalfSeconds: positioning.defensive_half_seconds,
+      offensiveHalfSeconds: positioning.offensive_half_seconds,
+      behindBallSeconds: positioning.behind_ball_seconds,
+      levelWithBallSeconds: positioning.level_with_ball_seconds,
+      inFrontOfBallSeconds: positioning.ahead_of_ball_seconds,
+      roleSeconds: {
+        no_teammates: positioning.role_no_teammates_seconds,
+        most_back: positioning.role_most_back_seconds,
+        mid: positioning.role_mid_seconds,
+        most_forward: positioning.role_most_forward_seconds,
+        other: positioning.role_other_seconds,
+        unknown: 0,
+      },
+      closestTeamSeconds: positioning.closest_team_seconds,
+      closestAbsoluteSeconds: positioning.closest_absolute_seconds,
+      farthestSeconds: positioning.farthest_seconds,
+      distanceToBallWeighted: positioning.distance_to_ball_weighted,
+      distanceToBallWeight: positioning.distance_to_ball_weight,
+      distanceToTeammatesWeighted: positioning.distance_to_teammates_weighted,
+      distanceToTeammatesWeight: positioning.distance_to_teammates_weight,
+    };
+  });
+}
+
+function positioningCohortHasData(summary: PositioningCohortSummary): boolean {
+  return (
+    summary.active_seconds > 0 ||
+    summary.tracked_seconds > 0 ||
+    summary.defensive_third_seconds +
+      summary.neutral_third_seconds +
+      summary.offensive_third_seconds >
+      0 ||
+    summary.behind_ball_seconds + summary.level_with_ball_seconds + summary.ahead_of_ball_seconds >
+      0 ||
+    summary.role_most_back_seconds +
+      summary.role_mid_seconds +
+      summary.role_most_forward_seconds +
+      summary.role_other_seconds +
+      summary.role_no_teammates_seconds >
+      0 ||
+    summary.closest_team_seconds + summary.closest_absolute_seconds + summary.farthest_seconds >
+      0 ||
+    summary.distance_to_ball_weight > 0 ||
+    summary.distance_to_teammates_weight > 0
+  );
+}
+
+function replayPositioningSummaryKey(summary: ReplayPlayerPositioningSummary): string | null {
+  if (!summary.platform || !summary.platform_player_id) return null;
+  return `${normalizePlatform(summary.platform)}:${summary.platform_player_id}`;
 }
 
 function emptySummary(player: ReplayPlayer, index: number): PlayerPositioningSummary {

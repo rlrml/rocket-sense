@@ -665,6 +665,12 @@ export interface ReplayPlayerMovementSummary {
   summary: MovementCohortSummary;
 }
 
+export interface ReplayPlayerPositioningSummary {
+  platform: string | null;
+  platform_player_id: string | null;
+  summary: PositioningCohortSummary;
+}
+
 export interface EventStatDimensionValueResponse {
   key: string | null;
   display_name: string;

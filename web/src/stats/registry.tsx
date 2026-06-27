@@ -15,7 +15,12 @@ import {
   Trophy,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import type { MechanicEventResponse, ReplayPlayer, ReplayPlayerMovementSummary } from "../types";
+import type {
+  MechanicEventResponse,
+  ReplayPlayer,
+  ReplayPlayerMovementSummary,
+  ReplayPlayerPositioningSummary,
+} from "../types";
 import { AerialsDetail, aerialEventTypes } from "./aerials";
 import { BoostDetail, boostEventTypes } from "./boost";
 import { CoreDetail, coreEventTypes } from "./core";
@@ -39,6 +44,7 @@ export interface StatDetailProps {
   scope?: "replay" | "group";
   subjectSubtitle?: string;
   movementSummaries?: ReplayPlayerMovementSummary[];
+  positioningSummaries?: ReplayPlayerPositioningSummary[];
 }
 
 /**

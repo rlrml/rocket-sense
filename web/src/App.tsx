@@ -201,6 +201,7 @@ import type {
   ReplayGroupResponse,
   ReplayGroupManagerResponse,
   ReplayPlayerMovementSummary,
+  ReplayPlayerPositioningSummary,
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
@@ -2527,14 +2528,19 @@ function ReplayStatsPage() {
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
   const [movementSummaries, setMovementSummaries] = useState<ReplayPlayerMovementSummary[]>([]);
+  const [positioningSummaries, setPositioningSummaries] = useState<
+    ReplayPlayerPositioningSummary[]
+  >([]);
   const [replayLoading, setReplayLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(true);
   const [movementSummariesLoading, setMovementSummariesLoading] = useState(false);
+  const [positioningSummariesLoading, setPositioningSummariesLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
   const [_statsError, setStatsError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
   const [movementSummariesError, setMovementSummariesError] = useState<string | null>(null);
+  const [positioningSummariesError, setPositioningSummariesError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
     () => statGroupById(statGroup, replayStatsSectionGroups) ?? replayStatsSectionGroups[0],
@@ -2545,8 +2551,11 @@ function ReplayStatsPage() {
     let cancelled = false;
 
     setMovementSummaries([]);
+    setPositioningSummaries([]);
     setMovementSummariesError(null);
+    setPositioningSummariesError(null);
     setMovementSummariesLoading(false);
+    setPositioningSummariesLoading(false);
     setReplayLoading(true);
     setReplayError(null);
     const replayPromise = getReplay(replayId, { forceRefresh: true });
@@ -2632,6 +2641,41 @@ function ReplayStatsPage() {
         })
         .finally(() => {
           if (!cancelled) setMovementSummariesLoading(false);
+        });
+    }
+
+    if (activeGroup.id === "positioning") {
+      setPositioningSummariesLoading(true);
+      replayPromise
+        .catch(() => null)
+        .then((replayResponse) => {
+          if (!replayResponse) return [];
+          const params = new URLSearchParams({ "replay-id": replayId });
+          return Promise.all(
+            replayResponse.players
+              .filter((player) => player.platform && player.platform_player_id)
+              .map(async (player) => {
+                const response = await getPlayerPositioningSummary(
+                  player.platform as string,
+                  player.platform_player_id as string,
+                  params,
+                );
+                return {
+                  platform: player.platform,
+                  platform_player_id: player.platform_player_id,
+                  summary: response.player,
+                };
+              }),
+          );
+        })
+        .then((summaries) => {
+          if (!cancelled) setPositioningSummaries(summaries);
+        })
+        .catch((err: Error) => {
+          if (!cancelled) setPositioningSummariesError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled) setPositioningSummariesLoading(false);
         });
     }
 
@@ -2881,7 +2925,13 @@ function ReplayStatsPage() {
             {movementSummariesError ? (
               <ApiNotice label="Movement summary" message={movementSummariesError} />
             ) : null}
-            {statsLoading || eventsLoading || movementSummariesLoading ? (
+            {positioningSummariesError ? (
+              <ApiNotice label="Positioning summary" message={positioningSummariesError} />
+            ) : null}
+            {statsLoading ||
+            eventsLoading ||
+            movementSummariesLoading ||
+            positioningSummariesLoading ? (
               <StatusLine loading error={null} />
             ) : null}
 
@@ -2892,6 +2942,7 @@ function ReplayStatsPage() {
                 durationSeconds={replay.summary.duration_seconds}
                 replayId={replayId}
                 movementSummaries={movementSummaries}
+                positioningSummaries={positioningSummaries}
               />
             ) : (
               <>
