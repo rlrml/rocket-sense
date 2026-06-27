@@ -3506,7 +3506,7 @@ function GroupParticipantNotice({ analysis }: { analysis: ReplayGroupParticipant
 
   return (
     <div className={`api-notice ${analysis.consistent ? "" : "warning"}`.trim()}>
-      <strong>{analysis.consistent ? "Same participants" : "Mixed participants"}</strong>
+      <strong>{analysis.consistent ? "Same participants" : "Player views unavailable"}</strong>
       <span>
         {analysis.reason ??
           "The same players appear across this group, but at least one player changes between blue and orange. Player panels use neutral team labels; blue/orange team totals still mean the replay-local colors."}
@@ -3540,26 +3540,11 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
     };
   }
 
-  const reference = replayIdentities[0]!;
-  const referenceKey = participantSetKey(reference);
-  const mismatched = replayIdentities.some(
-    (identities) => participantSetKey(identities!) !== referenceKey,
-  );
-  if (mismatched) {
-    return {
-      consistent: false,
-      players,
-      colorSwitching,
-      reason:
-        "These replays don't all share the same participants. The leaderboard still ranks every player across the group; per-player drill-downs span only the games each player appears in.",
-    };
-  }
-
   return {
     consistent: true,
     players,
     colorSwitching,
-    reason: colorSwitching ? null : null,
+    reason: null,
   };
 }
 
@@ -3589,10 +3574,6 @@ function replayParticipantIdentities(replay: ReplayResponse): Set<string> | null
     identities.add(identity);
   }
   return identities;
-}
-
-function participantSetKey(identities: Set<string>): string {
-  return [...identities].sort().join("|");
 }
 
 function replayPlayerIdentity(player: ReplayPlayer): string | null {
