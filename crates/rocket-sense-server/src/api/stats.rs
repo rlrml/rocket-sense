@@ -154,6 +154,13 @@ pub struct StatAggregateGroupResponse {
     pub opponent_non_demo_active_time_seconds: Option<f64>,
     pub opponent_time_most_back_seconds: Option<f64>,
     pub opponent_time_most_forward_seconds: Option<f64>,
+    /// Replays in the set the player's team won / lost, decided by final score
+    /// (ties count as neither). A base measure for the `win_rate` derived metric.
+    /// `None` for non-player groupings, where there is no single team to credit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub win_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loss_count: Option<u64>,
     pub stats: Vec<StatAggregateResponse>,
 }
 
@@ -2116,6 +2123,9 @@ async fn load_playlist_stat_aggregate_groups(
             opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
             opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
             opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
+            // Win/loss credits a single team, which a playlist grouping doesn't have.
+            win_count: None,
+            loss_count: None,
             stats: aggregates.stats,
         })
     }))
@@ -2204,11 +2214,76 @@ async fn load_player_stat_aggregate_groups(
     // makes "only the displayed columns" a strictly smaller query, so the client
     // can fetch stats a subset at a time. The live path can't be expressed as a
     // single cheap grouped scan, so it keeps the per-player fan-out.
-    if filters.materialized_stat_counts && filters.kickoff_spawn.is_empty() {
-        load_player_stat_aggregate_groups_materialized(pool, filters).await
+    let mut groups = if filters.materialized_stat_counts && filters.kickoff_spawn.is_empty() {
+        load_player_stat_aggregate_groups_materialized(pool, filters).await?
     } else {
-        load_player_stat_aggregate_groups_fanout(pool, filters).await
+        load_player_stat_aggregate_groups_fanout(pool, filters).await?
+    };
+
+    // Win/loss is a replay-outcome measure, not an event count, so it lives
+    // outside both count paths: one grouped scan over the same replay set, merged
+    // onto each player row by the exact enumerated identity. Every player row gets
+    // a concrete count (0 when undecided/absent) so `win_rate` is never spuriously
+    // null on the client.
+    let win_loss = load_player_win_loss_counts(pool, filters).await?;
+    for group in &mut groups {
+        if let Some(player) = &group.player {
+            let key = (player.platform.clone(), player.platform_player_id.clone());
+            let (wins, losses) = win_loss.get(&key).copied().unwrap_or((0, 0));
+            group.win_count = Some(wins);
+            group.loss_count = Some(losses);
+        }
     }
+    Ok(groups)
+}
+
+/// Per-player won / lost replay counts over the filtered set, keyed by the raw
+/// `(platform, platform_player_id)` identity (the same column the leaderboard
+/// rows are enumerated from, so the merge needs no case normalization). Outcome
+/// is decided by final score, mirroring [`append_player_replay_outcome_filter`];
+/// score ties count as neither a win nor a loss.
+async fn load_player_win_loss_counts(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<HashMap<(String, String), (u64, u64)>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            rp.platform AS platform,
+            rp.platform_player_id AS platform_player_id,
+            COUNT(DISTINCT rp.replay_id) FILTER (
+                WHERE rp.team IS NOT NULL
+                  AND r.team_zero_score IS NOT NULL AND r.team_one_score IS NOT NULL
+                  AND ((rp.team = 0 AND r.team_zero_score > r.team_one_score)
+                    OR (rp.team = 1 AND r.team_one_score > r.team_zero_score))
+            ) AS win_count,
+            COUNT(DISTINCT rp.replay_id) FILTER (
+                WHERE rp.team IS NOT NULL
+                  AND r.team_zero_score IS NOT NULL AND r.team_one_score IS NOT NULL
+                  AND ((rp.team = 0 AND r.team_zero_score < r.team_one_score)
+                    OR (rp.team = 1 AND r.team_one_score < r.team_zero_score))
+            ) AS loss_count
+        FROM replay_players rp
+        JOIN replays r ON r.id = rp.replay_id
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND rp.platform IS NOT NULL
+          AND rp.platform_player_id IS NOT NULL
+          AND rp.platform_player_id <> ''
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(" GROUP BY rp.platform, rp.platform_player_id");
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut out = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let platform: String = row.try_get("platform")?;
+        let platform_player_id: String = row.try_get("platform_player_id")?;
+        let wins: i64 = row.try_get("win_count")?;
+        let losses: i64 = row.try_get("loss_count")?;
+        out.insert((platform, platform_player_id), (wins as u64, losses as u64));
+    }
+    Ok(out)
 }
 
 async fn load_player_stat_aggregate_groups_materialized(
@@ -2303,6 +2378,9 @@ async fn load_player_stat_aggregate_groups_materialized(
                 opponent_non_demo_active_time_seconds: None,
                 opponent_time_most_back_seconds: None,
                 opponent_time_most_forward_seconds: None,
+                // Filled in by the dispatcher's path-agnostic win/loss merge.
+                win_count: None,
+                loss_count: None,
                 stats,
             }
         })
@@ -2362,6 +2440,9 @@ async fn load_player_stat_aggregate_groups_fanout(
             opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
             opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
             opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
+            // Filled in by the dispatcher's path-agnostic win/loss merge.
+            win_count: None,
+            loss_count: None,
             stats: aggregates.stats,
         })
     }))
