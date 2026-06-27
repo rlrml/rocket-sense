@@ -555,6 +555,10 @@ export interface StatAggregateGroupResponse {
   opponent_non_demo_active_time_seconds: number | null;
   opponent_time_most_back_seconds: number | null;
   opponent_time_most_forward_seconds: number | null;
+  /** Replays the player's team won / lost (score-decided; ties are neither).
+   * Present only on `group-by=player` rows; backs the `win_rate` derived metric. */
+  win_count?: number;
+  loss_count?: number;
   stats: StatAggregateResponse[];
 }
 

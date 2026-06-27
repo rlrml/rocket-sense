@@ -3272,20 +3272,10 @@ export function buildKickoffMetrics(
   });
 
   return [
-    metric({
-      key: "kickoffs_total",
-      label: "Kickoffs",
-      group: "Volume",
-      format: formatLeaderboardCount,
-      compute: (s) => s.takerCount + s.supportCount,
-    }),
-    metric({
-      key: "kickoffs_taken",
-      label: "Kickoffs taken",
-      group: "Volume",
-      format: formatLeaderboardCount,
-      compute: (s) => s.takerCount,
-    }),
+    // Kickoff *volume* is covered by the measurable aggregate `stat:kickoff`
+    // column (which honours the Total / Per-game / Per-5min toggle), so the
+    // event-derived `kickoffs_total` / `kickoffs_taken` counts were dropped as
+    // duplicative.
     metric({
       key: "kickoff_first_touch_rate",
       label: "First-touch rate",
