@@ -3259,21 +3259,6 @@ function ReplayGroupStatsPage() {
             </div>
           </div>
 
-          <GroupParticipantNotice analysis={participantAnalysis} />
-
-          {participantAnalysis.consistent ? (
-            <div className="group-participant-strip" aria-label="Group participants">
-              {participantAnalysis.players.map((player, index) => (
-                <PlayerIdentity
-                  className="group-participant-chip"
-                  key={groupParticipantKey(player, index)}
-                  player={player}
-                  showRank
-                />
-              ))}
-            </div>
-          ) : null}
-
           <GroupStatExplorerSection groupId={groupId} players={participantAnalysis.players} />
 
           <section className="stat-panel">
@@ -3468,20 +3453,6 @@ interface MutableReplayGroupParticipant {
   time_most_forward_seconds: number | null;
 }
 
-function GroupParticipantNotice({ analysis }: { analysis: ReplayGroupParticipantAnalysis }) {
-  if (!analysis.reason && !analysis.colorSwitching) return null;
-
-  return (
-    <div className={`api-notice ${analysis.consistent ? "" : "warning"}`.trim()}>
-      <strong>{analysis.consistent ? "Same participants" : "Player views unavailable"}</strong>
-      <span>
-        {analysis.reason ??
-          "The same players appear across this group, but at least one player changes between blue and orange. Player panels use neutral team labels; blue/orange team totals still mean the replay-local colors."}
-      </span>
-    </div>
-  );
-}
-
 function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupParticipantAnalysis {
   const players = collectReplayGroupParticipants(replays);
   const colorSwitching = players.some((player) => player.color_switching);
@@ -3549,10 +3520,6 @@ function replayPlayerIdentity(player: ReplayPlayer): string | null {
   }
   const name = player.name?.trim();
   return name ? `name:${name.toLowerCase()}` : null;
-}
-
-function groupParticipantKey(player: ReplayPlayer, index: number): string {
-  return replayPlayerIdentity(player) ?? `participant:${index}`;
 }
 
 function newMutableReplayGroupParticipant(
