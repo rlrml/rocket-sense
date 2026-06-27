@@ -1,9 +1,9 @@
 use crate::{app::AppState, auth::AuthUser};
 use axum::{
     extract::{Path, RawQuery, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::{IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -77,6 +77,22 @@ pub fn router() -> Router<AppState> {
         // id is required: the review is anchored to the replay and frames.
         .route("/events/reviews", post(create_missed_event_review))
         .route("/mechanics/reviews", post(create_missed_event_review))
+        // Free-form user tags on events. Distinct from reviews: a tag is just a
+        // label, and its payoff is the tag-filtered playlist + case export used
+        // to seed subtr-actor tests. `/events/tags` lists the tag vocabulary;
+        // `/events/{id}/tags` applies/removes; the `export` routes emit a
+        // self-contained "consider this" case for one event or a whole tag.
+        .route("/events/tags", get(list_event_tags))
+        .route("/mechanics/tags", get(list_event_tags))
+        .route(
+            "/events/{event_id}/tags",
+            post(create_event_tag).get(list_event_tags_for_event),
+        )
+        .route("/events/{event_id}/tags/{tag}", delete(delete_event_tag))
+        .route("/events/{event_id}/export", get(export_event_case))
+        .route("/mechanics/{event_id}/export", get(export_event_case))
+        .route("/events/tags/{tag}/export", get(export_tag_cases))
+        .route("/mechanics/tags/{tag}/export", get(export_tag_cases))
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -179,6 +195,15 @@ pub struct MechanicEventsQuery {
     pub replay_id: Option<Uuid>,
     #[serde(rename = "primary-player-id")]
     pub player_id: Option<String>,
+    #[serde(
+        default,
+        rename = "tag",
+        alias = "tag[]",
+        alias = "tags",
+        alias = "tags[]",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub tags: Vec<String>,
     #[serde(rename = "created-after")]
     pub created_after: Option<DateTime<Utc>>,
     #[serde(rename = "created-before")]
@@ -233,6 +258,7 @@ impl MechanicEventsQuery {
                     parsed.player_ids.push(value.to_owned());
                     parsed.player_id = Some(value.to_owned());
                 }
+                "tag" | "tags" if !value.is_empty() => parsed.tags.push(value.to_owned()),
                 "playlist" if !value.is_empty() => parsed.playlist.push(value.to_owned()),
                 "game-mode" | "game_modes" if !value.is_empty() => {
                     parsed.game_modes.push(value.to_owned())
@@ -608,6 +634,8 @@ pub struct MechanicEventResponse {
     pub payload: Value,
     pub review_status: Option<String>,
     pub latest_review_id: Option<Uuid>,
+    /// Distinct free-form user tags applied to this event (see `event_tags`).
+    pub tags: Vec<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -693,6 +721,9 @@ pub struct PlaylistItemMeta {
     pub player_name: Option<String>,
     pub team: Option<String>,
     pub review_status: Option<String>,
+    /// Distinct free-form user tags applied to this event, so a tag-filtered
+    /// playlist self-documents which tag produced each item.
+    pub tags: Vec<String>,
     pub clip: PlaylistItemClip,
     pub target: PlaylistItemTarget,
     pub event: Value,
@@ -1284,6 +1315,520 @@ pub async fn create_missed_event_review(
     ))
 }
 
+// ---------------------------------------------------------------------------
+// Free-form user tags on events + machine-readable case export.
+//
+// Tags are deliberately lighter than `event_reviews`: no status enum, just a
+// label a user sticks on a moment. Their payoff is the export — filtering by
+// tag yields a self-contained `subtr_actor_case` (replay download URL + identity
+// + frame/time window + detected payload + nearby events) you can hand straight
+// to subtr-actor and say "consider this".
+// ---------------------------------------------------------------------------
+
+/// Normalize/validate a tag. Kept to a URL- and identifier-safe charset so it
+/// can live in a `DELETE /events/{id}/tags/{tag}` path segment and map cleanly
+/// onto subtr-actor test names.
+fn normalize_tag(value: &str) -> Result<String, ApiError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::bad_request("tag must not be empty"));
+    }
+    if trimmed.chars().count() > 64 {
+        return Err(ApiError::bad_request("tag must be at most 64 characters"));
+    }
+    if !trimmed
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.'))
+    {
+        return Err(ApiError::bad_request(
+            "tag may only contain ASCII letters, digits, '_', '-', and '.'",
+        ));
+    }
+    Ok(trimmed.to_owned())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateEventTagRequest {
+    pub tag: String,
+    #[serde(default)]
+    pub notes: Option<String>,
+    /// Free-form viewer-supplied context, stored verbatim under `context`.
+    #[serde(default)]
+    pub context: Option<Value>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EventTagResponse {
+    pub id: Uuid,
+    pub event_id: Option<Uuid>,
+    pub replay_id: Uuid,
+    pub tag: String,
+    pub tagger_user_id: Option<Uuid>,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EventTagSummary {
+    pub tag: String,
+    pub event_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct EventTagsResponse {
+    pub tags: Vec<EventTagSummary>,
+}
+
+/// Apply a tag to a detected event. Idempotent per (event, tag, user): a repeat
+/// refreshes notes/context/snapshot rather than stacking duplicate rows.
+pub async fn create_event_tag(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(event_id): Path<Uuid>,
+    Json(request): Json<CreateEventTagRequest>,
+) -> Result<(StatusCode, Json<EventTagResponse>), ApiError> {
+    let db = require_db(&state)?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+    let tag = normalize_tag(&request.tag)?;
+    let context = match request.context {
+        Some(Value::Object(map)) => Value::Object(map),
+        Some(Value::Null) | None => serde_json::json!({}),
+        Some(_) => return Err(ApiError::bad_request("context must be a JSON object")),
+    };
+    let notes = request
+        .notes
+        .map(|notes| notes.trim().to_owned())
+        .filter(|notes| !notes.is_empty());
+
+    let row = sqlx::query(
+        r#"
+        WITH target_event AS (
+            SELECT
+                event.id,
+                event.replay_id,
+                event.analysis_run_id,
+                event.source,
+                event.source_stream,
+                event.source_index,
+                event.source_event_id,
+                event.primary_subject_kind,
+                event.primary_subject_id,
+                event.team,
+                event.start_frame,
+                event.end_frame,
+                event.event_frame,
+                event.start_time,
+                event.end_time,
+                event.event_time,
+                event.duration_seconds,
+                event.confidence,
+                event_type.key AS event_type_key,
+                event_type.display_name AS event_type_label,
+                event_type.category AS event_category,
+                payload.payload
+            FROM play_events event
+            JOIN event_types event_type
+              ON event_type.id = event.event_type_id
+            LEFT JOIN play_event_payloads payload
+              ON payload.event_id = event.id
+            WHERE event.id = $1
+        )
+        INSERT INTO event_tags (
+            id,
+            event_id,
+            replay_id,
+            tag,
+            tagger_user_id,
+            event_frame,
+            start_frame,
+            end_frame,
+            event_time,
+            notes,
+            context,
+            event_snapshot
+        )
+        SELECT
+            $2,
+            target_event.id,
+            target_event.replay_id,
+            $3,
+            $4,
+            target_event.event_frame,
+            target_event.start_frame,
+            target_event.end_frame,
+            target_event.event_time,
+            $5,
+            $6,
+            jsonb_strip_nulls(jsonb_build_object(
+                'id', target_event.id,
+                'analysisRunId', target_event.analysis_run_id,
+                'replayId', target_event.replay_id,
+                'eventType', jsonb_build_object(
+                    'key', target_event.event_type_key,
+                    'displayName', target_event.event_type_label,
+                    'category', target_event.event_category
+                ),
+                'source', target_event.source,
+                'sourceStream', target_event.source_stream,
+                'sourceIndex', target_event.source_index,
+                'sourceEventId', target_event.source_event_id,
+                'primarySubject', CASE
+                    WHEN target_event.primary_subject_kind IS NULL THEN NULL
+                    ELSE jsonb_build_object(
+                        'kind', target_event.primary_subject_kind,
+                        'id', target_event.primary_subject_id
+                    )
+                END,
+                'team', target_event.team,
+                'frames', jsonb_strip_nulls(jsonb_build_object(
+                    'start', target_event.start_frame,
+                    'end', target_event.end_frame,
+                    'event', target_event.event_frame
+                )),
+                'times', jsonb_strip_nulls(jsonb_build_object(
+                    'start', target_event.start_time,
+                    'end', target_event.end_time,
+                    'event', target_event.event_time,
+                    'duration', target_event.duration_seconds
+                )),
+                'confidence', target_event.confidence,
+                'payload', COALESCE(target_event.payload, '{}'::jsonb)
+            ))
+        FROM target_event
+        ON CONFLICT (event_id, tag, tagger_user_id) WHERE event_id IS NOT NULL
+        DO UPDATE SET
+            notes = EXCLUDED.notes,
+            context = EXCLUDED.context,
+            event_snapshot = EXCLUDED.event_snapshot,
+            created_at = now()
+        RETURNING id, event_id, replay_id, tag, tagger_user_id, notes, created_at
+        "#,
+    )
+    .bind(event_id)
+    .bind(Uuid::now_v7())
+    .bind(&tag)
+    .bind(auth_user.id)
+    .bind(notes.as_deref())
+    .bind(context)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "event not found"))?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(EventTagResponse {
+            id: row.try_get("id").map_err(ApiError::internal)?,
+            event_id: row.try_get("event_id").map_err(ApiError::internal)?,
+            replay_id: row.try_get("replay_id").map_err(ApiError::internal)?,
+            tag: row.try_get("tag").map_err(ApiError::internal)?,
+            tagger_user_id: row.try_get("tagger_user_id").map_err(ApiError::internal)?,
+            notes: row.try_get("notes").map_err(ApiError::internal)?,
+            created_at: row.try_get("created_at").map_err(ApiError::internal)?,
+        }),
+    ))
+}
+
+/// Remove a tag the calling user applied to an event.
+pub async fn delete_event_tag(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((event_id, tag)): Path<(Uuid, String)>,
+) -> Result<StatusCode, ApiError> {
+    let db = require_db(&state)?;
+    let tag = normalize_tag(&tag)?;
+    let result = sqlx::query(
+        "DELETE FROM event_tags WHERE event_id = $1 AND tag = $2 AND tagger_user_id = $3",
+    )
+    .bind(event_id)
+    .bind(&tag)
+    .bind(auth_user.id)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+    if result.rows_affected() == 0 {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "tag not found"));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// The tag vocabulary in use, with how many distinct events carry each tag.
+pub async fn list_event_tags(
+    State(state): State<AppState>,
+) -> Result<Json<EventTagsResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let rows = sqlx::query(
+        r#"
+        SELECT tag, COUNT(DISTINCT COALESCE(event_id::text, id::text)) AS event_count
+        FROM event_tags
+        GROUP BY tag
+        ORDER BY event_count DESC, tag
+        "#,
+    )
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?;
+    let tags = rows
+        .into_iter()
+        .map(|row| {
+            Ok(EventTagSummary {
+                tag: row.try_get("tag").map_err(ApiError::internal)?,
+                event_count: row.try_get("event_count").map_err(ApiError::internal)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    Ok(Json(EventTagsResponse { tags }))
+}
+
+/// All tags applied to a single event.
+pub async fn list_event_tags_for_event(
+    State(state): State<AppState>,
+    Path(event_id): Path<Uuid>,
+) -> Result<Json<Vec<EventTagResponse>>, ApiError> {
+    let db = require_db(&state)?;
+    let rows = sqlx::query(
+        r#"
+        SELECT id, event_id, replay_id, tag, tagger_user_id, notes, created_at
+        FROM event_tags
+        WHERE event_id = $1
+        ORDER BY created_at, tag
+        "#,
+    )
+    .bind(event_id)
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?;
+    let tags = rows
+        .into_iter()
+        .map(|row| {
+            Ok(EventTagResponse {
+                id: row.try_get("id").map_err(ApiError::internal)?,
+                event_id: row.try_get("event_id").map_err(ApiError::internal)?,
+                replay_id: row.try_get("replay_id").map_err(ApiError::internal)?,
+                tag: row.try_get("tag").map_err(ApiError::internal)?,
+                tagger_user_id: row.try_get("tagger_user_id").map_err(ApiError::internal)?,
+                notes: row.try_get("notes").map_err(ApiError::internal)?,
+                created_at: row.try_get("created_at").map_err(ApiError::internal)?,
+            })
+        })
+        .collect::<Result<Vec<_>, ApiError>>()?;
+    Ok(Json(tags))
+}
+
+/// Self-contained "consider this" export for one event.
+pub async fn export_event_case(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(event_id): Path<Uuid>,
+) -> Result<Json<Value>, ApiError> {
+    let db = require_db(&state)?;
+    let base = request_base_url(&headers);
+    let case = build_subtr_actor_case(db, event_id, base.as_deref())
+        .await?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "event not found"))?;
+    Ok(Json(case))
+}
+
+/// Bulk export: every event carrying a tag, as a set of `subtr_actor_case`s.
+pub async fn export_tag_cases(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(tag): Path<String>,
+) -> Result<Json<Value>, ApiError> {
+    let db = require_db(&state)?;
+    let tag = normalize_tag(&tag)?;
+    let base = request_base_url(&headers);
+    let event_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT DISTINCT event_id
+        FROM event_tags
+        WHERE tag = $1 AND event_id IS NOT NULL
+        ORDER BY event_id
+        "#,
+    )
+    .bind(&tag)
+    .fetch_all(db)
+    .await
+    .map_err(ApiError::internal)?;
+    let mut cases = Vec::with_capacity(event_ids.len());
+    for event_id in event_ids {
+        if let Some(case) = build_subtr_actor_case(db, event_id, base.as_deref()).await? {
+            cases.push(case);
+        }
+    }
+    Ok(Json(serde_json::json!({
+        "version": 1,
+        "kind": "subtr_actor_case_set",
+        "tag": tag,
+        "count": cases.len(),
+        "cases": cases,
+    })))
+}
+
+/// Reconstruct the request's public origin (`https://host`) so exported URLs
+/// are absolute and fetchable outside rocket-sense. Honors the reverse-proxy
+/// `x-forwarded-*` headers; falls back to relative URLs when no host is known.
+fn request_base_url(headers: &HeaderMap) -> Option<String> {
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(axum::http::header::HOST))
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(',').next().unwrap_or(value).trim().to_owned())
+        .filter(|value| !value.is_empty())?;
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|value| value.to_str().ok())
+        .map(|value| value.split(',').next().unwrap_or(value).trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "https".to_owned());
+    Some(format!("{scheme}://{host}"))
+}
+
+/// Build the `subtr_actor_case` JSON for an event. Constructed entirely in SQL
+/// (`jsonb_build_object`) so there is no per-column Rust decode to drift out of
+/// sync with the schema. `base_url` is `""` for relative URLs.
+async fn build_subtr_actor_case(
+    db: &PgPool,
+    event_id: Uuid,
+    base_url: Option<&str>,
+) -> Result<Option<Value>, ApiError> {
+    let base = base_url.unwrap_or("");
+    let row = sqlx::query(
+        r#"
+        SELECT jsonb_build_object(
+            'version', 1,
+            'kind', 'subtr_actor_case',
+            'summary', format(
+                '%s%s at frame %s (replay %s) — %s tag(s) applied',
+                event_type.display_name,
+                CASE
+                    WHEN NULLIF(replay_player.name, '') IS NOT NULL
+                        THEN ' by ' || replay_player.name
+                    ELSE ''
+                END,
+                COALESCE(event.event_frame, event.start_frame),
+                replay.id,
+                (SELECT count(*) FROM event_tags et WHERE et.event_id = event.id)
+            ),
+            'replay', jsonb_strip_nulls(jsonb_build_object(
+                'id', replay.id,
+                'analysisRunId', event.analysis_run_id,
+                'label', NULLIF(replay.original_file_name, ''),
+                'fileSha256', replay.file_sha256,
+                'fileUrl', $2 || '/api/v1/replays/' || replay.id::text || '/file',
+                'rocketSenseUrl', CASE
+                    WHEN $2 = '' THEN NULL
+                    ELSE $2 || '/replays/' || replay.id::text
+                END
+            )),
+            'subject', CASE
+                WHEN event.primary_subject_kind IS NULL THEN NULL
+                ELSE jsonb_strip_nulls(jsonb_build_object(
+                    'kind', event.primary_subject_kind,
+                    'id', event.primary_subject_id,
+                    'playerName', NULLIF(replay_player.name, ''),
+                    'team', CASE event.team
+                        WHEN 0 THEN 'blue'
+                        WHEN 1 THEN 'orange'
+                        ELSE NULL
+                    END
+                ))
+            END,
+            'moment', jsonb_strip_nulls(jsonb_build_object(
+                'startFrame', event.start_frame,
+                'endFrame', event.end_frame,
+                'eventFrame', event.event_frame,
+                'startTime', event.start_time,
+                'endTime', event.end_time,
+                'eventTime', event.event_time,
+                'durationSeconds', event.duration_seconds
+            )),
+            'detectedEvent', jsonb_strip_nulls(jsonb_build_object(
+                'id', event.id,
+                'eventType', event_type.key,
+                'eventTypeLabel', event_type.display_name,
+                'eventCategory', event_type.category,
+                'detector', event.source,
+                'sourceStream', event.source_stream,
+                'sourceIndex', event.source_index,
+                'confidence', event.confidence,
+                'payload', COALESCE(payload.payload, '{}'::jsonb)
+            )),
+            'tags', COALESCE((
+                SELECT jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
+                    'tag', tag_row.tag,
+                    'notes', tag_row.notes,
+                    'taggerUserId', tag_row.tagger_user_id,
+                    'createdAt', tag_row.created_at
+                )) ORDER BY tag_row.created_at)
+                FROM event_tags tag_row
+                WHERE tag_row.event_id = event.id
+            ), '[]'::jsonb),
+            'nearbyEvents', COALESCE((
+                SELECT jsonb_agg(nearby.event_json ORDER BY nearby.anchor_frame)
+                FROM (
+                    SELECT
+                        jsonb_strip_nulls(jsonb_build_object(
+                            'id', other.id,
+                            'eventType', other_type.key,
+                            'detector', other.source,
+                            'primarySubjectId', other.primary_subject_id,
+                            'startFrame', other.start_frame,
+                            'endFrame', other.end_frame,
+                            'eventFrame', other.event_frame,
+                            'eventTime', other.event_time,
+                            'confidence', other.confidence,
+                            'payload', COALESCE(other_payload.payload, '{}'::jsonb)
+                        )) AS event_json,
+                        COALESCE(other.event_frame, other.start_frame, 0) AS anchor_frame
+                    FROM play_events other
+                    JOIN event_types other_type
+                      ON other_type.id = other.event_type_id
+                    LEFT JOIN play_event_payloads other_payload
+                      ON other_payload.event_id = other.id
+                    WHERE other.replay_id = event.replay_id
+                      AND other.analysis_run_id = event.analysis_run_id
+                      AND other.id <> event.id
+                      AND COALESCE(other.event_frame, other.start_frame) IS NOT NULL
+                      AND COALESCE(other.event_frame, other.start_frame) BETWEEN
+                          COALESCE(event.start_frame, event.event_frame, 0) - 150
+                          AND COALESCE(event.end_frame, event.event_frame, 0) + 150
+                    ORDER BY anchor_frame
+                    LIMIT 60
+                ) nearby
+            ), '[]'::jsonb)
+        ) AS case_json
+        FROM play_events event
+        JOIN event_types event_type
+          ON event_type.id = event.event_type_id
+        JOIN replays replay
+          ON replay.id = event.replay_id
+        LEFT JOIN play_event_payloads payload
+          ON payload.event_id = event.id
+        LEFT JOIN replay_players replay_player
+          ON replay_player.replay_id = event.replay_id
+         AND event.primary_subject_kind = 'player'
+         AND replay_player.platform IS NOT NULL
+         AND replay_player.platform_player_id IS NOT NULL
+         AND concat(replay_player.platform, ':', replay_player.platform_player_id) = event.primary_subject_id
+        WHERE event.id = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(event_id)
+    .bind(base)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    match row {
+        Some(row) => Ok(Some(row.try_get("case_json").map_err(ApiError::internal)?)),
+        None => Ok(None),
+    }
+}
+
 fn build_missed_event_snapshot(
     request: &CreateMissedEventReviewRequest,
     reviewed_event_type_key: &str,
@@ -1443,6 +1988,9 @@ struct MechanicEventFilters {
     player_name_patterns: Vec<String>,
     player_ids: Vec<String>,
     playlists: Vec<String>,
+    /// Free-form user tags (`event_tags.tag`); an event matches if it carries
+    /// any of these.
+    tags: Vec<String>,
     game_types: Vec<String>,
     team_sizes: Vec<i32>,
     maps: Vec<String>,
@@ -1541,6 +2089,7 @@ impl Default for MechanicEventFilters {
             player_name_patterns: Vec::new(),
             player_ids: Vec::new(),
             playlists: Vec::new(),
+            tags: Vec::new(),
             game_types: Vec::new(),
             team_sizes: Vec::new(),
             maps: Vec::new(),
@@ -1617,6 +2166,7 @@ impl MechanicEventFilters {
                 .collect(),
             player_ids,
             playlists,
+            tags: normalize_terms(query.tags),
             game_types,
             team_sizes,
             maps: normalize_terms(query.maps),
@@ -1761,6 +2311,7 @@ impl MechanicEventFilters {
         )?;
         playlists.sort();
         playlists.dedup();
+        let tags = json_string_vec(object.get("tags").or_else(|| object.get("tag")))?;
         let mut game_types = json_string_vec(
             object
                 .get("gameTypes")
@@ -1900,6 +2451,7 @@ impl MechanicEventFilters {
                 .collect(),
             player_ids: normalize_terms(player_ids),
             playlists: normalize_terms(playlists),
+            tags: normalize_terms(tags),
             game_types,
             team_sizes,
             maps: normalize_terms(maps),
@@ -1958,6 +2510,9 @@ fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset:
     }
     for playlist in &filters.playlists {
         query.append_pair("playlist", playlist);
+    }
+    for tag in &filters.tags {
+        query.append_pair("tag", tag);
     }
     for map in &filters.maps {
         query.append_pair("map", map);
@@ -2058,6 +2613,7 @@ fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
                 "playerNames": filters.player_name_patterns.iter().map(|pattern| unescape_like_pattern(pattern)).collect::<Vec<_>>(),
                 "playerIds": filters.player_ids,
                 "playlists": filters.playlists,
+                "tags": filters.tags,
                 "gameTypes": filters.game_types,
                 "teamSizes": filters.team_sizes,
                 "maps": filters.maps,
@@ -2700,7 +3256,13 @@ fn find_mechanic_events_query<'args>(
             COALESCE(payload.payload, '{}'::jsonb) AS payload,
             event.created_at,
             review.id AS latest_review_id,
-            review.status AS review_status
+            review.status AS review_status,
+            ARRAY(
+                SELECT DISTINCT event_tag.tag
+                FROM event_tags event_tag
+                WHERE event_tag.event_id = event.id
+                ORDER BY event_tag.tag
+            ) AS tags
         FROM play_events event
         JOIN event_types event_type
           ON event_type.id = event.event_type_id
@@ -2786,6 +3348,14 @@ fn find_mechanic_events_query<'args>(
             .push(" AND replay.playlist = ANY(")
             .push_bind(&filters.playlists)
             .push(")");
+    }
+    if !filters.tags.is_empty() {
+        builder
+            .push(
+                " AND EXISTS (SELECT 1 FROM event_tags event_tag WHERE event_tag.event_id = event.id AND event_tag.tag = ANY(",
+            )
+            .push_bind(&filters.tags)
+            .push("))");
     }
     if !filters.game_types.is_empty() {
         builder
@@ -2918,6 +3488,7 @@ fn mechanic_event_from_row(
         payload: row.try_get("payload")?,
         latest_review_id: row.try_get("latest_review_id")?,
         review_status: row.try_get("review_status")?,
+        tags: row.try_get("tags")?,
         created_at: row.try_get("created_at")?,
     })
 }
@@ -3045,6 +3616,7 @@ fn playlist_item(index: usize, event: MechanicEventResponse) -> PlaylistItem {
                 }
             }),
             review_status: event.review_status,
+            tags: event.tags,
             clip: PlaylistItemClip {
                 start_time: clip_start,
                 end_time: clip_end,

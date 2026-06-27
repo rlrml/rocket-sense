@@ -5977,6 +5977,14 @@ function EventsReviewPage() {
       onChange: (value) => updateFilter("playlist", value),
     },
     {
+      id: "event-tag",
+      label: "Custom tag",
+      value: filters.tag,
+      name: "tag",
+      placeholder: "missing_flip_reset",
+      onChange: (value) => updateFilter("tag", value),
+    },
+    {
       id: "event-map",
       label: "Map",
       value: filters.map,
@@ -6233,9 +6241,82 @@ function EventsReviewPage() {
               Reset filters
             </button>
           </div>
+          <div className="review-export-links">
+            <h3>Machine-readable export</h3>
+            <p className="muted-text">
+              Hand these straight to subtr-actor — no login or DB write required.
+            </p>
+            <CopyableUrl label="Copy playlist JSON" url={manifestUrl} />
+            {filters.tag.trim() ? (
+              <CopyableUrl
+                label="Copy tag case export"
+                url={`/api/v1/events/tags/${encodeURIComponent(filters.tag.trim())}/export`}
+              />
+            ) : null}
+            <EventExportLinkTool />
+          </div>
         </aside>
       </form>
     </section>
+  );
+}
+
+/** A copyable, absolute URL with a one-click copy button. */
+function CopyableUrl({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+  const absolute = useMemo(() => {
+    try {
+      return new URL(url, window.location.origin).toString();
+    } catch {
+      return url;
+    }
+  }, [url]);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(absolute);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable; the URL is still visible to select */
+    }
+  }
+  return (
+    <div className="copy-url-row">
+      <button type="button" className="secondary-button" onClick={() => void copy()}>
+        <Copy size={14} />
+        {copied ? "Copied" : label}
+      </button>
+      <code className="copy-url-value">{absolute}</code>
+    </div>
+  );
+}
+
+/**
+ * Paste any event UUID to get its self-contained "consider this" export link.
+ * Purely a link builder — hitting the URL reads the event, it writes nothing.
+ */
+function EventExportLinkTool() {
+  const [eventId, setEventId] = useState("");
+  const trimmed = eventId.trim();
+  const exportUrl = trimmed ? `/api/v1/events/${encodeURIComponent(trimmed)}/export` : "";
+  return (
+    <div className="event-export-tool">
+      <label htmlFor="event-export-id">Event export link</label>
+      <input
+        id="event-export-id"
+        type="text"
+        placeholder="event UUID"
+        value={eventId}
+        onChange={(event) => setEventId(event.target.value)}
+      />
+      {exportUrl ? (
+        <CopyableUrl label="Copy export link" url={exportUrl} />
+      ) : (
+        <p className="muted-text">
+          Paste an event ID to get its machine-readable "consider this" export.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -6248,6 +6329,7 @@ interface EventReviewFilterForm {
   playerId: string;
   reviewStatus: string;
   playlist: string;
+  tag: string;
   map: string;
   pro: EventReviewProFilter;
   minConfidence: string;
@@ -6513,6 +6595,7 @@ function defaultEventReviewFilters(): EventReviewFilterForm {
     playerId: "",
     reviewStatus: "unreviewed",
     playlist: "",
+    tag: "",
     map: "",
     pro: "",
     minConfidence: "",
@@ -6540,6 +6623,7 @@ function eventReviewFiltersFromParams(params: URLSearchParams): EventReviewFilte
     playerId: params.get("player-id") ?? defaults.playerId,
     reviewStatus: params.get("review-status") ?? defaults.reviewStatus,
     playlist: params.get("playlist") ?? defaults.playlist,
+    tag: params.get("tag") ?? defaults.tag,
     map: params.get("map") ?? defaults.map,
     pro: eventReviewProParam(params.get("pro")),
     minConfidence: params.get("min-confidence") ?? defaults.minConfidence,
@@ -6568,6 +6652,7 @@ function eventReviewFiltersToParams(filters: EventReviewFilterForm): URLSearchPa
   appendIfPresent(params, "player-id", filters.playerId);
   appendIfPresent(params, "review-status", filters.reviewStatus);
   appendIfPresent(params, "playlist", filters.playlist);
+  appendIfPresent(params, "tag", filters.tag);
   appendIfPresent(params, "map", filters.map);
   appendIfPresent(params, "pro", filters.pro);
   appendIfPresent(params, "min-confidence", filters.minConfidence);
