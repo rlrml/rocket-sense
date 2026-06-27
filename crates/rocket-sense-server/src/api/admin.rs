@@ -387,22 +387,33 @@ pub async fn list_replay_processing_diagnostics(
     let offset = query.offset.unwrap_or(0);
 
     let summary = load_processing_diagnostics_summary(pool).await?;
-    let total = load_processing_diagnostics_total(
-        pool,
-        status.as_deref(),
-        include_healthy,
-        currently_failed,
-    )
-    .await?;
-    let replays = load_processing_diagnostic_rows(
-        pool,
-        status.as_deref(),
-        include_healthy,
-        currently_failed,
-        count,
-        offset,
-    )
-    .await?;
+    let total = match (status.as_deref(), include_healthy, currently_failed) {
+        (None, false, false) => summary.problem_replays,
+        (None, true, false) => summary.total_replays,
+        (None, true, true) => summary.currently_failed_replays,
+        _ => {
+            load_processing_diagnostics_total(
+                pool,
+                status.as_deref(),
+                include_healthy,
+                currently_failed,
+            )
+            .await?
+        }
+    };
+    let replays = if total == 0 || u64::from(offset) >= total {
+        Vec::new()
+    } else {
+        load_processing_diagnostic_rows(
+            pool,
+            status.as_deref(),
+            include_healthy,
+            currently_failed,
+            count,
+            offset,
+        )
+        .await?
+    };
     let next_offset = offset
         .checked_add(count)
         .filter(|next_offset| u64::from(*next_offset) < total);
@@ -1592,8 +1603,9 @@ async fn load_processing_diagnostic_rows(
 /// total-count query and as the inner select that the rows query paginates
 /// before attaching heavier display-only joins. It deliberately avoids the
 /// apalis queue scan and the play_events COUNT: the `problem` flag only needs
-/// to know whether *any* canonical event exists, so it uses an EXISTS probe
-/// that stops at the first matching row instead of counting every event.
+/// to know whether *any* canonical event exists, so it first checks the smaller
+/// materialized event-count table and falls back to `play_events` only for
+/// replay runs that have not been backfilled.
 fn push_processing_diagnostics_base_query<'args>(
     query: &mut sqlx::QueryBuilder<'args, sqlx::Postgres>,
 ) {
@@ -1622,11 +1634,14 @@ fn push_processing_diagnostics_base_query<'args>(
                 OR canonical_run.id IS NULL
                 OR canonical_run.status IS DISTINCT FROM 'succeeded'
                 OR canonical_run.event_stream_object_key IS NULL
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                )
+                OR CASE
+                    WHEN event_count_runs.analysis_run_id IS NOT NULL THEN false
+                    ELSE NOT EXISTS (
+                        SELECT 1
+                        FROM play_events event
+                        WHERE event.analysis_run_id = r.canonical_analysis_run_id
+                    )
+                END
             ) AS problem,
             -- "Currently failed": the most recent analysis run failed, i.e. there
             -- has been no successful run since the last failure. NULL (no runs at
@@ -1641,6 +1656,11 @@ fn push_processing_diagnostics_base_query<'args>(
         FROM replays r
         LEFT JOIN analysis_runs canonical_run
           ON canonical_run.id = r.canonical_analysis_run_id
+        LEFT JOIN (
+            SELECT DISTINCT analysis_run_id
+            FROM player_replay_event_counts
+        ) event_count_runs
+          ON event_count_runs.analysis_run_id = r.canonical_analysis_run_id
         "#,
     );
 }
