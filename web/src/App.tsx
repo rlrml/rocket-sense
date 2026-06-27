@@ -2987,9 +2987,17 @@ function GroupStatExplorerSection({
     return pending;
   }, [kickoffLoading, goalLoading, auxApplicable, auxLoading]);
 
+  const truncation = aggregates?.groups_truncated ?? null;
+
   return (
     <>
       {error ? <ApiNotice label="Group stats" message={error} /> : null}
+      {truncation ? (
+        <ApiNotice
+          label="Showing top players"
+          message={`This group has ${truncation.total.toLocaleString()} participants, but the leaderboard is capped at the ${truncation.limit.toLocaleString()} with the most games. Players outside the top ${truncation.limit.toLocaleString()} are not shown.`}
+        />
+      ) : null}
       {aggregatesLoading ? <StatusLine loading error={null} /> : null}
       <GroupStatExplorer
         participants={participants}

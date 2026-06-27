@@ -91,6 +91,19 @@ pub struct StatAggregateSetResponse {
     pub touch_breakdown: Option<TouchAggregateBreakdownResponse>,
     pub stats: Vec<StatAggregateResponse>,
     pub groups: Vec<StatAggregateGroupResponse>,
+    /// Present only when a `group-by=player` set had more distinct players than
+    /// the per-request cap, so `groups` holds the top `limit` (by replay count)
+    /// out of `total`. Lets the client warn that the leaderboard is partial.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups_truncated: Option<GroupTruncation>,
+}
+
+/// Reports that a grouped leaderboard was capped: `groups` holds the top
+/// `limit` rows out of `total` available groups.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct GroupTruncation {
+    pub limit: u64,
+    pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -851,10 +864,12 @@ pub(crate) async fn load_stat_aggregates(
     // base stat-count is the live whole-set `play_events` scan -- ~24s over a
     // 500-replay group -- so skip it (and the equally-unused rotation histogram)
     // when grouping by player. Every other grouping still surfaces the base block.
-    let base_needs_stats = !matches!(filters.group_by, Some(StatAggregateGroupBy::Player));
-    // The base aggregate and the per-playlist breakdown are independent, so run
-    // them concurrently rather than serializing the (many) underlying queries.
-    let (mut aggregates, groups) = tokio::try_join!(
+    let is_player_group = matches!(filters.group_by, Some(StatAggregateGroupBy::Player));
+    let base_needs_stats = !is_player_group;
+    // The base aggregate, the grouped breakdown, and (for player groups) the total
+    // participant count are independent, so run them concurrently rather than
+    // serializing the (many) underlying queries.
+    let (mut aggregates, groups, player_total) = tokio::try_join!(
         load_stat_aggregates_base(
             pool,
             filters,
@@ -863,8 +878,26 @@ pub(crate) async fn load_stat_aggregates(
             base_needs_stats
         ),
         load_stat_aggregate_groups(pool, filters),
+        async {
+            if is_player_group {
+                count_stat_group_players(pool, filters).await.map(Some)
+            } else {
+                Ok(None)
+            }
+        },
     )?;
     aggregates.groups = groups;
+    // `groups` was capped at `PLAYER_GROUP_MAX`; if more players existed, tell the
+    // client the leaderboard is partial so it can warn instead of silently
+    // dropping the long tail.
+    if let Some(total) = player_total {
+        if total as usize > PLAYER_GROUP_MAX {
+            aggregates.groups_truncated = Some(GroupTruncation {
+                limit: PLAYER_GROUP_MAX as u64,
+                total,
+            });
+        }
+    }
     Ok(aggregates)
 }
 
@@ -2058,6 +2091,7 @@ async fn load_stat_aggregates_base(
         touch_breakdown,
         stats,
         groups: Vec::new(),
+        groups_truncated: None,
     })
 }
 
@@ -2189,11 +2223,12 @@ pub(crate) async fn load_stat_group_playlists(
 const PLAYER_GROUP_CONCURRENCY: usize = 4;
 
 /// Upper bound on the number of players a single `group-by=player` request will
-/// expand into. Curated replay groups are well under this; the cap is a backstop
-/// against an unexpectedly large set spawning a base-aggregate fan-out per
-/// player. Players are ordered by replay_count DESC, so the most-present players
-/// are kept when truncation happens.
-const PLAYER_GROUP_MAX: usize = 64;
+/// expand into. Most curated replay groups are well under this; the cap is a
+/// backstop against an unexpectedly large set spawning a base-aggregate fan-out
+/// per player. Players are ordered by replay_count DESC, so the most-present
+/// players are kept when truncation happens, and the response carries a
+/// [`GroupTruncation`] so the client can warn that the leaderboard is partial.
+const PLAYER_GROUP_MAX: usize = 256;
 
 #[derive(Debug, Clone)]
 struct StatGroupPlayerRow {
@@ -2449,6 +2484,35 @@ async fn load_player_stat_aggregate_groups_fanout(
     .buffered(PLAYER_GROUP_CONCURRENCY)
     .try_collect()
     .await
+}
+
+/// Count the distinct platform-identified players present in the replay set --
+/// the un-capped denominator behind the `PLAYER_GROUP_MAX` truncation, used to
+/// tell the client how many players the leaderboard left off. Mirrors the
+/// `WHERE` / `GROUP BY` identity of [`load_stat_group_players`] exactly so the
+/// total lines up with what would have been enumerated.
+async fn count_stat_group_players(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<u64, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT COUNT(*) AS total FROM (
+            SELECT 1
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+              AND rp.platform IS NOT NULL
+              AND rp.platform_player_id IS NOT NULL
+              AND rp.platform_player_id <> ''
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(" GROUP BY rp.platform, rp.platform_player_id) AS players");
+
+    let row = query.build().fetch_one(pool).await?;
+    let total: i64 = row.try_get("total")?;
+    Ok(total.max(0) as u64)
 }
 
 /// Enumerate the distinct platform-identified players present in the replay set,

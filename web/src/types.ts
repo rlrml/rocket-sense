@@ -501,6 +501,16 @@ export interface StatAggregateSetResponse {
   touch_breakdown: TouchAggregateBreakdownResponse | null;
   stats: StatAggregateResponse[];
   groups: StatAggregateGroupResponse[];
+  /**
+   * Present only when a `group-by=player` set had more distinct players than the
+   * per-request cap: `groups` holds the top `limit` (by replay count) of `total`.
+   */
+  groups_truncated?: GroupTruncation | null;
+}
+
+export interface GroupTruncation {
+  limit: number;
+  total: number;
 }
 
 export interface TouchAggregateBreakdownResponse {
