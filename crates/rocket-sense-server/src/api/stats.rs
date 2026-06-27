@@ -839,10 +839,22 @@ pub(crate) async fn load_stat_aggregates(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
+    // A `group-by=player` request (the replay-group leaderboard) consumes only the
+    // per-player `groups`; its top-level base block is discarded by the client. The
+    // base stat-count is the live whole-set `play_events` scan -- ~24s over a
+    // 500-replay group -- so skip it (and the equally-unused rotation histogram)
+    // when grouping by player. Every other grouping still surfaces the base block.
+    let base_needs_stats = !matches!(filters.group_by, Some(StatAggregateGroupBy::Player));
     // The base aggregate and the per-playlist breakdown are independent, so run
     // them concurrently rather than serializing the (many) underlying queries.
     let (mut aggregates, groups) = tokio::try_join!(
-        load_stat_aggregates_base(pool, filters, true, true),
+        load_stat_aggregates_base(
+            pool,
+            filters,
+            base_needs_stats,
+            base_needs_stats,
+            base_needs_stats
+        ),
         load_stat_aggregate_groups(pool, filters),
     )?;
     aggregates.groups = groups;
@@ -1841,6 +1853,7 @@ async fn load_stat_aggregates_base(
     filters: &StatAggregateFilters,
     include_rotation_histogram: bool,
     include_touch_breakdown: bool,
+    include_stat_counts: bool,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
     // These queries are independent; run them concurrently against the pool.
     let teammate_fut = async {
@@ -1906,6 +1919,17 @@ async fn load_stat_aggregates_base(
             Ok(None)
         }
     };
+    // The whole-set stat-count is the costliest query in the base (a live
+    // `play_events` scan when no player is set). Callers that don't surface the
+    // base `stats` -- e.g. the `group-by=player` leaderboard, which reads only the
+    // per-player `groups` -- skip it entirely.
+    let stat_count_fut = async {
+        if include_stat_counts {
+            load_stat_count_rows(pool, filters).await
+        } else {
+            Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
     let (
         target_denominators,
         teammate_denominators,
@@ -1919,7 +1943,7 @@ async fn load_stat_aggregates_base(
         load_target_denominators(pool, filters),
         teammate_fut,
         opponent_fut,
-        load_stat_count_rows(pool, filters),
+        stat_count_fut,
         histogram_fut,
         teammate_histogram_fut,
         opponent_histogram_fut,
@@ -2069,7 +2093,8 @@ async fn load_playlist_stat_aggregate_groups(
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
         group_filters.replay_set.playlist_group_key = Some(playlist.clone());
-        let aggregates = load_stat_aggregates_base(pool, &group_filters, false, false).await?;
+        let aggregates =
+            load_stat_aggregates_base(pool, &group_filters, false, false, true).await?;
         Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
             player: None,
@@ -2171,6 +2196,123 @@ async fn load_player_stat_aggregate_groups(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    // The leaderboard is rows=players, columns=stats. The materialized path
+    // computes it column-wise: one grouped query for per-player denominators plus
+    // one grouped `(player, event_type)` scan over `player_replay_event_counts` --
+    // two queries total, regardless of player count -- instead of a base-aggregate
+    // fan-out per player. Restricting the count scan to the requested `stat_terms`
+    // makes "only the displayed columns" a strictly smaller query, so the client
+    // can fetch stats a subset at a time. The live path can't be expressed as a
+    // single cheap grouped scan, so it keeps the per-player fan-out.
+    if filters.materialized_stat_counts && filters.kickoff_spawn.is_empty() {
+        load_player_stat_aggregate_groups_materialized(pool, filters).await
+    } else {
+        load_player_stat_aggregate_groups_fanout(pool, filters).await
+    }
+}
+
+async fn load_player_stat_aggregate_groups_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    // 1) The ordered, capped player list with each player's denominators, in one
+    //    grouped scan of `replay_players`.
+    let players = load_stat_group_player_denominators(pool, filters).await?;
+    if players.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 2) Every `(player, event_type)` count for exactly those players, in one
+    //    grouped scan of the materialized counts (narrowed to `stat_terms`).
+    let identities: Vec<(String, String)> = players
+        .iter()
+        .map(|player| (player.platform.clone(), player.platform_player_id.clone()))
+        .collect();
+    let mut stats_by_player = load_group_player_stat_counts(pool, filters, &identities).await?;
+    let limit = filters.limit as usize;
+
+    // 3) Stitch each player's columns onto their denominators. Cohort
+    //    (teammate/opponent) comparisons aren't meaningful on a player-vs-player
+    //    leaderboard, so those fields stay empty -- matching the fan-out path,
+    //    which ran with `include_teammates = false`.
+    Ok(players
+        .into_iter()
+        .map(|player| {
+            let key = format!("{}:{}", player.platform, player.platform_player_id);
+            let replay_count_divisor = player.replay_count.max(1) as f64;
+            let mut rows = stats_by_player
+                .remove(&(player.platform.clone(), player.platform_player_id.clone()))
+                .unwrap_or_default();
+            // Match the fan-out's per-player ordering and cap.
+            rows.sort_by(|a, b| {
+                b.event_count
+                    .cmp(&a.event_count)
+                    .then_with(|| a.category.cmp(&b.category))
+                    .then_with(|| a.display_name.cmp(&b.display_name))
+                    .then_with(|| a.key.cmp(&b.key))
+            });
+            rows.truncate(limit);
+            let stats = rows
+                .into_iter()
+                .map(|row| StatAggregateResponse {
+                    key: row.key,
+                    display_name: row.display_name,
+                    category: row.category,
+                    event_count: row.event_count,
+                    count_per_game: row.event_count as f64 / replay_count_divisor,
+                    per_active_minute: per_minute(row.event_count, player.active_time_seconds),
+                    per_non_demo_active_minute: per_minute(
+                        row.event_count,
+                        player.non_demo_active_time_seconds,
+                    ),
+                    teammate_event_count: 0,
+                    teammate_appearance_count: 0,
+                    teammate_count_per_game: None,
+                    teammate_per_active_minute: None,
+                    teammate_per_non_demo_active_minute: None,
+                    opponent_event_count: 0,
+                    opponent_appearance_count: 0,
+                    opponent_count_per_game: None,
+                    opponent_per_active_minute: None,
+                    opponent_per_non_demo_active_minute: None,
+                })
+                .collect();
+            let display_name = player.display_name.clone().unwrap_or_else(|| key.clone());
+            StatAggregateGroupResponse {
+                group_by: "player".to_owned(),
+                player: Some(StatAggregateGroupPlayer {
+                    platform: player.platform,
+                    platform_player_id: player.platform_player_id,
+                    display_name: player.display_name,
+                }),
+                display_name,
+                key,
+                replay_count: player.replay_count,
+                player_appearance_count: Some(player.appearance_count),
+                active_time_seconds: player.active_time_seconds,
+                non_demo_active_time_seconds: player.non_demo_active_time_seconds,
+                time_most_back_seconds: player.time_most_back_seconds,
+                time_most_forward_seconds: player.time_most_forward_seconds,
+                teammate_appearance_count: None,
+                teammate_active_time_seconds: None,
+                teammate_non_demo_active_time_seconds: None,
+                teammate_time_most_back_seconds: None,
+                teammate_time_most_forward_seconds: None,
+                opponent_appearance_count: None,
+                opponent_active_time_seconds: None,
+                opponent_non_demo_active_time_seconds: None,
+                opponent_time_most_back_seconds: None,
+                opponent_time_most_forward_seconds: None,
+                stats,
+            }
+        })
+        .collect())
+}
+
+async fn load_player_stat_aggregate_groups_fanout(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
     use futures::stream::{StreamExt, TryStreamExt};
 
     let players = load_stat_group_players(pool, filters).await?;
@@ -2191,7 +2333,8 @@ async fn load_player_stat_aggregate_groups(
             platform: player.platform.clone(),
             platform_player_id: player.platform_player_id.clone(),
         });
-        let aggregates = load_stat_aggregates_base(pool, &group_filters, false, false).await?;
+        let aggregates =
+            load_stat_aggregates_base(pool, &group_filters, false, false, true).await?;
         let key = format!("{}:{}", player.platform, player.platform_player_id);
         let display_name = player.display_name.clone().unwrap_or_else(|| key.clone());
         Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
@@ -2270,6 +2413,148 @@ async fn load_stat_group_players(
             })
         })
         .collect()
+}
+
+/// A group player together with the denominators the leaderboard needs to turn
+/// raw event counts into per-game / per-minute rates -- all in one grouped scan.
+#[derive(Debug, Clone)]
+struct StatGroupPlayerDenominators {
+    platform: String,
+    platform_player_id: String,
+    display_name: Option<String>,
+    replay_count: u64,
+    appearance_count: u64,
+    active_time_seconds: Option<f64>,
+    non_demo_active_time_seconds: Option<f64>,
+    time_most_back_seconds: Option<f64>,
+    time_most_forward_seconds: Option<f64>,
+}
+
+/// The ordered, capped set of group players plus each one's denominators, in a
+/// single `GROUP BY player` scan of `replay_players`. Replaces the per-player
+/// `load_stat_group_players` enumeration + one `load_target_denominators` query
+/// each for the materialized leaderboard path.
+async fn load_stat_group_player_denominators(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatGroupPlayerDenominators>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            rp.platform AS platform,
+            rp.platform_player_id AS platform_player_id,
+            mode() WITHIN GROUP (ORDER BY rp.name) AS display_name,
+            COUNT(DISTINCT rp.replay_id) AS replay_count,
+            COUNT(*) AS appearance_count,
+            SUM(rp.active_time_seconds) AS active_time_seconds,
+            SUM(GREATEST(rp.active_time_seconds - COALESCE(rp.time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
+            SUM(rp.time_most_back_seconds) AS time_most_back_seconds,
+            SUM(rp.time_most_forward_seconds) AS time_most_forward_seconds,
+            MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
+        FROM replay_players rp
+        JOIN replays r ON r.id = rp.replay_id
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND rp.platform IS NOT NULL
+          AND rp.platform_player_id IS NOT NULL
+          AND rp.platform_player_id <> ''
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(
+        r#"
+        GROUP BY rp.platform, rp.platform_player_id
+        ORDER BY replay_count DESC, latest_seen_at DESC NULLS LAST, rp.platform, rp.platform_player_id
+        LIMIT "#,
+    );
+    query.push_bind(PLAYER_GROUP_MAX as i64);
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| {
+            let replay_count: i64 = row.try_get("replay_count")?;
+            let appearance_count: i64 = row.try_get("appearance_count")?;
+            Ok(StatGroupPlayerDenominators {
+                platform: row.try_get("platform")?,
+                platform_player_id: row.try_get("platform_player_id")?,
+                display_name: row.try_get("display_name")?,
+                replay_count: replay_count.max(0) as u64,
+                appearance_count: appearance_count.max(0) as u64,
+                active_time_seconds: row.try_get("active_time_seconds")?,
+                non_demo_active_time_seconds: row.try_get("non_demo_active_time_seconds")?,
+                time_most_back_seconds: row.try_get("time_most_back_seconds")?,
+                time_most_forward_seconds: row.try_get("time_most_forward_seconds")?,
+            })
+        })
+        .collect()
+}
+
+/// Every `(player, event_type)` count for the given players in one grouped scan
+/// of the materialized `player_replay_event_counts`, keyed back to the player.
+/// Restricted to `filters.stat_terms` so requesting fewer columns is a strictly
+/// smaller query.
+async fn load_group_player_stat_counts(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+    identities: &[(String, String)],
+) -> Result<HashMap<(String, String), Vec<StatCountRow>>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            counts.platform AS platform,
+            counts.platform_player_id AS platform_player_id,
+            et.key AS key,
+            et.display_name AS display_name,
+            et.category AS category,
+            SUM(counts.event_count) AS event_count
+        FROM player_replay_event_counts counts
+        JOIN replays r
+          ON r.id = counts.replay_id
+         AND r.canonical_analysis_run_id = counts.analysis_run_id
+        JOIN event_types et ON et.id = counts.event_type_id
+        WHERE (counts.platform, counts.platform_player_id) IN ("#,
+    );
+    for (index, (platform, platform_player_id)) in identities.iter().enumerate() {
+        if index > 0 {
+            query.push(", ");
+        }
+        query.push("(");
+        query.push_bind(platform);
+        query.push(", ");
+        query.push_bind(platform_player_id);
+        query.push(")");
+    }
+    query.push(")");
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    if !filters.stat_terms.is_empty() {
+        query.push(" AND (");
+        append_stat_term_predicate(&mut query, "et", &filters.stat_terms);
+        query.push(")");
+    }
+    query.push(
+        r#"
+        GROUP BY counts.platform, counts.platform_player_id, et.key, et.display_name, et.category
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut by_player: HashMap<(String, String), Vec<StatCountRow>> = HashMap::new();
+    for row in rows {
+        let platform: String = row.try_get("platform")?;
+        let platform_player_id: String = row.try_get("platform_player_id")?;
+        let event_count: i64 = row.try_get("event_count")?;
+        by_player
+            .entry((platform, platform_player_id))
+            .or_default()
+            .push(StatCountRow {
+                key: row.try_get("key")?,
+                display_name: row.try_get("display_name")?,
+                category: row.try_get("category")?,
+                event_count: event_count.max(0) as u64,
+                teammate_event_count: 0,
+                opponent_event_count: 0,
+            });
+    }
+    Ok(by_player)
 }
 
 async fn load_target_denominators(
@@ -3041,7 +3326,7 @@ async fn load_replay_set_stat_count_rows(
             et.key,
             et.display_name,
             et.category,
-            COUNT(DISTINCT event.id) AS event_count,
+            COUNT(*) AS event_count,
             0::bigint AS teammate_event_count,
             0::bigint AS opponent_event_count
         FROM replays r
@@ -3064,7 +3349,7 @@ async fn load_replay_set_stat_count_rows(
     query.push(
         r#"
         GROUP BY et.key, et.display_name, et.category
-        ORDER BY COUNT(DISTINCT event.id) DESC, et.category, et.display_name, et.key
+        ORDER BY COUNT(*) DESC, et.category, et.display_name, et.key
         LIMIT
         "#,
     );
