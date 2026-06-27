@@ -2,6 +2,7 @@ import {
   BatteryCharging,
   CircleDotDashed,
   Crosshair,
+  Dribbble,
   Gauge,
   Goal,
   Hand,
@@ -19,6 +20,7 @@ import { AerialsDetail, aerialEventTypes } from "./aerials";
 import { BoostDetail, boostEventTypes } from "./boost";
 import { CoreDetail, coreEventTypes } from "./core";
 import { GoalsDetail, goalEventTypes } from "./goals";
+import { GroundPlayDetail, groundPlayEventTypes } from "./groundPlay";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
 import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
 import { MovementDetail, movementEventTypes, movementMechanicEventTypes } from "./movement";
@@ -244,6 +246,18 @@ export const statGroups: StatGroup[] = [
     usesAggregateStats: false,
     eventTypes: aerialEventTypes,
     Detail: AerialsDetail,
+  },
+  {
+    id: "ground-play",
+    label: "Ground Play",
+    icon: Dribbble,
+    description:
+      "Flick breakdown ranked per player: flick volume, power, vertical pop, carry setup, and flick type/side mix.",
+    terms: ["flick", "carry"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: groundPlayEventTypes,
+    Detail: GroundPlayDetail,
   },
   {
     id: "possession",

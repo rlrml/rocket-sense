@@ -125,6 +125,7 @@ import {
   warmPreviewPlayerForReplay,
 } from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
+import { GroundPlayProfileDetail } from "./stats/groundPlay";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
@@ -5328,6 +5329,18 @@ function PlayerAggregateStatsSections({
           search={contentSearch}
           rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
           rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "ground-play") {
+      add(
+        "ground-play-profile",
+        <GroundPlayProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
         />,
       );
     }
