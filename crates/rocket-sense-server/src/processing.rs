@@ -1331,7 +1331,10 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
 // `core_player_scoreboard` deltas when the replay header lacks `PlayerStats`.
 // Reprocessing fills score/goals/assists/saves/shots for replay cards, group
 // participants, and Core stats.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v11";
+// Bumped v11 -> v12 for subtr-actor's multi-frame dodge-contact flip reset
+// detector: reprocessing classifies resets where contact begins before the
+// dodge byte is sampled but the dodge still carries through the ball.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v12";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -8997,6 +9000,16 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v10",
         "subtr-actor touch classification now uses tags; reprocess to derive \
          touch detail columns from action/reception/possession/contested tags.",
+    ),
+    (
+        "rocket-sense-event-stream:v11",
+        "Replay-player scoreboard metadata is backfilled from core_player_scoreboard \
+         deltas when the replay header lacks PlayerStats.",
+    ),
+    (
+        "rocket-sense-event-stream:v12",
+        "subtr-actor flip reset detection now handles multi-frame dodge contact; \
+         reprocess to classify dodge resets where the dodge carries through the ball.",
     ),
 ];
 
