@@ -142,8 +142,15 @@
   --aerial-ceiling-shot: #14b8a6;
   --aerial-origin-ground: #16a34a;
   --aerial-origin-wall: #f59e0b;
-  --aerial-wall-side: #0891b2;
+  /* Wall panel: 8 attack-relative takeoff walls, all internally distinct. */
+  --aerial-wall-left: #0891b2;
+  --aerial-wall-front-left: #16a34a;
+  --aerial-wall-front: #2563eb;
+  --aerial-wall-front-right: #14b8a6;
+  --aerial-wall-right: #f97316;
+  --aerial-wall-back-right: #eab308;
   --aerial-wall-back: #9333ea;
+  --aerial-wall-back-left: #db2777;
   /* Goals panel needs five internally-distinct hues: blue / violet / sky / rose
      / amber. It can't reuse the mechanic hues wholesale because it carries both
      a high-aerial and a flip-reset segment, which would otherwise collide. */

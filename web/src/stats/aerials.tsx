@@ -77,10 +77,20 @@ const ORIGIN_VALUES: AerialValue[] = [
   { id: "wall_to_air", label: "From wall", segmentClass: "aerial-seg-origin-wall" },
 ];
 
-// WallAerialWall from subtr-actor: which wall the player took off from.
+// WallAerialWall from subtr-actor: which wall the player took off from, relative
+// to their attack direction. `front`/`back` are the end walls (opponent's net
+// side vs. own net side), `left`/`right` are the side walls, and the `*_left` /
+// `*_right` variants are the rounded corners. Ordered clockwise from the left
+// side wall so the stacked bar reads like a sweep around the field.
 const WALL_VALUES: AerialValue[] = [
-  { id: "side", label: "Side wall", segmentClass: "aerial-seg-wall-side" },
-  { id: "back", label: "Back wall", segmentClass: "aerial-seg-wall-back" },
+  { id: "left", label: "Left", segmentClass: "aerial-seg-wall-left" },
+  { id: "front_left", label: "Front-left", segmentClass: "aerial-seg-wall-front-left" },
+  { id: "front", label: "Front", segmentClass: "aerial-seg-wall-front" },
+  { id: "front_right", label: "Front-right", segmentClass: "aerial-seg-wall-front-right" },
+  { id: "right", label: "Right", segmentClass: "aerial-seg-wall-right" },
+  { id: "back_right", label: "Back-right", segmentClass: "aerial-seg-wall-back-right" },
+  { id: "back", label: "Back", segmentClass: "aerial-seg-wall-back" },
+  { id: "back_left", label: "Back-left", segmentClass: "aerial-seg-wall-back-left" },
 ];
 
 // The aerial-flavored subset of GoalTagKind. A single goal can carry more than
