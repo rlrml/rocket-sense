@@ -146,6 +146,15 @@ interface GroupMetricSources {
   touch: Map<string, TouchAggregateBreakdownResponse>;
   /** Per-player goal-tag counts derived from the group's goal events. */
   goalTags: GoalTagPlayerData;
+  /**
+   * Whether the per-player boost/touch fan-out runs for this group (i.e. it
+   * isn't over the request cap). When true the columns are emitted even before
+   * their data lands so the explorer can render a per-column loading state;
+   * defaults to "has data" to preserve the previous behaviour for callers that
+   * don't thread the flag.
+   */
+  boostApplicable?: boolean;
+  touchApplicable?: boolean;
 }
 
 /** Player-cohort touch count for one breakdown dimension value (e.g. location=aerial). */
@@ -167,7 +176,11 @@ export function buildGroupStatMetrics({
   boost,
   touch,
   goalTags,
+  boostApplicable,
+  touchApplicable,
 }: GroupMetricSources): LeaderboardMetric[] {
+  const showBoost = boostApplicable ?? boost.size > 0;
+  const showTouch = touchApplicable ?? touch.size > 0;
   const metrics: LeaderboardMetric[] = [];
   const aggByIdentity = new Map<string, StatAggregateGroupResponse>();
   for (const group of aggregates?.groups ?? []) {
@@ -195,6 +208,7 @@ export function buildGroupStatMetrics({
       key: `stat:${key}`,
       label: meta.display_name,
       group: categoryForStat(key, meta.category),
+      source: "aggregates",
       measurable: true,
       format: (value, measure) => formatCount(value, measure ?? "per5m"),
       value: (participantKey, measure) => {
@@ -213,11 +227,29 @@ export function buildGroupStatMetrics({
     key: "derived:shooting_pct",
     label: "Shooting %",
     group: "Scoring",
+    source: "aggregates",
     format: formatPercent,
     value: (id) => {
       const goals = aggStat(id, "goal")?.event_count ?? 0;
       const shots = aggStat(id, "shot")?.event_count ?? 0;
       return shots > 0 ? (goals / shots) * 100 : null;
+    },
+  });
+  // Win rate is a replay-outcome ratio, not an event count: wins / decided games
+  // (the backend ships per-player `win_count` / `loss_count`; ties are excluded).
+  metrics.push({
+    key: "derived:win_rate",
+    label: "Win rate",
+    group: "Scoring",
+    source: "aggregates",
+    format: formatPercent,
+    value: (id) => {
+      const group = aggByIdentity.get(id);
+      const wins = group?.win_count ?? null;
+      const losses = group?.loss_count ?? null;
+      if (wins == null || losses == null) return null;
+      const decided = wins + losses;
+      return decided > 0 ? (wins / decided) * 100 : null;
     },
   });
   const timeShare = (id: string, field: "time_most_back_seconds" | "time_most_forward_seconds") => {
@@ -243,11 +275,11 @@ export function buildGroupStatMetrics({
 
   // 3) Event-derived kickoff metrics (already keyed by identity).
   for (const metric of buildKickoffMetrics(kickoffSummaries, gameMeta)) {
-    metrics.push({ ...metric, key: `kickoff:${metric.key}`, group: "Kickoffs" });
+    metrics.push({ ...metric, key: `kickoff:${metric.key}`, group: "Kickoffs", source: "kickoff" });
   }
 
   // 4) Per-player boost totals (group-scoped) — BPM and pad rates.
-  if (boost.size > 0) {
+  if (showBoost) {
     const boostOf = (id: string) => boost.get(id) ?? null;
     const rateMetric = (
       key: string,
@@ -257,6 +289,7 @@ export function buildGroupStatMetrics({
       key: `boost:${key}`,
       label,
       group: "Boost",
+      source: "boost",
       measurable: true,
       format: (value, measure) => formatCount(value, measure ?? "per5m"),
       value: (id, measure) => {
@@ -287,6 +320,7 @@ export function buildGroupStatMetrics({
       key: "boost:avg",
       label: "Avg boost",
       group: "Boost",
+      source: "boost",
       format: (value) => formatBoostPercent(value),
       value: (id) => {
         const total = boostOf(id);
@@ -299,6 +333,7 @@ export function buildGroupStatMetrics({
       key: "boost:time_empty",
       label: "Time at 0 boost",
       group: "Boost",
+      source: "boost",
       format: formatPercent,
       value: (id) => {
         const total = boostOf(id);
@@ -312,7 +347,7 @@ export function buildGroupStatMetrics({
   // 5) Per-player touch breakdown (group-scoped) — location/kind touch splits the
   // flat `touch` count can't provide. Rated against the same active-time base as
   // the other count stats so the per-5m toggle stays consistent.
-  if (touch.size > 0) {
+  if (showTouch) {
     const touchCountMetric = (
       key: string,
       label: string,
@@ -322,6 +357,7 @@ export function buildGroupStatMetrics({
       key: `touch:${key}`,
       label,
       group: "Touches",
+      source: "touch",
       measurable: true,
       format: (raw, measure) => formatCount(raw, measure ?? "per5m"),
       value: (id, measure) => {
@@ -354,6 +390,7 @@ export function buildGroupStatMetrics({
       key: `goaltag:${tag.key}`,
       label: `${tag.label} goals`,
       group: "Goal tags",
+      source: "goaltag",
       measurable: true,
       format: (value, measure) => formatCount(value, measure ?? "per5m"),
       value: (id, measure) => {
@@ -390,22 +427,37 @@ function sortCategories(
   return ordered.map((category) => ({ category, metrics: byCategory.get(category)! }));
 }
 
-// The table opens on goals alone; everything else is one click away in the
-// picker. Kept as a list so the fallback logic below can drop any key that is
-// missing for a given group.
-const DEFAULT_COLUMN_PREFERENCES = ["stat:goal"];
+// The table opens on a small set of basic core stats (the classic scoreboard
+// line); everything else is one click away in the picker. Listed in display
+// order — the fallback logic below drops any key missing for a given group and
+// caps the count, so groups without one of these still get a sensible default.
+const DEFAULT_COLUMN_PREFERENCES = [
+  "stat:goal",
+  "derived:win_rate",
+  "stat:assist",
+  "stat:save",
+  "stat:shot",
+];
+
+/** Stable empty set so the default `loadingSources` prop doesn't churn memos. */
+const EMPTY_SOURCE_SET: ReadonlySet<string> = new Set();
 
 export function GroupStatExplorer({
   participants,
   metrics,
   title = "Group stats",
   emptyLabel = "No per-player stats are available for this group yet.",
+  loadingSources,
 }: {
   participants: LeaderboardParticipant[];
   metrics: LeaderboardMetric[];
   title?: ReactNode;
   emptyLabel?: ReactNode;
+  /** Metric `source` tags whose backing fetch is still in flight; columns from
+   * those sources render a loading shimmer instead of a misleading "—". */
+  loadingSources?: ReadonlySet<string>;
 }) {
+  const pendingSources = loadingSources ?? EMPTY_SOURCE_SET;
   const metricByKey = useMemo(
     () => new Map(metrics.map((metric) => [metric.key, metric])),
     [metrics],
@@ -675,6 +727,7 @@ export function GroupStatExplorer({
                 {columns.map((key) => {
                   const metric = metricByKey.get(key)!;
                   const isSorted = activeSort?.key === key;
+                  const headerPending = metric.source != null && pendingSources.has(metric.source);
                   return (
                     <th key={key}>
                       <button
@@ -683,9 +736,17 @@ export function GroupStatExplorer({
                         onClick={() => onHeaderClick(key)}
                       >
                         <span>{metric.label}</span>
-                        <span className="gse-sort-arrow">
-                          {isSorted ? (activeSort?.dir === "asc" ? "▲" : "▼") : ""}
-                        </span>
+                        {headerPending ? (
+                          <span
+                            className="gse-header-spinner"
+                            aria-hidden="true"
+                            title="Loading this column…"
+                          />
+                        ) : (
+                          <span className="gse-sort-arrow">
+                            {isSorted ? (activeSort?.dir === "asc" ? "▲" : "▼") : ""}
+                          </span>
+                        )}
                       </button>
                     </th>
                   );
@@ -714,31 +775,47 @@ export function GroupStatExplorer({
                       const value = values.get(key);
                       const max = columnMax.get(key) ?? 1;
                       const present = value != null && Number.isFinite(value);
+                      // A column whose backing fetch is still in flight shows a
+                      // shimmer rather than a "—" that reads as "no data".
+                      const pending =
+                        !present && metric.source != null && pendingSources.has(metric.source);
                       return (
                         <td key={key} className="gse-value-cell">
-                          <div className="gse-cell">
-                            <SegmentedBar
-                              ariaLabel={`${participant.name}: ${metric.label}`}
-                              className="gse-cell-track"
-                              maxValue={max}
-                              total={present ? Math.abs(value) : 0}
-                              segments={
-                                present
-                                  ? [
-                                      {
-                                        key,
-                                        className: cohort,
-                                        label: metric.label,
-                                        value: Math.abs(value),
-                                      },
-                                    ]
-                                  : []
-                              }
-                            />
-                            <span className="gse-cell-value">
-                              {present ? metric.format(value, measure) : "—"}
-                            </span>
-                          </div>
+                          {pending ? (
+                            <div className="gse-cell gse-cell-pending" aria-busy="true">
+                              <span
+                                className="gse-cell-track gse-cell-skeleton"
+                                aria-hidden="true"
+                              />
+                              <span className="gse-cell-value gse-cell-value-pending">
+                                <span className="sr-only">Loading</span>
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="gse-cell">
+                              <SegmentedBar
+                                ariaLabel={`${participant.name}: ${metric.label}`}
+                                className="gse-cell-track"
+                                maxValue={max}
+                                total={present ? Math.abs(value) : 0}
+                                segments={
+                                  present
+                                    ? [
+                                        {
+                                          key,
+                                          className: cohort,
+                                          label: metric.label,
+                                          value: Math.abs(value),
+                                        },
+                                      ]
+                                    : []
+                                }
+                              />
+                              <span className="gse-cell-value">
+                                {present ? metric.format(value, measure) : "—"}
+                              </span>
+                            </div>
+                          )}
                         </td>
                       );
                     })}

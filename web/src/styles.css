@@ -9907,3 +9907,59 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
   color: var(--text-strong);
 }
+
+/* Per-column loading: a column whose backing fetch (kickoff events, boost/touch
+   fan-out) is still in flight renders a shimmer instead of a misleading "—". */
+.gse-cell-skeleton {
+  border-radius: 7px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-muted, #eef1f6) 25%,
+    var(--border, #dde3ec) 37%,
+    var(--surface-muted, #eef1f6) 63%
+  );
+  background-size: 400% 100%;
+  animation: gse-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.gse-cell-value-pending {
+  display: inline-block;
+}
+
+.gse-header-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border, #dde3ec);
+  border-top-color: #2563eb;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes gse-skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gse-cell-skeleton,
+  .gse-header-spinner {
+    animation-duration: 0s;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -2806,36 +2806,60 @@ function GroupStatExplorerSection({
   players: ReplayPlayer[];
 }) {
   const [aggregates, setAggregates] = useState<StatAggregateSetResponse | null>(null);
+  const [aggregatesLoading, setAggregatesLoading] = useState(true);
   const [kickoffEvents, setKickoffEvents] = useState<MechanicEventResponse[]>([]);
+  const [kickoffLoading, setKickoffLoading] = useState(true);
   const [goalRows, setGoalRows] = useState<GoalRow[]>([]);
+  const [goalLoading, setGoalLoading] = useState(true);
   const [boost, setBoost] = useState<Map<string, PlayerBoostTotal>>(new Map());
   const [touch, setTouch] = useState<Map<string, TouchAggregateBreakdownResponse>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const [auxLoading, setAuxLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Aggregates back most of the table and resolve quickly, so they aren't gated
+  // behind the much larger group-events fetches (kickoff + possession, and goal
+  // events — each paged up to 50k). The table appears as soon as aggregates land;
+  // the kickoff / goal-tag columns show a per-column loading state until theirs
+  // arrive.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
+    setAggregatesLoading(true);
+    setKickoffLoading(true);
+    setGoalLoading(true);
     setError(null);
     setAggregates(null);
     setKickoffEvents([]);
     setGoalRows([]);
-    Promise.all([
-      getReplayGroupPlayerAggregates(groupId, undefined, []),
-      listReplayGroupEvents(groupId, [...kickoffEventTypes, "possession"]),
-      listReplayGroupEvents(groupId, goalEventTypes),
-    ])
-      .then(([aggResponse, eventsResponse, goalResponse]) => {
-        if (cancelled) return;
-        setAggregates(aggResponse);
-        setKickoffEvents(eventsResponse.events);
-        setGoalRows(buildGoalRows(goalResponse.events));
+    getReplayGroupPlayerAggregates(groupId, undefined, [])
+      .then((response) => {
+        if (!cancelled) setAggregates(response);
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) setAggregatesLoading(false);
+      });
+    listReplayGroupEvents(groupId, [...kickoffEventTypes, "possession"])
+      .then((response) => {
+        if (!cancelled) setKickoffEvents(response.events);
+      })
+      .catch(() => {
+        // Leave the kickoff columns empty on failure; an aggregates error (if any)
+        // already surfaces the group-level problem via the notice above.
+      })
+      .finally(() => {
+        if (!cancelled) setKickoffLoading(false);
+      });
+    listReplayGroupEvents(groupId, goalEventTypes)
+      .then((response) => {
+        if (!cancelled) setGoalRows(buildGoalRows(response.events));
+      })
+      .catch(() => {
+        // Leave the goal-tag columns empty on failure (same rationale as kickoff).
+      })
+      .finally(() => {
+        if (!cancelled) setGoalLoading(false);
       });
     return () => {
       cancelled = true;
@@ -2856,6 +2880,17 @@ function GroupStatExplorerSection({
     [aggregates, rankByIdentity, groupId],
   );
 
+  // Whether the boost/touch fan-out runs for this group: at least one resolvable
+  // identity and under the request cap. Derived synchronously so the columns can
+  // be emitted (and shown as loading) the moment participants are known, rather
+  // than waiting on the fetch to populate the maps.
+  const auxApplicable = useMemo(() => {
+    const count = participants.filter(
+      (participant) => participant.platform && participant.platformPlayerId,
+    ).length;
+    return count > 0 && count <= GROUP_BOOST_FETCH_CAP;
+  }, [participants]);
+
   // Boost totals and the touch breakdown only exist per player (no group-by=player
   // variant), so fan out one request each per participant, scoped to the group.
   // Capped so a huge tournament group doesn't fire hundreds of requests.
@@ -2863,6 +2898,11 @@ function GroupStatExplorerSection({
     let cancelled = false;
     setBoost(new Map());
     setTouch(new Map());
+    if (!auxApplicable) {
+      setAuxLoading(false);
+      return;
+    }
+    setAuxLoading(true);
     const identities = participants
       .map((participant) => ({
         key: participant.key,
@@ -2872,7 +2912,6 @@ function GroupStatExplorerSection({
       .filter((entry): entry is { key: string; platform: string; id: string } =>
         Boolean(entry.platform && entry.id),
       );
-    if (identities.length === 0 || identities.length > GROUP_BOOST_FETCH_CAP) return;
     const params = new URLSearchParams({ group: groupId });
     Promise.all(
       identities.map((entry) =>
@@ -2890,21 +2929,25 @@ function GroupStatExplorerSection({
             .catch(() => null),
         ]).then(([boostTotal, touchBreakdown]) => ({ key: entry.key, boostTotal, touchBreakdown })),
       ),
-    ).then((results) => {
-      if (cancelled) return;
-      const boostMap = new Map<string, PlayerBoostTotal>();
-      const touchMap = new Map<string, TouchAggregateBreakdownResponse>();
-      for (const result of results) {
-        if (result.boostTotal) boostMap.set(result.key, result.boostTotal);
-        if (result.touchBreakdown) touchMap.set(result.key, result.touchBreakdown);
-      }
-      setBoost(boostMap);
-      setTouch(touchMap);
-    });
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const boostMap = new Map<string, PlayerBoostTotal>();
+        const touchMap = new Map<string, TouchAggregateBreakdownResponse>();
+        for (const result of results) {
+          if (result.boostTotal) boostMap.set(result.key, result.boostTotal);
+          if (result.touchBreakdown) touchMap.set(result.key, result.touchBreakdown);
+        }
+        setBoost(boostMap);
+        setTouch(touchMap);
+      })
+      .finally(() => {
+        if (!cancelled) setAuxLoading(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [participants, groupId]);
+  }, [participants, groupId, auxApplicable]);
 
   const kickoffSummaries = useMemo(() => {
     const map = new Map<string, PlayerKickoffSummary>();
@@ -2918,15 +2961,41 @@ function GroupStatExplorerSection({
   const goalTags = useMemo(() => buildGoalTagPlayerData(goalRows, players), [goalRows, players]);
 
   const metrics = useMemo(
-    () => buildGroupStatMetrics({ aggregates, kickoffSummaries, boost, touch, goalTags }),
-    [aggregates, kickoffSummaries, boost, touch, goalTags],
+    () =>
+      buildGroupStatMetrics({
+        aggregates,
+        kickoffSummaries,
+        boost,
+        touch,
+        goalTags,
+        boostApplicable: auxApplicable,
+        touchApplicable: auxApplicable,
+      }),
+    [aggregates, kickoffSummaries, boost, touch, goalTags, auxApplicable],
   );
+
+  // Which column sources still have a fetch in flight, so the explorer can render
+  // a per-column loading shimmer instead of a misleading "—" / "0".
+  const loadingSources = useMemo(() => {
+    const pending = new Set<string>();
+    if (kickoffLoading) pending.add("kickoff");
+    if (goalLoading) pending.add("goaltag");
+    if (auxApplicable && auxLoading) {
+      pending.add("boost");
+      pending.add("touch");
+    }
+    return pending;
+  }, [kickoffLoading, goalLoading, auxApplicable, auxLoading]);
 
   return (
     <>
       {error ? <ApiNotice label="Group stats" message={error} /> : null}
-      {loading ? <StatusLine loading error={null} /> : null}
-      <GroupStatExplorer participants={participants} metrics={metrics} />
+      {aggregatesLoading ? <StatusLine loading error={null} /> : null}
+      <GroupStatExplorer
+        participants={participants}
+        metrics={metrics}
+        loadingSources={loadingSources}
+      />
     </>
   );
 }

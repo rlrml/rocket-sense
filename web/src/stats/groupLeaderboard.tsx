@@ -60,6 +60,12 @@ export interface LeaderboardMetric {
   measurable?: boolean;
   /** Rank ascending (e.g. time-to-ball) instead of the default descending. */
   lowerIsBetter?: boolean;
+  /**
+   * Which async data source backs this metric (e.g. "kickoff", "boost"). The
+   * group stat explorer uses it to show a per-column loading state while that
+   * source's fetch is still in flight, instead of a misleading "—" / "0".
+   */
+  source?: string;
   /** Per-participant value in display units; null drops the participant. */
   value: (participantKey: string, measure: LeaderboardMeasure) => number | null;
   /** Render a value as its label (measure passed for count metrics that vary by it). */
