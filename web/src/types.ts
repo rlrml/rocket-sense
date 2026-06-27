@@ -659,6 +659,12 @@ export interface MovementCohortSummary {
   half_flips: number;
 }
 
+export interface ReplayPlayerMovementSummary {
+  platform: string | null;
+  platform_player_id: string | null;
+  summary: MovementCohortSummary;
+}
+
 export interface EventStatDimensionValueResponse {
   key: string | null;
   display_name: string;

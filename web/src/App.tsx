@@ -200,6 +200,7 @@ import type {
   ReplayFilterOption,
   ReplayGroupResponse,
   ReplayGroupManagerResponse,
+  ReplayPlayerMovementSummary,
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
@@ -2525,12 +2526,15 @@ function ReplayStatsPage() {
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
+  const [movementSummaries, setMovementSummaries] = useState<ReplayPlayerMovementSummary[]>([]);
   const [replayLoading, setReplayLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(true);
+  const [movementSummariesLoading, setMovementSummariesLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
   const [_statsError, setStatsError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
+  const [movementSummariesError, setMovementSummariesError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
     () => statGroupById(statGroup, replayStatsSectionGroups) ?? replayStatsSectionGroups[0],
@@ -2540,6 +2544,9 @@ function ReplayStatsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    setMovementSummaries([]);
+    setMovementSummariesError(null);
+    setMovementSummariesLoading(false);
     setReplayLoading(true);
     setReplayError(null);
     const replayPromise = getReplay(replayId, { forceRefresh: true });
@@ -2592,6 +2599,41 @@ function ReplayStatsPage() {
       .finally(() => {
         if (!cancelled) setEventsLoading(false);
       });
+
+    if (activeGroup.id === "movement") {
+      setMovementSummariesLoading(true);
+      replayPromise
+        .catch(() => null)
+        .then((replayResponse) => {
+          if (!replayResponse) return [];
+          const params = new URLSearchParams({ "replay-id": replayId });
+          return Promise.all(
+            replayResponse.players
+              .filter((player) => player.platform && player.platform_player_id)
+              .map(async (player) => {
+                const response = await getPlayerMovementSummary(
+                  player.platform as string,
+                  player.platform_player_id as string,
+                  params,
+                );
+                return {
+                  platform: player.platform,
+                  platform_player_id: player.platform_player_id,
+                  summary: response.player,
+                };
+              }),
+          );
+        })
+        .then((summaries) => {
+          if (!cancelled) setMovementSummaries(summaries);
+        })
+        .catch((err: Error) => {
+          if (!cancelled) setMovementSummariesError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled) setMovementSummariesLoading(false);
+        });
+    }
 
     return () => {
       cancelled = true;
@@ -2836,7 +2878,12 @@ function ReplayStatsPage() {
                 message={eventsError}
               />
             ) : null}
-            {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
+            {movementSummariesError ? (
+              <ApiNotice label="Movement summary" message={movementSummariesError} />
+            ) : null}
+            {statsLoading || eventsLoading || movementSummariesLoading ? (
+              <StatusLine loading error={null} />
+            ) : null}
 
             {ActiveDetail ? (
               <ActiveDetail
@@ -2844,6 +2891,7 @@ function ReplayStatsPage() {
                 players={replay.players}
                 durationSeconds={replay.summary.duration_seconds}
                 replayId={replayId}
+                movementSummaries={movementSummaries}
               />
             ) : (
               <>

@@ -5,6 +5,7 @@ import type {
   MovementSummaryResponse,
   RankBenchmarkCohort,
   ReplayPlayer,
+  ReplayPlayerMovementSummary,
 } from "../types";
 import {
   comparisonSubjectLabel,
@@ -103,14 +104,19 @@ export function MovementDetail({
   durationSeconds,
   scope = "replay",
   subjectSubtitle,
+  movementSummaries,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   scope?: "replay" | "group";
   subjectSubtitle?: string;
+  movementSummaries?: ReplayPlayerMovementSummary[];
 }) {
-  const summaries = playerMovementSummaries(players, events, durationSeconds);
+  const summaries = applyReplayMovementSummaries(
+    playerMovementSummaries(players, events, durationSeconds),
+    movementSummaries,
+  );
 
   if (!summaries.some(hasMovementData)) {
     return (
@@ -666,6 +672,58 @@ function playerMovementSummaries(
   }
 
   return summaries.sort(compareSummaries);
+}
+
+function applyReplayMovementSummaries(
+  summaries: PlayerMovementSummary[],
+  movementSummaries?: ReplayPlayerMovementSummary[],
+): PlayerMovementSummary[] {
+  if (!movementSummaries || movementSummaries.length === 0) return summaries;
+  const byKey = new Map(
+    movementSummaries.flatMap((summary) => {
+      const key = replayMovementSummaryKey(summary);
+      return key ? [[key, summary.summary] as const] : [];
+    }),
+  );
+
+  return summaries.map((summary) => {
+    const movement = byKey.get(summary.key);
+    if (!movement || !movementCohortHasData(movement)) return summary;
+    return {
+      ...summary,
+      activeSeconds: movement.active_seconds,
+      totalDistance: movement.total_distance,
+      speedWeighted: movement.speed_weighted,
+      speedWeight: movement.speed_weight,
+      slowSeconds: movement.slow_seconds,
+      boostSeconds: movement.boost_seconds,
+      supersonicSeconds: movement.supersonic_seconds,
+      groundSeconds: movement.ground_seconds,
+      lowAirSeconds: movement.low_air_seconds,
+      highAirSeconds: movement.high_air_seconds,
+      powerslideCount: movement.powerslide_count,
+      powerslideSeconds: movement.powerslide_seconds,
+      speedFlips: movement.speed_flips,
+      wavedashes: movement.wavedashes,
+      halfFlips: movement.half_flips,
+    };
+  });
+}
+
+function movementCohortHasData(summary: MovementCohortSummary): boolean {
+  return (
+    summary.total_distance > 0 ||
+    summary.speed_weight > 0 ||
+    summary.slow_seconds + summary.boost_seconds + summary.supersonic_seconds > 0 ||
+    summary.ground_seconds + summary.low_air_seconds + summary.high_air_seconds > 0 ||
+    summary.powerslide_count > 0 ||
+    summary.speed_flips + summary.wavedashes + summary.half_flips > 0
+  );
+}
+
+function replayMovementSummaryKey(summary: ReplayPlayerMovementSummary): string | null {
+  if (!summary.platform || !summary.platform_player_id) return null;
+  return `${normalizePlatform(summary.platform)}:${summary.platform_player_id}`;
 }
 
 function addPowerslideToggles(
