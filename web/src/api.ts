@@ -146,8 +146,11 @@ export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> 
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
 }
 
-export function listReplayGroups(): Promise<ListReplayGroupsResponse> {
-  return request<ListReplayGroupsResponse>("/api/v1/replay-groups");
+export function listReplayGroups(
+  searchParams?: URLSearchParams,
+): Promise<ListReplayGroupsResponse> {
+  const query = searchParams?.toString();
+  return request<ListReplayGroupsResponse>(`/api/v1/replay-groups${query ? `?${query}` : ""}`);
 }
 
 export function getUploadsLeaderboard(
@@ -240,6 +243,13 @@ export function addReplaysToGroup(
   );
 }
 
+export function addMatchingReplaysToGroup(
+  groupId: string,
+  searchParams: URLSearchParams,
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return updateMatchingReplayGroupReplays("POST", groupId, searchParams);
+}
+
 export function removeReplaysFromGroup(
   groupId: string,
   replayIds: string[],
@@ -250,6 +260,31 @@ export function removeReplaysFromGroup(
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ replay_ids: replayIds }),
+    },
+  );
+}
+
+export function removeMatchingReplaysFromGroup(
+  groupId: string,
+  searchParams: URLSearchParams,
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return updateMatchingReplayGroupReplays("DELETE", groupId, searchParams);
+}
+
+function updateMatchingReplayGroupReplays(
+  method: "POST" | "DELETE",
+  groupId: string,
+  searchParams: URLSearchParams,
+): Promise<ReplayGroupReplayUpdateResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.delete("count");
+  params.delete("offset");
+  return request<ReplayGroupReplayUpdateResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replay_filter_query: params.toString() }),
     },
   );
 }

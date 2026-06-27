@@ -475,6 +475,30 @@ fn replay_group_select_includes_member_count() {
 }
 
 #[test]
+fn replay_group_search_is_case_insensitive() {
+    let where_clause = replay_group_search_where_clause();
+    let sql = replay_group_select_sql(where_clause);
+
+    assert!(where_clause.contains("replay_group.name ILIKE $1"));
+    assert!(where_clause.contains("replay_group.description ILIKE $1"));
+    assert!(where_clause.contains("replay_group.id::text ILIKE $1"));
+    assert!(sql.contains("WHERE replay_group.name ILIKE $1"));
+}
+
+#[test]
+fn replay_group_update_request_accepts_replay_filter_query() {
+    let request: ReplayGroupReplayUpdateRequest =
+        serde_json::from_str(r#"{"replay_filter_query":"q=ivan&player-name=Alice"}"#).unwrap();
+
+    assert_eq!(
+        request.replay_filter_query.as_deref(),
+        Some("q=ivan&player-name=Alice")
+    );
+    assert!(request.replay_ids.is_empty());
+    assert!(request.file_sha256s.is_empty());
+}
+
+#[test]
 fn replay_filters_parse_group_as_replay_group_and_project_separately() {
     let group_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let project_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f1").unwrap();

@@ -60,6 +60,7 @@ import {
 import { lazyWithChunkLoadRecovery } from "./chunkLoadRecovery";
 import {
   addReplayGroupManager,
+  addMatchingReplaysToGroup,
   addReplaysToGroup,
   authChangeEvent,
   clearAccessToken,
@@ -103,6 +104,7 @@ import {
   listReplays,
   logout,
   removeReplayGroupManager,
+  removeMatchingReplaysFromGroup,
   removeReplaysFromGroup,
   reprocessReplay,
   reprocessReplayClient,
@@ -612,6 +614,7 @@ function ReplayListPage() {
   const currentUser = useCurrentUser();
   const { groups, refresh: refreshGroups } = useReplayGroups(currentUser != null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
 
   useEffect(() => {
     setFilters(activeFilters);
@@ -620,9 +623,17 @@ function ReplayListPage() {
   // Selections reference rows on the current page; drop them when the query changes.
   useEffect(() => {
     setSelectedIds(new Set());
+    setAllMatchingSelected(false);
   }, [searchParams]);
 
   function toggleSelected(replayId: string) {
+    if (allMatchingSelected) {
+      setAllMatchingSelected(false);
+      setSelectedIds(
+        new Set(replays.filter((replay) => replay.id !== replayId).map((replay) => replay.id)),
+      );
+      return;
+    }
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(replayId)) {
@@ -646,6 +657,11 @@ function ReplayListPage() {
 
   function clearSelection() {
     setSelectedIds(new Set());
+    setAllMatchingSelected(false);
+  }
+
+  function selectAllMatching() {
+    setAllMatchingSelected(true);
   }
 
   useEffect(() => {
@@ -983,12 +999,16 @@ function ReplayListPage() {
 
         <StatusLine loading={false} error={error} />
 
-        {currentUser && selectedIds.size > 0 ? (
+        {currentUser && (selectedIds.size > 0 || allMatchingSelected) ? (
           <GroupSelectionBar
             selectedIds={selectedIds}
-            replayCount={replays.length}
+            allMatchingSelected={allMatchingSelected}
+            pageReplayCount={replays.length}
+            matchingReplayCount={total ?? replays.length}
+            searchParams={searchParams}
             groups={groups}
             onSelectAll={selectAllOnPage}
+            onSelectAllMatching={selectAllMatching}
             onClear={clearSelection}
             onGroupsChanged={refreshGroups}
           />
@@ -1007,7 +1027,7 @@ function ReplayListPage() {
                       type="checkbox"
                       className="replay-select"
                       aria-label={`Select ${replay.original_file_name || replay.id}`}
-                      checked={selectedIds.has(replay.id)}
+                      checked={allMatchingSelected || selectedIds.has(replay.id)}
                       onChange={() => toggleSelected(replay.id)}
                     />
                   ) : null}
@@ -1372,6 +1392,7 @@ function BallchasingMirrorForm() {
 
 function ReplayGroupListPage() {
   const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
+  const [groupSearch, setGroupSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -1395,6 +1416,10 @@ function ReplayGroupListPage() {
   }, []);
 
   const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
+  const visibleGroups = useMemo(
+    () => filterReplayGroupEntries(orderedGroups, groupSearch),
+    [orderedGroups, groupSearch],
+  );
 
   return (
     <section className="page replay-group-list-page">
@@ -1409,8 +1434,22 @@ function ReplayGroupListPage() {
 
       <StatusLine loading={loading} error={error} />
 
+      <div className="search-filter-panel replay-search-panel">
+        <div className="replay-search-row">
+          <label className="search-box">
+            <Search size={17} />
+            <input
+              type="search"
+              value={groupSearch}
+              onChange={(event) => setGroupSearch(event.currentTarget.value)}
+              placeholder="Search groups"
+            />
+          </label>
+        </div>
+      </div>
+
       <div className="replay-card-list group-card-list">
-        {orderedGroups.map(({ group, depth }) => (
+        {visibleGroups.map(({ group, depth }) => (
           <article
             className="replay-card group-card"
             key={group.id}
@@ -1465,6 +1504,9 @@ function ReplayGroupListPage() {
         ))}
         {!loading && groups.length === 0 ? (
           <div className="status-line">No replay groups found.</div>
+        ) : null}
+        {!loading && groups.length > 0 && visibleGroups.length === 0 ? (
+          <div className="status-line">No replay groups match “{groupSearch}”.</div>
         ) : null}
       </div>
     </section>
@@ -2029,22 +2071,31 @@ const NEW_GROUP_OPTION = "__new__";
 
 function GroupSelectionBar({
   selectedIds,
-  replayCount,
+  allMatchingSelected,
+  pageReplayCount,
+  matchingReplayCount,
+  searchParams,
   groups,
   onSelectAll,
+  onSelectAllMatching,
   onClear,
   onGroupsChanged,
 }: {
   selectedIds: Set<string>;
-  replayCount: number;
+  allMatchingSelected: boolean;
+  pageReplayCount: number;
+  matchingReplayCount: number;
+  searchParams: URLSearchParams;
   groups: ReplayGroupResponse[];
   onSelectAll: () => void;
+  onSelectAllMatching: () => void;
   onClear: () => void;
   onGroupsChanged: () => void;
 }) {
   const currentUser = useCurrentUser();
   const [targetGroupId, setTargetGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
@@ -2052,8 +2103,24 @@ function GroupSelectionBar({
   const creating = targetGroupId === NEW_GROUP_OPTION;
   const targetGroup = groups.find((group) => group.id === targetGroupId) ?? null;
   const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
-  const selectedCount = selectedIds.size;
-  const allSelected = replayCount > 0 && selectedCount >= replayCount;
+  const selectedCount = allMatchingSelected ? matchingReplayCount : selectedIds.size;
+  const allPageSelected = pageReplayCount > 0 && selectedIds.size >= pageReplayCount;
+  const canSelectAllMatching =
+    !allMatchingSelected && matchingReplayCount > Math.max(selectedIds.size, pageReplayCount);
+  const visibleGroups = useMemo(
+    () => filterReplayGroupEntries(orderedGroups, groupSearch),
+    [orderedGroups, groupSearch],
+  );
+  const targetGroupEntry = targetGroup
+    ? (orderedGroups.find(({ group }) => group.id === targetGroup.id) ?? {
+        group: targetGroup,
+        depth: 0,
+      })
+    : null;
+  const selectableGroups =
+    targetGroupEntry && !visibleGroups.some(({ group }) => group.id === targetGroupEntry.group.id)
+      ? [targetGroupEntry, ...visibleGroups]
+      : visibleGroups;
 
   async function withBusy(action: () => Promise<void>) {
     setBusy(true);
@@ -2085,7 +2152,9 @@ function GroupSelectionBar({
   function handleAdd() {
     if (!targetGroup) return;
     void withBusy(async () => {
-      const result = await addReplaysToGroup(targetGroup.id, [...selectedIds]);
+      const result = allMatchingSelected
+        ? await addMatchingReplaysToGroup(targetGroup.id, searchParams)
+        : await addReplaysToGroup(targetGroup.id, [...selectedIds]);
       onGroupsChanged();
       setFeedback({
         kind: "ok",
@@ -2097,7 +2166,9 @@ function GroupSelectionBar({
   function handleRemove() {
     if (!targetGroup) return;
     void withBusy(async () => {
-      const result = await removeReplaysFromGroup(targetGroup.id, [...selectedIds]);
+      const result = allMatchingSelected
+        ? await removeMatchingReplaysFromGroup(targetGroup.id, searchParams)
+        : await removeReplaysFromGroup(targetGroup.id, [...selectedIds]);
       onGroupsChanged();
       setFeedback({
         kind: "ok",
@@ -2126,10 +2197,24 @@ function GroupSelectionBar({
   return (
     <div className="replay-selection-bar">
       <div className="replay-selection-summary">
-        <strong>{selectedCount.toLocaleString()} selected</strong>
-        {!allSelected ? (
+        <strong>
+          {allMatchingSelected
+            ? `All ${selectedCount.toLocaleString()} matching selected`
+            : `${selectedCount.toLocaleString()} selected`}
+        </strong>
+        {!allMatchingSelected && !allPageSelected ? (
           <button type="button" className="link-button" onClick={onSelectAll} disabled={busy}>
-            Select all {replayCount.toLocaleString()} on page
+            Select all {pageReplayCount.toLocaleString()} on page
+          </button>
+        ) : null}
+        {canSelectAllMatching ? (
+          <button
+            type="button"
+            className="link-button"
+            onClick={onSelectAllMatching}
+            disabled={busy}
+          >
+            Select all {matchingReplayCount.toLocaleString()} matching
           </button>
         ) : null}
         <button type="button" className="link-button" onClick={onClear} disabled={busy}>
@@ -2139,6 +2224,13 @@ function GroupSelectionBar({
       <div className="replay-selection-actions">
         <label className="replay-selection-group">
           <FolderPlus size={16} />
+          <input
+            type="search"
+            value={groupSearch}
+            placeholder="Search groups"
+            onChange={(event) => setGroupSearch(event.currentTarget.value)}
+            disabled={busy}
+          />
           <select
             value={targetGroupId}
             onChange={(event) => {
@@ -2149,7 +2241,7 @@ function GroupSelectionBar({
             disabled={busy}
           >
             <option value="">Choose a group…</option>
-            {orderedGroups.map(({ group, depth }) => (
+            {selectableGroups.map(({ group, depth }) => (
               <option key={group.id} value={group.id}>
                 {`${"  ".repeat(depth)}${depth > 0 ? "└ " : ""}${group.name} (${group.replay_count})`}
               </option>
@@ -2237,6 +2329,16 @@ function GroupSelectionBar({
 
 function pluralizeReplay(count: number): string {
   return count === 1 ? "replay" : "replays";
+}
+
+function filterReplayGroupEntries(entries: GroupTreeNode[], search: string): GroupTreeNode[] {
+  const term = search.trim().toLowerCase();
+  if (!term) return entries;
+  return entries.filter(({ group }) => replayGroupSearchText(group).includes(term));
+}
+
+function replayGroupSearchText(group: ReplayGroupResponse): string {
+  return [group.name, group.description, group.id].filter(Boolean).join(" ").toLowerCase();
 }
 
 function managerLabel(manager: ReplayGroupManagerResponse): string {

@@ -818,6 +818,7 @@ tbody tr:last-child td {
   gap: 8px;
 }
 
+.replay-selection-group input,
 .replay-selection-group select,
 .replay-selection-create input {
   min-height: 40px;

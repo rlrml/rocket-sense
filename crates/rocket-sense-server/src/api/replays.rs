@@ -370,6 +370,9 @@ pub struct ReplayGroupReplayUpdateRequest {
     pub replay_ids: Vec<Uuid>,
     #[serde(default)]
     pub file_sha256s: Vec<String>,
+    /// Raw `/api/v1/replays` query string identifying all matching replays.
+    #[serde(default)]
+    pub replay_filter_query: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -403,6 +406,13 @@ pub struct ReplayGroupResponse {
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ListReplayGroupsResponse {
     pub groups: Vec<ReplayGroupResponse>,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub struct ListReplayGroupsQuery {
+    /// Case-insensitive text search over group name, description, or id.
+    pub q: Option<String>,
 }
 
 /// A user who may administer a replay group: either its creator
@@ -1072,6 +1082,7 @@ pub async fn get_replay_by_sha256(
     get,
     path = "/api/v1/replay-groups",
     tag = "replay-groups",
+    params(ListReplayGroupsQuery),
     responses(
         (status = 200, description = "Replay groups", body = ListReplayGroupsResponse),
         (status = 503, description = "Postgres connection is not configured")
@@ -1079,9 +1090,12 @@ pub async fn get_replay_by_sha256(
 )]
 pub async fn list_replay_groups(
     State(state): State<AppState>,
+    Query(query): Query<ListReplayGroupsQuery>,
 ) -> Result<Json<ListReplayGroupsResponse>, ApiError> {
     let db = require_db(&state)?;
-    let groups = load_replay_groups(db).await.map_err(ApiError::internal)?;
+    let groups = load_replay_groups(db, query.q.as_deref())
+        .await
+        .map_err(ApiError::internal)?;
 
     Ok(Json(ListReplayGroupsResponse { groups }))
 }
@@ -1542,32 +1556,34 @@ pub async fn add_replay_group_replays(
 ) -> Result<Json<ReplayGroupReplayUpdateResponse>, ApiError> {
     let db = require_db(&state)?;
     require_replay_group_manager(&state, db, group_id, &auth_user).await?;
-    let replay_ids = resolve_replay_group_update_replays(db, &request).await?;
+    let replay_ids = resolve_replay_group_update_replays(db, &request, Some(auth_user.id)).await?;
     upsert_user(db, &auth_user)
         .await
         .map_err(ApiError::internal)?;
 
-    let mut changed_replays = 0u64;
-    for replay_id in &replay_ids {
-        let result = sqlx::query(
+    let changed_replays = if replay_ids.is_empty() {
+        0
+    } else {
+        sqlx::query(
             r#"
             INSERT INTO replay_group_replays (
                 group_id,
                 replay_id,
                 added_by_user_id
             )
-            VALUES ($1, $2, $3)
+            SELECT $1, replay_id, $3
+            FROM UNNEST($2::uuid[]) AS replay_id
             ON CONFLICT DO NOTHING
             "#,
         )
         .bind(group_id)
-        .bind(replay_id)
+        .bind(&replay_ids)
         .bind(auth_user.id)
         .execute(db)
         .await
-        .map_err(ApiError::internal)?;
-        changed_replays += result.rows_affected();
-    }
+        .map_err(ApiError::internal)?
+        .rows_affected()
+    };
 
     let group = load_replay_group(db, group_id)
         .await
@@ -1608,7 +1624,7 @@ pub async fn remove_replay_group_replays(
 ) -> Result<Json<ReplayGroupReplayUpdateResponse>, ApiError> {
     let db = require_db(&state)?;
     require_replay_group_manager(&state, db, group_id, &auth_user).await?;
-    let replay_ids = resolve_replay_group_update_replays(db, &request).await?;
+    let replay_ids = resolve_replay_group_update_replays(db, &request, Some(auth_user.id)).await?;
     let result = sqlx::query(
         r#"
         DELETE FROM replay_group_replays
@@ -3017,10 +3033,22 @@ async fn maybe_enqueue_replay_processing_with(
     Ok(())
 }
 
-async fn load_replay_groups(pool: &PgPool) -> Result<Vec<ReplayGroupResponse>, sqlx::Error> {
-    let rows = sqlx::query(replay_group_select_sql("").as_str())
-        .fetch_all(pool)
-        .await?;
+async fn load_replay_groups(
+    pool: &PgPool,
+    search: Option<&str>,
+) -> Result<Vec<ReplayGroupResponse>, sqlx::Error> {
+    let search = search.map(str::trim).filter(|value| !value.is_empty());
+    let rows = if let Some(search) = search {
+        let pattern = format!("%{}%", escape_like_term(search));
+        sqlx::query(replay_group_select_sql(replay_group_search_where_clause()).as_str())
+            .bind(pattern)
+            .fetch_all(pool)
+            .await?
+    } else {
+        sqlx::query(replay_group_select_sql("").as_str())
+            .fetch_all(pool)
+            .await?
+    };
 
     rows.into_iter().map(replay_group_from_row).collect()
 }
@@ -3274,15 +3302,19 @@ async fn load_replay_group_replays(
 async fn resolve_replay_group_update_replays(
     pool: &PgPool,
     request: &ReplayGroupReplayUpdateRequest,
+    auth_user_id: Option<Uuid>,
 ) -> Result<Vec<Uuid>, ApiError> {
     let file_sha256s = request
         .file_sha256s
         .iter()
         .map(|sha256| normalize_sha256_hex(sha256))
         .collect::<Result<Vec<_>, _>>()?;
-    if request.replay_ids.is_empty() && file_sha256s.is_empty() {
+    if request.replay_ids.is_empty()
+        && file_sha256s.is_empty()
+        && request.replay_filter_query.is_none()
+    {
         return Err(ApiError::bad_request(
-            "replay group update must include at least one replay id or sha256",
+            "replay group update must include at least one replay id, sha256, or replay filter query",
         ));
     }
 
@@ -3304,10 +3336,35 @@ async fn resolve_replay_group_update_replays(
         .map(|row| row.try_get("id"))
         .collect::<Result<Vec<Uuid>, _>>()
         .map_err(ApiError::internal)?;
+
+    if let Some(query_string) = &request.replay_filter_query {
+        let query = ListReplaysQuery::from_raw_query(Some(query_string))?;
+        let filters = ReplayFilters::from_query(query, auth_user_id)?;
+        replay_ids.extend(load_replay_ids_matching_filters(pool, &filters).await?);
+    }
+
     replay_ids.sort();
     replay_ids.dedup();
 
     Ok(replay_ids)
+}
+
+async fn load_replay_ids_matching_filters(
+    pool: &PgPool,
+    filters: &ReplayFilters,
+) -> Result<Vec<Uuid>, ApiError> {
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r");
+    append_replay_filters(&mut builder, filters);
+    let rows = builder
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
+
+    rows.into_iter()
+        .map(|row| row.try_get("id"))
+        .collect::<Result<Vec<Uuid>, _>>()
+        .map_err(ApiError::internal)
 }
 
 fn validate_replay_group_name(value: &str) -> Result<String, ApiError> {
@@ -3375,6 +3432,12 @@ fn replay_group_select_sql(where_clause: &str) -> String {
         ORDER BY replay_group.updated_at DESC, replay_group.created_at DESC, replay_group.name
         "#
     )
+}
+
+fn replay_group_search_where_clause() -> &'static str {
+    "WHERE replay_group.name ILIKE $1 ESCAPE '\\' \
+     OR replay_group.description ILIKE $1 ESCAPE '\\' \
+     OR replay_group.id::text ILIKE $1 ESCAPE '\\'"
 }
 
 fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupResponse, sqlx::Error> {
