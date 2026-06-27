@@ -19,6 +19,7 @@ import {
   type KickoffLeaderboardPlayerMeta,
   type PlayerKickoffSummary,
 } from "./kickoffs";
+import type { GoalTagPlayerData } from "./goals";
 import { careerCohortClassName, SegmentedBar, StatPlayerLabel } from "./shared";
 
 /**
@@ -97,6 +98,7 @@ const IGNORED_STAT_KEYS: ReadonlySet<string> = new Set(["player_activity"]);
 
 const CATEGORY_ORDER = [
   "Scoring",
+  "Goal tags",
   "Kickoffs",
   "Aerials",
   "Ground Play",
@@ -142,6 +144,8 @@ interface GroupMetricSources {
   boost: Map<string, PlayerBoostTotal>;
   /** Per-player touch breakdown (group-scoped), for location/kind touch splits. */
   touch: Map<string, TouchAggregateBreakdownResponse>;
+  /** Per-player goal-tag counts derived from the group's goal events. */
+  goalTags: GoalTagPlayerData;
 }
 
 /** Player-cohort touch count for one breakdown dimension value (e.g. location=aerial). */
@@ -162,6 +166,7 @@ export function buildGroupStatMetrics({
   kickoffSummaries,
   boost,
   touch,
+  goalTags,
 }: GroupMetricSources): LeaderboardMetric[] {
   const metrics: LeaderboardMetric[] = [];
   const aggByIdentity = new Map<string, StatAggregateGroupResponse>();
@@ -338,6 +343,31 @@ export function buildGroupStatMetrics({
     metrics.push(touchCountMetric("high_aerial", "High aerial touches", "location", "high_aerial"));
     metrics.push(touchCountMetric("wall", "Wall touches", "location", "wall"));
     metrics.push(touchCountMetric("ground", "Ground touches", "location", "ground"));
+  }
+
+  // 6) Per-player goal-tag counts — one measurable column per distinct goal tag,
+  // so finishes (flicks, aerials, redirects, …) are sortable/toggleable alongside
+  // every other stat instead of living in a separate static leaderboard. Rated
+  // against the same active-time / per-game base as the other count stats.
+  for (const tag of goalTags.tags) {
+    metrics.push({
+      key: `goaltag:${tag.key}`,
+      label: `${tag.label} goals`,
+      group: "Goal tags",
+      measurable: true,
+      format: (value, measure) => formatCount(value, measure ?? "per5m"),
+      value: (id, measure) => {
+        const raw = goalTags.byIdentity.get(id)?.get(tag.key) ?? 0;
+        if (measure === "total") return raw;
+        const meta = gameMeta(id);
+        if (measure === "perGame") {
+          const games = meta?.games ?? null;
+          return games && games > 0 ? raw / games : null;
+        }
+        const seconds = meta?.activeSeconds ?? null;
+        return seconds && seconds > 0 ? (raw / seconds) * 300 : null;
+      },
+    });
   }
 
   return metrics;

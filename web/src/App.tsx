@@ -171,7 +171,7 @@ import {
   type PlayerKickoffSummary,
 } from "./stats/kickoffs";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
-import { buildGoalRows, goalEventTypes, GoalTagLeaderboard, type GoalRow } from "./stats/goals";
+import { buildGoalRows, buildGoalTagPlayerData, goalEventTypes, type GoalRow } from "./stats/goals";
 import { aerialPlaylistKinds as aerialPlaylistKindList } from "./stats/aerialKinds";
 import { buildMovementCohortCards } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
@@ -2806,6 +2806,7 @@ function GroupStatExplorerSection({
 }) {
   const [aggregates, setAggregates] = useState<StatAggregateSetResponse | null>(null);
   const [kickoffEvents, setKickoffEvents] = useState<MechanicEventResponse[]>([]);
+  const [goalRows, setGoalRows] = useState<GoalRow[]>([]);
   const [boost, setBoost] = useState<Map<string, PlayerBoostTotal>>(new Map());
   const [touch, setTouch] = useState<Map<string, TouchAggregateBreakdownResponse>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -2817,14 +2818,17 @@ function GroupStatExplorerSection({
     setError(null);
     setAggregates(null);
     setKickoffEvents([]);
+    setGoalRows([]);
     Promise.all([
       getReplayGroupPlayerAggregates(groupId, undefined, []),
       listReplayGroupEvents(groupId, [...kickoffEventTypes, "possession"]),
+      listReplayGroupEvents(groupId, goalEventTypes),
     ])
-      .then(([aggResponse, eventsResponse]) => {
+      .then(([aggResponse, eventsResponse, goalResponse]) => {
         if (cancelled) return;
         setAggregates(aggResponse);
         setKickoffEvents(eventsResponse.events);
+        setGoalRows(buildGoalRows(goalResponse.events));
       })
       .catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -2910,9 +2914,11 @@ function GroupStatExplorerSection({
     return map;
   }, [kickoffEvents, players]);
 
+  const goalTags = useMemo(() => buildGoalTagPlayerData(goalRows, players), [goalRows, players]);
+
   const metrics = useMemo(
-    () => buildGroupStatMetrics({ aggregates, kickoffSummaries, boost, touch }),
-    [aggregates, kickoffSummaries, boost, touch],
+    () => buildGroupStatMetrics({ aggregates, kickoffSummaries, boost, touch, goalTags }),
+    [aggregates, kickoffSummaries, boost, touch, goalTags],
   );
 
   return (
@@ -2921,43 +2927,6 @@ function GroupStatExplorerSection({
       {loading ? <StatusLine loading error={null} /> : null}
       <GroupStatExplorer participants={participants} metrics={metrics} />
     </>
-  );
-}
-
-function GroupGoalTagsSection({ groupId }: { groupId: string }) {
-  const [goals, setGoals] = useState<GoalRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setGoals([]);
-    listReplayGroupEvents(groupId, goalEventTypes)
-      .then((response) => {
-        if (!cancelled) setGoals(buildGoalRows(response.events));
-      })
-      .catch((err: Error) => {
-        if (!cancelled) setError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [groupId]);
-
-  return (
-    <section className="stat-panel full-span">
-      <div className="stat-panel-heading">
-        <h3>Goal tags</h3>
-        <span>{goals.length.toLocaleString()} goals</span>
-      </div>
-      {error ? <ApiNotice label="Goal tags" message={error} /> : null}
-      {loading ? <StatusLine loading error={null} /> : <GoalTagLeaderboard goals={goals} />}
-    </section>
   );
 }
 
@@ -3306,8 +3275,6 @@ function ReplayGroupStatsPage() {
           ) : null}
 
           <GroupStatExplorerSection groupId={groupId} players={participantAnalysis.players} />
-
-          <GroupGoalTagsSection groupId={groupId} />
 
           <section className="stat-panel">
             <h2>Games in group</h2>
