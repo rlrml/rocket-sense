@@ -859,9 +859,26 @@ tbody tr:last-child td {
 }
 
 .group-card-expand {
-  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
   flex: 0 0 auto;
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.group-card-expand:hover {
+  border-color: var(--team-blue);
+  color: var(--team-blue);
 }
 
 .group-card-synthetic-title {
