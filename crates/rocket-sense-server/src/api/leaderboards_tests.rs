@@ -125,6 +125,27 @@ fn appearances_rank_query_rejects_invalid_game_type() {
 }
 
 #[test]
+fn leaderboard_rank_playlist_ids_use_ranked_playlist_filter() {
+    let filters = filters_from_query("playlist=ranked-doubles");
+    assert_eq!(rank_playlist_ids_for_filters(&filters), vec![11]);
+}
+
+#[test]
+fn leaderboard_rank_playlist_ids_infer_ranked_mode_from_team_size() {
+    let filters = filters_from_query("game-type=ranked&team-size=3");
+    assert_eq!(rank_playlist_ids_for_filters(&filters), vec![13]);
+}
+
+#[test]
+fn leaderboard_rank_playlist_ids_skip_ambiguous_or_unranked_scopes() {
+    let filters = filters_from_query("playlist=ranked-duels&playlist=ranked-doubles");
+    assert_eq!(rank_playlist_ids_for_filters(&filters), vec![10, 11]);
+
+    let filters = filters_from_query("game-type=casual&team-size=2");
+    assert!(rank_playlist_ids_for_filters(&filters).is_empty());
+}
+
+#[test]
 fn event_sort_parses_aliases_and_rejects_unknown() {
     assert_eq!(EventSort::from_query(None).unwrap(), EventSort::Total);
     assert_eq!(

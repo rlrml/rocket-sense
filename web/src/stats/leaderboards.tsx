@@ -9,6 +9,7 @@ import {
   listEventTypes,
 } from "../api";
 import { playerProfilePath } from "../playerIdentity";
+import { rankIconUrl, rankLabel } from "../rank";
 import type {
   AppearancesLeaderboardRow,
   EventLeaderboardRow,
@@ -485,6 +486,28 @@ function useLeaderboard<T>(
   return { rows, total, nextOffset, loading, loadingMore, error, loadMore };
 }
 
+function EstimatedRankCell({
+  tier,
+  division,
+  mmr,
+}: {
+  tier: number | null | undefined;
+  division: number | null | undefined;
+  mmr: number | null | undefined;
+}) {
+  if (tier == null) return <span className="leaderboard-rank-empty">-</span>;
+  const label = rankLabel(tier, division) ?? `Tier ${tier}`;
+  const roundedMmr = mmr != null ? Math.round(mmr) : null;
+  const title = `Estimated ${roundedMmr != null ? `${label} · ${roundedMmr} MMR` : label}. Based on the latest known rank submission for this ranked mode.`;
+  const icon = rankIconUrl(tier);
+  return (
+    <span className="leaderboard-estimated-rank" title={title} aria-label={title}>
+      {icon ? <img src={icon} alt={label} width="20" height="20" /> : null}
+      {roundedMmr != null ? <span className="rank-mmr">{roundedMmr}</span> : null}
+    </span>
+  );
+}
+
 function LoadMore({
   shown,
   total,
@@ -534,6 +557,7 @@ function AppearancesLeaderboard({ filterKey }: { filterKey: string }) {
             <tr>
               <th className="leaderboard-rank-col">#</th>
               <th>Player</th>
+              <th>Rank</th>
               <th>Replays</th>
             </tr>
           </thead>
@@ -550,6 +574,13 @@ function AppearancesLeaderboard({ filterKey }: { filterKey: string }) {
                       platformPlayerId={row.platform_player_id}
                       profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                       subtitle={row.is_pro ? "Pro" : row.platform}
+                    />
+                  </td>
+                  <td>
+                    <EstimatedRankCell
+                      tier={row.estimated_rank_tier}
+                      division={row.estimated_rank_division}
+                      mmr={row.estimated_rank_mmr}
                     />
                   </td>
                   <td>{row.appearance_count.toLocaleString()}</td>
@@ -639,6 +670,7 @@ function EventLeaderboard({
             <tr>
               <th className="leaderboard-rank-col">#</th>
               <th>Player</th>
+              <th>Rank</th>
               <th>Total</th>
               <th>Games</th>
               <th>Per game</th>
@@ -658,6 +690,13 @@ function EventLeaderboard({
                       platformPlayerId={row.platform_player_id}
                       profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                       subtitle={row.is_pro ? "Pro" : row.platform}
+                    />
+                  </td>
+                  <td>
+                    <EstimatedRankCell
+                      tier={row.estimated_rank_tier}
+                      division={row.estimated_rank_division}
+                      mmr={row.estimated_rank_mmr}
                     />
                   </td>
                   <td>{row.event_count.toLocaleString()}</td>
@@ -712,6 +751,7 @@ function StatLeaderboard({
               <tr>
                 <th className="leaderboard-rank-col">#</th>
                 <th>Player</th>
+                <th>Rank</th>
                 <th>Average</th>
                 <th>Possessions</th>
                 <th>Games</th>
@@ -732,6 +772,13 @@ function StatLeaderboard({
                         subtitle={row.is_pro ? "Pro" : row.platform}
                       />
                     </td>
+                    <td>
+                      <EstimatedRankCell
+                        tier={row.estimated_rank_tier}
+                        division={row.estimated_rank_division}
+                        mmr={row.estimated_rank_mmr}
+                      />
+                    </td>
                     <td>{formatAverageStatValue(statKey, row.value)}</td>
                     <td>{row.sample_count?.toLocaleString() ?? "-"}</td>
                     <td>{row.replay_count.toLocaleString()}</td>
@@ -746,6 +793,7 @@ function StatLeaderboard({
               <tr>
                 <th className="leaderboard-rank-col">#</th>
                 <th>Player</th>
+                <th>Rank</th>
                 <th>Total</th>
                 {showShare ? <th>Share</th> : null}
                 <th>Games</th>
@@ -766,6 +814,13 @@ function StatLeaderboard({
                         platformPlayerId={row.platform_player_id}
                         profilePath={playerProfilePath(row.platform, row.platform_player_id)}
                         subtitle={row.is_pro ? "Pro" : row.platform}
+                      />
+                    </td>
+                    <td>
+                      <EstimatedRankCell
+                        tier={row.estimated_rank_tier}
+                        division={row.estimated_rank_division}
+                        mmr={row.estimated_rank_mmr}
                       />
                     </td>
                     <td>{formatStatValue(row.value, unit)}</td>

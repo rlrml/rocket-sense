@@ -9408,6 +9408,26 @@ tbody tr:last-child td {
   color: var(--text-muted, #94a3b8);
 }
 
+.leaderboard-estimated-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 4.25rem;
+  white-space: nowrap;
+}
+
+.leaderboard-estimated-rank img {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.leaderboard-rank-empty {
+  color: var(--text-muted, #94a3b8);
+}
+
 .leaderboard-footer {
   justify-content: space-between;
   align-items: center;

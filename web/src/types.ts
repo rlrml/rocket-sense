@@ -148,6 +148,9 @@ export interface AppearancesLeaderboardRow {
   platform_player_id: string;
   display_name: string | null;
   is_pro: boolean;
+  estimated_rank_tier?: number | null;
+  estimated_rank_division?: number | null;
+  estimated_rank_mmr?: number | null;
   appearance_count: number;
 }
 
@@ -171,6 +174,9 @@ export interface EventLeaderboardRow {
   platform_player_id: string;
   display_name: string | null;
   is_pro: boolean;
+  estimated_rank_tier?: number | null;
+  estimated_rank_division?: number | null;
+  estimated_rank_mmr?: number | null;
   event_count: number;
   replay_count: number;
   active_time_seconds: number | null;
@@ -200,6 +206,9 @@ export interface StatLeaderboardRow {
   platform_player_id: string;
   display_name: string | null;
   is_pro: boolean;
+  estimated_rank_tier?: number | null;
+  estimated_rank_division?: number | null;
+  estimated_rank_mmr?: number | null;
   value: number;
   replay_count: number;
   active_time_seconds: number | null;
