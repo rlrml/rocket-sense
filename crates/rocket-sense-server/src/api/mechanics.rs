@@ -3274,12 +3274,14 @@ fn push_evaluation_replay_filters<'a>(
             .push_bind(uploader_user_id);
     }
     if let Some(group_id) = filters.group_id {
+        // Match this group OR any descendant group, so a non-leaf group surfaces
+        // every event in its subtree (mirrors the stat-aggregate recursive CTE).
         builder
             .push(" AND EXISTS (SELECT 1 FROM replay_group_replays review_group WHERE review_group.replay_id = ")
             .push(replay_id_source)
-            .push(".replay_id AND review_group.group_id = ")
+            .push(".replay_id AND review_group.group_id IN (WITH RECURSIVE group_subtree AS (SELECT id FROM replay_groups WHERE id = ")
             .push_bind(group_id)
-            .push(")");
+            .push(" UNION SELECT child.id FROM replay_groups child JOIN group_subtree parent ON child.parent_group_id = parent.id) SELECT id FROM group_subtree))");
     }
     if let Some(project_id) = filters.project_id {
         builder
@@ -3501,11 +3503,13 @@ fn find_mechanic_events_query<'args>(
             .push_bind(uploader_user_id);
     }
     if let Some(group_id) = filters.group_id {
+        // Match this group OR any descendant group, so a non-leaf group surfaces
+        // every event in its subtree (mirrors the stat-aggregate recursive CTE).
         builder.push(
-            " AND EXISTS (SELECT 1 FROM replay_group_replays review_group WHERE review_group.replay_id = replay.id AND review_group.group_id = ",
+            " AND EXISTS (SELECT 1 FROM replay_group_replays review_group WHERE review_group.replay_id = replay.id AND review_group.group_id IN (WITH RECURSIVE group_subtree AS (SELECT id FROM replay_groups WHERE id = ",
         );
         builder.push_bind(group_id);
-        builder.push(")");
+        builder.push(" UNION SELECT child.id FROM replay_groups child JOIN group_subtree parent ON child.parent_group_id = parent.id) SELECT id FROM group_subtree))");
     }
     if let Some(project_id) = filters.project_id {
         builder
