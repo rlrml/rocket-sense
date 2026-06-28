@@ -413,6 +413,18 @@ pub struct ListReplayGroupsResponse {
 pub struct ListReplayGroupsQuery {
     /// Case-insensitive text search over group name, description, or id.
     pub q: Option<String>,
+    /// Which replay groups to list. Defaults to groups managed by the current
+    /// user when authenticated, and all groups when unauthenticated.
+    pub scope: Option<ReplayGroupListScope>,
+}
+
+#[derive(Debug, Clone, Copy, Default, Deserialize, ToSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReplayGroupListScope {
+    #[default]
+    Auto,
+    Mine,
+    All,
 }
 
 /// A user who may administer a replay group: either its creator
@@ -1085,17 +1097,30 @@ pub async fn get_replay_by_sha256(
     params(ListReplayGroupsQuery),
     responses(
         (status = 200, description = "Replay groups", body = ListReplayGroupsResponse),
+        (status = 401, description = "Authentication is required for scope=mine"),
         (status = 503, description = "Postgres connection is not configured")
     )
 )]
 pub async fn list_replay_groups(
+    OptionalAuthUser(auth_user): OptionalAuthUser,
     State(state): State<AppState>,
     Query(query): Query<ListReplayGroupsQuery>,
 ) -> Result<Json<ListReplayGroupsResponse>, ApiError> {
     let db = require_db(&state)?;
-    let groups = load_replay_groups(db, query.q.as_deref())
-        .await
-        .map_err(ApiError::internal)?;
+    if matches!(query.scope, Some(ReplayGroupListScope::Mine)) && auth_user.is_none() {
+        return Err(ApiError::new(
+            StatusCode::UNAUTHORIZED,
+            "authentication is required to list your replay groups",
+        ));
+    }
+    let groups = load_replay_groups(
+        db,
+        auth_user.as_ref().map(|user| user.id),
+        query.scope,
+        query.q.as_deref(),
+    )
+    .await
+    .map_err(ApiError::internal)?;
 
     Ok(Json(ListReplayGroupsResponse { groups }))
 }
@@ -3035,19 +3060,52 @@ async fn maybe_enqueue_replay_processing_with(
 
 async fn load_replay_groups(
     pool: &PgPool,
+    auth_user_id: Option<Uuid>,
+    scope: Option<ReplayGroupListScope>,
     search: Option<&str>,
 ) -> Result<Vec<ReplayGroupResponse>, sqlx::Error> {
-    let search = search.map(str::trim).filter(|value| !value.is_empty());
-    let rows = if let Some(search) = search {
-        let pattern = format!("%{}%", escape_like_term(search));
-        sqlx::query(replay_group_select_sql(replay_group_search_where_clause()).as_str())
-            .bind(pattern)
-            .fetch_all(pool)
-            .await?
-    } else {
-        sqlx::query(replay_group_select_sql("").as_str())
-            .fetch_all(pool)
-            .await?
+    let scope = scope.unwrap_or_default();
+    let user_id = match scope {
+        ReplayGroupListScope::All => None,
+        ReplayGroupListScope::Auto | ReplayGroupListScope::Mine => auth_user_id,
+    };
+    let search_pattern = search
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|search| format!("%{}%", escape_like_term(search)));
+
+    let rows = match (user_id, search_pattern) {
+        (Some(user_id), Some(search_pattern)) => {
+            let search_clause = replay_group_search_condition("$2");
+            let sql = replay_group_select_sql(&format!(
+                "{} AND ({search_clause})",
+                replay_group_managed_by_user_where_clause()
+            ));
+            sqlx::query(sql.as_str())
+                .bind(user_id)
+                .bind(search_pattern)
+                .fetch_all(pool)
+                .await?
+        }
+        (Some(user_id), None) => {
+            let sql = replay_group_select_sql(replay_group_managed_by_user_where_clause());
+            sqlx::query(sql.as_str())
+                .bind(user_id)
+                .fetch_all(pool)
+                .await?
+        }
+        (None, Some(search_pattern)) => {
+            let sql = replay_group_select_sql(&replay_group_search_where_clause("$1"));
+            sqlx::query(sql.as_str())
+                .bind(search_pattern)
+                .fetch_all(pool)
+                .await?
+        }
+        (None, None) => {
+            sqlx::query(replay_group_select_sql("").as_str())
+                .fetch_all(pool)
+                .await?
+        }
     };
 
     rows.into_iter().map(replay_group_from_row).collect()
@@ -3434,10 +3492,28 @@ fn replay_group_select_sql(where_clause: &str) -> String {
     )
 }
 
-fn replay_group_search_where_clause() -> &'static str {
-    "WHERE replay_group.name ILIKE $1 ESCAPE '\\' \
-     OR replay_group.description ILIKE $1 ESCAPE '\\' \
-     OR replay_group.id::text ILIKE $1 ESCAPE '\\'"
+fn replay_group_managed_by_user_where_clause() -> &'static str {
+    r#"
+        WHERE replay_group.created_by_user_id = $1
+           OR EXISTS (
+                SELECT 1
+                FROM replay_group_managers manager
+                WHERE manager.group_id = replay_group.id
+                  AND manager.user_id = $1
+           )
+        "#
+}
+
+fn replay_group_search_where_clause(parameter: &str) -> String {
+    format!("WHERE {}", replay_group_search_condition(parameter))
+}
+
+fn replay_group_search_condition(parameter: &str) -> String {
+    format!(
+        "replay_group.name ILIKE {parameter} ESCAPE '\\' \
+         OR replay_group.description ILIKE {parameter} ESCAPE '\\' \
+         OR replay_group.id::text ILIKE {parameter} ESCAPE '\\'"
+    )
 }
 
 fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupResponse, sqlx::Error> {

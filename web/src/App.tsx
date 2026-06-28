@@ -114,6 +114,7 @@ import {
   updateReplayGroup,
   uploadReplay,
 } from "./api";
+import type { ReplayGroupListScope } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { mapDisplayName } from "./maps";
@@ -995,135 +996,12 @@ function ReplayListPage() {
           </div>
         </div>
 
-<<<<<<< HEAD
         {activeFilterChips.length > 0 ? (
           <div className="filter-chips" aria-label="Active filters">
             {activeFilterChips.map((chip) => (
               <span key={chip}>{chip}</span>
             ))}
           </div>
-||||||| parent of a95d5f4 (Add season and date filters to leaderboards)
-      {activeFilterChips.length > 0 ? (
-        <div className="filter-chips" aria-label="Active filters">
-          {activeFilterChips.map((chip) => (
-            <span key={chip}>{chip}</span>
-          ))}
-        </div>
-      ) : null}
-
-      <StatusLine loading={false} error={error} />
-
-      {currentUser && selectedIds.size > 0 ? (
-        <GroupSelectionBar
-          selectedIds={selectedIds}
-          replayCount={replays.length}
-          groups={groups}
-          onSelectAll={selectAllOnPage}
-          onClear={clearSelection}
-          onGroupsChanged={refreshGroups}
-        />
-      ) : null}
-
-      <div className="replay-card-list">
-        {replays.map((replay) => (
-          <article
-            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
-            key={replay.id}
-          >
-            <header className="replay-card-header">
-              <div className="replay-card-heading">
-                {currentUser ? (
-                  <input
-                    type="checkbox"
-                    className="replay-select"
-                    aria-label={`Select ${replay.original_file_name || replay.id}`}
-                    checked={selectedIds.has(replay.id)}
-                    onChange={() => toggleSelected(replay.id)}
-                  />
-                ) : null}
-                <div className="replay-card-title">
-                  <ReplayLink className="primary-link" replayId={replay.id}>
-                    {replay.original_file_name || replay.id}
-                  </ReplayLink>
-                  <UploaderPill uploader={replay.uploaded_by} />
-                </div>
-              </div>
-              <div className="replay-card-meta">
-                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
-                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
-                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
-                <ReplayStatusChip replay={replay} currentUser={currentUser} />
-              </div>
-            </header>
-            <ReplayTeams replay={replay} />
-          </article>
-        ))}
-        {!loading && replays.length === 0 ? (
-          <div className="status-line">No replays found.</div>
-=======
-      {activeFilterChips.length > 0 ? (
-        <div className="filter-chips" aria-label="Active filters">
-          {activeFilterChips.map((chip) => (
-            <span key={chip}>{chip}</span>
-          ))}
-        </div>
-      ) : null}
-
-      <StatusLine loading={false} error={error} />
-
-      {currentUser && selectedIds.size > 0 ? (
-        <GroupSelectionBar
-          selectedIds={selectedIds}
-          replayCount={replays.length}
-          groups={groups}
-          onSelectAll={selectAllOnPage}
-          onClear={clearSelection}
-          onGroupsChanged={refreshGroups}
-        />
-      ) : null}
-
-      <div className="replay-card-list">
-        {replays.map((replay) => (
-          <article
-            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
-            key={replay.id}
-          >
-            <header className="replay-card-header">
-              <div className="replay-card-heading">
-                {currentUser ? (
-                  <input
-                    type="checkbox"
-                    className="replay-select"
-                    aria-label={`Select ${replay.original_file_name || replay.id}`}
-                    checked={selectedIds.has(replay.id)}
-                    onChange={() => toggleSelected(replay.id)}
-                  />
-                ) : null}
-                <div className="replay-card-title">
-                  <ReplayLink className="primary-link" replayId={replay.id}>
-                    {replay.original_file_name || replay.id}
-                  </ReplayLink>
-                  <UploaderPill uploader={replay.uploaded_by} />
-                </div>
-              </div>
-              <div className="replay-card-meta">
-                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
-                {replay.summary.season ? (
-                  <Chip tone="slate" title="Rocket League season">
-                    {formatSeasonCode(replay.summary.season)}
-                  </Chip>
-                ) : null}
-                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
-                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
-                <ReplayStatusChip replay={replay} currentUser={currentUser} />
-              </div>
-            </header>
-            <ReplayTeams replay={replay} />
-          </article>
-        ))}
-        {!loading && replays.length === 0 ? (
-          <div className="status-line">No replays found.</div>
->>>>>>> a95d5f4 (Add season and date filters to leaderboards)
         ) : null}
 
         <StatusLine loading={false} error={error} />
@@ -1169,6 +1047,11 @@ function ReplayListPage() {
                 </div>
                 <div className="replay-card-meta">
                   <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
+                  {replay.summary.season ? (
+                    <Chip tone="slate" title="Rocket League season">
+                      {formatSeasonCode(replay.summary.season)}
+                    </Chip>
+                  ) : null}
                   <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
                   <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
                   <ReplayStatusChip replay={replay} currentUser={currentUser} />
@@ -1520,16 +1403,26 @@ function BallchasingMirrorForm() {
 }
 
 function ReplayGroupListPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const hasAccessToken = getAccessToken() != null;
+  const groupScope = replayGroupScopeFromParam(searchParams.get("scope"), hasAccessToken);
+  const activeSearch = searchParams.get("q") ?? "";
   const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
-  const [groupSearch, setGroupSearch] = useState("");
+  const [groupSearch, setGroupSearch] = useState(activeSearch);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGroupSearch(activeSearch);
+  }, [activeSearch]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listReplayGroups()
+    listReplayGroups({ scope: groupScope, q: activeSearch })
       .then((response) => {
         if (!cancelled) setGroups(response.groups);
       })
@@ -1542,7 +1435,28 @@ function ReplayGroupListPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeSearch, groupScope]);
+
+  function updateGroupSearch(next: { q?: string; scope?: ReplayGroupListScope }) {
+    const params = new URLSearchParams(searchParams);
+    if (next.q !== undefined) {
+      const q = next.q.trim();
+      if (q) {
+        params.set("q", q);
+      } else {
+        params.delete("q");
+      }
+    }
+    if (next.scope !== undefined) {
+      params.set("scope", next.scope);
+    }
+    navigate({ pathname: location.pathname, search: params.toString() ? `?${params}` : "" });
+  }
+
+  function handleGroupSearchSubmit(event: FormEvent) {
+    event.preventDefault();
+    updateGroupSearch({ q: groupSearch });
+  }
 
   const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
   const visibleGroups = useMemo(
@@ -1563,7 +1477,7 @@ function ReplayGroupListPage() {
 
       <StatusLine loading={loading} error={error} />
 
-      <div className="search-filter-panel replay-search-panel">
+      <form className="search-filter-panel replay-search-panel" onSubmit={handleGroupSearchSubmit}>
         <div className="replay-search-row">
           <label className="search-box">
             <Search size={17} />
@@ -1574,8 +1488,39 @@ function ReplayGroupListPage() {
               placeholder="Search groups"
             />
           </label>
+          <label className="segment-bar-select">
+            <span className="segment-bar-select-label">Scope</span>
+            <select
+              value={groupScope}
+              onChange={(event) =>
+                updateGroupSearch({ scope: event.currentTarget.value as ReplayGroupListScope })
+              }
+            >
+              <option value="mine" disabled={!hasAccessToken}>
+                Mine
+              </option>
+              <option value="all">Everyone</option>
+            </select>
+          </label>
+          <button type="submit" className="secondary-button">
+            <Search size={16} />
+            Search
+          </button>
+          {activeSearch ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setGroupSearch("");
+                updateGroupSearch({ q: "" });
+              }}
+            >
+              <X size={16} />
+              Clear
+            </button>
+          ) : null}
         </div>
-      </div>
+      </form>
 
       <div className="replay-card-list group-card-list">
         {visibleGroups.map(({ group, depth }) => (
@@ -1632,7 +1577,9 @@ function ReplayGroupListPage() {
           </article>
         ))}
         {!loading && groups.length === 0 ? (
-          <div className="status-line">No replay groups found.</div>
+          <div className="status-line">
+            {activeSearch ? "No replay groups matched your search." : "No replay groups found."}
+          </div>
         ) : null}
         {!loading && groups.length > 0 && visibleGroups.length === 0 ? (
           <div className="status-line">No replay groups match “{groupSearch}”.</div>
@@ -1640,6 +1587,15 @@ function ReplayGroupListPage() {
       </div>
     </section>
   );
+}
+
+function replayGroupScopeFromParam(
+  value: string | null,
+  hasAccessToken: boolean,
+): ReplayGroupListScope {
+  if (value === "all") return "all";
+  if (value === "mine" && hasAccessToken) return "mine";
+  return hasAccessToken ? "mine" : "all";
 }
 
 function defaultReplayFilters(): ReplayFilterForm {

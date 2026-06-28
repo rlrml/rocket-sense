@@ -146,10 +146,20 @@ export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> 
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
 }
 
+export type ReplayGroupListScope = "mine" | "all";
+
 export function listReplayGroups(
-  searchParams?: URLSearchParams,
+  options: { scope?: ReplayGroupListScope; q?: string } = {},
 ): Promise<ListReplayGroupsResponse> {
-  const query = searchParams?.toString();
+  const params = new URLSearchParams();
+  if (options.scope) {
+    params.set("scope", options.scope);
+  }
+  const q = options.q?.trim();
+  if (q) {
+    params.set("q", q);
+  }
+  const query = params.toString();
   return request<ListReplayGroupsResponse>(`/api/v1/replay-groups${query ? `?${query}` : ""}`);
 }
 

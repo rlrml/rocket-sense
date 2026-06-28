@@ -476,13 +476,28 @@ fn replay_group_select_includes_member_count() {
 
 #[test]
 fn replay_group_search_is_case_insensitive() {
-    let where_clause = replay_group_search_where_clause();
-    let sql = replay_group_select_sql(where_clause);
+    let where_clause = replay_group_search_where_clause("$1");
+    let sql = replay_group_select_sql(&where_clause);
 
     assert!(where_clause.contains("replay_group.name ILIKE $1"));
     assert!(where_clause.contains("replay_group.description ILIKE $1"));
     assert!(where_clause.contains("replay_group.id::text ILIKE $1"));
     assert!(sql.contains("WHERE replay_group.name ILIKE $1"));
+}
+
+#[test]
+fn replay_group_managed_by_user_filter_includes_created_and_invited_groups() {
+    let sql = replay_group_select_sql(replay_group_managed_by_user_where_clause());
+
+    assert!(sql.contains("replay_group.created_by_user_id = $1"));
+    assert!(sql.contains("FROM replay_group_managers manager"));
+    assert!(sql.contains("manager.group_id = replay_group.id"));
+    assert!(sql.contains("manager.user_id = $1"));
+}
+
+#[test]
+fn replay_group_search_pattern_escapes_like_wildcards() {
+    assert_eq!(escape_like_term(r"foo_bar%baz\qux"), r"foo\_bar\%baz\\qux");
 }
 
 #[test]

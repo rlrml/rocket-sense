@@ -786,6 +786,63 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
+.group-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.group-search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  min-width: min(360px, 100%);
+  flex: 1 1 280px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.group-search-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-base);
+}
+
+.group-card-expand {
+  min-height: 28px;
+  width: 28px;
+  flex: 0 0 auto;
+}
+
+.group-card-synthetic-title {
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+
+.group-card-children {
+  display: grid;
+  gap: 8px;
+  margin-left: 30px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.group-card-child {
+  border-color: var(--border);
+}
+
 .replay-select {
   align-self: center;
   width: 16px;
