@@ -167,7 +167,7 @@ import {
   statPlayerRank,
 } from "./stats/shared";
 import { buildGroupStatMetrics, GroupStatExplorer, identityKey } from "./stats/groupStatExplorer";
-import type { LeaderboardParticipant } from "./stats/groupLeaderboard";
+import type { LeaderboardMetric, LeaderboardParticipant } from "./stats/groupLeaderboard";
 import {
   computeKickoffSummaries,
   kickoffEventTypes,
@@ -3204,6 +3204,9 @@ function GroupStatExplorerSection({
         participants={participants}
         metrics={metrics}
         loadingSources={loadingSources}
+        buildEventReviewHref={({ participant, metric }) =>
+          groupStatEventReviewUrl(groupId, participant, metric)
+        }
       />
     </>
   );
@@ -3909,6 +3912,27 @@ function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): num
   return (left.name || left.platform_player_id || "").localeCompare(
     right.name || right.platform_player_id || "",
   );
+}
+
+function groupStatEventReviewUrl(
+  groupId: string,
+  participant: LeaderboardParticipant,
+  metric: LeaderboardMetric,
+): string | null {
+  if (!participant.platform || !participant.platformPlayerId || !metric.eventTypes?.length) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    group: groupId,
+    "player-id": `${participant.platform}:${participant.platformPlayerId}`,
+    "review-status": "all",
+    count: "100",
+  });
+  for (const eventType of metric.eventTypes) {
+    params.append("event-type", eventType);
+  }
+  return `/events/review/open?${params.toString()}`;
 }
 
 function normalizeReplayPlatform(value: string): string {
