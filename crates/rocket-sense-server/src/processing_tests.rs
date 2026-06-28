@@ -553,10 +553,81 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
 }
 
 #[test]
-fn touch_last_touch_is_not_an_indexed_event_stream() {
+fn nonpermanent_timeline_streams_are_not_indexed() {
     assert!(should_index_timeline_stream("touch"));
+    assert!(should_index_timeline_stream("depth_role"));
     assert!(!should_index_timeline_stream("goal_tags"));
     assert!(!should_index_timeline_stream("touch_last_touch"));
+    assert!(!should_index_timeline_stream("dodge"));
+    assert!(!should_index_timeline_stream("shadow_defense"));
+}
+
+#[test]
+fn depth_role_is_processing_only_and_not_persisted_as_play_events() {
+    let depth_role = indexed_timeline_payload_event(
+        "depth_role",
+        0,
+        &serde_json::json!({
+            "start_time": 1.0,
+            "end_time": 3.0,
+            "duration": 2.0,
+            "player": { "Steam": 76561198000000001_u64 },
+            "state": "most_back"
+        }),
+    )
+    .expect("depth role event should be available in memory");
+
+    assert_eq!(depth_role.event_type_key, "depth_role");
+    assert!(!should_persist_play_event(&depth_role));
+}
+
+#[test]
+fn in_memory_positioning_aggregation_keeps_depth_role_facts() {
+    let player_subject_id = "steam:76561198000000001".to_owned();
+    let mut players = BTreeMap::new();
+    players.insert(
+        player_subject_id.clone(),
+        ReplayPlayerPositioningInput {
+            replay_player_id: Uuid::now_v7(),
+            platform: "steam".to_owned(),
+            platform_player_id: "76561198000000001".to_owned(),
+            team: 0,
+        },
+    );
+    let events = vec![
+        indexed_timeline_payload_event(
+            "depth_role",
+            0,
+            &serde_json::json!({
+                "start_time": 1.0,
+                "end_time": 4.0,
+                "duration": 3.0,
+                "player": { "Steam": 76561198000000001_u64 },
+                "state": "most_back"
+            }),
+        )
+        .expect("depth role event should build"),
+        indexed_timeline_payload_event(
+            "field_third",
+            0,
+            &serde_json::json!({
+                "start_time": 1.0,
+                "end_time": 5.0,
+                "duration": 4.0,
+                "player": { "Steam": 76561198000000001_u64 },
+                "state": "defensive"
+            }),
+        )
+        .expect("field third event should build"),
+    ];
+
+    let aggregates = player_replay_positioning_aggregates_from_events(&events, &players);
+    let aggregate = aggregates
+        .get(&player_subject_id)
+        .expect("player should have positioning aggregate");
+    assert_eq!(aggregate.role_most_back_seconds, 3.0);
+    assert_eq!(aggregate.tracked_seconds, 4.0);
+    assert_eq!(aggregate.defensive_third_seconds, 4.0);
 }
 
 #[test]
