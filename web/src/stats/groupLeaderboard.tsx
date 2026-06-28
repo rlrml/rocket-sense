@@ -66,6 +66,8 @@ export interface LeaderboardMetric {
    * source's fetch is still in flight, instead of a misleading "—" / "0".
    */
   source?: string;
+  /** Event types that can be opened in the review player for this metric. */
+  eventTypes?: readonly string[];
   /** Per-participant value in display units; null drops the participant. */
   value: (participantKey: string, measure: LeaderboardMeasure) => number | null;
   /** Render a value as its label (measure passed for count metrics that vary by it). */

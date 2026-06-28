@@ -1,4 +1,4 @@
-import { Check, Link2, Search, X } from "lucide-react";
+import { Check, Link2, Play, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
@@ -209,6 +209,7 @@ export function buildGroupStatMetrics({
       label: meta.display_name,
       group: categoryForStat(key, meta.category),
       source: "aggregates",
+      eventTypes: [key],
       measurable: true,
       format: (value, measure) => formatCount(value, measure ?? "per5m"),
       value: (participantKey, measure) => {
@@ -275,7 +276,13 @@ export function buildGroupStatMetrics({
 
   // 3) Event-derived kickoff metrics (already keyed by identity).
   for (const metric of buildKickoffMetrics(kickoffSummaries, gameMeta)) {
-    metrics.push({ ...metric, key: `kickoff:${metric.key}`, group: "Kickoffs", source: "kickoff" });
+    metrics.push({
+      ...metric,
+      key: `kickoff:${metric.key}`,
+      group: "Kickoffs",
+      source: "kickoff",
+      eventTypes: ["kickoff"],
+    });
   }
 
   // 4) Per-player boost totals (group-scoped) — BPM and pad rates.
@@ -290,6 +297,7 @@ export function buildGroupStatMetrics({
       label,
       group: "Boost",
       source: "boost",
+      eventTypes: ["boost_pickup", "boost_respawn"],
       measurable: true,
       format: (value, measure) => formatCount(value, measure ?? "per5m"),
       value: (id, measure) => {
@@ -321,6 +329,7 @@ export function buildGroupStatMetrics({
       label: "Avg boost",
       group: "Boost",
       source: "boost",
+      eventTypes: ["boost_pickup", "boost_respawn"],
       format: (value) => formatBoostPercent(value),
       value: (id) => {
         const total = boostOf(id);
@@ -334,6 +343,7 @@ export function buildGroupStatMetrics({
       label: "Time at 0 boost",
       group: "Boost",
       source: "boost",
+      eventTypes: ["boost_pickup", "boost_respawn"],
       format: formatPercent,
       value: (id) => {
         const total = boostOf(id);
@@ -358,6 +368,7 @@ export function buildGroupStatMetrics({
       label,
       group: "Touches",
       source: "touch",
+      eventTypes: ["touch"],
       measurable: true,
       format: (raw, measure) => formatCount(raw, measure ?? "per5m"),
       value: (id, measure) => {
@@ -391,6 +402,7 @@ export function buildGroupStatMetrics({
       label: `${tag.label} goals`,
       group: "Goal tags",
       source: "goaltag",
+      eventTypes: ["goal_context"],
       measurable: true,
       format: (value, measure) => formatCount(value, measure ?? "per5m"),
       value: (id, measure) => {
@@ -448,6 +460,7 @@ export function GroupStatExplorer({
   title = "Group stats",
   emptyLabel = "No per-player stats are available for this group yet.",
   loadingSources,
+  buildEventReviewHref,
 }: {
   participants: LeaderboardParticipant[];
   metrics: LeaderboardMetric[];
@@ -456,6 +469,10 @@ export function GroupStatExplorer({
   /** Metric `source` tags whose backing fetch is still in flight; columns from
    * those sources render a loading shimmer instead of a misleading "—". */
   loadingSources?: ReadonlySet<string>;
+  buildEventReviewHref?: (args: {
+    participant: LeaderboardParticipant;
+    metric: LeaderboardMetric;
+  }) => string | null;
 }) {
   const pendingSources = loadingSources ?? EMPTY_SOURCE_SET;
   const metricByKey = useMemo(
@@ -779,6 +796,10 @@ export function GroupStatExplorer({
                       // shimmer rather than a "—" that reads as "no data".
                       const pending =
                         !present && metric.source != null && pendingSources.has(metric.source);
+                      const eventReviewHref =
+                        present && value > 0
+                          ? (buildEventReviewHref?.({ participant, metric }) ?? null)
+                          : null;
                       return (
                         <td key={key} className="gse-value-cell">
                           {pending ? (
@@ -814,6 +835,19 @@ export function GroupStatExplorer({
                               <span className="gse-cell-value">
                                 {present ? metric.format(value, measure) : "—"}
                               </span>
+                              {eventReviewHref ? (
+                                <a
+                                  className="gse-watch-link"
+                                  href={eventReviewHref}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  aria-label={`Watch ${metric.label} events for ${participant.name}`}
+                                  title={`Watch ${metric.label} events for ${participant.name}`}
+                                >
+                                  <Play size={13} />
+                                  <span>Watch</span>
+                                </a>
+                              ) : null}
                             </div>
                           )}
                         </td>
