@@ -457,15 +457,7 @@ pub(crate) fn append_replay_set_filters<'args>(
             .push_bind(uploader_user_id);
     }
     if let Some(group_id) = filters.group_id {
-        // Match a replay if it belongs to this group OR any descendant group, so
-        // a non-leaf group aggregates every replay in its subtree. The recursive
-        // CTE walks parent_group_id downward; UNION (not UNION ALL) dedupes and
-        // guarantees termination even if a parent cycle ever slips in.
-        builder.push(" AND EXISTS (SELECT 1 FROM replay_group_replays stats_group WHERE stats_group.replay_id = ");
-        builder.push(replay_alias);
-        builder.push(".id AND stats_group.group_id IN (WITH RECURSIVE group_subtree AS (SELECT id FROM replay_groups WHERE id = ");
-        builder.push_bind(group_id);
-        builder.push(" UNION SELECT child.id FROM replay_groups child JOIN group_subtree parent ON child.parent_group_id = parent.id) SELECT id FROM group_subtree))");
+        push_replay_group_subtree_membership_filter(builder, replay_alias, "stats_group", group_id);
     }
     if let Some(project_id) = filters.project_id {
         builder
@@ -545,6 +537,30 @@ pub(crate) fn append_replay_set_filters<'args>(
     if let Some(outcome) = &filters.player_outcome {
         append_player_replay_outcome_filter(builder, outcome, replay_alias);
     }
+}
+
+pub(crate) fn push_replay_group_subtree_membership_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+    group_alias: &str,
+    group_id: Uuid,
+) {
+    // Match a replay if it belongs to this group OR any descendant group, so a
+    // non-leaf group aggregates every replay in its subtree. The recursive CTE
+    // walks parent_group_id downward; UNION (not UNION ALL) dedupes and
+    // guarantees termination even if a parent cycle ever slips in.
+    builder
+        .push(" AND EXISTS (SELECT 1 FROM replay_group_replays ")
+        .push(group_alias)
+        .push(" WHERE ")
+        .push(group_alias)
+        .push(".replay_id = ")
+        .push(replay_alias)
+        .push(".id AND ")
+        .push(group_alias)
+        .push(".group_id IN (WITH RECURSIVE group_subtree AS (SELECT id FROM replay_groups WHERE id = ")
+        .push_bind(group_id)
+        .push(" UNION SELECT child.id FROM replay_groups child JOIN group_subtree parent ON child.parent_group_id = parent.id) SELECT id FROM group_subtree))");
 }
 
 /// Maps a replay's textual `season` code (e.g. `s12`, `f23`) to its total-order

@@ -120,6 +120,24 @@ fn player_replay_query_uses_compact_replay_preview() {
 }
 
 #[test]
+fn player_replay_query_filters_group_subtrees() {
+    let identity = PlayerIdentity::new("steam".to_owned(), "76561198000000000".to_owned())
+        .expect("identity should parse");
+    let group_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let filters = PlayerProfileFilters {
+        group_id: Some(group_id),
+        ..PlayerProfileFilters::default()
+    };
+    let query = player_replays_query(&identity, &filters, 10);
+    let sql = query.sql();
+
+    assert!(sql.contains("FROM replay_group_replays profile_group"));
+    assert!(sql.contains("WITH RECURSIVE group_subtree"));
+    assert!(sql.contains("child.parent_group_id = parent.id"));
+    assert!(sql.contains("profile_group.group_id IN"));
+}
+
+#[test]
 fn player_name_history_query_filters_by_name_and_platform() {
     let query = player_name_history_query(PlayerNameHistoryQuery {
         q: Some(" Blue ".to_owned()),
