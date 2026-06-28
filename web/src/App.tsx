@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BarChart3,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleUser,
@@ -1280,12 +1281,19 @@ function buildGroupForest(groups: ReplayGroupResponse[]): GroupTreeNode[] {
   return build(null, 0, new Set());
 }
 
-function flattenGroupForest(nodes: GroupTreeNode[]): GroupTreeNode[] {
+/// Flatten a group forest into render order. When `expanded` is provided, a
+/// node's children are only included if that node's id is in the set, so the
+/// default Groups view shows top-level groups collapsed and you expand them to
+/// reveal subgroups. Omit `expanded` to flatten the whole tree (used by the
+/// group selectors and by search, where every match must stay reachable).
+function flattenGroupForest(nodes: GroupTreeNode[], expanded?: Set<string>): GroupTreeNode[] {
   const out: GroupTreeNode[] = [];
   const walk = (subtree: GroupTreeNode[]) => {
     for (const node of subtree) {
       out.push(node);
-      walk(node.children);
+      if (!expanded || expanded.has(node.group.id)) {
+        walk(node.children);
+      }
     }
   };
   walk(nodes);
@@ -1440,7 +1448,23 @@ function ReplayGroupListPage() {
     updateGroupSearch({ q: groupSearch });
   }
 
-  const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const forest = useMemo(() => buildGroupForest(groups), [groups]);
+  // A live search must surface matches at any depth, so it overrides collapse
+  // and flattens the whole tree; otherwise we honor the per-group expand state.
+  const searching = groupSearch.trim().length > 0;
+  const orderedGroups = useMemo(
+    () => flattenGroupForest(forest, searching ? undefined : expanded),
+    [forest, searching, expanded],
+  );
   const visibleGroups = useMemo(
     () => filterReplayGroupEntries(orderedGroups, groupSearch),
     [orderedGroups, groupSearch],
@@ -1513,6 +1537,25 @@ function ReplayGroupListPage() {
           >
             <header className="replay-card-header">
               <div className="replay-card-title">
+                {group.child_group_count > 0 ? (
+                  <button
+                    type="button"
+                    className="group-card-expand"
+                    aria-expanded={searching || expanded.has(group.id)}
+                    aria-label={
+                      searching || expanded.has(group.id)
+                        ? "Collapse subgroups"
+                        : "Expand subgroups"
+                    }
+                    onClick={() => toggleExpanded(group.id)}
+                  >
+                    {searching || expanded.has(group.id) ? (
+                      <ChevronDown size={16} />
+                    ) : (
+                      <ChevronRight size={16} />
+                    )}
+                  </button>
+                ) : null}
                 <Link className="primary-link" to={`/replay-groups/${group.id}/stats`}>
                   {group.child_group_count > 0 ? (
                     <FolderOpen size={16} style={{ marginRight: 6, verticalAlign: "-2px" }} />
