@@ -1221,7 +1221,10 @@ export function LeaderboardsPage() {
         </label>
         <label className="leaderboard-playlist-filter">
           <span className="segment-bar-label">Season</span>
-          <select value={season} onChange={(event) => setParam("season", event.currentTarget.value)}>
+          <select
+            value={season}
+            onChange={(event) => setParam("season", event.currentTarget.value)}
+          >
             {seasonOptions.map((option) => (
               <option key={option.value || "all"} value={option.value}>
                 {option.label}
