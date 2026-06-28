@@ -764,6 +764,21 @@ tbody tr:last-child td {
   font-size: var(--text-base);
 }
 
+.group-card-list {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.group-card {
+  min-width: min(100%, 520px);
+}
+
+.group-card .subtle {
+  overflow-wrap: anywhere;
+}
+
 .replay-card-heading {
   display: flex;
   align-items: baseline;
@@ -1702,10 +1717,12 @@ tbody tr:last-child td {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 1px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--border);
+  -webkit-overflow-scrolling: touch;
 }
 
 .match-context > div {
@@ -1882,6 +1899,26 @@ tbody tr:last-child td {
   border-color: #9fb4d9;
   background: #eaf1ff;
   color: #1d4ed8;
+}
+
+.replay-group-page .stat-group-nav,
+.replay-group-page .group-participant-strip,
+.replay-group-page .replay-group-subgroup-list,
+.replay-group-page .ballchasing-mirror-status {
+  max-width: 100%;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.replay-group-page .replay-group-subgroup-list .secondary-button,
+.replay-group-page .ballchasing-mirror-status > * {
+  flex: 0 0 auto;
+}
+
+.replay-group-games-table {
+  min-width: 620px;
 }
 
 .player-segment-bar {

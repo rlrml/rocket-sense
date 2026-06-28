@@ -3543,7 +3543,7 @@ function ReplayGroupStatsPage() {
           <section className="stat-panel">
             <h2>Games in group</h2>
             <div className="table-frame compact-table">
-              <table>
+              <table className="replay-group-games-table">
                 <thead>
                   <tr>
                     <th>Replay</th>
