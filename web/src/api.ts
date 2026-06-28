@@ -376,9 +376,6 @@ export function listReplayProcessingDiagnostics(
   }
   return request<ReplayProcessingDiagnosticsResponse>(
     `/api/v1/admin/replays/processing-diagnostics?${params.toString()}`,
-    {
-      includeAccessToken: false,
-    },
   );
 }
 
@@ -391,9 +388,6 @@ export function listRecentlyProcessedReplays(
   }
   return request<RecentlyProcessedReplaysResponse>(
     `/api/v1/admin/replays/recently-processed?${params.toString()}`,
-    {
-      includeAccessToken: false,
-    },
   );
 }
 
@@ -404,12 +398,7 @@ export function listReplayProcessingQueue(
   if (!params.has("count")) {
     params.set("count", "200");
   }
-  return request<ReplayProcessingQueueResponse>(
-    `/api/v1/admin/replays/queue?${params.toString()}`,
-    {
-      includeAccessToken: false,
-    },
-  );
+  return request<ReplayProcessingQueueResponse>(`/api/v1/admin/replays/queue?${params.toString()}`);
 }
 
 // Admin: force-reprocess every replay that currently has a failed job in the
