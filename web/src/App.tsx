@@ -121,7 +121,7 @@ import { mapDisplayName } from "./maps";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import { RankTrendsPage } from "./rankTrends";
-import { formatSeasonCode } from "./seasons";
+import { buildSeasonOptions, formatSeasonCode, formatSeasonLabel } from "./seasons";
 import {
   getPreviewPlayerWarmupStatus,
   schedulePreviewPlayerWarmup,
@@ -769,10 +769,11 @@ function ReplayListPage() {
     ...filterOptions.maps,
     ...mapOptionsFromReplays(replays),
   ]);
-  const seasonOptions = replayOptionChoices(filters.season, [
-    ...filterOptions.seasons,
-    ...seasonOptionsFromReplays(replays),
-  ]).sort(compareSeasonOptions);
+  const seasonOptions = replayOptionChoices(
+    filters.season,
+    [...filterOptions.seasons, ...seasonOptionsFromReplays(replays)],
+    formatSeasonLabel,
+  );
   const replayOrder = replayOrderFromParams(searchParams);
   const activeGroupId = searchParams.get("group");
   const replayFilterFields: FilterFieldConfig[] = [
@@ -816,10 +817,7 @@ function ReplayListPage() {
       value: filters.season,
       options: [
         { value: "", label: "Any" },
-        ...seasonOptions.map((option) => ({
-          value: option.value,
-          label: seasonLabel(option.value),
-        })),
+        ...seasonOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
       ],
       onChange: (value) => setFilters({ ...filters, season: value }),
     },
@@ -1154,28 +1152,7 @@ const rankFilterOptions = [
   { value: "supersonic-legend", label: "Supersonic Legend" },
 ];
 
-// Canonical competitive-season list in chronological order: the legacy (`s`) era
-// (Seasons 1-12, pre-Sep-2020) then the free-to-play (`f`) era (Season 1
-// onward). Codes match `replays.season` and subtr-actor's `ReplaySeason::code`.
-// The two eras both number from 1, so labels carry the era to disambiguate. Bump
-// FREE_TO_PLAY_SEASON_COUNT when Psyonix ships a new season; the server-side
-// range filter already tolerates seasons beyond this list.
-const LEGACY_SEASON_COUNT = 12;
-const FREE_TO_PLAY_SEASON_COUNT = 23;
-
-// Listed newest-first (free-to-play era descending, then legacy descending) so
-// the most recent season sits at the top of the range selects.
-const seasonFilterOptions: FilterOptionConfig[] = [
-  { value: "", label: "Any" },
-  ...Array.from({ length: FREE_TO_PLAY_SEASON_COUNT }, (_, index) => {
-    const number = FREE_TO_PLAY_SEASON_COUNT - index;
-    return { value: `f${number}`, label: `Free-to-play S${number}` };
-  }),
-  ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => {
-    const number = LEGACY_SEASON_COUNT - index;
-    return { value: `s${number}`, label: `Legacy S${number}` };
-  }),
-];
+const seasonFilterOptions: FilterOptionConfig[] = buildSeasonOptions("Any");
 
 interface FilterOptionConfig {
   value: string;
@@ -1254,7 +1231,15 @@ function useReplayFilterOptions(): ReplayListFilterOptions {
     let cancelled = false;
     listReplayFilterOptions()
       .then((response) => {
-        if (!cancelled) setFilterOptions(response);
+        if (!cancelled) {
+          setFilterOptions({
+            ...response,
+            seasons: response.seasons.map((option) => ({
+              ...option,
+              label: formatSeasonLabel(option.value || option.label),
+            })),
+          });
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -1720,6 +1705,7 @@ function replayOrderFromParams(params: URLSearchParams): ReplayOrder {
 function replayOptionChoices(
   currentValue: string,
   options: ReplayFilterOption[],
+  labelForValue: (value: string) => string = (value) => value,
 ): ReplayFilterOption[] {
   const byValue = new Map<string, ReplayFilterOption>();
   for (const option of options) {
@@ -1727,7 +1713,11 @@ function replayOptionChoices(
     byValue.set(option.value, option);
   }
   if (currentValue && !byValue.has(currentValue)) {
-    byValue.set(currentValue, { value: currentValue, label: currentValue, count: 0 });
+    byValue.set(currentValue, {
+      value: currentValue,
+      label: labelForValue(currentValue),
+      count: 0,
+    });
   }
   return [...byValue.values()].sort((left, right) => {
     if (left.count !== right.count) return right.count - left.count;
@@ -1740,40 +1730,26 @@ function mapOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] 
 }
 
 function seasonOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] {
-  return replayFieldOptions(replays.map((replay) => replay.summary.season));
+  return replayFieldOptions(
+    replays.map((replay) => replay.summary.season),
+    formatSeasonLabel,
+  );
 }
 
-// Season codes are era-prefixed (`s1`..`s14` legacy, then `f1`.. free-to-play),
-// so a higher key means more recent. Unrecognized codes sort to the bottom.
-function seasonRecencyKey(code: string): number {
-  const match = /^([sf])(\d+)$/i.exec(code.trim());
-  if (!match) return -1;
-  const era = match[1].toLowerCase() === "f" ? 1 : 0;
-  return era * 1000 + Number(match[2]);
-}
-
-// Newest season first, oldest last (ties — e.g. unrecognized codes — by label).
-function compareSeasonOptions(left: ReplayFilterOption, right: ReplayFilterOption): number {
-  const delta = seasonRecencyKey(right.value) - seasonRecencyKey(left.value);
-  return delta !== 0 ? delta : right.label.localeCompare(left.label);
-}
-
-// Human-friendly season name from an era-prefixed code: `s14` -> "Season 14"
-// (legacy), `f21` -> "Free to Play S21". Unrecognized codes render as-is.
-function seasonLabel(code: string): string {
-  const match = /^([sf])(\d+)$/i.exec(code.trim());
-  if (!match) return code;
-  const number = Number(match[2]);
-  return match[1].toLowerCase() === "f" ? `Free to Play S${number}` : `Season ${number}`;
-}
-
-function replayFieldOptions(values: Array<string | null>): ReplayFilterOption[] {
+function replayFieldOptions(
+  values: Array<string | null>,
+  labelForValue: (value: string) => string = (value) => value,
+): ReplayFilterOption[] {
   const counts = new Map<string, number>();
   for (const value of values) {
     if (!value?.trim()) continue;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
-  return [...counts.entries()].map(([value, count]) => ({ value, label: value, count }));
+  return [...counts.entries()].map(([value, count]) => ({
+    value,
+    label: labelForValue(value),
+    count,
+  }));
 }
 
 function optionLabel(option: ReplayFilterOption): string {
@@ -1831,6 +1807,7 @@ function filterValueLabel(key: string, value: string): string {
   }
   if (key === "playlist") return playlistLabel(null, value);
   if (key === "map") return mapDisplayName(value);
+  if (key === "season") return formatSeasonLabel(value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
 }
