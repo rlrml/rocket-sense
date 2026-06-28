@@ -373,15 +373,42 @@ a {
 .favorites-item {
   display: flex;
   align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-md);
+}
+
+/* The primary link (platform icon + name) goes to the player's career page.
+   The replays icon and the appearance count are split out as separate links
+   to the player's replay list, so they each get their own hover affordance. */
+.favorites-item-main {
+  display: flex;
+  align-items: center;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
   padding: 6px 8px;
   border-radius: var(--radius-md);
   color: var(--text);
   text-decoration: none;
 }
 
-.favorites-item:hover {
+.favorites-item-main:hover {
   background: var(--surface-subtle);
+}
+
+.favorites-item-replays {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.favorites-item-replays:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
 }
 
 .favorites-item-name {
@@ -398,6 +425,17 @@ a {
   font-size: var(--text-xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.favorites-item-meta-link {
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+}
+
+.favorites-item-meta-link:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
 }
 
 .favorites-item-avatar {
