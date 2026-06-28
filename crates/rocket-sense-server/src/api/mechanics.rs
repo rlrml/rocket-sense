@@ -216,6 +216,20 @@ pub struct MechanicEventsQuery {
     pub event_created_after: Option<DateTime<Utc>>,
     #[serde(rename = "event-created-before")]
     pub event_created_before: Option<DateTime<Utc>>,
+    #[serde(
+        default,
+        rename = "payload-kind",
+        alias = "payloadKind",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub payload_kinds: Vec<String>,
+    #[serde(
+        default,
+        rename = "payload-setup-rotation-direction",
+        alias = "payloadSetupRotationDirection",
+        deserialize_with = "deserialize_string_vec"
+    )]
+    pub payload_setup_rotation_directions: Vec<String>,
     pub count: Option<u32>,
     pub offset: Option<u32>,
 }
@@ -314,6 +328,16 @@ impl MechanicEventsQuery {
                 "event-created-before" | "event_created_before" if !value.is_empty() => {
                     parsed.event_created_before =
                         Some(parse_review_datetime_filter("event-created-before", value)?);
+                }
+                "payload-kind" | "payloadKind" if !value.is_empty() => {
+                    parsed.payload_kinds.push(value.to_owned());
+                }
+                "payload-setup-rotation-direction" | "payloadSetupRotationDirection"
+                    if !value.is_empty() =>
+                {
+                    parsed
+                        .payload_setup_rotation_directions
+                        .push(value.to_owned());
                 }
                 "count" => {
                     parsed.count = if value.is_empty() {
@@ -2007,6 +2031,8 @@ struct MechanicEventFilters {
     replay_date_before: Option<DateTime<Utc>>,
     event_created_after: Option<DateTime<Utc>>,
     event_created_before: Option<DateTime<Utc>>,
+    payload_kinds: Vec<String>,
+    payload_setup_rotation_directions: Vec<String>,
     count: u32,
     offset: u32,
 }
@@ -2106,6 +2132,8 @@ impl Default for MechanicEventFilters {
             replay_date_before: None,
             event_created_after: None,
             event_created_before: None,
+            payload_kinds: Vec::new(),
+            payload_setup_rotation_directions: Vec::new(),
             count: DEFAULT_EVENT_REVIEW_PAGE_SIZE,
             offset: 0,
         }
@@ -2192,6 +2220,10 @@ impl MechanicEventFilters {
             replay_date_before: query.replay_date_before,
             event_created_after: query.event_created_after,
             event_created_before: query.event_created_before,
+            payload_kinds: normalize_terms(query.payload_kinds),
+            payload_setup_rotation_directions: normalize_terms(
+                query.payload_setup_rotation_directions,
+            ),
             count: query
                 .count
                 .unwrap_or(DEFAULT_EVENT_REVIEW_PAGE_SIZE)
@@ -2349,6 +2381,24 @@ impl MechanicEventFilters {
                 .or_else(|| object.get("category")),
         )?;
         let event_ids = json_uuid_vec(object.get("eventIds").or_else(|| object.get("event-id")))?;
+        let mut payload_kinds = json_string_vec(
+            object
+                .get("payloadKinds")
+                .or_else(|| object.get("payload-kinds"))
+                .or_else(|| object.get("payloadKind"))
+                .or_else(|| object.get("payload-kind")),
+        )?;
+        payload_kinds.sort();
+        payload_kinds.dedup();
+        let mut payload_setup_rotation_directions = json_string_vec(
+            object
+                .get("payloadSetupRotationDirections")
+                .or_else(|| object.get("payload-setup-rotation-directions"))
+                .or_else(|| object.get("payloadSetupRotationDirection"))
+                .or_else(|| object.get("payload-setup-rotation-direction")),
+        )?;
+        payload_setup_rotation_directions.sort();
+        payload_setup_rotation_directions.dedup();
         let review_status = match json_string(
             object
                 .get("reviewStatus")
@@ -2468,6 +2518,8 @@ impl MechanicEventFilters {
             replay_date_before,
             event_created_after,
             event_created_before,
+            payload_kinds: normalize_terms(payload_kinds),
+            payload_setup_rotation_directions: normalize_terms(payload_setup_rotation_directions),
             count,
             offset,
         })
@@ -2556,6 +2608,12 @@ fn event_review_playlist_url_with_offset(filters: &MechanicEventFilters, offset:
     if let Some(event_created_before) = filters.event_created_before {
         query.append_pair("event-created-before", &event_created_before.to_rfc3339());
     }
+    for kind in &filters.payload_kinds {
+        query.append_pair("payload-kind", kind);
+    }
+    for direction in &filters.payload_setup_rotation_directions {
+        query.append_pair("payload-setup-rotation-direction", direction);
+    }
     query.append_pair("count", &filters.count.to_string());
     query.append_pair("offset", &offset.to_string());
 
@@ -2630,6 +2688,8 @@ fn playlist_spec_from_filters(filters: &MechanicEventFilters) -> Value {
                 "replayDateBefore": filters.replay_date_before,
                 "eventCreatedAfter": filters.event_created_after,
                 "eventCreatedBefore": filters.event_created_before,
+                "payloadKinds": filters.payload_kinds,
+                "payloadSetupRotationDirections": filters.payload_setup_rotation_directions,
             },
         },
         "page": {
@@ -2840,6 +2900,8 @@ async fn evaluate_reviewed_events(
               ON event_type.id = event.event_type_id
             JOIN replays replay
               ON replay.id = event.replay_id
+            LEFT JOIN play_event_payloads payload
+              ON payload.event_id = event.id
             LEFT JOIN replay_players candidate_player
               ON candidate_player.replay_id = event.replay_id
              AND event.primary_subject_kind = 'player'
@@ -3032,7 +3094,34 @@ fn push_evaluation_label_filters<'a>(
             builder.push(" AND review.status = ").push_bind(status);
         }
     }
+    push_review_snapshot_payload_text_filter(builder, "kind", &filters.payload_kinds);
+    push_review_snapshot_payload_text_filter(
+        builder,
+        "setup_rotation_direction",
+        &filters.payload_setup_rotation_directions,
+    );
     push_evaluation_replay_filters(builder, filters, "review", "replay");
+}
+
+fn push_review_snapshot_payload_text_filter<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    key: &'static str,
+    values: &'a [String],
+) {
+    if values.is_empty() {
+        return;
+    }
+    let path = match key {
+        "kind" => "'{payload,kind}'",
+        "setup_rotation_direction" => "'{payload,setup_rotation_direction}'",
+        _ => return,
+    };
+    builder
+        .push(" AND review.event_snapshot #>> ")
+        .push(path)
+        .push(" = ANY(")
+        .push_bind(values)
+        .push(")");
 }
 
 fn push_evaluation_candidate_filters<'a>(
@@ -3091,7 +3180,29 @@ fn push_evaluation_candidate_filters<'a>(
             .push(" AND event.created_at <= ")
             .push_bind(event_created_before);
     }
+    push_payload_text_filter(builder, "kind", &filters.payload_kinds);
+    push_payload_text_filter(
+        builder,
+        "setup_rotation_direction",
+        &filters.payload_setup_rotation_directions,
+    );
     push_evaluation_replay_filters(builder, filters, "event", "replay");
+}
+
+fn push_payload_text_filter<'a>(
+    builder: &mut QueryBuilder<'a, Postgres>,
+    key: &'static str,
+    values: &'a [String],
+) {
+    if values.is_empty() {
+        return;
+    }
+    builder
+        .push(" AND payload.payload ->> ")
+        .push_bind(key)
+        .push(" = ANY(")
+        .push_bind(values)
+        .push(")");
 }
 
 fn push_evaluation_replay_filters<'a>(
@@ -3446,6 +3557,12 @@ fn find_mechanic_events_query<'args>(
             .push(" AND event.created_at <= ")
             .push_bind(event_created_before);
     }
+    push_payload_text_filter(&mut builder, "kind", &filters.payload_kinds);
+    push_payload_text_filter(
+        &mut builder,
+        "setup_rotation_direction",
+        &filters.payload_setup_rotation_directions,
+    );
 
     builder
         .push(

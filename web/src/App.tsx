@@ -6383,6 +6383,15 @@ function EventsReviewPage() {
     navigate("/events/review");
   }
 
+  function applyFlickPreset(preset: "all" | "reverse" | "side") {
+    setFilters((current) => ({
+      ...current,
+      eventTypes: ["flick"],
+      payloadKind: preset === "reverse" ? "reverse" : "",
+      payloadSetupRotationDirection: preset === "side" ? "left,right" : "",
+    }));
+  }
+
   const selectedEventTypes = new Set(filters.eventTypes);
   const eventTypeGroups = useMemo(
     () => groupEventTypesByCategory(eventTypes.filter(isReviewSelectableEventType)),
@@ -6490,6 +6499,22 @@ function EventsReviewPage() {
       name: "detector",
       placeholder: "stats_timeline",
       onChange: (value) => updateFilter("detector", value),
+    },
+    {
+      id: "event-payload-kind",
+      label: "Flick type",
+      value: filters.payloadKind,
+      name: "payload-kind",
+      options: flickTypeFilterOptions,
+      onChange: (value) => updateFilter("payloadKind", value),
+    },
+    {
+      id: "event-payload-setup-rotation-direction",
+      label: "Flick side",
+      value: filters.payloadSetupRotationDirection,
+      name: "payload-setup-rotation-direction",
+      options: flickSideFilterOptions,
+      onChange: (value) => updateFilter("payloadSetupRotationDirection", value),
     },
     {
       id: "event-uploaded-after",
@@ -6611,6 +6636,30 @@ function EventsReviewPage() {
 
           <StatusLine loading={loadingEventTypes} error={error} />
 
+          <div className="event-review-preset-row" aria-label="Flick review presets">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => applyFlickPreset("all")}
+            >
+              All flicks
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => applyFlickPreset("reverse")}
+            >
+              Reverse flicks
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => applyFlickPreset("side")}
+            >
+              Side flicks
+            </button>
+          </div>
+
           <div className="event-type-groups" aria-label="Event types">
             {eventTypeGroups.map((group) => {
               const eventTypeKeys = group.eventTypes.map((eventType) => eventType.key);
@@ -6685,6 +6734,10 @@ function EventsReviewPage() {
             <div>
               <dt>Event types</dt>
               <dd>{selectedCount > 0 ? selectedEventText : "All"}</dd>
+            </div>
+            <div>
+              <dt>Classifications</dt>
+              <dd>{eventReviewClassificationSummary(filters)}</dd>
             </div>
           </dl>
           <div className="review-actions">
@@ -6801,6 +6854,8 @@ interface EventReviewFilterForm {
   replayDateBefore: string;
   eventCreatedAfter: string;
   eventCreatedBefore: string;
+  payloadKind: string;
+  payloadSetupRotationDirection: string;
   uploader: string;
   group: string;
   project: string;
@@ -7047,6 +7102,20 @@ const eventPlaylistOptions = [
   { value: "local", label: "Local Lobby" },
 ];
 
+const flickTypeFilterOptions = [
+  { value: "", label: "Any flick type" },
+  { value: "reverse", label: "Reverse" },
+  { value: "other", label: "Other" },
+];
+
+const flickSideFilterOptions = [
+  { value: "", label: "Any flick side" },
+  { value: "left,right", label: "Left or right" },
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+  { value: "unknown", label: "Unknown" },
+];
+
 function defaultEventReviewFilters(): EventReviewFilterForm {
   return {
     eventTypes: [],
@@ -7067,6 +7136,8 @@ function defaultEventReviewFilters(): EventReviewFilterForm {
     replayDateBefore: "",
     eventCreatedAfter: "",
     eventCreatedBefore: "",
+    payloadKind: "",
+    payloadSetupRotationDirection: "",
     uploader: "",
     group: "",
     project: "",
@@ -7095,6 +7166,12 @@ function eventReviewFiltersFromParams(params: URLSearchParams): EventReviewFilte
     replayDateBefore: params.get("replay-date-before") ?? defaults.replayDateBefore,
     eventCreatedAfter: params.get("event-created-after") ?? defaults.eventCreatedAfter,
     eventCreatedBefore: params.get("event-created-before") ?? defaults.eventCreatedBefore,
+    payloadKind: multiParamValue(params, "payload-kind", defaults.payloadKind),
+    payloadSetupRotationDirection: multiParamValue(
+      params,
+      "payload-setup-rotation-direction",
+      defaults.payloadSetupRotationDirection,
+    ),
     uploader: params.get("uploader") ?? defaults.uploader,
     group: params.get("group") ?? defaults.group,
     project: params.get("project") ?? defaults.project,
@@ -7124,6 +7201,12 @@ function eventReviewFiltersToParams(filters: EventReviewFilterForm): URLSearchPa
   appendIfPresent(params, "replay-date-before", filters.replayDateBefore);
   appendIfPresent(params, "event-created-after", filters.eventCreatedAfter);
   appendIfPresent(params, "event-created-before", filters.eventCreatedBefore);
+  appendMultiValueParam(params, "payload-kind", filters.payloadKind);
+  appendMultiValueParam(
+    params,
+    "payload-setup-rotation-direction",
+    filters.payloadSetupRotationDirection,
+  );
   appendIfPresent(params, "uploader", filters.uploader);
   appendIfPresent(params, "group", filters.group);
   appendIfPresent(params, "project", filters.project);
@@ -7138,8 +7221,32 @@ function appendIfPresent(params: URLSearchParams, key: string, value: string) {
   }
 }
 
+function appendMultiValueParam(params: URLSearchParams, key: string, value: string) {
+  for (const part of value.split(",")) {
+    appendIfPresent(params, key, part);
+  }
+}
+
+function multiParamValue(params: URLSearchParams, key: string, fallback: string): string {
+  const values = params.getAll(key).filter((value) => value.trim());
+  return values.length > 0 ? values.join(",") : fallback;
+}
+
 function eventReviewProParam(value: string | null): EventReviewProFilter {
   return value === "true" || value === "false" ? value : "";
+}
+
+function eventReviewClassificationSummary(filters: EventReviewFilterForm): string {
+  const labels = [
+    optionLabelForValue(flickTypeFilterOptions, filters.payloadKind),
+    optionLabelForValue(flickSideFilterOptions, filters.payloadSetupRotationDirection),
+  ].filter((label): label is string => label != null);
+  return labels.length > 0 ? labels.join(" · ") : "Any";
+}
+
+function optionLabelForValue(options: FilterOptionConfig[], value: string): string | null {
+  if (!value) return null;
+  return options.find((option) => option.value === value)?.label ?? value;
 }
 
 function reviewStatusLabel(value: string): string {
