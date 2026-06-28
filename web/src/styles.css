@@ -1130,6 +1130,44 @@ tbody tr:last-child td {
   color: var(--text-muted, #555);
 }
 
+.privacy-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.privacy-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-muted, #555);
+}
+
+.visibility-control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.visibility-control .segment-bar-select-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.visibility-control .muted-text {
+  margin: 0;
+}
+
 .group-managers-empty {
   margin: 0;
   font-size: var(--text-base);

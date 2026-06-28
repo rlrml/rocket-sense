@@ -1,5 +1,8 @@
-use crate::{app::AppState, auth::OptionalAuthUser};
-use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
+use crate::{
+    app::AppState,
+    auth::{AuthUser, OptionalAuthUser},
+};
+use axum::{extract::RawQuery, extract::State, http::StatusCode, routing::get, Json, Router};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -29,6 +32,49 @@ use super::{
 #[cfg(test)]
 #[path = "stats_tests.rs"]
 mod tests;
+
+/// Privacy gate for direct, single-subject stat views: a player's career page, a
+/// single replay's stats, or a single group's stats. Cross-subject aggregates
+/// (group leaderboards, teammate panels, multi-replay sets) are intentionally
+/// not gated — privacy blocks direct access only. A blocked view 404s so a
+/// private subject's existence isn't leaked.
+async fn enforce_stat_scope_visibility(
+    state: &AppState,
+    db: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+    viewer: Option<&AuthUser>,
+) -> Result<(), ApiError> {
+    if let Some(player) = &filters.player {
+        if !super::visibility::can_view_player_stats(
+            state,
+            db,
+            &player.platform,
+            &player.platform_player_id,
+            viewer,
+        )
+        .await?
+        {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "player stats not found",
+            ));
+        }
+    }
+    if let Some(group_id) = filters.replay_set.group_id {
+        if !super::visibility::can_view_group(state, db, group_id, viewer).await? {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "replay group not found",
+            ));
+        }
+    }
+    if let [replay_id] = filters.replay_set.replay_ids.as_slice() {
+        if !super::visibility::can_view_replay(state, db, *replay_id, viewer).await? {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+        }
+    }
+    Ok(())
+}
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -679,6 +725,7 @@ pub async fn get_stat_aggregates(
     filters.rank_benchmark_enabled = state.rank_benchmark_enabled;
     filters.rank_benchmark_windows = state.rank_benchmark_windows.clone();
     filters.rank_benchmark_default_window = state.rank_benchmark_default_window.clone();
+    enforce_stat_scope_visibility(&state, db, &filters, auth_user.as_ref()).await?;
     let aggregates = load_stat_aggregates(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -714,6 +761,7 @@ pub async fn get_player_boost_totals(
     if filters.player.is_none() {
         return Err(ApiError::bad_request("boost totals require player-id"));
     }
+    enforce_stat_scope_visibility(&state, db, &filters, auth_user.as_ref()).await?;
     let totals = if filters.materialized_stat_counts {
         load_player_boost_totals_materialized(db, &filters)
             .await
@@ -751,6 +799,7 @@ pub async fn get_player_boost_pad_control(
             "boost pad control requires player-id",
         ));
     }
+    enforce_stat_scope_visibility(&state, db, &filters, auth_user.as_ref()).await?;
     let response = load_player_boost_pad_control(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -777,6 +826,7 @@ pub async fn get_processing_version_breakdown(
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
     let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    enforce_stat_scope_visibility(&state, db, &filters, auth_user.as_ref()).await?;
     let breakdown = load_processing_version_breakdown(db, &filters)
         .await
         .map_err(ApiError::internal)?;

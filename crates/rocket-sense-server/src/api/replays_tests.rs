@@ -476,7 +476,7 @@ fn replay_group_select_includes_member_count() {
 
 #[test]
 fn replay_group_search_is_case_insensitive() {
-    let where_clause = replay_group_search_where_clause("$1");
+    let where_clause = format!("WHERE {}", replay_group_search_condition("$1"));
     let sql = replay_group_select_sql(&where_clause);
 
     assert!(where_clause.contains("replay_group.name ILIKE $1"));

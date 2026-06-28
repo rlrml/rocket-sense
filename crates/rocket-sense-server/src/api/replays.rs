@@ -15,7 +15,7 @@ use axum::{
         StatusCode,
     },
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use bytes::Bytes;
@@ -34,6 +34,7 @@ use uuid::Uuid;
 use super::query::{
     deserialize_string_vec, parse_bool_filter, parse_datetime_filter, parse_u32_filter, QueryParams,
 };
+use super::visibility::Visibility;
 
 /// Deserialize an optional field into `Option<Option<T>>` so a PATCH body can
 /// distinguish three cases: the field is absent (`None` → leave unchanged), the
@@ -77,6 +78,16 @@ pub fn router() -> Router<AppState> {
             get(get_replay).delete(delete_replay),
         )
         .route(
+            "/replays/{replay_id}/visibility",
+            patch(set_replay_visibility),
+        )
+        .route(
+            "/replays/{replay_id}/shares",
+            get(list_replay_shares)
+                .post(add_replay_share)
+                .delete(remove_replay_share),
+        )
+        .route(
             "/replay-groups",
             get(list_replay_groups).post(create_replay_group),
         )
@@ -107,6 +118,12 @@ pub fn router() -> Router<AppState> {
         .route(
             "/replay-groups/{group_id}/managers/{user_id}",
             delete(remove_replay_group_manager),
+        )
+        .route(
+            "/replay-groups/{group_id}/shares",
+            get(list_replay_group_shares)
+                .post(add_replay_group_share)
+                .delete(remove_replay_group_share),
         )
         .route(
             "/replay-groups/{group_id}/stats/boost-totals",
@@ -168,6 +185,12 @@ pub struct ReplayResponse {
     pub processing_version: ReplayProcessingVersionResponse,
     pub staleness: ReplayStalenessResponse,
     pub status: ReplayStatus,
+    /// How visible this replay is to other users. Privacy blocks direct access
+    /// only; private replays still feed group/career aggregates anonymously.
+    pub visibility: Visibility,
+    /// Whether the requesting user may change this replay's visibility/sharing
+    /// (the uploader or an admin). `false` for anonymous viewers.
+    pub viewer_can_manage: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -338,6 +361,9 @@ pub struct CreateReplayGroupRequest {
     /// rights on the parent.
     #[serde(default)]
     pub parent_id: Option<Uuid>,
+    /// Optional visibility override; defaults to the creator's account default.
+    #[serde(default)]
+    pub visibility: Option<Visibility>,
 }
 
 /// Create a replay group that mirrors a ballchasing.com group.
@@ -364,6 +390,9 @@ pub struct UpdateReplayGroupRequest {
     pub description: Option<Option<String>>,
     #[serde(default, deserialize_with = "double_option")]
     pub parent_id: Option<Option<Uuid>>,
+    /// Change the group's visibility (public / unlisted / private).
+    #[serde(default)]
+    pub visibility: Option<Visibility>,
 }
 
 #[derive(Debug, Deserialize, ToSchema)]
@@ -401,6 +430,12 @@ pub struct ReplayGroupResponse {
     pub ballchasing_sync_status: Option<String>,
     /// Error message from the last failed sync, if any.
     pub ballchasing_sync_error: Option<String>,
+    /// How visible this group is to other users. Privacy blocks direct access
+    /// to the group page/stats only; member replays still feed aggregates.
+    pub visibility: Visibility,
+    /// Whether the requesting user may manage this group (creator, co-manager,
+    /// or admin). `false` for anonymous viewers.
+    pub viewer_can_manage: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -709,9 +744,12 @@ pub async fn create_replay(
         .await
         .map_err(ApiError::internal)?
     {
-        let replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
+        let mut replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
         ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
+        // The file may already belong to another uploader, so resolve manage
+        // rights against the actual owner rather than assuming this caller.
+        annotate_replay_manage(db, Some(&auth_user), std::slice::from_mut(&mut replay)).await?;
         return Ok((
             StatusCode::OK,
             Json(CreateReplayResponse {
@@ -732,6 +770,9 @@ pub async fn create_replay(
         )
         .await
         .map_err(ApiError::internal)?;
+    let visibility =
+        super::visibility::user_default_visibility(db, auth_user.id, "default_replay_visibility")
+            .await?;
     let insert_result = insert_replay_metadata(
         db,
         NewReplayMetadata {
@@ -744,18 +785,20 @@ pub async fn create_replay(
             storage_byte_size: stored.storage_byte_size,
             uploaded_by_user_id: auth_user.id,
             external_replay_id: None,
+            visibility,
         },
     )
     .await
     .map_err(ApiError::internal)?;
     let replay = insert_result.replay;
 
-    let replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
+    let mut replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
     ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
 
     if insert_result.created {
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
     }
+    annotate_replay_manage(db, Some(&auth_user), std::slice::from_mut(&mut replay)).await?;
 
     let status = if insert_result.created {
         StatusCode::CREATED
@@ -813,6 +856,8 @@ struct NewReplayMetadata<'a> {
     uploaded_by_user_id: Uuid,
     /// Optional source replay id (e.g. ballchasing) recorded on insert.
     external_replay_id: Option<&'a str>,
+    /// Visibility for the new replay (the uploader's account default).
+    visibility: Visibility,
 }
 
 async fn maybe_upsert_preflight_metadata(
@@ -864,9 +909,10 @@ pub async fn list_replays(
     let db = require_db(&state)?;
     let query = ListReplaysQuery::from_raw_query(raw_query.as_deref())?;
     let filters = ReplayFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
-    let (total, replays) =
+    let (total, mut replays) =
         tokio::try_join!(count_replays(db, &filters), find_replays(db, &filters),)
             .map_err(ApiError::internal)?;
+    annotate_replay_manage(db, auth_user.as_ref(), &mut replays).await?;
     let count = replays.len() as u32;
     let returned_through = filters.offset.saturating_add(count);
     let next_offset = (u64::from(returned_through) < total).then_some(returned_through);
@@ -916,12 +962,17 @@ pub async fn list_replay_filter_options(
     )
 )]
 pub async fn get_replay(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(replay_id): Path<Uuid>,
 ) -> Result<Json<ReplayResponse>, ApiError> {
     let db = require_db(&state)?;
+    // Private replays 404 for non-owners so their existence isn't leaked.
+    if !super::visibility::can_view_replay(&state, db, replay_id, viewer.as_ref()).await? {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+    }
     let sql = replay_select_sql("WHERE r.id = $1");
-    let replay = sqlx::query(sql.as_str())
+    let mut replay = sqlx::query(sql.as_str())
         .bind(replay_id)
         .fetch_optional(db)
         .await
@@ -930,6 +981,7 @@ pub async fn get_replay(
         .transpose()
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+    annotate_replay_manage(db, viewer.as_ref(), std::slice::from_mut(&mut replay)).await?;
 
     Ok(Json(replay))
 }
@@ -1079,15 +1131,20 @@ async fn storage_key_still_referenced_event_stream(db: &PgPool, storage_key: &st
     )
 )]
 pub async fn get_replay_by_sha256(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(file_sha256): Path<String>,
 ) -> Result<Json<ReplayResponse>, ApiError> {
     let db = require_db(&state)?;
     let file_sha256 = normalize_sha256_hex(&file_sha256)?;
-    let replay = find_replay_by_sha256(db, &file_sha256)
+    let mut replay = find_replay_by_sha256(db, &file_sha256)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+    if !super::visibility::can_view_replay(&state, db, replay.id, viewer.as_ref()).await? {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+    }
+    annotate_replay_manage(db, viewer.as_ref(), std::slice::from_mut(&mut replay)).await?;
 
     Ok(Json(replay))
 }
@@ -1115,7 +1172,7 @@ pub async fn list_replay_groups(
             "authentication is required to list your replay groups",
         ));
     }
-    let groups = load_replay_groups(
+    let mut groups = load_replay_groups(
         db,
         auth_user.as_ref().map(|user| user.id),
         query.scope,
@@ -1123,6 +1180,7 @@ pub async fn list_replay_groups(
     )
     .await
     .map_err(ApiError::internal)?;
+    annotate_group_manage(db, auth_user.as_ref(), &mut groups).await?;
 
     Ok(Json(ListReplayGroupsResponse { groups }))
 }
@@ -1158,6 +1216,13 @@ pub async fn create_replay_group(
         .await
         .map_err(ApiError::internal)?;
 
+    let visibility = match request.visibility {
+        Some(visibility) => visibility,
+        None => {
+            super::visibility::user_default_visibility(db, auth_user.id, "default_group_visibility")
+                .await?
+        }
+    };
     let group_id = Uuid::now_v7();
     sqlx::query(
         r#"
@@ -1167,9 +1232,10 @@ pub async fn create_replay_group(
             parent_group_id,
             name,
             description,
-            created_by_user_id
+            created_by_user_id,
+            visibility
         )
-        VALUES ($1, $2, $3, $4, $5, $6)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
         "#,
     )
     .bind(group_id)
@@ -1178,14 +1244,17 @@ pub async fn create_replay_group(
     .bind(name)
     .bind(request.description.filter(|value| !value.trim().is_empty()))
     .bind(auth_user.id)
+    .bind(visibility.as_str())
     .execute(db)
     .await
     .map_err(ApiError::internal)?;
 
-    let group = load_replay_group(db, group_id)
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    // Reached only after a manager-gated mutation, so the actor can manage it.
+    group.viewer_can_manage = true;
 
     Ok(Json(group))
 }
@@ -1269,6 +1338,9 @@ pub async fn create_ballchasing_mirror_group(
     };
     let name = validate_replay_group_name(&name)?;
 
+    let visibility =
+        super::visibility::user_default_visibility(db, auth_user.id, "default_group_visibility")
+            .await?;
     let group_id = Uuid::now_v7();
     sqlx::query(
         r#"
@@ -1278,9 +1350,10 @@ pub async fn create_ballchasing_mirror_group(
             name,
             created_by_user_id,
             ballchasing_group_id,
-            ballchasing_sync_status
+            ballchasing_sync_status,
+            visibility
         )
-        VALUES ($1, $2, $3, $4, $5, 'pending')
+        VALUES ($1, $2, $3, $4, $5, 'pending', $6)
         "#,
     )
     .bind(group_id)
@@ -1288,6 +1361,7 @@ pub async fn create_ballchasing_mirror_group(
     .bind(name)
     .bind(auth_user.id)
     .bind(&ballchasing_group_id)
+    .bind(visibility.as_str())
     .execute(db)
     .await
     .map_err(ApiError::internal)?;
@@ -1296,10 +1370,12 @@ pub async fn create_ballchasing_mirror_group(
         .await
         .map_err(ApiError::internal)?;
 
-    let group = load_replay_group(db, group_id)
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    // Reached only after a manager-gated mutation, so the actor can manage it.
+    group.viewer_can_manage = true;
 
     Ok(Json(group))
 }
@@ -1362,10 +1438,12 @@ pub async fn trigger_ballchasing_group_sync(
         .await
         .map_err(ApiError::internal)?;
 
-    let group = load_replay_group(db, group_id)
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    // Reached only after a manager-gated mutation, so the actor can manage it.
+    group.viewer_can_manage = true;
 
     Ok(Json(group))
 }
@@ -1384,14 +1462,22 @@ pub async fn trigger_ballchasing_group_sync(
     )
 )]
 pub async fn get_replay_group(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<ReplayGroupResponse>, ApiError> {
     let db = require_db(&state)?;
-    let group = load_replay_group(db, group_id)
+    if !super::visibility::can_view_group(&state, db, group_id, viewer.as_ref()).await? {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "replay group not found",
+        ));
+    }
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    annotate_group_manage(db, viewer.as_ref(), std::slice::from_mut(&mut group)).await?;
 
     Ok(Json(group))
 }
@@ -1450,6 +1536,12 @@ pub async fn update_replay_group(
         has_change = true;
     }
 
+    if let Some(visibility) = request.visibility {
+        separated.push("visibility = ");
+        separated.push_bind_unseparated(visibility.as_str());
+        has_change = true;
+    }
+
     if !has_change {
         return Err(ApiError::bad_request(
             "replay group update must change at least one field",
@@ -1472,10 +1564,12 @@ pub async fn update_replay_group(
         ));
     }
 
-    let group = load_replay_group(db, group_id)
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    // Reached only after a manager-gated mutation, so the actor can manage it.
+    group.viewer_can_manage = true;
 
     Ok(Json(group))
 }
@@ -1535,17 +1629,24 @@ pub async fn delete_replay_group(
     )
 )]
 pub async fn list_replay_group_replays(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<ListReplaysResponse>, ApiError> {
     let db = require_db(&state)?;
-    require_replay_group(db, group_id).await?;
+    if !super::visibility::can_view_group(&state, db, group_id, viewer.as_ref()).await? {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "replay group not found",
+        ));
+    }
     let total = count_replay_group_replays(db, group_id)
         .await
         .map_err(ApiError::internal)?;
-    let replays = load_replay_group_replays(db, group_id)
+    let mut replays = load_replay_group_replays(db, group_id)
         .await
         .map_err(ApiError::internal)?;
+    annotate_replay_manage(db, viewer.as_ref(), &mut replays).await?;
 
     Ok(Json(ListReplaysResponse {
         count: replays.len() as u32,
@@ -1612,10 +1713,12 @@ pub async fn add_replay_group_replays(
         .rows_affected()
     };
 
-    let group = load_replay_group(db, group_id)
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    // Reached only after a manager-gated mutation, so the actor can manage it.
+    group.viewer_can_manage = true;
 
     Ok(Json(ReplayGroupReplayUpdateResponse {
         group,
@@ -1664,10 +1767,12 @@ pub async fn remove_replay_group_replays(
     .execute(db)
     .await
     .map_err(ApiError::internal)?;
-    let group = load_replay_group(db, group_id)
+    let mut group = load_replay_group(db, group_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay group not found"))?;
+    // Reached only after a manager-gated mutation, so the actor can manage it.
+    group.viewer_can_manage = true;
 
     Ok(Json(ReplayGroupReplayUpdateResponse {
         group,
@@ -1828,11 +1933,15 @@ pub async fn remove_replay_group_manager(
     )
 )]
 pub async fn download_replay_file(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(replay_id): Path<Uuid>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Response, ApiError> {
     let db = require_db(&state)?;
+    if !super::visibility::can_view_replay(&state, db, replay_id, viewer.as_ref()).await? {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+    }
     let download_encoding = parse_encoding_query(
         raw_query.as_deref(),
         &["download-encoding", "download_encoding", "encoding"],
@@ -1901,10 +2010,14 @@ pub struct BoostTracksResponse {
 /// totals) for the replay's canonical analysis run. Returns an empty list when
 /// the replay has not been (re)processed with boost accumulation tracks yet.
 pub async fn get_replay_boost_tracks(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(replay_id): Path<Uuid>,
 ) -> Result<Json<BoostTracksResponse>, ApiError> {
     let db = require_db(&state)?;
+    if !super::visibility::can_view_replay(&state, db, replay_id, viewer.as_ref()).await? {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+    }
     let row = sqlx::query(
         r#"
         SELECT t.tracks AS tracks
@@ -2069,10 +2182,17 @@ fn accumulate_group_boost_tracks(
 /// when no replay in the group has been processed with boost accumulation
 /// tracks yet.
 pub async fn get_replay_group_boost_totals(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(group_id): Path<Uuid>,
 ) -> Result<Json<GroupBoostTotalsResponse>, ApiError> {
     let db = require_db(&state)?;
+    if !super::visibility::can_view_group(&state, db, group_id, viewer.as_ref()).await? {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "replay group not found",
+        ));
+    }
     let rows = sqlx::query(
         r#"
         SELECT t.tracks AS tracks
@@ -2233,6 +2353,9 @@ struct ReplayFilters {
     created_before: Option<DateTime<Utc>>,
     replay_date_after: Option<DateTime<Utc>>,
     replay_date_before: Option<DateTime<Utc>>,
+    /// The requesting user, used to limit the list to replays they may see
+    /// (public, plus their own/shared). `None` for an anonymous viewer.
+    viewer_user_id: Option<Uuid>,
     count: u32,
     offset: u32,
     sort_by: SortBy,
@@ -2292,6 +2415,7 @@ impl ReplayFilters {
             created_before: query.created_before,
             replay_date_after: query.replay_date_after,
             replay_date_before: query.replay_date_before,
+            viewer_user_id: auth_user_id,
             count: query.count.unwrap_or(50).clamp(1, 200),
             offset: query.offset.unwrap_or(0),
             sort_by: SortBy::from_query(query.sort_by.as_deref())?,
@@ -3019,6 +3143,12 @@ pub async fn import_replay_from_bytes(
         )
         .await
         .map_err(ApiError::internal)?;
+    let visibility = super::visibility::user_default_visibility(
+        db,
+        uploaded_by_user_id,
+        "default_replay_visibility",
+    )
+    .await?;
     let insert_result = insert_replay_metadata(
         db,
         NewReplayMetadata {
@@ -3031,6 +3161,7 @@ pub async fn import_replay_from_bytes(
             storage_byte_size: stored.storage_byte_size,
             uploaded_by_user_id,
             external_replay_id,
+            visibility,
         },
     )
     .await
@@ -3067,48 +3198,52 @@ async fn load_replay_groups(
     search: Option<&str>,
 ) -> Result<Vec<ReplayGroupResponse>, sqlx::Error> {
     let scope = scope.unwrap_or_default();
-    let user_id = match scope {
+    let scope_user_id = match scope {
         ReplayGroupListScope::All => None,
         ReplayGroupListScope::Auto | ReplayGroupListScope::Mine => auth_user_id,
     };
     let search_pattern = search
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(|search| format!("%{}%", escape_like_term(search)));
+        .map(|value| format!("%{}%", escape_like_term(value)));
 
-    let rows = match (user_id, search_pattern) {
-        (Some(user_id), Some(search_pattern)) => {
-            let search_clause = replay_group_search_condition("$2");
-            let sql = replay_group_select_sql(&format!(
-                "{} AND ({search_clause})",
-                replay_group_managed_by_user_where_clause()
-            ));
-            sqlx::query(sql.as_str())
-                .bind(user_id)
-                .bind(search_pattern)
-                .fetch_all(pool)
-                .await?
-        }
-        (Some(user_id), None) => {
-            let sql = replay_group_select_sql(replay_group_managed_by_user_where_clause());
-            sqlx::query(sql.as_str())
-                .bind(user_id)
-                .fetch_all(pool)
-                .await?
-        }
-        (None, Some(search_pattern)) => {
-            let sql = replay_group_select_sql(&replay_group_search_where_clause("$1"));
-            sqlx::query(sql.as_str())
-                .bind(search_pattern)
-                .fetch_all(pool)
-                .await?
-        }
-        (None, None) => {
-            sqlx::query(replay_group_select_sql("").as_str())
-                .fetch_all(pool)
-                .await?
-        }
+    // Bind order: the scope-user id (if scoping to "mine") is always $1, so
+    // `replay_group_managed_by_user_where_clause`'s hard-coded $1 stays valid;
+    // then the search pattern; then the viewer id for the always-on privacy
+    // filter, which applies regardless of scope — "all" groups still excludes
+    // private groups the viewer can't see.
+    let mut next_index = if scope_user_id.is_some() { 1u32 } else { 0 };
+    let mut next_param = move || {
+        next_index += 1;
+        format!("${next_index}")
     };
+
+    let mut where_clause = if scope_user_id.is_some() {
+        replay_group_managed_by_user_where_clause().to_owned()
+    } else {
+        "WHERE TRUE".to_owned()
+    };
+    if search_pattern.is_some() {
+        let param = next_param();
+        where_clause.push_str(&format!(" AND ({})", replay_group_search_condition(&param)));
+    }
+    let viewer_param = auth_user_id.map(|_| next_param());
+    where_clause.push_str(&super::visibility::group_list_visibility_sql(
+        viewer_param.as_deref(),
+    ));
+
+    let sql = replay_group_select_sql(&where_clause);
+    let mut query = sqlx::query(sql.as_str());
+    if let Some(user_id) = scope_user_id {
+        query = query.bind(user_id);
+    }
+    if let Some(pattern) = &search_pattern {
+        query = query.bind(pattern);
+    }
+    if let Some(user_id) = auth_user_id {
+        query = query.bind(user_id);
+    }
+    let rows = query.fetch_all(pool).await?;
 
     rows.into_iter().map(replay_group_from_row).collect()
 }
@@ -3126,21 +3261,224 @@ async fn load_replay_group(
         .transpose()
 }
 
-async fn require_replay_group(pool: &PgPool, group_id: Uuid) -> Result<(), ApiError> {
-    let exists: bool =
-        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM replay_groups WHERE id = $1)")
-            .bind(group_id)
-            .fetch_one(pool)
+/// Owner-or-admin gate for managing a replay's visibility/sharing. 404 when the
+/// replay is missing so its existence isn't leaked.
+async fn require_replay_manager(
+    state: &AppState,
+    pool: &PgPool,
+    replay_id: Uuid,
+    auth_user: &AuthUser,
+) -> Result<(), ApiError> {
+    let uploaded_by: Option<Uuid> =
+        sqlx::query_scalar("SELECT uploaded_by_user_id FROM replays WHERE id = $1")
+            .bind(replay_id)
+            .fetch_optional(pool)
             .await
-            .map_err(ApiError::internal)?;
-    if exists {
+            .map_err(ApiError::internal)?
+            .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+    if uploaded_by == Some(auth_user.id) {
+        return Ok(());
+    }
+    let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)
+        .await
+        .map_err(ApiError::internal)?;
+    if is_admin {
         Ok(())
     } else {
         Err(ApiError::new(
-            StatusCode::NOT_FOUND,
-            "replay group not found",
+            StatusCode::FORBIDDEN,
+            "you do not have permission to modify this replay",
         ))
     }
+}
+
+/// Change a replay's visibility. Owner or admin only.
+pub async fn set_replay_visibility(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+    Json(request): Json<super::visibility::SetVisibilityRequest>,
+) -> Result<Json<ReplayResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_manager(&state, db, replay_id, &auth_user).await?;
+    sqlx::query("UPDATE replays SET visibility = $2, updated_at = now() WHERE id = $1")
+        .bind(replay_id)
+        .bind(request.visibility.as_str())
+        .execute(db)
+        .await
+        .map_err(ApiError::internal)?;
+
+    let sql = replay_select_sql("WHERE r.id = $1");
+    let mut replay = sqlx::query(sql.as_str())
+        .bind(replay_id)
+        .fetch_optional(db)
+        .await
+        .map_err(ApiError::internal)?
+        .map(replay_from_row)
+        .transpose()
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "replay not found"))?;
+    replay.viewer_can_manage = true;
+
+    Ok(Json(replay))
+}
+
+/// List the users a replay has been explicitly shared with. Owner or admin only.
+pub async fn list_replay_shares(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_manager(&state, db, replay_id, &auth_user).await?;
+    let shares = super::visibility::list_uuid_shares(
+        db,
+        super::visibility::UuidShareTable::Replay,
+        replay_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// Grant a user read access to a replay. Owner or admin only.
+pub async fn add_replay_share(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+    Json(request): Json<super::visibility::ShareTargetRequest>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_manager(&state, db, replay_id, &auth_user).await?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+    let target_user_id = super::visibility::resolve_share_target_user(db, &request).await?;
+    super::visibility::add_uuid_share(
+        db,
+        super::visibility::UuidShareTable::Replay,
+        replay_id,
+        target_user_id,
+        auth_user.id,
+    )
+    .await?;
+    let shares = super::visibility::list_uuid_shares(
+        db,
+        super::visibility::UuidShareTable::Replay,
+        replay_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// Revoke a user's read access to a replay. Owner or admin only.
+pub async fn remove_replay_share(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(replay_id): Path<Uuid>,
+    Json(request): Json<super::visibility::ShareTargetRequest>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_manager(&state, db, replay_id, &auth_user).await?;
+    let target_user_id = super::visibility::resolve_share_target_user(db, &request).await?;
+    let removed = super::visibility::remove_uuid_share(
+        db,
+        super::visibility::UuidShareTable::Replay,
+        replay_id,
+        target_user_id,
+    )
+    .await?;
+    if !removed {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "that user is not shared on this replay",
+        ));
+    }
+    let shares = super::visibility::list_uuid_shares(
+        db,
+        super::visibility::UuidShareTable::Replay,
+        replay_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// List the users a replay group has been explicitly shared with. Manager only.
+pub async fn list_replay_group_shares(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    let shares = super::visibility::list_uuid_shares(
+        db,
+        super::visibility::UuidShareTable::ReplayGroup,
+        group_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// Grant a user read access to a replay group. Manager only.
+pub async fn add_replay_group_share(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+    Json(request): Json<super::visibility::ShareTargetRequest>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    upsert_user(db, &auth_user)
+        .await
+        .map_err(ApiError::internal)?;
+    let target_user_id = super::visibility::resolve_share_target_user(db, &request).await?;
+    super::visibility::add_uuid_share(
+        db,
+        super::visibility::UuidShareTable::ReplayGroup,
+        group_id,
+        target_user_id,
+        auth_user.id,
+    )
+    .await?;
+    let shares = super::visibility::list_uuid_shares(
+        db,
+        super::visibility::UuidShareTable::ReplayGroup,
+        group_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// Revoke a user's read access to a replay group. Manager only.
+pub async fn remove_replay_group_share(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(group_id): Path<Uuid>,
+    Json(request): Json<super::visibility::ShareTargetRequest>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_replay_group_manager(&state, db, group_id, &auth_user).await?;
+    let target_user_id = super::visibility::resolve_share_target_user(db, &request).await?;
+    let removed = super::visibility::remove_uuid_share(
+        db,
+        super::visibility::UuidShareTable::ReplayGroup,
+        group_id,
+        target_user_id,
+    )
+    .await?;
+    if !removed {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "that user is not shared on this replay group",
+        ));
+    }
+    let shares = super::visibility::list_uuid_shares(
+        db,
+        super::visibility::UuidShareTable::ReplayGroup,
+        group_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
 }
 
 async fn require_replay_group_manager(
@@ -3470,6 +3808,7 @@ fn replay_group_select_sql(where_clause: &str) -> String {
             replay_group.ballchasing_synced_at,
             replay_group.ballchasing_sync_status,
             replay_group.ballchasing_sync_error,
+            replay_group.visibility,
             replay_group.created_at,
             replay_group.updated_at
         FROM replay_groups replay_group
@@ -3506,10 +3845,6 @@ fn replay_group_managed_by_user_where_clause() -> &'static str {
         "#
 }
 
-fn replay_group_search_where_clause(parameter: &str) -> String {
-    format!("WHERE {}", replay_group_search_condition(parameter))
-}
-
 fn replay_group_search_condition(parameter: &str) -> String {
     format!(
         "replay_group.name ILIKE {parameter} ESCAPE '\\' \
@@ -3537,9 +3872,26 @@ fn replay_group_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayGroupRespon
         ballchasing_synced_at: row.try_get("ballchasing_synced_at")?,
         ballchasing_sync_status: row.try_get("ballchasing_sync_status")?,
         ballchasing_sync_error: row.try_get("ballchasing_sync_error")?,
+        visibility: Visibility::from_db(&row.try_get::<String, _>("visibility")?),
+        // Set by the handler once the viewer is known (see annotate_group_manage).
+        viewer_can_manage: false,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
+}
+
+/// Set `viewer_can_manage` on each group for `viewer` in a single query.
+async fn annotate_group_manage(
+    pool: &PgPool,
+    viewer: Option<&AuthUser>,
+    groups: &mut [ReplayGroupResponse],
+) -> Result<(), ApiError> {
+    let ids: Vec<Uuid> = groups.iter().map(|group| group.id).collect();
+    let manageable = super::visibility::manageable_group_ids(pool, viewer, &ids).await?;
+    for group in groups.iter_mut() {
+        group.viewer_can_manage = manageable.contains(&group.id);
+    }
+    Ok(())
 }
 
 async fn maybe_enqueue_replay_processing(
@@ -3573,9 +3925,10 @@ async fn insert_replay_metadata(
                 storage_key,
                 storage_encoding,
                 storage_byte_size,
-                external_replay_id
+                external_replay_id,
+                visibility
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (file_sha256) DO NOTHING
             RETURNING id, TRUE AS created
         )
@@ -3598,6 +3951,7 @@ async fn insert_replay_metadata(
     .bind(metadata.storage_encoding.as_str())
     .bind(metadata.storage_byte_size as i64)
     .bind(metadata.external_replay_id)
+    .bind(metadata.visibility.as_str())
     .fetch_one(pool)
     .await?;
     let stored_replay_id: Uuid = row.try_get("id")?;
@@ -3718,6 +4072,23 @@ fn append_replay_filters<'args>(
     filters: &'args ReplayFilters,
 ) {
     builder.push(" WHERE TRUE");
+
+    // Visibility: only public replays appear in the list, plus the viewer's own
+    // and any shared with them. (Privacy blocks listing/direct access only; the
+    // aggregation paths don't go through this builder.)
+    match filters.viewer_user_id {
+        Some(viewer_id) => {
+            builder
+                .push(" AND (r.visibility = 'public' OR r.uploaded_by_user_id = ")
+                .push_bind(viewer_id)
+                .push(" OR EXISTS (SELECT 1 FROM replay_shares s WHERE s.replay_id = r.id AND s.user_id = ")
+                .push_bind(viewer_id)
+                .push("))");
+        }
+        None => {
+            builder.push(" AND r.visibility = 'public'");
+        }
+    }
 
     if let Some(pattern) = &filters.search_pattern {
         builder
@@ -3898,6 +4269,7 @@ pub(super) fn replay_select_sql(where_clause: &str) -> String {
             r.processed_with_subtr_actor_version,
             r.processed_with_subtr_actor_git_sha,
             r.processing_status,
+            r.visibility,
             r.created_at,
             r.updated_at
         FROM replays r
@@ -4055,9 +4427,27 @@ pub(super) fn replay_from_row(row: sqlx::postgres::PgRow) -> Result<ReplayRespon
         processing_version,
         staleness,
         status: ReplayStatus::from_db(processing_status),
+        visibility: Visibility::from_db(&row.try_get::<String, _>("visibility")?),
+        // Set by the handler once the viewer is known (see annotate_replay_manage).
+        viewer_can_manage: false,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
     })
+}
+
+/// Set `viewer_can_manage` on each replay for `viewer` in a single query, rather
+/// than per row. Anonymous viewers leave every flag `false`.
+async fn annotate_replay_manage(
+    pool: &PgPool,
+    viewer: Option<&AuthUser>,
+    replays: &mut [ReplayResponse],
+) -> Result<(), ApiError> {
+    let ids: Vec<Uuid> = replays.iter().map(|replay| replay.id).collect();
+    let manageable = super::visibility::manageable_replay_ids(pool, viewer, &ids).await?;
+    for replay in replays.iter_mut() {
+        replay.viewer_can_manage = manageable.contains(&replay.id);
+    }
+    Ok(())
 }
 
 fn replay_players_from_row(

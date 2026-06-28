@@ -118,9 +118,22 @@ import {
   setPlayerIdentityTag,
   syncBallchasingGroup,
   updateReplayGroup,
+  updateUserSettings,
   uploadReplay,
+  setReplayVisibility,
+  listReplayShares,
+  addReplayShare,
+  removeReplayShare,
+  listReplayGroupShares,
+  addReplayGroupShare,
+  removeReplayGroupShare,
+  setPlayerStatsVisibility,
+  listPlayerStatsShares,
+  addPlayerStatsShare,
+  removePlayerStatsShare,
 } from "./api";
 import type { ReplayGroupListScope } from "./api";
+import { DefaultVisibilitySettings, PrivacyPanel } from "./PrivacyControls";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { mapDisplayName } from "./maps";
@@ -245,6 +258,7 @@ import type {
   StatAggregateResponse,
   StatAggregateSetResponse,
   TouchAggregateBreakdownResponse,
+  Visibility,
 } from "./types";
 import type { LocalReprocessProgress } from "./stats/replayModel";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -2465,6 +2479,19 @@ function GroupSelectionBar({
       {showMembers && targetGroup ? (
         <GroupManagersPanel group={targetGroup} currentUserId={currentUser?.id ?? null} />
       ) : null}
+      {showMembers && targetGroup && targetGroup.viewer_can_manage ? (
+        <PrivacyPanel
+          visibility={targetGroup.visibility}
+          onVisibilityChange={async (next) => {
+            await updateReplayGroup(targetGroup.id, { visibility: next });
+            onGroupsChanged();
+          }}
+          listShares={() => listReplayGroupShares(targetGroup.id)}
+          addShare={(target) => addReplayGroupShare(targetGroup.id, target)}
+          removeShare={(target) => removeReplayGroupShare(targetGroup.id, target)}
+          currentUserId={currentUser?.id ?? null}
+        />
+      ) : null}
       {feedback ? (
         <p
           className={`replay-selection-feedback ${feedback.kind === "error" ? "is-error" : "is-ok"}`}
@@ -3004,6 +3031,20 @@ function ReplayStatsPage() {
           ) : null}
         </div>
       </header>
+
+      {replay && replay.viewer_can_manage ? (
+        <PrivacyPanel
+          visibility={replay.visibility}
+          onVisibilityChange={async (next) => {
+            const updated = await setReplayVisibility(replay.id, next);
+            setReplay(updated);
+          }}
+          listShares={() => listReplayShares(replay.id)}
+          addShare={(target) => addReplayShare(replay.id, target)}
+          removeShare={(target) => removeReplayShare(replay.id, target)}
+          currentUserId={currentUser?.id ?? null}
+        />
+      ) : null}
 
       <StatusLine loading={replayLoading} error={replayError} />
 
@@ -3645,6 +3686,20 @@ function ReplayGroupStatsPage() {
           </Link>
         </div>
       </header>
+
+      {group && group.viewer_can_manage ? (
+        <PrivacyPanel
+          visibility={group.visibility}
+          onVisibilityChange={async (next) => {
+            const updated = await updateReplayGroup(group.id, { visibility: next });
+            setGroup(updated);
+          }}
+          listShares={() => listReplayGroupShares(group.id)}
+          addShare={(target) => addReplayGroupShare(group.id, target)}
+          removeShare={(target) => removeReplayGroupShare(group.id, target)}
+          currentUserId={null}
+        />
+      ) : null}
 
       <StatusLine loading={groupLoading} error={groupError} />
 
@@ -4609,6 +4664,29 @@ function PlayerStatsPage({ view = "stats" }: { view?: "stats" | "timeline" } = {
           ) : null}
         </div>
       </header>
+      {playerSummary && playerSummary.viewer_can_manage ? (
+        <PrivacyPanel
+          visibility={playerSummary.visibility}
+          onVisibilityChange={async (next) => {
+            await setPlayerStatsVisibility(
+              playerSummary.platform,
+              playerSummary.platform_player_id,
+              next,
+            );
+            setPlayerSummary({ ...playerSummary, visibility: next });
+          }}
+          listShares={() =>
+            listPlayerStatsShares(playerSummary.platform, playerSummary.platform_player_id)
+          }
+          addShare={(target) =>
+            addPlayerStatsShare(playerSummary.platform, playerSummary.platform_player_id, target)
+          }
+          removeShare={(target) =>
+            removePlayerStatsShare(playerSummary.platform, playerSummary.platform_player_id, target)
+          }
+          currentUserId={currentUser?.id ?? null}
+        />
+      ) : null}
       <StatusLine loading={loading} error={error} />
       {playerSummary ? (
         <>
@@ -7700,6 +7778,18 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
   const claims = useMemo(() => parseAccessTokenClaims(token), [token]);
   const currentUser = useCurrentUser();
   const linkedIdentities = useLinkedIdentities(claims != null);
+  const [defaultVisibility, setDefaultVisibility] = useState<{
+    replay: Visibility;
+    group: Visibility;
+  } | null>(null);
+  useEffect(() => {
+    if (currentUser) {
+      setDefaultVisibility({
+        replay: currentUser.default_replay_visibility,
+        group: currentUser.default_group_visibility,
+      });
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     if (token.trim()) return;
@@ -7896,6 +7986,29 @@ function AccountPage({ initialLoginOpen = false }: { initialLoginOpen?: boolean 
             </div>
           </dl>
         </section>
+
+        {currentUser && defaultVisibility ? (
+          <section className="account-panel">
+            <div>
+              <h2>Privacy defaults</h2>
+              <p className="muted-text">
+                The visibility applied to replays you upload and groups you create. You can change
+                any item&rsquo;s visibility individually later.
+              </p>
+            </div>
+            <DefaultVisibilitySettings
+              replayVisibility={defaultVisibility.replay}
+              groupVisibility={defaultVisibility.group}
+              onChange={async (settings) => {
+                const updated = await updateUserSettings(settings);
+                setDefaultVisibility({
+                  replay: updated.default_replay_visibility,
+                  group: updated.default_group_visibility,
+                });
+              }}
+            />
+          </section>
+        ) : null}
 
         <section className="account-panel">
           <div>

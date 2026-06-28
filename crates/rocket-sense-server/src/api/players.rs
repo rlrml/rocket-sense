@@ -18,7 +18,9 @@ use super::{
     },
     replay_set::push_replay_group_subtree_membership_filter,
     replays::{require_db, ApiError},
+    visibility::Visibility,
 };
+use crate::auth::OptionalAuthUser;
 
 #[cfg(test)]
 #[path = "players_tests.rs"]
@@ -40,9 +42,169 @@ pub fn router() -> Router<AppState> {
             put(upsert_player_identity_tag).delete(delete_player_identity_tag),
         )
         .route(
+            "/players/{platform}/id/{platform_player_id}/stats-visibility",
+            axum::routing::put(set_player_stats_visibility),
+        )
+        .route(
+            "/players/{platform}/id/{platform_player_id}/stats-shares",
+            get(list_player_stats_shares)
+                .post(add_player_stats_share)
+                .delete(remove_player_stats_share),
+        )
+        .route(
             "/players/{platform}/{player_ref}",
             get(get_player_profile_by_ref),
         )
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerStatsVisibilityResponse {
+    pub platform: String,
+    pub platform_player_id: String,
+    pub visibility: Visibility,
+}
+
+/// Change a player's career-stats visibility. The identity owner (verified
+/// claim or matching login) or an admin only.
+pub async fn set_player_stats_visibility(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id)): Path<(String, String)>,
+    Json(request): Json<super::visibility::SetVisibilityRequest>,
+) -> Result<Json<PlayerStatsVisibilityResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    require_player_stats_manager(&state, db, &identity, &auth_user).await?;
+    sqlx::query(
+        "INSERT INTO player_identities (platform, platform_player_id, stats_visibility) \
+         VALUES ($1, $2, $3) \
+         ON CONFLICT (platform, platform_player_id) \
+         DO UPDATE SET stats_visibility = EXCLUDED.stats_visibility, updated_at = now()",
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(request.visibility.as_str())
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+    Ok(Json(PlayerStatsVisibilityResponse {
+        platform: identity.platform.clone(),
+        platform_player_id: identity.platform_player_id.clone(),
+        visibility: request.visibility,
+    }))
+}
+
+/// List the users a player's career stats have been shared with. Owner/admin.
+pub async fn list_player_stats_shares(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id)): Path<(String, String)>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    require_player_stats_manager(&state, db, &identity, &auth_user).await?;
+    let shares = super::visibility::list_player_stats_shares(
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// Grant a user read access to a player's career stats. Owner/admin.
+pub async fn add_player_stats_share(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id)): Path<(String, String)>,
+    Json(request): Json<super::visibility::ShareTargetRequest>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    require_player_stats_manager(&state, db, &identity, &auth_user).await?;
+    // The share table references player_identities; ensure the row exists first.
+    sqlx::query(
+        "INSERT INTO player_identities (platform, platform_player_id) \
+         VALUES ($1, $2) ON CONFLICT DO NOTHING",
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .execute(db)
+    .await
+    .map_err(ApiError::internal)?;
+    let target_user_id = super::visibility::resolve_share_target_user(db, &request).await?;
+    super::visibility::add_player_stats_share(
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+        target_user_id,
+        auth_user.id,
+    )
+    .await?;
+    let shares = super::visibility::list_player_stats_shares(
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+/// Revoke a user's read access to a player's career stats. Owner/admin.
+pub async fn remove_player_stats_share(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id)): Path<(String, String)>,
+    Json(request): Json<super::visibility::ShareTargetRequest>,
+) -> Result<Json<super::visibility::ListSharesResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    require_player_stats_manager(&state, db, &identity, &auth_user).await?;
+    let target_user_id = super::visibility::resolve_share_target_user(db, &request).await?;
+    let removed = super::visibility::remove_player_stats_share(
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+        target_user_id,
+    )
+    .await?;
+    if !removed {
+        return Err(ApiError::new(
+            StatusCode::NOT_FOUND,
+            "that user is not shared on these stats",
+        ));
+    }
+    let shares = super::visibility::list_player_stats_shares(
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+    )
+    .await?;
+    Ok(Json(super::visibility::ListSharesResponse { shares }))
+}
+
+async fn require_player_stats_manager(
+    state: &AppState,
+    db: &sqlx::PgPool,
+    identity: &PlayerIdentity,
+    auth_user: &AuthUser,
+) -> Result<(), ApiError> {
+    if super::visibility::can_manage_player_stats(
+        state,
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+        auth_user,
+    )
+    .await?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "you do not have permission to change this player's stats privacy",
+        ))
+    }
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -59,6 +221,13 @@ pub struct PlayerProfileResponse {
     pub is_pro: bool,
     pub tags: Vec<PlayerIdentityTagResponse>,
     pub latest_replays: Vec<PlayerProfileReplayResponse>,
+    /// Career-stats visibility for this player identity. Privacy blocks direct
+    /// access to the career page/aggregates; the player can still appear in
+    /// other people's replays and group leaderboards.
+    pub visibility: Visibility,
+    /// Whether the requesting user may change this player's stats visibility
+    /// (owns the identity via a verified claim/login, or is an admin).
+    pub viewer_can_manage: bool,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -246,6 +415,7 @@ pub struct PlayerProfileQuery {
     )
 )]
 pub async fn get_player_profile(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path((platform, platform_player_id)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,
@@ -256,11 +426,14 @@ pub async fn get_player_profile(
     let filters = PlayerProfileFilters::from_query(query)?;
 
     let profile = load_required_player_profile(db, &identity, &filters).await?;
+    let profile =
+        annotate_player_visibility(&state, db, &identity, viewer.as_ref(), profile).await?;
 
     Ok(Json(profile))
 }
 
 pub async fn get_player_profile_by_ref(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path((platform, player_ref)): Path<(String, String)>,
     RawQuery(raw_query): RawQuery,
@@ -272,8 +445,53 @@ pub async fn get_player_profile_by_ref(
         .await?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))?;
     let profile = load_required_player_profile(db, &identity, &filters).await?;
+    let profile =
+        annotate_player_visibility(&state, db, &identity, viewer.as_ref(), profile).await?;
 
     Ok(Json(profile))
+}
+
+/// Gate a player profile by its career-stats visibility (404 when the viewer may
+/// not see a private player), and fill the response's `visibility` /
+/// `viewer_can_manage` fields.
+async fn annotate_player_visibility(
+    state: &AppState,
+    db: &sqlx::PgPool,
+    identity: &PlayerIdentity,
+    viewer: Option<&AuthUser>,
+    mut profile: PlayerProfileResponse,
+) -> Result<PlayerProfileResponse, ApiError> {
+    if !super::visibility::can_view_player_stats(
+        state,
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+        viewer,
+    )
+    .await?
+    {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "player not found"));
+    }
+    profile.visibility = super::visibility::player_stats_visibility(
+        db,
+        &identity.platform,
+        &identity.platform_player_id,
+    )
+    .await?;
+    profile.viewer_can_manage = match viewer {
+        Some(user) => {
+            super::visibility::can_manage_player_stats(
+                state,
+                db,
+                &identity.platform,
+                &identity.platform_player_id,
+                user,
+            )
+            .await?
+        }
+        None => false,
+    };
+    Ok(profile)
 }
 
 #[utoipa::path(
@@ -863,6 +1081,9 @@ async fn load_player_profile(
             .unwrap_or(false),
         tags,
         latest_replays,
+        // Filled in by the handler once the viewer is known.
+        visibility: Visibility::default(),
+        viewer_can_manage: false,
     }))
 }
 

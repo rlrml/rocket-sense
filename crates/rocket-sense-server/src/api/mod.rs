@@ -23,6 +23,7 @@ mod replays;
 mod spa;
 mod stats;
 mod users;
+mod visibility;
 
 /// Reused by `crate::processing` to key the rank-median benchmark population on
 /// the exact same playlist-group expression the read path filters by (a

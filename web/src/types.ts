@@ -52,6 +52,20 @@ export interface UserProfileResponse {
   game_identities: UserGameIdentity[];
 }
 
+export type Visibility = "public" | "unlisted" | "private";
+
+export interface ShareResponse {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  added_by_user_id: string | null;
+  created_at: string;
+}
+
+export interface ListSharesResponse {
+  shares: ShareResponse[];
+}
+
 export interface ReplayResponse {
   id: string;
   file_sha256: string;
@@ -84,6 +98,8 @@ export interface ReplayResponse {
   processing_version: ReplayProcessingVersion;
   staleness: ReplayStaleness;
   status: ReplayStatus;
+  visibility: Visibility;
+  viewer_can_manage: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -102,6 +118,8 @@ export interface ReplayGroupResponse {
   ballchasing_synced_at: string | null;
   ballchasing_sync_status: string | null;
   ballchasing_sync_error: string | null;
+  visibility: Visibility;
+  viewer_can_manage: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -315,6 +333,8 @@ export interface ReplayGroupResponse {
   ballchasing_synced_at: string | null;
   ballchasing_sync_status: string | null;
   ballchasing_sync_error: string | null;
+  visibility: Visibility;
+  viewer_can_manage: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -973,6 +993,8 @@ export interface CurrentUserResponse {
   display_name: string;
   provider_name: string;
   is_admin: boolean;
+  default_replay_visibility: Visibility;
+  default_group_visibility: Visibility;
 }
 
 export interface LinkedIdentityResponse {
@@ -1044,6 +1066,8 @@ export interface PlayerProfileResponse {
   is_pro: boolean;
   tags: PlayerIdentityTag[];
   latest_replays: PlayerProfileReplayResponse[];
+  visibility: Visibility;
+  viewer_can_manage: boolean;
 }
 
 export interface PlayerIdentityTag {

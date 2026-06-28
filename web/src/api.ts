@@ -14,6 +14,8 @@ import type {
   ListReplayGroupsResponse,
   ListReplayGroupManagersResponse,
   ListReplaysResponse,
+  ListSharesResponse,
+  Visibility,
   UploadsLeaderboardResponse,
   AppearancesLeaderboardResponse,
   EventLeaderboardResponse,
@@ -220,6 +222,7 @@ export function updateReplayGroup(
     name?: string;
     description?: string | null;
     parent_id?: string | null;
+    visibility?: Visibility;
   },
 ): Promise<ReplayGroupResponse> {
   return request<ReplayGroupResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`, {
@@ -227,6 +230,127 @@ export function updateReplayGroup(
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+// Privacy / sharing -------------------------------------------------------
+
+/** Identify a user to share with: provide exactly one of user_id or email. */
+export type ShareTarget = { user_id: string } | { email: string };
+
+function jsonBody(method: string, body: unknown): ApiRequestOptions {
+  return {
+    method,
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  };
+}
+
+export function setReplayVisibility(
+  replayId: string,
+  visibility: Visibility,
+): Promise<ReplayResponse> {
+  return request<ReplayResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/visibility`,
+    jsonBody("PATCH", { visibility }),
+  );
+}
+
+export function listReplayShares(replayId: string): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(`/api/v1/replays/${encodeURIComponent(replayId)}/shares`);
+}
+
+export function addReplayShare(replayId: string, target: ShareTarget): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/shares`,
+    jsonBody("POST", target),
+  );
+}
+
+export function removeReplayShare(
+  replayId: string,
+  target: ShareTarget,
+): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/shares`,
+    jsonBody("DELETE", target),
+  );
+}
+
+export function listReplayGroupShares(groupId: string): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}/shares`);
+}
+
+export function addReplayGroupShare(
+  groupId: string,
+  target: ShareTarget,
+): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/shares`,
+    jsonBody("POST", target),
+  );
+}
+
+export function removeReplayGroupShare(
+  groupId: string,
+  target: ShareTarget,
+): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/shares`,
+    jsonBody("DELETE", target),
+  );
+}
+
+function playerStatsBase(platform: string, platformPlayerId: string): string {
+  return `/api/v1/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(
+    platformPlayerId,
+  )}`;
+}
+
+export function setPlayerStatsVisibility(
+  platform: string,
+  platformPlayerId: string,
+  visibility: Visibility,
+): Promise<{ platform: string; platform_player_id: string; visibility: Visibility }> {
+  return request(
+    `${playerStatsBase(platform, platformPlayerId)}/stats-visibility`,
+    jsonBody("PUT", { visibility }),
+  );
+}
+
+export function listPlayerStatsShares(
+  platform: string,
+  platformPlayerId: string,
+): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(`${playerStatsBase(platform, platformPlayerId)}/stats-shares`);
+}
+
+export function addPlayerStatsShare(
+  platform: string,
+  platformPlayerId: string,
+  target: ShareTarget,
+): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(
+    `${playerStatsBase(platform, platformPlayerId)}/stats-shares`,
+    jsonBody("POST", target),
+  );
+}
+
+export function removePlayerStatsShare(
+  platform: string,
+  platformPlayerId: string,
+  target: ShareTarget,
+): Promise<ListSharesResponse> {
+  return request<ListSharesResponse>(
+    `${playerStatsBase(platform, platformPlayerId)}/stats-shares`,
+    jsonBody("DELETE", target),
+  );
+}
+
+export function updateUserSettings(body: {
+  default_replay_visibility?: Visibility;
+  default_group_visibility?: Visibility;
+}): Promise<CurrentUserResponse> {
+  return request<CurrentUserResponse>("/api/v1/me/settings", jsonBody("PATCH", body));
 }
 
 export function createBallchasingMirror(body: {

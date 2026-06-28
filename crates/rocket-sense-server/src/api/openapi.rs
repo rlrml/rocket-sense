@@ -1,7 +1,7 @@
 use super::{
     admin, auth, ballchasing, favorites, game_outcomes, health, leaderboards, meta, movement_stats,
     player_overview, player_timeline, players, positioning_stats, possession_stats,
-    rank_benchmark_cohorts, rank_trends, replays, stats, users,
+    rank_benchmark_cohorts, rank_trends, replays, stats, users, visibility,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -37,6 +37,7 @@ use utoipa::{
         auth::create_profile_token,
         auth::logout,
         auth::get_current_user,
+        auth::update_user_settings,
         auth::list_current_user_identities,
         favorites::list_favorites,
         favorites::add_favorite_player,
@@ -101,6 +102,13 @@ use utoipa::{
             auth::AuthProviderResponse,
             auth::LinkedIdentitiesResponse,
             auth::LinkedIdentityResponse,
+            auth::UpdateUserSettingsRequest,
+            visibility::Visibility,
+            visibility::ShareResponse,
+            visibility::ListSharesResponse,
+            visibility::ShareTargetRequest,
+            visibility::SetVisibilityRequest,
+            players::PlayerStatsVisibilityResponse,
             favorites::FavoritesResponse,
             favorites::FavoritePlayerResponse,
             favorites::FavoriteUploaderResponse,
