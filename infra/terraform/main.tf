@@ -356,6 +356,11 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name  = "ROCKET_SENSE_RANK_BENCHMARK_WINDOWS"
+            value = "rolling-12m"
+          }
+
+          env {
             name  = "ROCKET_SENSE_LOG_FORMAT"
             value = "json"
           }
@@ -528,6 +533,17 @@ resource "kubernetes_deployment_v1" "server" {
           }
 
           env {
+            name = "BALLCHASING_API_KEY"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "BALLCHASING_API_KEY"
+                optional = true
+              }
+            }
+          }
+
+          env {
             name = "DATABASE_URL"
             value_from {
               secret_key_ref {
@@ -636,6 +652,11 @@ resource "kubernetes_deployment_v1" "worker" {
           env {
             name  = "ROCKET_SENSE_RANK_BENCHMARK"
             value = "true"
+          }
+
+          env {
+            name  = "ROCKET_SENSE_RANK_BENCHMARK_WINDOWS"
+            value = "rolling-12m"
           }
 
           env {
@@ -790,6 +811,17 @@ resource "kubernetes_deployment_v1" "worker" {
               secret_key_ref {
                 name     = "rocket-sense-secrets"
                 key      = "STEAM_WEB_API_KEY"
+                optional = true
+              }
+            }
+          }
+
+          env {
+            name = "BALLCHASING_API_KEY"
+            value_from {
+              secret_key_ref {
+                name     = "rocket-sense-secrets"
+                key      = "BALLCHASING_API_KEY"
                 optional = true
               }
             }
