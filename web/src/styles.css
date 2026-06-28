@@ -1901,11 +1901,18 @@ tbody tr:last-child td {
   color: #1d4ed8;
 }
 
+.replay-group-page > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
 .replay-group-page .stat-group-nav,
 .replay-group-page .group-participant-strip,
 .replay-group-page .replay-group-subgroup-list,
 .replay-group-page .ballchasing-mirror-status {
+  width: 100%;
   max-width: 100%;
+  min-width: 0;
   overflow-x: auto;
   flex-wrap: nowrap;
   padding-bottom: 4px;
@@ -1915,6 +1922,7 @@ tbody tr:last-child td {
 .replay-group-page .replay-group-subgroup-list .secondary-button,
 .replay-group-page .ballchasing-mirror-status > * {
   flex: 0 0 auto;
+  width: auto;
 }
 
 .replay-group-games-table {
