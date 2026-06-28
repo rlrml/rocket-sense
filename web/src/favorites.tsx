@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Star, Users } from "lucide-react";
+import { FileVideo, Star, Users } from "lucide-react";
 import {
   addFavoritePlayer,
   addFavoriteUploader,
@@ -198,26 +198,47 @@ function FavoritesLists({
         <section className="favorites-section">
           <h3 className="favorites-section-title">Players</h3>
           <ul className="favorites-list">
-            {players.map((player) => (
-              <li key={`${player.platform}:${player.platform_player_id}`}>
-                <Link
-                  className="favorites-item"
-                  to={playerProfileIdPath(player.platform, player.platform_player_id)}
-                  onClick={onNavigate}
-                >
-                  <PlatformIcon
-                    platform={player.platform}
-                    platformPlayerId={player.platform_player_id}
-                  />
-                  <span className="favorites-item-name">
-                    {player.display_name ?? player.platform_player_id}
-                  </span>
-                  <span className="favorites-item-meta">
-                    {player.appearance_count.toLocaleString()}
-                  </span>
-                </Link>
-              </li>
-            ))}
+            {players.map((player) => {
+              const replaysHref = `/replays?player-id=${encodeURIComponent(
+                `${player.platform}:${player.platform_player_id}`,
+              )}`;
+              return (
+                <li key={`${player.platform}:${player.platform_player_id}`}>
+                  <div className="favorites-item">
+                    <Link
+                      className="favorites-item-main"
+                      to={playerProfileIdPath(player.platform, player.platform_player_id)}
+                      onClick={onNavigate}
+                    >
+                      <PlatformIcon
+                        platform={player.platform}
+                        platformPlayerId={player.platform_player_id}
+                      />
+                      <span className="favorites-item-name">
+                        {player.display_name ?? player.platform_player_id}
+                      </span>
+                    </Link>
+                    <Link
+                      className="favorites-item-replays"
+                      to={replaysHref}
+                      onClick={onNavigate}
+                      title="View replays"
+                      aria-label="View replays"
+                    >
+                      <FileVideo size={14} />
+                    </Link>
+                    <Link
+                      className="favorites-item-meta favorites-item-meta-link"
+                      to={replaysHref}
+                      onClick={onNavigate}
+                      title="View replays"
+                    >
+                      {player.appearance_count.toLocaleString()}
+                    </Link>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
       ) : null}
@@ -229,7 +250,7 @@ function FavoritesLists({
             {uploaders.map((uploader) => (
               <li key={uploader.user_id}>
                 <Link
-                  className="favorites-item"
+                  className="favorites-item favorites-item-main"
                   to={`/users/${encodeURIComponent(uploader.user_id)}`}
                   onClick={onNavigate}
                 >
