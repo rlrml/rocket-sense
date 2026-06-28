@@ -55,8 +55,11 @@ export interface StatDetailProps {
  *   sense per player (e.g. the boost control diagram is a single-subject spatial
  *   chart), so the group view links into each player's group-scoped career view
  *   instead of rendering a group panel.
+ * - `"event-detail"`: group-level detail view backed by grouped event samples,
+ *   for sections whose own detail component already knows how to aggregate
+ *   cross-replay events.
  */
-export type StatGroupLayout = "leaderboard" | "drill-down-only";
+export type StatGroupLayout = "leaderboard" | "drill-down-only" | "event-detail";
 
 export interface StatGroup {
   id: string;
@@ -158,6 +161,7 @@ export const statGroups: StatGroup[] = [
     terms: ["kickoff"],
     completed: true,
     usesAggregateStats: false,
+    groupLayout: "event-detail",
     eventTypes: [...kickoffEventTypes, "possession"],
     Detail: KickoffDetail,
   },

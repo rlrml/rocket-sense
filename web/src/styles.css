@@ -2092,6 +2092,11 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
+.group-leaderboard-panel {
+  display: grid;
+  gap: 12px;
+}
+
 .group-default-display {
   display: grid;
   gap: 12px;
@@ -2101,11 +2106,6 @@ tbody tr:last-child td {
 .group-default-display td:not(:first-child) {
   text-align: right;
   white-space: nowrap;
-}
-
-.group-leaderboard-panel {
-  display: grid;
-  gap: 12px;
 }
 
 .group-leaderboard-panel th,
