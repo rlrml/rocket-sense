@@ -26,6 +26,7 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) game_modes: Vec<String>,
     pub(crate) game_types: Vec<String>,
     pub(crate) team_sizes: Vec<String>,
+    pub(crate) seasons: Vec<String>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group: Option<String>,
@@ -56,6 +57,7 @@ impl ReplaySetFilterInput {
             game_modes: params.values(&["game-mode", "game_modes"]),
             game_types: params.values(&["game-type", "game_types", "replay-game-type"]),
             team_sizes: params.values(&["team-size", "team_sizes"]),
+            seasons: params.values(&["season"]),
             replay_ids: parse_uuid_values(
                 "replay-id",
                 params.values(&["replay-id", "replay_ids"]),
@@ -103,6 +105,7 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) playlists: Vec<String>,
     pub(crate) game_types: Vec<String>,
     pub(crate) team_sizes: Vec<i32>,
+    pub(crate) seasons: Vec<String>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group_id: Option<Uuid>,
@@ -239,6 +242,7 @@ impl ReplaySetFilters {
             playlists,
             game_types,
             team_sizes,
+            seasons: normalize_seasons(input.seasons),
             replay_ids: input.replay_ids,
             file_sha256s,
             group_id: input
@@ -281,6 +285,7 @@ impl ReplaySetFilters {
             && self.playlists.is_empty()
             && self.game_types.is_empty()
             && self.team_sizes.is_empty()
+            && self.seasons.is_empty()
             && self.replay_ids.is_empty()
             && self.file_sha256s.is_empty()
             && self.group_id.is_none()
@@ -391,6 +396,14 @@ pub(crate) fn append_replay_set_filters<'args>(
         builder
             .push(") = ANY(")
             .push_bind(&filters.team_sizes)
+            .push(")");
+    }
+    if !filters.seasons.is_empty() {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".season = ANY(")
+            .push_bind(&filters.seasons)
             .push(")");
     }
     if let Some(playlist_group_key) = &filters.playlist_group_key {
@@ -720,6 +733,16 @@ pub(crate) fn normalize_terms(terms: Vec<String>) -> Vec<String> {
         .map(|term| term.trim().to_owned())
         .filter(|term| !term.is_empty())
         .collect()
+}
+
+fn normalize_seasons(seasons: Vec<String>) -> Vec<String> {
+    let mut seasons: Vec<String> = normalize_terms(seasons)
+        .into_iter()
+        .map(|season| season.to_ascii_lowercase())
+        .collect();
+    seasons.sort();
+    seasons.dedup();
+    seasons
 }
 
 fn parse_uploader_filter(value: &str, auth_user_id: Option<Uuid>) -> Result<Uuid, ApiError> {

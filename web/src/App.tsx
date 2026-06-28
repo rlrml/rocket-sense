@@ -120,6 +120,7 @@ import { mapDisplayName } from "./maps";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import { RankTrendsPage } from "./rankTrends";
+import { formatSeasonCode } from "./seasons";
 import {
   getPreviewPlayerWarmupStatus,
   schedulePreviewPlayerWarmup,
@@ -994,12 +995,135 @@ function ReplayListPage() {
           </div>
         </div>
 
+<<<<<<< HEAD
         {activeFilterChips.length > 0 ? (
           <div className="filter-chips" aria-label="Active filters">
             {activeFilterChips.map((chip) => (
               <span key={chip}>{chip}</span>
             ))}
           </div>
+||||||| parent of a95d5f4 (Add season and date filters to leaderboards)
+      {activeFilterChips.length > 0 ? (
+        <div className="filter-chips" aria-label="Active filters">
+          {activeFilterChips.map((chip) => (
+            <span key={chip}>{chip}</span>
+          ))}
+        </div>
+      ) : null}
+
+      <StatusLine loading={false} error={error} />
+
+      {currentUser && selectedIds.size > 0 ? (
+        <GroupSelectionBar
+          selectedIds={selectedIds}
+          replayCount={replays.length}
+          groups={groups}
+          onSelectAll={selectAllOnPage}
+          onClear={clearSelection}
+          onGroupsChanged={refreshGroups}
+        />
+      ) : null}
+
+      <div className="replay-card-list">
+        {replays.map((replay) => (
+          <article
+            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+            key={replay.id}
+          >
+            <header className="replay-card-header">
+              <div className="replay-card-heading">
+                {currentUser ? (
+                  <input
+                    type="checkbox"
+                    className="replay-select"
+                    aria-label={`Select ${replay.original_file_name || replay.id}`}
+                    checked={selectedIds.has(replay.id)}
+                    onChange={() => toggleSelected(replay.id)}
+                  />
+                ) : null}
+                <div className="replay-card-title">
+                  <ReplayLink className="primary-link" replayId={replay.id}>
+                    {replay.original_file_name || replay.id}
+                  </ReplayLink>
+                  <UploaderPill uploader={replay.uploaded_by} />
+                </div>
+              </div>
+              <div className="replay-card-meta">
+                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
+                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
+                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
+                <ReplayStatusChip replay={replay} currentUser={currentUser} />
+              </div>
+            </header>
+            <ReplayTeams replay={replay} />
+          </article>
+        ))}
+        {!loading && replays.length === 0 ? (
+          <div className="status-line">No replays found.</div>
+=======
+      {activeFilterChips.length > 0 ? (
+        <div className="filter-chips" aria-label="Active filters">
+          {activeFilterChips.map((chip) => (
+            <span key={chip}>{chip}</span>
+          ))}
+        </div>
+      ) : null}
+
+      <StatusLine loading={false} error={error} />
+
+      {currentUser && selectedIds.size > 0 ? (
+        <GroupSelectionBar
+          selectedIds={selectedIds}
+          replayCount={replays.length}
+          groups={groups}
+          onSelectAll={selectAllOnPage}
+          onClear={clearSelection}
+          onGroupsChanged={refreshGroups}
+        />
+      ) : null}
+
+      <div className="replay-card-list">
+        {replays.map((replay) => (
+          <article
+            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+            key={replay.id}
+          >
+            <header className="replay-card-header">
+              <div className="replay-card-heading">
+                {currentUser ? (
+                  <input
+                    type="checkbox"
+                    className="replay-select"
+                    aria-label={`Select ${replay.original_file_name || replay.id}`}
+                    checked={selectedIds.has(replay.id)}
+                    onChange={() => toggleSelected(replay.id)}
+                  />
+                ) : null}
+                <div className="replay-card-title">
+                  <ReplayLink className="primary-link" replayId={replay.id}>
+                    {replay.original_file_name || replay.id}
+                  </ReplayLink>
+                  <UploaderPill uploader={replay.uploaded_by} />
+                </div>
+              </div>
+              <div className="replay-card-meta">
+                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
+                {replay.summary.season ? (
+                  <Chip tone="slate" title="Rocket League season">
+                    {formatSeasonCode(replay.summary.season)}
+                  </Chip>
+                ) : null}
+                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
+                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
+                <ReplayStatusChip replay={replay} currentUser={currentUser} />
+              </div>
+            </header>
+            <ReplayTeams replay={replay} />
+          </article>
+        ))}
+        {!loading && replays.length === 0 ? (
+          <div className="status-line">No replays found.</div>
+>>>>>>> a95d5f4 (Add season and date filters to leaderboards)
         ) : null}
 
         <StatusLine loading={false} error={error} />

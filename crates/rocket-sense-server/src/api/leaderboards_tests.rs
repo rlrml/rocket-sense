@@ -125,6 +125,21 @@ fn appearances_rank_query_rejects_invalid_game_type() {
 }
 
 #[test]
+fn leaderboard_filters_parse_exact_season_and_replay_date_range() {
+    let (filters, _) = parse_filters(
+        Some(
+            "season=f18&replay-date-after=2026-01-01T00%3A00%3A00Z&replay-date-before=2026-01-31T23%3A59%3A59.999Z",
+        ),
+        None,
+    )
+    .expect("filters should parse");
+
+    assert_eq!(filters.seasons, ["f18"]);
+    assert!(filters.replay_date_after.is_some());
+    assert!(filters.replay_date_before.is_some());
+}
+
+#[test]
 fn leaderboard_rank_playlist_ids_use_ranked_playlist_filter() {
     let filters = filters_from_query("playlist=ranked-doubles");
     assert_eq!(rank_playlist_ids_for_filters(&filters), vec![11]);

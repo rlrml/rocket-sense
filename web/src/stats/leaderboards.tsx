@@ -10,6 +10,7 @@ import {
 } from "../api";
 import { playerProfilePath } from "../playerIdentity";
 import { rankIconUrl, rankLabel } from "../rank";
+import { buildSeasonOptions } from "../seasons";
 import type {
   AppearancesLeaderboardRow,
   EventLeaderboardRow,
@@ -403,6 +404,20 @@ const playlistOptions = [
   { value: "private", label: "Private" },
   { value: "tournament", label: "Tournament" },
 ];
+
+const seasonOptions = buildSeasonOptions("Any season");
+
+function dateInputFromParam(value: string | null): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function replayDateParam(value: string, edge: "start" | "end"): string {
+  const suffix = edge === "start" ? "T00:00:00" : "T23:59:59.999";
+  return new Date(`${value}${suffix}`).toISOString();
+}
 
 // Read the selected board id, migrating the legacy metric/event-type/stat params
 // so old links and bookmarks still resolve.
@@ -1056,6 +1071,9 @@ export function LeaderboardsPage() {
   const teamSize = params.get("team-size") ?? "";
   const gameType = params.get("game-type") ?? "";
   const playlist = params.get("playlist") ?? "";
+  const season = params.get("season") ?? "";
+  const replayDateAfter = dateInputFromParam(params.get("replay-date-after"));
+  const replayDateBefore = dateInputFromParam(params.get("replay-date-before"));
   const minGames = params.get("min-games") ?? DEFAULT_MIN_GAMES;
 
   const selectedEventType =
@@ -1076,6 +1094,20 @@ export function LeaderboardsPage() {
       const next = new URLSearchParams(location.search);
       if (value) {
         next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      const query = next.toString();
+      navigate(query ? `${location.pathname}?${query}` : location.pathname, { replace: true });
+    },
+    [location.pathname, location.search, navigate],
+  );
+
+  const setReplayDateParam = useCallback(
+    (key: "replay-date-after" | "replay-date-before", value: string, edge: "start" | "end") => {
+      const next = new URLSearchParams(location.search);
+      if (value) {
+        next.set(key, replayDateParam(value, edge));
       } else {
         next.delete(key);
       }
@@ -1112,8 +1144,20 @@ export function LeaderboardsPage() {
     if (teamSize) filters.set("team-size", teamSize);
     if (gameType) filters.set("game-type", gameType);
     if (playlist) filters.set("playlist", playlist);
+    if (season) {
+      filters.set("season", season);
+      // Production leaderboards already support season ranges. Keep the exact
+      // `season` param for replay-list links, and encode the same choice as a
+      // one-season range for leaderboard API reads.
+      filters.set("min-season", season);
+      filters.set("max-season", season);
+    }
+    const rawReplayDateAfter = params.get("replay-date-after");
+    const rawReplayDateBefore = params.get("replay-date-before");
+    if (rawReplayDateAfter) filters.set("replay-date-after", rawReplayDateAfter);
+    if (rawReplayDateBefore) filters.set("replay-date-before", rawReplayDateBefore);
     return filters.toString();
-  }, [gameType, playlist, teamSize]);
+  }, [gameType, params, playlist, season, teamSize]);
 
   const boardFilterKey = useMemo(() => {
     const filters = new URLSearchParams(replayFilterKey);
@@ -1128,6 +1172,13 @@ export function LeaderboardsPage() {
     }
     return filters.toString();
   }, [activeSort, metric.kind, metric.param, minGames, replayFilterKey]);
+
+  const replayBrowseFilterKey = useMemo(() => {
+    const filters = new URLSearchParams(replayFilterKey);
+    filters.delete("min-season");
+    filters.delete("max-season");
+    return filters.toString();
+  }, [replayFilterKey]);
 
   return (
     <section className="page leaderboards-page">
@@ -1167,6 +1218,36 @@ export function LeaderboardsPage() {
               </option>
             ))}
           </select>
+        </label>
+        <label className="leaderboard-playlist-filter">
+          <span className="segment-bar-label">Season</span>
+          <select value={season} onChange={(event) => setParam("season", event.currentTarget.value)}>
+            {seasonOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="leaderboard-playlist-filter">
+          <span className="segment-bar-label">From date</span>
+          <input
+            type="date"
+            value={replayDateAfter}
+            onChange={(event) =>
+              setReplayDateParam("replay-date-after", event.currentTarget.value, "start")
+            }
+          />
+        </label>
+        <label className="leaderboard-playlist-filter">
+          <span className="segment-bar-label">To date</span>
+          <input
+            type="date"
+            value={replayDateBefore}
+            onChange={(event) =>
+              setReplayDateParam("replay-date-before", event.currentTarget.value, "end")
+            }
+          />
         </label>
         {showMinGames ? (
           <label className="leaderboard-playlist-filter">
@@ -1219,7 +1300,10 @@ export function LeaderboardsPage() {
 
       <p className="muted-text leaderboard-replay-link">
         Want the underlying games?{" "}
-        <Link className="primary-link" to="/replays">
+        <Link
+          className="primary-link"
+          to={replayBrowseFilterKey ? `/replays?${replayBrowseFilterKey}` : "/replays"}
+        >
           Browse replays
         </Link>
         .

@@ -95,6 +95,23 @@ fn replay_set_filters_render_game_type_and_team_size_clauses() {
 }
 
 #[test]
+fn exact_season_filter_normalizes_and_renders_clause() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        seasons: vec![" F18 ".to_owned(), "f18".to_owned(), "s12".to_owned()],
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("season filters should parse");
+
+    assert_eq!(filters.seasons, ["f18", "s12"]);
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("r.season = ANY("));
+}
+
+#[test]
 fn player_outcome_filter_requires_target_player() {
     let error = filters_from_input(ReplaySetFilterInput {
         player_outcome: Some("win".to_owned()),

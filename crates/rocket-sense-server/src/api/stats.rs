@@ -533,6 +533,7 @@ impl StatAggregateFilters {
                 game_modes: query.game_modes,
                 game_types: query.game_types,
                 team_sizes: query.team_sizes,
+                seasons: Vec::new(),
                 replay_ids: query.replay_ids,
                 file_sha256s: query.file_sha256s,
                 group: query.group,

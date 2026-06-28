@@ -122,6 +122,9 @@ pub struct AppearancesLeaderboardRowResponse {
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter (ranked, casual, tournament, ...)"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -163,6 +166,9 @@ pub async fn get_uploads_leaderboard(
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter (ranked, casual, tournament, ...)"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -425,6 +431,7 @@ async fn load_estimated_player_ranks(
          AND s.playlist = ",
     );
     builder.push_bind(playlist_ids[0]);
+    append_replay_set_filters(&mut builder, filters, "r");
     builder.push(
         " ORDER BY s.platform_player_id, \
          COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, s.updated_at DESC",
@@ -711,6 +718,9 @@ impl EventLeaderboardFilters {
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -1412,6 +1422,9 @@ impl StatLeaderboardFilters {
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
