@@ -161,12 +161,14 @@ impl ReplaySetFilters {
         playlists.dedup();
         let mut game_types = normalize_terms(input.game_types)
             .into_iter()
+            .filter(|value| !is_all_game_type_filter(value))
             .map(|value| parse_game_type_filter(&value))
             .collect::<Result<Vec<_>, _>>()?;
         game_types.sort();
         game_types.dedup();
         let mut team_sizes = normalize_terms(input.team_sizes)
             .into_iter()
+            .filter(|value| !is_all_team_size_filter(value))
             .map(|value| parse_team_size_filter(&value))
             .collect::<Result<Vec<_>, _>>()?;
         team_sizes.sort_unstable();
@@ -680,6 +682,10 @@ fn parse_game_type_filter(value: &str) -> Result<String, ApiError> {
     }
 }
 
+fn is_all_game_type_filter(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "any" | "all")
+}
+
 fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
     let normalized = value.trim().to_ascii_lowercase();
     let digits = match normalized.as_str() {
@@ -694,6 +700,10 @@ fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
         .ok()
         .filter(|size| (1..=4).contains(size))
         .ok_or_else(|| ApiError::bad_request("team-size must be 1-4 (or 1v1, 2v2, 3v3, 4v4)"))
+}
+
+fn is_all_team_size_filter(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "all" | "any")
 }
 
 fn parse_replay_outcome_filter(value: &str) -> Result<ReplayOutcome, ApiError> {
