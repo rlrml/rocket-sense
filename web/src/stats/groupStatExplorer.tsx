@@ -1,4 +1,4 @@
-import { Check, Link2, Play, Search, X } from "lucide-react";
+import { Check, Link2, Search, X } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
@@ -813,42 +813,50 @@ export function GroupStatExplorer({
                               </span>
                             </div>
                           ) : (
-                            <div className="gse-cell">
-                              <SegmentedBar
-                                ariaLabel={`${participant.name}: ${metric.label}`}
-                                className="gse-cell-track"
-                                maxValue={max}
-                                total={present ? Math.abs(value) : 0}
-                                segments={
-                                  present
-                                    ? [
-                                        {
-                                          key,
-                                          className: cohort,
-                                          label: metric.label,
-                                          value: Math.abs(value),
-                                        },
-                                      ]
-                                    : []
-                                }
-                              />
-                              <span className="gse-cell-value">
-                                {present ? metric.format(value, measure) : "—"}
-                              </span>
-                              {eventReviewHref ? (
+                            (() => {
+                              const cellBody = (
+                                <>
+                                  <SegmentedBar
+                                    ariaLabel={`${participant.name}: ${metric.label}`}
+                                    className="gse-cell-track"
+                                    maxValue={max}
+                                    total={present ? Math.abs(value) : 0}
+                                    segments={
+                                      present
+                                        ? [
+                                            {
+                                              key,
+                                              className: cohort,
+                                              label: metric.label,
+                                              value: Math.abs(value),
+                                            },
+                                          ]
+                                        : []
+                                    }
+                                  />
+                                  <span className="gse-cell-value">
+                                    {present ? metric.format(value, measure) : "—"}
+                                  </span>
+                                </>
+                              );
+                              // When the metric is backed by reviewable events, the
+                              // whole bar+value becomes a subtle link into the embedded
+                              // review player (no separate "Watch" button).
+                              return eventReviewHref ? (
                                 <a
-                                  className="gse-watch-link"
+                                  className="gse-cell gse-cell-link"
                                   href={eventReviewHref}
                                   target="_blank"
                                   rel="noreferrer"
                                   aria-label={`Watch ${metric.label} events for ${participant.name}`}
                                   title={`Watch ${metric.label} events for ${participant.name}`}
                                 >
-                                  <Play size={13} />
-                                  <span>Watch</span>
+                                  {cellBody}
                                 </a>
-                              ) : null}
-                            </div>
+                              ) : (
+                                <div className="gse-cell">{cellBody}</div>
+                              );
+                            })()
                           )}
                         </td>
                       );

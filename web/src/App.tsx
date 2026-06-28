@@ -89,7 +89,6 @@ import {
   getReplayGroupPlayerAggregates,
   getReplayStatAggregates,
   listEventTypes,
-  listReplayGroupBoostTotals,
   listReplayGroups,
   listReplayGroupManagers,
   listReplayGroupReplays,
@@ -139,7 +138,6 @@ import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl } from "./platfo
 import { ProviderLoginIcon, providerLabel } from "./providerIcons";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
-import { boostAmountToPercent } from "./stats/boostUnits";
 import {
   PlayerIdentity,
   playerIdentityKey,
@@ -202,7 +200,6 @@ import type {
   ReplayProcessingDiagnosticsResponse,
   ReplayProcessingQueueResponse,
   ReplayFilterOption,
-  GroupBoostTotalsResponse,
   ReplayGroupResponse,
   ReplayGroupManagerResponse,
   ReplayPlayerMovementSummary,
@@ -3480,8 +3477,6 @@ function ReplayGroupStatsPage() {
   const { groupId = "" } = useParams();
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
-  const [boostTotals, setBoostTotals] = useState<GroupBoostTotalsResponse | null>(null);
-  const [boostEvents, setBoostEvents] = useState<MechanicEventResponse[] | null>(null);
   const [groupLoading, setGroupLoading] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
   const [allGroups, setAllGroups] = useState<ReplayGroupResponse[]>([]);
@@ -3511,31 +3506,6 @@ function ReplayGroupStatsPage() {
     };
   }, [groupId, groupsNonce]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setBoostTotals(null);
-    setBoostEvents(null);
-    Promise.allSettled([
-      listReplayGroupBoostTotals(groupId),
-      listReplayGroupEvents(groupId, ["boost_pickup", "boost_respawn"]),
-    ])
-      .then(([totalsResult, eventsResult]) => {
-        if (!cancelled) {
-          setBoostTotals(totalsResult.status === "fulfilled" ? totalsResult.value : null);
-          setBoostEvents(eventsResult.status === "fulfilled" ? eventsResult.value.events : null);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setBoostTotals(null);
-          setBoostEvents(null);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [groupId]);
-
   // The full group list powers the ancestor breadcrumb and the child-subgroup
   // navigation; it is cheap and refetched when a subgroup is created.
   useEffect(() => {
@@ -3559,10 +3529,6 @@ function ReplayGroupStatsPage() {
   );
 
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
-  const defaultDisplayRows = useMemo(
-    () => groupDefaultDisplayRows(participantAnalysis.players, boostTotals, boostEvents),
-    [boostEvents, boostTotals, participantAnalysis.players],
-  );
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -3632,8 +3598,6 @@ function ReplayGroupStatsPage() {
             </div>
           </div>
 
-          <GroupDefaultDisplay rows={defaultDisplayRows} />
-
           <GroupStatExplorerSection groupId={groupId} players={participantAnalysis.players} />
 
           <section className="stat-panel">
@@ -3673,140 +3637,6 @@ function ReplayGroupStatsPage() {
         </>
       ) : null}
     </section>
-  );
-}
-
-interface GroupDefaultDisplayRow {
-  key: string;
-  player: ReplayPlayer;
-  games: number;
-  goals: number;
-  score: number;
-  boostCollectedPerMinute: number | null;
-}
-
-function GroupDefaultDisplay({ rows }: { rows: GroupDefaultDisplayRow[] }) {
-  return (
-    <section className="stat-panel full-span group-default-display">
-      <div className="stat-panel-heading">
-        <h3>Player summary</h3>
-        <span>{rows.length.toLocaleString()} players</span>
-      </div>
-      {rows.length > 0 ? (
-        <div className="table-frame compact-table">
-          <table>
-            <thead>
-              <tr>
-                <th>Player</th>
-                <th>Games</th>
-                <th>Goals</th>
-                <th>Score</th>
-                <th>Boost collected/min</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.key}>
-                  <td>
-                    <PlayerIdentity player={row.player} showRank />
-                  </td>
-                  <td>{row.games.toLocaleString()}</td>
-                  <td>{row.goals.toLocaleString()}</td>
-                  <td>{row.score.toLocaleString()}</td>
-                  <td>
-                    {row.boostCollectedPerMinute == null
-                      ? "Unknown"
-                      : formatNumber(row.boostCollectedPerMinute)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="stat-empty">No identifiable participants are available for this group.</div>
-      )}
-    </section>
-  );
-}
-
-function groupDefaultDisplayRows(
-  players: ReplayPlayer[],
-  boostTotals: GroupBoostTotalsResponse | null,
-  boostEvents: MechanicEventResponse[] | null,
-): GroupDefaultDisplayRow[] {
-  const boostTotalsByKey = new Map(
-    (boostTotals?.totals ?? []).map((total) => [total.player_id, total] as const),
-  );
-  const boostCollectedByKey = boostEvents == null ? null : groupBoostCollectedByPlayer(boostEvents);
-  return players
-    .map((player, index) => {
-      const key = playerIdentityKey(player, index);
-      const playerBoostKey =
-        player.platform && player.platform_player_id
-          ? `${player.platform}:${player.platform_player_id}`
-          : null;
-      const boostTotal = playerBoostKey ? boostTotalsByKey.get(playerBoostKey) : undefined;
-      const boostCollected =
-        playerBoostKey && boostCollectedByKey
-          ? (boostCollectedByKey.get(playerBoostKey) ?? 0)
-          : null;
-      return {
-        key,
-        player,
-        games: player.appearance_count ?? 0,
-        goals: player.goals ?? 0,
-        score: player.score ?? 0,
-        boostCollectedPerMinute: groupBoostCollectedPerMinute(boostCollected, boostTotal, player),
-      };
-    })
-    .sort(compareGroupDefaultDisplayRows);
-}
-
-function groupBoostCollectedPerMinute(
-  collected: number | null,
-  total: GroupBoostTotalsResponse["totals"][number] | undefined,
-  player: ReplayPlayer,
-): number | null {
-  if (collected == null) return null;
-  const denominatorSeconds =
-    total && total.tracked_seconds > 0 ? total.tracked_seconds : (player.active_time_seconds ?? 0);
-  if (denominatorSeconds <= 0) return null;
-  return (collected * 60) / denominatorSeconds;
-}
-
-function groupBoostCollectedByPlayer(events: MechanicEventResponse[]): Map<string, number> {
-  const collectedByPlayer = new Map<string, number>();
-  for (const event of events) {
-    const playerId = event.player_id;
-    if (!playerId) continue;
-    const collected =
-      event.event_type === "boost_respawn"
-        ? (boostAmountToPercent(numericPayloadField(event.payload, "boost_granted")) ?? 0)
-        : (boostAmountToPercent(numericPayloadField(event.payload, "collected_amount")) ?? 0);
-    if (collected <= 0) continue;
-    collectedByPlayer.set(playerId, (collectedByPlayer.get(playerId) ?? 0) + collected);
-  }
-  return collectedByPlayer;
-}
-
-function numericPayloadField(payload: Record<string, unknown>, key: string): number {
-  const value = payload[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : 0;
-}
-
-function compareGroupDefaultDisplayRows(
-  left: GroupDefaultDisplayRow,
-  right: GroupDefaultDisplayRow,
-): number {
-  return (
-    right.goals - left.goals ||
-    right.score - left.score ||
-    (right.boostCollectedPerMinute ?? -1) - (left.boostCollectedPerMinute ?? -1) ||
-    right.games - left.games ||
-    (left.player.name || left.player.platform_player_id || "").localeCompare(
-      right.player.name || right.player.platform_player_id || "",
-    )
   );
 }
 
@@ -4159,7 +3989,10 @@ function groupStatEventReviewUrl(
   for (const eventType of metric.eventTypes) {
     params.append("event-type", eventType);
   }
-  return `/events/review/open?${params.toString()}`;
+  // Open the in-app embedded review player (which reads the group / player-id /
+  // event-type filters from the URL) rather than /events/review/open, which
+  // redirects out to the standalone subtr-actor stats player.
+  return `/events/review?${params.toString()}`;
 }
 
 function normalizeReplayPlatform(value: string): string {
