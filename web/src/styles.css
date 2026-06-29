@@ -422,6 +422,8 @@ a {
 
 .favorites-item-meta {
   flex-shrink: 0;
+  min-width: 3ch;
+  text-align: right;
   font-size: var(--text-xs);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
