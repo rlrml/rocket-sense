@@ -8,6 +8,7 @@ import type {
   PossessionSummaryResponse,
   PossessionTeamControl,
   PossessionTeamMetric,
+  RankBenchmarkCohort,
   RotationTimeShareResponse,
   StatAggregateResponse,
   StatAggregateSetResponse,
@@ -28,6 +29,9 @@ import {
   ComparisonBar,
   OutcomeDistributionBar,
   PLAYER_RELATIVE_OUTCOME_COLORS,
+  rankCohortDerivedRows,
+  rankCohortMagnitudeRows,
+  rankCohortValues,
   StatPlayerLabel,
   statPercentWithValue,
   type ComparisonMarker,
@@ -48,32 +52,41 @@ const rateWindowMinutes = 5;
  * Career fallback for stat sections without a purpose-built profile subview.
  * Each card is one stat; rows compare the profile subject to available cohorts.
  */
-/// Served tier/window labels for the `rank-peers` benchmark cohort, threaded
-/// from the aggregate set/group response so rank-peers rows can show the tier
-/// and window in their subtitle.
-export interface RankBenchmarkRowInfo {
-  tierLabel?: string | null;
-  windowLabel?: string | null;
-}
-
 export function buildPlayerRateCards(
   stats: StatAggregateResponse[],
   playerName = "Player",
-  rankBenchmark?: RankBenchmarkRowInfo,
+  // Selected rank-average cohorts; each adds one slate-shaded row per card,
+  // looked up by the card's stat key (the benchmark metric_key). Empty when the
+  // feature is disabled or no rank is selected.
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
   // When provided (wins/losses split), build exactly these cards in this order,
   // regardless of how this side ranks them, so both outcome sides show the same
   // card set; a canonical key absent from this side renders an empty placeholder
   // card so the rows still pair up across outcomes.
   orderedKeys?: Array<{ key: string; display_name: string }>,
+  // When provided and it returns a path for a stat key, that card's title links
+  // to it (e.g. a clip playlist of those events).
+  titleHref?: (key: string) => string | undefined,
 ): ComparisonCard[] {
+  const cardTitle = (key: string, displayName: string): ReactNode => {
+    const href = titleHref?.(key);
+    return href ? (
+      <Link className="rate-card-title-link" to={href} title={`Watch ${displayName} clips`}>
+        {displayName}
+      </Link>
+    ) : (
+      displayName
+    );
+  };
   if (orderedKeys) {
     const statByKey = new Map(stats.map((stat) => [stat.key, stat]));
     return orderedKeys.slice(0, rateChartStatLimit).map(({ key, display_name }) => {
       const stat = statByKey.get(key);
       return {
         key,
-        title: display_name,
-        rows: stat ? playerRateComparisonRows(stat, playerName, rankBenchmark) : [],
+        title: cardTitle(key, display_name),
+        rows: stat ? playerRateComparisonRows(stat, playerName, rankCohorts, rankWindowLabel) : [],
       };
     });
   }
@@ -82,8 +95,8 @@ export function buildPlayerRateCards(
     .slice(0, rateChartStatLimit)
     .map((stat) => ({
       key: stat.key,
-      title: stat.display_name,
-      rows: playerRateComparisonRows(stat, playerName, rankBenchmark),
+      title: cardTitle(stat.key, stat.display_name),
+      rows: playerRateComparisonRows(stat, playerName, rankCohorts, rankWindowLabel),
     }))
     .filter((card) => card.rows.length > 0);
 }
@@ -91,15 +104,17 @@ export function buildPlayerRateCards(
 export function PlayerRateComparisonChart({
   playerName = "Player",
   stats,
-  rankBenchmark,
+  rankCohorts = [],
+  rankWindowLabel,
   orderedKeys,
 }: {
   playerName?: string;
   stats: StatAggregateResponse[];
-  rankBenchmark?: RankBenchmarkRowInfo;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
   orderedKeys?: Array<{ key: string; display_name: string }>;
 }) {
-  const cards = buildPlayerRateCards(stats, playerName, rankBenchmark, orderedKeys);
+  const cards = buildPlayerRateCards(stats, playerName, rankCohorts, rankWindowLabel, orderedKeys);
   if (cards.length === 0) {
     return null;
   }
@@ -109,7 +124,8 @@ export function PlayerRateComparisonChart({
 function playerRateComparisonRows(
   stat: StatAggregateResponse,
   playerName: string,
-  rankBenchmark?: RankBenchmarkRowInfo,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
   const playerRate = (stat.per_active_minute ?? 0) * rateWindowMinutes;
   const teammateRate =
@@ -120,11 +136,13 @@ function playerRateComparisonRows(
     stat.opponent_per_active_minute != null
       ? stat.opponent_per_active_minute * rateWindowMinutes
       : null;
-  const rankRate =
-    stat.rank_benchmark_per_active_minute != null
-      ? stat.rank_benchmark_per_active_minute * rateWindowMinutes
-      : null;
-  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0, rankRate ?? 0);
+  // Fold every selected rank's per-5-min value into the shared scale so the new
+  // rows don't overflow the track.
+  const rankRates = rankCohorts
+    .map((cohort) => cohort.per_stat[stat.key]?.value)
+    .filter((value): value is number => value != null && Number.isFinite(value))
+    .map((value) => value * rateWindowMinutes);
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0, ...rankRates);
   const rows: ComparisonRow[] = [
     playerRateComparisonRow({
       cohortKey: "player",
@@ -159,19 +177,18 @@ function playerRateComparisonRows(
       }),
     );
   }
-  if (rankRate != null) {
-    rows.push(
-      playerRateComparisonRow({
-        cohortKey: "rank-peers",
-        maxValue,
-        playerName,
-        rate: rankRate,
-        statName: stat.display_name,
-        rankBenchmark,
-        aggregator: stat.rank_benchmark_aggregator,
-      }),
-    );
-  }
+  // One slate-shaded row per selected rank, looked up by this stat's metric_key.
+  rows.push(
+    ...rankCohortMagnitudeRows({
+      cohorts: rankCohorts,
+      metricKey: stat.key,
+      toValue: (raw) => raw * rateWindowMinutes,
+      format: (value) => `${formatRate(value)}/5m`,
+      maxValue,
+      windowLabel: rankWindowLabel,
+      valueColumn: true,
+    }),
+  );
   return rows;
 }
 
@@ -182,41 +199,22 @@ function playerRateComparisonRow({
   playerName,
   rate,
   statName,
-  rankBenchmark,
-  aggregator,
 }: {
+  // Only the player/teammates/opponents cohorts route through here; rank-average
+  // rows are built by `rankCohortMagnitudeRows`.
   cohortKey: CareerCohortKey;
-  // Absent for the `rank-peers` cohort: a benchmark rate has no per-row count.
   count?: number;
   maxValue: number;
   playerName: string;
   rate: number;
   statName: string;
-  rankBenchmark?: RankBenchmarkRowInfo;
-  // "median" | "mean" for the rank-peers row, so a pooled-mean (rare-mechanic)
-  // bar reads "average" rather than "median".
-  aggregator?: string | null;
 }): ComparisonRow {
   const formatted = formatRate(rate);
   const rateLabel = `${formatted}/5m`;
-  const tierLabel = rankBenchmark?.tierLabel ?? null;
-  // Rare mechanics are served as a pooled mean; label them "average".
-  const rankWord = aggregator === "mean" ? "average" : "median";
-  const cohortLabel =
-    cohortKey === "rank-peers"
-      ? `Rank ${rankWord}${tierLabel ? ` (${tierLabel})` : ""}`
-      : careerCohortLabel(cohortKey, playerName, tierLabel);
-  // Rank-peers is a benchmark rate, so it carries no count label; its subtitle
-  // shows the aggregator + window instead.
-  const hasCount = count != null;
+  const cohortLabel = careerCohortLabel(cohortKey, playerName);
   const totalKind = cohortKey === "player" ? "total" : "pooled total";
-  const subtitle =
-    cohortKey === "rank-peers"
-      ? [`Rank ${rankWord}`, rankBenchmark?.windowLabel].filter(Boolean).join(" · ")
-      : `${careerCohortSubtitle(cohortKey)} · ${(count ?? 0).toLocaleString()} ${totalKind}`;
-  const segmentTitle = hasCount
-    ? `${rateLabel} (${(count ?? 0).toLocaleString()} ${totalKind})`
-    : `${cohortLabel}: ${rateLabel}`;
+  const subtitle = `${careerCohortSubtitle(cohortKey)} · ${(count ?? 0).toLocaleString()} ${totalKind}`;
+  const segmentTitle = `${rateLabel} (${(count ?? 0).toLocaleString()} ${totalKind})`;
   return {
     key: cohortKey,
     label: (
@@ -244,12 +242,10 @@ function playerRateComparisonRow({
     ],
     total: Math.max(0, rate),
     maxValue,
-    valueLabel: hasCount ? (
+    valueLabel: (
       <span title={`${(count ?? 0).toLocaleString()} ${totalKind}`}>
         {(count ?? 0).toLocaleString()} total
       </span>
-    ) : (
-      <span title={cohortLabel}>{rateLabel}</span>
     ),
     placeholder: rateLabel,
   };
@@ -348,6 +344,8 @@ export function buildCoreProfileCards({
   playerName,
   stats,
   view = "player",
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName: string;
@@ -356,6 +354,12 @@ export function buildCoreProfileCards({
   // "team" sums the whole team (player + teammates) vs the opponent team and
   // shows per-game team totals (no per-player division).
   view?: CoreProfileView;
+  // Rank-average cohorts add a slate row per selected rank to the per-player
+  // count cards (goals/assists/shots/saves/demos/deaths). The team view shows
+  // per-game team totals, which the per-player benchmark doesn't map onto, so
+  // rank rows are player-view only.
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }): ComparisonCard[] {
   const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
   const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
@@ -426,30 +430,89 @@ export function buildCoreProfileCards({
         ]
       : [
           ...(mvpRows.length > 0 ? [{ key: "mvp", title: "MVP rate", rows: mvpRows }] : []),
-          rateCardFromOverview("score", "Score (per 5 min)", score, playerName),
-          rateCardFromOverview("goals", "Goals (per 5 min)", goals, playerName),
-          rateCardFromOverview("assists", "Assists (per 5 min)", assists, playerName),
-          rateCardFromOverview("shots", "Shots (per 5 min)", shots, playerName),
-          rateCardFromOverview("saves", "Saves (per 5 min)", saves, playerName),
+          rateCardFromOverview(
+            "score",
+            "Score (per 5 min)",
+            score,
+            playerName,
+            rankCohorts,
+            "score",
+            rankWindowLabel,
+          ),
+          rateCardFromOverview(
+            "goals",
+            "Goals (per 5 min)",
+            goals,
+            playerName,
+            rankCohorts,
+            "goal",
+            rankWindowLabel,
+          ),
+          rateCardFromOverview(
+            "assists",
+            "Assists (per 5 min)",
+            assists,
+            playerName,
+            rankCohorts,
+            "assist",
+            rankWindowLabel,
+          ),
+          rateCardFromOverview(
+            "shots",
+            "Shots (per 5 min)",
+            shots,
+            playerName,
+            rankCohorts,
+            "shot",
+            rankWindowLabel,
+          ),
+          rateCardFromOverview(
+            "saves",
+            "Saves (per 5 min)",
+            saves,
+            playerName,
+            rankCohorts,
+            "save",
+            rankWindowLabel,
+          ),
           {
             key: "demos",
             title: "Demos (per 5 min)",
-            rows: profileRateComparisonRows(demos, playerName),
+            rows: profileRateComparisonRows(
+              demos,
+              playerName,
+              rankCohorts,
+              "demolition",
+              rankWindowLabel,
+            ),
           },
           {
             key: "deaths",
             title: "Deaths (per 5 min)",
-            rows: profileRateComparisonRows(deaths, playerName),
+            rows: profileRateComparisonRows(
+              deaths,
+              playerName,
+              rankCohorts,
+              "death",
+              rankWindowLabel,
+            ),
           },
           {
             key: "shooting-percentage",
             title: "Shooting percentage (%)",
-            rows: shootingPercentageRows(goals, shots, playerName),
+            rows: shootingPercentageRows(goals, shots, playerName, rankCohorts, rankWindowLabel),
           },
           {
             key: "assist-percentage",
             title: "Assist percentage (%)",
-            rows: assistPercentageRows(goals, assists, playerName, overview.team_size),
+            rows: assistPercentageRows(
+              goals,
+              assists,
+              playerName,
+              overview.team_size,
+              rankCohorts,
+              rankWindowLabel,
+            ),
           },
         ];
 
@@ -537,6 +600,9 @@ function rateCardFromOverview(
   title: string,
   rate: ScoringRateLike,
   playerName: string,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  metricKey?: string,
+  rankWindowLabel?: string | null,
 ) {
   const stat: ProfileRateStat = {
     key,
@@ -548,7 +614,11 @@ function rateCardFromOverview(
     opponentEventCount: rate.opponent_count,
     opponentPerActiveMinute: rate.opponent_per_active_minute,
   };
-  return { key, title, rows: profileRateComparisonRows(stat, playerName) };
+  return {
+    key,
+    title,
+    rows: profileRateComparisonRows(stat, playerName, rankCohorts, metricKey, rankWindowLabel),
+  };
 }
 
 interface ScoringRateLike {
@@ -597,13 +667,24 @@ function aggregateProfileRateStat(
   };
 }
 
-function profileRateComparisonRows(stat: ProfileRateStat, playerName: string): ComparisonRow[] {
+function profileRateComparisonRows(
+  stat: ProfileRateStat,
+  playerName: string,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  // The benchmark metric_key for this stat (e.g. "goal"); omit for stats with no
+  // benchmark counterpart (e.g. score) so no rank rows are added.
+  metricKey?: string,
+  rankWindowLabel?: string | null,
+): ComparisonRow[] {
   const playerRate = (stat.perActiveMinute ?? 0) * rateWindowMinutes;
   const teammateRate =
     stat.teammatePerActiveMinute != null ? stat.teammatePerActiveMinute * rateWindowMinutes : null;
   const opponentRate =
     stat.opponentPerActiveMinute != null ? stat.opponentPerActiveMinute * rateWindowMinutes : null;
-  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0);
+  const rankRates = metricKey
+    ? rankCohortValues(rankCohorts, metricKey, (raw) => raw * rateWindowMinutes)
+    : [];
+  const maxValue = Math.max(1, playerRate, teammateRate ?? 0, opponentRate ?? 0, ...rankRates);
   const rows = [
     playerRateComparisonRow({
       cohortKey: "player",
@@ -638,6 +719,19 @@ function profileRateComparisonRows(stat: ProfileRateStat, playerName: string): C
       }),
     );
   }
+  if (metricKey) {
+    rows.push(
+      ...rankCohortMagnitudeRows({
+        cohorts: rankCohorts,
+        metricKey,
+        toValue: (raw) => raw * rateWindowMinutes,
+        format: (value) => `${formatRate(value)}/5m`,
+        maxValue,
+        windowLabel: rankWindowLabel,
+        valueColumn: true,
+      }),
+    );
+  }
   return rows;
 }
 
@@ -645,6 +739,8 @@ function shootingPercentageRows(
   goals: ScoringRateLike,
   shots: ScoringRateLike,
   playerName: string,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
   const playerPercentage = percentage(goals.count, shots.count);
   const teammatePercentage = percentage(goals.teammate_count, shots.teammate_count);
@@ -686,6 +782,23 @@ function shootingPercentageRows(
       }),
     );
   }
+  // Typical-rank shooting %: the rank's goal rate over its shot rate (the
+  // per-minute denominators cancel).
+  rows.push(
+    ...rankCohortDerivedRows({
+      cohorts: rankCohorts,
+      derive: (perStat) => {
+        const goalRate = perStat.goal?.value;
+        const shotRate = perStat.shot?.value;
+        if (goalRate == null || shotRate == null || shotRate <= 0) return null;
+        return (goalRate / shotRate) * 100;
+      },
+      format: (value) => formatPercentage(value),
+      maxValue: 100,
+      windowLabel: rankWindowLabel,
+      valueColumn: true,
+    }),
+  );
   return rows;
 }
 
@@ -694,6 +807,8 @@ function assistPercentageRows(
   assists: ScoringRateLike,
   playerName: string,
   teamSize?: number | null,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
   const teamGoals = goals.count + goals.teammate_count;
   const opponentTeamGoals = goals.opponent_count;
@@ -758,6 +873,22 @@ function assistPercentageRows(
       }),
     );
   }
+  // Typical-rank assist %: the rank's assist rate over its goal rate.
+  rows.push(
+    ...rankCohortDerivedRows({
+      cohorts: rankCohorts,
+      derive: (perStat) => {
+        const assistRate = perStat.assist?.value;
+        const goalRate = perStat.goal?.value;
+        if (assistRate == null || goalRate == null || goalRate <= 0) return null;
+        return (assistRate / goalRate) * 100;
+      },
+      format: (value) => formatPercentage(value),
+      maxValue: 100,
+      windowLabel: rankWindowLabel,
+      valueColumn: true,
+    }),
+  );
   return rows;
 }
 
@@ -1077,6 +1208,8 @@ export function buildGoalTagCards({
   playerName = "Player",
   goalTypeHref,
   orderedKeys,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName?: string;
@@ -1087,6 +1220,8 @@ export function buildGoalTagCards({
   // renders a card (showing 0) instead of being dropped, so the wins and losses
   // grids stay aligned card-for-card.
   orderedKeys?: Array<{ kind: string; display_name: string }>;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }): ComparisonCard[] {
   const visibleTags = overview.goal_tags.filter((tag) => !isIgnoredGoalTag(tag.kind));
   const tagByKind = new Map(visibleTags.map((tag) => [tag.kind, tag] as const));
@@ -1122,6 +1257,9 @@ export function buildGoalTagCards({
             opponentPerActiveMinute: null,
           },
       playerName,
+      rankCohorts,
+      `goaltag:${kind}`,
+      rankWindowLabel,
     );
     const title = goalTypeHref ? (
       <Link
@@ -1144,6 +1282,8 @@ export function GoalTagSharePanel({
   playerName = "Player",
   goalTypeHref,
   allGoalsHref,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName?: string;
@@ -1151,8 +1291,16 @@ export function GoalTagSharePanel({
   goalTypeHref?: (kind: string) => string;
   /** When provided, the header links to a playlist of every goal. */
   allGoalsHref?: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
-  const cards = buildGoalTagCards({ overview, playerName, goalTypeHref });
+  const cards = buildGoalTagCards({
+    overview,
+    playerName,
+    goalTypeHref,
+    rankCohorts,
+    rankWindowLabel,
+  });
 
   return (
     <section className="goal-tag-share-panel full-span">
@@ -2084,9 +2232,13 @@ function formatDurationSeconds(value: number): string {
 export function PossessionSummaryPanel({
   playerName = "Player",
   summary,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   playerName?: string;
   summary: PossessionSummaryResponse;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
   const subjects = possessionProfileSubjects(summary, playerName).map(
     possessionAdvancedProfileSubject,
@@ -2098,8 +2250,13 @@ export function PossessionSummaryPanel({
       className="stat-comparison-grid possession-profile-grid"
       aria-label="Possession comparisons"
     >
+      {/* Team-control charts are team-relative, not rank-comparable. */}
       <PossessionAdvancedCharts charts={teamCharts} />
-      <PossessionAdvancedCharts subjects={subjects} />
+      <PossessionAdvancedCharts
+        subjects={subjects}
+        rankCohorts={rankCohorts}
+        rankWindowLabel={rankWindowLabel}
+      />
     </div>
   );
 }
@@ -2169,12 +2326,14 @@ function teamControlChart(
   return { key, title, rows };
 }
 
-// Oriented keys (own_* / opponent_* / neutral*) map to the player's team
-// (blue) vs opponents (orange), reusing the possession-location palette.
+// Oriented keys (own_* / opponent_* / neutral*) are player-relative, so they
+// use the career "your team vs opponents" palette (teal -> grey -> purple) like
+// the positioning/cohort views — not per-game blue/orange, which is meaningless
+// across a lifetime where the player switches teams game to game.
 function teamControlClass(key: string): string {
-  if (key.includes("own")) return "possession-location-team-zero";
-  if (key.includes("opponent")) return "possession-location-team-one";
-  return "possession-location-neutral";
+  if (key.includes("own")) return "possession-team-own";
+  if (key.includes("opponent")) return "possession-team-opponent";
+  return "possession-team-neutral";
 }
 
 interface PossessionProfileSubject {

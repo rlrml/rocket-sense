@@ -248,7 +248,7 @@ function GoalScorerLeaderboard({ goals, players }: { goals: GoalRow[]; players: 
   );
 }
 
-function GoalTagLeaderboard({ goals }: { goals: GoalRow[] }) {
+export function GoalTagLeaderboard({ goals }: { goals: GoalRow[] }) {
   const rows = goalTagRows(goals);
 
   if (!rows.length) {
@@ -585,6 +585,57 @@ function goalTagRows(goals: GoalRow[]): GoalTagRow[] {
     if (right.count !== left.count) return right.count - left.count;
     return left.label.localeCompare(right.label);
   });
+}
+
+export interface GoalTagDefinition {
+  key: string;
+  label: string;
+}
+
+export interface GoalTagPlayerData {
+  /** Every distinct goal tag seen in the group, sorted by label. */
+  tags: GoalTagDefinition[];
+  /** Explorer identity (`platform:platform_player_id`, lowercased) → tag key → count. */
+  byIdentity: Map<string, Map<string, number>>;
+}
+
+/** Resolve a goal to the same `platform:id` identity the group stat explorer keys
+ *  participants by (lowercased platform, no normalization), via its scorer. */
+function goalExplorerIdentity(goal: GoalRow, players: ReplayPlayer[]): string | null {
+  const player = players.find((candidate) => goalMatchesPlayer(candidate, goal));
+  if (!player?.platform || !player.platform_player_id) return null;
+  return `${player.platform.toLowerCase()}:${player.platform_player_id}`;
+}
+
+/**
+ * Turn the group's goal events into per-player tag counts the stat explorer can
+ * surface as sortable, toggleable columns — one metric per distinct goal tag.
+ * Keyed by the explorer's `platform:id` identity so it joins the participant set.
+ */
+export function buildGoalTagPlayerData(
+  goals: GoalRow[],
+  players: ReplayPlayer[],
+): GoalTagPlayerData {
+  const tagLabels = new Map<string, string>();
+  const byIdentity = new Map<string, Map<string, number>>();
+
+  for (const goal of goals) {
+    const identity = goalExplorerIdentity(goal, players);
+    if (!identity) continue;
+    const counts = byIdentity.get(identity) ?? new Map<string, number>();
+    byIdentity.set(identity, counts);
+    for (const type of goal.types) {
+      if (isIgnoredGoalTag(type.key)) continue;
+      const label = type.subLabel ? `${type.subLabel} ${type.label}` : type.label;
+      if (!tagLabels.has(type.key)) tagLabels.set(type.key, label);
+      counts.set(type.key, (counts.get(type.key) ?? 0) + 1);
+    }
+  }
+
+  const tags = [...tagLabels.entries()]
+    .map(([key, label]) => ({ key, label }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+  return { tags, byIdentity };
 }
 
 function countsFromGoalTypes(goals: GoalRow[]): CountRow[] {

@@ -292,6 +292,222 @@ a {
   margin: 0 auto;
 }
 
+/* Replay browser with a pinned-profiles sidebar. Stacks on narrow screens
+   (sidebar above the list); becomes a fixed-width left rail once there is room. */
+.page-with-favorites {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
+.page-with-favorites > .page {
+  margin: 0;
+  max-width: none;
+}
+
+@media (min-width: 1100px) {
+  .page-with-favorites {
+    grid-template-columns: 240px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .favorites-sidebar {
+    position: sticky;
+    top: 18px;
+  }
+}
+
+.favorites-sidebar {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+  padding: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+
+.favorites-sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text-strong);
+}
+
+.favorites-sidebar-title svg {
+  color: #f5a623;
+}
+
+.favorites-empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+
+.favorites-section {
+  display: grid;
+  gap: 6px;
+}
+
+.favorites-section-title {
+  margin: 0;
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.favorites-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.favorites-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border-radius: var(--radius-md);
+}
+
+/* The primary link (platform icon + name) goes to the player's career page.
+   The replays icon and the appearance count are split out as separate links
+   to the player's replay list, so they each get their own hover affordance. */
+.favorites-item-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.favorites-item-main:hover {
+  background: var(--surface-subtle);
+}
+
+.favorites-item-replays {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 6px;
+  border-radius: var(--radius-md);
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.favorites-item-replays:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.favorites-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-sm);
+}
+
+.favorites-item-meta {
+  flex-shrink: 0;
+  min-width: 3ch;
+  text-align: right;
+  font-size: var(--text-xs);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.favorites-item-meta-link {
+  padding: 6px 8px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+}
+
+.favorites-item-meta-link:hover {
+  background: var(--surface-subtle);
+  color: var(--text);
+}
+
+.favorites-item-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-pill);
+  object-fit: cover;
+}
+
+.favorites-item-icon {
+  color: var(--muted);
+}
+
+/* Unmarked favorites dropdown hung off the home logo. No affordance: it only
+   appears on hover/focus of the brand, and the component renders nothing unless
+   the signed-in user has favorites. */
+.brand-dropdown-host {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.logo-favorites-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 60;
+  /* Transparent bridge so the cursor can travel from logo to panel without the
+     hover state dropping. */
+  padding-top: 8px;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease,
+    visibility 0s linear 0.12s;
+}
+
+.brand-dropdown-host:hover .logo-favorites-menu,
+.brand-dropdown-host:focus-within .logo-favorites-menu {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+  transition-delay: 0s;
+}
+
+.logo-favorites-panel {
+  display: grid;
+  gap: 12px;
+  min-width: 240px;
+  max-height: min(70vh, 420px);
+  overflow-y: auto;
+  padding: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: 0 12px 32px rgb(15 23 42 / 0.18);
+}
+
+/* Favorited state for the star toggle on profile pages. */
+.favorite-toggle.favorited {
+  border-color: #f5a623;
+  color: #b8770a;
+}
+
+.favorite-toggle.favorited svg {
+  color: #f5a623;
+}
+
 .page-header {
   display: flex;
   align-items: center;
@@ -588,11 +804,100 @@ tbody tr:last-child td {
   font-size: var(--text-base);
 }
 
+.group-card-list {
+  max-width: 100%;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.group-card {
+  min-width: min(100%, 520px);
+}
+
+.group-card .subtle {
+  overflow-wrap: anywhere;
+}
+
 .replay-card-heading {
   display: flex;
   align-items: baseline;
   gap: 10px;
   min-width: 0;
+}
+
+.group-search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.group-search-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  min-width: min(360px, 100%);
+  flex: 1 1 280px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.group-search-input input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-base);
+}
+
+.group-card-expand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+  flex: 0 0 auto;
+  align-self: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.group-card-expand:hover {
+  border-color: var(--team-blue);
+  color: var(--team-blue);
+}
+
+.group-card-synthetic-title {
+  color: var(--text);
+  font-weight: var(--fw-semibold);
+}
+
+.group-card-children {
+  display: grid;
+  gap: 8px;
+  margin-left: 30px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.group-card-child {
+  border-color: var(--border);
 }
 
 .replay-select {
@@ -642,6 +947,7 @@ tbody tr:last-child td {
   gap: 8px;
 }
 
+.replay-selection-group input,
 .replay-selection-group select,
 .replay-selection-create input {
   min-height: 40px;
@@ -669,6 +975,100 @@ tbody tr:last-child td {
 .secondary-button.is-danger {
   color: var(--team-orange);
   border-color: var(--team-orange);
+}
+
+.replay-group-subgroups {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.replay-group-subgroups-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.replay-group-subgroups-header h2 {
+  margin: 0;
+  font-size: var(--text-lg, 1.05rem);
+}
+
+.replay-group-subgroup-list {
+  flex-wrap: wrap;
+}
+
+.replay-group-subgroup-create {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.replay-group-subgroup-create input {
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ballchasing-mirror-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.ballchasing-mirror-form input {
+  flex: 1 1 280px;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+}
+
+.ballchasing-mirror-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.mirror-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--text-sm, 0.8rem);
+  font-weight: var(--fw-medium);
+  background: var(--surface-muted, #eef1f5);
+  color: var(--text-muted, #556);
+  text-transform: capitalize;
+}
+
+.mirror-status-pill.is-synced {
+  background: color-mix(in srgb, var(--boost-big) 18%, transparent);
+  color: var(--boost-big);
+}
+
+.mirror-status-pill.is-syncing,
+.mirror-status-pill.is-pending {
+  background: color-mix(in srgb, var(--team-blue) 16%, transparent);
+  color: var(--team-blue);
+}
+
+.mirror-status-pill.is-failed {
+  background: color-mix(in srgb, var(--team-orange) 18%, transparent);
+  color: var(--team-orange);
 }
 
 .link-button {
@@ -911,6 +1311,34 @@ tbody tr:last-child td {
 .uploader-pill-name {
   overflow: hidden;
   text-overflow: ellipsis;
+  /* ellipsis needs an explicit nowrap; line-height < 1.2 + overflow:hidden would
+     clip descenders (the 'g' in @gmail.com), so give the line box some room. */
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+/* The uploader pill is a link to the uploader's profile. Keep the chip's look
+   but signal interactivity on hover. */
+.uploader-pill-link {
+  display: inline-flex;
+  max-width: 100%;
+  text-decoration: none;
+  color: inherit;
+}
+
+.uploader-pill-link:hover .uploader-pill,
+.uploader-pill-link:focus-visible .uploader-pill {
+  background: #e2e8f1;
+  color: #2b3a4b;
+}
+
+.uploader-pill-link:focus-visible {
+  outline: none;
+}
+
+.uploader-pill-link:focus-visible .uploader-pill {
+  outline: 2px solid var(--focus-ring, #2563eb);
+  outline-offset: 1px;
 }
 
 /* A chip that is itself a clickable <button> (e.g. the stale status chip). */
@@ -1438,10 +1866,12 @@ tbody tr:last-child td {
   display: grid;
   grid-template-columns: repeat(4, minmax(140px, 1fr));
   gap: 1px;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--border);
+  -webkit-overflow-scrolling: touch;
 }
 
 .match-context > div {
@@ -1618,6 +2048,34 @@ tbody tr:last-child td {
   border-color: #9fb4d9;
   background: #eaf1ff;
   color: #1d4ed8;
+}
+
+.replay-group-page > * {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.replay-group-page .stat-group-nav,
+.replay-group-page .group-participant-strip,
+.replay-group-page .replay-group-subgroup-list,
+.replay-group-page .ballchasing-mirror-status {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  padding-bottom: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+
+.replay-group-page .replay-group-subgroup-list .secondary-button,
+.replay-group-page .ballchasing-mirror-status > * {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.replay-group-games-table {
+  min-width: 620px;
 }
 
 .player-segment-bar {
@@ -3708,6 +4166,11 @@ tbody tr:last-child td {
   background: var(--aerial-wall-aerial);
 }
 
+.source-segment.aerial-seg-mix-ceiling-shot,
+.chart-legend .aerial-seg-mix-ceiling-shot::before {
+  background: var(--aerial-ceiling-shot);
+}
+
 .source-segment.aerial-seg-origin-ground,
 .chart-legend .aerial-seg-origin-ground::before {
   background: var(--aerial-origin-ground);
@@ -3718,14 +4181,44 @@ tbody tr:last-child td {
   background: var(--aerial-origin-wall);
 }
 
-.source-segment.aerial-seg-wall-side,
-.chart-legend .aerial-seg-wall-side::before {
-  background: var(--aerial-wall-side);
+.source-segment.aerial-seg-wall-left,
+.chart-legend .aerial-seg-wall-left::before {
+  background: var(--aerial-wall-left);
+}
+
+.source-segment.aerial-seg-wall-front-left,
+.chart-legend .aerial-seg-wall-front-left::before {
+  background: var(--aerial-wall-front-left);
+}
+
+.source-segment.aerial-seg-wall-front,
+.chart-legend .aerial-seg-wall-front::before {
+  background: var(--aerial-wall-front);
+}
+
+.source-segment.aerial-seg-wall-front-right,
+.chart-legend .aerial-seg-wall-front-right::before {
+  background: var(--aerial-wall-front-right);
+}
+
+.source-segment.aerial-seg-wall-right,
+.chart-legend .aerial-seg-wall-right::before {
+  background: var(--aerial-wall-right);
+}
+
+.source-segment.aerial-seg-wall-back-right,
+.chart-legend .aerial-seg-wall-back-right::before {
+  background: var(--aerial-wall-back-right);
 }
 
 .source-segment.aerial-seg-wall-back,
 .chart-legend .aerial-seg-wall-back::before {
   background: var(--aerial-wall-back);
+}
+
+.source-segment.aerial-seg-wall-back-left,
+.chart-legend .aerial-seg-wall-back-left::before {
+  background: var(--aerial-wall-back-left);
 }
 
 .source-segment.aerial-seg-goal-aerial,
@@ -3761,6 +4254,63 @@ tbody tr:last-child td {
 .source-segment.aerial-seg-height-high,
 .chart-legend .aerial-seg-height-high::before {
   background: var(--aerial-height-high);
+}
+
+/* Ground-play section: magnitude-panel bar colors (group/career scope) and the
+   flick type / side composition-bar segments + legend swatches. */
+.source-segment.ground-seg-flicks {
+  background: var(--ground-flicks);
+}
+
+.source-segment.ground-seg-power {
+  background: var(--ground-power);
+}
+
+.source-segment.ground-seg-pop {
+  background: var(--ground-pop);
+}
+
+.source-segment.ground-seg-carry-time {
+  background: var(--ground-carry-time);
+}
+
+.source-segment.ground-seg-carry-touches {
+  background: var(--ground-carry-touches);
+}
+
+.source-segment.ground-seg-type-forward,
+.chart-legend .ground-seg-type-forward::before {
+  background: var(--ground-type-forward);
+}
+
+.source-segment.ground-seg-type-reverse,
+.chart-legend .ground-seg-type-reverse::before {
+  background: var(--ground-type-reverse);
+}
+
+.source-segment.ground-seg-type-side,
+.chart-legend .ground-seg-type-side::before {
+  background: var(--ground-type-side);
+}
+
+.source-segment.ground-seg-type-other,
+.chart-legend .ground-seg-type-other::before {
+  background: var(--ground-type-other);
+}
+
+.source-segment.ground-seg-side-left,
+.chart-legend .ground-seg-side-left::before {
+  background: var(--ground-side-left);
+}
+
+.source-segment.ground-seg-side-center,
+.chart-legend .ground-seg-side-center::before {
+  background: var(--ground-side-center);
+}
+
+.source-segment.ground-seg-side-right,
+.chart-legend .ground-seg-side-right::before {
+  background: var(--ground-side-right);
 }
 
 .movement-meter-speed {
@@ -4030,19 +4580,36 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
-.chart-legend span {
+.chart-legend span,
+.chart-legend a {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.chart-legend span::before {
+.chart-legend span::before,
+.chart-legend a::before {
   content: "";
   display: inline-block;
   width: 16px;
   height: 8px;
   border-radius: 2px;
   background: var(--muted);
+}
+
+/* Legend tags that deep-link to a clip playlist read as the legend text, but
+   gain a pointer + underline on hover so the affordance is discoverable. */
+.chart-legend a.chart-legend-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.chart-legend a.chart-legend-link:hover,
+.chart-legend a.chart-legend-link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .team-blue,
@@ -4524,6 +5091,43 @@ tbody tr:last-child td {
   border-left-color: var(--career-cohort-color);
 }
 
+/*
+ * Rank-average cohorts: a slate ramp keyed by rank GROUP id (0 Bronze .. 7 SSL)
+ * so the same rank is always the same shade regardless of how many ranks are
+ * shown or in what order. Bronze lightest -> SSL darkest. The base class sets
+ * the slate hue; the rank-shade-N class overrides it with the ladder position.
+ */
+.career-cohort-rank-avg {
+  --career-cohort-color: #64748b;
+  --seg-color: var(--career-cohort-color);
+  border-left-color: var(--career-cohort-color);
+}
+
+.career-cohort-rank-avg.rank-shade-0 {
+  --career-cohort-color: #cbd5e1;
+}
+.career-cohort-rank-avg.rank-shade-1 {
+  --career-cohort-color: #b5c0cd;
+}
+.career-cohort-rank-avg.rank-shade-2 {
+  --career-cohort-color: #a0abb9;
+}
+.career-cohort-rank-avg.rank-shade-3 {
+  --career-cohort-color: #8a96a5;
+}
+.career-cohort-rank-avg.rank-shade-4 {
+  --career-cohort-color: #748191;
+}
+.career-cohort-rank-avg.rank-shade-5 {
+  --career-cohort-color: #5f6c7d;
+}
+.career-cohort-rank-avg.rank-shade-6 {
+  --career-cohort-color: #495669;
+}
+.career-cohort-rank-avg.rank-shade-7 {
+  --career-cohort-color: #334155;
+}
+
 /* Reference line for a player's fair-share MVP rate (1 / winning team size). */
 .player-comparison-marker.mvp-fair-share-marker {
   --career-cohort-color: #64748b;
@@ -4532,8 +5136,72 @@ tbody tr:last-child td {
 .source-segment.career-cohort-player,
 .source-segment.career-cohort-teammates,
 .source-segment.career-cohort-opponents,
-.source-segment.career-cohort-rank-peers {
+.source-segment.career-cohort-rank-peers,
+.source-segment.career-cohort-rank-avg {
   background: var(--seg-color);
+}
+
+/* Rank-average inline multi-select chips in the player segment bar. */
+.rank-average-chip,
+.rank-average-grouping-toggle {
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.rank-average-chip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  opacity: 0.55;
+}
+
+.rank-average-chip.active {
+  opacity: 1;
+}
+
+.rank-average-chip-icon {
+  width: 22px;
+  height: 22px;
+  display: block;
+}
+
+/* Small dot marking the server-estimated current rank. */
+.rank-average-chip-default::after {
+  content: "";
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--career-cohort-color, #64748b);
+}
+
+.rank-average-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 6px;
+}
+
+.rank-average-window-select {
+  font-size: var(--text-xs);
+  padding: 2px 4px;
+  border-radius: 6px;
+  border: 1px solid var(--surface-border, #2a2f3a);
+  background: transparent;
+  color: inherit;
+}
+
+/* Rank icon shown at the start of a rank-average comparison bar row. */
+.rank-cohort-icon {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
 .player-bar-label strong {
@@ -5646,6 +6314,12 @@ tbody tr:last-child td {
   gap: 14px;
 }
 
+.event-review-preset-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .event-type-group {
   display: grid;
   gap: 10px;
@@ -5884,6 +6558,10 @@ tbody tr:last-child td {
   max-width: 1440px;
 }
 
+.admin-queue-views {
+  margin-top: 4px;
+}
+
 .admin-summary-grid {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
@@ -6073,6 +6751,62 @@ tbody tr:last-child td {
 
 .linked-identity-meta {
   text-align: right;
+}
+
+/* Uploader profile: linked in-game player profiles (Steam/Epic login + claims). */
+.profile-section {
+  margin: 20px 0 0;
+}
+
+.profile-section-title {
+  margin: 0 0 10px;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  font-weight: var(--fw-semibold);
+}
+
+.game-identity-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.game-identity-card {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface-subtle);
+  color: inherit;
+  text-decoration: none;
+}
+
+.game-identity-card:hover,
+.game-identity-card:focus-visible {
+  border-color: var(--focus-ring, #2563eb);
+  outline: none;
+}
+
+.game-identity-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.game-identity-main strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: var(--text-md);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.game-identity-meta {
+  color: var(--muted);
+  font-size: var(--text-sm);
 }
 
 .modal-backdrop {
@@ -8213,6 +8947,25 @@ tbody tr:last-child td {
   text-decoration: none;
 }
 
+/* Aerial rate-card titles (career view) and per-mechanic panel titles (game
+   view) link to a clip playlist of that mechanic. Keep the uppercase title look,
+   add a hover underline to signal the link. */
+.rate-card-title-link,
+.stat-panel-title-link {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.rate-card-title-link:hover,
+.rate-card-title-link:focus-visible,
+.stat-panel-title-link:hover,
+.stat-panel-title-link:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .goal-tag-card-title:hover,
 .goal-tag-card-title:focus-visible {
   color: #2563eb;
@@ -8418,32 +9171,36 @@ tbody tr:last-child td {
   background: var(--possession-neutral, #94a3b8);
 }
 
-.possession-location-team-zero {
-  background: var(--blue);
-  fill: var(--blue);
+/* Player-relative "your team vs opponents" palette (teal -> grey -> purple),
+   matching PLAYER_RELATIVE_OUTCOME_COLORS and the positioning/cohort views.
+   Lifetime possession aggregates a player who switches teams game to game, so
+   blue/orange would be meaningless here. */
+.possession-team-own {
+  background: var(--possession-team-own, #0f766e);
+  fill: var(--possession-team-own, #0f766e);
 }
 
-.possession-location-team-one {
-  background: var(--orange);
-  fill: var(--orange);
+.possession-team-opponent {
+  background: var(--possession-team-opponent, #7c3aed);
+  fill: var(--possession-team-opponent, #7c3aed);
 }
 
-.possession-location-neutral {
+.possession-team-neutral {
   background: var(--possession-neutral, #94a3b8);
   fill: var(--possession-neutral, #94a3b8);
 }
 
-.possession-location-row.possession-location-team-zero {
-  border-left-color: var(--blue);
+.possession-location-row.possession-team-own {
+  border-left-color: var(--possession-team-own, #0f766e);
   background: transparent;
 }
 
-.possession-location-row.possession-location-team-one {
-  border-left-color: var(--orange);
+.possession-location-row.possession-team-opponent {
+  border-left-color: var(--possession-team-opponent, #7c3aed);
   background: transparent;
 }
 
-.possession-location-row.possession-location-neutral {
+.possession-location-row.possession-team-neutral {
   border-left-color: var(--possession-neutral, #94a3b8);
   background: transparent;
 }
@@ -8806,6 +9563,26 @@ tbody tr:last-child td {
   color: var(--text-muted, #94a3b8);
 }
 
+.leaderboard-estimated-rank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 4.25rem;
+  white-space: nowrap;
+}
+
+.leaderboard-estimated-rank img {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.leaderboard-rank-empty {
+  color: var(--text-muted, #94a3b8);
+}
+
 .leaderboard-footer {
   justify-content: space-between;
   align-items: center;
@@ -8976,6 +9753,62 @@ tbody tr:last-child td {
   border-radius: 6px;
   padding: 1px 7px;
 }
+.rank-trend-permalink {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Reset native <button> chrome (and the global 40px button min-height) so the
+     copy control is a compact icon matching the adjacent link, not a tall pill. */
+  appearance: none;
+  background: none;
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+  min-height: 0;
+  min-width: 0;
+  color: #94a3b8;
+  border-radius: 6px;
+  padding: 2px;
+  line-height: 0;
+}
+.rank-trend-permalink:hover {
+  color: #2563eb;
+  background: #eff6ff;
+}
+.rank-trends-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #2563eb;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  margin-bottom: 8px;
+}
+.rank-trends-back:hover {
+  text-decoration: underline;
+}
+.rank-trends-focus-title {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.rank-trends-copy-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #2563eb;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+.rank-trends-copy-link:hover {
+  background: #dbeafe;
+}
 .rank-trend-chart {
   width: 100%;
   height: auto;
@@ -9009,4 +9842,370 @@ tbody tr:last-child td {
 .rank-trends-tabs {
   margin: 16px 0 4px;
   flex-wrap: wrap;
+}
+
+/* ---- Group stat explorer (unified searchable stat table) ---- */
+.gse-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.gse-controls-right {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.gse-copy-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.gse-copy-link:hover {
+  border-color: #2563eb;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.gse-picker-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.gse-picker-toggle:hover,
+.gse-picker-toggle.active {
+  border-color: #2563eb;
+  background: #eaf1ff;
+  color: #1d4ed8;
+}
+
+.gse-column-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #2563eb;
+  color: #fff;
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+}
+
+.gse-picker {
+  margin-bottom: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+
+.gse-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 10px;
+  margin-bottom: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  color: #5d6b80;
+}
+
+.gse-search input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--text-md);
+  color: #344255;
+}
+
+.gse-picker-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.gse-picker-group-label {
+  margin-bottom: 5px;
+  color: #6b7a90;
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gse-picker-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gse-option {
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition:
+    border-color 0.12s ease,
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.gse-option:hover {
+  border-color: #9fb4d9;
+  background: #eaf1ff;
+}
+
+.gse-option.checked {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.gse-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.gse-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: #fff;
+  color: #344255;
+  font-family: inherit;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+}
+
+.gse-chip:hover {
+  border-color: #ef4444;
+  color: #b91c1c;
+}
+
+.gse-table-frame {
+  overflow-x: auto;
+}
+
+.gse-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-md);
+}
+
+.gse-table th,
+.gse-table td {
+  padding: 10px 18px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.gse-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  border-bottom: 2px solid var(--border-strong);
+  z-index: 1;
+}
+
+.gse-value-cell {
+  min-width: 168px;
+}
+
+.gse-player-col {
+  position: sticky;
+  left: 0;
+  min-width: 168px;
+  text-align: left;
+  background: var(--surface);
+  box-shadow: 1px 0 0 var(--border);
+  z-index: 2;
+}
+
+.gse-table thead th.gse-player-col {
+  z-index: 3;
+}
+
+.gse-sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #5d6b80;
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.gse-table thead th.gse-player-col .gse-sort-header,
+.gse-table thead th.gse-player-col {
+  text-align: left;
+}
+
+.gse-sort-header:hover {
+  color: #1d4ed8;
+}
+
+.gse-sort-arrow {
+  width: 10px;
+  color: #2563eb;
+  font-size: var(--text-2xs);
+}
+
+.gse-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.gse-cell-track {
+  flex: 1;
+  height: 14px;
+  min-width: 56px;
+}
+
+.gse-cell-value {
+  min-width: 48px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+
+/* Cells whose metric is backed by reviewable events become a subtle link into
+   the embedded review player: the whole bar+value is clickable, with only a
+   light hover cue rather than a standalone "Watch" button. */
+.gse-cell-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: background 0.12s ease;
+}
+
+.gse-cell-link:hover {
+  background: var(--surface-hover, rgba(29, 78, 216, 0.06));
+}
+
+.gse-cell-link:hover .gse-cell-value {
+  color: #1746a2;
+  text-decoration: underline;
+}
+
+.gse-cell-link:focus-visible {
+  outline: 2px solid #93b4e8;
+  outline-offset: 1px;
+}
+
+/* Per-column loading: a column whose backing fetch (kickoff events, boost/touch
+   fan-out) is still in flight renders a shimmer instead of a misleading "—". */
+.gse-cell-skeleton {
+  border-radius: 7px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-muted, #eef1f6) 25%,
+    var(--border, #dde3ec) 37%,
+    var(--surface-muted, #eef1f6) 63%
+  );
+  background-size: 400% 100%;
+  animation: gse-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+.gse-cell-value-pending {
+  display: inline-block;
+}
+
+.gse-header-spinner {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border, #dde3ec);
+  border-top-color: #2563eb;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes gse-skeleton-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+
+  100% {
+    background-position: 0 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gse-cell-skeleton,
+  .gse-header-spinner {
+    animation-duration: 0s;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

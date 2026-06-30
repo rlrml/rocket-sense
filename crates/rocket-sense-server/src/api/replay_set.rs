@@ -26,6 +26,7 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) game_modes: Vec<String>,
     pub(crate) game_types: Vec<String>,
     pub(crate) team_sizes: Vec<String>,
+    pub(crate) seasons: Vec<String>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group: Option<String>,
@@ -56,6 +57,7 @@ impl ReplaySetFilterInput {
             game_modes: params.values(&["game-mode", "game_modes"]),
             game_types: params.values(&["game-type", "game_types", "replay-game-type"]),
             team_sizes: params.values(&["team-size", "team_sizes"]),
+            seasons: params.values(&["season"]),
             replay_ids: parse_uuid_values(
                 "replay-id",
                 params.values(&["replay-id", "replay_ids"]),
@@ -103,6 +105,7 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) playlists: Vec<String>,
     pub(crate) game_types: Vec<String>,
     pub(crate) team_sizes: Vec<i32>,
+    pub(crate) seasons: Vec<String>,
     pub(crate) replay_ids: Vec<Uuid>,
     pub(crate) file_sha256s: Vec<String>,
     pub(crate) group_id: Option<Uuid>,
@@ -161,12 +164,14 @@ impl ReplaySetFilters {
         playlists.dedup();
         let mut game_types = normalize_terms(input.game_types)
             .into_iter()
+            .filter(|value| !is_all_game_type_filter(value))
             .map(|value| parse_game_type_filter(&value))
             .collect::<Result<Vec<_>, _>>()?;
         game_types.sort();
         game_types.dedup();
         let mut team_sizes = normalize_terms(input.team_sizes)
             .into_iter()
+            .filter(|value| !is_all_team_size_filter(value))
             .map(|value| parse_team_size_filter(&value))
             .collect::<Result<Vec<_>, _>>()?;
         team_sizes.sort_unstable();
@@ -237,6 +242,7 @@ impl ReplaySetFilters {
             playlists,
             game_types,
             team_sizes,
+            seasons: normalize_seasons(input.seasons),
             replay_ids: input.replay_ids,
             file_sha256s,
             group_id: input
@@ -279,6 +285,7 @@ impl ReplaySetFilters {
             && self.playlists.is_empty()
             && self.game_types.is_empty()
             && self.team_sizes.is_empty()
+            && self.seasons.is_empty()
             && self.replay_ids.is_empty()
             && self.file_sha256s.is_empty()
             && self.group_id.is_none()
@@ -391,6 +398,14 @@ pub(crate) fn append_replay_set_filters<'args>(
             .push_bind(&filters.team_sizes)
             .push(")");
     }
+    if !filters.seasons.is_empty() {
+        builder
+            .push(" AND ")
+            .push(replay_alias)
+            .push(".season = ANY(")
+            .push_bind(&filters.seasons)
+            .push(")");
+    }
     if let Some(playlist_group_key) = &filters.playlist_group_key {
         builder.push(" AND ");
         push_playlist_group_key_expression(builder, replay_alias);
@@ -442,11 +457,7 @@ pub(crate) fn append_replay_set_filters<'args>(
             .push_bind(uploader_user_id);
     }
     if let Some(group_id) = filters.group_id {
-        builder.push(" AND EXISTS (SELECT 1 FROM replay_group_replays stats_group WHERE stats_group.replay_id = ");
-        builder.push(replay_alias);
-        builder.push(".id AND stats_group.group_id = ");
-        builder.push_bind(group_id);
-        builder.push(")");
+        push_replay_group_subtree_membership_filter(builder, replay_alias, "stats_group", group_id);
     }
     if let Some(project_id) = filters.project_id {
         builder
@@ -526,6 +537,30 @@ pub(crate) fn append_replay_set_filters<'args>(
     if let Some(outcome) = &filters.player_outcome {
         append_player_replay_outcome_filter(builder, outcome, replay_alias);
     }
+}
+
+pub(crate) fn push_replay_group_subtree_membership_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+    group_alias: &str,
+    group_id: Uuid,
+) {
+    // Match a replay if it belongs to this group OR any descendant group, so a
+    // non-leaf group aggregates every replay in its subtree. The recursive CTE
+    // walks parent_group_id downward; UNION (not UNION ALL) dedupes and
+    // guarantees termination even if a parent cycle ever slips in.
+    builder
+        .push(" AND EXISTS (SELECT 1 FROM replay_group_replays ")
+        .push(group_alias)
+        .push(" WHERE ")
+        .push(group_alias)
+        .push(".replay_id = ")
+        .push(replay_alias)
+        .push(".id AND ")
+        .push(group_alias)
+        .push(".group_id IN (WITH RECURSIVE group_subtree AS (SELECT id FROM replay_groups WHERE id = ")
+        .push_bind(group_id)
+        .push(" UNION SELECT child.id FROM replay_groups child JOIN group_subtree parent ON child.parent_group_id = parent.id) SELECT id FROM group_subtree))");
 }
 
 /// Maps a replay's textual `season` code (e.g. `s12`, `f23`) to its total-order
@@ -676,6 +711,10 @@ fn parse_game_type_filter(value: &str) -> Result<String, ApiError> {
     }
 }
 
+fn is_all_game_type_filter(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "any" | "all")
+}
+
 fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
     let normalized = value.trim().to_ascii_lowercase();
     let digits = match normalized.as_str() {
@@ -692,6 +731,10 @@ fn parse_team_size_filter(value: &str) -> Result<i32, ApiError> {
         .ok_or_else(|| ApiError::bad_request("team-size must be 1-4 (or 1v1, 2v2, 3v3, 4v4)"))
 }
 
+fn is_all_team_size_filter(value: &str) -> bool {
+    matches!(value.trim().to_ascii_lowercase().as_str(), "all" | "any")
+}
+
 fn parse_replay_outcome_filter(value: &str) -> Result<ReplayOutcome, ApiError> {
     match value.trim().to_ascii_lowercase().as_str() {
         "win" | "wins" | "won" => Ok(ReplayOutcome::Win),
@@ -706,6 +749,16 @@ pub(crate) fn normalize_terms(terms: Vec<String>) -> Vec<String> {
         .map(|term| term.trim().to_owned())
         .filter(|term| !term.is_empty())
         .collect()
+}
+
+fn normalize_seasons(seasons: Vec<String>) -> Vec<String> {
+    let mut seasons: Vec<String> = normalize_terms(seasons)
+        .into_iter()
+        .map(|season| season.to_ascii_lowercase())
+        .collect();
+    seasons.sort();
+    seasons.dedup();
+    seasons
 }
 
 fn parse_uploader_filter(value: &str, auth_user_id: Option<Uuid>) -> Result<Uuid, ApiError> {

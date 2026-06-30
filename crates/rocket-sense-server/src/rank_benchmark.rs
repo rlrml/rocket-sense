@@ -14,10 +14,15 @@ pub const MIN_PLAYER_GAMES: i64 = 5;
 /// `distinct_player_count` so the UI can hide or flag thinner tiers.
 pub const MIN_SAMPLE: i64 = 20;
 
-/// When fewer than this fraction of a stat's qualifying players ever perform the
-/// event (so the per-player median is ~0), the refresh marks the stat
-/// `aggregator = 'mean'` and the read serves the pooled rate instead -- a rare
-/// mechanic (flip reset, air dribble, ...) otherwise flatlines at a 0 median.
+/// Historic rare-stat threshold: when fewer than this fraction of a stat's
+/// qualifying players ever performed the event (so the per-player median was ~0),
+/// the refresh used to mark the stat `aggregator = 'mean'` so a rare mechanic
+/// (flip reset, air dribble, ...) wouldn't flatline at a 0 median. The benchmark
+/// now uses pooled mean for *every* stat (see `stat_aggregator` in processing.rs):
+/// mean is the same aggregation as the player's own number, so the two compare
+/// like-for-like and don't show the median's systematic "everyone above the line"
+/// offset. Retained for reference / a future percentile view.
+#[allow(dead_code)]
 pub const RARE_NONZERO_FRACTION: f64 = 0.5;
 
 /// How many of a season's qualifying players are needed before `season:current`

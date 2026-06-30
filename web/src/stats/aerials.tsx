@@ -1,9 +1,12 @@
 import { useMemo } from "react";
+import { Link } from "react-router-dom";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
   comparisonSubjectLabel,
   StatComparisonGrid,
   StatComparisonPanel,
+  subjectIndexByTeam,
+  subjectMagnitudeRows,
   subjectSplitRows,
 } from "./comparisonPanels";
 import { statPlayerRank, type StatPlayerRank } from "./shared";
@@ -11,8 +14,9 @@ import { touchPayloadValue } from "./touchTags";
 
 // Every aerial panel ranks all participants on its own, so this group loads the
 // streams those rankings draw from:
-//   - flip_reset / double_tap / wall_aerial: detected mechanic events. Flip
-//     resets are confirmed only once the reset is later used by a dodge touch.
+//   - flip_reset / double_tap / wall_aerial / ceiling_shot: detected mechanic
+//     events. Flip resets are confirmed only once the reset is later used by a
+//     dodge touch.
 //   - air_dribble: a dedicated stream (NOT ball_carry, which is ground carries);
 //     its payload carries air_dribble_origin (ground_to_air / wall_to_air)
 //   - goal_context: goal tags flag which finishes were aerial
@@ -22,6 +26,7 @@ export const aerialEventTypes = [
   "double_tap",
   "air_dribble",
   "wall_aerial",
+  "ceiling_shot",
   "goal_context",
   "touch",
 ];
@@ -34,8 +39,9 @@ interface AerialValue {
   segmentClass: string;
 }
 
-// One ranked chart. Each pulls a per-subject `Record<valueId, count>` out of the
-// matching slot on AerialSubject.counts and stacks `values` into the bar.
+// One ranked composition chart. Each pulls a per-subject `Record<valueId, count>`
+// out of the matching slot on AerialSubject.counts and stacks `values` into the
+// bar — used for the dimensional breakdowns (origin, wall, goal type, height).
 interface AerialPanelConfig {
   id: string;
   title: string;
@@ -44,13 +50,25 @@ interface AerialPanelConfig {
   values: AerialValue[];
 }
 
-// The four mechanics that make up a player's aerial workload. The air dribble
-// count here is the same total broken out by origin in the dedicated panel.
-const MIX_VALUES: AerialValue[] = [
-  { id: "flip_reset", label: "Flip reset", segmentClass: "aerial-seg-mix-flip-reset" },
-  { id: "double_tap", label: "Double tap", segmentClass: "aerial-seg-mix-double-tap" },
-  { id: "air_dribble", label: "Air dribble", segmentClass: "aerial-seg-mix-air-dribble" },
-  { id: "wall_aerial", label: "Wall aerial", segmentClass: "aerial-seg-mix-wall-aerial" },
+// One ranked chart per aerial mechanic. Rather than stacking every mechanic into
+// a single "aerial mechanics" bar (which buries the per-mechanic ranking), each
+// mechanic gets its own magnitude panel ranking the game's players — mirroring
+// the one-graph-per-stat shape of the career view. `kind` is both the event type
+// and the playlist key its title links to.
+interface MechanicPanelConfig {
+  kind: string;
+  // Pluralized panel title, e.g. "Flip resets".
+  title: string;
+  // Drives the bar color in group scope, where bars aren't team-colored.
+  segmentClass: string;
+}
+
+const MECHANIC_PANELS: MechanicPanelConfig[] = [
+  { kind: "flip_reset", title: "Flip resets", segmentClass: "aerial-seg-mix-flip-reset" },
+  { kind: "double_tap", title: "Double taps", segmentClass: "aerial-seg-mix-double-tap" },
+  { kind: "air_dribble", title: "Air dribbles", segmentClass: "aerial-seg-mix-air-dribble" },
+  { kind: "wall_aerial", title: "Wall aerials", segmentClass: "aerial-seg-mix-wall-aerial" },
+  { kind: "ceiling_shot", title: "Ceiling shots", segmentClass: "aerial-seg-mix-ceiling-shot" },
 ];
 
 // AirDribbleOrigin from subtr-actor: where the dribble was started from.
@@ -59,10 +77,20 @@ const ORIGIN_VALUES: AerialValue[] = [
   { id: "wall_to_air", label: "From wall", segmentClass: "aerial-seg-origin-wall" },
 ];
 
-// WallAerialWall from subtr-actor: which wall the player took off from.
+// WallAerialWall from subtr-actor: which wall the player took off from, relative
+// to their attack direction. `front`/`back` are the end walls (opponent's net
+// side vs. own net side), `left`/`right` are the side walls, and the `*_left` /
+// `*_right` variants are the rounded corners. Ordered clockwise from the left
+// side wall so the stacked bar reads like a sweep around the field.
 const WALL_VALUES: AerialValue[] = [
-  { id: "side", label: "Side wall", segmentClass: "aerial-seg-wall-side" },
-  { id: "back", label: "Back wall", segmentClass: "aerial-seg-wall-back" },
+  { id: "left", label: "Left", segmentClass: "aerial-seg-wall-left" },
+  { id: "front_left", label: "Front-left", segmentClass: "aerial-seg-wall-front-left" },
+  { id: "front", label: "Front", segmentClass: "aerial-seg-wall-front" },
+  { id: "front_right", label: "Front-right", segmentClass: "aerial-seg-wall-front-right" },
+  { id: "right", label: "Right", segmentClass: "aerial-seg-wall-right" },
+  { id: "back_right", label: "Back-right", segmentClass: "aerial-seg-wall-back-right" },
+  { id: "back", label: "Back", segmentClass: "aerial-seg-wall-back" },
+  { id: "back_left", label: "Back-left", segmentClass: "aerial-seg-wall-back-left" },
 ];
 
 // The aerial-flavored subset of GoalTagKind. A single goal can carry more than
@@ -83,8 +111,10 @@ const HEIGHT_VALUES: AerialValue[] = [
   { id: "high_air", label: "High air", segmentClass: "aerial-seg-height-high" },
 ];
 
-const PANELS: AerialPanelConfig[] = [
-  { id: "mix", title: "Aerial mechanics", noun: "aerial mechanics", values: MIX_VALUES },
+// Dimensional breakdown panels, each a stacked composition bar. The per-mechanic
+// counts that used to share a "mix" panel now each have their own chart above
+// (see MECHANIC_PANELS); their totals still live in the "mix" counts slot.
+const COMPOSITION_PANELS: AerialPanelConfig[] = [
   { id: "origin", title: "Air dribbles by origin", noun: "air dribbles", values: ORIGIN_VALUES },
   { id: "wall", title: "Wall aerials by wall", noun: "wall aerials", values: WALL_VALUES },
   { id: "goals", title: "Aerial goals by type", noun: "aerial goal tags", values: GOAL_VALUES },
@@ -96,6 +126,10 @@ const PANELS: AerialPanelConfig[] = [
   },
 ];
 
+// The per-mechanic tallies live in this counts slot; the dedicated mechanic
+// panels and the origin/wall sub-breakdowns all read from here.
+const MIX_COUNTS_SLOT = "mix";
+
 interface AerialSubject {
   key: string;
   name: string;
@@ -103,18 +137,20 @@ interface AerialSubject {
   platformPlayerId: string | null;
   rank: StatPlayerRank | null;
   team: number | null;
-  // panel id -> (value id -> count)
+  // counts slot -> (value id -> count)
   counts: Record<string, Record<string, number>>;
 }
 
 export function AerialsDetail({
   events,
   players,
+  replayId,
   scope = "replay",
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds?: number | null;
+  replayId?: string;
   scope?: "replay" | "group";
 }) {
   const subjects = useMemo(() => aerialSubjects(players, events), [players, events]);
@@ -127,18 +163,60 @@ export function AerialsDetail({
     );
   }
 
+  const teamColored = scope !== "group";
+  const subjectIndexByKey = subjectIndexByTeam(subjects);
+
   return (
     <div className="aerials-detail">
       <StatComparisonGrid contained={false}>
-        {PANELS.map((panel) => (
-          <AerialPanel key={panel.id} panel={panel} subjects={subjects} />
+        {MECHANIC_PANELS.map((panel) => (
+          <StatComparisonPanel
+            key={panel.kind}
+            title={mechanicPanelTitle(panel, replayId)}
+            rows={subjectMagnitudeRows(subjects, {
+              teamColored,
+              subjectIndexByKey,
+              groupClassName: panel.segmentClass,
+              metric: (subject) => subject.counts[MIX_COUNTS_SLOT][panel.kind] ?? 0,
+              format: formatCount,
+              label: (subject) => comparisonSubjectLabel(subject, "aerials"),
+              ariaSuffix: panel.title.toLowerCase(),
+            })}
+          />
+        ))}
+        {COMPOSITION_PANELS.map((panel) => (
+          <AerialPanel key={panel.id} panel={panel} subjects={subjects} replayId={replayId} />
         ))}
       </StatComparisonGrid>
     </div>
   );
 }
 
-function AerialPanel({ panel, subjects }: { panel: AerialPanelConfig; subjects: AerialSubject[] }) {
+// In a single-replay context the mechanic panel title links to a clip playlist of
+// that mechanic (mirrors the goal-tag links on the scoring section). In group
+// scope there's no per-replay playlist, so it stays plain text.
+function mechanicPanelTitle(panel: MechanicPanelConfig, replayId?: string) {
+  if (!replayId) return panel.title;
+  return (
+    <Link
+      className="stat-panel-title-link"
+      to={`/replays/${encodeURIComponent(replayId)}/aerials/${encodeURIComponent(panel.kind)}`}
+      title={`Watch ${panel.title.toLowerCase()} clips`}
+    >
+      {panel.title}
+    </Link>
+  );
+}
+
+function AerialPanel({
+  panel,
+  subjects,
+  replayId,
+}: {
+  panel: AerialPanelConfig;
+  subjects: AerialSubject[];
+  replayId?: string;
+}) {
   const rows = subjectSplitRows(subjects, panel.values, {
     amount: (subject, value) => subject.counts[panel.id][value.id] ?? 0,
     total: (subject) => panelTotal(subject, panel.id),
@@ -150,22 +228,64 @@ function AerialPanel({ panel, subjects }: { panel: AerialPanelConfig; subjects: 
   return (
     <StatComparisonPanel
       emptyLabel={`No ${panel.noun} are available yet.`}
-      footer={<AerialLegend values={panel.values} />}
+      footer={<AerialLegend panelId={panel.id} values={panel.values} replayId={replayId} />}
       rows={rows}
       title={panel.title}
     />
   );
 }
 
-function AerialLegend({ values }: { values: AerialValue[] }) {
+// In a single-replay context each composition legend tag deep-links to a clip
+// playlist. The origin/wall breakdowns reuse the air-dribble / wall-aerial
+// playlist with a payload sub-filter; aerial goal tags reuse the existing goal
+// playlist. The height-band touches have no standalone clip, so they stay plain
+// labels. (The per-mechanic panels link from their titles instead — see
+// mechanicPanelTitle.)
+function panelValueHref(panelId: string, valueId: string, replayId?: string): string | undefined {
+  if (!replayId) return undefined;
+  const replay = encodeURIComponent(replayId);
+  const value = encodeURIComponent(valueId);
+  switch (panelId) {
+    case "origin":
+      return `/replays/${replay}/aerials/air_dribble?origin=${value}`;
+    case "wall":
+      return `/replays/${replay}/aerials/wall_aerial?wall=${value}`;
+    case "goals":
+      return `/replays/${replay}/goals/${value}`;
+    default:
+      return undefined;
+  }
+}
+
+function AerialLegend({
+  panelId,
+  values,
+  replayId,
+}: {
+  panelId: string;
+  values: AerialValue[];
+  replayId?: string;
+}) {
   if (!values.length) return null;
   return (
     <div className="chart-legend">
-      {values.map((value) => (
-        <span className={value.segmentClass} key={value.id}>
-          {value.label}
-        </span>
-      ))}
+      {values.map((value) => {
+        const href = panelValueHref(panelId, value.id, replayId);
+        return href ? (
+          <Link
+            className={`${value.segmentClass} chart-legend-link`}
+            key={value.id}
+            to={href}
+            title={`Watch ${value.label.toLowerCase()} clips`}
+          >
+            {value.label}
+          </Link>
+        ) : (
+          <span className={value.segmentClass} key={value.id}>
+            {value.label}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -195,8 +315,8 @@ function aerialSubjects(players: ReplayPlayer[], events: MechanicEventResponse[]
 }
 
 function emptySubject(player: ReplayPlayer, index: number): AerialSubject {
-  const counts: Record<string, Record<string, number>> = {};
-  for (const panel of PANELS) counts[panel.id] = {};
+  const counts: Record<string, Record<string, number>> = { [MIX_COUNTS_SLOT]: {} };
+  for (const panel of COMPOSITION_PANELS) counts[panel.id] = {};
   return {
     key: playerKey(player, index),
     name: player.name || player.platform_player_id || "Unknown",
@@ -215,6 +335,9 @@ function accumulate(subject: AerialSubject, event: MechanicEventResponse) {
       break;
     case "double_tap":
       bump(subject, "mix", "double_tap");
+      break;
+    case "ceiling_shot":
+      bump(subject, "mix", "ceiling_shot");
       break;
     case "wall_aerial": {
       bump(subject, "mix", "wall_aerial");

@@ -34,12 +34,22 @@ export interface ReplayUploaderResponse {
   provider: string | null;
 }
 
+export interface UserGameIdentity {
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  appearance_count: number;
+  /** How the link was established: "login" (auto from OAuth subject) or "claim". */
+  source: string;
+}
+
 export interface UserProfileResponse {
   id: string;
   display_name: string | null;
   avatar_url: string | null;
   created_at: string;
   upload_count: number;
+  game_identities: UserGameIdentity[];
 }
 
 export interface ReplayResponse {
@@ -64,6 +74,7 @@ export interface ReplayResponse {
       orange: number | null;
     };
     duration_seconds: number | null;
+    active_seconds: number | null;
     overtime_seconds: number | null;
     match_guid: string | null;
     season: string | null;
@@ -78,10 +89,17 @@ export interface ReplayResponse {
 export interface ReplayGroupResponse {
   id: string;
   project_id: string | null;
+  parent_group_id: string | null;
   name: string;
   description: string | null;
   created_by_user_id: string | null;
   replay_count: number;
+  total_replay_count: number;
+  child_group_count: number;
+  ballchasing_group_id: string | null;
+  ballchasing_synced_at: string | null;
+  ballchasing_sync_status: string | null;
+  ballchasing_sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +148,9 @@ export interface AppearancesLeaderboardRow {
   platform_player_id: string;
   display_name: string | null;
   is_pro: boolean;
+  estimated_rank_tier?: number | null;
+  estimated_rank_division?: number | null;
+  estimated_rank_mmr?: number | null;
   appearance_count: number;
 }
 
@@ -153,6 +174,9 @@ export interface EventLeaderboardRow {
   platform_player_id: string;
   display_name: string | null;
   is_pro: boolean;
+  estimated_rank_tier?: number | null;
+  estimated_rank_division?: number | null;
+  estimated_rank_mmr?: number | null;
   event_count: number;
   replay_count: number;
   active_time_seconds: number | null;
@@ -182,6 +206,9 @@ export interface StatLeaderboardRow {
   platform_player_id: string;
   display_name: string | null;
   is_pro: boolean;
+  estimated_rank_tier?: number | null;
+  estimated_rank_division?: number | null;
+  estimated_rank_mmr?: number | null;
   value: number;
   replay_count: number;
   active_time_seconds: number | null;
@@ -275,10 +302,17 @@ export interface ListReplaysResponse {
 export interface ReplayGroupResponse {
   id: string;
   project_id: string | null;
+  parent_group_id: string | null;
   name: string;
   description: string | null;
   created_by_user_id: string | null;
   replay_count: number;
+  total_replay_count: number;
+  child_group_count: number;
+  ballchasing_group_id: string | null;
+  ballchasing_synced_at: string | null;
+  ballchasing_sync_status: string | null;
+  ballchasing_sync_error: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -310,6 +344,7 @@ export interface ReplayProcessingDiagnosticsResponse {
 export interface ReplayProcessingDiagnosticsSummary {
   total_replays: number;
   problem_replays: number;
+  currently_failed_replays: number;
   status_counts: Array<{
     status: string;
     count: number;
@@ -353,6 +388,60 @@ export interface ReplayProcessingDiagnostic {
   reasons: string[];
 }
 
+export interface RecentlyProcessedReplaysResponse {
+  replays: RecentlyProcessedReplay[];
+  count: number;
+  offset: number;
+  next_offset: number | null;
+}
+
+export interface RecentlyProcessedReplay {
+  replay_id: string;
+  original_file_name: string | null;
+  processing_status: ReplayProcessingStatus;
+  created_at: string;
+  updated_at: string;
+  canonical_run_id: string | null;
+  canonical_run_status: string | null;
+  extractor_name: string | null;
+  extractor_version: string | null;
+  /** When the canonical analysis run finished — i.e. when the replay became processed. */
+  processed_at: string | null;
+  event_count: number;
+}
+
+export interface ReplayProcessingQueueResponse {
+  jobs: ReplayProcessingQueueJob[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
+}
+
+export interface ReplayProcessingQueueJob {
+  job_id: string;
+  replay_id: string;
+  original_file_name: string | null;
+  force: boolean;
+  status: string;
+  /** Failed job that has exhausted its retries; apalis will never rerun it on its own. */
+  terminal: boolean;
+  attempts: number;
+  max_attempts: number;
+  priority: number;
+  run_at: string;
+  lock_by: string | null;
+  lock_at: string | null;
+  done_at: string | null;
+  last_result: string | null;
+}
+
+export interface ReprocessFailedQueueJobsResponse {
+  failed_replays: number;
+  enqueued_replays: number;
+  skipped_replays: number;
+}
+
 export interface AnalysisRunDiagnostic {
   id: string;
   status: string;
@@ -383,42 +472,9 @@ export interface StatAggregateResponse {
   opponent_count_per_game: number | null;
   opponent_per_active_minute: number | null;
   opponent_per_non_demo_active_minute: number | null;
-  // The `rank-peers` benchmark cohort (a typical player at the served tier).
-  // Optional: a flagged-off / undeployed backend omits these.
-  rank_benchmark_per_active_minute?: number | null;
-  rank_benchmark_per_non_demo_active_minute?: number | null;
-  // "median" (typical player) or "mean" (pooled rate, for rare mechanics).
-  rank_benchmark_aggregator?: string | null;
 }
 
-export interface RankBenchmarkTierOption {
-  tier: number;
-  label: string;
-  distinct_player_count: number;
-}
-
-export interface RankBenchmarkWindowOption {
-  key: string;
-  label: string;
-}
-
-// The served rank-benchmark cohort metadata + picker option lists, shared by the
-// aggregate set and per-playlist group responses. All optional so an
-// undeployed / flagged-off backend simply omits them.
-export interface RankBenchmarkAggregateFields {
-  rank_benchmark_tier?: number | null;
-  rank_benchmark_tier_label?: string | null;
-  // "tier" (exact tier) or "group" (pooled rank group used when the tier was too sparse).
-  rank_benchmark_rank_grouping?: string | null;
-  rank_benchmark_is_player_default?: boolean | null;
-  rank_benchmark_distinct_player_count?: number | null;
-  rank_benchmark_window?: string | null;
-  rank_benchmark_window_label?: string | null;
-  rank_benchmark_available_tiers?: RankBenchmarkTierOption[];
-  rank_benchmark_available_windows?: RankBenchmarkWindowOption[];
-}
-
-export interface StatAggregateSetResponse extends RankBenchmarkAggregateFields {
+export interface StatAggregateSetResponse {
   replay_count: number;
   player_appearance_count: number | null;
   active_time_seconds: number | null;
@@ -454,6 +510,16 @@ export interface StatAggregateSetResponse extends RankBenchmarkAggregateFields {
   touch_breakdown: TouchAggregateBreakdownResponse | null;
   stats: StatAggregateResponse[];
   groups: StatAggregateGroupResponse[];
+  /**
+   * Present only when a `group-by=player` set had more distinct players than the
+   * per-request cap: `groups` holds the top `limit` (by replay count) of `total`.
+   */
+  groups_truncated?: GroupTruncation | null;
+}
+
+export interface GroupTruncation {
+  limit: number;
+  total: number;
 }
 
 export interface TouchAggregateBreakdownResponse {
@@ -486,7 +552,7 @@ export interface StatAggregateGroupPlayer {
   display_name: string | null;
 }
 
-export interface StatAggregateGroupResponse extends RankBenchmarkAggregateFields {
+export interface StatAggregateGroupResponse {
   group_by: string;
   key: string;
   display_name: string;
@@ -508,6 +574,10 @@ export interface StatAggregateGroupResponse extends RankBenchmarkAggregateFields
   opponent_non_demo_active_time_seconds: number | null;
   opponent_time_most_back_seconds: number | null;
   opponent_time_most_forward_seconds: number | null;
+  /** Replays the player's team won / lost (score-decided; ties are neither).
+   * Present only on `group-by=player` rows; backs the `win_rate` derived metric. */
+  win_count?: number;
+  loss_count?: number;
   stats: StatAggregateResponse[];
 }
 
@@ -596,6 +666,18 @@ export interface MovementCohortSummary {
   speed_flips: number;
   wavedashes: number;
   half_flips: number;
+}
+
+export interface ReplayPlayerMovementSummary {
+  platform: string | null;
+  platform_player_id: string | null;
+  summary: MovementCohortSummary;
+}
+
+export interface ReplayPlayerPositioningSummary {
+  platform: string | null;
+  platform_player_id: string | null;
+  summary: PositioningCohortSummary;
 }
 
 export interface EventStatDimensionValueResponse {
@@ -793,6 +875,8 @@ export interface MechanicEventResponse {
   reason: string | null;
   payload: Record<string, unknown>;
   review_status: string | null;
+  /** Distinct free-form user tags applied to this event (see event_tags). */
+  tags?: string[];
 }
 
 export interface MechanicEventsResponse {
@@ -836,6 +920,27 @@ export interface LinkedIdentityResponse {
 
 export interface LinkedIdentitiesResponse {
   identities: LinkedIdentityResponse[];
+}
+
+export interface FavoritePlayerResponse {
+  platform: string;
+  platform_player_id: string;
+  display_name: string | null;
+  appearance_count: number;
+  favorited_at: string;
+}
+
+export interface FavoriteUploaderResponse {
+  user_id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  upload_count: number;
+  favorited_at: string;
+}
+
+export interface FavoritesResponse {
+  players: FavoritePlayerResponse[];
+  uploaders: FavoriteUploaderResponse[];
 }
 
 export interface ReprocessReplayResponse {
@@ -1047,4 +1152,46 @@ export interface RankTrendsResponse {
   metrics: RankTrendMetric[];
   available_playlist_groups: string[];
   available_windows: RankTrendsWindow[];
+}
+
+// Career-stats "rank average" comparison cohorts. The benchmark value for a
+// stat is looked up by its metric_key in `RankBenchmarkCohort.per_stat`; the
+// value is in the metric's natural units (per-active-minute rate, 0..1 share,
+// or raw average) — see web/src/stats/metricFormats.ts for scaling/formatting.
+export interface RankBenchmarkWindowOption {
+  key: string;
+  label: string;
+}
+
+export interface RankBenchmarkRankOption {
+  rank_value: number;
+  label: string;
+  distinct_player_count: number | null;
+}
+
+export interface RankBenchmarkCohortStat {
+  value: number | null;
+  // "median" (typical player) or "mean" (pooled, for rare metrics).
+  aggregator: string;
+}
+
+export interface RankBenchmarkCohort {
+  rank_value: number;
+  label: string;
+  rank_grouping: string;
+  // True when this cohort is the server-resolved current-rank estimate.
+  is_player_default: boolean;
+  distinct_player_count: number | null;
+  per_stat: Record<string, RankBenchmarkCohortStat>;
+}
+
+export interface RankBenchmarkCohortsResponse {
+  rank_grouping: string;
+  window: string | null;
+  window_label: string | null;
+  playlist_group_key: string | null;
+  default_rank_value: number | null;
+  available_ranks: RankBenchmarkRankOption[];
+  available_windows: RankBenchmarkWindowOption[];
+  cohorts: RankBenchmarkCohort[];
 }

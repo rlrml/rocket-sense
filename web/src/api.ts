@@ -6,6 +6,7 @@ import type {
   CurrentUserResponse,
   EventStatSummaryResponse,
   EventTypesResponse,
+  FavoritesResponse,
   GroupBoostTotalsResponse,
   LinkedIdentitiesResponse,
   ListReplayGroupsResponse,
@@ -25,8 +26,12 @@ import type {
   PlayerStatOverviewResponse,
   ProcessingVersionBreakdownResponse,
   ProcessingVersionResponse,
+  RankBenchmarkCohortsResponse,
   RankTrendsResponse,
+  RecentlyProcessedReplaysResponse,
   ReplayProcessingDiagnosticsResponse,
+  ReplayProcessingQueueResponse,
+  ReprocessFailedQueueJobsResponse,
   ReplayFilterOptionsResponse,
   ReplayGroupResponse,
   ReplayGroupReplayUpdateResponse,
@@ -130,12 +135,38 @@ export function getRankTrends(searchParams: URLSearchParams): Promise<RankTrends
   return request<RankTrendsResponse>(`/api/v1/stats/rank-trends${query ? `?${query}` : ""}`);
 }
 
+// The career-stats "rank average" cohorts for the viewed player's filter
+// context. player-id drives the default current-rank estimate; the caller adds
+// the rank-benchmark-rank / -grouping / -window selection params.
+export function getRankBenchmarkCohorts(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<RankBenchmarkCohortsResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<RankBenchmarkCohortsResponse>(`/api/v1/stats/rank-benchmark?${params.toString()}`);
+}
+
 export function listReplayFilterOptions(): Promise<ReplayFilterOptionsResponse> {
   return request<ReplayFilterOptionsResponse>("/api/v1/replays/filter-options");
 }
 
-export function listReplayGroups(): Promise<ListReplayGroupsResponse> {
-  return request<ListReplayGroupsResponse>("/api/v1/replay-groups");
+export type ReplayGroupListScope = "mine" | "all";
+
+export function listReplayGroups(
+  options: { scope?: ReplayGroupListScope; q?: string } = {},
+): Promise<ListReplayGroupsResponse> {
+  const params = new URLSearchParams();
+  if (options.scope) {
+    params.set("scope", options.scope);
+  }
+  const q = options.q?.trim();
+  if (q) {
+    params.set("q", q);
+  }
+  const query = params.toString();
+  return request<ListReplayGroupsResponse>(`/api/v1/replay-groups${query ? `?${query}` : ""}`);
 }
 
 export function getUploadsLeaderboard(
@@ -171,12 +202,47 @@ export function getStatLeaderboard(
 export function createReplayGroup(body: {
   name: string;
   description?: string;
+  parent_id?: string | null;
 }): Promise<ReplayGroupResponse> {
   return request<ReplayGroupResponse>("/api/v1/replay-groups", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
+}
+
+export function updateReplayGroup(
+  groupId: string,
+  body: {
+    name?: string;
+    description?: string | null;
+    parent_id?: string | null;
+  },
+): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>(`/api/v1/replay-groups/${encodeURIComponent(groupId)}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function createBallchasingMirror(body: {
+  group: string;
+  parent_id?: string | null;
+  name?: string;
+}): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>("/api/v1/replay-groups/ballchasing-mirror", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function syncBallchasingGroup(groupId: string): Promise<ReplayGroupResponse> {
+  return request<ReplayGroupResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/ballchasing-sync`,
+    { method: "POST" },
+  );
 }
 
 export function addReplaysToGroup(
@@ -193,6 +259,13 @@ export function addReplaysToGroup(
   );
 }
 
+export function addMatchingReplaysToGroup(
+  groupId: string,
+  searchParams: URLSearchParams,
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return updateMatchingReplayGroupReplays("POST", groupId, searchParams);
+}
+
 export function removeReplaysFromGroup(
   groupId: string,
   replayIds: string[],
@@ -203,6 +276,31 @@ export function removeReplaysFromGroup(
       method: "DELETE",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ replay_ids: replayIds }),
+    },
+  );
+}
+
+export function removeMatchingReplaysFromGroup(
+  groupId: string,
+  searchParams: URLSearchParams,
+): Promise<ReplayGroupReplayUpdateResponse> {
+  return updateMatchingReplayGroupReplays("DELETE", groupId, searchParams);
+}
+
+function updateMatchingReplayGroupReplays(
+  method: "POST" | "DELETE",
+  groupId: string,
+  searchParams: URLSearchParams,
+): Promise<ReplayGroupReplayUpdateResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.delete("count");
+  params.delete("offset");
+  return request<ReplayGroupReplayUpdateResponse>(
+    `/api/v1/replay-groups/${encodeURIComponent(groupId)}/replays`,
+    {
+      method,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ replay_filter_query: params.toString() }),
     },
   );
 }
@@ -257,6 +355,24 @@ export async function deleteReplayGroup(groupId: string): Promise<void> {
   }
 }
 
+// Deletes a replay and all of its derived data. Returns 204 with no body, so it
+// bypasses the JSON `request` helper. Allowed for the replay's uploader or an admin.
+export async function deleteReplay(replayId: string): Promise<void> {
+  const token = getAccessToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(`/api/v1/replays/${encodeURIComponent(replayId)}`, {
+    method: "DELETE",
+    headers,
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(apiErrorMessage(body) || `${response.status} ${response.statusText}`);
+  }
+}
+
 export function listReplayProcessingDiagnostics(
   searchParams: URLSearchParams,
 ): Promise<ReplayProcessingDiagnosticsResponse> {
@@ -266,10 +382,37 @@ export function listReplayProcessingDiagnostics(
   }
   return request<ReplayProcessingDiagnosticsResponse>(
     `/api/v1/admin/replays/processing-diagnostics?${params.toString()}`,
-    {
-      includeAccessToken: false,
-    },
   );
+}
+
+export function listRecentlyProcessedReplays(
+  searchParams: URLSearchParams,
+): Promise<RecentlyProcessedReplaysResponse> {
+  const params = new URLSearchParams(searchParams);
+  if (!params.has("count")) {
+    params.set("count", "100");
+  }
+  return request<RecentlyProcessedReplaysResponse>(
+    `/api/v1/admin/replays/recently-processed?${params.toString()}`,
+  );
+}
+
+export function listReplayProcessingQueue(
+  searchParams: URLSearchParams,
+): Promise<ReplayProcessingQueueResponse> {
+  const params = new URLSearchParams(searchParams);
+  if (!params.has("count")) {
+    params.set("count", "200");
+  }
+  return request<ReplayProcessingQueueResponse>(`/api/v1/admin/replays/queue?${params.toString()}`);
+}
+
+// Admin: force-reprocess every replay that currently has a failed job in the
+// queue (both retriable and retry-exhausted failures).
+export function reprocessFailedQueueJobs(): Promise<ReprocessFailedQueueJobsResponse> {
+  return request<ReprocessFailedQueueJobsResponse>("/api/v1/admin/replays/queue/reprocess-failed", {
+    method: "POST",
+  });
 }
 
 type GetReplayOptions = {
@@ -729,6 +872,47 @@ export function getCurrentUser(): Promise<CurrentUserResponse> {
 
 export function listLinkedIdentities(): Promise<LinkedIdentitiesResponse> {
   return request<LinkedIdentitiesResponse>("/api/v1/me/linked-identities");
+}
+
+export function getFavorites(): Promise<FavoritesResponse> {
+  return request<FavoritesResponse>("/api/v1/me/favorites");
+}
+
+// The favorite mutation endpoints return 204 with no body, so they bypass the
+// JSON `request` helper that always parses a response body.
+async function favoriteMutation(path: string, method: "PUT" | "DELETE"): Promise<void> {
+  const token = getAccessToken();
+  const headers = new Headers();
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+  const response = await fetch(path, { method, headers });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(apiErrorMessage(body) || `${response.status} ${response.statusText}`);
+  }
+}
+
+export function addFavoritePlayer(platform: string, platformPlayerId: string): Promise<void> {
+  return favoriteMutation(
+    `/api/v1/me/favorites/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`,
+    "PUT",
+  );
+}
+
+export function removeFavoritePlayer(platform: string, platformPlayerId: string): Promise<void> {
+  return favoriteMutation(
+    `/api/v1/me/favorites/players/${encodeURIComponent(platform)}/${encodeURIComponent(platformPlayerId)}`,
+    "DELETE",
+  );
+}
+
+export function addFavoriteUploader(userId: string): Promise<void> {
+  return favoriteMutation(`/api/v1/me/favorites/uploaders/${encodeURIComponent(userId)}`, "PUT");
+}
+
+export function removeFavoriteUploader(userId: string): Promise<void> {
+  return favoriteMutation(`/api/v1/me/favorites/uploaders/${encodeURIComponent(userId)}`, "DELETE");
 }
 
 export function reprocessReplay(

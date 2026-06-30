@@ -1,0 +1,6 @@
+-- Intentionally no-op.
+--
+-- New analysis runs no longer persist these source streams as permanent
+-- `play_events`, but deleting historical rows can exceed the Kubernetes startup
+-- probe window because the delete cascades through payloads, attributes,
+-- subjects, and stream-specific details. Run historical cleanup out-of-band.

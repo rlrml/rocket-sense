@@ -20,6 +20,17 @@ fn game_type_filters_normalize_and_dedup() {
 }
 
 #[test]
+fn game_type_filters_treat_any_and_all_as_unfiltered() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        game_types: vec![" any ".to_owned(), "ALL".to_owned()],
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("all-game-type sentinels should be ignored");
+
+    assert!(filters.game_types.is_empty());
+}
+
+#[test]
 fn game_type_filters_reject_unknown_values() {
     let error = filters_from_input(ReplaySetFilterInput {
         game_types: vec!["scrimmage".to_owned()],
@@ -42,6 +53,17 @@ fn team_size_filters_accept_numeric_and_nvn_forms() {
     .expect("team sizes should parse");
 
     assert_eq!(filters.team_sizes, [1, 2, 3]);
+}
+
+#[test]
+fn team_size_filters_treat_all_and_any_as_unfiltered() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        team_sizes: vec![" all ".to_owned(), "ANY".to_owned()],
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("all-team-size sentinels should be ignored");
+
+    assert!(filters.team_sizes.is_empty());
 }
 
 #[test]
@@ -70,6 +92,23 @@ fn replay_set_filters_render_game_type_and_team_size_clauses() {
 
     assert!(sql.contains("r.replay_game_type = ANY("));
     assert!(sql.contains("team_player_count"));
+}
+
+#[test]
+fn exact_season_filter_normalizes_and_renders_clause() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        seasons: vec![" F18 ".to_owned(), "f18".to_owned(), "s12".to_owned()],
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("season filters should parse");
+
+    assert_eq!(filters.seasons, ["f18", "s12"]);
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("r.season = ANY("));
 }
 
 #[test]

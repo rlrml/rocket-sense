@@ -2,6 +2,7 @@ import {
   BatteryCharging,
   CircleDotDashed,
   Crosshair,
+  Dribbble,
   Gauge,
   Goal,
   Hand,
@@ -14,11 +15,17 @@ import {
   Trophy,
 } from "lucide-react";
 import type { ComponentType } from "react";
-import type { MechanicEventResponse, ReplayPlayer } from "../types";
+import type {
+  MechanicEventResponse,
+  ReplayPlayer,
+  ReplayPlayerMovementSummary,
+  ReplayPlayerPositioningSummary,
+} from "../types";
 import { AerialsDetail, aerialEventTypes } from "./aerials";
 import { BoostDetail, boostEventTypes } from "./boost";
 import { CoreDetail, coreEventTypes } from "./core";
 import { GoalsDetail, goalEventTypes } from "./goals";
+import { GroundPlayDetail, groundPlayEventTypes } from "./groundPlay";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
 import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
 import { MovementDetail, movementEventTypes, movementMechanicEventTypes } from "./movement";
@@ -36,6 +43,8 @@ export interface StatDetailProps {
   groupId?: string;
   scope?: "replay" | "group";
   subjectSubtitle?: string;
+  movementSummaries?: ReplayPlayerMovementSummary[];
+  positioningSummaries?: ReplayPlayerPositioningSummary[];
 }
 
 /**
@@ -46,8 +55,11 @@ export interface StatDetailProps {
  *   sense per player (e.g. the boost control diagram is a single-subject spatial
  *   chart), so the group view links into each player's group-scoped career view
  *   instead of rendering a group panel.
+ * - `"event-detail"`: group-level detail view backed by grouped event samples,
+ *   for sections whose own detail component already knows how to aggregate
+ *   cross-replay events.
  */
-export type StatGroupLayout = "leaderboard" | "drill-down-only";
+export type StatGroupLayout = "leaderboard" | "drill-down-only" | "event-detail";
 
 export interface StatGroup {
   id: string;
@@ -149,6 +161,7 @@ export const statGroups: StatGroup[] = [
     terms: ["kickoff"],
     completed: true,
     usesAggregateStats: false,
+    groupLayout: "event-detail",
     eventTypes: [...kickoffEventTypes, "possession"],
     Detail: KickoffDetail,
   },
@@ -229,12 +242,33 @@ export const statGroups: StatGroup[] = [
     label: "Aerials",
     icon: Plane,
     description:
-      "Aerial mechanics ranked per player: flip resets, double taps, air dribbles (by origin), wall aerials (by wall), aerial goals, and aerial touches by height.",
-    terms: ["aerial", "air", "flip reset", "double tap", "air dribble", "wall aerial", "flight"],
+      "Aerial mechanics ranked per player: flip resets, double taps, air dribbles (by origin), wall aerials (by wall), ceiling shots, aerial goals, and aerial touches by height.",
+    terms: [
+      "aerial",
+      "air",
+      "flip reset",
+      "double tap",
+      "air dribble",
+      "wall aerial",
+      "ceiling",
+      "flight",
+    ],
     completed: true,
     usesAggregateStats: false,
     eventTypes: aerialEventTypes,
     Detail: AerialsDetail,
+  },
+  {
+    id: "ground-play",
+    label: "Ground Play",
+    icon: Dribbble,
+    description:
+      "Flick breakdown ranked per player: flick volume, power, vertical pop, carry setup, and flick type/side mix.",
+    terms: ["flick", "carry"],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: groundPlayEventTypes,
+    Detail: GroundPlayDetail,
   },
   {
     id: "possession",

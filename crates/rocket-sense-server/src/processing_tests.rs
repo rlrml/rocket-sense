@@ -553,10 +553,124 @@ fn build_indexed_events_uses_serialized_stats_timeline_touches() {
 }
 
 #[test]
-fn touch_last_touch_is_not_an_indexed_event_stream() {
+fn nonpermanent_timeline_streams_are_not_indexed() {
     assert!(should_index_timeline_stream("touch"));
+    assert!(should_index_timeline_stream("depth_role"));
     assert!(!should_index_timeline_stream("goal_tags"));
     assert!(!should_index_timeline_stream("touch_last_touch"));
+    assert!(!should_index_timeline_stream("dodge"));
+    assert!(!should_index_timeline_stream("shadow_defense"));
+}
+
+#[test]
+fn depth_role_is_processing_only_and_not_persisted_as_play_events() {
+    let depth_role = indexed_timeline_payload_event(
+        "depth_role",
+        0,
+        &serde_json::json!({
+            "start_time": 1.0,
+            "end_time": 3.0,
+            "duration": 2.0,
+            "player": { "Steam": 76561198000000001_u64 },
+            "state": "most_back"
+        }),
+    )
+    .expect("depth role event should be available in memory");
+
+    assert_eq!(depth_role.event_type_key, "depth_role");
+    assert!(!should_persist_play_event(&depth_role));
+}
+
+#[test]
+fn in_memory_positioning_aggregation_keeps_depth_role_facts() {
+    let player_subject_id = "steam:76561198000000001".to_owned();
+    let mut players = BTreeMap::new();
+    players.insert(
+        player_subject_id.clone(),
+        ReplayPlayerPositioningInput {
+            replay_player_id: Uuid::now_v7(),
+            platform: "steam".to_owned(),
+            platform_player_id: "76561198000000001".to_owned(),
+            team: 0,
+        },
+    );
+    let events = vec![
+        indexed_timeline_payload_event(
+            "depth_role",
+            0,
+            &serde_json::json!({
+                "start_time": 1.0,
+                "end_time": 4.0,
+                "duration": 3.0,
+                "player": { "Steam": 76561198000000001_u64 },
+                "state": "most_back"
+            }),
+        )
+        .expect("depth role event should build"),
+        indexed_timeline_payload_event(
+            "field_third",
+            0,
+            &serde_json::json!({
+                "start_time": 1.0,
+                "end_time": 5.0,
+                "duration": 4.0,
+                "player": { "Steam": 76561198000000001_u64 },
+                "state": "defensive"
+            }),
+        )
+        .expect("field third event should build"),
+    ];
+
+    let aggregates = player_replay_positioning_aggregates_from_events(&events, &players);
+    let aggregate = aggregates
+        .get(&player_subject_id)
+        .expect("player should have positioning aggregate");
+    assert_eq!(aggregate.role_most_back_seconds, 3.0);
+    assert_eq!(aggregate.tracked_seconds, 4.0);
+    assert_eq!(aggregate.defensive_third_seconds, 4.0);
+}
+
+#[test]
+fn only_read_attribute_streams_write_attribute_rows() {
+    let rotation = indexed_timeline_payload_event(
+        "rotation_role",
+        0,
+        &serde_json::json!({
+            "start_time": 1.0,
+            "end_time": 2.0,
+            "duration": 1.0,
+            "player": { "Steam": 76561198000000001_u64 },
+            "state": "first_man"
+        }),
+    )
+    .expect("rotation role event should index");
+    let movement = indexed_timeline_payload_event(
+        "movement",
+        0,
+        &serde_json::json!({
+            "start_time": 1.0,
+            "end_time": 2.0,
+            "duration": 1.0,
+            "player": { "Steam": 76561198000000001_u64 },
+            "avg_speed": 1200.0
+        }),
+    )
+    .expect("movement event should index");
+    let mechanic = indexed_timeline_payload_event(
+        "mechanics",
+        0,
+        &serde_json::json!({
+            "kind": "wavedash",
+            "time": 1.0,
+            "frame": 60,
+            "player": { "Steam": 76561198000000001_u64 }
+        }),
+    )
+    .expect("mechanic event should index");
+
+    assert!(should_insert_play_event_attributes(&rotation));
+    assert!(!should_insert_play_event_attributes(&movement));
+    assert!(should_insert_play_event_attributes(&mechanic));
 }
 
 #[test]
@@ -1308,6 +1422,59 @@ fn stats_timeline_with_events(
     }
 }
 
+fn summary_frame(
+    frame_number: usize,
+    time: f32,
+    dt: f32,
+    is_live_play: bool,
+) -> subtr_actor::ReplayStatsFrameScaffold {
+    subtr_actor::ReplayStatsFrameScaffold {
+        frame_number,
+        time,
+        dt,
+        seconds_remaining: None,
+        game_state: None,
+        ball_has_been_hit: Some(is_live_play),
+        kickoff_countdown_time: None,
+        gameplay_phase: if is_live_play {
+            subtr_actor::GameplayPhase::ActivePlay
+        } else {
+            subtr_actor::GameplayPhase::PostGoal
+        },
+        is_live_play,
+        team_zero: BTreeMap::new(),
+        team_one: BTreeMap::new(),
+        players: vec![],
+    }
+}
+
+#[test]
+fn replay_summary_metadata_active_seconds_sums_live_play_frame_dt() {
+    let mut timeline = stats_timeline_with_events(timeline_events_from(vec![]));
+    // Wall clock advances by dt every frame; only live-play frames count toward
+    // active time. 3 live frames (0.5s) + 2 non-live frames (skipped) → 1.5s.
+    timeline.frames = vec![
+        summary_frame(0, 0.0, 0.5, true),
+        summary_frame(1, 0.5, 0.5, true),
+        summary_frame(2, 1.0, 0.5, false),
+        summary_frame(3, 1.5, 0.5, false),
+        summary_frame(4, 2.0, 0.5, true),
+    ];
+
+    let summary = replay_summary_metadata(&timeline);
+
+    assert_eq!(summary.duration_seconds, Some(2.0));
+    assert_eq!(summary.active_seconds, Some(1.5));
+}
+
+#[test]
+fn replay_summary_metadata_active_seconds_absent_without_frames() {
+    let timeline = stats_timeline_with_events(timeline_events_from(vec![]));
+    let summary = replay_summary_metadata(&timeline);
+    assert_eq!(summary.duration_seconds, None);
+    assert_eq!(summary.active_seconds, None);
+}
+
 fn stats_timeline_fixture_for_client_json(
     steam_player: RemoteId,
     ps4_player: RemoteId,
@@ -2023,6 +2190,14 @@ async fn stats_read_paths_decode_after_reprocess() {
         rank_benchmark_default_window: Arc::from(window_key),
         rank_benchmark_calc: crate::rank_benchmark::CalcStyle::PerAppearance,
         admin_emails: Arc::from(Vec::new()),
+        ballchasing_api_key: None,
+        egress: Arc::new(
+            rocket_sense_egress::EgressPool::new(
+                rocket_sense_egress::PoolConfig::default(),
+                vec![rocket_sense_egress::ExitConfig::direct("direct")],
+            )
+            .expect("build direct egress pool"),
+        ),
     };
     let app = crate::api::router(state);
 
@@ -2042,6 +2217,7 @@ async fn stats_read_paths_decode_after_reprocess() {
         format!("/api/v1/stats/positioning/summary?{q}"),
         format!("/api/v1/stats/movement/summary?{q}"),
         format!("/api/v1/stats/events/kickoff/summary?{q}&include-samples=false"),
+        format!("/api/v1/stats/rank-benchmark?{q}&rank-benchmark-grouping=tier"),
     ];
     for uri in &endpoints {
         let response = app
@@ -2057,15 +2233,17 @@ async fn stats_read_paths_decode_after_reprocess() {
         assert_eq!(status, StatusCode::OK, "{uri} -> {status}: {body}");
     }
 
-    // Prove the benchmark decode path actually ran: `available_tiers` is built
-    // straight from the seeded population row (independent of tier resolution),
-    // so a non-empty list means the `distinct_player_count` decode executed.
+    // Prove the benchmark decode path actually ran: the rank-benchmark cohorts
+    // endpoint builds `available_ranks` straight from the seeded population row
+    // (independent of rank resolution), so a non-empty list means the
+    // `distinct_player_count` decode executed. The seed is at `tier` grouping, so
+    // query that grouping.
     let response = app
         .clone()
         .oneshot(
             Request::builder()
                 .uri(format!(
-                    "/api/v1/stats/aggregates?{q}&include-teammates=true&count=200"
+                    "/api/v1/stats/rank-benchmark?{q}&rank-benchmark-grouping=tier"
                 ))
                 .body(Body::empty())
                 .unwrap(),
@@ -2074,15 +2252,15 @@ async fn stats_read_paths_decode_after_reprocess() {
         .expect("router responds");
     let body = to_bytes(response.into_body(), usize::MAX)
         .await
-        .expect("read aggregates body");
-    let json: serde_json::Value = serde_json::from_slice(&body).expect("aggregates json");
-    let tiers = json
-        .get("rank_benchmark_available_tiers")
+        .expect("read rank-benchmark body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("rank-benchmark json");
+    let ranks = json
+        .get("available_ranks")
         .and_then(|v| v.as_array())
         .map(|a| a.len())
         .unwrap_or(0);
     assert!(
-        tiers > 0,
+        ranks > 0,
         "benchmark population decode did not run (group_key={group_key}); \
          seed did not match the resolved cohort"
     );

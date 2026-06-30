@@ -3,6 +3,7 @@ import {
   AlertTriangle,
   BarChart3,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleUser,
@@ -14,7 +15,9 @@ import {
   FolderOpen,
   FolderPlus,
   Github,
+  History,
   Info,
+  ListOrdered,
   ListPlus,
   LogIn,
   LogOut,
@@ -55,17 +58,19 @@ import {
   useNavigate,
   useParams,
 } from "react-router-dom";
-import { siDiscord, siEpicgames, siGithub, siGoogle, siSteam } from "simple-icons";
 import { lazyWithChunkLoadRecovery } from "./chunkLoadRecovery";
 import {
   addReplayGroupManager,
+  addMatchingReplaysToGroup,
   addReplaysToGroup,
   authChangeEvent,
   clearAccessToken,
+  createBallchasingMirror,
   createDevToken,
   createReplayGroup,
   createAccountToken,
   deletePlayerIdentityTag,
+  deleteReplay,
   deleteReplayGroup,
   getAccessToken,
   getAuthOptions,
@@ -79,6 +84,8 @@ import {
   getPlayerStatAggregates,
   getPlayerStatOverview,
   getProcessingVersion,
+  getPlayerBoostTotals,
+  getRankBenchmarkCohorts,
   getReplay,
   getReplayGroup,
   getReplayGroupPlayerAggregates,
@@ -87,30 +94,39 @@ import {
   listReplayGroups,
   listReplayGroupManagers,
   listReplayGroupReplays,
+  listReplayGroupEvents,
   listReplayEvents,
   listReplayFilterOptions,
   listLinkedIdentities,
   listPlayerReports,
+  listRecentlyProcessedReplays,
   listReplayProcessingDiagnostics,
   reportPlayerIdentity,
+  listReplayProcessingQueue,
+  reprocessFailedQueueJobs,
   reprocessReplaysBatch,
   listReplays,
   logout,
   removeReplayGroupManager,
+  removeMatchingReplaysFromGroup,
   removeReplaysFromGroup,
   reprocessReplay,
   reprocessReplayClient,
   reviewPlayerReport,
   setAccessToken,
   setPlayerIdentityTag,
+  syncBallchasingGroup,
+  updateReplayGroup,
   uploadReplay,
 } from "./api";
+import type { ReplayGroupListScope } from "./api";
 import rocketSenseLogoUrl from "./assets/brand/logo.svg";
 import { commitShaForUrl, shortCommitSha } from "./gitSha";
 import { mapDisplayName } from "./maps";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import { RankTrendsPage } from "./rankTrends";
+import { buildSeasonOptions, formatSeasonCode, formatSeasonLabel } from "./seasons";
 import {
   getPreviewPlayerWarmupStatus,
   schedulePreviewPlayerWarmup,
@@ -119,16 +135,13 @@ import {
   warmPreviewPlayerForReplay,
 } from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
-import {
-  completedStatGroups,
-  eventTypesForGroup,
-  statGroupById,
-  statGroupLayout,
-} from "./stats/registry";
+import { GroundPlayProfileDetail } from "./stats/groundPlay";
+import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
-import { leaderboardRankIndex, StatLeaderboard } from "./stats/StatLeaderboard";
 import { StalenessChip } from "./staleness";
-import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl, xboxBrandPath } from "./platform";
+import { FavoritesSidebar, LogoFavoritesMenu, PlayerFavoriteButton } from "./favorites";
+import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl } from "./platform";
+import { ProviderLoginIcon, providerLabel } from "./providerIcons";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
 import {
@@ -138,7 +151,7 @@ import {
   playerStatProfileIdPath,
   replayLocalTeamLabel,
 } from "./playerIdentity";
-import { RankBadge } from "./rank";
+import { RankBadge, rankGroupIconUrl, rankIconUrl } from "./rank";
 import {
   KickoffSpawnBreakdown,
   type KickoffShapeFilter,
@@ -154,8 +167,23 @@ import {
   buildPlayerRateCards,
   RotationTimeSharePanel,
 } from "./stats/playerPanels";
-import { type ComparisonCard, ComparisonCardChart, ComparisonCardGrid } from "./stats/shared";
+import {
+  type ComparisonCard,
+  ComparisonCardChart,
+  ComparisonCardGrid,
+  rankAverageEnabled,
+  statPlayerRank,
+} from "./stats/shared";
+import { buildGroupStatMetrics, GroupStatExplorer, identityKey } from "./stats/groupStatExplorer";
+import type { LeaderboardMetric, LeaderboardParticipant } from "./stats/groupLeaderboard";
+import {
+  computeKickoffSummaries,
+  kickoffEventTypes,
+  type PlayerKickoffSummary,
+} from "./stats/kickoffs";
 import { isIgnoredGoalTag } from "./stats/goalTagFilters";
+import { buildGoalRows, buildGoalTagPlayerData, goalEventTypes, type GoalRow } from "./stats/goals";
+import { aerialPlaylistKinds as aerialPlaylistKindList } from "./stats/aerialKinds";
 import { buildMovementCohortCards } from "./stats/movement";
 import { PlayerPositioningCohorts } from "./stats/positioning";
 import { TouchProfileComparison } from "./stats/touches";
@@ -174,18 +202,24 @@ import type {
   PositioningSummaryResponse,
   PossessionSummaryResponse,
   ProcessingVersionResponse,
+  RankBenchmarkCohortsResponse,
+  RecentlyProcessedReplaysResponse,
   ReplayProcessingDiagnostic,
   ReplayProcessingDiagnosticsResponse,
+  ReplayProcessingQueueResponse,
   ReplayFilterOption,
   ReplayGroupResponse,
   ReplayGroupManagerResponse,
+  ReplayPlayerMovementSummary,
+  ReplayPlayerPositioningSummary,
   ReplayPlayer,
   ReplayPlaylistMetadata,
   ReplayResponse,
+  PlayerBoostTotal,
   ReplayUploaderResponse,
-  StatAggregateGroupPlayer,
   StatAggregateResponse,
   StatAggregateSetResponse,
+  TouchAggregateBreakdownResponse,
 } from "./types";
 import type { LocalReprocessProgress } from "./stats/replayModel";
 import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
@@ -197,6 +231,12 @@ const ReplayGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
 );
 const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/goalPlaylist").then((module) => ({ default: module.PlayerGoalPlaylistPage })),
+);
+const ReplayAerialPlaylistPage = lazyWithChunkLoadRecovery(() =>
+  import("./stats/aerialPlaylist").then((module) => ({ default: module.ReplayAerialPlaylistPage })),
+);
+const PlayerAerialPlaylistPage = lazyWithChunkLoadRecovery(() =>
+  import("./stats/aerialPlaylist").then((module) => ({ default: module.PlayerAerialPlaylistPage })),
 );
 const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/leaderboards").then((module) => ({ default: module.LeaderboardsPage })),
@@ -263,9 +303,12 @@ export function App() {
         >
           {primaryNavOpen ? <X size={20} /> : <Menu size={20} />}
         </button>
-        <Link className="brand" to="/replays" aria-label="Rocket Sense home">
-          <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
-        </Link>
+        <div className="brand-dropdown-host">
+          <Link className="brand" to="/replays" aria-label="Rocket Sense home">
+            <img className="brand-logo" src={rocketSenseLogoUrl} alt="" aria-hidden="true" />
+          </Link>
+          <LogoFavoritesMenu enabled={currentUser != null} />
+        </div>
         <nav id="primary-navigation" className="nav-list" aria-label="Primary navigation">
           {visibleNavItems.map((item) => (
             <NavLink key={item.to} className="nav-item" to={item.to} end={item.end}>
@@ -367,6 +410,14 @@ export function App() {
               </Suspense>
             }
           />
+          <Route
+            path="/replays/:replayId/aerials/:aerialKind"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <ReplayAerialPlaylistPage />
+              </Suspense>
+            }
+          />
           <Route path="/players/:platform/id/:platformPlayerId" element={<PlayerStatsPage />} />
           <Route
             path="/players/:platform/id/:platformPlayerId/stats"
@@ -392,6 +443,14 @@ export function App() {
               </Suspense>
             }
           />
+          <Route
+            path="/players/:platform/id/:platformPlayerId/aerials/:aerialKind"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerAerialPlaylistPage />
+              </Suspense>
+            }
+          />
           <Route path="/players/:platform/:playerName" element={<PlayerStatsPage />} />
           <Route path="/players/:platform/:playerName/stats" element={<PlayerStatsPage />} />
           <Route
@@ -414,11 +473,22 @@ export function App() {
               </Suspense>
             }
           />
+          <Route
+            path="/players/:platform/:playerName/aerials/:aerialKind"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <PlayerAerialPlaylistPage />
+              </Suspense>
+            }
+          />
           <Route path="/rank-trends" element={<RankTrendsPage />} />
+          <Route path="/rank-trends/:metricKey" element={<RankTrendsPage />} />
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
           <Route path="/admin/player-reports" element={<AdminPlayerReportsPage />} />
+          <Route path="/admin/recently-processed" element={<AdminRecentlyProcessedPage />} />
+          <Route path="/admin/queue" element={<AdminQueuePage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/login" element={<AccountPage initialLoginOpen />} />
           <Route path="/about" element={<AboutPage />} />
@@ -558,6 +628,7 @@ function ReplayListPage() {
   const currentUser = useCurrentUser();
   const { groups, refresh: refreshGroups } = useReplayGroups(currentUser != null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
 
   useEffect(() => {
     setFilters(activeFilters);
@@ -566,9 +637,17 @@ function ReplayListPage() {
   // Selections reference rows on the current page; drop them when the query changes.
   useEffect(() => {
     setSelectedIds(new Set());
+    setAllMatchingSelected(false);
   }, [searchParams]);
 
   function toggleSelected(replayId: string) {
+    if (allMatchingSelected) {
+      setAllMatchingSelected(false);
+      setSelectedIds(
+        new Set(replays.filter((replay) => replay.id !== replayId).map((replay) => replay.id)),
+      );
+      return;
+    }
     setSelectedIds((current) => {
       const next = new Set(current);
       if (next.has(replayId)) {
@@ -592,6 +671,11 @@ function ReplayListPage() {
 
   function clearSelection() {
     setSelectedIds(new Set());
+    setAllMatchingSelected(false);
+  }
+
+  function selectAllMatching() {
+    setAllMatchingSelected(true);
   }
 
   useEffect(() => {
@@ -692,10 +776,11 @@ function ReplayListPage() {
     ...filterOptions.maps,
     ...mapOptionsFromReplays(replays),
   ]);
-  const seasonOptions = replayOptionChoices(filters.season, [
-    ...filterOptions.seasons,
-    ...seasonOptionsFromReplays(replays),
-  ]).sort(compareSeasonOptions);
+  const seasonOptions = replayOptionChoices(
+    filters.season,
+    [...filterOptions.seasons, ...seasonOptionsFromReplays(replays)],
+    formatSeasonLabel,
+  );
   const replayOrder = replayOrderFromParams(searchParams);
   const activeGroupId = searchParams.get("group");
   const replayFilterFields: FilterFieldConfig[] = [
@@ -739,10 +824,7 @@ function ReplayListPage() {
       value: filters.season,
       options: [
         { value: "", label: "Any" },
-        ...seasonOptions.map((option) => ({
-          value: option.value,
-          label: optionLabel({ ...option, label: seasonLabel(option.value) }),
-        })),
+        ...seasonOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
       ],
       onChange: (value) => setFilters({ ...filters, season: value }),
     },
@@ -805,178 +887,190 @@ function ReplayListPage() {
   ];
 
   return (
-    <section className="page">
-      <header className="page-header">
-        <div>
-          <p className="eyebrow">Replay library</p>
-          <h1>Replays</h1>
-        </div>
-        <label className="upload-button">
-          <Upload size={17} />
-          <span>{uploading ? "Uploading" : "Upload"}</span>
-          <input
-            type="file"
-            accept=".replay"
-            disabled={uploading}
-            onChange={(event) => void onUpload(event.currentTarget.files?.[0])}
-          />
-        </label>
-        {activeGroupId ? (
-          <Link
-            className="secondary-button"
-            to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}
-          >
-            <BarChart3 size={16} />
-            Group stats
-          </Link>
-        ) : null}
-      </header>
-
-      <form className="search-filter-panel replay-search-panel" onSubmit={submitSearch}>
-        <div className="replay-search-row">
-          <label className="search-box">
-            <Search size={17} />
+    <div className="page-with-favorites">
+      <FavoritesSidebar enabled={currentUser != null} />
+      <section className="page">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Replay library</p>
+            <h1>Replays</h1>
+          </div>
+          <label className="upload-button">
+            <Upload size={17} />
+            <span>{uploading ? "Uploading" : "Upload"}</span>
             <input
-              value={filters.q}
-              onChange={(event) => setFilters({ ...filters, q: event.currentTarget.value })}
-              placeholder="Search filename, player, map, match GUID, SHA"
+              type="file"
+              accept=".replay"
+              disabled={uploading}
+              onChange={(event) => void onUpload(event.currentTarget.files?.[0])}
             />
           </label>
-          <button type="submit">
-            <Search size={16} />
-            Search
-          </button>
-          <button type="button" className="secondary-button" onClick={clearFilters}>
-            <RotateCcw size={16} />
-            Reset
-          </button>
-        </div>
-
-        <FilterGrid fields={replayFilterFields} />
-      </form>
-
-      <div className="replay-list-controls">
-        <div className="results-readout">
-          <SlidersHorizontal size={16} />
-          <span>
-            {loading
-              ? "Loading replays"
-              : total == null
-                ? `${replays.length.toLocaleString()} replays`
-                : `${start.toLocaleString()}-${end.toLocaleString()} of ${total.toLocaleString()} replays`}
-          </span>
-        </div>
-        <div className="pagination-controls">
-          <label>
-            Order
-            <select
-              value={replayOrder}
-              onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}
+          {activeGroupId ? (
+            <Link
+              className="secondary-button"
+              to={`/replay-groups/${encodeURIComponent(activeGroupId)}/stats`}
             >
-              {replayOrderOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Page size
-            <select
-              value={String(pageSize)}
-              onChange={(event) => updatePageSize(event.currentTarget.value)}
+              <BarChart3 size={16} />
+              Group stats
+            </Link>
+          ) : null}
+        </header>
+
+        <form className="search-filter-panel replay-search-panel" onSubmit={submitSearch}>
+          <div className="replay-search-row">
+            <label className="search-box">
+              <Search size={17} />
+              <input
+                value={filters.q}
+                onChange={(event) => setFilters({ ...filters, q: event.currentTarget.value })}
+                placeholder="Search filename, player, map, match GUID, SHA"
+              />
+            </label>
+            <button type="submit">
+              <Search size={16} />
+              Search
+            </button>
+            <button type="button" className="secondary-button" onClick={clearFilters}>
+              <RotateCcw size={16} />
+              Reset
+            </button>
+          </div>
+
+          <FilterGrid fields={replayFilterFields} />
+        </form>
+
+        <div className="replay-list-controls">
+          <div className="results-readout">
+            <SlidersHorizontal size={16} />
+            <span>
+              {loading
+                ? "Loading replays"
+                : total == null
+                  ? `${replays.length.toLocaleString()} replays`
+                  : `${start.toLocaleString()}-${end.toLocaleString()} of ${total.toLocaleString()} replays`}
+            </span>
+          </div>
+          <div className="pagination-controls">
+            <label>
+              Order
+              <select
+                value={replayOrder}
+                onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}
+              >
+                {replayOrderOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Page size
+              <select
+                value={String(pageSize)}
+                onChange={(event) => updatePageSize(event.currentTarget.value)}
+              >
+                {visiblePageSizeOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="icon-button"
+              title="Previous page"
+              disabled={!canPageBackward || loading}
+              onClick={() => goToOffset(previousOffset)}
             >
-              {visiblePageSizeOptions.map((value) => (
-                <option key={value} value={value}>
-                  {value}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="icon-button"
-            title="Previous page"
-            disabled={!canPageBackward || loading}
-            onClick={() => goToOffset(previousOffset)}
-          >
-            <ChevronLeft size={17} />
-          </button>
-          <span className="page-count">
-            {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
-          </span>
-          <button
-            type="button"
-            className="icon-button"
-            title="Next page"
-            disabled={!canPageForward || loading}
-            onClick={() => goToOffset(nextOffset)}
-          >
-            <ChevronRight size={17} />
-          </button>
+              <ChevronLeft size={17} />
+            </button>
+            <span className="page-count">
+              {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
+            </span>
+            <button
+              type="button"
+              className="icon-button"
+              title="Next page"
+              disabled={!canPageForward || loading}
+              onClick={() => goToOffset(nextOffset)}
+            >
+              <ChevronRight size={17} />
+            </button>
+          </div>
         </div>
-      </div>
 
-      {activeFilterChips.length > 0 ? (
-        <div className="filter-chips" aria-label="Active filters">
-          {activeFilterChips.map((chip) => (
-            <span key={chip}>{chip}</span>
-          ))}
-        </div>
-      ) : null}
-
-      <StatusLine loading={false} error={error} />
-
-      {currentUser && selectedIds.size > 0 ? (
-        <GroupSelectionBar
-          selectedIds={selectedIds}
-          replayCount={replays.length}
-          groups={groups}
-          onSelectAll={selectAllOnPage}
-          onClear={clearSelection}
-          onGroupsChanged={refreshGroups}
-        />
-      ) : null}
-
-      <div className="replay-card-list">
-        {replays.map((replay) => (
-          <article
-            className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
-            key={replay.id}
-          >
-            <header className="replay-card-header">
-              <div className="replay-card-heading">
-                {currentUser ? (
-                  <input
-                    type="checkbox"
-                    className="replay-select"
-                    aria-label={`Select ${replay.original_file_name || replay.id}`}
-                    checked={selectedIds.has(replay.id)}
-                    onChange={() => toggleSelected(replay.id)}
-                  />
-                ) : null}
-                <div className="replay-card-title">
-                  <ReplayLink className="primary-link" replayId={replay.id}>
-                    {replay.original_file_name || replay.id}
-                  </ReplayLink>
-                  <UploaderPill uploader={replay.uploaded_by} />
-                </div>
-              </div>
-              <div className="replay-card-meta">
-                <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
-                <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
-                <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
-                <ReplayStatusChip replay={replay} currentUser={currentUser} />
-              </div>
-            </header>
-            <ReplayTeams replay={replay} />
-          </article>
-        ))}
-        {!loading && replays.length === 0 ? (
-          <div className="status-line">No replays found.</div>
+        {activeFilterChips.length > 0 ? (
+          <div className="filter-chips" aria-label="Active filters">
+            {activeFilterChips.map((chip) => (
+              <span key={chip}>{chip}</span>
+            ))}
+          </div>
         ) : null}
-      </div>
-    </section>
+
+        <StatusLine loading={false} error={error} />
+
+        {currentUser && (selectedIds.size > 0 || allMatchingSelected) ? (
+          <GroupSelectionBar
+            selectedIds={selectedIds}
+            allMatchingSelected={allMatchingSelected}
+            pageReplayCount={replays.length}
+            matchingReplayCount={total ?? replays.length}
+            searchParams={searchParams}
+            groups={groups}
+            onSelectAll={selectAllOnPage}
+            onSelectAllMatching={selectAllMatching}
+            onClear={clearSelection}
+            onGroupsChanged={refreshGroups}
+          />
+        ) : null}
+
+        <div className="replay-card-list">
+          {replays.map((replay) => (
+            <article
+              className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+              key={replay.id}
+            >
+              <header className="replay-card-header">
+                <div className="replay-card-heading">
+                  {currentUser ? (
+                    <input
+                      type="checkbox"
+                      className="replay-select"
+                      aria-label={`Select ${replay.original_file_name || replay.id}`}
+                      checked={allMatchingSelected || selectedIds.has(replay.id)}
+                      onChange={() => toggleSelected(replay.id)}
+                    />
+                  ) : null}
+                  <div className="replay-card-title">
+                    <ReplayLink className="primary-link" replayId={replay.id}>
+                      {replay.original_file_name || replay.id}
+                    </ReplayLink>
+                    <UploaderPill uploader={replay.uploaded_by} />
+                  </div>
+                </div>
+                <div className="replay-card-meta">
+                  <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
+                  {replay.summary.season ? (
+                    <Chip tone="slate" title="Rocket League season">
+                      {formatSeasonCode(replay.summary.season)}
+                    </Chip>
+                  ) : null}
+                  <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
+                  <Chip tone="muted">{formatDuration(replay.summary.duration_seconds)}</Chip>
+                  <ReplayStatusChip replay={replay} currentUser={currentUser} />
+                </div>
+              </header>
+              <ReplayTeams replay={replay} />
+            </article>
+          ))}
+          {!loading && replays.length === 0 ? (
+            <div className="status-line">No replays found.</div>
+          ) : null}
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -1065,28 +1159,7 @@ const rankFilterOptions = [
   { value: "supersonic-legend", label: "Supersonic Legend" },
 ];
 
-// Canonical competitive-season list in chronological order: the legacy (`s`) era
-// (Seasons 1-12, pre-Sep-2020) then the free-to-play (`f`) era (Season 1
-// onward). Codes match `replays.season` and subtr-actor's `ReplaySeason::code`.
-// The two eras both number from 1, so labels carry the era to disambiguate. Bump
-// FREE_TO_PLAY_SEASON_COUNT when Psyonix ships a new season; the server-side
-// range filter already tolerates seasons beyond this list.
-const LEGACY_SEASON_COUNT = 12;
-const FREE_TO_PLAY_SEASON_COUNT = 23;
-
-// Listed newest-first (free-to-play era descending, then legacy descending) so
-// the most recent season sits at the top of the range selects.
-const seasonFilterOptions: FilterOptionConfig[] = [
-  { value: "", label: "Any" },
-  ...Array.from({ length: FREE_TO_PLAY_SEASON_COUNT }, (_, index) => {
-    const number = FREE_TO_PLAY_SEASON_COUNT - index;
-    return { value: `f${number}`, label: `Free-to-play S${number}` };
-  }),
-  ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => {
-    const number = LEGACY_SEASON_COUNT - index;
-    return { value: `s${number}`, label: `Legacy S${number}` };
-  }),
-];
+const seasonFilterOptions: FilterOptionConfig[] = buildSeasonOptions("Any");
 
 interface FilterOptionConfig {
   value: string;
@@ -1165,7 +1238,15 @@ function useReplayFilterOptions(): ReplayListFilterOptions {
     let cancelled = false;
     listReplayFilterOptions()
       .then((response) => {
-        if (!cancelled) setFilterOptions(response);
+        if (!cancelled) {
+          setFilterOptions({
+            ...response,
+            seasons: response.seasons.map((option) => ({
+              ...option,
+              label: formatSeasonLabel(option.value || option.label),
+            })),
+          });
+        }
       })
       .catch(() => {
         if (!cancelled) {
@@ -1180,16 +1261,167 @@ function useReplayFilterOptions(): ReplayListFilterOptions {
   return filterOptions;
 }
 
+interface GroupTreeNode {
+  group: ReplayGroupResponse;
+  depth: number;
+  children: GroupTreeNode[];
+}
+
+/// Build a forest of groups from a flat list using `parent_group_id`. A group
+/// whose parent is missing from the list is treated as a root; the `seen` guard
+/// keeps a stray parent cycle from recursing forever.
+function buildGroupForest(groups: ReplayGroupResponse[]): GroupTreeNode[] {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const childrenByParent = new Map<string | null, ReplayGroupResponse[]>();
+  for (const group of groups) {
+    const parentKey =
+      group.parent_group_id && byId.has(group.parent_group_id) ? group.parent_group_id : null;
+    const siblings = childrenByParent.get(parentKey) ?? [];
+    siblings.push(group);
+    childrenByParent.set(parentKey, siblings);
+  }
+  const build = (parentKey: string | null, depth: number, seen: Set<string>): GroupTreeNode[] =>
+    (childrenByParent.get(parentKey) ?? [])
+      .filter((group) => !seen.has(group.id))
+      .map((group) => {
+        seen.add(group.id);
+        return { group, depth, children: build(group.id, depth + 1, seen) };
+      });
+  return build(null, 0, new Set());
+}
+
+/// Flatten a group forest into render order. When `expanded` is provided, a
+/// node's children are only included if that node's id is in the set, so the
+/// default Groups view shows top-level groups collapsed and you expand them to
+/// reveal subgroups. Omit `expanded` to flatten the whole tree (used by the
+/// group selectors and by search, where every match must stay reachable).
+function flattenGroupForest(nodes: GroupTreeNode[], expanded?: Set<string>): GroupTreeNode[] {
+  const out: GroupTreeNode[] = [];
+  const walk = (subtree: GroupTreeNode[]) => {
+    for (const node of subtree) {
+      out.push(node);
+      if (!expanded || expanded.has(node.group.id)) {
+        walk(node.children);
+      }
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
+/// Ids of a group and every group nested beneath it. Used to keep a group from
+/// being moved under itself or one of its own descendants.
+function groupSubtreeIds(groups: ReplayGroupResponse[], rootId: string): Set<string> {
+  const childrenByParent = new Map<string, ReplayGroupResponse[]>();
+  for (const group of groups) {
+    if (!group.parent_group_id) continue;
+    const siblings = childrenByParent.get(group.parent_group_id) ?? [];
+    siblings.push(group);
+    childrenByParent.set(group.parent_group_id, siblings);
+  }
+  const ids = new Set<string>();
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const id = queue.pop() as string;
+    if (ids.has(id)) continue;
+    ids.add(id);
+    for (const child of childrenByParent.get(id) ?? []) queue.push(child.id);
+  }
+  return ids;
+}
+
+/// Root-to-parent chain of a group (excludes the group itself).
+function groupAncestors(groups: ReplayGroupResponse[], groupId: string): ReplayGroupResponse[] {
+  const byId = new Map(groups.map((group) => [group.id, group]));
+  const chain: ReplayGroupResponse[] = [];
+  const seen = new Set<string>([groupId]);
+  let parentId = byId.get(groupId)?.parent_group_id ?? null;
+  while (parentId && !seen.has(parentId)) {
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    seen.add(parent.id);
+    chain.unshift(parent);
+    parentId = parent.parent_group_id ?? null;
+  }
+  return chain;
+}
+
+function BallchasingMirrorForm() {
+  const currentUser = useCurrentUser();
+  const navigate = useNavigate();
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
+
+  if (!currentUser) return null;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    const group = value.trim();
+    if (!group) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const created = await createBallchasingMirror({ group });
+      setValue("");
+      navigate(`/replay-groups/${created.id}/stats`);
+    } catch (err) {
+      setFeedback({
+        kind: "error",
+        message: err instanceof Error ? err.message : "Failed to create mirror",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="ballchasing-mirror-form" onSubmit={submit}>
+      <input
+        type="text"
+        value={value}
+        placeholder="Ballchasing group id or URL to mirror…"
+        onChange={(event) => setValue(event.currentTarget.value)}
+        disabled={busy}
+      />
+      <button type="submit" disabled={busy || value.trim() === ""}>
+        <Plus size={16} />
+        Mirror ballchasing group
+      </button>
+      {feedback ? (
+        <p
+          className={`replay-selection-feedback ${
+            feedback.kind === "error" ? "is-error" : "is-ok"
+          }`}
+        >
+          {feedback.message}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
 function ReplayGroupListPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const hasAccessToken = getAccessToken() != null;
+  const groupScope = replayGroupScopeFromParam(searchParams.get("scope"), hasAccessToken);
+  const activeSearch = searchParams.get("q") ?? "";
   const [groups, setGroups] = useState<ReplayGroupResponse[]>([]);
+  const [groupSearch, setGroupSearch] = useState(activeSearch);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setGroupSearch(activeSearch);
+  }, [activeSearch]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listReplayGroups()
+    listReplayGroups({ scope: groupScope, q: activeSearch })
       .then((response) => {
         if (!cancelled) setGroups(response.groups);
       })
@@ -1202,7 +1434,50 @@ function ReplayGroupListPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [activeSearch, groupScope]);
+
+  function updateGroupSearch(next: { q?: string; scope?: ReplayGroupListScope }) {
+    const params = new URLSearchParams(searchParams);
+    if (next.q !== undefined) {
+      const q = next.q.trim();
+      if (q) {
+        params.set("q", q);
+      } else {
+        params.delete("q");
+      }
+    }
+    if (next.scope !== undefined) {
+      params.set("scope", next.scope);
+    }
+    navigate({ pathname: location.pathname, search: params.toString() ? `?${params}` : "" });
+  }
+
+  function handleGroupSearchSubmit(event: FormEvent) {
+    event.preventDefault();
+    updateGroupSearch({ q: groupSearch });
+  }
+
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const toggleExpanded = (id: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+
+  const forest = useMemo(() => buildGroupForest(groups), [groups]);
+  // A live search must surface matches at any depth, so it overrides collapse
+  // and flattens the whole tree; otherwise we honor the per-group expand state.
+  const searching = groupSearch.trim().length > 0;
+  const orderedGroups = useMemo(
+    () => flattenGroupForest(forest, searching ? undefined : expanded),
+    [forest, searching, expanded],
+  );
+  const visibleGroups = useMemo(
+    () => filterReplayGroupEntries(orderedGroups, groupSearch),
+    [orderedGroups, groupSearch],
+  );
 
   return (
     <section className="page replay-group-list-page">
@@ -1213,21 +1488,111 @@ function ReplayGroupListPage() {
         </div>
       </header>
 
+      <BallchasingMirrorForm />
+
       <StatusLine loading={loading} error={error} />
 
+      <form className="search-filter-panel replay-search-panel" onSubmit={handleGroupSearchSubmit}>
+        <div className="replay-search-row">
+          <label className="search-box">
+            <Search size={17} />
+            <input
+              type="search"
+              value={groupSearch}
+              onChange={(event) => setGroupSearch(event.currentTarget.value)}
+              placeholder="Search groups"
+            />
+          </label>
+          <label className="segment-bar-select">
+            <span className="segment-bar-select-label">Scope</span>
+            <select
+              value={groupScope}
+              onChange={(event) =>
+                updateGroupSearch({ scope: event.currentTarget.value as ReplayGroupListScope })
+              }
+            >
+              <option value="mine" disabled={!hasAccessToken}>
+                Mine
+              </option>
+              <option value="all">Everyone</option>
+            </select>
+          </label>
+          <button type="submit" className="secondary-button">
+            <Search size={16} />
+            Search
+          </button>
+          {activeSearch ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => {
+                setGroupSearch("");
+                updateGroupSearch({ q: "" });
+              }}
+            >
+              <X size={16} />
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </form>
+
       <div className="replay-card-list group-card-list">
-        {groups.map((group) => (
-          <article className="replay-card group-card" key={group.id}>
+        {visibleGroups.map(({ group, depth }) => (
+          <article
+            className="replay-card group-card"
+            key={group.id}
+            style={depth > 0 ? { marginLeft: depth * 24 } : undefined}
+          >
             <header className="replay-card-header">
               <div className="replay-card-title">
+                {group.child_group_count > 0 ? (
+                  <button
+                    type="button"
+                    className="group-card-expand"
+                    aria-expanded={searching || expanded.has(group.id)}
+                    aria-label={
+                      searching || expanded.has(group.id)
+                        ? "Collapse subgroups"
+                        : "Expand subgroups"
+                    }
+                    onClick={() => toggleExpanded(group.id)}
+                  >
+                    {searching || expanded.has(group.id) ? (
+                      <ChevronDown size={16} />
+                    ) : (
+                      <ChevronRight size={16} />
+                    )}
+                  </button>
+                ) : null}
                 <Link className="primary-link" to={`/replay-groups/${group.id}/stats`}>
+                  {group.child_group_count > 0 ? (
+                    <FolderOpen size={16} style={{ marginRight: 6, verticalAlign: "-2px" }} />
+                  ) : null}
                   {group.name}
                 </Link>
                 <span className="subtle">{group.description || group.id}</span>
+                {group.ballchasing_group_id ? (
+                  <span
+                    className={`mirror-status-pill is-${
+                      group.ballchasing_sync_status ?? "pending"
+                    }`}
+                  >
+                    Ballchasing: {group.ballchasing_sync_status ?? "pending"}
+                  </span>
+                ) : null}
               </div>
               <div className="replay-card-meta">
                 <span>{group.replay_count.toLocaleString()} replays</span>
-                <span className="subtle">Updated {formatDate(group.updated_at)}</span>
+                {group.child_group_count > 0 ? (
+                  <span className="subtle">
+                    {group.total_replay_count.toLocaleString()} in subtree ·{" "}
+                    {group.child_group_count.toLocaleString()}{" "}
+                    {group.child_group_count === 1 ? "subgroup" : "subgroups"}
+                  </span>
+                ) : (
+                  <span className="subtle">Updated {formatDate(group.updated_at)}</span>
+                )}
               </div>
             </header>
             <div className="button-row">
@@ -1246,11 +1611,25 @@ function ReplayGroupListPage() {
           </article>
         ))}
         {!loading && groups.length === 0 ? (
-          <div className="status-line">No replay groups found.</div>
+          <div className="status-line">
+            {activeSearch ? "No replay groups matched your search." : "No replay groups found."}
+          </div>
+        ) : null}
+        {!loading && groups.length > 0 && visibleGroups.length === 0 ? (
+          <div className="status-line">No replay groups match “{groupSearch}”.</div>
         ) : null}
       </div>
     </section>
   );
+}
+
+function replayGroupScopeFromParam(
+  value: string | null,
+  hasAccessToken: boolean,
+): ReplayGroupListScope {
+  if (value === "all") return "all";
+  if (value === "mine" && hasAccessToken) return "mine";
+  return hasAccessToken ? "mine" : "all";
 }
 
 function defaultReplayFilters(): ReplayFilterForm {
@@ -1375,6 +1754,7 @@ function replayOrderFromParams(params: URLSearchParams): ReplayOrder {
 function replayOptionChoices(
   currentValue: string,
   options: ReplayFilterOption[],
+  labelForValue: (value: string) => string = (value) => value,
 ): ReplayFilterOption[] {
   const byValue = new Map<string, ReplayFilterOption>();
   for (const option of options) {
@@ -1382,7 +1762,11 @@ function replayOptionChoices(
     byValue.set(option.value, option);
   }
   if (currentValue && !byValue.has(currentValue)) {
-    byValue.set(currentValue, { value: currentValue, label: currentValue, count: 0 });
+    byValue.set(currentValue, {
+      value: currentValue,
+      label: labelForValue(currentValue),
+      count: 0,
+    });
   }
   return [...byValue.values()].sort((left, right) => {
     if (left.count !== right.count) return right.count - left.count;
@@ -1395,40 +1779,26 @@ function mapOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] 
 }
 
 function seasonOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] {
-  return replayFieldOptions(replays.map((replay) => replay.summary.season));
+  return replayFieldOptions(
+    replays.map((replay) => replay.summary.season),
+    formatSeasonLabel,
+  );
 }
 
-// Season codes are era-prefixed (`s1`..`s14` legacy, then `f1`.. free-to-play),
-// so a higher key means more recent. Unrecognized codes sort to the bottom.
-function seasonRecencyKey(code: string): number {
-  const match = /^([sf])(\d+)$/i.exec(code.trim());
-  if (!match) return -1;
-  const era = match[1].toLowerCase() === "f" ? 1 : 0;
-  return era * 1000 + Number(match[2]);
-}
-
-// Newest season first, oldest last (ties — e.g. unrecognized codes — by label).
-function compareSeasonOptions(left: ReplayFilterOption, right: ReplayFilterOption): number {
-  const delta = seasonRecencyKey(right.value) - seasonRecencyKey(left.value);
-  return delta !== 0 ? delta : right.label.localeCompare(left.label);
-}
-
-// Human-friendly season name from an era-prefixed code: `s14` -> "Season 14"
-// (legacy), `f21` -> "Free to Play S21". Unrecognized codes render as-is.
-function seasonLabel(code: string): string {
-  const match = /^([sf])(\d+)$/i.exec(code.trim());
-  if (!match) return code;
-  const number = Number(match[2]);
-  return match[1].toLowerCase() === "f" ? `Free to Play S${number}` : `Season ${number}`;
-}
-
-function replayFieldOptions(values: Array<string | null>): ReplayFilterOption[] {
+function replayFieldOptions(
+  values: Array<string | null>,
+  labelForValue: (value: string) => string = (value) => value,
+): ReplayFilterOption[] {
   const counts = new Map<string, number>();
   for (const value of values) {
     if (!value?.trim()) continue;
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
-  return [...counts.entries()].map(([value, count]) => ({ value, label: value, count }));
+  return [...counts.entries()].map(([value, count]) => ({
+    value,
+    label: labelForValue(value),
+    count,
+  }));
 }
 
 function optionLabel(option: ReplayFilterOption): string {
@@ -1486,6 +1856,7 @@ function filterValueLabel(key: string, value: string): string {
   }
   if (key === "playlist") return playlistLabel(null, value);
   if (key === "map") return mapDisplayName(value);
+  if (key === "season") return formatSeasonLabel(value);
   if (key === "pro") return value === "true" ? "Has pro" : "No pro";
   return value;
 }
@@ -1503,13 +1874,15 @@ function UploaderPill({ uploader }: { uploader: ReplayUploaderResponse | null })
   const name =
     uploader.display_name?.trim() || uploader.primary_email?.trim() || "Unknown uploader";
   const title = uploader.provider
-    ? `Uploaded by ${name} via ${providerLabel(uploader.provider)}`
-    : `Uploaded by ${name}`;
+    ? `View ${name}'s uploads (signed in via ${providerLabel(uploader.provider)})`
+    : `View ${name}'s uploads`;
   return (
-    <Chip tone="slate" className="uploader-pill" title={title}>
-      {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
-      <span className="uploader-pill-name">{name}</span>
-    </Chip>
+    <Link className="uploader-pill-link" to={`/users/${encodeURIComponent(uploader.id)}`}>
+      <Chip tone="slate" className="uploader-pill" title={title}>
+        {uploader.provider ? <ProviderLoginIcon providerId={uploader.provider} /> : null}
+        <span className="uploader-pill-name">{name}</span>
+      </Chip>
+    </Link>
   );
 }
 
@@ -1809,30 +2182,56 @@ const NEW_GROUP_OPTION = "__new__";
 
 function GroupSelectionBar({
   selectedIds,
-  replayCount,
+  allMatchingSelected,
+  pageReplayCount,
+  matchingReplayCount,
+  searchParams,
   groups,
   onSelectAll,
+  onSelectAllMatching,
   onClear,
   onGroupsChanged,
 }: {
   selectedIds: Set<string>;
-  replayCount: number;
+  allMatchingSelected: boolean;
+  pageReplayCount: number;
+  matchingReplayCount: number;
+  searchParams: URLSearchParams;
   groups: ReplayGroupResponse[];
   onSelectAll: () => void;
+  onSelectAllMatching: () => void;
   onClear: () => void;
   onGroupsChanged: () => void;
 }) {
   const currentUser = useCurrentUser();
   const [targetGroupId, setTargetGroupId] = useState("");
   const [newGroupName, setNewGroupName] = useState("");
+  const [groupSearch, setGroupSearch] = useState("");
   const [busy, setBusy] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "ok" | "error"; message: string } | null>(null);
 
   const creating = targetGroupId === NEW_GROUP_OPTION;
   const targetGroup = groups.find((group) => group.id === targetGroupId) ?? null;
-  const selectedCount = selectedIds.size;
-  const allSelected = replayCount > 0 && selectedCount >= replayCount;
+  const orderedGroups = useMemo(() => flattenGroupForest(buildGroupForest(groups)), [groups]);
+  const selectedCount = allMatchingSelected ? matchingReplayCount : selectedIds.size;
+  const allPageSelected = pageReplayCount > 0 && selectedIds.size >= pageReplayCount;
+  const canSelectAllMatching =
+    !allMatchingSelected && matchingReplayCount > Math.max(selectedIds.size, pageReplayCount);
+  const visibleGroups = useMemo(
+    () => filterReplayGroupEntries(orderedGroups, groupSearch),
+    [orderedGroups, groupSearch],
+  );
+  const targetGroupEntry = targetGroup
+    ? (orderedGroups.find(({ group }) => group.id === targetGroup.id) ?? {
+        group: targetGroup,
+        depth: 0,
+      })
+    : null;
+  const selectableGroups =
+    targetGroupEntry && !visibleGroups.some(({ group }) => group.id === targetGroupEntry.group.id)
+      ? [targetGroupEntry, ...visibleGroups]
+      : visibleGroups;
 
   async function withBusy(action: () => Promise<void>) {
     setBusy(true);
@@ -1864,7 +2263,9 @@ function GroupSelectionBar({
   function handleAdd() {
     if (!targetGroup) return;
     void withBusy(async () => {
-      const result = await addReplaysToGroup(targetGroup.id, [...selectedIds]);
+      const result = allMatchingSelected
+        ? await addMatchingReplaysToGroup(targetGroup.id, searchParams)
+        : await addReplaysToGroup(targetGroup.id, [...selectedIds]);
       onGroupsChanged();
       setFeedback({
         kind: "ok",
@@ -1876,7 +2277,9 @@ function GroupSelectionBar({
   function handleRemove() {
     if (!targetGroup) return;
     void withBusy(async () => {
-      const result = await removeReplaysFromGroup(targetGroup.id, [...selectedIds]);
+      const result = allMatchingSelected
+        ? await removeMatchingReplaysFromGroup(targetGroup.id, searchParams)
+        : await removeReplaysFromGroup(targetGroup.id, [...selectedIds]);
       onGroupsChanged();
       setFeedback({
         kind: "ok",
@@ -1905,10 +2308,24 @@ function GroupSelectionBar({
   return (
     <div className="replay-selection-bar">
       <div className="replay-selection-summary">
-        <strong>{selectedCount.toLocaleString()} selected</strong>
-        {!allSelected ? (
+        <strong>
+          {allMatchingSelected
+            ? `All ${selectedCount.toLocaleString()} matching selected`
+            : `${selectedCount.toLocaleString()} selected`}
+        </strong>
+        {!allMatchingSelected && !allPageSelected ? (
           <button type="button" className="link-button" onClick={onSelectAll} disabled={busy}>
-            Select all {replayCount.toLocaleString()} on page
+            Select all {pageReplayCount.toLocaleString()} on page
+          </button>
+        ) : null}
+        {canSelectAllMatching ? (
+          <button
+            type="button"
+            className="link-button"
+            onClick={onSelectAllMatching}
+            disabled={busy}
+          >
+            Select all {matchingReplayCount.toLocaleString()} matching
           </button>
         ) : null}
         <button type="button" className="link-button" onClick={onClear} disabled={busy}>
@@ -1918,6 +2335,13 @@ function GroupSelectionBar({
       <div className="replay-selection-actions">
         <label className="replay-selection-group">
           <FolderPlus size={16} />
+          <input
+            type="search"
+            value={groupSearch}
+            placeholder="Search groups"
+            onChange={(event) => setGroupSearch(event.currentTarget.value)}
+            disabled={busy}
+          />
           <select
             value={targetGroupId}
             onChange={(event) => {
@@ -1928,9 +2352,9 @@ function GroupSelectionBar({
             disabled={busy}
           >
             <option value="">Choose a group…</option>
-            {groups.map((group) => (
+            {selectableGroups.map(({ group, depth }) => (
               <option key={group.id} value={group.id}>
-                {group.name} ({group.replay_count})
+                {`${"  ".repeat(depth)}${depth > 0 ? "└ " : ""}${group.name} (${group.replay_count})`}
               </option>
             ))}
             <option value={NEW_GROUP_OPTION}>+ New group…</option>
@@ -2016,6 +2440,16 @@ function GroupSelectionBar({
 
 function pluralizeReplay(count: number): string {
   return count === 1 ? "replay" : "replays";
+}
+
+function filterReplayGroupEntries(entries: GroupTreeNode[], search: string): GroupTreeNode[] {
+  const term = search.trim().toLowerCase();
+  if (!term) return entries;
+  return entries.filter(({ group }) => replayGroupSearchText(group).includes(term));
+}
+
+function replayGroupSearchText(group: ReplayGroupResponse): string {
+  return [group.name, group.description, group.id].filter(Boolean).join(" ").toLowerCase();
 }
 
 function managerLabel(manager: ReplayGroupManagerResponse): string {
@@ -2190,21 +2624,32 @@ function RequeueResultChip({ result }: { result: RequeueResult }) {
 
 function ReplayStatsPage() {
   const { replayId = "", statGroup } = useParams();
+  const navigate = useNavigate();
   const currentUser = useCurrentUser();
   const [reprocessing, setReprocessing] = useState(false);
   const [reprocessResult, setReprocessResult] = useState<RequeueResult | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteResult, setDeleteResult] = useState<RequeueResult | null>(null);
   const [reprocessingLocal, setReprocessingLocal] = useState(false);
   const [localReprocessProgress, setLocalReprocessProgress] =
     useState<LocalReprocessProgress | null>(null);
   const [replay, setReplay] = useState<ReplayResponse | null>(null);
   const [stats, setStats] = useState<StatAggregateSetResponse | null>(null);
   const [events, setEvents] = useState<MechanicEventResponse[]>([]);
+  const [movementSummaries, setMovementSummaries] = useState<ReplayPlayerMovementSummary[]>([]);
+  const [positioningSummaries, setPositioningSummaries] = useState<
+    ReplayPlayerPositioningSummary[]
+  >([]);
   const [replayLoading, setReplayLoading] = useState(true);
   const [statsLoading, setStatsLoading] = useState(true);
   const [eventsLoading, setEventsLoading] = useState(true);
+  const [movementSummariesLoading, setMovementSummariesLoading] = useState(false);
+  const [positioningSummariesLoading, setPositioningSummariesLoading] = useState(false);
   const [replayError, setReplayError] = useState<string | null>(null);
   const [_statsError, setStatsError] = useState<string | null>(null);
   const [eventsError, setEventsError] = useState<string | null>(null);
+  const [movementSummariesError, setMovementSummariesError] = useState<string | null>(null);
+  const [positioningSummariesError, setPositioningSummariesError] = useState<string | null>(null);
 
   const activeGroup = useMemo(
     () => statGroupById(statGroup, replayStatsSectionGroups) ?? replayStatsSectionGroups[0],
@@ -2214,6 +2659,12 @@ function ReplayStatsPage() {
   useEffect(() => {
     let cancelled = false;
 
+    setMovementSummaries([]);
+    setPositioningSummaries([]);
+    setMovementSummariesError(null);
+    setPositioningSummariesError(null);
+    setMovementSummariesLoading(false);
+    setPositioningSummariesLoading(false);
     setReplayLoading(true);
     setReplayError(null);
     const replayPromise = getReplay(replayId, { forceRefresh: true });
@@ -2267,6 +2718,76 @@ function ReplayStatsPage() {
         if (!cancelled) setEventsLoading(false);
       });
 
+    if (activeGroup.id === "movement") {
+      setMovementSummariesLoading(true);
+      replayPromise
+        .catch(() => null)
+        .then((replayResponse) => {
+          if (!replayResponse) return [];
+          const params = new URLSearchParams({ "replay-id": replayId });
+          return Promise.all(
+            replayResponse.players
+              .filter((player) => player.platform && player.platform_player_id)
+              .map(async (player) => {
+                const response = await getPlayerMovementSummary(
+                  player.platform as string,
+                  player.platform_player_id as string,
+                  params,
+                );
+                return {
+                  platform: player.platform,
+                  platform_player_id: player.platform_player_id,
+                  summary: response.player,
+                };
+              }),
+          );
+        })
+        .then((summaries) => {
+          if (!cancelled) setMovementSummaries(summaries);
+        })
+        .catch((err: Error) => {
+          if (!cancelled) setMovementSummariesError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled) setMovementSummariesLoading(false);
+        });
+    }
+
+    if (activeGroup.id === "positioning") {
+      setPositioningSummariesLoading(true);
+      replayPromise
+        .catch(() => null)
+        .then((replayResponse) => {
+          if (!replayResponse) return [];
+          const params = new URLSearchParams({ "replay-id": replayId });
+          return Promise.all(
+            replayResponse.players
+              .filter((player) => player.platform && player.platform_player_id)
+              .map(async (player) => {
+                const response = await getPlayerPositioningSummary(
+                  player.platform as string,
+                  player.platform_player_id as string,
+                  params,
+                );
+                return {
+                  platform: player.platform,
+                  platform_player_id: player.platform_player_id,
+                  summary: response.player,
+                };
+              }),
+          );
+        })
+        .then((summaries) => {
+          if (!cancelled) setPositioningSummaries(summaries);
+        })
+        .catch((err: Error) => {
+          if (!cancelled) setPositioningSummariesError(err.message);
+        })
+        .finally(() => {
+          if (!cancelled) setPositioningSummariesLoading(false);
+        });
+    }
+
     return () => {
       cancelled = true;
     };
@@ -2288,6 +2809,29 @@ function ReplayStatsPage() {
     currentUser &&
     (currentUser.is_admin || replay.uploaded_by_user_id === currentUser.id),
   );
+  // A replay can be deleted by its uploader or by an admin (mirrors the backend
+  // authorization on DELETE /api/v1/replays/{id}).
+  const canDelete = canReprocess;
+
+  async function handleDelete() {
+    const label = replay?.original_file_name || "this replay";
+    const confirmed = window.confirm(
+      `Delete ${label}? This permanently removes the game and all of its stats. This cannot be undone.`,
+    );
+    if (!confirmed) return;
+    setDeleting(true);
+    setDeleteResult(null);
+    try {
+      await deleteReplay(replayId);
+      navigate("/replays");
+    } catch (err) {
+      setDeleteResult({
+        phase: "error",
+        message: err instanceof Error ? err.message : "Delete request failed.",
+      });
+      setDeleting(false);
+    }
+  }
 
   async function handleReprocess(force = false) {
     setReprocessing(true);
@@ -2363,7 +2907,7 @@ function ReplayStatsPage() {
           <p className="eyebrow">Game stats</p>
           <h1>{replay?.original_file_name || "Replay stats"}</h1>
         </div>
-        <div className="button-row">
+        <div className="page-header-actions">
           {replay ? <ReplayStatusChip replay={replay} currentUser={currentUser} /> : null}
           {canReprocess ? (
             <button
@@ -2392,7 +2936,20 @@ function ReplayStatsPage() {
             <Zap size={16} />
             Player
           </a>
+          {canDelete ? (
+            <button
+              className="secondary-button is-danger"
+              type="button"
+              onClick={() => void handleDelete()}
+              disabled={deleting}
+              title="Permanently delete this replay and all of its stats"
+            >
+              <Trash2 size={16} />
+              {deleting ? "Deleting" : "Delete"}
+            </button>
+          ) : null}
           {reprocessResult ? <RequeueResultChip result={reprocessResult} /> : null}
+          {deleteResult ? <RequeueResultChip result={deleteResult} /> : null}
           <LocalReprocessProgressBar progress={localReprocessProgress} />
           {reprocessResult?.phase === "skipped" ? (
             <button
@@ -2422,7 +2979,7 @@ function ReplayStatsPage() {
             </div>
             <div>
               <span>Duration</span>
-              <strong>{formatDuration(replay.summary.duration_seconds)}</strong>
+              <strong>{formatGameDuration(replay.summary)}</strong>
             </div>
             <div>
               <span>Date</span>
@@ -2467,7 +3024,18 @@ function ReplayStatsPage() {
                 message={eventsError}
               />
             ) : null}
-            {statsLoading || eventsLoading ? <StatusLine loading error={null} /> : null}
+            {movementSummariesError ? (
+              <ApiNotice label="Movement summary" message={movementSummariesError} />
+            ) : null}
+            {positioningSummariesError ? (
+              <ApiNotice label="Positioning summary" message={positioningSummariesError} />
+            ) : null}
+            {statsLoading ||
+            eventsLoading ||
+            movementSummariesLoading ||
+            positioningSummariesLoading ? (
+              <StatusLine loading error={null} />
+            ) : null}
 
             {ActiveDetail ? (
               <ActiveDetail
@@ -2475,6 +3043,8 @@ function ReplayStatsPage() {
                 players={replay.players}
                 durationSeconds={replay.summary.duration_seconds}
                 replayId={replayId}
+                movementSummaries={movementSummaries}
+                positioningSummaries={positioningSummaries}
               />
             ) : (
               <>
@@ -2492,20 +3062,471 @@ function ReplayStatsPage() {
   );
 }
 
-function ReplayGroupStatsPage() {
-  const { groupId = "", statGroup } = useParams();
-  const activeGroup = useMemo(
-    () => statGroupById(statGroup, aggregateStatsSectionGroups) ?? aggregateStatsSectionGroups[0],
-    [statGroup],
+// The participant set is every player with an aggregate block in the group (the
+// `group-by=player` rows, up to 200) — not just the consistent roster, so a
+// tournament group still ranks everyone. Ranks come from the replay rosters when
+// available (players outside the consistent set may have none).
+function buildExplorerParticipants(
+  aggregates: StatAggregateSetResponse | null,
+  rankByIdentity: Map<string, ReturnType<typeof statPlayerRank>>,
+  groupId: string,
+): LeaderboardParticipant[] {
+  const out: LeaderboardParticipant[] = [];
+  const seen = new Set<string>();
+  for (const group of aggregates?.groups ?? []) {
+    const player = group.player;
+    const id = identityKey(player?.platform, player?.platform_player_id);
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      key: id,
+      name: player?.display_name || id,
+      platform: player?.platform ?? null,
+      platformPlayerId: player?.platform_player_id ?? null,
+      profilePath:
+        player?.platform && player.platform_player_id
+          ? groupScopedPlayerStatsPath(player.platform, player.platform_player_id, "core", groupId)
+          : null,
+      rank: rankByIdentity.get(id) ?? null,
+      cohort: "player",
+    });
+  }
+  return out;
+}
+
+// Above this many participants we skip the per-player boost fan-out (BPM / pad
+// rates) — a 200-player tournament group would otherwise fire a request storm.
+const GROUP_BOOST_FETCH_CAP = 40;
+
+// One unified, searchable stat table for the whole group: pull every per-player
+// metric source (flat aggregates, derived ratios, event-derived kickoffs, and
+// group-scoped boost totals) and hand them to the explorer.
+function GroupStatExplorerSection({
+  groupId,
+  players,
+}: {
+  groupId: string;
+  players: ReplayPlayer[];
+}) {
+  const [aggregates, setAggregates] = useState<StatAggregateSetResponse | null>(null);
+  const [aggregatesLoading, setAggregatesLoading] = useState(true);
+  const [kickoffEvents, setKickoffEvents] = useState<MechanicEventResponse[]>([]);
+  const [kickoffLoading, setKickoffLoading] = useState(true);
+  const [goalRows, setGoalRows] = useState<GoalRow[]>([]);
+  const [goalLoading, setGoalLoading] = useState(true);
+  const [boost, setBoost] = useState<Map<string, PlayerBoostTotal>>(new Map());
+  const [touch, setTouch] = useState<Map<string, TouchAggregateBreakdownResponse>>(new Map());
+  const [auxLoading, setAuxLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Aggregates back most of the table and resolve quickly, so they aren't gated
+  // behind the much larger group-events fetches (kickoff + possession, and goal
+  // events — each paged up to 50k). The table appears as soon as aggregates land;
+  // the kickoff / goal-tag columns show a per-column loading state until theirs
+  // arrive.
+  useEffect(() => {
+    let cancelled = false;
+    setAggregatesLoading(true);
+    setKickoffLoading(true);
+    setGoalLoading(true);
+    setError(null);
+    setAggregates(null);
+    setKickoffEvents([]);
+    setGoalRows([]);
+    getReplayGroupPlayerAggregates(groupId, undefined, [])
+      .then((response) => {
+        if (!cancelled) setAggregates(response);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setAggregatesLoading(false);
+      });
+    listReplayGroupEvents(groupId, [...kickoffEventTypes, "possession"])
+      .then((response) => {
+        if (!cancelled) setKickoffEvents(response.events);
+      })
+      .catch(() => {
+        // Leave the kickoff columns empty on failure; an aggregates error (if any)
+        // already surfaces the group-level problem via the notice above.
+      })
+      .finally(() => {
+        if (!cancelled) setKickoffLoading(false);
+      });
+    listReplayGroupEvents(groupId, goalEventTypes)
+      .then((response) => {
+        if (!cancelled) setGoalRows(buildGoalRows(response.events));
+      })
+      .catch(() => {
+        // Leave the goal-tag columns empty on failure (same rationale as kickoff).
+      })
+      .finally(() => {
+        if (!cancelled) setGoalLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [groupId]);
+
+  const rankByIdentity = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof statPlayerRank>>();
+    for (const player of players) {
+      const id = identityKey(player.platform, player.platform_player_id);
+      if (id && !map.has(id)) map.set(id, statPlayerRank(player));
+    }
+    return map;
+  }, [players]);
+
+  const participants = useMemo(
+    () => buildExplorerParticipants(aggregates, rankByIdentity, groupId),
+    [aggregates, rankByIdentity, groupId],
   );
-  const layout = statGroupLayout(activeGroup);
+
+  // Whether the boost/touch fan-out runs for this group: at least one resolvable
+  // identity and under the request cap. Derived synchronously so the columns can
+  // be emitted (and shown as loading) the moment participants are known, rather
+  // than waiting on the fetch to populate the maps.
+  const auxApplicable = useMemo(() => {
+    const count = participants.filter(
+      (participant) => participant.platform && participant.platformPlayerId,
+    ).length;
+    return count > 0 && count <= GROUP_BOOST_FETCH_CAP;
+  }, [participants]);
+
+  // Boost totals and the touch breakdown only exist per player (no group-by=player
+  // variant), so fan out one request each per participant, scoped to the group.
+  // Capped so a huge tournament group doesn't fire hundreds of requests.
+  useEffect(() => {
+    let cancelled = false;
+    setBoost(new Map());
+    setTouch(new Map());
+    if (!auxApplicable) {
+      setAuxLoading(false);
+      return;
+    }
+    setAuxLoading(true);
+    const identities = participants
+      .map((participant) => ({
+        key: participant.key,
+        platform: participant.platform,
+        id: participant.platformPlayerId,
+      }))
+      .filter((entry): entry is { key: string; platform: string; id: string } =>
+        Boolean(entry.platform && entry.id),
+      );
+    const params = new URLSearchParams({ group: groupId });
+    Promise.all(
+      identities.map((entry) =>
+        Promise.all([
+          getPlayerBoostTotals(entry.platform, entry.id, params)
+            .then((response) => response.player)
+            .catch(() => null),
+          getPlayerStatAggregates(
+            entry.platform,
+            entry.id,
+            new URLSearchParams({ group: groupId }),
+            ["touch"],
+          )
+            .then((response) => response.touch_breakdown)
+            .catch(() => null),
+        ]).then(([boostTotal, touchBreakdown]) => ({ key: entry.key, boostTotal, touchBreakdown })),
+      ),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const boostMap = new Map<string, PlayerBoostTotal>();
+        const touchMap = new Map<string, TouchAggregateBreakdownResponse>();
+        for (const result of results) {
+          if (result.boostTotal) boostMap.set(result.key, result.boostTotal);
+          if (result.touchBreakdown) touchMap.set(result.key, result.touchBreakdown);
+        }
+        setBoost(boostMap);
+        setTouch(touchMap);
+      })
+      .finally(() => {
+        if (!cancelled) setAuxLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [participants, groupId, auxApplicable]);
+
+  const kickoffSummaries = useMemo(() => {
+    const map = new Map<string, PlayerKickoffSummary>();
+    for (const summary of computeKickoffSummaries(kickoffEvents, players)) {
+      const id = identityKey(summary.platform, summary.platform_player_id);
+      if (id) map.set(id, summary);
+    }
+    return map;
+  }, [kickoffEvents, players]);
+
+  const goalTags = useMemo(() => buildGoalTagPlayerData(goalRows, players), [goalRows, players]);
+
+  const metrics = useMemo(
+    () =>
+      buildGroupStatMetrics({
+        aggregates,
+        kickoffSummaries,
+        boost,
+        touch,
+        goalTags,
+        boostApplicable: auxApplicable,
+        touchApplicable: auxApplicable,
+      }),
+    [aggregates, kickoffSummaries, boost, touch, goalTags, auxApplicable],
+  );
+
+  // Which column sources still have a fetch in flight, so the explorer can render
+  // a per-column loading shimmer instead of a misleading "—" / "0".
+  const loadingSources = useMemo(() => {
+    const pending = new Set<string>();
+    if (kickoffLoading) pending.add("kickoff");
+    if (goalLoading) pending.add("goaltag");
+    if (auxApplicable && auxLoading) {
+      pending.add("boost");
+      pending.add("touch");
+    }
+    return pending;
+  }, [kickoffLoading, goalLoading, auxApplicable, auxLoading]);
+
+  const truncation = aggregates?.groups_truncated ?? null;
+
+  return (
+    <>
+      {error ? <ApiNotice label="Group stats" message={error} /> : null}
+      {truncation ? (
+        <ApiNotice
+          label="Showing top players"
+          message={`This group has ${truncation.total.toLocaleString()} participants, but the leaderboard is capped at the ${truncation.limit.toLocaleString()} with the most games. Players outside the top ${truncation.limit.toLocaleString()} are not shown.`}
+        />
+      ) : null}
+      {aggregatesLoading ? <StatusLine loading error={null} /> : null}
+      <GroupStatExplorer
+        participants={participants}
+        metrics={metrics}
+        loadingSources={loadingSources}
+        buildEventReviewHref={({ participant, metric }) =>
+          groupStatEventReviewUrl(groupId, participant, metric)
+        }
+      />
+    </>
+  );
+}
+
+function BallchasingMirrorStatus({
+  group,
+  onSynced,
+}: {
+  group: ReplayGroupResponse;
+  onSynced: () => void;
+}) {
+  const currentUser = useCurrentUser();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!group.ballchasing_group_id) return null;
+  const status = group.ballchasing_sync_status ?? "pending";
+
+  async function sync() {
+    setBusy(true);
+    setError(null);
+    try {
+      await syncBallchasingGroup(group.id);
+      onSynced();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start sync");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="ballchasing-mirror-status">
+      <span className={`mirror-status-pill is-${status}`}>Ballchasing: {status}</span>
+      <span className="subtle">
+        Mirrors{" "}
+        <a
+          className="primary-link"
+          href={`https://ballchasing.com/group/${group.ballchasing_group_id}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          {group.ballchasing_group_id}
+        </a>
+      </span>
+      {group.ballchasing_synced_at ? (
+        <span className="subtle">Last synced {formatDate(group.ballchasing_synced_at)}</span>
+      ) : null}
+      {currentUser ? (
+        <button type="button" className="secondary-button" onClick={sync} disabled={busy}>
+          <RefreshCw size={16} />
+          {busy ? "Starting…" : "Sync now"}
+        </button>
+      ) : null}
+      {status === "failed" && group.ballchasing_sync_error ? (
+        <p className="replay-selection-feedback is-error">{group.ballchasing_sync_error}</p>
+      ) : null}
+      {error ? <p className="replay-selection-feedback is-error">{error}</p> : null}
+    </div>
+  );
+}
+
+function ReplayGroupSubgroups({
+  parentGroup,
+  childGroups,
+  allGroups,
+  onChanged,
+}: {
+  parentGroup: ReplayGroupResponse;
+  childGroups: ReplayGroupResponse[];
+  allGroups: ReplayGroupResponse[];
+  onChanged: () => void;
+}) {
+  const currentUser = useCurrentUser();
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Valid move targets exclude this group and its descendants (which would form
+  // a cycle), presented in tree order so the hierarchy is legible.
+  const moveTargets = useMemo(() => {
+    const blocked = groupSubtreeIds(allGroups, parentGroup.id);
+    return flattenGroupForest(buildGroupForest(allGroups)).filter(
+      ({ group }) => !blocked.has(group.id),
+    );
+  }, [allGroups, parentGroup.id]);
+
+  async function handleCreate(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await createReplayGroup({ name: trimmed, parent_id: parentGroup.id });
+      setName("");
+      setCreating(false);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create subgroup");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleMove(parentId: string | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateReplayGroup(parentGroup.id, { parent_id: parentId });
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to move group");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (childGroups.length === 0 && !currentUser) return null;
+
+  return (
+    <div className="replay-group-subgroups">
+      <div className="replay-group-subgroups-header">
+        <h2>Subgroups</h2>
+        {currentUser ? (
+          <div className="button-row">
+            <label className="replay-selection-group">
+              <FolderOpen size={16} />
+              <select
+                value={parentGroup.parent_group_id ?? ""}
+                onChange={(event) => handleMove(event.currentTarget.value || null)}
+                disabled={busy}
+                title="Nest this group under another group"
+              >
+                <option value="">Top level (no parent)</option>
+                {moveTargets.map(({ group, depth }) => (
+                  <option key={group.id} value={group.id}>
+                    {`${"  ".repeat(depth)}${depth > 0 ? "└ " : ""}${group.name}`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="link-button"
+              onClick={() => setCreating((value) => !value)}
+              disabled={busy}
+            >
+              <FolderPlus size={16} />
+              New subgroup
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {childGroups.length > 0 ? (
+        <>
+          <p className="subtle">Stats below include every replay in these subgroups.</p>
+          <div className="button-row replay-group-subgroup-list">
+            {childGroups.map((child) => (
+              <Link
+                key={child.id}
+                className="secondary-button"
+                to={`/replay-groups/${child.id}/stats`}
+              >
+                <FolderOpen size={16} />
+                {child.name}
+                <span className="subtle"> ({child.total_replay_count.toLocaleString()})</span>
+              </Link>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="subtle">No subgroups yet.</p>
+      )}
+      {creating ? (
+        <form className="replay-group-subgroup-create" onSubmit={handleCreate}>
+          <input
+            type="text"
+            value={name}
+            autoFocus
+            placeholder="Subgroup name"
+            onChange={(event) => setName(event.currentTarget.value)}
+            disabled={busy}
+          />
+          <button type="submit" disabled={busy || name.trim() === ""}>
+            <Plus size={16} />
+            Create
+          </button>
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => {
+              setCreating(false);
+              setName("");
+              setError(null);
+            }}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+        </form>
+      ) : null}
+      {error ? <p className="replay-selection-feedback is-error">{error}</p> : null}
+    </div>
+  );
+}
+
+function ReplayGroupStatsPage() {
+  const { groupId = "" } = useParams();
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
-  const [playerAggregates, setPlayerAggregates] = useState<StatAggregateSetResponse | null>(null);
   const [groupLoading, setGroupLoading] = useState(true);
-  const [playerAggregatesLoading, setPlayerAggregatesLoading] = useState(true);
   const [groupError, setGroupError] = useState<string | null>(null);
-  const [playerAggregatesError, setPlayerAggregatesError] = useState<string | null>(null);
+  const [allGroups, setAllGroups] = useState<ReplayGroupResponse[]>([]);
+  const [groupsNonce, setGroupsNonce] = useState(0);
+  const refreshGroups = useCallback(() => setGroupsNonce((value) => value + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -2528,51 +3549,31 @@ function ReplayGroupStatsPage() {
     return () => {
       cancelled = true;
     };
-  }, [groupId]);
+  }, [groupId, groupsNonce]);
 
-  // The group leaderboard fetches one aggregate block per participant
-  // (`group-by=player`), scoped to the group's replays. Drill-down-only sections
-  // (e.g. boost) skip this — they route into each player's group-scoped view.
+  // The full group list powers the ancestor breadcrumb and the child-subgroup
+  // navigation; it is cheap and refetched when a subgroup is created.
   useEffect(() => {
     let cancelled = false;
-    if (layout !== "leaderboard") {
-      setPlayerAggregates(null);
-      setPlayerAggregatesLoading(false);
-      setPlayerAggregatesError(null);
-      return;
-    }
-    setPlayerAggregatesLoading(true);
-    setPlayerAggregatesError(null);
-    getReplayGroupPlayerAggregates(groupId, undefined, activeGroup.terms)
+    listReplayGroups()
       .then((response) => {
-        if (!cancelled) setPlayerAggregates(response);
+        if (!cancelled) setAllGroups(response.groups);
       })
-      .catch((err: Error) => {
-        if (!cancelled) setPlayerAggregatesError(err.message);
-      })
-      .finally(() => {
-        if (!cancelled) setPlayerAggregatesLoading(false);
+      .catch(() => {
+        if (!cancelled) setAllGroups([]);
       });
     return () => {
       cancelled = true;
     };
-  }, [layout, groupId, activeGroup]);
+  }, [groupsNonce]);
+
+  const ancestors = useMemo(() => groupAncestors(allGroups, groupId), [allGroups, groupId]);
+  const childGroups = useMemo(
+    () => allGroups.filter((candidate) => candidate.parent_group_id === groupId),
+    [allGroups, groupId],
+  );
 
   const participantAnalysis = useMemo(() => analyzeReplayGroupParticipants(replays), [replays]);
-  const rankIndex = useMemo(
-    () => leaderboardRankIndex(participantAnalysis.players),
-    [participantAnalysis.players],
-  );
-  const buildPlayerHref = useCallback(
-    (player: StatAggregateGroupPlayer) =>
-      groupScopedPlayerStatsPath(
-        player.platform,
-        player.platform_player_id,
-        activeGroup.id,
-        groupId,
-      ),
-    [activeGroup.id, groupId],
-  );
   const groupDurationSeconds = sumReplayDurations(replays);
   const dateRange = replayDateRange(replays);
 
@@ -2580,7 +3581,19 @@ function ReplayGroupStatsPage() {
     <section className="page stats-page replay-group-page">
       <header className="page-header">
         <div>
-          <p className="eyebrow">Replay group stats</p>
+          <p className="eyebrow">
+            <Link className="subtle" to="/replay-groups">
+              Replay groups
+            </Link>
+            {ancestors.map((ancestor) => (
+              <Fragment key={ancestor.id}>
+                {" / "}
+                <Link className="subtle" to={`/replay-groups/${ancestor.id}/stats`}>
+                  {ancestor.name}
+                </Link>
+              </Fragment>
+            ))}
+          </p>
           <h1>{group?.name || "Replay group"}</h1>
           {group?.description ? <p className="page-header-note">{group.description}</p> : null}
         </div>
@@ -2593,6 +3606,17 @@ function ReplayGroupStatsPage() {
       </header>
 
       <StatusLine loading={groupLoading} error={groupError} />
+
+      {group ? <BallchasingMirrorStatus group={group} onSynced={refreshGroups} /> : null}
+
+      {group ? (
+        <ReplayGroupSubgroups
+          parentGroup={group}
+          childGroups={childGroups}
+          allGroups={allGroups}
+          onChanged={refreshGroups}
+        />
+      ) : null}
 
       {group ? (
         <>
@@ -2619,77 +3643,12 @@ function ReplayGroupStatsPage() {
             </div>
           </div>
 
-          <GroupParticipantNotice analysis={participantAnalysis} />
-
-          {participantAnalysis.consistent ? (
-            <div className="group-participant-strip" aria-label="Group participants">
-              {participantAnalysis.players.map((player, index) => (
-                <PlayerIdentity
-                  className="group-participant-chip"
-                  key={groupParticipantKey(player, index)}
-                  player={player}
-                  showRank
-                />
-              ))}
-            </div>
-          ) : null}
-
-          <nav className="stat-group-nav" aria-label="Group stat sections">
-            {aggregateStatsSectionGroups.map((section) => {
-              const Icon = section.icon;
-              return (
-                <Link
-                  key={section.id}
-                  className={`stat-group-link ${section.id === activeGroup.id ? "active" : ""}`}
-                  to={`/replay-groups/${groupId}/stats/${section.id}`}
-                >
-                  <Icon size={16} />
-                  <span>{section.label}</span>
-                </Link>
-              );
-            })}
-          </nav>
-
-          <section className="stat-detail">
-            <header className="stat-detail-header">
-              <div>
-                <p className="eyebrow">{activeGroup.label}</p>
-                <h2>
-                  {activeGroup.label} {layout === "drill-down-only" ? "per player" : "leaderboard"}
-                </h2>
-                <p>{activeGroup.description}</p>
-              </div>
-            </header>
-
-            {playerAggregatesError ? (
-              <ApiNotice
-                label={`${activeGroup.label} leaderboard`}
-                message={playerAggregatesError}
-              />
-            ) : null}
-            {playerAggregatesLoading ? <StatusLine loading error={null} /> : null}
-
-            {layout === "drill-down-only" ? (
-              <GroupSectionDrillDown
-                section={activeGroup}
-                players={participantAnalysis.players}
-                groupId={groupId}
-              />
-            ) : (
-              <StatLeaderboard
-                title={`${activeGroup.label} leaderboard`}
-                groups={playerAggregates?.groups ?? []}
-                rankIndex={rankIndex}
-                buildPlayerHref={buildPlayerHref}
-                defaultStatKeys={activeGroup.leaderboardStats}
-              />
-            )}
-          </section>
+          <GroupStatExplorerSection groupId={groupId} players={participantAnalysis.players} />
 
           <section className="stat-panel">
             <h2>Games in group</h2>
             <div className="table-frame compact-table">
-              <table>
+              <table className="replay-group-games-table">
                 <thead>
                   <tr>
                     <th>Replay</th>
@@ -2878,20 +3837,6 @@ interface MutableReplayGroupParticipant {
   time_most_forward_seconds: number | null;
 }
 
-function GroupParticipantNotice({ analysis }: { analysis: ReplayGroupParticipantAnalysis }) {
-  if (!analysis.reason && !analysis.colorSwitching) return null;
-
-  return (
-    <div className={`api-notice ${analysis.consistent ? "" : "warning"}`.trim()}>
-      <strong>{analysis.consistent ? "Same participants" : "Mixed participants"}</strong>
-      <span>
-        {analysis.reason ??
-          "The same players appear across this group, but at least one player changes between blue and orange. Player panels use neutral team labels; blue/orange team totals still mean the replay-local colors."}
-      </span>
-    </div>
-  );
-}
-
 function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupParticipantAnalysis {
   const players = collectReplayGroupParticipants(replays);
   const colorSwitching = players.some((player) => player.color_switching);
@@ -2917,26 +3862,11 @@ function analyzeReplayGroupParticipants(replays: ReplayResponse[]): ReplayGroupP
     };
   }
 
-  const reference = replayIdentities[0]!;
-  const referenceKey = participantSetKey(reference);
-  const mismatched = replayIdentities.some(
-    (identities) => participantSetKey(identities!) !== referenceKey,
-  );
-  if (mismatched) {
-    return {
-      consistent: false,
-      players,
-      colorSwitching,
-      reason:
-        "These replays don't all share the same participants. The leaderboard still ranks every player across the group; per-player drill-downs span only the games each player appears in.",
-    };
-  }
-
   return {
     consistent: true,
     players,
     colorSwitching,
-    reason: colorSwitching ? null : null,
+    reason: null,
   };
 }
 
@@ -2968,20 +3898,12 @@ function replayParticipantIdentities(replay: ReplayResponse): Set<string> | null
   return identities;
 }
 
-function participantSetKey(identities: Set<string>): string {
-  return [...identities].sort().join("|");
-}
-
 function replayPlayerIdentity(player: ReplayPlayer): string | null {
   if (player.platform && player.platform_player_id) {
     return `${normalizeReplayPlatform(player.platform)}:${player.platform_player_id}`;
   }
   const name = player.name?.trim();
   return name ? `name:${name.toLowerCase()}` : null;
-}
-
-function groupParticipantKey(player: ReplayPlayer, index: number): string {
-  return replayPlayerIdentity(player) ?? `participant:${index}`;
 }
 
 function newMutableReplayGroupParticipant(
@@ -3094,59 +4016,28 @@ function compareReplayGroupPlayers(left: ReplayPlayer, right: ReplayPlayer): num
   );
 }
 
-// Group sections that don't reduce to a single leaderboard (e.g. the boost
-// pad-control diagram is a per-player spatial chart) route into each player's
-// group-scoped career view for that section instead of rendering a group panel.
-function GroupSectionDrillDown({
-  section,
-  players,
-  groupId,
-}: {
-  section: StatGroup;
-  players: ReplayPlayer[];
-  groupId: string;
-}) {
-  const linkablePlayers = players.filter((player) => player.platform && player.platform_player_id);
-  const sectionLabel = section.label.toLowerCase();
-  return (
-    <section className="stat-panel full-span group-leaderboard-panel">
-      <div className="stat-panel-heading">
-        <h3>{section.label} per player</h3>
-        <span>{linkablePlayers.length.toLocaleString()} players</span>
-      </div>
-      <p className="stat-detail-note">
-        {section.label} centers on a per-player view that doesn&rsquo;t reduce to a single
-        leaderboard. Open a player to see their {sectionLabel} across this group.
-      </p>
-      {linkablePlayers.length > 0 ? (
-        <div className="group-participant-strip" aria-label={`${section.label} per player`}>
-          {linkablePlayers.map((player, index) => (
-            <Link
-              key={groupParticipantKey(player, index)}
-              className="group-participant-chip-link"
-              to={groupScopedPlayerStatsPath(
-                player.platform!,
-                player.platform_player_id!,
-                section.id,
-                groupId,
-              )}
-            >
-              <PlayerIdentity
-                className="group-participant-chip"
-                player={player}
-                showRank
-                link={false}
-              />
-            </Link>
-          ))}
-        </div>
-      ) : (
-        <div className="stat-empty">
-          No identifiable participants are available for this group yet.
-        </div>
-      )}
-    </section>
-  );
+function groupStatEventReviewUrl(
+  groupId: string,
+  participant: LeaderboardParticipant,
+  metric: LeaderboardMetric,
+): string | null {
+  if (!participant.platform || !participant.platformPlayerId || !metric.eventTypes?.length) {
+    return null;
+  }
+
+  const params = new URLSearchParams({
+    group: groupId,
+    "player-id": `${participant.platform}:${participant.platformPlayerId}`,
+    "review-status": "all",
+    count: "100",
+  });
+  for (const eventType of metric.eventTypes) {
+    params.append("event-type", eventType);
+  }
+  // Open the in-app embedded review player (which reads the group / player-id /
+  // event-type filters from the URL) rather than /events/review/open, which
+  // redirects out to the standalone subtr-actor stats player.
+  return `/events/review?${params.toString()}`;
 }
 
 function normalizeReplayPlatform(value: string): string {
@@ -3222,7 +4113,8 @@ type PlayerSupplementalKey =
   | "kickoffFilter"
   | "movementSummary"
   | "possession"
-  | "positioningSummary";
+  | "positioningSummary"
+  | "rankBenchmark";
 
 type PlayerSupplementalLoadedState = {
   scope: string;
@@ -3324,6 +4216,8 @@ function PlayerStatsPage() {
   const [positioningSummary, setPositioningSummary] = useState<PositioningSummaryResponse | null>(
     null,
   );
+  const [rankBenchmarkCohorts, setRankBenchmarkCohorts] =
+    useState<RankBenchmarkCohortsResponse | null>(null);
   const [supplementalLoaded, setSupplementalLoaded] = useState<PlayerSupplementalLoadedState>({
     scope: "",
     loaded: {},
@@ -3413,6 +4307,7 @@ function PlayerStatsPage() {
     setMovementSummary(null);
     setPossessionSummary(null);
     setPositioningSummary(null);
+    setRankBenchmarkCohorts(null);
   }, [statsScope]);
 
   useEffect(() => {
@@ -3474,7 +4369,8 @@ function PlayerStatsPage() {
       | EventStatSummaryResponse
       | MovementSummaryResponse
       | PossessionSummaryResponse
-      | PositioningSummaryResponse,
+      | PositioningSummaryResponse
+      | RankBenchmarkCohortsResponse,
   ) {
     if (isPlayerOverviewSupplementalKey(key)) {
       setOverviews((current) => ({
@@ -3491,6 +4387,8 @@ function PlayerStatsPage() {
       setMovementSummary(response as MovementSummaryResponse);
     } else if (key === "possession") {
       setPossessionSummary(response as PossessionSummaryResponse);
+    } else if (key === "rankBenchmark") {
+      setRankBenchmarkCohorts(response as RankBenchmarkCohortsResponse);
     } else {
       setPositioningSummary(response as PositioningSummaryResponse);
     }
@@ -3634,6 +4532,13 @@ function PlayerStatsPage() {
               Replays
             </Link>
           ) : null}
+          {hasResolvedPlayer ? (
+            <PlayerFavoriteButton
+              enabled={currentUser != null}
+              platform={resolvedPlatform}
+              platformPlayerId={resolvedPlatformPlayerId}
+            />
+          ) : null}
           {playerSummary ? (
             <PlayerModerationControls
               currentUser={currentUser}
@@ -3688,7 +4593,7 @@ function PlayerStatsPage() {
             </div>
           ) : null}
 
-          <PlayerStatsSegmentBar />
+          <PlayerStatsSegmentBar rankBenchmark={rankBenchmarkCohorts} />
           <StatusLine loading={statsLoading} error={null} />
           {statsError ? <ApiNotice label="Player stats" message={statsError} /> : null}
           {stats ? (
@@ -3700,6 +4605,7 @@ function PlayerStatsPage() {
               movementSummary={movementSummary}
               possessionSummary={possessionSummary}
               positioningSummary={positioningSummary}
+              rankBenchmarkCohorts={rankBenchmarkCohorts}
               supplementalError={activeSupplementalError}
               supplementalLoading={activeSupplementalLoading}
               overview={overview}
@@ -3975,6 +4881,21 @@ function playerOverviewForGroup(
 
 function playerSupplementalKeysForGroup(groupId: string): PlayerSupplementalKey[] {
   const overviewKey = overviewSupplementalKeyForGroup(groupId);
+  const keys = playerSupplementalBaseKeysForGroup(groupId, overviewKey);
+  // The rank-average cohorts back the rate cards (every non-kickoff group) and
+  // the movement/boost/possession/positioning cohort charts, so fetch them for
+  // any group that renders those. Kickoffs has no rate cards. Gated centrally so
+  // the provisional cohort can be disabled in one place (AGENTS.md).
+  if (rankAverageEnabled() && groupId !== "kickoffs") {
+    keys.push("rankBenchmark");
+  }
+  return keys;
+}
+
+function playerSupplementalBaseKeysForGroup(
+  groupId: string,
+  overviewKey: PlayerOverviewSupplementalKey | null,
+): PlayerSupplementalKey[] {
   if (groupId === "core" && overviewKey) {
     return [overviewKey];
   }
@@ -4010,6 +4931,7 @@ function fetchPlayerSupplemental(
   | MovementSummaryResponse
   | PossessionSummaryResponse
   | PositioningSummaryResponse
+  | RankBenchmarkCohortsResponse
 > {
   const params = new URLSearchParams(search);
   if (isPlayerOverviewSupplementalKey(key)) {
@@ -4035,6 +4957,9 @@ function fetchPlayerSupplemental(
   if (key === "movementSummary") {
     return getPlayerMovementSummary(platform, platformPlayerId, params);
   }
+  if (key === "rankBenchmark") {
+    return getRankBenchmarkCohorts(platform, platformPlayerId, params);
+  }
   return getPlayerPossessionSummary(platform, platformPlayerId, params);
 }
 
@@ -4051,6 +4976,7 @@ type PlayerStatsOutcomeBundle = {
   movementSummary: MovementSummaryResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
+  rankBenchmarkCohorts: RankBenchmarkCohortsResponse | null;
   search: string;
 };
 
@@ -4085,6 +5011,7 @@ function emptyPlayerStatsOutcomeBundle(
     movementSummary: null,
     possessionSummary: null,
     positioningSummary: null,
+    rankBenchmarkCohorts: null,
     search,
   };
 }
@@ -4097,7 +5024,8 @@ function bundleWithSupplementalResponse(
     | EventStatSummaryResponse
     | MovementSummaryResponse
     | PossessionSummaryResponse
-    | PositioningSummaryResponse,
+    | PositioningSummaryResponse
+    | RankBenchmarkCohortsResponse,
 ): PlayerStatsOutcomeBundle {
   if (isPlayerOverviewSupplementalKey(key)) {
     return { ...bundle, overview: response as PlayerStatOverviewResponse };
@@ -4116,6 +5044,9 @@ function bundleWithSupplementalResponse(
   }
   if (key === "possession") {
     return { ...bundle, possessionSummary: response as PossessionSummaryResponse };
+  }
+  if (key === "rankBenchmark") {
+    return { ...bundle, rankBenchmarkCohorts: response as RankBenchmarkCohortsResponse };
   }
   return { ...bundle, positioningSummary: response as PositioningSummaryResponse };
 }
@@ -4294,6 +5225,45 @@ function playerGoalPlaylistHref(
   return query ? `${base}?${query}` : base;
 }
 
+const aerialPlaylistKinds = new Set(aerialPlaylistKindList);
+
+// Link an aerial mechanic to the embedded aerial clip playlist, carrying the
+// active stats filter context (playlist, game mode, dates, …) so the in-page
+// player shows the same mechanics the rates were computed from. The playlist
+// filters by the mechanic's event type server-side via listPlayerEvents.
+function playerAerialPlaylistHref(
+  routeBasePath: string,
+  search: string,
+  aerialKind: string,
+): string {
+  const source = stripKickoffSpawnParams(new URLSearchParams(search));
+  const params = new URLSearchParams();
+  for (const key of [
+    "q",
+    "title",
+    "playlist",
+    "game-mode",
+    "game-type",
+    "team-size",
+    "map",
+    "pro",
+    "uploader",
+    "group",
+    "project",
+    "created-after",
+    "created-before",
+    "replay-date-after",
+    "replay-date-before",
+  ]) {
+    for (const value of source.getAll(key)) {
+      if (value) params.append(key, value);
+    }
+  }
+  const base = `${routeBasePath}/aerials/${encodeURIComponent(aerialKind)}`;
+  const query = params.toString();
+  return query ? `${base}?${query}` : base;
+}
+
 function playerSegmentValue(params: URLSearchParams, key: "team-size" | "game-type"): string {
   const value = params.get(key);
   if (key === "team-size") {
@@ -4370,7 +5340,175 @@ function searchWithPlayerOutcome(search: string, outcome: "win" | "loss"): strin
   return query ? `?${query}` : "";
 }
 
-function PlayerStatsSegmentBar() {
+// Backend query params for the rank-average comparison. The dropdown writes
+// these straight into the URL so they flow through the shared stats search
+// string into the /stats/rank-benchmark request unchanged.
+const RANK_BENCHMARK_RANK_PARAM = "rank-benchmark-rank";
+const RANK_BENCHMARK_GROUPING_PARAM = "rank-benchmark-grouping";
+const RANK_BENCHMARK_WINDOW_PARAM = "rank-benchmark-window";
+
+// Explicitly-selected rank values, or null when the URL carries none (so the
+// server's estimated default applies). An empty array means the user
+// deselected every rank (sentinel `none`).
+function selectedRankValuesFromSearch(search: string): number[] | null {
+  const raw = new URLSearchParams(search).getAll(RANK_BENCHMARK_RANK_PARAM);
+  if (raw.length === 0) return null;
+  const values: number[] = [];
+  let explicitNone = false;
+  for (const item of raw) {
+    for (const token of item.split(",")) {
+      const trimmed = token.trim();
+      if (!trimmed) continue;
+      if (trimmed.toLowerCase() === "none") {
+        explicitNone = true;
+        continue;
+      }
+      const parsed = Number.parseInt(trimmed, 10);
+      if (Number.isFinite(parsed)) values.push(parsed);
+    }
+  }
+  if (values.length === 0 && !explicitNone) return null;
+  return values;
+}
+
+function rankBenchmarkGroupingFromSearch(search: string): "group" | "tier" {
+  return new URLSearchParams(search).get(RANK_BENCHMARK_GROUPING_PARAM) === "tier"
+    ? "tier"
+    : "group";
+}
+
+function rankAverageParamPath(
+  pathname: string,
+  search: string,
+  mutate: (params: URLSearchParams) => void,
+): string {
+  const params = new URLSearchParams(search);
+  mutate(params);
+  const query = params.toString();
+  return query ? `${pathname}?${query}` : pathname;
+}
+
+// Multi-select rank-average control: an always-visible row of rank chips (icons)
+// that toggle on/off, so multiple ranks can be compared at once, plus the time
+// window and group/tier grouping. Defaults to the server's estimate of the
+// player's current rank. Sits beside the other top-level toggles.
+function RankAverageSelect({
+  rankBenchmark,
+}: {
+  rankBenchmark: RankBenchmarkCohortsResponse | null;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  if (!rankAverageEnabled() || !rankBenchmark || rankBenchmark.available_ranks.length === 0) {
+    return null;
+  }
+  const grouping = rankBenchmarkGroupingFromSearch(location.search);
+  const explicit = selectedRankValuesFromSearch(location.search);
+  const defaultValue = rankBenchmark.default_rank_value;
+  const selected = new Set<number>(explicit ?? (defaultValue != null ? [defaultValue] : []));
+
+  const toggleRank = (rankValue: number) => {
+    const next = new Set(selected);
+    if (next.has(rankValue)) {
+      next.delete(rankValue);
+    } else {
+      next.add(rankValue);
+    }
+    navigate(
+      rankAverageParamPath(location.pathname, location.search, (params) => {
+        params.delete(RANK_BENCHMARK_RANK_PARAM);
+        if (next.size === 0) {
+          params.set(RANK_BENCHMARK_RANK_PARAM, "none");
+        } else {
+          params.set(RANK_BENCHMARK_RANK_PARAM, [...next].sort((a, b) => a - b).join(","));
+        }
+      }),
+    );
+  };
+
+  const rankIcon = (rankValue: number): string | null =>
+    grouping === "tier" ? rankIconUrl(rankValue) : rankGroupIconUrl(rankValue);
+
+  return (
+    <nav className="stat-group-nav rank-average-select" aria-label="Rank average comparison">
+      <span className="segment-bar-label">Rank avg</span>
+      {rankBenchmark.available_ranks.map((rank) => {
+        const iconUrl = rankIcon(rank.rank_value);
+        const isDefault = defaultValue === rank.rank_value;
+        const count =
+          rank.distinct_player_count != null
+            ? ` · n=${rank.distinct_player_count.toLocaleString()}`
+            : "";
+        return (
+          <button
+            key={rank.rank_value}
+            type="button"
+            aria-pressed={selected.has(rank.rank_value)}
+            className={`stat-group-link rank-average-chip ${selected.has(rank.rank_value) ? "active" : ""}`}
+            title={`${rank.label}${count}${isDefault ? " · estimated current rank" : ""}`}
+            onClick={() => toggleRank(rank.rank_value)}
+          >
+            {iconUrl ? (
+              <img src={iconUrl} alt={rank.label} className="rank-average-chip-icon" />
+            ) : (
+              <span>{rank.label}</span>
+            )}
+            {isDefault ? <span className="rank-average-chip-default" aria-hidden /> : null}
+          </button>
+        );
+      })}
+      <span className="rank-average-controls">
+        {rankBenchmark.available_windows.length > 1 ? (
+          <select
+            className="rank-average-window-select"
+            aria-label="Rank average time window"
+            value={rankBenchmark.window ?? ""}
+            onChange={(event) =>
+              navigate(
+                rankAverageParamPath(location.pathname, location.search, (params) => {
+                  params.set(RANK_BENCHMARK_WINDOW_PARAM, event.target.value);
+                }),
+              )
+            }
+          >
+            {rankBenchmark.available_windows.map((window) => (
+              <option key={window.key} value={window.key}>
+                {window.label}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        <button
+          type="button"
+          className={`stat-group-link rank-average-grouping-toggle ${grouping === "tier" ? "active" : ""}`}
+          title="Toggle between pooled rank groups and exact division tiers"
+          onClick={() =>
+            navigate(
+              rankAverageParamPath(location.pathname, location.search, (params) => {
+                // Rank values live in a different id space per grouping, so reset
+                // the selection to the new grouping's default.
+                params.delete(RANK_BENCHMARK_RANK_PARAM);
+                if (grouping === "group") {
+                  params.set(RANK_BENCHMARK_GROUPING_PARAM, "tier");
+                } else {
+                  params.delete(RANK_BENCHMARK_GROUPING_PARAM);
+                }
+              }),
+            )
+          }
+        >
+          {grouping === "tier" ? "Tiers" : "Groups"}
+        </button>
+      </span>
+    </nav>
+  );
+}
+
+function PlayerStatsSegmentBar({
+  rankBenchmark,
+}: {
+  rankBenchmark: RankBenchmarkCohortsResponse | null;
+}) {
   const location = useLocation();
   const navigate = useNavigate();
   const params = new URLSearchParams(location.search);
@@ -4501,6 +5639,7 @@ function PlayerStatsSegmentBar() {
           Wins / losses
         </Link>
       </nav>
+      <RankAverageSelect rankBenchmark={rankBenchmark} />
       {teamSize === "" ? (
         <p className="muted-text segment-bar-note">
           Showing all modes blended — rates mix 1v1/2v2/3v3 dynamics. Pick a mode for cleaner
@@ -4533,6 +5672,7 @@ function PlayerAggregateStatsSections({
   movementSummary,
   possessionSummary,
   positioningSummary,
+  rankBenchmarkCohorts,
   platform,
   platformPlayerId,
   playerName,
@@ -4550,6 +5690,7 @@ function PlayerAggregateStatsSections({
   movementSummary: MovementSummaryResponse | null;
   possessionSummary: PossessionSummaryResponse | null;
   positioningSummary: PositioningSummaryResponse | null;
+  rankBenchmarkCohorts: RankBenchmarkCohortsResponse | null;
   platform: string;
   platformPlayerId: string;
   playerName: string;
@@ -4610,6 +5751,7 @@ function PlayerAggregateStatsSections({
     contentOverview: PlayerStatOverviewResponse | null;
     contentPossessionSummary: PossessionSummaryResponse | null;
     contentPositioningSummary: PositioningSummaryResponse | null;
+    contentRankBenchmarkCohorts: RankBenchmarkCohortsResponse | null;
     contentSearch: string;
     contentStats: StatAggregateSetResponse;
     contentSupplementalError: string | null;
@@ -4628,6 +5770,7 @@ function PlayerAggregateStatsSections({
       contentOverview,
       contentPossessionSummary,
       contentPositioningSummary,
+      contentRankBenchmarkCohorts,
       contentSearch,
       contentStats,
       contentSupplementalError,
@@ -4685,14 +5828,24 @@ function PlayerAggregateStatsSections({
       activeGroup.id !== "rotation" &&
       activeGroup.id !== "touches"
     ) {
+      // On the aerials section, link each mechanic rate card to a clip playlist
+      // of that mechanic across this player's replays (mirrors the goal-tag links
+      // on the scoring section). Only the discrete, time-anchored mechanics are
+      // watchable, so unrelated aerial stats render plain titles.
+      const rateCardTitleHref =
+        activeGroup.id === "aerials"
+          ? (key: string) =>
+              aerialPlaylistKinds.has(key)
+                ? playerAerialPlaylistHref(routeBasePath, contentSearch, key)
+                : undefined
+          : undefined;
       const rateCards = buildPlayerRateCards(
         order ? contentSectionStats : contentTopStats,
         playerName,
-        {
-          tierLabel: contentStats.rank_benchmark_tier_label,
-          windowLabel: contentStats.rank_benchmark_window_label,
-        },
+        contentRankBenchmarkCohorts?.cohorts ?? [],
+        contentRankBenchmarkCohorts?.window_label,
         order?.rateKeys,
+        rateCardTitleHref,
       );
       if (rateCards.length > 0) {
         addCards("rate-comparison", rateCards);
@@ -4703,6 +5856,20 @@ function PlayerAggregateStatsSections({
       add(
         "boost-profile",
         <BoostProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "ground-play") {
+      add(
+        "ground-play-profile",
+        <GroundPlayProfileDetail
           platform={platform}
           platformPlayerId={platformPlayerId}
           playerName={playerName}
@@ -4719,6 +5886,8 @@ function PlayerAggregateStatsSections({
           playerName,
           stats: contentSectionStats,
           view: coreView,
+          rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
+          rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
         }),
       );
     }
@@ -4726,7 +5895,12 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "movement" && contentMovementSummary) {
       addCards(
         "movement-cohorts",
-        buildMovementCohortCards({ response: contentMovementSummary, playerName }),
+        buildMovementCohortCards({
+          response: contentMovementSummary,
+          playerName,
+          rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
+          rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
+        }),
       );
     }
     if (activeGroup.id === "movement" && contentSupplementalLoading) {
@@ -4753,6 +5927,8 @@ function PlayerAggregateStatsSections({
             orderedKeys: order?.goalTagKeys,
             goalTypeHref: (kind) =>
               playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind }),
+            rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
+            rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
           }),
         );
       } else {
@@ -4765,6 +5941,8 @@ function PlayerAggregateStatsSections({
               playerGoalPlaylistHref(routeBasePath, contentSearch, { goalTag: kind })
             }
             allGoalsHref={playerGoalPlaylistHref(routeBasePath, contentSearch)}
+            rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+            rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
           />,
         );
       }
@@ -4792,7 +5970,12 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "possession" && contentPossessionSummary) {
       add(
         "possession-summary",
-        <PossessionSummaryPanel playerName={playerName} summary={contentPossessionSummary} />,
+        <PossessionSummaryPanel
+          playerName={playerName}
+          summary={contentPossessionSummary}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
       );
     }
     if (activeGroup.id === "possession" && contentSupplementalLoading) {
@@ -4808,14 +5991,24 @@ function PlayerAggregateStatsSections({
     if (activeGroup.id === "touches" && contentStats.touch_breakdown) {
       add(
         "touch-profile",
-        <TouchProfileComparison breakdown={contentStats.touch_breakdown} playerName={playerName} />,
+        <TouchProfileComparison
+          breakdown={contentStats.touch_breakdown}
+          playerName={playerName}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
       );
     }
 
     if (activeGroup.id === "positioning" && contentPositioningSummary) {
       add(
         "positioning-cohorts",
-        <PlayerPositioningCohorts response={contentPositioningSummary} playerName={playerName} />,
+        <PlayerPositioningCohorts
+          response={contentPositioningSummary}
+          playerName={playerName}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+        />,
       );
     }
     if ((activeGroup.id === "positioning" || activeGroup.id === "rotation") && contentOverview) {
@@ -4870,6 +6063,7 @@ function PlayerAggregateStatsSections({
           contentOverview: bundle.overview,
           contentPossessionSummary: bundle.possessionSummary,
           contentPositioningSummary: bundle.positioningSummary,
+          contentRankBenchmarkCohorts: bundle.rankBenchmarkCohorts,
           contentSearch: bundle.search,
           contentStats: bundle.stats,
           contentSupplementalError: null,
@@ -5098,6 +6292,7 @@ function PlayerAggregateStatsSections({
           contentOverview: overview,
           contentPossessionSummary: possessionSummary,
           contentPositioningSummary: positioningSummary,
+          contentRankBenchmarkCohorts: rankBenchmarkCohorts,
           contentSearch: requestSearch,
           contentStats: stats,
           contentSupplementalError: supplementalError,
@@ -5192,6 +6387,15 @@ function EventsReviewPage() {
     navigate("/events/review");
   }
 
+  function applyFlickPreset(preset: "all" | "reverse" | "side") {
+    setFilters((current) => ({
+      ...current,
+      eventTypes: ["flick"],
+      payloadKind: preset === "reverse" ? "reverse" : "",
+      payloadSetupRotationDirection: preset === "side" ? "left,right" : "",
+    }));
+  }
+
   const selectedEventTypes = new Set(filters.eventTypes);
   const eventTypeGroups = useMemo(
     () => groupEventTypesByCategory(eventTypes.filter(isReviewSelectableEventType)),
@@ -5246,6 +6450,14 @@ function EventsReviewPage() {
       onChange: (value) => updateFilter("playlist", value),
     },
     {
+      id: "event-tag",
+      label: "Custom tag",
+      value: filters.tag,
+      name: "tag",
+      placeholder: "missing_flip_reset",
+      onChange: (value) => updateFilter("tag", value),
+    },
+    {
       id: "event-map",
       label: "Map",
       value: filters.map,
@@ -5291,6 +6503,22 @@ function EventsReviewPage() {
       name: "detector",
       placeholder: "stats_timeline",
       onChange: (value) => updateFilter("detector", value),
+    },
+    {
+      id: "event-payload-kind",
+      label: "Flick type",
+      value: filters.payloadKind,
+      name: "payload-kind",
+      options: flickTypeFilterOptions,
+      onChange: (value) => updateFilter("payloadKind", value),
+    },
+    {
+      id: "event-payload-setup-rotation-direction",
+      label: "Flick side",
+      value: filters.payloadSetupRotationDirection,
+      name: "payload-setup-rotation-direction",
+      options: flickSideFilterOptions,
+      onChange: (value) => updateFilter("payloadSetupRotationDirection", value),
     },
     {
       id: "event-uploaded-after",
@@ -5412,6 +6640,30 @@ function EventsReviewPage() {
 
           <StatusLine loading={loadingEventTypes} error={error} />
 
+          <div className="event-review-preset-row" aria-label="Flick review presets">
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => applyFlickPreset("all")}
+            >
+              All flicks
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => applyFlickPreset("reverse")}
+            >
+              Reverse flicks
+            </button>
+            <button
+              className="secondary-button"
+              type="button"
+              onClick={() => applyFlickPreset("side")}
+            >
+              Side flicks
+            </button>
+          </div>
+
           <div className="event-type-groups" aria-label="Event types">
             {eventTypeGroups.map((group) => {
               const eventTypeKeys = group.eventTypes.map((eventType) => eventType.key);
@@ -5487,6 +6739,10 @@ function EventsReviewPage() {
               <dt>Event types</dt>
               <dd>{selectedCount > 0 ? selectedEventText : "All"}</dd>
             </div>
+            <div>
+              <dt>Classifications</dt>
+              <dd>{eventReviewClassificationSummary(filters)}</dd>
+            </div>
           </dl>
           <div className="review-actions">
             <button type="submit">
@@ -5502,9 +6758,82 @@ function EventsReviewPage() {
               Reset filters
             </button>
           </div>
+          <div className="review-export-links">
+            <h3>Machine-readable export</h3>
+            <p className="muted-text">
+              Hand these straight to subtr-actor — no login or DB write required.
+            </p>
+            <CopyableUrl label="Copy playlist JSON" url={manifestUrl} />
+            {filters.tag.trim() ? (
+              <CopyableUrl
+                label="Copy tag case export"
+                url={`/api/v1/events/tags/${encodeURIComponent(filters.tag.trim())}/export`}
+              />
+            ) : null}
+            <EventExportLinkTool />
+          </div>
         </aside>
       </form>
     </section>
+  );
+}
+
+/** A copyable, absolute URL with a one-click copy button. */
+function CopyableUrl({ label, url }: { label: string; url: string }) {
+  const [copied, setCopied] = useState(false);
+  const absolute = useMemo(() => {
+    try {
+      return new URL(url, window.location.origin).toString();
+    } catch {
+      return url;
+    }
+  }, [url]);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(absolute);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable; the URL is still visible to select */
+    }
+  }
+  return (
+    <div className="copy-url-row">
+      <button type="button" className="secondary-button" onClick={() => void copy()}>
+        <Copy size={14} />
+        {copied ? "Copied" : label}
+      </button>
+      <code className="copy-url-value">{absolute}</code>
+    </div>
+  );
+}
+
+/**
+ * Paste any event UUID to get its self-contained "consider this" export link.
+ * Purely a link builder — hitting the URL reads the event, it writes nothing.
+ */
+function EventExportLinkTool() {
+  const [eventId, setEventId] = useState("");
+  const trimmed = eventId.trim();
+  const exportUrl = trimmed ? `/api/v1/events/${encodeURIComponent(trimmed)}/export` : "";
+  return (
+    <div className="event-export-tool">
+      <label htmlFor="event-export-id">Event export link</label>
+      <input
+        id="event-export-id"
+        type="text"
+        placeholder="event UUID"
+        value={eventId}
+        onChange={(event) => setEventId(event.target.value)}
+      />
+      {exportUrl ? (
+        <CopyableUrl label="Copy export link" url={exportUrl} />
+      ) : (
+        <p className="muted-text">
+          Paste an event ID to get its machine-readable "consider this" export.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -5517,6 +6846,7 @@ interface EventReviewFilterForm {
   playerId: string;
   reviewStatus: string;
   playlist: string;
+  tag: string;
   map: string;
   pro: EventReviewProFilter;
   minConfidence: string;
@@ -5528,6 +6858,8 @@ interface EventReviewFilterForm {
   replayDateBefore: string;
   eventCreatedAfter: string;
   eventCreatedBefore: string;
+  payloadKind: string;
+  payloadSetupRotationDirection: string;
   uploader: string;
   group: string;
   project: string;
@@ -5774,6 +7106,20 @@ const eventPlaylistOptions = [
   { value: "local", label: "Local Lobby" },
 ];
 
+const flickTypeFilterOptions = [
+  { value: "", label: "Any flick type" },
+  { value: "reverse", label: "Reverse" },
+  { value: "other", label: "Other" },
+];
+
+const flickSideFilterOptions = [
+  { value: "", label: "Any flick side" },
+  { value: "left,right", label: "Left or right" },
+  { value: "left", label: "Left" },
+  { value: "right", label: "Right" },
+  { value: "unknown", label: "Unknown" },
+];
+
 function defaultEventReviewFilters(): EventReviewFilterForm {
   return {
     eventTypes: [],
@@ -5782,6 +7128,7 @@ function defaultEventReviewFilters(): EventReviewFilterForm {
     playerId: "",
     reviewStatus: "unreviewed",
     playlist: "",
+    tag: "",
     map: "",
     pro: "",
     minConfidence: "",
@@ -5793,6 +7140,8 @@ function defaultEventReviewFilters(): EventReviewFilterForm {
     replayDateBefore: "",
     eventCreatedAfter: "",
     eventCreatedBefore: "",
+    payloadKind: "",
+    payloadSetupRotationDirection: "",
     uploader: "",
     group: "",
     project: "",
@@ -5809,6 +7158,7 @@ function eventReviewFiltersFromParams(params: URLSearchParams): EventReviewFilte
     playerId: params.get("player-id") ?? defaults.playerId,
     reviewStatus: params.get("review-status") ?? defaults.reviewStatus,
     playlist: params.get("playlist") ?? defaults.playlist,
+    tag: params.get("tag") ?? defaults.tag,
     map: params.get("map") ?? defaults.map,
     pro: eventReviewProParam(params.get("pro")),
     minConfidence: params.get("min-confidence") ?? defaults.minConfidence,
@@ -5820,6 +7170,12 @@ function eventReviewFiltersFromParams(params: URLSearchParams): EventReviewFilte
     replayDateBefore: params.get("replay-date-before") ?? defaults.replayDateBefore,
     eventCreatedAfter: params.get("event-created-after") ?? defaults.eventCreatedAfter,
     eventCreatedBefore: params.get("event-created-before") ?? defaults.eventCreatedBefore,
+    payloadKind: multiParamValue(params, "payload-kind", defaults.payloadKind),
+    payloadSetupRotationDirection: multiParamValue(
+      params,
+      "payload-setup-rotation-direction",
+      defaults.payloadSetupRotationDirection,
+    ),
     uploader: params.get("uploader") ?? defaults.uploader,
     group: params.get("group") ?? defaults.group,
     project: params.get("project") ?? defaults.project,
@@ -5837,6 +7193,7 @@ function eventReviewFiltersToParams(filters: EventReviewFilterForm): URLSearchPa
   appendIfPresent(params, "player-id", filters.playerId);
   appendIfPresent(params, "review-status", filters.reviewStatus);
   appendIfPresent(params, "playlist", filters.playlist);
+  appendIfPresent(params, "tag", filters.tag);
   appendIfPresent(params, "map", filters.map);
   appendIfPresent(params, "pro", filters.pro);
   appendIfPresent(params, "min-confidence", filters.minConfidence);
@@ -5848,6 +7205,12 @@ function eventReviewFiltersToParams(filters: EventReviewFilterForm): URLSearchPa
   appendIfPresent(params, "replay-date-before", filters.replayDateBefore);
   appendIfPresent(params, "event-created-after", filters.eventCreatedAfter);
   appendIfPresent(params, "event-created-before", filters.eventCreatedBefore);
+  appendMultiValueParam(params, "payload-kind", filters.payloadKind);
+  appendMultiValueParam(
+    params,
+    "payload-setup-rotation-direction",
+    filters.payloadSetupRotationDirection,
+  );
   appendIfPresent(params, "uploader", filters.uploader);
   appendIfPresent(params, "group", filters.group);
   appendIfPresent(params, "project", filters.project);
@@ -5862,8 +7225,32 @@ function appendIfPresent(params: URLSearchParams, key: string, value: string) {
   }
 }
 
+function appendMultiValueParam(params: URLSearchParams, key: string, value: string) {
+  for (const part of value.split(",")) {
+    appendIfPresent(params, key, part);
+  }
+}
+
+function multiParamValue(params: URLSearchParams, key: string, fallback: string): string {
+  const values = params.getAll(key).filter((value) => value.trim());
+  return values.length > 0 ? values.join(",") : fallback;
+}
+
 function eventReviewProParam(value: string | null): EventReviewProFilter {
   return value === "true" || value === "false" ? value : "";
+}
+
+function eventReviewClassificationSummary(filters: EventReviewFilterForm): string {
+  const labels = [
+    optionLabelForValue(flickTypeFilterOptions, filters.payloadKind),
+    optionLabelForValue(flickSideFilterOptions, filters.payloadSetupRotationDirection),
+  ].filter((label): label is string => label != null);
+  return labels.length > 0 ? labels.join(" · ") : "Any";
+}
+
+function optionLabelForValue(options: FilterOptionConfig[], value: string): string | null {
+  if (!value) return null;
+  return options.find((option) => option.value === value)?.label ?? value;
 }
 
 function reviewStatusLabel(value: string): string {
@@ -6226,55 +7613,6 @@ function accountSummary(claims: AccessTokenClaims | null): string {
     return `Connected through ${providerLabel(claims.provider_name)}.`;
   }
   return "This account is tied to the current Rocket Sense token.";
-}
-
-function providerLabel(provider: string): string {
-  switch (provider) {
-    case "dev":
-      return "development";
-    case "google":
-      return "Google";
-    case "github":
-      return "GitHub";
-    case "discord":
-      return "Discord";
-    case "epic":
-      return "Epic Games";
-    case "xbox":
-      return "Xbox";
-    case "steam":
-      return "Steam";
-    default:
-      return provider;
-  }
-}
-
-const providerLoginIconPaths: Record<string, string> = {
-  google: siGoogle.path,
-  github: siGithub.path,
-  discord: siDiscord.path,
-  epic: siEpicgames.path,
-  xbox: xboxBrandPath,
-  steam: siSteam.path,
-};
-
-function ProviderLoginIcon({ providerId }: { providerId: string }) {
-  const path = providerLoginIconPaths[providerId];
-  if (path) {
-    return (
-      <svg
-        className="provider-login-icon"
-        viewBox="0 0 24 24"
-        width="16"
-        height="16"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <path d={path} fill="currentColor" />
-      </svg>
-    );
-  }
-  return <LogIn size={16} className="provider-login-icon" />;
 }
 
 function LoginModal({
@@ -6663,6 +8001,9 @@ function AdminProcessingPage() {
   const [includeHealthy, setIncludeHealthy] = useState(
     searchParams.get("include_healthy") === "true",
   );
+  const [currentlyFailed, setCurrentlyFailed] = useState(
+    searchParams.get("currently_failed") === "true",
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -6696,6 +8037,7 @@ function AdminProcessingPage() {
   useEffect(() => {
     setStatus(searchParams.get("status") ?? "");
     setIncludeHealthy(searchParams.get("include_healthy") === "true");
+    setCurrentlyFailed(searchParams.get("currently_failed") === "true");
   }, [searchParams]);
 
   useEffect(() => {
@@ -6754,6 +8096,11 @@ function AdminProcessingPage() {
     } else {
       params.delete("include_healthy");
     }
+    if (currentlyFailed) {
+      params.set("currently_failed", "true");
+    } else {
+      params.delete("currently_failed");
+    }
     params.delete("offset");
     navigate(`/admin/processing?${params.toString()}`);
   }
@@ -6805,6 +8152,14 @@ function AdminProcessingPage() {
             <RefreshCw size={16} />
             {reprocessAllState?.phase === "pending" ? "Reprocessing…" : "Reprocess all (force)"}
           </button>
+          <Link className="secondary-button" to="/admin/queue">
+            <ListOrdered size={16} />
+            Live queue
+          </Link>
+          <Link className="secondary-button" to="/admin/recently-processed">
+            <History size={16} />
+            Recently processed
+          </Link>
           <a className="secondary-button" href="/api/v1/admin/replays/processing-diagnostics">
             <ExternalLink size={16} />
             JSON
@@ -6823,6 +8178,10 @@ function AdminProcessingPage() {
           <Metric
             label="Problem replays"
             value={response.summary.problem_replays.toLocaleString()}
+          />
+          <Metric
+            label="Currently failed"
+            value={response.summary.currently_failed_replays.toLocaleString()}
           />
           <Metric label="Total replays" value={response.summary.total_replays.toLocaleString()} />
           <Metric label="Processing status" value={formatCounts(response.summary.status_counts)} />
@@ -6894,6 +8253,14 @@ function AdminProcessingPage() {
           ]}
           className="admin-filter-grid"
         />
+        <label className="toggle-row">
+          <input
+            type="checkbox"
+            checked={currentlyFailed}
+            onChange={(event) => setCurrentlyFailed(event.currentTarget.checked)}
+          />
+          <span>Only currently failed (no successful run since last failure)</span>
+        </label>
         <label className="toggle-row">
           <input
             type="checkbox"
@@ -7051,6 +8418,502 @@ function AdminProcessingPage() {
               <tr>
                 <td colSpan={6} className="empty-cell">
                   No replay processing diagnostics matched.
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function queueStatusClassName(status: string): string {
+  switch (status.toLowerCase()) {
+    case "running":
+      return "status-badge status-processing";
+    case "done":
+      return "status-badge status-processed";
+    case "failed":
+    case "killed":
+      return "status-badge status-failed";
+    case "pending":
+    case "queued":
+    default:
+      return "status-badge status-pending";
+  }
+}
+
+const QUEUE_VIEWS = [
+  { key: "outstanding", label: "Outstanding" },
+  { key: "completed", label: "Completed" },
+  { key: "all", label: "All" },
+] as const;
+
+type QueueViewKey = (typeof QUEUE_VIEWS)[number]["key"];
+
+function queueViewParam(params: URLSearchParams): QueueViewKey {
+  const raw = params.get("view");
+  return QUEUE_VIEWS.some((view) => view.key === raw) ? (raw as QueueViewKey) : "outstanding";
+}
+
+function AdminQueuePage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const [response, setResponse] = useState<ReplayProcessingQueueResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [reprocessFailedState, setReprocessFailedState] = useState<RequeueResult | null>(null);
+
+  async function reprocessFailed() {
+    if (
+      !window.confirm(
+        "Force-reprocess every replay with a failed job in the queue? This re-enqueues them for the workers.",
+      )
+    ) {
+      return;
+    }
+    setReprocessFailedState({ phase: "pending", message: "Re-enqueuing failed jobs…" });
+    try {
+      const result = await reprocessFailedQueueJobs();
+      setReprocessFailedState({
+        phase: "done",
+        message:
+          result.failed_replays === 0
+            ? "No failed jobs to reprocess."
+            : `Re-enqueued ${result.enqueued_replays.toLocaleString()} of ${result.failed_replays.toLocaleString()} failed ${result.failed_replays === 1 ? "replay" : "replays"}${
+                result.skipped_replays > 0
+                  ? ` (${result.skipped_replays.toLocaleString()} already queued)`
+                  : ""
+              }.`,
+      });
+      setRefreshKey((key) => key + 1);
+    } catch (err) {
+      setReprocessFailedState({
+        phase: "error",
+        message: `Reprocess failed: ${(err as Error).message}`,
+      });
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listReplayProcessingQueue(searchParams)
+      .then((nextResponse) => {
+        if (!cancelled) setResponse(nextResponse);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, refreshKey]);
+
+  function goToOffset(offset: number) {
+    const params = new URLSearchParams(searchParams);
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    } else {
+      params.delete("offset");
+    }
+    navigate(`/admin/queue?${params.toString()}`);
+  }
+
+  function goToView(nextView: QueueViewKey) {
+    const params = new URLSearchParams(searchParams);
+    if (nextView === "outstanding") {
+      params.delete("view");
+    } else {
+      params.set("view", nextView);
+    }
+    // Each view is a different result set, so start back at the first page.
+    params.delete("offset");
+    navigate(`/admin/queue?${params.toString()}`);
+  }
+
+  const view = queueViewParam(searchParams);
+  const showFinished = view !== "outstanding";
+  const columnCount = showFinished ? 7 : 6;
+  const viewBlurb: Record<QueueViewKey, string> = {
+    outstanding:
+      "Outstanding jobs (pending, queued, running, and failed), ordered the way a worker pops them.",
+    completed:
+      "Finished history — succeeded (Done) and permanently failed (Killed) jobs, most recent first.",
+    all: "Every replay-processing job, regardless of status, with the most recent activity first.",
+  };
+
+  const jobs = response?.jobs ?? [];
+  const failedInView = jobs.filter((job) => job.status.toLowerCase() === "failed").length;
+  const total = response?.total ?? null;
+  const offset = positiveIntegerParam(searchParams, "offset", 0);
+  const pageSize = positiveIntegerParam(searchParams, "count", 200);
+  const canPageBackward = offset > 0;
+  const canPageForward = response?.next_offset != null;
+  const previousOffset = Math.max(0, offset - pageSize);
+  const nextOffset = response?.next_offset ?? offset + pageSize;
+
+  return (
+    <section className="page admin-processing-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>Processing Queue</h1>
+        </div>
+        <div className="page-header-actions">
+          {view !== "completed" ? (
+            <button
+              type="button"
+              className="secondary-button"
+              onClick={() => void reprocessFailed()}
+              disabled={reprocessFailedState?.phase === "pending"}
+              title="Force-reprocess every replay with a failed job in the queue"
+            >
+              <RotateCcw
+                size={16}
+                className={reprocessFailedState?.phase === "pending" ? "spin" : undefined}
+              />
+              {reprocessFailedState?.phase === "pending"
+                ? "Reprocessing…"
+                : failedInView > 0
+                  ? `Reprocess failed (${failedInView.toLocaleString()})`
+                  : "Reprocess failed"}
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? "spin" : undefined} />
+            Refresh
+          </button>
+          <Link className="secondary-button" to="/admin/processing">
+            <ServerCog size={16} />
+            Diagnostics
+          </Link>
+          <Link className="secondary-button" to="/admin/recently-processed">
+            <History size={16} />
+            Recently processed
+          </Link>
+          <a
+            className="secondary-button"
+            href={`/api/v1/admin/replays/queue${
+              searchParams.toString() ? `?${searchParams.toString()}` : ""
+            }`}
+          >
+            <ExternalLink size={16} />
+            JSON
+          </a>
+        </div>
+      </header>
+
+      <nav className="stat-group-nav admin-queue-views" aria-label="Queue view">
+        {QUEUE_VIEWS.map((option) => (
+          <button
+            key={option.key}
+            type="button"
+            className={`stat-group-link ${view === option.key ? "active" : ""}`}
+            aria-pressed={view === option.key}
+            onClick={() => goToView(option.key)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </nav>
+
+      <p className="subtle">
+        The apalis <code>rocket-sense:replay-processing</code> queue. {viewBlurb[view]}
+      </p>
+
+      {reprocessFailedState ? (
+        <p className={`requeue-result requeue-${reprocessFailedState.phase}`}>
+          {reprocessFailedState.message}
+        </p>
+      ) : null}
+
+      <div className="replay-list-controls">
+        <div className="results-readout">
+          <ListOrdered size={16} />
+          <span>
+            {loading
+              ? "Loading queue"
+              : total == null
+                ? `${jobs.length.toLocaleString()} jobs`
+                : `${jobs.length.toLocaleString()} of ${total.toLocaleString()} jobs`}
+          </span>
+        </div>
+        <div className="pagination-controls">
+          <button
+            type="button"
+            className="icon-button"
+            title="Previous page"
+            disabled={!canPageBackward || loading}
+            onClick={() => goToOffset(previousOffset)}
+          >
+            <ChevronLeft size={17} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Next page"
+            disabled={!canPageForward || loading}
+            onClick={() => goToOffset(nextOffset)}
+          >
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <StatusLine loading={loading} error={error} />
+
+      <div className="table-frame admin-diagnostics-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Replay</th>
+              <th>Status</th>
+              <th>Attempts</th>
+              <th>Run at</th>
+              {showFinished ? <th>Finished</th> : null}
+              <th>Worker</th>
+              <th>Last result</th>
+            </tr>
+          </thead>
+          <tbody>
+            {jobs.map((job) => (
+              <tr key={job.job_id}>
+                <td className="admin-replay-cell">
+                  <ReplayLink className="primary-link" replayId={job.replay_id}>
+                    {job.original_file_name || job.replay_id}
+                  </ReplayLink>
+                  <div className="subtle">{job.replay_id.slice(0, 8)}</div>
+                  {job.force ? <span className="status-badge status-pending">force</span> : null}
+                </td>
+                <td>
+                  <span className={queueStatusClassName(job.status)}>{job.status}</span>
+                  {job.terminal ? (
+                    <div
+                      className="subtle"
+                      title="Retries exhausted — apalis will not rerun this on its own"
+                    >
+                      retries exhausted
+                    </div>
+                  ) : null}
+                </td>
+                <td>
+                  {job.attempts.toLocaleString()} / {job.max_attempts.toLocaleString()}
+                </td>
+                <td className="admin-date-cell">
+                  <div>{formatDate(job.run_at)}</div>
+                  {job.lock_at ? <small>Locked {formatDate(job.lock_at)}</small> : null}
+                </td>
+                {showFinished ? (
+                  <td className="admin-date-cell">
+                    {job.done_at ? formatDate(job.done_at) : <span className="subtle">—</span>}
+                  </td>
+                ) : null}
+                <td>
+                  {job.lock_by ? <code>{job.lock_by}</code> : <span className="subtle">—</span>}
+                </td>
+                <td>
+                  {job.last_result ? (
+                    <code className="subtle">{job.last_result.slice(0, 120)}</code>
+                  ) : (
+                    <span className="subtle">—</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+            {!loading && jobs.length === 0 ? (
+              <tr>
+                <td colSpan={columnCount} className="empty-cell">
+                  {view === "completed"
+                    ? "No finished jobs yet."
+                    : view === "all"
+                      ? "No replay-processing jobs found."
+                      : "Queue is empty — no outstanding replay-processing jobs."}
+                </td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AdminRecentlyProcessedPage() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const [response, setResponse] = useState<RecentlyProcessedReplaysResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    listRecentlyProcessedReplays(searchParams)
+      .then((nextResponse) => {
+        if (!cancelled) setResponse(nextResponse);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams, refreshKey]);
+
+  function goToOffset(offset: number) {
+    const params = new URLSearchParams(searchParams);
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    } else {
+      params.delete("offset");
+    }
+    navigate(`/admin/recently-processed?${params.toString()}`);
+  }
+
+  const replays = response?.replays ?? [];
+  const offset = positiveIntegerParam(searchParams, "offset", 0);
+  const pageSize = positiveIntegerParam(searchParams, "count", 100);
+  const canPageBackward = offset > 0;
+  const canPageForward = response?.next_offset != null;
+  const previousOffset = Math.max(0, offset - pageSize);
+  const nextOffset = response?.next_offset ?? offset + pageSize;
+
+  return (
+    <section className="page admin-processing-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>Recently Processed</h1>
+        </div>
+        <div className="page-header-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            onClick={() => setRefreshKey((key) => key + 1)}
+            disabled={loading}
+          >
+            <RefreshCw size={16} className={loading ? "spin" : undefined} />
+            Refresh
+          </button>
+          <Link className="secondary-button" to="/admin/processing">
+            <ServerCog size={16} />
+            Diagnostics
+          </Link>
+          <a className="secondary-button" href="/api/v1/admin/replays/recently-processed">
+            <ExternalLink size={16} />
+            JSON
+          </a>
+        </div>
+      </header>
+
+      <p className="subtle">
+        Replays whose canonical analysis run has finished, newest first — i.e. what the workers most
+        recently turned into processed replays.
+      </p>
+
+      <div className="replay-list-controls">
+        <div className="results-readout">
+          <ListOrdered size={16} />
+          <span>
+            {loading
+              ? "Loading replays"
+              : `${replays.length.toLocaleString()} processed ${
+                  replays.length === 1 ? "replay" : "replays"
+                }`}
+          </span>
+        </div>
+        <div className="pagination-controls">
+          <button
+            type="button"
+            className="icon-button"
+            title="Previous page"
+            disabled={!canPageBackward || loading}
+            onClick={() => goToOffset(previousOffset)}
+          >
+            <ChevronLeft size={17} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Next page"
+            disabled={!canPageForward || loading}
+            onClick={() => goToOffset(nextOffset)}
+          >
+            <ChevronRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <StatusLine loading={loading} error={error} />
+
+      <div className="table-frame admin-diagnostics-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Replay</th>
+              <th>Processed</th>
+              <th>Status</th>
+              <th>Extractor</th>
+              <th>Events</th>
+            </tr>
+          </thead>
+          <tbody>
+            {replays.map((replay) => (
+              <tr key={replay.replay_id}>
+                <td className="admin-replay-cell">
+                  <ReplayLink className="primary-link" replayId={replay.replay_id}>
+                    {replay.original_file_name || replay.replay_id}
+                  </ReplayLink>
+                  <div className="subtle">{replay.replay_id.slice(0, 8)}</div>
+                </td>
+                <td className="admin-date-cell">
+                  {replay.processed_at ? (
+                    <div>{formatDate(replay.processed_at)}</div>
+                  ) : (
+                    <span className="subtle">—</span>
+                  )}
+                </td>
+                <td>
+                  <span className={`status-badge status-${replay.processing_status}`}>
+                    {replay.processing_status}
+                  </span>
+                </td>
+                <td>
+                  {replay.extractor_version ? (
+                    <code className="subtle">
+                      {replay.extractor_name ? `${replay.extractor_name} ` : ""}
+                      {replay.extractor_version}
+                    </code>
+                  ) : (
+                    <span className="subtle">—</span>
+                  )}
+                </td>
+                <td>{replay.event_count.toLocaleString()}</td>
+              </tr>
+            ))}
+            {!loading && replays.length === 0 ? (
+              <tr>
+                <td colSpan={5} className="empty-cell">
+                  No processed replays found.
                 </td>
               </tr>
             ) : null}
@@ -7480,6 +9343,20 @@ function formatDuration(value: number | null): string {
   const minutes = Math.floor(totalSeconds / 60);
   const seconds = totalSeconds % 60;
   return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+// Prefer the active (in-game, clock-running) duration, with the wall-clock
+// length of the replay shown in parentheses. Falls back to wall-clock alone
+// when active time is unavailable (e.g. replays processed before active time
+// was tracked).
+function formatGameDuration(summary: {
+  active_seconds: number | null;
+  duration_seconds: number | null;
+}): string {
+  const { active_seconds, duration_seconds } = summary;
+  if (active_seconds == null) return formatDuration(duration_seconds);
+  if (duration_seconds == null) return formatDuration(active_seconds);
+  return `${formatDuration(active_seconds)} (${formatDuration(duration_seconds)})`;
 }
 
 function formatDate(value: string | null): string {

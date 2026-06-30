@@ -1,7 +1,15 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getUserProfile, listReplays } from "./api";
-import type { ReplayPlaylistMetadata, ReplayResponse, UserProfileResponse } from "./types";
+import { getCurrentUser, getUserProfile, listReplays } from "./api";
+import { UploaderFavoriteButton } from "./favorites";
+import { playerProfileIdPath } from "./playerIdentity";
+import { ProviderLoginIcon, providerLabel } from "./providerIcons";
+import type {
+  ReplayPlaylistMetadata,
+  ReplayResponse,
+  UserGameIdentity,
+  UserProfileResponse,
+} from "./types";
 
 // How many of the user's most recent uploads to surface inline. The full set is
 // always reachable through the "View all uploads" link into the replay browser,
@@ -50,12 +58,55 @@ function replayTitle(replay: ReplayResponse): string {
   return replay.map_code ?? "Replay";
 }
 
+// A linked in-game player profile for the uploader. Steam/Epic logins map
+// directly to a player's platform id; verified claims map any platform.
+function GameIdentityCard({ identity }: { identity: UserGameIdentity }) {
+  const label = identity.display_name?.trim() || providerLabel(identity.platform);
+  const sourceNote =
+    identity.source === "claim"
+      ? "Verified player claim"
+      : `Linked via ${providerLabel(identity.platform)} login`;
+  return (
+    <Link
+      className="game-identity-card"
+      to={playerProfileIdPath(identity.platform, identity.platform_player_id)}
+      title={sourceNote}
+    >
+      <ProviderLoginIcon providerId={identity.platform} />
+      <span className="game-identity-main">
+        <strong>{label}</strong>
+        <span className="game-identity-meta">
+          {identity.appearance_count.toLocaleString()} appearance
+          {identity.appearance_count === 1 ? "" : "s"}
+        </span>
+      </span>
+    </Link>
+  );
+}
+
 export function UserProfilePage() {
   const { userId = "" } = useParams();
   const [profile, setProfile] = useState<UserProfileResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Only signed-in visitors see the favorite control, and never on their own
+  // profile. A failed `/me` (signed out) simply leaves the button hidden.
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentUser()
+      .then((user) => {
+        if (!cancelled) setCurrentUserId(user.id);
+      })
+      .catch(() => {
+        if (!cancelled) setCurrentUserId(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,6 +163,8 @@ export function UserProfilePage() {
 
   const displayName = profile.display_name?.trim() || "Unnamed uploader";
   const uploadsHref = `/replays?uploader=${encodeURIComponent(profile.id)}`;
+  // Tolerate older API responses (deployed before this field existed).
+  const gameIdentities = profile.game_identities ?? [];
 
   return (
     <section className="page user-profile-page">
@@ -133,8 +186,26 @@ export function UserProfilePage() {
           <Link className="secondary-button" to={uploadsHref}>
             View all uploads
           </Link>
+          <UploaderFavoriteButton
+            enabled={currentUserId != null && currentUserId !== profile.id}
+            userId={profile.id}
+          />
         </div>
       </header>
+
+      {gameIdentities.length > 0 ? (
+        <section className="profile-section">
+          <h2 className="profile-section-title">Game profiles</h2>
+          <div className="game-identity-list">
+            {gameIdentities.map((identity) => (
+              <GameIdentityCard
+                key={`${identity.platform}:${identity.platform_player_id}`}
+                identity={identity}
+              />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {replays.length === 0 ? (
         <div className="stat-empty">No uploads yet.</div>

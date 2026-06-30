@@ -3,7 +3,9 @@ import type {
   MechanicEventResponse,
   MovementCohortSummary,
   MovementSummaryResponse,
+  RankBenchmarkCohort,
   ReplayPlayer,
+  ReplayPlayerMovementSummary,
 } from "../types";
 import {
   comparisonSubjectLabel,
@@ -25,6 +27,9 @@ import {
   type OutcomeDistributionLevel,
   outcomeDistributionColorStyle,
   outcomeSegmentClassName,
+  rankCohortDistributionRows,
+  rankCohortMagnitudeRows,
+  rankCohortValues,
   type SegmentedBarSegment,
   StatPlayerLabel,
   statPercentWithValue,
@@ -78,6 +83,8 @@ interface MovementBand {
   // Shade tier used for the team-colored (single-game) rendering: light -> dark.
   level: OutcomeDistributionLevel;
   value: (summary: PlayerMovementSummary) => number;
+  // Benchmark metric_key for the rank-average row's share of this band.
+  metricKey?: string;
 }
 
 const BAND_COLORS: OutcomeDistributionColors = {
@@ -97,14 +104,19 @@ export function MovementDetail({
   durationSeconds,
   scope = "replay",
   subjectSubtitle,
+  movementSummaries,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   scope?: "replay" | "group";
   subjectSubtitle?: string;
+  movementSummaries?: ReplayPlayerMovementSummary[];
 }) {
-  const summaries = playerMovementSummaries(players, events, durationSeconds);
+  const summaries = applyReplayMovementSummaries(
+    playerMovementSummaries(players, events, durationSeconds),
+    movementSummaries,
+  );
 
   if (!summaries.some(hasMovementData)) {
     return (
@@ -258,9 +270,13 @@ export function PlayerMovementCohorts(props: {
 export function buildMovementCohortCards({
   response,
   playerName,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   response: MovementSummaryResponse;
   playerName: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }): ComparisonCard[] {
   const summaries: CareerMovementSummary[] = [
     movementCohortSummary("cohort-self", "player", playerName || "Player", response.player),
@@ -277,96 +293,163 @@ export function buildMovementCohortCards({
   }
 
   const speedBands: MovementBand[] = [
-    { id: "slow", label: "Slow", level: "unknown", value: (summary) => summary.slowSeconds },
-    { id: "boost", label: "Boost", level: "clear", value: (summary) => summary.boostSeconds },
+    {
+      id: "slow",
+      label: "Slow",
+      level: "unknown",
+      value: (summary) => summary.slowSeconds,
+      metricKey: "movement:slow_share",
+    },
+    {
+      id: "boost",
+      label: "Boost",
+      level: "clear",
+      value: (summary) => summary.boostSeconds,
+      metricKey: "movement:boost_speed_share",
+    },
     {
       id: "supersonic",
       label: "Supersonic",
       level: "strong",
       value: (summary) => summary.supersonicSeconds,
+      metricKey: "movement:supersonic_share",
     },
   ];
   const heightBands: MovementBand[] = [
-    { id: "ground", label: "Ground", level: "unknown", value: (summary) => summary.groundSeconds },
-    { id: "low_air", label: "Low air", level: "clear", value: (summary) => summary.lowAirSeconds },
+    {
+      id: "ground",
+      label: "Ground",
+      level: "unknown",
+      value: (summary) => summary.groundSeconds,
+      metricKey: "movement:ground_share",
+    },
+    {
+      id: "low_air",
+      label: "Low air",
+      level: "clear",
+      value: (summary) => summary.lowAirSeconds,
+      metricKey: "movement:low_air_share",
+    },
     {
       id: "high_air",
       label: "High air",
       level: "strong",
       value: (summary) => summary.highAirSeconds,
+      metricKey: "movement:high_air_share",
     },
   ];
 
+  // One magnitude card with player/teammate/opponent rows plus a slate row per
+  // selected rank, all sharing one scale so the rank bars don't overflow.
+  const magnitudeCard = (
+    key: string,
+    title: string,
+    value: (summary: CareerMovementSummary) => number | null,
+    format: (value: number) => string,
+    metricKey: string | null,
+    toRankValue: (raw: number) => number,
+  ): ComparisonCard => {
+    const rankValues = metricKey ? rankCohortValues(rankCohorts, metricKey, toRankValue) : [];
+    const maxValue = Math.max(1, ...summaries.map((s) => value(s) ?? 0), ...rankValues);
+    const rows = careerMovementMagnitudeRows(summaries, value, format, maxValue);
+    if (metricKey) {
+      rows.push(
+        ...rankCohortMagnitudeRows({
+          cohorts: rankCohorts,
+          metricKey,
+          toValue: toRankValue,
+          format,
+          maxValue,
+          windowLabel: rankWindowLabel,
+        }),
+      );
+    }
+    return { key, title, rows };
+  };
+
+  const distributionCard = (
+    key: string,
+    title: string,
+    bands: MovementBand[],
+    totalFor: (summary: CareerMovementSummary) => number,
+  ): ComparisonCard => {
+    const rows = careerMovementDistributionRows(summaries, bands, totalFor);
+    rows.push(
+      ...rankCohortDistributionRows({
+        cohorts: rankCohorts,
+        bands: bands.map((band, index) => ({
+          id: band.id,
+          label: band.label,
+          metricKey: band.metricKey ?? "",
+          className: outcomeSegmentClassName(GROUP_BAND_TONES[index], "clear"),
+        })),
+        colorStyle: outcomeDistributionColorStyle(BAND_COLORS),
+        windowLabel: rankWindowLabel,
+      }),
+    );
+    return { key, title, rows };
+  };
+
   const cards = [
-    {
-      key: "average-speed",
-      title: "Average speed (uu/s)",
-      rows: careerMovementMagnitudeRows(summaries, averageSpeed, formatSpeed),
-    },
-    {
-      key: "distance-covered",
-      title: "Distance covered (uu / 5 min)",
-      rows: careerMovementMagnitudeRows(
-        summaries,
-        (summary) => careerRateValue(summary.totalDistance, summary.activeSeconds),
-        formatDistanceRate,
-      ),
-    },
-    {
-      key: "speed-bands",
-      title: "Speed bands (% tracked time)",
-      rows: careerMovementDistributionRows(summaries, speedBands, speedBandTotal),
-    },
-    {
-      key: "ground-air",
-      title: "Ground & air (% tracked time)",
-      rows: careerMovementDistributionRows(summaries, heightBands, movementTimeTotal),
-    },
-    {
-      key: "powerslide-time",
-      title: "Powerslide time (s / 5 min)",
-      rows: careerMovementMagnitudeRows(
-        summaries,
-        (summary) => careerRateValue(summary.powerslideSeconds, summary.activeSeconds),
-        formatSecondsRate,
-      ),
-    },
-    {
-      key: "powerslide-count",
-      title: "Powerslide count (per 5 min)",
-      rows: careerMovementMagnitudeRows(
-        summaries,
-        (summary) => careerRateValue(summary.powerslideCount, summary.activeSeconds),
-        formatRate,
-      ),
-    },
-    {
-      key: "speed-flips",
-      title: "Speed flips (per 5 min)",
-      rows: careerMovementMagnitudeRows(
-        summaries,
-        (summary) => careerRateValue(summary.speedFlips, summary.activeSeconds),
-        formatRate,
-      ),
-    },
-    {
-      key: "wavedashes",
-      title: "Wavedashes (per 5 min)",
-      rows: careerMovementMagnitudeRows(
-        summaries,
-        (summary) => careerRateValue(summary.wavedashes, summary.activeSeconds),
-        formatRate,
-      ),
-    },
-    {
-      key: "half-flips",
-      title: "Half flips (per 5 min)",
-      rows: careerMovementMagnitudeRows(
-        summaries,
-        (summary) => careerRateValue(summary.halfFlips, summary.activeSeconds),
-        formatRate,
-      ),
-    },
+    magnitudeCard(
+      "average-speed",
+      "Average speed (uu/s)",
+      averageSpeed,
+      formatSpeed,
+      "movement:avg_speed",
+      (raw) => raw,
+    ),
+    magnitudeCard(
+      "distance-covered",
+      "Distance covered (uu / 5 min)",
+      (summary) => careerRateValue(summary.totalDistance, summary.activeSeconds),
+      formatDistanceRate,
+      "movement:distance",
+      (raw) => raw * 5,
+    ),
+    distributionCard("speed-bands", "Speed bands (% tracked time)", speedBands, speedBandTotal),
+    distributionCard("ground-air", "Ground & air (% tracked time)", heightBands, movementTimeTotal),
+    // Powerslide time has no benchmark metric_key, so it shows no rank row.
+    magnitudeCard(
+      "powerslide-time",
+      "Powerslide time (s / 5 min)",
+      (summary) => careerRateValue(summary.powerslideSeconds, summary.activeSeconds),
+      formatSecondsRate,
+      null,
+      (raw) => raw,
+    ),
+    magnitudeCard(
+      "powerslide-count",
+      "Powerslide count (per 5 min)",
+      (summary) => careerRateValue(summary.powerslideCount, summary.activeSeconds),
+      formatRate,
+      "movement:powerslides",
+      (raw) => raw * 5,
+    ),
+    magnitudeCard(
+      "speed-flips",
+      "Speed flips (per 5 min)",
+      (summary) => careerRateValue(summary.speedFlips, summary.activeSeconds),
+      formatRate,
+      "speed_flip",
+      (raw) => raw * 5,
+    ),
+    magnitudeCard(
+      "wavedashes",
+      "Wavedashes (per 5 min)",
+      (summary) => careerRateValue(summary.wavedashes, summary.activeSeconds),
+      formatRate,
+      "wavedash",
+      (raw) => raw * 5,
+    ),
+    magnitudeCard(
+      "half-flips",
+      "Half flips (per 5 min)",
+      (summary) => careerRateValue(summary.halfFlips, summary.activeSeconds),
+      formatRate,
+      "half_flip",
+      (raw) => raw * 5,
+    ),
   ];
 
   return cards;
@@ -409,8 +492,11 @@ function careerMovementMagnitudeRows(
   summaries: CareerMovementSummary[],
   value: (summary: CareerMovementSummary) => number | null,
   format: (value: number) => string,
+  // Share the scale with any rank-average rows the card also renders.
+  maxValueOverride?: number,
 ): ComparisonRow[] {
-  const maxValue = Math.max(1, ...summaries.map((summary) => value(summary) ?? 0));
+  const maxValue =
+    maxValueOverride ?? Math.max(1, ...summaries.map((summary) => value(summary) ?? 0));
   return summaries.map((summary) => {
     const metric = value(summary);
     const total = metric ?? 0;
@@ -586,6 +672,58 @@ function playerMovementSummaries(
   }
 
   return summaries.sort(compareSummaries);
+}
+
+function applyReplayMovementSummaries(
+  summaries: PlayerMovementSummary[],
+  movementSummaries?: ReplayPlayerMovementSummary[],
+): PlayerMovementSummary[] {
+  if (!movementSummaries || movementSummaries.length === 0) return summaries;
+  const byKey = new Map(
+    movementSummaries.flatMap((summary) => {
+      const key = replayMovementSummaryKey(summary);
+      return key ? [[key, summary.summary] as const] : [];
+    }),
+  );
+
+  return summaries.map((summary) => {
+    const movement = byKey.get(summary.key);
+    if (!movement || !movementCohortHasData(movement)) return summary;
+    return {
+      ...summary,
+      activeSeconds: movement.active_seconds,
+      totalDistance: movement.total_distance,
+      speedWeighted: movement.speed_weighted,
+      speedWeight: movement.speed_weight,
+      slowSeconds: movement.slow_seconds,
+      boostSeconds: movement.boost_seconds,
+      supersonicSeconds: movement.supersonic_seconds,
+      groundSeconds: movement.ground_seconds,
+      lowAirSeconds: movement.low_air_seconds,
+      highAirSeconds: movement.high_air_seconds,
+      powerslideCount: movement.powerslide_count,
+      powerslideSeconds: movement.powerslide_seconds,
+      speedFlips: movement.speed_flips,
+      wavedashes: movement.wavedashes,
+      halfFlips: movement.half_flips,
+    };
+  });
+}
+
+function movementCohortHasData(summary: MovementCohortSummary): boolean {
+  return (
+    summary.total_distance > 0 ||
+    summary.speed_weight > 0 ||
+    summary.slow_seconds + summary.boost_seconds + summary.supersonic_seconds > 0 ||
+    summary.ground_seconds + summary.low_air_seconds + summary.high_air_seconds > 0 ||
+    summary.powerslide_count > 0 ||
+    summary.speed_flips + summary.wavedashes + summary.half_flips > 0
+  );
+}
+
+function replayMovementSummaryKey(summary: ReplayPlayerMovementSummary): string | null {
+  if (!summary.platform || !summary.platform_player_id) return null;
+  return `${normalizePlatform(summary.platform)}:${summary.platform_player_id}`;
 }
 
 function addPowerslideToggles(

@@ -3,7 +3,9 @@ import type {
   MechanicEventResponse,
   PositioningCohortSummary,
   PositioningSummaryResponse,
+  RankBenchmarkCohort,
   ReplayPlayer,
+  ReplayPlayerPositioningSummary,
 } from "../types";
 import {
   careerCohortClassName,
@@ -19,6 +21,8 @@ import {
   outcomeSegmentClassName,
   PLAYER_RELATIVE_OUTCOME_COLORS,
   PlayerSegmentedBarRows,
+  rankAverageShadeClass,
+  rankCohortLabel,
   type SegmentedBarSegment,
   StatPlayerLabel,
   statPercentWithValue,
@@ -61,6 +65,9 @@ interface PlayerPositioningSummary {
   rank: StatPlayerRank | null;
   team: number | null;
   careerCohort?: CareerCohortKey | null;
+  // Set on synthesized rank-average rows so the label shows the rank icon and the
+  // distance bar uses the per-rank slate shade.
+  rankCohort?: RankBenchmarkCohort | null;
   activeSeconds: number;
   trackedSeconds: number;
   defensiveThirdSeconds: number;
@@ -88,16 +95,21 @@ export function PositioningDetail({
   events,
   players,
   scope,
+  positioningSummaries,
 }: {
   events: MechanicEventResponse[];
   players: ReplayPlayer[];
   durationSeconds: number | null;
   scope?: "replay" | "group";
+  positioningSummaries?: ReplayPlayerPositioningSummary[];
 }) {
   // Single game and replay group both fold raw span events into one row per
   // player; the group variant just spans every replay (summaries dedupe by
   // player key). Both render through the shared view below.
-  const summaries = playerPositioningSummaries(players, events);
+  const summaries = applyReplayPositioningSummaries(
+    playerPositioningSummaries(players, events),
+    positioningSummaries,
+  );
   // A player can appear on either team across a group's replays, so their
   // aggregated `team` is null and team-relative colouring would collapse every
   // bar to grey. Render the group in cohort mode (the team-independent fixed
@@ -124,11 +136,15 @@ export function PositioningSummariesView({
   label = positioningPlayerLabel,
   preserveOrder = false,
   cohort = false,
+  rankSummaries = [],
 }: {
   summaries: PlayerPositioningSummary[];
   emptyContext?: string;
   label?: (summary: PlayerPositioningSummary) => ReactNode;
   preserveOrder?: boolean;
+  // Synthesized rank-average rows, appended only to the charts the benchmark
+  // covers (thirds, ball-relative depth, teammate role, distance to ball).
+  rankSummaries?: PlayerPositioningSummary[];
   // Career/player view: cohort rows already separate self/teammates (one team)
   // from opponents (the other) by row, so we paint the bars with a non-team
   // palette (teal -> grey -> purple) and key the directional zones to a fixed
@@ -145,11 +161,13 @@ export function PositioningSummariesView({
   // Magnitude (distance) charts only adopt the outcome palette in the cohort
   // view; per game they keep the team-segment classes that shade teammates.
   const distanceColors = cohort ? colors : undefined;
+  // The benchmark-backed charts also show one row per selected rank.
+  const withRanks = rankSummaries.length ? [...summaries, ...rankSummaries] : summaries;
   // Distance-to-ball and distance-to-teammates share one scale so the two
-  // charts stay directly comparable.
+  // charts stay directly comparable (fold in rank distance-to-ball too).
   const maxDistance = Math.max(
     1,
-    ...summaries.flatMap((summary) => [
+    ...withRanks.flatMap((summary) => [
       weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight) ?? 0,
       weightedAverage(summary.distanceToTeammatesWeighted, summary.distanceToTeammatesWeight) ?? 0,
     ]),
@@ -195,7 +213,7 @@ export function PositioningSummariesView({
           />
           <PositioningBarRows
             colors={colors}
-            summaries={summaries}
+            summaries={withRanks}
             label={label}
             preserveOrder={preserveOrder}
             emptyLabel={`No field-zone positioning spans are available for ${emptyContext}.`}
@@ -262,7 +280,7 @@ export function PositioningSummariesView({
           />
           <PositioningBarRows
             colors={colors}
-            summaries={summaries}
+            summaries={withRanks}
             label={label}
             preserveOrder={preserveOrder}
             emptyLabel={`No ball-relative positioning spans are available for ${emptyContext}.`}
@@ -344,7 +362,7 @@ export function PositioningSummariesView({
           />
           <PositioningBarRows
             colors={colors}
-            summaries={summaries}
+            summaries={withRanks}
             label={label}
             preserveOrder={preserveOrder}
             emptyLabel={`No teammate-role spans are available for ${emptyContext}.`}
@@ -463,7 +481,7 @@ export function PositioningSummariesView({
           </p>
           <PositioningDistanceChart
             colors={distanceColors}
-            summaries={summaries}
+            summaries={withRanks}
             value={(summary) =>
               weightedAverage(summary.distanceToBallWeighted, summary.distanceToBallWeight)
             }
@@ -486,7 +504,7 @@ export function PositioningSummariesView({
           </p>
           <PositioningDistanceChart
             colors={distanceColors}
-            summaries={summaries}
+            summaries={withRanks}
             value={(summary) =>
               weightedAverage(
                 summary.distanceToTeammatesWeighted,
@@ -597,11 +615,16 @@ function PositioningDistanceChart({
   const rows: ComparisonRow[] = ordered.map((summary) => {
     const metric = value(summary) ?? 0;
     const shade = Math.min(indexByKey.get(summary.key) ?? 0, 3);
-    const className = summary.careerCohort
-      ? careerCohortSegmentClassName(summary.careerCohort)
-      : colors
-        ? outcomeSegmentClassName(teamOutcomeTone(summary.team), DISTANCE_LEVELS[shade] ?? "clear")
-        : `team-segment-${teamClass(summary.team)} player-shade-${shade}`;
+    const className = summary.rankCohort
+      ? rankAverageShadeClass(summary.rankCohort.rank_value, summary.rankCohort.rank_grouping)
+      : summary.careerCohort
+        ? careerCohortSegmentClassName(summary.careerCohort)
+        : colors
+          ? outcomeSegmentClassName(
+              teamOutcomeTone(summary.team),
+              DISTANCE_LEVELS[shade] ?? "clear",
+            )
+          : `team-segment-${teamClass(summary.team)} player-shade-${shade}`;
     return {
       key: summary.key,
       label: label(summary),
@@ -650,9 +673,13 @@ function teamLocalIndexByKey(summaries: PlayerPositioningSummary[]): Map<string,
 export function PlayerPositioningCohorts({
   response,
   playerName,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   response: PositioningSummaryResponse;
   playerName: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
   const summaries: PlayerPositioningSummary[] = [
     cohortSummary("cohort-self", "player", playerName || "You", 0, response.player),
@@ -668,15 +695,76 @@ export function PlayerPositioningCohorts({
     );
   }
 
+  const rankSummaries = rankCohorts.map(rankPositioningSummary);
+
   return (
     <PositioningSummariesView
       summaries={summaries}
+      rankSummaries={rankSummaries}
       emptyContext="the selected games"
       preserveOrder
       cohort
-      label={(summary) => cohortLabel(summary, cohortAppearances(summary.key, response))}
+      label={(summary) =>
+        summary.rankCohort
+          ? rankCohortLabel(summary.rankCohort, rankWindowLabel)
+          : cohortLabel(summary, cohortAppearances(summary.key, response))
+      }
     />
   );
+}
+
+// Synthesize a positioning summary from a rank cohort's benchmark shares. Uses
+// trackedSeconds = 1 so each "*Seconds" field is the metric's 0..1 share; only
+// the benchmark-backed fields are populated (the view only feeds rank rows to
+// the charts that cover them). `level`/`mid` are the complements of the present
+// shares (no dedicated metric_key).
+function rankPositioningSummary(cohort: RankBenchmarkCohort): PlayerPositioningSummary {
+  const stat = (key: string): number => {
+    const value = cohort.per_stat[key]?.value;
+    return value != null && Number.isFinite(value) ? value : 0;
+  };
+  const behind = stat("positioning:behind_ball_share");
+  const ahead = stat("positioning:ahead_of_ball_share");
+  const mostBack = stat("positioning:most_back_share");
+  const mostForward = stat("positioning:most_forward_share");
+  const distance = stat("positioning:distance_to_ball");
+  const teammateDistance = stat("positioning:distance_to_teammates");
+  return {
+    key: `rank-${cohort.rank_value}`,
+    name: cohort.label,
+    platform: null,
+    platformPlayerId: null,
+    rank: null,
+    team: null,
+    careerCohort: "rank-peers",
+    rankCohort: cohort,
+    activeSeconds: 1,
+    trackedSeconds: 1,
+    defensiveThirdSeconds: stat("positioning:defensive_third_share"),
+    neutralThirdSeconds: stat("positioning:neutral_third_share"),
+    offensiveThirdSeconds: stat("positioning:offensive_third_share"),
+    defensiveHalfSeconds: 0,
+    offensiveHalfSeconds: 0,
+    behindBallSeconds: behind,
+    levelWithBallSeconds: Math.max(0, 1 - behind - ahead),
+    inFrontOfBallSeconds: ahead,
+    roleSeconds: {
+      no_teammates: 0,
+      most_back: mostBack,
+      mid: Math.max(0, 1 - mostBack - mostForward),
+      most_forward: mostForward,
+      other: 0,
+      unknown: 0,
+    },
+    closestTeamSeconds: 0,
+    closestAbsoluteSeconds: 0,
+    farthestSeconds: 0,
+    distanceToBallWeighted: distance,
+    distanceToBallWeight: distance > 0 ? 1 : 0,
+    distanceToTeammatesWeighted: teammateDistance,
+    distanceToTeammatesWeight: teammateDistance > 0 ? 1 : 0,
+    caughtAheadGoals: 0,
+  };
 }
 
 function cohortSummary(
@@ -891,6 +979,80 @@ function playerPositioningSummaries(
   }
 
   return summaries.sort(compareSummaries);
+}
+
+function applyReplayPositioningSummaries(
+  summaries: PlayerPositioningSummary[],
+  positioningSummaries?: ReplayPlayerPositioningSummary[],
+): PlayerPositioningSummary[] {
+  if (!positioningSummaries || positioningSummaries.length === 0) return summaries;
+  const byKey = new Map(
+    positioningSummaries.flatMap((summary) => {
+      const key = replayPositioningSummaryKey(summary);
+      return key ? [[key, summary.summary] as const] : [];
+    }),
+  );
+
+  return summaries.map((summary) => {
+    const positioning = byKey.get(summary.key);
+    if (!positioning || !positioningCohortHasData(positioning)) return summary;
+    return {
+      ...summary,
+      activeSeconds: positioning.active_seconds,
+      trackedSeconds: positioning.tracked_seconds,
+      defensiveThirdSeconds: positioning.defensive_third_seconds,
+      neutralThirdSeconds: positioning.neutral_third_seconds,
+      offensiveThirdSeconds: positioning.offensive_third_seconds,
+      defensiveHalfSeconds: positioning.defensive_half_seconds,
+      offensiveHalfSeconds: positioning.offensive_half_seconds,
+      behindBallSeconds: positioning.behind_ball_seconds,
+      levelWithBallSeconds: positioning.level_with_ball_seconds,
+      inFrontOfBallSeconds: positioning.ahead_of_ball_seconds,
+      roleSeconds: {
+        no_teammates: positioning.role_no_teammates_seconds,
+        most_back: positioning.role_most_back_seconds,
+        mid: positioning.role_mid_seconds,
+        most_forward: positioning.role_most_forward_seconds,
+        other: positioning.role_other_seconds,
+        unknown: 0,
+      },
+      closestTeamSeconds: positioning.closest_team_seconds,
+      closestAbsoluteSeconds: positioning.closest_absolute_seconds,
+      farthestSeconds: positioning.farthest_seconds,
+      distanceToBallWeighted: positioning.distance_to_ball_weighted,
+      distanceToBallWeight: positioning.distance_to_ball_weight,
+      distanceToTeammatesWeighted: positioning.distance_to_teammates_weighted,
+      distanceToTeammatesWeight: positioning.distance_to_teammates_weight,
+    };
+  });
+}
+
+function positioningCohortHasData(summary: PositioningCohortSummary): boolean {
+  return (
+    summary.active_seconds > 0 ||
+    summary.tracked_seconds > 0 ||
+    summary.defensive_third_seconds +
+      summary.neutral_third_seconds +
+      summary.offensive_third_seconds >
+      0 ||
+    summary.behind_ball_seconds + summary.level_with_ball_seconds + summary.ahead_of_ball_seconds >
+      0 ||
+    summary.role_most_back_seconds +
+      summary.role_mid_seconds +
+      summary.role_most_forward_seconds +
+      summary.role_other_seconds +
+      summary.role_no_teammates_seconds >
+      0 ||
+    summary.closest_team_seconds + summary.closest_absolute_seconds + summary.farthest_seconds >
+      0 ||
+    summary.distance_to_ball_weight > 0 ||
+    summary.distance_to_teammates_weight > 0
+  );
+}
+
+function replayPositioningSummaryKey(summary: ReplayPlayerPositioningSummary): string | null {
+  if (!summary.platform || !summary.platform_player_id) return null;
+  return `${normalizePlatform(summary.platform)}:${summary.platform_player_id}`;
 }
 
 function emptySummary(player: ReplayPlayer, index: number): PlayerPositioningSummary {

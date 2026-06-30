@@ -10,13 +10,13 @@ use std::sync::Arc;
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use crate::rank_benchmark::{BenchmarkWindow, MIN_SAMPLE};
+use crate::rank_benchmark::BenchmarkWindow;
 
 use super::{
     event_stats::{count_column, push_kickoff_event_spawn_filter, KickoffSpawnFilter},
     query::{
-        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_i32_filter,
-        parse_u32_filter, QueryParams,
+        deserialize_string_vec, deserialize_uuid_vec, parse_bool_filter, parse_u32_filter,
+        QueryParams,
     },
     replay_set::{
         append_replay_set_filters, append_target_player_replay_set_filters,
@@ -84,27 +84,6 @@ pub struct StatAggregateSetResponse {
     pub opponent_non_demo_active_time_seconds: Option<f64>,
     pub opponent_time_most_back_seconds: Option<f64>,
     pub opponent_time_most_forward_seconds: Option<f64>,
-    /// Served rank tier for the `rank-peers` benchmark cohort (the player's
-    /// derived default unless overridden). `None` when the benchmark is disabled
-    /// or no tier could be resolved.
-    pub rank_benchmark_tier: Option<i32>,
-    pub rank_benchmark_tier_label: Option<String>,
-    /// Which grain backs the served bar: `"tier"` (exact tier) or `"group"` (the
-    /// pooled rank group, when the exact tier was too sparse to sample).
-    pub rank_benchmark_rank_grouping: Option<String>,
-    /// Whether the served tier is the viewed player's own derived default (vs a
-    /// manual override).
-    pub rank_benchmark_is_player_default: Option<bool>,
-    /// Distinct qualifying players behind the served `(window, group, tier,
-    /// outcome)` cell -- the sample-adequacy signal for the UI.
-    pub rank_benchmark_distinct_player_count: Option<i64>,
-    /// Served benchmark window key + label.
-    pub rank_benchmark_window: Option<String>,
-    pub rank_benchmark_window_label: Option<String>,
-    /// Tier and window picker options so the UI builds both selectors without an
-    /// extra request. Empty when the benchmark is disabled.
-    pub rank_benchmark_available_tiers: Vec<RankBenchmarkTierOption>,
-    pub rank_benchmark_available_windows: Vec<RankBenchmarkWindowOption>,
     pub rotation_duration_bucket_seconds: f64,
     pub rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
     pub teammate_rotation_duration_histogram: Vec<RotationDurationBucketResponse>,
@@ -112,6 +91,19 @@ pub struct StatAggregateSetResponse {
     pub touch_breakdown: Option<TouchAggregateBreakdownResponse>,
     pub stats: Vec<StatAggregateResponse>,
     pub groups: Vec<StatAggregateGroupResponse>,
+    /// Present only when a `group-by=player` set had more distinct players than
+    /// the per-request cap, so `groups` holds the top `limit` (by replay count)
+    /// out of `total`. Lets the client warn that the leaderboard is partial.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub groups_truncated: Option<GroupTruncation>,
+}
+
+/// Reports that a grouped leaderboard was capped: `groups` holds the top
+/// `limit` rows out of `total` available groups.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct GroupTruncation {
+    pub limit: u64,
+    pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, ToSchema)]
@@ -175,16 +167,13 @@ pub struct StatAggregateGroupResponse {
     pub opponent_non_demo_active_time_seconds: Option<f64>,
     pub opponent_time_most_back_seconds: Option<f64>,
     pub opponent_time_most_forward_seconds: Option<f64>,
-    /// Served rank tier for this group's `rank-peers` benchmark cohort.
-    pub rank_benchmark_tier: Option<i32>,
-    pub rank_benchmark_tier_label: Option<String>,
-    pub rank_benchmark_rank_grouping: Option<String>,
-    pub rank_benchmark_is_player_default: Option<bool>,
-    pub rank_benchmark_distinct_player_count: Option<i64>,
-    pub rank_benchmark_window: Option<String>,
-    pub rank_benchmark_window_label: Option<String>,
-    pub rank_benchmark_available_tiers: Vec<RankBenchmarkTierOption>,
-    pub rank_benchmark_available_windows: Vec<RankBenchmarkWindowOption>,
+    /// Replays in the set the player's team won / lost, decided by final score
+    /// (ties count as neither). A base measure for the `win_rate` derived metric.
+    /// `None` for non-player groupings, where there is no single team to credit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub win_count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loss_count: Option<u64>,
     pub stats: Vec<StatAggregateResponse>,
 }
 
@@ -214,22 +203,6 @@ pub struct StatAggregateResponse {
     pub opponent_count_per_game: Option<f64>,
     pub opponent_per_active_minute: Option<f64>,
     pub opponent_per_non_demo_active_minute: Option<f64>,
-    /// Served per-active-minute benchmark rate of a typical player at the served
-    /// rank tier (the `rank-peers` cohort). `None` when the benchmark is disabled
-    /// or the tier/event has no materialized cell.
-    pub rank_benchmark_per_active_minute: Option<f64>,
-    pub rank_benchmark_per_non_demo_active_minute: Option<f64>,
-    /// How that rate was aggregated: `"median"` (typical player) or `"mean"`
-    /// (pooled rate, used for rare mechanics whose median is 0).
-    pub rank_benchmark_aggregator: Option<String>,
-}
-
-/// One selectable rank tier for the benchmark picker, with its sample size.
-#[derive(Debug, Clone, Serialize, ToSchema)]
-pub struct RankBenchmarkTierOption {
-    pub tier: i32,
-    pub label: String,
-    pub distinct_player_count: i64,
 }
 
 /// One selectable benchmark window (`rolling-6m`, `season:current`, ...).
@@ -460,12 +433,8 @@ pub struct StatAggregatesQuery {
     /// `materialized=true` forces the materialized path. Absent uses the server
     /// default. Lets any view run a query both ways for comparison/verification.
     pub materialized: Option<bool>,
-    /// Manual rank-tier override for the `rank-peers` benchmark cohort. Absent
-    /// uses the viewed player's derived tier.
-    #[serde(rename = "rank-benchmark-tier", alias = "rank_benchmark_tier")]
-    pub rank_benchmark_tier: Option<i32>,
-    /// Manual benchmark-window override (`rolling-6m`, `season:current`, ...).
-    /// Absent uses the server default window.
+    /// Benchmark-window override (`rolling-6m`, `season:current`, ...) for the
+    /// rank-average cohorts; absent uses the server default window.
     #[serde(rename = "rank-benchmark-window", alias = "rank_benchmark_window")]
     pub rank_benchmark_window: Option<String>,
 }
@@ -492,8 +461,6 @@ pub(crate) struct StatAggregateFilters {
     pub(crate) rank_benchmark_windows: Arc<[BenchmarkWindow]>,
     /// `window_key` served when a request carries no `rank-benchmark-window`.
     pub(crate) rank_benchmark_default_window: Arc<str>,
-    /// Manual tier override (`rank-benchmark-tier`), else the player's derived tier.
-    pub(crate) rank_benchmark_tier: Option<i32>,
     /// Manual window override (`rank-benchmark-window`), else the default window.
     pub(crate) rank_benchmark_window: Option<String>,
 }
@@ -566,6 +533,7 @@ impl StatAggregateFilters {
                 game_modes: query.game_modes,
                 game_types: query.game_types,
                 team_sizes: query.team_sizes,
+                seasons: Vec::new(),
                 replay_ids: query.replay_ids,
                 file_sha256s: query.file_sha256s,
                 group: query.group,
@@ -610,7 +578,6 @@ impl StatAggregateFilters {
             rank_benchmark_enabled: false,
             rank_benchmark_windows: Arc::from(Vec::new()),
             rank_benchmark_default_window: Arc::from(""),
-            rank_benchmark_tier: query.rank_benchmark_tier,
             rank_benchmark_window: query
                 .rank_benchmark_window
                 .map(|window| window.trim().to_owned())
@@ -620,7 +587,7 @@ impl StatAggregateFilters {
 }
 
 impl StatAggregatesQuery {
-    fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
+    pub(crate) fn from_raw_query(raw_query: Option<&str>) -> Result<Self, ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let replay_set = ReplaySetFilterInput::from_query_params(&params)?;
         Ok(Self {
@@ -668,10 +635,6 @@ impl StatAggregatesQuery {
             materialized: params
                 .first(&["materialized"])
                 .map(|value| parse_bool_filter("materialized", &value))
-                .transpose()?,
-            rank_benchmark_tier: params
-                .first(&["rank-benchmark-tier", "rank_benchmark_tier"])
-                .map(|value| parse_i32_filter("rank-benchmark-tier", &value))
                 .transpose()?,
             rank_benchmark_window: params
                 .first(&["rank-benchmark-window", "rank_benchmark_window"]),
@@ -820,9 +783,9 @@ pub(crate) async fn load_processing_version_breakdown(
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
-                r.parsed_with_event_stream_schema_version AS schema_version,
-                r.parsed_with_subtr_actor_version AS subtr_actor_version,
-                r.parsed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                r.processed_with_event_stream_schema_version AS schema_version,
+                r.processed_with_subtr_actor_version AS subtr_actor_version,
+                r.processed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
                 COUNT(DISTINCT rp.replay_id) AS replay_count
             FROM replay_players rp
             JOIN replays r ON r.id = rp.replay_id
@@ -835,9 +798,9 @@ pub(crate) async fn load_processing_version_breakdown(
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             SELECT
-                r.parsed_with_event_stream_schema_version AS schema_version,
-                r.parsed_with_subtr_actor_version AS subtr_actor_version,
-                r.parsed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                r.processed_with_event_stream_schema_version AS schema_version,
+                r.processed_with_subtr_actor_version AS subtr_actor_version,
+                r.processed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
                 COUNT(DISTINCT r.id) AS replay_count
             FROM replays r
             WHERE r.canonical_analysis_run_id IS NOT NULL
@@ -897,13 +860,45 @@ pub(crate) async fn load_stat_aggregates(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
-    // The base aggregate and the per-playlist breakdown are independent, so run
-    // them concurrently rather than serializing the (many) underlying queries.
-    let (mut aggregates, groups) = tokio::try_join!(
-        load_stat_aggregates_base(pool, filters, true, true),
+    // A `group-by=player` request (the replay-group leaderboard) consumes only the
+    // per-player `groups`; its top-level base block is discarded by the client. The
+    // base stat-count is the live whole-set `play_events` scan -- ~24s over a
+    // 500-replay group -- so skip it (and the equally-unused rotation histogram)
+    // when grouping by player. Every other grouping still surfaces the base block.
+    let is_player_group = matches!(filters.group_by, Some(StatAggregateGroupBy::Player));
+    let base_needs_stats = !is_player_group;
+    // The base aggregate, the grouped breakdown, and (for player groups) the total
+    // participant count are independent, so run them concurrently rather than
+    // serializing the (many) underlying queries.
+    let (mut aggregates, groups, player_total) = tokio::try_join!(
+        load_stat_aggregates_base(
+            pool,
+            filters,
+            base_needs_stats,
+            base_needs_stats,
+            base_needs_stats
+        ),
         load_stat_aggregate_groups(pool, filters),
+        async {
+            if is_player_group {
+                count_stat_group_players(pool, filters).await.map(Some)
+            } else {
+                Ok(None)
+            }
+        },
     )?;
     aggregates.groups = groups;
+    // `groups` was capped at `PLAYER_GROUP_MAX`; if more players existed, tell the
+    // client the leaderboard is partial so it can warn instead of silently
+    // dropping the long tail.
+    if let Some(total) = player_total {
+        if total as usize > PLAYER_GROUP_MAX {
+            aggregates.groups_truncated = Some(GroupTruncation {
+                limit: PLAYER_GROUP_MAX as u64,
+                total,
+            });
+        }
+    }
     Ok(aggregates)
 }
 
@@ -1717,34 +1712,8 @@ pub(crate) fn player_boost_band_index(percent: f64) -> usize {
     }
 }
 
-/// One stat's served benchmark rates (the `rank-peers` cohort), keyed by the
-/// event-type key in [`RankBenchmarkCohort::per_stat`]. The values are already
-/// the aggregator's pick (median for common stats, pooled mean for rare ones);
-/// `aggregator` is carried so the UI can label which it is.
-struct RankBenchmarkStatValue {
-    per_active_minute: Option<f64>,
-    per_non_demo_active_minute: Option<f64>,
-    aggregator: String,
-}
-
-/// The resolved rank-median benchmark cohort for a single `(window, playlist
-/// group, tier, outcome)` cell, plus the picker option lists.
-struct RankBenchmarkCohort {
-    tier: Option<i32>,
-    tier_label: Option<String>,
-    /// Which grain was actually served: `"tier"` or the pooled `"group"`.
-    rank_grouping: Option<String>,
-    is_player_default: bool,
-    distinct_player_count: Option<i64>,
-    window_key: String,
-    window_label: Option<String>,
-    available_tiers: Vec<RankBenchmarkTierOption>,
-    available_windows: Vec<RankBenchmarkWindowOption>,
-    per_stat: HashMap<String, RankBenchmarkStatValue>,
-}
-
 /// `all` / `win` / `loss` for the benchmark, mirroring the player-outcome filter.
-fn rank_benchmark_outcome_key(filters: &StatAggregateFilters) -> &'static str {
+pub(crate) fn rank_benchmark_outcome_key(filters: &StatAggregateFilters) -> &'static str {
     match filters
         .replay_set
         .player_outcome
@@ -1759,7 +1728,7 @@ fn rank_benchmark_outcome_key(filters: &StatAggregateFilters) -> &'static str {
 
 /// The served benchmark window: the request override when it names a configured
 /// window, otherwise the server default.
-fn resolve_rank_benchmark_window_key(filters: &StatAggregateFilters) -> String {
+pub(crate) fn resolve_rank_benchmark_window_key(filters: &StatAggregateFilters) -> String {
     if let Some(override_key) = &filters.rank_benchmark_window {
         if filters
             .rank_benchmark_windows
@@ -1776,7 +1745,7 @@ fn resolve_rank_benchmark_window_key(filters: &StatAggregateFilters) -> String {
 /// most recent ranked replays in the group, within the served window's bounds.
 /// `None` when there is no player, no qualifying ranked replay, or no window
 /// metadata (the benchmark has not been materialized yet).
-async fn load_player_rank_tier(
+pub(crate) async fn load_player_rank_tier(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
     group_key: &str,
@@ -1838,190 +1807,6 @@ async fn load_player_rank_tier(
         }
     }
     Ok(best)
-}
-
-/// Load the `rank-peers` benchmark cohort for the served window/group/outcome.
-/// Returns `None` when the benchmark is disabled or the view has no single
-/// playlist group (the all-playlists view has no single tier to compare to).
-async fn load_rank_benchmark_cohort(
-    pool: &sqlx::PgPool,
-    filters: &StatAggregateFilters,
-) -> Result<Option<RankBenchmarkCohort>, sqlx::Error> {
-    if !filters.rank_benchmark_enabled {
-        return Ok(None);
-    }
-    // The benchmark needs one playlist group to compare against. Use the
-    // explicit per-group key when set (group expansion); otherwise resolve the
-    // filtered set's group via the same expression and only proceed when it
-    // collapses to exactly one (the all-playlists view has no single tier).
-    let group_key = match filters.replay_set.playlist_group_key.clone() {
-        Some(group_key) => group_key,
-        None => {
-            let mut groups = load_stat_group_playlists(pool, filters).await?;
-            if groups.len() == 1 {
-                groups.remove(0)
-            } else {
-                return Ok(None);
-            }
-        }
-    };
-    let window_key = resolve_rank_benchmark_window_key(filters);
-    let outcome = rank_benchmark_outcome_key(filters);
-
-    // Picker: every configured window, labelled from its meta row when present.
-    let configured_keys: Vec<String> = filters
-        .rank_benchmark_windows
-        .iter()
-        .map(|window| window.window_key())
-        .collect();
-    let meta_rows = sqlx::query(
-        "SELECT window_key, display_label FROM rank_benchmark_meta WHERE window_key = ANY($1)",
-    )
-    .bind(&configured_keys)
-    .fetch_all(pool)
-    .await?;
-    let mut meta_labels: HashMap<String, String> = HashMap::new();
-    for row in &meta_rows {
-        meta_labels.insert(row.try_get("window_key")?, row.try_get("display_label")?);
-    }
-    let available_windows: Vec<RankBenchmarkWindowOption> = filters
-        .rank_benchmark_windows
-        .iter()
-        .map(|window| {
-            let key = window.window_key();
-            let label = meta_labels
-                .get(&key)
-                .cloned()
-                .unwrap_or_else(|| window.default_label());
-            RankBenchmarkWindowOption { key, label }
-        })
-        .collect();
-    let window_label = meta_labels.get(&window_key).cloned();
-
-    // Picker + sample gate: every materialized bucket at this cell. 'tier' rows
-    // feed the tier picker; 'group' rows back the sparse-tier fallback.
-    let population_rows = sqlx::query(
-        "SELECT rank_grouping, rank_value, distinct_player_count FROM rank_benchmark_population \
-         WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 ORDER BY rank_value",
-    )
-    .bind(&window_key)
-    .bind(&group_key)
-    .bind(outcome)
-    .fetch_all(pool)
-    .await?;
-    let mut available_tiers = Vec::new();
-    let mut population_by_tier: HashMap<i32, i64> = HashMap::new();
-    let mut population_by_group: HashMap<i32, i64> = HashMap::new();
-    for row in &population_rows {
-        let grouping: String = row.try_get("rank_grouping")?;
-        let value: i32 = row.try_get("rank_value")?;
-        // `distinct_player_count` is an INT4 column (see migration 0071 / the
-        // `::int` cast in the refresh job), so decode it as i32 and widen rather
-        // than asking sqlx for an i64 (which fails with a type mismatch).
-        let count: i64 = row.try_get::<i32, _>("distinct_player_count")?.into();
-        if grouping == "group" {
-            population_by_group.insert(value, count);
-        } else {
-            population_by_tier.insert(value, count);
-            available_tiers.push(RankBenchmarkTierOption {
-                tier: value,
-                label: crate::ranks::rank_tier_label(value),
-                distinct_player_count: count,
-            });
-        }
-    }
-
-    let (tier, is_player_default) = match filters.rank_benchmark_tier {
-        Some(tier) => (Some(tier), false),
-        None => (
-            load_player_rank_tier(pool, filters, &group_key, &window_key).await?,
-            true,
-        ),
-    };
-
-    // Resolve the served bucket: the exact tier when its sample clears
-    // MIN_SAMPLE, else the pooled rank group, else the (thin) tier if that is
-    // all we have.
-    let served = tier.and_then(|tier| {
-        let tier_count = population_by_tier.get(&tier).copied();
-        if tier_count.is_some_and(|count| count >= MIN_SAMPLE) {
-            return Some((
-                "tier",
-                tier,
-                crate::ranks::rank_tier_label(tier),
-                tier_count,
-            ));
-        }
-        let group_id = crate::ranks::rank_group_id(tier);
-        if let Some(group_count) = population_by_group.get(&group_id).copied() {
-            return Some((
-                "group",
-                group_id,
-                crate::ranks::rank_group_label(group_id),
-                Some(group_count),
-            ));
-        }
-        tier_count.map(|count| {
-            (
-                "tier",
-                tier,
-                crate::ranks::rank_tier_label(tier),
-                Some(count),
-            )
-        })
-    });
-
-    let (rank_grouping, tier_label, distinct_player_count, per_stat) = if let Some((
-        grouping,
-        value,
-        label,
-        count,
-    )) = served
-    {
-        let stat_rows = sqlx::query(
-                "SELECT s.metric_key AS stat_key, s.aggregator, \
-                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_active_minute ELSE s.median_per_active_minute END AS per_active_minute, \
-                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_non_demo_active_minute ELSE s.median_per_non_demo_active_minute END AS per_non_demo_active_minute \
-                 FROM rank_benchmark_stats s \
-                 WHERE s.window_key = $1 AND s.playlist_group_key = $2 AND s.rank_grouping = $3 \
-                   AND s.rank_value = $4 AND s.outcome = $5",
-            )
-            .bind(&window_key)
-            .bind(&group_key)
-            .bind(grouping)
-            .bind(value)
-            .bind(outcome)
-            .fetch_all(pool)
-            .await?;
-        let mut per_stat = HashMap::with_capacity(stat_rows.len());
-        for row in &stat_rows {
-            let key: String = row.try_get("stat_key")?;
-            per_stat.insert(
-                key,
-                RankBenchmarkStatValue {
-                    per_active_minute: row.try_get("per_active_minute")?,
-                    per_non_demo_active_minute: row.try_get("per_non_demo_active_minute")?,
-                    aggregator: row.try_get("aggregator")?,
-                },
-            );
-        }
-        (Some(grouping.to_owned()), Some(label), count, per_stat)
-    } else {
-        (None, None, None, HashMap::new())
-    };
-
-    Ok(Some(RankBenchmarkCohort {
-        tier,
-        tier_label,
-        rank_grouping,
-        is_player_default,
-        distinct_player_count,
-        window_key,
-        window_label,
-        available_tiers,
-        available_windows,
-        per_stat,
-    }))
 }
 
 #[derive(Clone)]
@@ -2109,6 +1894,7 @@ async fn load_stat_aggregates_base(
     filters: &StatAggregateFilters,
     include_rotation_histogram: bool,
     include_touch_breakdown: bool,
+    include_stat_counts: bool,
 ) -> Result<StatAggregateSetResponse, sqlx::Error> {
     // These queries are independent; run them concurrently against the pool.
     let teammate_fut = async {
@@ -2174,6 +1960,17 @@ async fn load_stat_aggregates_base(
             Ok(None)
         }
     };
+    // The whole-set stat-count is the costliest query in the base (a live
+    // `play_events` scan when no player is set). Callers that don't surface the
+    // base `stats` -- e.g. the `group-by=player` leaderboard, which reads only the
+    // per-player `groups` -- skip it entirely.
+    let stat_count_fut = async {
+        if include_stat_counts {
+            load_stat_count_rows(pool, filters).await
+        } else {
+            Ok::<_, sqlx::Error>(Vec::new())
+        }
+    };
     let (
         target_denominators,
         teammate_denominators,
@@ -2183,17 +1980,15 @@ async fn load_stat_aggregates_base(
         teammate_rotation_duration_histogram,
         opponent_rotation_duration_histogram,
         touch_breakdown,
-        rank_benchmark_cohort,
     ) = tokio::try_join!(
         load_target_denominators(pool, filters),
         teammate_fut,
         opponent_fut,
-        load_stat_count_rows(pool, filters),
+        stat_count_fut,
         histogram_fut,
         teammate_histogram_fut,
         opponent_histogram_fut,
         touch_breakdown_fut,
-        load_rank_benchmark_cohort(pool, filters),
     )?;
     let target_replay_count = target_denominators.replay_count.max(1) as f64;
     let teammate_appearance_count = teammate_denominators
@@ -2231,53 +2026,41 @@ async fn load_stat_aggregates_base(
 
     let stats = rows
         .into_iter()
-        .map(|row| {
-            let benchmark = rank_benchmark_cohort
-                .as_ref()
-                .and_then(|cohort| cohort.per_stat.get(&row.key));
-            StatAggregateResponse {
-                key: row.key,
-                display_name: row.display_name,
-                category: row.category,
-                event_count: row.event_count,
-                count_per_game: row.event_count as f64 / target_replay_count,
-                per_active_minute: per_minute(
-                    row.event_count,
-                    target_denominators.active_time_seconds,
-                ),
-                per_non_demo_active_minute: per_minute(
-                    row.event_count,
-                    target_denominators.non_demo_active_time_seconds,
-                ),
-                teammate_event_count: row.teammate_event_count,
-                teammate_appearance_count,
-                teammate_count_per_game: (teammate_appearance_count > 0)
-                    .then(|| row.teammate_event_count as f64 / teammate_appearance_count as f64),
-                teammate_per_active_minute: per_minute(
-                    row.teammate_event_count,
-                    teammate_active_time_seconds,
-                ),
-                teammate_per_non_demo_active_minute: per_minute(
-                    row.teammate_event_count,
-                    teammate_non_demo_active_time_seconds,
-                ),
-                opponent_event_count: row.opponent_event_count,
-                opponent_appearance_count,
-                opponent_count_per_game: (opponent_appearance_count > 0)
-                    .then(|| row.opponent_event_count as f64 / opponent_appearance_count as f64),
-                opponent_per_active_minute: per_minute(
-                    row.opponent_event_count,
-                    opponent_active_time_seconds,
-                ),
-                opponent_per_non_demo_active_minute: per_minute(
-                    row.opponent_event_count,
-                    opponent_non_demo_active_time_seconds,
-                ),
-                rank_benchmark_per_active_minute: benchmark.and_then(|v| v.per_active_minute),
-                rank_benchmark_per_non_demo_active_minute: benchmark
-                    .and_then(|v| v.per_non_demo_active_minute),
-                rank_benchmark_aggregator: benchmark.map(|v| v.aggregator.clone()),
-            }
+        .map(|row| StatAggregateResponse {
+            key: row.key,
+            display_name: row.display_name,
+            category: row.category,
+            event_count: row.event_count,
+            count_per_game: row.event_count as f64 / target_replay_count,
+            per_active_minute: per_minute(row.event_count, target_denominators.active_time_seconds),
+            per_non_demo_active_minute: per_minute(
+                row.event_count,
+                target_denominators.non_demo_active_time_seconds,
+            ),
+            teammate_event_count: row.teammate_event_count,
+            teammate_appearance_count,
+            teammate_count_per_game: (teammate_appearance_count > 0)
+                .then(|| row.teammate_event_count as f64 / teammate_appearance_count as f64),
+            teammate_per_active_minute: per_minute(
+                row.teammate_event_count,
+                teammate_active_time_seconds,
+            ),
+            teammate_per_non_demo_active_minute: per_minute(
+                row.teammate_event_count,
+                teammate_non_demo_active_time_seconds,
+            ),
+            opponent_event_count: row.opponent_event_count,
+            opponent_appearance_count,
+            opponent_count_per_game: (opponent_appearance_count > 0)
+                .then(|| row.opponent_event_count as f64 / opponent_appearance_count as f64),
+            opponent_per_active_minute: per_minute(
+                row.opponent_event_count,
+                opponent_active_time_seconds,
+            ),
+            opponent_per_non_demo_active_minute: per_minute(
+                row.opponent_event_count,
+                opponent_non_demo_active_time_seconds,
+            ),
         })
         .collect();
 
@@ -2302,36 +2085,6 @@ async fn load_stat_aggregates_base(
         opponent_non_demo_active_time_seconds,
         opponent_time_most_back_seconds,
         opponent_time_most_forward_seconds,
-        rank_benchmark_tier: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.tier),
-        rank_benchmark_tier_label: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.tier_label.clone()),
-        rank_benchmark_rank_grouping: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.rank_grouping.clone()),
-        rank_benchmark_is_player_default: rank_benchmark_cohort
-            .as_ref()
-            .filter(|cohort| cohort.tier.is_some())
-            .map(|cohort| cohort.is_player_default),
-        rank_benchmark_distinct_player_count: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.distinct_player_count),
-        rank_benchmark_window: rank_benchmark_cohort
-            .as_ref()
-            .map(|cohort| cohort.window_key.clone()),
-        rank_benchmark_window_label: rank_benchmark_cohort
-            .as_ref()
-            .and_then(|cohort| cohort.window_label.clone()),
-        rank_benchmark_available_tiers: rank_benchmark_cohort
-            .as_ref()
-            .map(|cohort| cohort.available_tiers.clone())
-            .unwrap_or_default(),
-        rank_benchmark_available_windows: rank_benchmark_cohort
-            .as_ref()
-            .map(|cohort| cohort.available_windows.clone())
-            .unwrap_or_default(),
         rotation_duration_bucket_seconds: ROTATION_DURATION_BUCKET_SECONDS,
         rotation_duration_histogram,
         teammate_rotation_duration_histogram,
@@ -2339,6 +2092,7 @@ async fn load_stat_aggregates_base(
         touch_breakdown,
         stats,
         groups: Vec::new(),
+        groups_truncated: None,
     })
 }
 
@@ -2381,7 +2135,8 @@ async fn load_playlist_stat_aggregate_groups(
         let mut group_filters = filters.clone();
         group_filters.group_by = None;
         group_filters.replay_set.playlist_group_key = Some(playlist.clone());
-        let aggregates = load_stat_aggregates_base(pool, &group_filters, false, false).await?;
+        let aggregates =
+            load_stat_aggregates_base(pool, &group_filters, false, false, true).await?;
         Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
             group_by: "playlist".to_owned(),
             player: None,
@@ -2403,15 +2158,9 @@ async fn load_playlist_stat_aggregate_groups(
             opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
             opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
             opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
-            rank_benchmark_tier: aggregates.rank_benchmark_tier,
-            rank_benchmark_tier_label: aggregates.rank_benchmark_tier_label,
-            rank_benchmark_rank_grouping: aggregates.rank_benchmark_rank_grouping,
-            rank_benchmark_is_player_default: aggregates.rank_benchmark_is_player_default,
-            rank_benchmark_distinct_player_count: aggregates.rank_benchmark_distinct_player_count,
-            rank_benchmark_window: aggregates.rank_benchmark_window,
-            rank_benchmark_window_label: aggregates.rank_benchmark_window_label,
-            rank_benchmark_available_tiers: aggregates.rank_benchmark_available_tiers,
-            rank_benchmark_available_windows: aggregates.rank_benchmark_available_windows,
+            // Win/loss credits a single team, which a playlist grouping doesn't have.
+            win_count: None,
+            loss_count: None,
             stats: aggregates.stats,
         })
     }))
@@ -2420,7 +2169,7 @@ async fn load_playlist_stat_aggregate_groups(
     .await
 }
 
-async fn load_stat_group_playlists(
+pub(crate) async fn load_stat_group_playlists(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<String>, sqlx::Error> {
@@ -2475,11 +2224,12 @@ async fn load_stat_group_playlists(
 const PLAYER_GROUP_CONCURRENCY: usize = 4;
 
 /// Upper bound on the number of players a single `group-by=player` request will
-/// expand into. Curated replay groups are well under this; the cap is a backstop
-/// against an unexpectedly large set spawning a base-aggregate fan-out per
-/// player. Players are ordered by replay_count DESC, so the most-present players
-/// are kept when truncation happens.
-const PLAYER_GROUP_MAX: usize = 64;
+/// expand into. Most curated replay groups are well under this; the cap is a
+/// backstop against an unexpectedly large set spawning a base-aggregate fan-out
+/// per player. Players are ordered by replay_count DESC, so the most-present
+/// players are kept when truncation happens, and the response carries a
+/// [`GroupTruncation`] so the client can warn that the leaderboard is partial.
+const PLAYER_GROUP_MAX: usize = 256;
 
 #[derive(Debug, Clone)]
 struct StatGroupPlayerRow {
@@ -2489,6 +2239,191 @@ struct StatGroupPlayerRow {
 }
 
 async fn load_player_stat_aggregate_groups(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    // The leaderboard is rows=players, columns=stats. The materialized path
+    // computes it column-wise: one grouped query for per-player denominators plus
+    // one grouped `(player, event_type)` scan over `player_replay_event_counts` --
+    // two queries total, regardless of player count -- instead of a base-aggregate
+    // fan-out per player. Restricting the count scan to the requested `stat_terms`
+    // makes "only the displayed columns" a strictly smaller query, so the client
+    // can fetch stats a subset at a time. The live path can't be expressed as a
+    // single cheap grouped scan, so it keeps the per-player fan-out.
+    let mut groups = if filters.materialized_stat_counts && filters.kickoff_spawn.is_empty() {
+        load_player_stat_aggregate_groups_materialized(pool, filters).await?
+    } else {
+        load_player_stat_aggregate_groups_fanout(pool, filters).await?
+    };
+
+    // Win/loss is a replay-outcome measure, not an event count, so it lives
+    // outside both count paths: one grouped scan over the same replay set, merged
+    // onto each player row by the exact enumerated identity. Every player row gets
+    // a concrete count (0 when undecided/absent) so `win_rate` is never spuriously
+    // null on the client.
+    let win_loss = load_player_win_loss_counts(pool, filters).await?;
+    for group in &mut groups {
+        if let Some(player) = &group.player {
+            let key = (player.platform.clone(), player.platform_player_id.clone());
+            let (wins, losses) = win_loss.get(&key).copied().unwrap_or((0, 0));
+            group.win_count = Some(wins);
+            group.loss_count = Some(losses);
+        }
+    }
+    Ok(groups)
+}
+
+/// Per-player won / lost replay counts over the filtered set, keyed by the raw
+/// `(platform, platform_player_id)` identity (the same column the leaderboard
+/// rows are enumerated from, so the merge needs no case normalization). Outcome
+/// is decided by final score, mirroring [`append_player_replay_outcome_filter`];
+/// score ties count as neither a win nor a loss.
+async fn load_player_win_loss_counts(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<HashMap<(String, String), (u64, u64)>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            rp.platform AS platform,
+            rp.platform_player_id AS platform_player_id,
+            COUNT(DISTINCT rp.replay_id) FILTER (
+                WHERE rp.team IS NOT NULL
+                  AND r.team_zero_score IS NOT NULL AND r.team_one_score IS NOT NULL
+                  AND ((rp.team = 0 AND r.team_zero_score > r.team_one_score)
+                    OR (rp.team = 1 AND r.team_one_score > r.team_zero_score))
+            ) AS win_count,
+            COUNT(DISTINCT rp.replay_id) FILTER (
+                WHERE rp.team IS NOT NULL
+                  AND r.team_zero_score IS NOT NULL AND r.team_one_score IS NOT NULL
+                  AND ((rp.team = 0 AND r.team_zero_score < r.team_one_score)
+                    OR (rp.team = 1 AND r.team_one_score < r.team_zero_score))
+            ) AS loss_count
+        FROM replay_players rp
+        JOIN replays r ON r.id = rp.replay_id
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND rp.platform IS NOT NULL
+          AND rp.platform_player_id IS NOT NULL
+          AND rp.platform_player_id <> ''
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(" GROUP BY rp.platform, rp.platform_player_id");
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut out = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let platform: String = row.try_get("platform")?;
+        let platform_player_id: String = row.try_get("platform_player_id")?;
+        let wins: i64 = row.try_get("win_count")?;
+        let losses: i64 = row.try_get("loss_count")?;
+        out.insert((platform, platform_player_id), (wins as u64, losses as u64));
+    }
+    Ok(out)
+}
+
+async fn load_player_stat_aggregate_groups_materialized(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
+    // 1) The ordered, capped player list with each player's denominators, in one
+    //    grouped scan of `replay_players`.
+    let players = load_stat_group_player_denominators(pool, filters).await?;
+    if players.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // 2) Every `(player, event_type)` count for exactly those players, in one
+    //    grouped scan of the materialized counts (narrowed to `stat_terms`).
+    let identities: Vec<(String, String)> = players
+        .iter()
+        .map(|player| (player.platform.clone(), player.platform_player_id.clone()))
+        .collect();
+    let mut stats_by_player = load_group_player_stat_counts(pool, filters, &identities).await?;
+    let limit = filters.limit as usize;
+
+    // 3) Stitch each player's columns onto their denominators. Cohort
+    //    (teammate/opponent) comparisons aren't meaningful on a player-vs-player
+    //    leaderboard, so those fields stay empty -- matching the fan-out path,
+    //    which ran with `include_teammates = false`.
+    Ok(players
+        .into_iter()
+        .map(|player| {
+            let key = format!("{}:{}", player.platform, player.platform_player_id);
+            let replay_count_divisor = player.replay_count.max(1) as f64;
+            let mut rows = stats_by_player
+                .remove(&(player.platform.clone(), player.platform_player_id.clone()))
+                .unwrap_or_default();
+            // Match the fan-out's per-player ordering and cap.
+            rows.sort_by(|a, b| {
+                b.event_count
+                    .cmp(&a.event_count)
+                    .then_with(|| a.category.cmp(&b.category))
+                    .then_with(|| a.display_name.cmp(&b.display_name))
+                    .then_with(|| a.key.cmp(&b.key))
+            });
+            rows.truncate(limit);
+            let stats = rows
+                .into_iter()
+                .map(|row| StatAggregateResponse {
+                    key: row.key,
+                    display_name: row.display_name,
+                    category: row.category,
+                    event_count: row.event_count,
+                    count_per_game: row.event_count as f64 / replay_count_divisor,
+                    per_active_minute: per_minute(row.event_count, player.active_time_seconds),
+                    per_non_demo_active_minute: per_minute(
+                        row.event_count,
+                        player.non_demo_active_time_seconds,
+                    ),
+                    teammate_event_count: 0,
+                    teammate_appearance_count: 0,
+                    teammate_count_per_game: None,
+                    teammate_per_active_minute: None,
+                    teammate_per_non_demo_active_minute: None,
+                    opponent_event_count: 0,
+                    opponent_appearance_count: 0,
+                    opponent_count_per_game: None,
+                    opponent_per_active_minute: None,
+                    opponent_per_non_demo_active_minute: None,
+                })
+                .collect();
+            let display_name = player.display_name.clone().unwrap_or_else(|| key.clone());
+            StatAggregateGroupResponse {
+                group_by: "player".to_owned(),
+                player: Some(StatAggregateGroupPlayer {
+                    platform: player.platform,
+                    platform_player_id: player.platform_player_id,
+                    display_name: player.display_name,
+                }),
+                display_name,
+                key,
+                replay_count: player.replay_count,
+                player_appearance_count: Some(player.appearance_count),
+                active_time_seconds: player.active_time_seconds,
+                non_demo_active_time_seconds: player.non_demo_active_time_seconds,
+                time_most_back_seconds: player.time_most_back_seconds,
+                time_most_forward_seconds: player.time_most_forward_seconds,
+                teammate_appearance_count: None,
+                teammate_active_time_seconds: None,
+                teammate_non_demo_active_time_seconds: None,
+                teammate_time_most_back_seconds: None,
+                teammate_time_most_forward_seconds: None,
+                opponent_appearance_count: None,
+                opponent_active_time_seconds: None,
+                opponent_non_demo_active_time_seconds: None,
+                opponent_time_most_back_seconds: None,
+                opponent_time_most_forward_seconds: None,
+                // Filled in by the dispatcher's path-agnostic win/loss merge.
+                win_count: None,
+                loss_count: None,
+                stats,
+            }
+        })
+        .collect())
+}
+
+async fn load_player_stat_aggregate_groups_fanout(
     pool: &sqlx::PgPool,
     filters: &StatAggregateFilters,
 ) -> Result<Vec<StatAggregateGroupResponse>, sqlx::Error> {
@@ -2512,7 +2447,8 @@ async fn load_player_stat_aggregate_groups(
             platform: player.platform.clone(),
             platform_player_id: player.platform_player_id.clone(),
         });
-        let aggregates = load_stat_aggregates_base(pool, &group_filters, false, false).await?;
+        let aggregates =
+            load_stat_aggregates_base(pool, &group_filters, false, false, true).await?;
         let key = format!("{}:{}", player.platform, player.platform_player_id);
         let display_name = player.display_name.clone().unwrap_or_else(|| key.clone());
         Ok::<_, sqlx::Error>(StatAggregateGroupResponse {
@@ -2540,21 +2476,44 @@ async fn load_player_stat_aggregate_groups(
             opponent_non_demo_active_time_seconds: aggregates.opponent_non_demo_active_time_seconds,
             opponent_time_most_back_seconds: aggregates.opponent_time_most_back_seconds,
             opponent_time_most_forward_seconds: aggregates.opponent_time_most_forward_seconds,
-            rank_benchmark_tier: aggregates.rank_benchmark_tier,
-            rank_benchmark_tier_label: aggregates.rank_benchmark_tier_label,
-            rank_benchmark_rank_grouping: aggregates.rank_benchmark_rank_grouping,
-            rank_benchmark_is_player_default: aggregates.rank_benchmark_is_player_default,
-            rank_benchmark_distinct_player_count: aggregates.rank_benchmark_distinct_player_count,
-            rank_benchmark_window: aggregates.rank_benchmark_window,
-            rank_benchmark_window_label: aggregates.rank_benchmark_window_label,
-            rank_benchmark_available_tiers: aggregates.rank_benchmark_available_tiers,
-            rank_benchmark_available_windows: aggregates.rank_benchmark_available_windows,
+            // Filled in by the dispatcher's path-agnostic win/loss merge.
+            win_count: None,
+            loss_count: None,
             stats: aggregates.stats,
         })
     }))
     .buffered(PLAYER_GROUP_CONCURRENCY)
     .try_collect()
     .await
+}
+
+/// Count the distinct platform-identified players present in the replay set --
+/// the un-capped denominator behind the `PLAYER_GROUP_MAX` truncation, used to
+/// tell the client how many players the leaderboard left off. Mirrors the
+/// `WHERE` / `GROUP BY` identity of [`load_stat_group_players`] exactly so the
+/// total lines up with what would have been enumerated.
+async fn count_stat_group_players(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<u64, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT COUNT(*) AS total FROM (
+            SELECT 1
+            FROM replay_players rp
+            JOIN replays r ON r.id = rp.replay_id
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+              AND rp.platform IS NOT NULL
+              AND rp.platform_player_id IS NOT NULL
+              AND rp.platform_player_id <> ''
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(" GROUP BY rp.platform, rp.platform_player_id) AS players");
+
+    let row = query.build().fetch_one(pool).await?;
+    let total: i64 = row.try_get("total")?;
+    Ok(total.max(0) as u64)
 }
 
 /// Enumerate the distinct platform-identified players present in the replay set,
@@ -2600,6 +2559,148 @@ async fn load_stat_group_players(
             })
         })
         .collect()
+}
+
+/// A group player together with the denominators the leaderboard needs to turn
+/// raw event counts into per-game / per-minute rates -- all in one grouped scan.
+#[derive(Debug, Clone)]
+struct StatGroupPlayerDenominators {
+    platform: String,
+    platform_player_id: String,
+    display_name: Option<String>,
+    replay_count: u64,
+    appearance_count: u64,
+    active_time_seconds: Option<f64>,
+    non_demo_active_time_seconds: Option<f64>,
+    time_most_back_seconds: Option<f64>,
+    time_most_forward_seconds: Option<f64>,
+}
+
+/// The ordered, capped set of group players plus each one's denominators, in a
+/// single `GROUP BY player` scan of `replay_players`. Replaces the per-player
+/// `load_stat_group_players` enumeration + one `load_target_denominators` query
+/// each for the materialized leaderboard path.
+async fn load_stat_group_player_denominators(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+) -> Result<Vec<StatGroupPlayerDenominators>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            rp.platform AS platform,
+            rp.platform_player_id AS platform_player_id,
+            mode() WITHIN GROUP (ORDER BY rp.name) AS display_name,
+            COUNT(DISTINCT rp.replay_id) AS replay_count,
+            COUNT(*) AS appearance_count,
+            SUM(rp.active_time_seconds) AS active_time_seconds,
+            SUM(GREATEST(rp.active_time_seconds - COALESCE(rp.time_demolished_seconds, 0.0), 0.0)) AS non_demo_active_time_seconds,
+            SUM(rp.time_most_back_seconds) AS time_most_back_seconds,
+            SUM(rp.time_most_forward_seconds) AS time_most_forward_seconds,
+            MAX(COALESCE(r.replay_date, r.created_at)) AS latest_seen_at
+        FROM replay_players rp
+        JOIN replays r ON r.id = rp.replay_id
+        WHERE r.canonical_analysis_run_id IS NOT NULL
+          AND rp.platform IS NOT NULL
+          AND rp.platform_player_id IS NOT NULL
+          AND rp.platform_player_id <> ''
+        "#,
+    );
+    append_replay_filters(&mut query, filters, "r");
+    query.push(
+        r#"
+        GROUP BY rp.platform, rp.platform_player_id
+        ORDER BY replay_count DESC, latest_seen_at DESC NULLS LAST, rp.platform, rp.platform_player_id
+        LIMIT "#,
+    );
+    query.push_bind(PLAYER_GROUP_MAX as i64);
+
+    let rows = query.build().fetch_all(pool).await?;
+    rows.into_iter()
+        .map(|row| {
+            let replay_count: i64 = row.try_get("replay_count")?;
+            let appearance_count: i64 = row.try_get("appearance_count")?;
+            Ok(StatGroupPlayerDenominators {
+                platform: row.try_get("platform")?,
+                platform_player_id: row.try_get("platform_player_id")?,
+                display_name: row.try_get("display_name")?,
+                replay_count: replay_count.max(0) as u64,
+                appearance_count: appearance_count.max(0) as u64,
+                active_time_seconds: row.try_get("active_time_seconds")?,
+                non_demo_active_time_seconds: row.try_get("non_demo_active_time_seconds")?,
+                time_most_back_seconds: row.try_get("time_most_back_seconds")?,
+                time_most_forward_seconds: row.try_get("time_most_forward_seconds")?,
+            })
+        })
+        .collect()
+}
+
+/// Every `(player, event_type)` count for the given players in one grouped scan
+/// of the materialized `player_replay_event_counts`, keyed back to the player.
+/// Restricted to `filters.stat_terms` so requesting fewer columns is a strictly
+/// smaller query.
+async fn load_group_player_stat_counts(
+    pool: &sqlx::PgPool,
+    filters: &StatAggregateFilters,
+    identities: &[(String, String)],
+) -> Result<HashMap<(String, String), Vec<StatCountRow>>, sqlx::Error> {
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT
+            counts.platform AS platform,
+            counts.platform_player_id AS platform_player_id,
+            et.key AS key,
+            et.display_name AS display_name,
+            et.category AS category,
+            SUM(counts.event_count) AS event_count
+        FROM player_replay_event_counts counts
+        JOIN replays r
+          ON r.id = counts.replay_id
+         AND r.canonical_analysis_run_id = counts.analysis_run_id
+        JOIN event_types et ON et.id = counts.event_type_id
+        WHERE (counts.platform, counts.platform_player_id) IN ("#,
+    );
+    for (index, (platform, platform_player_id)) in identities.iter().enumerate() {
+        if index > 0 {
+            query.push(", ");
+        }
+        query.push("(");
+        query.push_bind(platform);
+        query.push(", ");
+        query.push_bind(platform_player_id);
+        query.push(")");
+    }
+    query.push(")");
+    append_replay_set_filters(&mut query, &filters.replay_set, "r");
+    if !filters.stat_terms.is_empty() {
+        query.push(" AND (");
+        append_stat_term_predicate(&mut query, "et", &filters.stat_terms);
+        query.push(")");
+    }
+    query.push(
+        r#"
+        GROUP BY counts.platform, counts.platform_player_id, et.key, et.display_name, et.category
+        "#,
+    );
+
+    let rows = query.build().fetch_all(pool).await?;
+    let mut by_player: HashMap<(String, String), Vec<StatCountRow>> = HashMap::new();
+    for row in rows {
+        let platform: String = row.try_get("platform")?;
+        let platform_player_id: String = row.try_get("platform_player_id")?;
+        let event_count: i64 = row.try_get("event_count")?;
+        by_player
+            .entry((platform, platform_player_id))
+            .or_default()
+            .push(StatCountRow {
+                key: row.try_get("key")?,
+                display_name: row.try_get("display_name")?,
+                category: row.try_get("category")?,
+                event_count: event_count.max(0) as u64,
+                teammate_event_count: 0,
+                opponent_event_count: 0,
+            });
+    }
+    Ok(by_player)
 }
 
 async fn load_target_denominators(
@@ -3371,7 +3472,7 @@ async fn load_replay_set_stat_count_rows(
             et.key,
             et.display_name,
             et.category,
-            COUNT(DISTINCT event.id) AS event_count,
+            COUNT(*) AS event_count,
             0::bigint AS teammate_event_count,
             0::bigint AS opponent_event_count
         FROM replays r
@@ -3394,7 +3495,7 @@ async fn load_replay_set_stat_count_rows(
     query.push(
         r#"
         GROUP BY et.key, et.display_name, et.category
-        ORDER BY COUNT(DISTINCT event.id) DESC, et.category, et.display_name, et.key
+        ORDER BY COUNT(*) DESC, et.category, et.display_name, et.key
         LIMIT
         "#,
     );

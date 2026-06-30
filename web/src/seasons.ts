@@ -1,0 +1,54 @@
+export const LEGACY_SEASON_COUNT = 12;
+export const FREE_TO_PLAY_SEASON_COUNT = 23;
+
+type SeasonEra = "legacy" | "free-to-play";
+
+interface ParsedSeasonCode {
+  era: SeasonEra;
+  prefix: "s" | "f";
+  number: number;
+}
+
+const seasonCodePattern = /^([sf])(\d+)$/i;
+
+function parseSeasonCode(value: string): ParsedSeasonCode | null {
+  const match = value.trim().match(seasonCodePattern);
+  if (!match) return null;
+
+  const prefix = match[1].toLowerCase() as "s" | "f";
+  const number = Number.parseInt(match[2], 10);
+  if (!Number.isFinite(number) || number <= 0) return null;
+
+  return {
+    era: prefix === "s" ? "legacy" : "free-to-play",
+    prefix,
+    number,
+  };
+}
+
+export function formatSeasonCode(value: string): string {
+  const parsed = parseSeasonCode(value);
+  return parsed ? `${parsed.prefix.toUpperCase()}${parsed.number}` : value;
+}
+
+export function formatSeasonLabel(value: string): string {
+  const parsed = parseSeasonCode(value);
+  if (!parsed) return value;
+
+  const prefix = parsed.era === "legacy" ? "Legacy" : "Free-to-play";
+  return `${prefix} S${parsed.number}`;
+}
+
+export function buildSeasonOptions(anyLabel: string): Array<{ value: string; label: string }> {
+  return [
+    { value: "", label: anyLabel },
+    ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => {
+      const value = `s${index + 1}`;
+      return { value, label: formatSeasonLabel(value) };
+    }),
+    ...Array.from({ length: FREE_TO_PLAY_SEASON_COUNT }, (_, index) => {
+      const value = `f${index + 1}`;
+      return { value, label: formatSeasonLabel(value) };
+    }),
+  ];
+}

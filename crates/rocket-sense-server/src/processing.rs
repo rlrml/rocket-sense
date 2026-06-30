@@ -4,7 +4,7 @@ use crate::rank_benchmark::{
 use anyhow::{anyhow, Context, Result};
 use apalis::prelude::*;
 use apalis_postgres::{
-    CompactType, Config as ApalisPostgresConfig, JsonCodec, PgNotify, PostgresStorage,
+    CompactType, Config as ApalisPostgresConfig, JsonCodec, PgContext, PgNotify, PostgresStorage,
 };
 use boxcars::{HeaderProp, RemoteId};
 use bytes::Bytes;
@@ -1201,6 +1201,7 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
             SELECT
                 subject.replay_player_id,
                 COUNT(DISTINCT event.id) FILTER (WHERE detail.height_band = 'high_air') AS high_aerial_touch_count,
+                COUNT(DISTINCT event.id) FILTER (WHERE detail.surface = 'air' AND detail.height_band = 'low_air') AS aerial_touch_count,
                 COUNT(DISTINCT event.id) FILTER (WHERE detail.kind = 'control') AS control_touch_count
             FROM play_events event
             JOIN play_event_subjects subject
@@ -1224,6 +1225,7 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
                 rp.team,
                 rp.active_time_seconds,
                 COALESCE(counts.high_aerial_touch_count, 0) AS high_aerial_touch_count,
+                COALESCE(counts.aerial_touch_count, 0) AS aerial_touch_count,
                 COALESCE(counts.control_touch_count, 0) AS control_touch_count
             FROM replay_players rp
             LEFT JOIN player_touch_counts counts ON counts.replay_player_id = rp.id
@@ -1243,6 +1245,18 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
                 team,
                 'high-aerial-touch-count'::text AS stat_key,
                 high_aerial_touch_count::double precision AS value,
+                active_time_seconds
+            FROM touch_counts
+            UNION ALL
+            SELECT
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                'aerial-touch-count'::text AS stat_key,
+                aerial_touch_count::double precision AS value,
                 active_time_seconds
             FROM touch_counts
             UNION ALL
@@ -1317,7 +1331,10 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
 // `core_player_scoreboard` deltas when the replay header lacks `PlayerStats`.
 // Reprocessing fills score/goals/assists/saves/shots for replay cards, group
 // participants, and Core stats.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v11";
+// Bumped v11 -> v12 for subtr-actor's multi-frame dodge-contact flip reset
+// detector: reprocessing classifies resets where contact begins before the
+// dodge byte is sampled but the dodge still carries through the ball.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v12";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -1343,12 +1360,16 @@ const PLAY_EVENT_INSERT_CHUNK_SIZE: usize = 500;
 const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_DETAIL_INSERT_CHUNK_SIZE: usize = 500;
-// `goal_tags`/`touch_last_touch` are annotations on other indexed events. The
-// per-frame telemetry streams this list used to exclude (`rotation_player`,
-// `positioning_ball_relative_depth`) were retired by subtr-actor's
-// PlayerStateSpan unification; the replacement facet streams coalesce
-// same-state frames into spans, so they are indexed normally.
-const NON_INDEXED_TIMELINE_STREAMS: &[&str] = &["goal_tags", "touch_last_touch"];
+// These streams stay in the serialized event stream object and are not even
+// materialized as in-memory `IndexedEvent`s for this service. They are either
+// annotations on other rows or high-volume review noise that does not feed
+// materialized stat facts.
+const NON_INDEXED_TIMELINE_STREAMS: &[&str] =
+    &["goal_tags", "touch_last_touch", "dodge", "shadow_defense"];
+// These streams are useful while processing but should not be projected into
+// permanent `play_events` rows. `depth_role` feeds `player_replay_positioning`
+// from the in-memory event list below.
+const NON_PERSISTED_PLAY_EVENT_STREAMS: &[&str] = &["depth_role"];
 
 // Dense per-frame telemetry streams whose raw `play_events` rows are deleted
 // immediately after per-replay materialization (see
@@ -1476,6 +1497,11 @@ struct ReplayGameTypeMetadata {
 #[derive(Debug, Clone, Default, PartialEq)]
 struct ReplaySummaryMetadata {
     duration_seconds: Option<f64>,
+    /// Active in-game time: the sum of frame `dt` over live-play (game-clock
+    /// running) frames, excluding kickoff countdowns, the pre-touch kickoff
+    /// wait, and post-goal celebrations. Contrasts with `duration_seconds`,
+    /// which is the wall-clock length of the replay.
+    active_seconds: Option<f64>,
     overtime_seconds: Option<f64>,
     team_zero_score: Option<i32>,
     team_one_score: Option<i32>,
@@ -1535,6 +1561,29 @@ pub struct ReplayProcessingJob {
     #[serde(default)]
     force: bool,
 }
+
+// Replay processing jobs all share one apalis queue (`job_type`), so the
+// worker's `ORDER BY priority DESC` fetch ranks them against each other. Three
+// tiers, highest first:
+
+/// Queue priority for a freshly uploaded replay whose owner is waiting on it.
+/// Top tier so a live upload drains ahead of both the crash-recovery backlog
+/// and any reprocess flood.
+const NEW_UPLOAD_JOB_PRIORITY: i32 = 10;
+
+/// Queue priority for replays re-enqueued by the startup sweep — uploads that
+/// were interrupted mid-processing by a restart. Below a live upload (no one is
+/// actively waiting on the originating request) but above reprocess.
+const RESUME_JOB_PRIORITY: i32 = 0;
+
+/// Queue priority for queued force-reprocess jobs. Strictly below the other
+/// tiers so a new upload is always picked ahead of the entire reprocess
+/// backlog: a bulk reprocess can flood the queue without delaying new uploads
+/// beyond the single reprocess parse already in flight. Lowering priority
+/// (rather than adding a second, dedicated worker) keeps a single bounded
+/// worker pool, preserving the per-parse memory ceiling that
+/// `MAX_REPLAY_PROCESSING_CONCURRENCY` guards.
+const REPROCESS_JOB_PRIORITY: i32 = -1;
 
 #[derive(Clone)]
 struct ReplayProcessingWorkerState {
@@ -1637,24 +1686,29 @@ pub fn start_replay_processing_workers(
     });
 }
 
+/// Enqueue processing for a freshly uploaded replay. Runs at the top priority
+/// tier so a live upload (its owner is waiting) jumps ahead of the startup
+/// resume backlog and any reprocess flood.
 pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
-    enqueue_replay_processing_job_inner(pool, replay_id, false)
+    enqueue_replay_processing_job_inner(pool, replay_id, false, NEW_UPLOAD_JOB_PRIORITY)
         .await
         .map(|_| ())
 }
 
 /// Enqueue a force-reprocess job: the worker reprocesses the replay even if it
 /// is already processed. Used by the durable, queue-backed reprocess path so
-/// progress survives restarts and can be drained by the worker fleet. Returns
-/// whether a new job was enqueued (false if one was already outstanding).
+/// progress survives restarts and can be drained by the worker fleet. Runs at
+/// the lowest priority tier so it never delays new uploads. Returns whether a
+/// new job was enqueued (false if one was already outstanding).
 pub async fn enqueue_replay_reprocessing_job(pool: &PgPool, replay_id: Uuid) -> Result<bool> {
-    enqueue_replay_processing_job_inner(pool, replay_id, true).await
+    enqueue_replay_processing_job_inner(pool, replay_id, true, REPROCESS_JOB_PRIORITY).await
 }
 
 async fn enqueue_replay_processing_job_inner(
     pool: &PgPool,
     replay_id: Uuid,
     force: bool,
+    priority: i32,
 ) -> Result<bool> {
     // Startup re-enqueue sweeps and repeated reprocess requests would
     // otherwise pile up duplicate jobs for the same replay; one outstanding
@@ -1680,8 +1734,14 @@ async fn enqueue_replay_processing_job_inner(
     }
 
     let mut backend = replay_processing_storage(pool);
+    // The worker fetch orders by `priority DESC`, so the caller-supplied tier
+    // decides whether this job drains ahead of others on the shared queue.
+    let task = Task::new_with_ctx(
+        ReplayProcessingJob { replay_id, force },
+        PgContext::new().with_priority(priority),
+    );
     backend
-        .push(ReplayProcessingJob { replay_id, force })
+        .push_task(task)
         .await
         .with_context(|| format!("failed to enqueue replay processing job for {replay_id}"))?;
     Ok(true)
@@ -1744,7 +1804,10 @@ pub async fn enqueue_unfinished_replay_processing(pool: &PgPool) -> Result<usize
     let targets = unfinished_replay_processing_targets(pool).await?;
     let enqueued_replays = targets.len();
     for target in targets {
-        enqueue_replay_processing_job(pool, target.replay_id).await?;
+        // Resume backlog: below live uploads (no one is waiting on the original
+        // request) but above reprocess.
+        enqueue_replay_processing_job_inner(pool, target.replay_id, false, RESUME_JOB_PRIORITY)
+            .await?;
     }
 
     Ok(enqueued_replays)
@@ -2225,6 +2288,17 @@ async fn backfill_profile_timing_events(
         PlayEventInsertOptions::PROFILE_TIMING_BACKFILL,
     )
     .await?;
+    if target.needs_positioning {
+        insert_player_replay_positioning_from_events(
+            &pool,
+            target.analysis_run_id,
+            target.replay_id,
+            &indexed_events,
+            &output.metadata,
+            &replay_players,
+        )
+        .await?;
+    }
 
     Ok(inserted)
 }
@@ -2405,6 +2479,15 @@ async fn persist_analysis_output(
     .await?;
     let replay_players = upsert_replay_search_metadata(pool, replay_id, &output.metadata).await?;
     let event_type_ids = ensure_event_types(pool, &output.indexed_events).await?;
+    insert_player_replay_positioning_from_events(
+        pool,
+        analysis_run_id,
+        replay_id,
+        &output.indexed_events,
+        &output.metadata,
+        &replay_players,
+    )
+    .await?;
     insert_play_events(
         pool,
         analysis_run_id,
@@ -2419,7 +2502,6 @@ async fn persist_analysis_output(
     insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
-    insert_player_replay_positioning(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
@@ -2724,6 +2806,285 @@ async fn insert_player_replay_positioning(
         .await
         .context("failed to insert player replay positioning")?;
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct ReplayPlayerPositioningInput {
+    replay_player_id: Uuid,
+    platform: String,
+    platform_player_id: String,
+    team: i32,
+}
+
+#[derive(Debug, Clone, Default)]
+struct PlayerReplayPositioningAggregate {
+    active_seconds: f64,
+    tracked_seconds: f64,
+    defensive_third_seconds: f64,
+    neutral_third_seconds: f64,
+    offensive_third_seconds: f64,
+    defensive_half_seconds: f64,
+    offensive_half_seconds: f64,
+    behind_ball_seconds: f64,
+    level_with_ball_seconds: f64,
+    ahead_of_ball_seconds: f64,
+    role_most_back_seconds: f64,
+    role_mid_seconds: f64,
+    role_most_forward_seconds: f64,
+    role_other_seconds: f64,
+    role_no_teammates_seconds: f64,
+    closest_team_seconds: f64,
+    closest_absolute_seconds: f64,
+    farthest_seconds: f64,
+    distance_to_ball_weighted: f64,
+    distance_to_ball_weight: f64,
+    distance_to_teammates_weighted: f64,
+    distance_to_teammates_weight: f64,
+}
+
+fn positioning_players_from_metadata(
+    metadata: &ReplaySearchMetadata,
+    replay_players: &HashMap<String, Uuid>,
+) -> BTreeMap<String, ReplayPlayerPositioningInput> {
+    let mut players = BTreeMap::new();
+    for player in &metadata.players {
+        let Some(player_subject_id) =
+            player_lookup_key(&player.platform, &player.platform_player_id)
+        else {
+            continue;
+        };
+        let Some(replay_player_id) = replay_players.get(&player_subject_id).copied() else {
+            continue;
+        };
+        let Some(platform) = player
+            .platform
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            continue;
+        };
+        let Some(platform_player_id) = player
+            .platform_player_id
+            .as_ref()
+            .filter(|value| !value.trim().is_empty())
+        else {
+            continue;
+        };
+        players
+            .entry(player_subject_id)
+            .or_insert_with(|| ReplayPlayerPositioningInput {
+                replay_player_id,
+                platform: platform.clone(),
+                platform_player_id: platform_player_id.clone(),
+                team: player.team,
+            });
+    }
+    players
+}
+
+fn player_replay_positioning_aggregates_from_events(
+    events: &[IndexedEvent],
+    players: &BTreeMap<String, ReplayPlayerPositioningInput>,
+) -> BTreeMap<String, PlayerReplayPositioningAggregate> {
+    let mut aggregates: BTreeMap<String, PlayerReplayPositioningAggregate> = BTreeMap::new();
+    for event in events {
+        if !matches!(
+            event.source_stream.as_str(),
+            "player_activity"
+                | "field_third"
+                | "field_half"
+                | "ball_depth"
+                | "depth_role"
+                | "ball_proximity"
+                | "positioning_distance"
+        ) {
+            continue;
+        }
+        let Some(subject) = event
+            .primary_subject
+            .as_ref()
+            .filter(|subject| subject.kind == "player")
+        else {
+            continue;
+        };
+        if !players.contains_key(&subject.id) {
+            continue;
+        }
+        let duration = indexed_event_duration(event);
+        let aggregate = aggregates.entry(subject.id.clone()).or_default();
+        match event.source_stream.as_str() {
+            "player_activity" => aggregate.active_seconds += duration,
+            "field_third" => {
+                aggregate.tracked_seconds += duration;
+                match payload_state_string(&event.payload) {
+                    Some("defensive") => aggregate.defensive_third_seconds += duration,
+                    Some("neutral") => aggregate.neutral_third_seconds += duration,
+                    Some("offensive") => aggregate.offensive_third_seconds += duration,
+                    _ => {}
+                }
+            }
+            "field_half" => match payload_state_string(&event.payload) {
+                Some("defensive") => aggregate.defensive_half_seconds += duration,
+                Some("offensive") => aggregate.offensive_half_seconds += duration,
+                _ => {}
+            },
+            "ball_depth" => match payload_state_string(&event.payload) {
+                Some("behind_ball") => aggregate.behind_ball_seconds += duration,
+                Some("level_with_ball") => aggregate.level_with_ball_seconds += duration,
+                Some("ahead_of_ball") => aggregate.ahead_of_ball_seconds += duration,
+                _ => {}
+            },
+            "depth_role" => match payload_state_string(&event.payload) {
+                Some("most_back") => aggregate.role_most_back_seconds += duration,
+                Some("mid") => aggregate.role_mid_seconds += duration,
+                Some("most_forward") => aggregate.role_most_forward_seconds += duration,
+                Some("other") => aggregate.role_other_seconds += duration,
+                Some("no_teammates") => aggregate.role_no_teammates_seconds += duration,
+                _ => {}
+            },
+            "ball_proximity" => {
+                if payload_nested_bool(&event.payload, "state", "closest_to_ball_team") {
+                    aggregate.closest_team_seconds += duration;
+                }
+                if payload_nested_bool(&event.payload, "state", "closest_to_ball_absolute") {
+                    aggregate.closest_absolute_seconds += duration;
+                }
+                if payload_nested_bool(&event.payload, "state", "farthest_from_ball") {
+                    aggregate.farthest_seconds += duration;
+                }
+            }
+            "positioning_distance" => {
+                if let Some(distance_to_ball) = float_value(&event.payload, &["distance_to_ball"]) {
+                    aggregate.distance_to_ball_weighted += distance_to_ball * duration;
+                    aggregate.distance_to_ball_weight += duration;
+                }
+                if let Some(distance_to_teammates) =
+                    float_value(&event.payload, &["distance_to_teammates"])
+                {
+                    aggregate.distance_to_teammates_weighted += distance_to_teammates * duration;
+                    aggregate.distance_to_teammates_weight += duration;
+                }
+            }
+            _ => {}
+        }
+    }
+    aggregates
+}
+
+async fn insert_player_replay_positioning_from_events(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+    metadata: &ReplaySearchMetadata,
+    replay_players: &HashMap<String, Uuid>,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_positioning WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay positioning")?;
+
+    let players = positioning_players_from_metadata(metadata, replay_players);
+    let aggregates = player_replay_positioning_aggregates_from_events(events, &players);
+
+    let rows = aggregates
+        .into_iter()
+        .filter_map(|(player_subject_id, aggregate)| {
+            players
+                .get(&player_subject_id)
+                .map(|player| (player_subject_id, player.clone(), aggregate))
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO player_replay_positioning (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            active_seconds, tracked_seconds,
+            defensive_third_seconds, neutral_third_seconds, offensive_third_seconds,
+            defensive_half_seconds, offensive_half_seconds,
+            behind_ball_seconds, level_with_ball_seconds, ahead_of_ball_seconds,
+            role_most_back_seconds, role_mid_seconds, role_most_forward_seconds,
+            role_other_seconds, role_no_teammates_seconds,
+            closest_team_seconds, closest_absolute_seconds, farthest_seconds,
+            distance_to_ball_weighted, distance_to_ball_weight,
+            distance_to_teammates_weighted, distance_to_teammates_weight
+        )
+        "#,
+    );
+    query.push_values(rows, |mut row, (player_subject_id, player, aggregate)| {
+        row.push_bind(analysis_run_id)
+            .push_bind(replay_id)
+            .push_bind(player.replay_player_id)
+            .push_bind(player_subject_id)
+            .push_bind(player.platform.clone())
+            .push_bind(player.platform_player_id.clone())
+            .push_bind(player.team)
+            .push_bind(aggregate.active_seconds)
+            .push_bind(aggregate.tracked_seconds)
+            .push_bind(aggregate.defensive_third_seconds)
+            .push_bind(aggregate.neutral_third_seconds)
+            .push_bind(aggregate.offensive_third_seconds)
+            .push_bind(aggregate.defensive_half_seconds)
+            .push_bind(aggregate.offensive_half_seconds)
+            .push_bind(aggregate.behind_ball_seconds)
+            .push_bind(aggregate.level_with_ball_seconds)
+            .push_bind(aggregate.ahead_of_ball_seconds)
+            .push_bind(aggregate.role_most_back_seconds)
+            .push_bind(aggregate.role_mid_seconds)
+            .push_bind(aggregate.role_most_forward_seconds)
+            .push_bind(aggregate.role_other_seconds)
+            .push_bind(aggregate.role_no_teammates_seconds)
+            .push_bind(aggregate.closest_team_seconds)
+            .push_bind(aggregate.closest_absolute_seconds)
+            .push_bind(aggregate.farthest_seconds)
+            .push_bind(aggregate.distance_to_ball_weighted)
+            .push_bind(aggregate.distance_to_ball_weight)
+            .push_bind(aggregate.distance_to_teammates_weighted)
+            .push_bind(aggregate.distance_to_teammates_weight);
+    });
+    query.push(" ON CONFLICT DO NOTHING");
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to insert player replay positioning from in-memory events")?;
+
+    Ok(())
+}
+
+fn indexed_event_duration(event: &IndexedEvent) -> f64 {
+    event
+        .duration_seconds
+        .or_else(|| match (event.start_time, event.end_time) {
+            (Some(start_time), Some(end_time)) => Some((end_time - start_time).max(0.0)),
+            _ => None,
+        })
+        .unwrap_or(0.0)
+}
+
+fn payload_state_string(payload: &Value) -> Option<&str> {
+    payload.get("state").and_then(Value::as_str)
+}
+
+fn payload_nested_bool(payload: &Value, object_key: &str, field_key: &str) -> bool {
+    payload
+        .get(object_key)
+        .and_then(|object| object.get(field_key))
+        .and_then(|value| {
+            value
+                .as_bool()
+                .or_else(|| value.as_str().map(|raw| raw == "true"))
+        })
+        .unwrap_or(false)
 }
 
 /// Populate `player_replay_positioning` for every canonical replay missing rows,
@@ -4081,6 +4442,7 @@ async fn refresh_rank_benchmark_window(
                 rp.replay_id,
                 concat(rp.platform, ':', rp.platform_player_id) AS player_subject_id,
                 rp.rank_tier,
+                rp.score AS score,
                 "#,
     );
     crate::api::push_playlist_group_key_expression(&mut builder, "r");
@@ -4146,7 +4508,8 @@ async fn refresh_rank_benchmark_window(
         appearance_bucket AS (
             SELECT a.analysis_run_id, a.replay_id, a.player_subject_id,
                    rank.grouping AS rank_grouping, rank.value AS rank_value,
-                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, bucket.outcome
+                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, a.score,
+                   bucket.outcome
             FROM appearance_keyed a
             CROSS JOIN LATERAL (
                 SELECT 'tier'::text AS grouping, a.rank_tier AS value
@@ -4212,6 +4575,14 @@ async fn refresh_rank_benchmark_window(
              AND c.replay_id = ab.replay_id
              AND c.player_subject_id = ab.player_subject_id
              AND c.event_type_id = etu.event_type_id
+            UNION ALL
+            -- Scoreboard score as a per-active-minute rate (the headline Core
+            -- stat). Only emitted where the replay carried a scoreboard score.
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'score',
+                   ab.score * 60.0, ab.active_seconds, ab.non_demo_active_seconds
+            FROM appearance_bucket ab
+            WHERE ab.score IS NOT NULL
             UNION ALL
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
@@ -4285,7 +4656,8 @@ async fn refresh_rank_benchmark_window(
                 ('positioning:ahead_of_ball_share', pos.ahead_of_ball_seconds, NULLIF(pos.tracked_seconds, 0)),
                 ('positioning:most_back_share', pos.role_most_back_seconds, NULLIF(pos.tracked_seconds, 0)),
                 ('positioning:most_forward_share', pos.role_most_forward_seconds, NULLIF(pos.tracked_seconds, 0)),
-                ('positioning:distance_to_ball', pos.distance_to_ball_weighted, NULLIF(pos.distance_to_ball_weight, 0))
+                ('positioning:distance_to_ball', pos.distance_to_ball_weighted, NULLIF(pos.distance_to_ball_weight, 0)),
+                ('positioning:distance_to_teammates', pos.distance_to_teammates_weighted, NULLIF(pos.distance_to_teammates_weight, 0))
             ) AS m(metric_key, numerator, denom)
             UNION ALL
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
@@ -4394,15 +4766,15 @@ async fn refresh_rank_benchmark_window(
             FROM rate_units
             GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, metric_key
         ),
-        -- One aggregator per (group, metric), consistent across ranks/outcomes
-        -- so a stat's bars stay comparable: 'mean' for rare metrics, else 'median'.
+        -- One aggregator per (group, metric): pooled mean across the board. The
+        -- benchmark is then computed the same way as the player's own stat
+        -- (sum(numerator)/sum(denom)), so the two are directly comparable. A median
+        -- line sits systematically below any mean-based number on right-skewed rate
+        -- stats (median player < mean), which made every player -- and their
+        -- teammates and opponents -- read "above the line" regardless of playstyle.
+        -- median_* columns are still materialized for a future percentile view.
         stat_aggregator AS (
-            SELECT playlist_group_key, metric_key,
-                   CASE WHEN SUM(nonzero_units)::float8 / NULLIF(SUM(total_units), 0) < "#,
-    );
-    builder.push_bind(crate::rank_benchmark::RARE_NONZERO_FRACTION);
-    builder.push(
-        r#" THEN 'mean' ELSE 'median' END AS aggregator
+            SELECT playlist_group_key, metric_key, 'mean' AS aggregator
             FROM stat_agg
             GROUP BY playlist_group_key, metric_key
         ),
@@ -5019,6 +5391,22 @@ fn replay_summary_metadata_json(scaffold: &Value, all_headers: &[Value]) -> Repl
         .and_then(|frame| frame.get("time"))
         .and_then(Value::as_f64)
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+    let active_seconds = duration_seconds.map(|_| {
+        scaffold
+            .get("frames")
+            .and_then(Value::as_array)
+            .map(|frames| {
+                frames
+                    .iter()
+                    .filter(|frame| {
+                        frame.get("is_live_play").and_then(Value::as_bool) == Some(true)
+                    })
+                    .filter_map(|frame| frame.get("dt").and_then(Value::as_f64))
+                    .filter(|dt| dt.is_finite() && *dt >= 0.0)
+                    .sum::<f64>()
+            })
+            .unwrap_or(0.0)
+    });
     let overtime_seconds = last_frame
         .and_then(|frame| frame.get("seconds_remaining"))
         .and_then(Value::as_i64)
@@ -5027,6 +5415,7 @@ fn replay_summary_metadata_json(scaffold: &Value, all_headers: &[Value]) -> Repl
 
     ReplaySummaryMetadata {
         duration_seconds,
+        active_seconds,
         overtime_seconds,
         team_zero_score: Some(team_score_from_events_json(scaffold, true)),
         team_one_score: Some(team_score_from_events_json(scaffold, false)),
@@ -5418,6 +5807,15 @@ fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySumm
     let duration_seconds = last_frame
         .map(|frame| f64::from(frame.time))
         .filter(|seconds| seconds.is_finite() && *seconds >= 0.0);
+    let active_seconds = duration_seconds.map(|_| {
+        timeline
+            .frames
+            .iter()
+            .filter(|frame| frame.is_live_play)
+            .map(|frame| f64::from(frame.dt))
+            .filter(|dt| dt.is_finite() && *dt >= 0.0)
+            .sum::<f64>()
+    });
     let overtime_seconds = last_frame
         .and_then(|frame| frame.seconds_remaining)
         .filter(|seconds_remaining| *seconds_remaining < 0)
@@ -5425,6 +5823,7 @@ fn replay_summary_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySumm
 
     ReplaySummaryMetadata {
         duration_seconds,
+        active_seconds,
         overtime_seconds,
         team_zero_score: Some(team_score_from_events(timeline, true)),
         team_one_score: Some(team_score_from_events(timeline, false)),
@@ -5948,6 +6347,7 @@ async fn upsert_replay_search_metadata(
             match_guid = COALESCE($13, match_guid),
             has_pro_player = has_pro_player OR $14,
             season = COALESCE($15, season),
+            active_seconds = COALESCE($16, active_seconds),
             updated_at = now()
         WHERE id = $1
         "#,
@@ -5967,6 +6367,7 @@ async fn upsert_replay_search_metadata(
     .bind(&metadata.summary.match_guid)
     .bind(metadata.has_pro_player)
     .bind(&metadata.season)
+    .bind(metadata.summary.active_seconds)
     .execute(pool)
     .await
     .context("failed to update replay search metadata")?;
@@ -6500,6 +6901,7 @@ fn prepare_indexed_events<'a>(
 ) -> Vec<PreparedIndexedEvent<'a>> {
     events
         .iter()
+        .filter(|event| should_persist_play_event(event))
         .filter_map(|event| {
             event_type_ids
                 .get(&event.event_type_key)
@@ -6511,6 +6913,10 @@ fn prepare_indexed_events<'a>(
                 })
         })
         .collect()
+}
+
+fn should_persist_play_event(event: &IndexedEvent) -> bool {
+    !NON_PERSISTED_PLAY_EVENT_STREAMS.contains(&event.source_stream.as_str())
 }
 
 async fn insert_play_event_rows(
@@ -6624,7 +7030,12 @@ async fn insert_play_event_attribute_rows(
     pool: &PgPool,
     events: &[PreparedIndexedEvent<'_>],
 ) -> Result<()> {
-    for chunk in events.chunks(PLAY_EVENT_JSON_INSERT_CHUNK_SIZE) {
+    let attribute_events = events
+        .iter()
+        .copied()
+        .filter(|prepared| should_insert_play_event_attributes(prepared.event))
+        .collect::<Vec<_>>();
+    for chunk in attribute_events.chunks(PLAY_EVENT_JSON_INSERT_CHUNK_SIZE) {
         let mut query = QueryBuilder::<Postgres>::new(
             r#"
             INSERT INTO play_event_attributes (
@@ -6646,6 +7057,22 @@ async fn insert_play_event_attribute_rows(
     }
 
     Ok(())
+}
+
+fn should_insert_play_event_attributes(event: &IndexedEvent) -> bool {
+    matches!(
+        event.source_stream.as_str(),
+        // Rotation overview and live rotation histograms group by attributes.state.
+        "rotation_role"
+            | "ball_depth"
+            // Event review payloads surface these attributes directly, and
+            // these streams are low-volume compared with span telemetry.
+            | "mechanics"
+            | "boost_pickups"
+            | "timeline"
+            | "goal_context"
+            | "core_player"
+    )
 }
 
 async fn insert_play_event_subject_rows(
@@ -6787,7 +7214,7 @@ async fn insert_play_events_row_by_row(
         if options.payload {
             insert_play_event_payload(pool, play_event_id, &event.payload).await?;
         }
-        if options.attributes {
+        if options.attributes && should_insert_play_event_attributes(event) {
             insert_play_event_attributes(pool, play_event_id, &event.attributes).await?;
         }
         if options.details {
@@ -8907,6 +9334,16 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v10",
         "subtr-actor touch classification now uses tags; reprocess to derive \
          touch detail columns from action/reception/possession/contested tags.",
+    ),
+    (
+        "rocket-sense-event-stream:v11",
+        "Replay-player scoreboard metadata is backfilled from core_player_scoreboard \
+         deltas when the replay header lacks PlayerStats.",
+    ),
+    (
+        "rocket-sense-event-stream:v12",
+        "subtr-actor flip reset detection now handles multi-frame dodge contact; \
+         reprocess to classify dodge resets where the dodge carries through the ball.",
     ),
 ];
 

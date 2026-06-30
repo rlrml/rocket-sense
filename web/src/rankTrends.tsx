@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
+  ArrowLeft,
   BatteryCharging,
+  Check,
+  Copy,
   Gauge,
   Goal,
   Hand,
+  Link2,
   type LucideIcon,
   Map as MapIcon,
   MapPinned,
@@ -14,6 +18,7 @@ import {
 } from "lucide-react";
 import { getRankTrends } from "./api";
 import { rankGroupIconUrl, rankIconUrl } from "./rank";
+import { metricFormat } from "./stats/metricFormats";
 import type { RankTrendMetric, RankTrendsResponse } from "./types";
 
 const outcomeOptions = [
@@ -111,40 +116,6 @@ function displayLabel(metric: RankTrendMetric): string {
   if (override) return override;
   // The "% of time" unit already conveys "share"; drop the redundant suffix.
   return metric.label.replace(/ Share$/, "");
-}
-
-interface MetricFormat {
-  unit: string;
-  // Scale applied to the stored value before display (rates are stored per
-  // active minute; the app shows player rates per 5 minutes).
-  scale: number;
-  format: (value: number) => string;
-}
-
-function numberFormat(v: number): string {
-  const abs = Math.abs(v);
-  if (abs >= 1000) return Math.round(v).toLocaleString();
-  if (abs >= 100) return v.toFixed(0);
-  if (abs >= 1) return v.toFixed(2);
-  return v.toFixed(3);
-}
-
-function metricFormat(key: string): MetricFormat {
-  // Gauges and shares are levels, not rates — never scaled to a time window.
-  if (key.endsWith("_share")) {
-    return { unit: "% of time", scale: 1, format: (v) => `${(v * 100).toFixed(1)}%` };
-  }
-  if (key === "movement:avg_speed") {
-    return { unit: "uu/s", scale: 1, format: (v) => Math.round(v).toLocaleString() };
-  }
-  if (key === "positioning:distance_to_ball") {
-    return { unit: "uu", scale: 1, format: (v) => Math.round(v).toLocaleString() };
-  }
-  if (key === "boost:avg_amount") {
-    return { unit: "avg boost", scale: 1, format: (v) => v.toFixed(0) };
-  }
-  // Counts / per-minute rates -> shown per 5 minutes, like the rest of the app.
-  return { unit: "per 5 min", scale: 5, format: numberFormat };
 }
 
 function formatPlaylistGroup(key: string): string {
@@ -287,7 +258,79 @@ function MetricChart({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: 
   );
 }
 
-function MetricCard({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: RankAxisEntry[] }) {
+// Permalink to the focused single-chart view, carrying the current filters.
+function metricChartPath(metricKey: string, query: string): string {
+  const suffix = query ? `?${query}` : "";
+  return `/rank-trends/${encodeURIComponent(metricKey)}${suffix}`;
+}
+
+// navigator.clipboard only exists in secure contexts; fall back to execCommand
+// so the button still works when the app is served over plain http.
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to the legacy path
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Copies the absolute URL for a chart's standalone page to the clipboard. */
+function CopyLinkButton({
+  path,
+  label,
+  showText = false,
+}: {
+  path: string;
+  label: string;
+  showText?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = async () => {
+    const url = `${window.location.origin}${path}`;
+    if (await copyToClipboard(url)) {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    }
+  };
+  return (
+    <button
+      type="button"
+      className={showText ? "rank-trends-copy-link" : "rank-trend-permalink"}
+      title={copied ? "Link copied" : "Copy a link to this chart"}
+      aria-label={`Copy a link to the ${label} chart`}
+      onClick={onCopy}
+    >
+      {copied ? <Check size={15} aria-hidden /> : <Copy size={15} aria-hidden />}
+      {showText ? <span>{copied ? "Copied!" : "Copy link"}</span> : null}
+    </button>
+  );
+}
+
+function MetricCard({
+  metric,
+  rankAxis,
+  query,
+}: {
+  metric: RankTrendMetric;
+  rankAxis: RankAxisEntry[];
+  query: string;
+}) {
   return (
     <div className="rank-trend-card">
       <div className="rank-trend-card-head">
@@ -306,6 +349,15 @@ function MetricCard({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: R
           >
             {metric.aggregator === "mean" ? "average" : "median"}
           </span>
+          <Link
+            to={metricChartPath(metric.key, query)}
+            className="rank-trend-permalink"
+            title="Open this chart on its own page"
+            aria-label={`Open the ${displayLabel(metric)} chart on its own page`}
+          >
+            <Link2 size={15} aria-hidden />
+          </Link>
+          <CopyLinkButton path={metricChartPath(metric.key, query)} label={displayLabel(metric)} />
         </span>
       </div>
       <MetricChart metric={metric} rankAxis={rankAxis} />
@@ -314,6 +366,8 @@ function MetricCard({ metric, rankAxis }: { metric: RankTrendMetric; rankAxis: R
 }
 
 export function RankTrendsPage() {
+  const { metricKey } = useParams();
+  const focusedKey = metricKey ?? null;
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<RankTrendsResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -399,6 +453,112 @@ export function RankTrendsPage() {
 
   const total = data?.metrics.length ?? 0;
 
+  const focusedMetric = focusedKey
+    ? (data?.metrics.find((metric) => metric.key === focusedKey) ?? null)
+    : null;
+
+  const controls = (
+    <div className="rank-trends-controls">
+      <label>
+        <span>Mode</span>
+        <select
+          value={data?.playlist_group_key ?? ""}
+          onChange={(e) => setParam("playlist-group", e.target.value)}
+        >
+          {(data?.available_playlist_groups ?? []).map((group) => (
+            <option key={group} value={group}>
+              {formatPlaylistGroup(group)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Window</span>
+        <select
+          value={data?.window?.key ?? ""}
+          onChange={(e) => setParam("window", e.target.value)}
+        >
+          {(data?.available_windows ?? []).map((w) => (
+            <option key={w.key} value={w.key}>
+              {w.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Ranks</span>
+        <select
+          value={data?.rank_grouping ?? "group"}
+          onChange={(e) => setParam("rank-grouping", e.target.value)}
+        >
+          {rankGroupingOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label>
+        <span>Outcome</span>
+        <select
+          value={data?.outcome ?? "all"}
+          onChange={(e) => setParam("outcome", e.target.value)}
+        >
+          {outcomeOptions.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+
+  if (focusedKey) {
+    return (
+      <section className="page rank-trends-page">
+        <header className="rank-trends-header">
+          <div>
+            <Link to={`/rank-trends${query ? `?${query}` : ""}`} className="rank-trends-back">
+              <ArrowLeft size={16} aria-hidden />
+              <span>All rank trends</span>
+            </Link>
+            <div className="rank-trends-focus-title">
+              <h1>{focusedMetric ? displayLabel(focusedMetric) : "Rank Trend"}</h1>
+              {focusedMetric ? (
+                <CopyLinkButton
+                  path={metricChartPath(focusedMetric.key, query)}
+                  label={displayLabel(focusedMetric)}
+                  showText
+                />
+              ) : null}
+            </div>
+            <p className="rank-trends-subtitle">
+              How this stat changes across the rank ladder — the typical value (or, for rare
+              mechanics, the average) at each rank.
+            </p>
+          </div>
+          {controls}
+        </header>
+
+        {error ? <div className="stat-empty">Couldn’t load rank trends: {error}</div> : null}
+        {loading && !data ? <div className="stat-empty">Loading…</div> : null}
+        {data && !loading && !focusedMetric ? (
+          <div className="stat-empty">
+            No rank trend found for “{focusedKey}”.{" "}
+            <Link to={`/rank-trends${query ? `?${query}` : ""}`}>Browse all stats</Link>.
+          </div>
+        ) : null}
+
+        {focusedMetric ? (
+          <div className="rank-trend-list">
+            <MetricCard metric={focusedMetric} rankAxis={rankAxis} query={query} />
+          </div>
+        ) : null}
+      </section>
+    );
+  }
+
   return (
     <section className="page rank-trends-page">
       <header className="rank-trends-header">
@@ -409,60 +569,7 @@ export function RankTrendsPage() {
             the average) at each rank.
           </p>
         </div>
-        <div className="rank-trends-controls">
-          <label>
-            <span>Mode</span>
-            <select
-              value={data?.playlist_group_key ?? ""}
-              onChange={(e) => setParam("playlist-group", e.target.value)}
-            >
-              {(data?.available_playlist_groups ?? []).map((group) => (
-                <option key={group} value={group}>
-                  {formatPlaylistGroup(group)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Window</span>
-            <select
-              value={data?.window?.key ?? ""}
-              onChange={(e) => setParam("window", e.target.value)}
-            >
-              {(data?.available_windows ?? []).map((w) => (
-                <option key={w.key} value={w.key}>
-                  {w.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Ranks</span>
-            <select
-              value={data?.rank_grouping ?? "group"}
-              onChange={(e) => setParam("rank-grouping", e.target.value)}
-            >
-              {rankGroupingOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Outcome</span>
-            <select
-              value={data?.outcome ?? "all"}
-              onChange={(e) => setParam("outcome", e.target.value)}
-            >
-              {outcomeOptions.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        {controls}
       </header>
 
       <nav className="stat-group-nav rank-trends-tabs" aria-label="Rank trend categories">
@@ -512,7 +619,7 @@ export function RankTrendsPage() {
 
       <div className="rank-trend-list">
         {visibleMetrics.map((metric) => (
-          <MetricCard key={metric.key} metric={metric} rankAxis={rankAxis} />
+          <MetricCard key={metric.key} metric={metric} rankAxis={rankAxis} query={query} />
         ))}
       </div>
     </section>

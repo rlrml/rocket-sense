@@ -7,6 +7,8 @@
 /.direnv/
 /.envrc.local
 /.pre-commit-config.yaml
+/.playwright-cli/
+/web/.playwright-cli/
 result
 *.replay
 /data/

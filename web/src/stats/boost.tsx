@@ -25,6 +25,7 @@ import type {
   MechanicEventResponse,
   PlayerBoostTotal,
   PlayerBoostTotalsResponse,
+  RankBenchmarkCohort,
   ReplayPlayer,
 } from "../types";
 import { boostAmountToPercent } from "./boostUnits";
@@ -35,6 +36,7 @@ import {
   type ComparisonRow,
   PlayerComparisonChart,
   type CareerCohortKey,
+  rankAverageShadeClass,
   SegmentedBar,
   type SegmentedBarSegment,
   statPercentWithValue,
@@ -276,11 +278,15 @@ export function BoostProfileDetail({
   platformPlayerId,
   playerName,
   search,
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   platform: string;
   platformPlayerId: string;
   playerName: string;
   search: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
   const [totals, setTotals] = useState<PlayerBoostTotalsResponse | null>(null);
   const [padControl, setPadControl] = useState<BoostPadControlResponse | null>(null);
@@ -368,6 +374,8 @@ export function BoostProfileDetail({
         subtitleForSummary={(summary) => careerCohortSubtitle(boostProfileCohort(summary))}
         summaries={summaries}
         valueMode="per-minute"
+        rankCohorts={rankCohorts}
+        rankWindowLabel={rankWindowLabel}
       />
       <BoostProfilePadControlMap
         error={padControlError}
@@ -1098,6 +1106,8 @@ function BoostEconomyComparisonGrid({
   subtitleForSummary,
   summaries,
   valueMode = "totals",
+  rankCohorts = [],
+  rankWindowLabel,
 }: {
   comparisonMode: BoostComparisonMode;
   durationSeconds: number;
@@ -1111,6 +1121,12 @@ function BoostEconomyComparisonGrid({
   subtitleForSummary?: (summary: BoostPlayerSummary) => string;
   summaries: BoostPlayerSummary[];
   valueMode?: BoostComparisonValueMode;
+  // Career profile only: one slate row per selected rank, appended to the groups
+  // whose per-minute units the benchmark covers (collected/used/stolen/overfill/
+  // supersonic/pad counts). Breakdown and boost-range charts have no benchmark
+  // counterpart, so they get no rank row.
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
 }) {
   const boostLevelsByPlayer = new Map(levelRows.map((row) => [row.key, row]));
   const summaryPlayerIndex = (summary: BoostPlayerSummary) =>
@@ -1690,9 +1706,39 @@ function BoostEconomyComparisonGrid({
     ...collectionBreakdownGroups,
   ];
 
+  // The benchmark stores these per active minute; in this view valueMode is
+  // already per-minute, so a cohort's value drops straight onto the same scale.
+  const rankGroupMetricKey: Record<string, string> = {
+    "collected-amounts": "boost:collected",
+    usage: "boost:used",
+    "stolen-amounts": "boost:stolen",
+    overfill: "boost:overfill",
+    "supersonic-use": "boost:used_supersonic",
+    "big-boost-pads": "boost:big_pads",
+    "small-boost-pads": "boost:small_pads",
+  };
+  const rankRowsForGroup = (groupKey: string): BoostComparisonRow[] => {
+    const metricKey = rankGroupMetricKey[groupKey];
+    if (!metricKey || comparisonMode !== "players") return [];
+    return rankCohorts.flatMap((cohort) => {
+      const raw = cohort.per_stat[metricKey]?.value;
+      if (raw == null || !Number.isFinite(raw)) return [];
+      return [rankBoostComparisonRow(cohort, raw, rankWindowLabel)];
+    });
+  };
+  const groupsWithRanks = groups.map((group) => {
+    const rankRows = rankRowsForGroup(group.key);
+    if (rankRows.length === 0) return group;
+    return {
+      ...group,
+      maxValue: Math.max(group.maxValue, ...rankRows.map((row) => row.total)),
+      rows: [...group.rows, ...rankRows],
+    };
+  });
+
   return (
     <div className="boost-comparison-grid" aria-label="Boost player comparisons">
-      {groups
+      {groupsWithRanks
         .filter(
           (group) =>
             includePadBreakdowns ||
@@ -1782,6 +1828,47 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
       title={group.title}
     />
   );
+}
+
+// A rank-average row for a boost comparison group. The value is already a
+// per-minute rate (matching this view's valueMode), so it drops onto the group
+// scale directly. The rank icon comes from `rank` (a representative tier for the
+// group), and the slate shade from `segmentColorClassName`.
+function rankBoostComparisonRow(
+  cohort: RankBenchmarkCohort,
+  value: number,
+  rankWindowLabel?: string | null,
+): BoostComparisonRow {
+  // For group grouping `rank_value` is already a group id (0..7); pick the middle
+  // division as the representative tier for the icon (matches rankGroupIconUrl).
+  const tier =
+    cohort.rank_grouping === "tier" ? cohort.rank_value : Math.min(cohort.rank_value * 3 + 2, 22);
+  const label = `${formatNumber(value)}/m`;
+  return {
+    key: `rank-${cohort.rank_value}`,
+    name: cohort.label,
+    platform: null,
+    platformPlayerId: null,
+    profilePath: null,
+    rank: { tier, division: null, mmr: null },
+    segmentColorClassName: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+    showPlatformBadge: false,
+    subtitle: rankWindowLabel ? `Rank median · ${rankWindowLabel}` : "Rank median",
+    team: null,
+    playerIndex: null,
+    sortValue: value,
+    total: value,
+    valueLabel: label,
+    segments: [
+      {
+        className: "",
+        label: cohort.label,
+        value,
+        visibleLabel: label,
+        title: `${cohort.label}: ${label}`,
+      },
+    ],
+  };
 }
 
 function boostComparisonSegmentClassName(

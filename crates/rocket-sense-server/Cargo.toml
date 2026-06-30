@@ -19,6 +19,7 @@ futures.workspace = true
 jsonwebtoken.workspace = true
 reqwest.workspace = true
 rocket-sense-db.workspace = true
+rocket-sense-egress.workspace = true
 rocket-sense-storage.workspace = true
 serde.workspace = true
 serde_json.workspace = true

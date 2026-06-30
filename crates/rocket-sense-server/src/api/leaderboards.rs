@@ -2,6 +2,7 @@ use crate::{app::AppState, auth::OptionalAuthUser};
 use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
 use serde::Serialize;
 use sqlx::{Postgres, QueryBuilder, Row};
+use std::collections::{HashMap, HashSet};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -107,6 +108,9 @@ pub struct AppearancesLeaderboardRowResponse {
     pub platform_player_id: String,
     pub display_name: Option<String>,
     pub is_pro: bool,
+    pub estimated_rank_tier: Option<i32>,
+    pub estimated_rank_division: Option<i32>,
+    pub estimated_rank_mmr: Option<f64>,
     pub appearance_count: u64,
 }
 
@@ -118,6 +122,9 @@ pub struct AppearancesLeaderboardRowResponse {
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter (ranked, casual, tournament, ...)"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -159,6 +166,9 @@ pub async fn get_uploads_leaderboard(
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter (ranked, casual, tournament, ...)"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -292,6 +302,9 @@ async fn load_appearances_rows(
                 platform_player_id: row.try_get("platform_player_id")?,
                 display_name: None,
                 is_pro: false,
+                estimated_rank_tier: None,
+                estimated_rank_division: None,
+                estimated_rank_mmr: None,
                 appearance_count: appearance_count.max(0) as u64,
             })
         })
@@ -304,13 +317,16 @@ async fn load_appearances_rows(
         .iter()
         .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
         .collect();
-    let profiles = load_player_profiles(pool, &pairs).await?;
+    let profiles = load_player_profiles(pool, &pairs, filters).await?;
     for entry in &mut entries {
         if let Some(profile) =
             profiles.get(&(entry.platform.clone(), entry.platform_player_id.clone()))
         {
             entry.display_name = profile.display_name.clone();
             entry.is_pro = profile.is_pro;
+            entry.estimated_rank_tier = profile.estimated_rank_tier;
+            entry.estimated_rank_division = profile.estimated_rank_division;
+            entry.estimated_rank_mmr = profile.estimated_rank_mmr;
         }
     }
 
@@ -322,6 +338,9 @@ type PlayerKey = (String, String);
 struct PlayerProfile {
     display_name: Option<String>,
     is_pro: bool,
+    estimated_rank_tier: Option<i32>,
+    estimated_rank_division: Option<i32>,
+    estimated_rank_mmr: Option<f64>,
 }
 
 /// Resolves the latest-known name and pro flag for a bounded set of players.
@@ -330,6 +349,7 @@ struct PlayerProfile {
 async fn load_player_profiles(
     pool: &sqlx::PgPool,
     pairs: &[PlayerKey],
+    filters: &ReplaySetFilters,
 ) -> Result<std::collections::HashMap<PlayerKey, PlayerProfile>, sqlx::Error> {
     if pairs.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -349,19 +369,128 @@ async fn load_player_profiles(
     builder.push(" GROUP BY rp.platform, rp.platform_player_id");
 
     let rows = builder.build().fetch_all(pool).await?;
-    let mut profiles = std::collections::HashMap::with_capacity(rows.len());
+    let estimated_ranks = load_estimated_player_ranks(pool, pairs, filters).await?;
+    let mut profiles = HashMap::with_capacity(rows.len());
     for row in rows {
         let platform: String = row.try_get("platform")?;
         let platform_player_id: String = row.try_get("platform_player_id")?;
+        let rank = estimated_ranks.get(&platform_player_id);
         profiles.insert(
             (platform, platform_player_id),
             PlayerProfile {
                 display_name: row.try_get("display_name")?,
                 is_pro: row.try_get::<Option<bool>, _>("is_pro")?.unwrap_or(false),
+                estimated_rank_tier: rank.and_then(|rank| rank.tier),
+                estimated_rank_division: rank.and_then(|rank| rank.division),
+                estimated_rank_mmr: rank.and_then(|rank| rank.mmr),
             },
         );
     }
     Ok(profiles)
+}
+
+#[derive(Debug, Clone, Copy)]
+struct EstimatedPlayerRank {
+    tier: Option<i32>,
+    division: Option<i32>,
+    mmr: Option<f64>,
+}
+
+async fn load_estimated_player_ranks(
+    pool: &sqlx::PgPool,
+    pairs: &[PlayerKey],
+    filters: &ReplaySetFilters,
+) -> Result<HashMap<String, EstimatedPlayerRank>, sqlx::Error> {
+    let playlist_ids = rank_playlist_ids_for_filters(filters);
+    if playlist_ids.len() != 1 {
+        return Ok(HashMap::new());
+    }
+
+    let player_ids: Vec<String> = pairs
+        .iter()
+        .map(|(_, platform_player_id)| platform_player_id.clone())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+    if player_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT DISTINCT ON (s.platform_player_id) \
+         s.platform_player_id AS platform_player_id, \
+         s.tier AS tier, s.division AS division, s.mmr AS mmr \
+         FROM replay_player_rank_submissions s \
+         JOIN replays r ON r.id = s.replay_id \
+         WHERE s.platform_player_id = ANY(",
+    );
+    builder.push_bind(&player_ids);
+    builder.push(
+        ") AND s.tier IS NOT NULL \
+         AND s.valid IS DISTINCT FROM FALSE \
+         AND s.playlist = ",
+    );
+    builder.push_bind(playlist_ids[0]);
+    append_replay_set_filters(&mut builder, filters, "r");
+    builder.push(
+        " ORDER BY s.platform_player_id, \
+         COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, s.updated_at DESC",
+    );
+
+    let rows = builder.build().fetch_all(pool).await?;
+    let mut ranks = HashMap::with_capacity(rows.len());
+    for row in rows {
+        ranks.insert(
+            row.try_get("platform_player_id")?,
+            EstimatedPlayerRank {
+                tier: row.try_get("tier")?,
+                division: row.try_get("division")?,
+                mmr: row.try_get("mmr")?,
+            },
+        );
+    }
+    Ok(ranks)
+}
+
+fn rank_playlist_ids_for_filters(filters: &ReplaySetFilters) -> Vec<i32> {
+    let mut ids: Vec<i32> = filters
+        .playlists
+        .iter()
+        .filter_map(|playlist| rank_playlist_id_for_slug(playlist))
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    if !ids.is_empty() {
+        return ids;
+    }
+
+    let ranked_scope = filters.game_types.is_empty()
+        || (filters.game_types.len() == 1 && filters.game_types[0] == "ranked");
+    if ranked_scope && filters.team_sizes.len() == 1 {
+        if let Some(id) = ranked_playlist_id_for_team_size(filters.team_sizes[0]) {
+            return vec![id];
+        }
+    }
+
+    Vec::new()
+}
+
+fn rank_playlist_id_for_slug(playlist: &str) -> Option<i32> {
+    match playlist {
+        "ranked-duels" => Some(10),
+        "ranked-doubles" => Some(11),
+        "ranked-standard" => Some(13),
+        _ => None,
+    }
+}
+
+fn ranked_playlist_id_for_team_size(team_size: i32) -> Option<i32> {
+    match team_size {
+        1 => Some(10),
+        2 => Some(11),
+        3 => Some(13),
+        _ => None,
+    }
 }
 
 /// Shared base of the appearances aggregation: every `replay_players` row whose
@@ -502,6 +631,9 @@ pub struct EventLeaderboardRowResponse {
     pub platform_player_id: String,
     pub display_name: Option<String>,
     pub is_pro: bool,
+    pub estimated_rank_tier: Option<i32>,
+    pub estimated_rank_division: Option<i32>,
+    pub estimated_rank_mmr: Option<f64>,
     /// Number of matching events the player recorded across the filtered set.
     pub event_count: u64,
     /// Replays the player appeared in within the filtered set (the per-game
@@ -588,6 +720,9 @@ impl EventLeaderboardFilters {
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -673,6 +808,9 @@ async fn load_event_rows(
                 platform_player_id: row.try_get("platform_player_id")?,
                 display_name: None,
                 is_pro: false,
+                estimated_rank_tier: None,
+                estimated_rank_division: None,
+                estimated_rank_mmr: None,
                 event_count: event_count.max(0) as u64,
                 replay_count: replay_count.max(0) as u64,
                 active_time_seconds: row.try_get("active_time_seconds")?,
@@ -687,7 +825,7 @@ async fn load_event_rows(
         .iter()
         .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
         .collect();
-    let profiles = load_player_profiles(pool, &pairs)
+    let profiles = load_player_profiles(pool, &pairs, &filters.replay)
         .await
         .map_err(ApiError::internal)?;
     for entry in &mut entries {
@@ -696,6 +834,9 @@ async fn load_event_rows(
         {
             entry.display_name = profile.display_name.clone();
             entry.is_pro = profile.is_pro;
+            entry.estimated_rank_tier = profile.estimated_rank_tier;
+            entry.estimated_rank_division = profile.estimated_rank_division;
+            entry.estimated_rank_mmr = profile.estimated_rank_mmr;
         }
     }
 
@@ -1218,6 +1359,9 @@ pub struct StatLeaderboardRowResponse {
     pub platform_player_id: String,
     pub display_name: Option<String>,
     pub is_pro: bool,
+    pub estimated_rank_tier: Option<i32>,
+    pub estimated_rank_division: Option<i32>,
+    pub estimated_rank_mmr: Option<f64>,
     pub value: f64,
     pub replay_count: u64,
     pub active_time_seconds: Option<f64>,
@@ -1284,6 +1428,9 @@ impl StatLeaderboardFilters {
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
+        ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
+        ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
         ("offset" = Option<u32>, Query, description = "Row offset for pagination")
     ),
@@ -1360,6 +1507,9 @@ async fn load_stat_rows(
                 platform_player_id: row.try_get("platform_player_id")?,
                 display_name: None,
                 is_pro: false,
+                estimated_rank_tier: None,
+                estimated_rank_division: None,
+                estimated_rank_mmr: None,
                 value: row.try_get("value")?,
                 replay_count: replay_count.max(0) as u64,
                 active_time_seconds: row.try_get("active_time_seconds")?,
@@ -1378,7 +1528,7 @@ async fn load_stat_rows(
         .iter()
         .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
         .collect();
-    let profiles = load_player_profiles(pool, &pairs)
+    let profiles = load_player_profiles(pool, &pairs, &filters.replay)
         .await
         .map_err(ApiError::internal)?;
     for entry in &mut entries {
@@ -1387,6 +1537,9 @@ async fn load_stat_rows(
         {
             entry.display_name = profile.display_name.clone();
             entry.is_pro = profile.is_pro;
+            entry.estimated_rank_tier = profile.estimated_rank_tier;
+            entry.estimated_rank_division = profile.estimated_rank_division;
+            entry.estimated_rank_mmr = profile.estimated_rank_mmr;
         }
     }
 

@@ -2,6 +2,7 @@ mod admin;
 mod auth;
 mod ballchasing;
 mod event_stats;
+mod favorites;
 mod health;
 mod leaderboards;
 mod mechanics;
@@ -13,6 +14,7 @@ mod players;
 mod positioning_stats;
 mod possession_stats;
 mod query;
+mod rank_benchmark_cohorts;
 mod rank_trends;
 mod replay_set;
 mod replays;
@@ -25,6 +27,13 @@ mod users;
 /// mismatch would silently empty the cohort). Re-exported narrowly so the
 /// `replay_set` module itself stays private to `api`.
 pub(crate) use replay_set::push_playlist_group_key_expression;
+
+/// Reused by `crate::ballchasing_sync` to import downloaded ballchasing replays
+/// through the exact same store/dedup/preflight/enqueue path as a user upload,
+/// without widening the whole `replays` module.
+pub(crate) use replays::{
+    find_replay_by_external_replay_id, import_replay_from_bytes, ReplayImportRequest,
+};
 
 /// Boost materialization helpers reused by `crate::processing` to populate
 /// `player_replay_boost` with the same band/last-value accumulation as the live
@@ -59,6 +68,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(auth::router())
         .merge(ballchasing::router())
         .merge(event_stats::router())
+        .merge(favorites::router())
         .merge(health::router())
         .merge(leaderboards::router())
         .merge(mechanics::router())
@@ -68,6 +78,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(positioning_stats::router())
         .merge(possession_stats::router())
         .merge(players::router())
+        .merge(rank_benchmark_cohorts::router())
         .merge(rank_trends::router())
         .merge(replays::router())
         .merge(stats::router())

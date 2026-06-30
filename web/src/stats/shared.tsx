@@ -1,7 +1,8 @@
 import type { CSSProperties, ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { PlatformIcon } from "../platform";
-import { RankBadge } from "../rank";
+import { RankBadge, rankGroupIconUrl, rankIconUrl } from "../rank";
+import type { RankBenchmarkCohort } from "../types";
 
 export interface SegmentedBarSegment {
   key: string;
@@ -282,6 +283,234 @@ export function careerCohortClassName(key: CareerCohortKey): string {
 
 export function careerCohortSegmentClassName(key: CareerCohortKey): string {
   return careerCohortClassName(key);
+}
+
+// --- Rank-average comparison cohorts -------------------------------------
+//
+// The "rank average" cohorts are a provisional extra comparison alongside
+// player / teammates / opponents (AGENTS.md: keep them behind a centralized
+// enable/disable path). The server also gates them via `rank_benchmark_enabled`
+// and returns no ranks when off, but this single client switch lets the whole
+// feature be turned off in one place. More than one rank can be shown at once,
+// so each rank renders as its own row; a slate ramp shade (keyed by rank group)
+// keeps a given rank the same shade regardless of selection order.
+
+export const RANK_AVERAGE_ENABLED = true;
+
+export function rankAverageEnabled(): boolean {
+  return RANK_AVERAGE_ENABLED;
+}
+
+/** Pooled rank-group id (0..7) for a tier index — mirrors the Rust `rank_group_id`. */
+export function tierToRankGroupId(tier: number): number {
+  return tier >= 22 ? 7 : Math.max(0, Math.floor((tier - 1) / 3));
+}
+
+/** Slate-ramp shade class for a rank cohort, stable per rank group. */
+export function rankAverageShadeClass(rankValue: number, grouping: string): string {
+  const groupId = grouping === "tier" ? tierToRankGroupId(rankValue) : rankValue;
+  const clamped = Math.max(0, Math.min(7, groupId));
+  return `career-cohort-rank-avg rank-shade-${clamped}`;
+}
+
+function rankCohortAggregatorWord(aggregator: string | null | undefined): "median" | "average" {
+  return aggregator === "mean" ? "average" : "median";
+}
+
+/**
+ * The display values a metric contributes across the selected ranks, so a card
+ * can fold them into its shared `maxValue` (otherwise rank bars overflow). Pass
+ * the same `toValue` the rows use.
+ */
+export function rankCohortValues(
+  cohorts: RankBenchmarkCohort[],
+  metricKey: string,
+  toValue: (raw: number) => number,
+): number[] {
+  return cohorts
+    .map((cohort) => cohort.per_stat[metricKey]?.value)
+    .filter((value): value is number => value != null && Number.isFinite(value))
+    .map(toValue);
+}
+
+// The rank-average row label leads with the rank's icon (group or tier) rather
+// than a "Rank median (Diamond)" text label; the median/average + window move to
+// the subtitle.
+export function rankCohortIconUrl(cohort: RankBenchmarkCohort): string | null {
+  return cohort.rank_grouping === "tier"
+    ? rankIconUrl(cohort.rank_value)
+    : rankGroupIconUrl(cohort.rank_value);
+}
+
+function rankCohortLabelNode(
+  cohort: RankBenchmarkCohort,
+  aggregatorWord: "median" | "average",
+  windowLabel?: string | null,
+): ReactNode {
+  const iconUrl = rankCohortIconUrl(cohort);
+  const subtitle = [`Rank ${aggregatorWord}`, windowLabel].filter(Boolean).join(" · ");
+  return (
+    <div
+      className={`player-bar-label ${rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping)}`}
+    >
+      <strong className="stat-player-name-line">
+        {iconUrl ? <img className="rank-cohort-icon" src={iconUrl} alt="" /> : null}
+        <span className="stat-player-name-text">{cohort.label}</span>
+      </strong>
+      <span className="stat-player-subtitle">
+        <span className="stat-player-subtitle-text">{subtitle}</span>
+      </span>
+    </div>
+  );
+}
+
+/**
+ * The icon-led label node for a rank-average row, for bespoke subview charts
+ * (positioning/possession/...) that build their own rows but want the same
+ * rank-icon label the shared helpers produce.
+ */
+export function rankCohortLabel(
+  cohort: RankBenchmarkCohort,
+  windowLabel?: string | null,
+): ReactNode {
+  return rankCohortLabelNode(cohort, "median", windowLabel);
+}
+
+/**
+ * One magnitude (single-value) bar row per selected rank for a stat, looked up
+ * by `metricKey` in each cohort's `per_stat`. `toValue` maps the stored
+ * benchmark value into the card's display units (e.g. ×5 for per-active-minute
+ * rates shown per 5 min, ×1 for shares/averages); the row is skipped when the
+ * cohort has no value for that metric so a card never shows a phantom rank row.
+ * Set `valueColumn` for cards that render a right-hand value column (rate
+ * cards); leave it off for cards that float the value on the bar.
+ */
+export function rankCohortMagnitudeRows(config: {
+  cohorts: RankBenchmarkCohort[];
+  metricKey: string;
+  toValue: (raw: number) => number;
+  format: (value: number) => string;
+  maxValue: number;
+  windowLabel?: string | null;
+  valueColumn?: boolean;
+}): ComparisonRow[] {
+  const { cohorts, metricKey, toValue, format, maxValue, windowLabel, valueColumn } = config;
+  const rows: ComparisonRow[] = [];
+  for (const cohort of cohorts) {
+    const stat = cohort.per_stat[metricKey];
+    if (!stat || stat.value == null || !Number.isFinite(stat.value)) continue;
+    const value = toValue(stat.value);
+    if (!Number.isFinite(value)) continue;
+    const formatted = format(value);
+    const word = rankCohortAggregatorWord(stat.aggregator);
+    const safe = Math.max(0, value);
+    rows.push({
+      key: `rank-${cohort.rank_value}`,
+      label: rankCohortLabelNode(cohort, word, windowLabel),
+      ariaLabel: `Rank ${word} (${cohort.label}): ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+          label: cohort.label,
+          value: safe,
+          title: `Rank ${word} (${cohort.label}): ${formatted}`,
+        },
+      ],
+      total: safe,
+      maxValue,
+      ...(valueColumn ? { valueLabel: formatted } : { barValue: formatted }),
+      placeholder: formatted,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Like {@link rankCohortMagnitudeRows} but the row value is derived from the
+ * cohort's whole `per_stat` map (e.g. a ratio of two benchmark metrics such as
+ * shooting % = goals/shots). `derive` returns null to skip that rank.
+ */
+export function rankCohortDerivedRows(config: {
+  cohorts: RankBenchmarkCohort[];
+  derive: (perStat: RankBenchmarkCohort["per_stat"]) => number | null;
+  format: (value: number) => string;
+  maxValue: number;
+  windowLabel?: string | null;
+  valueColumn?: boolean;
+}): ComparisonRow[] {
+  const { cohorts, derive, format, maxValue, windowLabel, valueColumn } = config;
+  const rows: ComparisonRow[] = [];
+  for (const cohort of cohorts) {
+    const value = derive(cohort.per_stat);
+    if (value == null || !Number.isFinite(value)) continue;
+    const formatted = format(value);
+    const safe = Math.max(0, value);
+    rows.push({
+      key: `rank-${cohort.rank_value}`,
+      label: rankCohortLabelNode(cohort, "median", windowLabel),
+      ariaLabel: `Rank median (${cohort.label}): ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+          label: cohort.label,
+          value: safe,
+          title: `Rank median (${cohort.label}): ${formatted}`,
+        },
+      ],
+      total: safe,
+      maxValue,
+      ...(valueColumn ? { valueLabel: formatted } : { barValue: formatted }),
+      placeholder: formatted,
+    });
+  }
+  return rows;
+}
+
+/**
+ * One distribution (parts-of-a-whole) bar row per selected rank, where each band
+ * reads a 0..1 share straight from the cohort's `per_stat[band.metricKey]`. Bands
+ * reuse the same tone classes the player/teammate/opponent rows use so the only
+ * thing distinguishing a rank row is its slate-bordered label.
+ */
+export function rankCohortDistributionRows(config: {
+  cohorts: RankBenchmarkCohort[];
+  bands: { id: string; label: string; metricKey: string; className: string }[];
+  colorStyle?: CSSProperties;
+  windowLabel?: string | null;
+  // Derive a band's share from the cohort when it has no direct metric_key
+  // (e.g. the "level with ball" middle band = 1 − behind − ahead).
+  deriveShare?: (cohort: RankBenchmarkCohort, bandId: string) => number | null;
+}): ComparisonRow[] {
+  const { cohorts, bands, colorStyle, windowLabel, deriveShare } = config;
+  const rows: ComparisonRow[] = [];
+  for (const cohort of cohorts) {
+    const segments: SegmentedBarSegment[] = bands.map((band) => {
+      const direct = cohort.per_stat[band.metricKey]?.value;
+      const raw = direct != null ? direct : (deriveShare?.(cohort, band.id) ?? 0);
+      const share = Number.isFinite(raw) && raw > 0 ? raw : 0;
+      return {
+        key: band.id,
+        className: band.className,
+        label: band.label,
+        value: share,
+        visibleLabel: share >= 0.12 ? `${band.label} ${Math.round(share * 100)}%` : undefined,
+        title: share > 0 ? `${band.label} ${Math.round(share * 100)}%` : undefined,
+      };
+    });
+    const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+    if (total <= 0) continue;
+    rows.push({
+      key: `rank-${cohort.rank_value}`,
+      label: rankCohortLabelNode(cohort, "median", windowLabel),
+      ariaLabel: `Rank median (${cohort.label}): ${bands.map((b) => b.label).join(" / ")}`,
+      segments,
+      total,
+      style: colorStyle,
+    });
+  }
+  return rows;
 }
 
 export const CAREER_RATE_WINDOW_SECONDS = 5 * 60;

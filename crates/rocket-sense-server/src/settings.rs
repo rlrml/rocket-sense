@@ -1,7 +1,11 @@
 use anyhow::{Context, Result};
-use std::{env, net::SocketAddr, path::PathBuf};
+use std::{env, net::SocketAddr, path::PathBuf, time::Duration};
+
+use rocket_sense_egress::{ExitConfig, PoolConfig};
 
 use crate::rank_benchmark::{self, BenchmarkWindow, CalcStyle};
+
+const ROCKET_SENSE_USER_AGENT: &str = "rocket-sense";
 
 const DEV_JWT_SECRET: &str = "rocket-sense-local-dev-secret";
 const MIN_APP_JWT_SECRET_BYTES: usize = 32;
@@ -137,6 +141,20 @@ pub struct Settings {
     /// promoted to admin when they authenticate. Bootstraps the first admin(s);
     /// further admins are then granted through the admin API.
     pub admin_emails: Vec<String>,
+    /// Ballchasing.com API key used to mirror/sync ballchasing groups. When
+    /// absent, ballchasing mirror endpoints are disabled.
+    pub ballchasing_api_key: Option<String>,
+    /// Outbound egress pool used for rate-limited / ban-prone upstreams (e.g.
+    /// proxying replay files from ballchasing.com). Defaults to a single direct
+    /// exit, preserving today's behavior until SOCKS5 proxies are configured.
+    pub egress: EgressSettings,
+}
+
+/// Parsed configuration for the [`rocket_sense_egress::EgressPool`].
+#[derive(Debug, Clone)]
+pub struct EgressSettings {
+    pub exits: Vec<ExitConfig>,
+    pub pool: PoolConfig,
 }
 
 impl Settings {
@@ -211,6 +229,11 @@ impl Settings {
             .and_then(|value| CalcStyle::parse(&value))
             .unwrap_or_default();
         let admin_emails = parse_admin_emails(env::var("ROCKET_SENSE_ADMIN_EMAILS").ok());
+        let ballchasing_api_key = env::var("BALLCHASING_API_KEY")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        let egress = parse_egress_settings();
 
         Ok(Self {
             service_mode,
@@ -230,8 +253,87 @@ impl Settings {
             rank_benchmark_default_window,
             rank_benchmark_calc,
             admin_emails,
+            ballchasing_api_key,
+            egress,
         })
     }
+}
+
+/// Build the egress pool config from the environment.
+///
+/// Exit selection (first match wins):
+/// * `ROCKET_SENSE_EGRESS_PROXIES` — comma-separated `socks5h://host:port`
+///   URLs, each optionally `name=url`. Use this for the rootless `onetun` setup
+///   where each Mullvad relay is exposed on a local port.
+/// * `ROCKET_SENSE_EGRESS_MULLVAD_RELAYS` — comma-separated WireGuard relay
+///   codenames (e.g. `nl-ams-wg-001,se-mma-wg-001`). Built into relay-hostname
+///   SOCKS5 exits via [`rocket_sense_egress::mullvad`]; assumes the kernel
+///   `wg-mullvad` tunnel is up with the relay subnet routed.
+/// * neither set — a single direct exit (today's behavior, unchanged).
+///
+/// Policy knobs: `ROCKET_SENSE_EGRESS_PER_EXIT_RPS`,
+/// `ROCKET_SENSE_EGRESS_PER_EXIT_BURST`, `ROCKET_SENSE_EGRESS_COOLDOWN_SECS`,
+/// `ROCKET_SENSE_EGRESS_MAX_ATTEMPTS`.
+fn parse_egress_settings() -> EgressSettings {
+    let mut pool = PoolConfig {
+        user_agent: ROCKET_SENSE_USER_AGENT.to_owned(),
+        ..PoolConfig::default()
+    };
+    if let Some(rps) = env_f64("ROCKET_SENSE_EGRESS_PER_EXIT_RPS") {
+        pool.per_exit_rps = rps;
+    }
+    if let Some(burst) = env_f64("ROCKET_SENSE_EGRESS_PER_EXIT_BURST") {
+        pool.per_exit_burst = burst;
+    }
+    if let Some(secs) = env_f64("ROCKET_SENSE_EGRESS_COOLDOWN_SECS") {
+        pool.cooldown = Duration::from_secs_f64(secs.max(0.0));
+    }
+    if let Some(attempts) = env_usize("ROCKET_SENSE_EGRESS_MAX_ATTEMPTS") {
+        pool.max_attempts = attempts.max(1);
+    }
+
+    let exits = parse_egress_proxies(env::var("ROCKET_SENSE_EGRESS_PROXIES").ok())
+        .or_else(|| {
+            env::var("ROCKET_SENSE_EGRESS_MULLVAD_RELAYS")
+                .ok()
+                .map(|raw| {
+                    rocket_sense_egress::mullvad::exits_via_relay_hosts(
+                        raw.split(',').map(str::trim).filter(|s| !s.is_empty()),
+                    )
+                })
+                .filter(|exits| !exits.is_empty())
+        })
+        .unwrap_or_else(|| vec![ExitConfig::direct("direct")]);
+
+    EgressSettings { exits, pool }
+}
+
+/// Parse the `ROCKET_SENSE_EGRESS_PROXIES` list into exits. Each comma-separated
+/// entry is a proxy URL, optionally prefixed with `name=`. Returns `None` when
+/// the var is unset or contains no usable entries.
+fn parse_egress_proxies(raw: Option<String>) -> Option<Vec<ExitConfig>> {
+    let exits: Vec<ExitConfig> = raw?
+        .split(',')
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
+        .map(|entry| match entry.split_once('=') {
+            Some((name, url)) => ExitConfig::proxy(name.trim(), url.trim()),
+            None => ExitConfig::proxy(entry, entry),
+        })
+        .collect();
+    (!exits.is_empty()).then_some(exits)
+}
+
+fn env_f64(key: &str) -> Option<f64> {
+    env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+}
+
+fn env_usize(key: &str) -> Option<usize> {
+    env::var(key)
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
 }
 
 fn configured_jwt_secret() -> Option<(String, bool)> {

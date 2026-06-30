@@ -31,6 +31,8 @@ fn event_review_playlist_url_preserves_filter_fields() {
         replay_date_before: Some("2026-05-02T00:00:00Z".parse().unwrap()),
         event_created_after: Some("2026-04-01T00:00:00Z".parse().unwrap()),
         event_created_before: Some("2026-04-02T00:00:00Z".parse().unwrap()),
+        payload_kinds: vec!["reverse".to_owned()],
+        payload_setup_rotation_directions: vec!["left".to_owned(), "right".to_owned()],
         count: Some(1000),
         offset: Some(25),
         ..MechanicEventsQuery::default()
@@ -82,6 +84,9 @@ fn event_review_playlist_url_preserves_filter_fields() {
         "event-created-before".into(),
         "2026-04-02T00:00:00+00:00".into()
     )));
+    assert!(pairs.contains(&("payload-kind".into(), "reverse".into())));
+    assert!(pairs.contains(&("payload-setup-rotation-direction".into(), "left".into())));
+    assert!(pairs.contains(&("payload-setup-rotation-direction".into(), "right".into())));
     assert!(pairs.contains(&("count".into(), "1000".into())));
     assert!(pairs.contains(&("offset".into(), "25".into())));
 }
@@ -195,10 +200,28 @@ fn event_review_playlist_query_sorts_most_recent_replays_first() {
 }
 
 #[test]
+fn event_review_playlist_query_filters_payload_classifications() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        mechanic: vec!["flick".to_owned()],
+        payload_kinds: vec!["reverse".to_owned()],
+        payload_setup_rotation_directions: vec!["left".to_owned(), "right".to_owned()],
+        count: Some(10),
+        ..MechanicEventsQuery::default()
+    })
+    .unwrap();
+
+    let builder = find_mechanic_events_query(&filters);
+    let sql = builder.sql();
+
+    assert!(sql.contains("payload.payload ->> $"));
+    assert!(sql.contains("= ANY($"));
+}
+
+#[test]
 fn mechanic_events_query_accepts_repeated_event_type_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let query = MechanicEventsQuery::from_raw_query(Some(
-        "q=grand&event-type=wavedash&event-type=speed_flip&event-category=event&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&player-name=Zen&player-name=Alpha&player-id=steam%3Aabc123&playlist=ranked-doubles&game-mode=private&map=stadium_p&pro=true&uploader=019e5336-5e24-7281-8267-189914aa46b5&group=019e5336-650b-770a-bd81-7d09c6e4afe9&project=019e5336-7351-7839-b952-bfc954274e78&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&created-after=2026-06-01T00%3A00%3A00Z&created-before=2026-06-02T00%3A00%3A00Z&replay-date-after=2026-05-01T00%3A00%3A00Z&replay-date-before=2026-05-02T00%3A00%3A00Z&event-created-after=2026-04-01T00%3A00%3A00Z&event-created-before=2026-04-02T00%3A00%3A00Z&count=1000&offset=25",
+        "q=grand&event-type=wavedash&event-type=speed_flip&event-category=event&detector=stats_timeline&event-id=019e5336-5e24-7281-8267-189914aa46b5&event-id=019e5336-650b-770a-bd81-7d09c6e4afe9&player-name=Zen&player-name=Alpha&player-id=steam%3Aabc123&playlist=ranked-doubles&game-mode=private&map=stadium_p&pro=true&uploader=019e5336-5e24-7281-8267-189914aa46b5&group=019e5336-650b-770a-bd81-7d09c6e4afe9&project=019e5336-7351-7839-b952-bfc954274e78&review-status=unreviewed&min-confidence=0.7&replay-id=0196f449-e997-7413-af77-28082e6478f0&created-after=2026-06-01T00%3A00%3A00Z&created-before=2026-06-02T00%3A00%3A00Z&replay-date-after=2026-05-01T00%3A00%3A00Z&replay-date-before=2026-05-02T00%3A00%3A00Z&event-created-after=2026-04-01T00%3A00%3A00Z&event-created-before=2026-04-02T00%3A00%3A00Z&payload-kind=reverse&payload-setup-rotation-direction=left&payload-setup-rotation-direction=right&count=1000&offset=25",
     ))
     .unwrap();
 
@@ -228,6 +251,8 @@ fn mechanic_events_query_accepts_repeated_event_type_fields() {
     assert_eq!(query.review_status.as_deref(), Some("unreviewed"));
     assert_eq!(query.min_confidence, Some(0.7));
     assert_eq!(query.replay_id, Some(replay_id));
+    assert_eq!(query.payload_kinds, ["reverse"]);
+    assert_eq!(query.payload_setup_rotation_directions, ["left", "right"]);
     assert_eq!(query.player_id.as_deref(), Some("steam:abc123"));
     assert_eq!(
         query.created_after.unwrap().to_rfc3339(),
@@ -403,7 +428,9 @@ fn saved_playlist_spec_accepts_generic_query_source() {
             "filters": {
                 "eventTypes": "flick",
                 "eventCategories": "touch",
-                "minConfidence": 0.75
+                "minConfidence": 0.75,
+                "payloadKind": "reverse",
+                "payloadSetupRotationDirections": ["left", "right"]
             }
         },
         "page": {
@@ -422,6 +449,14 @@ fn saved_playlist_spec_accepts_generic_query_source() {
         serde_json::json!(["touch"])
     );
     assert_eq!(spec["source"]["filters"]["minConfidence"], 0.75);
+    assert_eq!(
+        spec["source"]["filters"]["payloadKinds"],
+        serde_json::json!(["reverse"])
+    );
+    assert_eq!(
+        spec["source"]["filters"]["payloadSetupRotationDirections"],
+        serde_json::json!(["left", "right"])
+    );
     assert_eq!(spec["page"]["limit"], 75);
     assert_eq!(spec["page"]["offset"], 0);
 }
@@ -532,6 +567,7 @@ fn review_playlist_exposes_next_page_when_page_is_full() {
             payload: serde_json::json!({}),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         })
         .collect();
@@ -579,6 +615,7 @@ fn review_playlist_items_apply_explicit_preroll_and_postroll() {
             payload: serde_json::json!({ "kind": "speed_flip" }),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         },
     );
@@ -635,6 +672,7 @@ fn review_playlist_items_fall_back_to_time_bounds_without_frames() {
             payload: serde_json::json!({ "kind": "speed_flip" }),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         },
     );
@@ -681,6 +719,7 @@ fn review_playlist_items_support_non_mechanic_events() {
             payload: serde_json::json!({ "player": { "type": "steam", "value": 123 } }),
             review_status: None,
             latest_review_id: None,
+            tags: Vec::new(),
             created_at: Utc::now(),
         },
     );

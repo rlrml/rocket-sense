@@ -16,6 +16,7 @@ use super::{
         deserialize_string_vec, deserialize_uuid_vec, parse_datetime_filter, parse_uuid_values,
         QueryParams,
     },
+    replay_set::push_replay_group_subtree_membership_filter,
     replays::{require_db, ApiError},
 };
 
@@ -1214,11 +1215,12 @@ fn append_replay_filters<'args>(
             .push(")");
     }
     if let Some(group_id) = filters.group_id {
-        builder.push(" AND EXISTS (SELECT 1 FROM replay_group_replays profile_group WHERE profile_group.replay_id = ");
-        builder.push(replay_alias);
-        builder.push(".id AND profile_group.group_id = ");
-        builder.push_bind(group_id);
-        builder.push(")");
+        push_replay_group_subtree_membership_filter(
+            builder,
+            replay_alias,
+            "profile_group",
+            group_id,
+        );
     }
     if let Some(project_id) = filters.project_id {
         builder
