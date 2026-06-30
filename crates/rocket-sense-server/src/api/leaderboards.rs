@@ -7,7 +7,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use super::{
-    query::{parse_u32_filter, QueryParams},
+    query::{parse_u32_filter, push_aggregate_excluded_player_filter, QueryParams},
     replay_set::{append_replay_set_filters, ReplaySetFilterInput, ReplaySetFilters},
     replays::{require_db, ApiError},
     stats::{
@@ -512,6 +512,7 @@ fn append_appearances_from_where<'args>(
              WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
              AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> ''",
         );
+        push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
         return;
     }
 
@@ -520,6 +521,7 @@ fn append_appearances_from_where<'args>(
          WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
          AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> ''",
     );
+    push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
     append_replay_set_filters(builder, filters, "r");
 }
 
@@ -865,6 +867,7 @@ fn push_event_ctes<'args>(
              AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
              AND r.canonical_analysis_run_id IS NOT NULL",
         );
+        push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
         append_replay_set_filters(builder, &filters.replay, "r");
         builder.push(
             " GROUP BY rp.platform, rp.platform_player_id \
@@ -884,6 +887,7 @@ fn push_event_ctes<'args>(
              AND r.canonical_analysis_run_id IS NOT NULL \
              AND (rp.platform, rp.platform_player_id) IN (SELECT platform, platform_player_id FROM event_counts)",
         );
+        push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
         append_replay_set_filters(builder, &filters.replay, "r");
         builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
         return;
@@ -914,6 +918,7 @@ fn push_event_ctes<'args>(
          AND rp.platform_player_id IS NOT NULL AND btrim(rp.platform_player_id) <> '' \
          AND r.canonical_analysis_run_id IS NOT NULL",
     );
+    push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
     append_replay_set_filters(builder, &filters.replay, "r");
     builder.push(
         " GROUP BY rp.platform, rp.platform_player_id), \
@@ -928,6 +933,7 @@ fn push_event_ctes<'args>(
          AND r.canonical_analysis_run_id IS NOT NULL \
          AND (rp.platform, rp.platform_player_id) IN (SELECT platform, platform_player_id FROM event_counts)",
     );
+    push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
     append_replay_set_filters(builder, &filters.replay, "r");
     builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
 }
@@ -1570,6 +1576,11 @@ fn push_stat_fact_cte<'args>(
              AND possession.platform_player_id IS NOT NULL \
              AND btrim(possession.platform_player_id) <> ''",
         );
+        push_aggregate_excluded_player_filter(
+            builder,
+            "possession.platform",
+            "possession.platform_player_id",
+        );
         append_replay_set_filters(builder, &filters.replay, "r");
         builder.push(
             " GROUP BY possession.platform, possession.platform_player_id \
@@ -1598,6 +1609,11 @@ fn push_stat_fact_cte<'args>(
              AND boost.platform_player_id IS NOT NULL \
              AND btrim(boost.platform_player_id) <> ''",
         );
+        push_aggregate_excluded_player_filter(
+            builder,
+            "boost.platform",
+            "boost.platform_player_id",
+        );
         append_replay_set_filters(builder, &filters.replay, "r");
         builder.push(
             " GROUP BY boost.platform, boost.platform_player_id \
@@ -1621,6 +1637,7 @@ fn push_stat_fact_cte<'args>(
          WHERE fact.stat_key = ",
     );
     builder.push_bind(definition.fact_key());
+    push_aggregate_excluded_player_filter(builder, "fact.platform", "fact.platform_player_id");
     append_replay_set_filters(builder, &filters.replay, "r");
     builder.push(
         " GROUP BY fact.platform, fact.platform_player_id \

@@ -1792,6 +1792,41 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
+.player-tag-chips,
+.player-moderation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.player-tag-chips span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface-subtle);
+  color: #344255;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.player-tag-chips span.is-excluding {
+  border-color: var(--team-orange);
+  color: var(--team-orange);
+  background: #fff7ed;
+}
+
+.player-moderation-message,
+.admin-action-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+}
+
 .player-stats-section-grid {
   display: grid;
   gap: 16px;

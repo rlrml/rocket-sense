@@ -69,6 +69,7 @@ import {
   createDevToken,
   createReplayGroup,
   createAccountToken,
+  deletePlayerIdentityTag,
   deleteReplay,
   deleteReplayGroup,
   getAccessToken,
@@ -97,8 +98,10 @@ import {
   listReplayEvents,
   listReplayFilterOptions,
   listLinkedIdentities,
+  listPlayerReports,
   listRecentlyProcessedReplays,
   listReplayProcessingDiagnostics,
+  reportPlayerIdentity,
   listReplayProcessingQueue,
   reprocessFailedQueueJobs,
   reprocessReplaysBatch,
@@ -109,7 +112,9 @@ import {
   removeReplaysFromGroup,
   reprocessReplay,
   reprocessReplayClient,
+  reviewPlayerReport,
   setAccessToken,
+  setPlayerIdentityTag,
   syncBallchasingGroup,
   updateReplayGroup,
   uploadReplay,
@@ -191,6 +196,8 @@ import type {
   MechanicEventResponse,
   MovementSummaryResponse,
   PlayerProfileResponse,
+  PlayerIdentityReport,
+  PlayerIdentityTag,
   PlayerStatOverviewResponse,
   PositioningSummaryResponse,
   PossessionSummaryResponse,
@@ -245,6 +252,7 @@ const navItems = [
   { to: "/rank-trends", label: "Rank Trends", icon: TrendingUp },
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/admin/processing", label: "Admin", icon: ServerCog, adminOnly: true },
+  { to: "/admin/player-reports", label: "Reports", icon: AlertTriangle, adminOnly: true },
   { to: "/about", label: "About", icon: Info },
 ];
 
@@ -478,6 +486,7 @@ export function App() {
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
+          <Route path="/admin/player-reports" element={<AdminPlayerReportsPage />} />
           <Route path="/admin/recently-processed" element={<AdminRecentlyProcessedPage />} />
           <Route path="/admin/queue" element={<AdminQueuePage />} />
           <Route path="/account" element={<AccountPage />} />
@@ -2899,14 +2908,7 @@ function ReplayStatsPage() {
           <h1>{replay?.original_file_name || "Replay stats"}</h1>
         </div>
         <div className="page-header-actions">
-          {replay?.staleness.is_stale ? (
-            <StalenessChip
-              staleness={replay.staleness}
-              processingVersion={replay.processing_version}
-              replayId={replayId}
-              canReprocess={canReprocess}
-            />
-          ) : null}
+          {replay ? <ReplayStatusChip replay={replay} currentUser={currentUser} /> : null}
           {canReprocess ? (
             <button
               className="secondary-button"
@@ -4537,6 +4539,13 @@ function PlayerStatsPage() {
               platformPlayerId={resolvedPlatformPlayerId}
             />
           ) : null}
+          {playerSummary ? (
+            <PlayerModerationControls
+              currentUser={currentUser}
+              player={playerSummary}
+              onPlayerChange={setPlayerSummary}
+            />
+          ) : null}
         </div>
       </header>
       <StatusLine loading={loading} error={error} />
@@ -4565,6 +4574,20 @@ function PlayerStatsPage() {
               {playerSummary.names.map((name) => (
                 <span key={name.name} title={`${name.replay_count.toLocaleString()} replays`}>
                   {name.name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {playerSummary.tags.length > 0 ? (
+            <div className="player-tag-chips">
+              {playerSummary.tags.map((tag) => (
+                <span
+                  key={tag.tag}
+                  className={tag.exclude_from_aggregates ? "is-excluding" : undefined}
+                  title={tag.note ?? undefined}
+                >
+                  {humanizeSlug(tag.tag)}
+                  {tag.exclude_from_aggregates ? " · excluded" : ""}
                 </span>
               ))}
             </div>
@@ -4598,6 +4621,111 @@ function PlayerStatsPage() {
       ) : null}
     </section>
   );
+}
+
+function PlayerModerationControls({
+  currentUser,
+  player,
+  onPlayerChange,
+}: {
+  currentUser: CurrentUserResponse | null;
+  player: PlayerProfileResponse;
+  onPlayerChange: (player: PlayerProfileResponse) => void;
+}) {
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const smurfTag = player.tags.find((tag) => tag.tag === "smurf");
+
+  async function reportSmurf() {
+    setPending(true);
+    setMessage(null);
+    try {
+      await reportPlayerIdentity(player.platform, player.platform_player_id, {
+        report_type: "smurf",
+      });
+      setMessage("Smurf report submitted.");
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to report player.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function toggleSmurfTag() {
+    setPending(true);
+    setMessage(null);
+    try {
+      if (smurfTag) {
+        await deletePlayerIdentityTag(player.platform, player.platform_player_id, "smurf");
+        onPlayerChange({
+          ...player,
+          tags: player.tags.filter((tag) => tag.tag !== "smurf"),
+        });
+        setMessage("Smurf tag removed.");
+      } else {
+        const tag = await setPlayerIdentityTag(
+          player.platform,
+          player.platform_player_id,
+          "smurf",
+          {
+            exclude_from_aggregates: true,
+          },
+        );
+        onPlayerChange({
+          ...player,
+          tags: upsertPlayerTag(player.tags, tag),
+        });
+        setMessage("Smurf tag applied.");
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "Failed to update player tag.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  if (!currentUser) return null;
+
+  return (
+    <div className="player-moderation-controls">
+      {currentUser.is_admin ? (
+        <button
+          className={`secondary-button ${smurfTag ? "is-danger" : ""}`.trim()}
+          type="button"
+          disabled={pending}
+          onClick={toggleSmurfTag}
+          title={
+            smurfTag
+              ? "Remove the smurf tag and restore aggregate eligibility after benchmark refresh"
+              : "Mark this player as a smurf and exclude them from aggregate leaderboards"
+          }
+        >
+          <AlertTriangle size={16} />
+          {smurfTag ? "Unmark smurf" : "Mark smurf"}
+        </button>
+      ) : (
+        <button type="button" disabled={pending} onClick={reportSmurf}>
+          <AlertTriangle size={16} />
+          Report smurf
+        </button>
+      )}
+      {message ? <span className="player-moderation-message">{message}</span> : null}
+    </div>
+  );
+}
+
+function upsertPlayerTag(tags: PlayerIdentityTag[], next: PlayerIdentityTag): PlayerIdentityTag[] {
+  const existing = tags.findIndex((tag) => tag.tag === next.tag);
+  if (existing < 0) return [...tags, next].sort((a, b) => a.tag.localeCompare(b.tag));
+  return tags.map((tag, index) => (index === existing ? next : tag));
+}
+
+function humanizeSlug(value: string): string {
+  return value
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
 }
 
 function playerReplaySetParams(
@@ -7709,6 +7837,159 @@ function legacyAuthOptions(): AuthOptionsResponse {
       start_url: `${deployedOrigin}/auth/${id}/start`,
     })),
   };
+}
+
+function AdminPlayerReportsPage() {
+  const currentUser = useCurrentUser();
+  const [status, setStatus] = useState<"pending" | "accepted" | "dismissed" | "all">("pending");
+  const [reports, setReports] = useState<PlayerIdentityReport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  const loadReports = useCallback(() => {
+    const params = new URLSearchParams();
+    params.set("status", status);
+    params.set("count", "100");
+    setLoading(true);
+    setError(null);
+    listPlayerReports(params)
+      .then((response) => setReports(response.reports))
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setLoading(false));
+  }, [status]);
+
+  useEffect(() => {
+    if (!currentUser?.is_admin) {
+      setLoading(false);
+      return;
+    }
+    loadReports();
+  }, [currentUser?.is_admin, loadReports]);
+
+  async function review(report: PlayerIdentityReport, nextStatus: "accepted" | "dismissed") {
+    setReviewingId(report.id);
+    setActionMessage(null);
+    try {
+      const updated = await reviewPlayerReport(report.id, { status: nextStatus });
+      setReports((current) => current.filter((item) => item.id !== updated.id));
+      setActionMessage(
+        nextStatus === "accepted"
+          ? `${humanizeSlug(report.report_type)} report accepted.`
+          : `${humanizeSlug(report.report_type)} report dismissed.`,
+      );
+    } catch (err) {
+      setActionMessage(err instanceof Error ? err.message : "Failed to review report.");
+    } finally {
+      setReviewingId(null);
+    }
+  }
+
+  if (currentUser && !currentUser.is_admin) {
+    return (
+      <section className="page admin-player-reports-page">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow">Admin</p>
+            <h1>Player reports</h1>
+          </div>
+        </header>
+        <ApiNotice label="Player reports" message="Admin access is required." />
+      </section>
+    );
+  }
+
+  return (
+    <section className="page admin-player-reports-page">
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Admin</p>
+          <h1>Player reports</h1>
+        </div>
+        <div className="button-row">
+          <select
+            value={status}
+            onChange={(event) => setStatus(event.target.value as typeof status)}
+          >
+            <option value="pending">Pending</option>
+            <option value="accepted">Accepted</option>
+            <option value="dismissed">Dismissed</option>
+            <option value="all">All</option>
+          </select>
+          <button type="button" onClick={loadReports} disabled={loading || !currentUser?.is_admin}>
+            <RefreshCw size={16} />
+            Refresh
+          </button>
+        </div>
+      </header>
+      <StatusLine loading={loading} error={error} />
+      {actionMessage ? <p className="admin-action-message">{actionMessage}</p> : null}
+      <div className="table-frame admin-player-reports-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Type</th>
+              <th>Note</th>
+              <th>Status</th>
+              <th>Created</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.length === 0 ? (
+              <tr>
+                <td colSpan={6}>No reports match this filter.</td>
+              </tr>
+            ) : (
+              reports.map((report) => (
+                <tr key={report.id}>
+                  <td>
+                    <Link
+                      className="primary-link"
+                      to={playerProfileIdPath(report.platform, report.platform_player_id)}
+                    >
+                      {report.platform}:{report.platform_player_id}
+                    </Link>
+                  </td>
+                  <td>{humanizeSlug(report.report_type)}</td>
+                  <td>{report.note ?? "-"}</td>
+                  <td>{humanizeSlug(report.status)}</td>
+                  <td>{formatShortDate(report.created_at)}</td>
+                  <td>
+                    {report.status === "pending" ? (
+                      <div className="button-row">
+                        <button
+                          type="button"
+                          disabled={reviewingId === report.id}
+                          onClick={() => void review(report, "accepted")}
+                        >
+                          <Check size={16} />
+                          Accept
+                        </button>
+                        <button
+                          className="secondary-button"
+                          type="button"
+                          disabled={reviewingId === report.id}
+                          onClick={() => void review(report, "dismissed")}
+                        >
+                          <X size={16} />
+                          Dismiss
+                        </button>
+                      </div>
+                    ) : (
+                      "-"
+                    )}
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
 }
 
 function AdminProcessingPage() {

@@ -106,6 +106,8 @@ fn appearances_rank_query_omits_replays_join_when_unfiltered() {
     // can ride the covering index as an index-only scan.
     assert!(sql.contains("FROM replay_players rp WHERE"));
     assert!(!sql.contains("JOIN replays"));
+    assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
+    assert!(sql.contains("aggregate_excluded_tag.exclude_from_aggregates"));
     assert!(sql.contains("GROUP BY rp.platform, rp.platform_player_id"));
 }
 
@@ -215,6 +217,7 @@ fn event_rank_query_builds_ctes_and_metric_order() {
     assert!(sql.contains("denominators AS"));
     assert!(sql.contains("JOIN play_event_subjects subject ON subject.replay_player_id = rp.id"));
     assert!(sql.contains("event.analysis_run_id = r.canonical_analysis_run_id"));
+    assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
     // stat-term filter resolves to an event_types subselect
     assert!(sql.contains("event.event_type_id IN (SELECT stat_filter.id FROM event_types"));
     // replay filter applied
@@ -394,6 +397,7 @@ fn stat_rank_query_reads_materialized_facts() {
     assert!(sql.contains("FROM player_replay_stat_facts fact"));
     assert!(sql.contains("r.canonical_analysis_run_id = fact.analysis_run_id"));
     assert!(sql.contains("WHERE fact.stat_key = "));
+    assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
     assert!(sql.contains("SUM(fact.denominator_value) AS denominator_value"));
     assert!(sql.contains("team_player_count"));
     assert!(sql.contains("share_of_active_time"));
