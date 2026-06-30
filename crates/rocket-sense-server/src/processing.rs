@@ -3971,7 +3971,7 @@ async fn resolve_benchmark_window(
             let window_end = Utc::now();
             let window_start = window_end
                 .checked_sub_months(chrono::Months::new(*months))
-                .ok_or_else(|| anyhow!("rolling window {} months overflowed", months))?;
+                .ok_or_else(|| anyhow!("rolling window {months} months overflowed"))?;
             Ok(Some(ResolvedBenchmarkWindow {
                 window_key: window.window_key(),
                 kind: window.kind(),
@@ -4104,6 +4104,12 @@ async fn refresh_rank_benchmark_window(
               AND btrim(rp.platform) <> ''
               AND rp.platform_player_id IS NOT NULL
               AND btrim(rp.platform_player_id) <> ''
+              AND NOT EXISTS (
+                    SELECT 1 FROM player_identity_tags aggregate_excluded_tag
+                    WHERE aggregate_excluded_tag.platform = rp.platform
+                      AND aggregate_excluded_tag.platform_player_id = rp.platform_player_id
+                      AND aggregate_excluded_tag.exclude_from_aggregates
+                  )
               AND rp.active_time_seconds >= "#,
     );
     builder.push_bind(MIN_APPEARANCE_SECONDS);

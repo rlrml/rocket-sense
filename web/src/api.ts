@@ -17,7 +17,10 @@ import type {
   StatLeaderboardResponse,
   MechanicEventsResponse,
   MovementSummaryResponse,
+  PlayerIdentityReport,
+  PlayerIdentityTag,
   PlayerProfileResponse,
+  PlayerReportsResponse,
   PlayerBoostTotalsResponse,
   PlayerStatOverviewResponse,
   ProcessingVersionBreakdownResponse,
@@ -88,6 +91,9 @@ async function request<T>(path: string, options: ApiRequestOptions = {}): Promis
     const body = await response.text();
     const message = apiErrorMessage(body);
     throw new Error(message || `${response.status} ${response.statusText}`);
+  }
+  if (response.status === 204) {
+    return undefined as T;
   }
   return response.json() as Promise<T>;
 }
@@ -649,6 +655,67 @@ export function getPlayerProfileByRef(
   const suffix = query ? `?${query}` : "";
   return request<PlayerProfileResponse>(
     `/api/v1/players/${encodeURIComponent(platform)}/${encodeURIComponent(playerRef)}${suffix}`,
+  );
+}
+
+export function reportPlayerIdentity(
+  platform: string,
+  platformPlayerId: string,
+  body: { report_type: string; note?: string },
+): Promise<PlayerIdentityReport> {
+  return request<PlayerIdentityReport>(
+    `/api/v1/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(platformPlayerId)}/reports`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function setPlayerIdentityTag(
+  platform: string,
+  platformPlayerId: string,
+  tag: string,
+  body: { exclude_from_aggregates?: boolean; note?: string } = {},
+): Promise<PlayerIdentityTag> {
+  return request<PlayerIdentityTag>(
+    `/api/v1/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(platformPlayerId)}/tags/${encodeURIComponent(tag)}`,
+    {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function deletePlayerIdentityTag(
+  platform: string,
+  platformPlayerId: string,
+  tag: string,
+): Promise<void> {
+  return request<void>(
+    `/api/v1/players/${encodeURIComponent(platform)}/id/${encodeURIComponent(platformPlayerId)}/tags/${encodeURIComponent(tag)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function listPlayerReports(searchParams: URLSearchParams): Promise<PlayerReportsResponse> {
+  const params = new URLSearchParams(searchParams);
+  return request<PlayerReportsResponse>(`/api/v1/admin/player-reports?${params.toString()}`);
+}
+
+export function reviewPlayerReport(
+  reportId: string,
+  body: { status: "accepted" | "dismissed"; review_note?: string; apply_tag?: boolean },
+): Promise<PlayerIdentityReport> {
+  return request<PlayerIdentityReport>(
+    `/api/v1/admin/player-reports/${encodeURIComponent(reportId)}/review`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    },
   );
 }
 

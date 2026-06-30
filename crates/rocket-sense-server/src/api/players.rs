@@ -2,7 +2,7 @@ use crate::{app::AppState, auth::AuthUser};
 use axum::{
     extract::{Path, Query, RawQuery, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post, put},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -31,6 +31,14 @@ pub fn router() -> Router<AppState> {
             get(get_player_profile).put(set_player_public_display_name),
         )
         .route(
+            "/players/{platform}/id/{platform_player_id}/reports",
+            post(report_player_identity),
+        )
+        .route(
+            "/players/{platform}/id/{platform_player_id}/tags/{tag}",
+            put(upsert_player_identity_tag).delete(delete_player_identity_tag),
+        )
+        .route(
             "/players/{platform}/{player_ref}",
             get(get_player_profile_by_ref),
         )
@@ -48,7 +56,18 @@ pub struct PlayerProfileResponse {
     pub first_seen_at: Option<DateTime<Utc>>,
     pub last_seen_at: Option<DateTime<Utc>>,
     pub is_pro: bool,
+    pub tags: Vec<PlayerIdentityTagResponse>,
     pub latest_replays: Vec<PlayerProfileReplayResponse>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerIdentityTagResponse {
+    pub tag: String,
+    pub exclude_from_aggregates: bool,
+    pub note: Option<String>,
+    pub created_by_user_id: Option<Uuid>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -96,6 +115,36 @@ pub struct PlayerNameHistoryQuery {
 #[derive(Debug, Deserialize, ToSchema)]
 pub struct SetPlayerPublicDisplayNameRequest {
     pub display_name: String,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReportPlayerIdentityRequest {
+    /// Typed report reason. Currently used with `smurf`; future values such as
+    /// `quitter` or `thrower` are accepted as lowercase slugs.
+    pub report_type: String,
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerIdentityReportResponse {
+    pub id: Uuid,
+    pub platform: String,
+    pub platform_player_id: String,
+    pub report_type: String,
+    pub reported_by_user_id: Option<Uuid>,
+    pub note: Option<String>,
+    pub status: String,
+    pub reviewed_by_user_id: Option<Uuid>,
+    pub review_note: Option<String>,
+    pub reviewed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Default, Deserialize, ToSchema)]
+pub struct SetPlayerIdentityTagRequest {
+    pub exclude_from_aggregates: Option<bool>,
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -329,6 +378,204 @@ pub async fn set_player_public_display_name(
         display_name: updated,
         claim_status,
     }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/reports",
+    tag = "players",
+    request_body = ReportPlayerIdentityRequest,
+    params(
+        ("platform" = String, Path, description = "Rocket League platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id")
+    ),
+    responses(
+        (status = 200, description = "Player report submitted", body = PlayerIdentityReportResponse),
+        (status = 400, description = "Report type or note was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 404, description = "Player was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn report_player_identity(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id)): Path<(String, String)>,
+    Json(request): Json<ReportPlayerIdentityRequest>,
+) -> Result<Json<PlayerIdentityReportResponse>, ApiError> {
+    let db = require_db(&state)?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    ensure_player_identity_exists(db, &identity).await?;
+    let report_type = normalize_slug("report_type", &request.report_type)?;
+    let note = normalize_optional_note(request.note)?;
+    let report_id = Uuid::new_v4();
+
+    let row = sqlx::query(
+        r#"
+        INSERT INTO player_identity_reports (
+            id,
+            platform,
+            platform_player_id,
+            report_type,
+            reported_by_user_id,
+            note
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (reported_by_user_id, platform, platform_player_id, report_type)
+            WHERE status = 'pending' AND reported_by_user_id IS NOT NULL
+        DO UPDATE SET
+            note = EXCLUDED.note,
+            updated_at = now()
+        RETURNING id, platform, platform_player_id, report_type, reported_by_user_id,
+                  note, status, reviewed_by_user_id, review_note, reviewed_at,
+                  created_at, updated_at
+        "#,
+    )
+    .bind(report_id)
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(&report_type)
+    .bind(auth_user.id)
+    .bind(note)
+    .fetch_one(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    Ok(Json(
+        player_report_from_row(&row).map_err(ApiError::internal)?,
+    ))
+}
+
+#[utoipa::path(
+    put,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/tags/{tag}",
+    tag = "players",
+    request_body = SetPlayerIdentityTagRequest,
+    params(
+        ("platform" = String, Path, description = "Rocket League platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id"),
+        ("tag" = String, Path, description = "Tag slug, e.g. smurf")
+    ),
+    responses(
+        (status = 200, description = "Player tag applied", body = PlayerIdentityTagResponse),
+        (status = 400, description = "Tag payload was invalid"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 404, description = "Player was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn upsert_player_identity_tag(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id, tag)): Path<(String, String, String)>,
+    Json(request): Json<SetPlayerIdentityTagRequest>,
+) -> Result<Json<PlayerIdentityTagResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    ensure_player_identity_exists(db, &identity).await?;
+    let tag = normalize_slug("tag", &tag)?;
+    let exclude_from_aggregates = request
+        .exclude_from_aggregates
+        .unwrap_or_else(|| tag == "smurf");
+    let note = normalize_optional_note(request.note)?;
+
+    let row = sqlx::query(
+        r#"
+        INSERT INTO player_identity_tags (
+            platform,
+            platform_player_id,
+            tag,
+            exclude_from_aggregates,
+            note,
+            created_by_user_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        ON CONFLICT (platform, platform_player_id, tag)
+        DO UPDATE SET
+            exclude_from_aggregates = EXCLUDED.exclude_from_aggregates,
+            note = EXCLUDED.note,
+            created_by_user_id = EXCLUDED.created_by_user_id,
+            updated_at = now()
+        RETURNING tag, exclude_from_aggregates, note, created_by_user_id, created_at, updated_at
+        "#,
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(&tag)
+    .bind(exclude_from_aggregates)
+    .bind(note)
+    .bind(auth_user.id)
+    .fetch_one(db)
+    .await
+    .map_err(ApiError::internal)?;
+
+    if exclude_from_aggregates {
+        refresh_rank_benchmarks_after_exclusion_change(&state, db);
+    }
+
+    Ok(Json(player_tag_from_row(&row).map_err(ApiError::internal)?))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/tags/{tag}",
+    tag = "players",
+    params(
+        ("platform" = String, Path, description = "Rocket League platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id"),
+        ("tag" = String, Path, description = "Tag slug")
+    ),
+    responses(
+        (status = 204, description = "Player tag removed"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 404, description = "Player tag was not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn delete_player_identity_tag(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path((platform, platform_player_id, tag)): Path<(String, String, String)>,
+) -> Result<StatusCode, ApiError> {
+    let db = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let identity = PlayerIdentity::new(platform, platform_player_id)?;
+    let tag = normalize_slug("tag", &tag)?;
+
+    let excluded = sqlx::query_scalar::<_, bool>(
+        r#"
+        DELETE FROM player_identity_tags
+        WHERE platform = $1
+          AND platform_player_id = $2
+          AND tag = $3
+        RETURNING exclude_from_aggregates
+        "#,
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .bind(&tag)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player tag not found"))?;
+
+    if excluded {
+        refresh_rank_benchmarks_after_exclusion_change(&state, db);
+    }
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 struct PlayerIdentity {
@@ -597,6 +844,7 @@ async fn load_player_profile(
     }
 
     let names = load_player_names(pool, identity, filters).await?;
+    let tags = load_player_tags(pool, identity).await?;
     let latest_replays = load_player_replays(pool, identity, filters, 10).await?;
 
     Ok(Some(PlayerProfileResponse {
@@ -612,8 +860,32 @@ async fn load_player_profile(
         is_pro: summary
             .try_get::<Option<bool>, _>("is_pro")?
             .unwrap_or(false),
+        tags,
         latest_replays,
     }))
+}
+
+async fn load_player_tags(
+    pool: &sqlx::PgPool,
+    identity: &PlayerIdentity,
+) -> Result<Vec<PlayerIdentityTagResponse>, sqlx::Error> {
+    let rows = sqlx::query(
+        r#"
+        SELECT tag, exclude_from_aggregates, note, created_by_user_id, created_at, updated_at
+        FROM player_identity_tags
+        WHERE platform = $1
+          AND platform_player_id = $2
+        ORDER BY tag
+        "#,
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .fetch_all(pool)
+    .await?;
+
+    rows.into_iter()
+        .map(|row| player_tag_from_row(&row))
+        .collect()
 }
 
 async fn load_player_names(
@@ -1004,6 +1276,140 @@ fn normalize_public_display_name(value: &str) -> Result<String, ApiError> {
         ));
     }
     Ok(value.to_owned())
+}
+
+pub(crate) fn normalize_slug(name: &str, value: &str) -> Result<String, ApiError> {
+    let value = value.trim().to_ascii_lowercase();
+    let mut chars = value.chars();
+    let starts_valid = chars.next().is_some_and(|ch| ch.is_ascii_lowercase());
+    let rest_valid =
+        chars.all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-');
+    if !starts_valid || !rest_valid {
+        return Err(ApiError::bad_request(format!(
+            "{name} must be a lowercase slug starting with a letter"
+        )));
+    }
+    if value.chars().count() > 64 {
+        return Err(ApiError::bad_request(format!(
+            "{name} must be 64 characters or fewer"
+        )));
+    }
+    Ok(value)
+}
+
+pub(crate) fn normalize_optional_note(value: Option<String>) -> Result<Option<String>, ApiError> {
+    value
+        .map(|note| {
+            let note = note.trim().to_owned();
+            if note.is_empty() {
+                return Ok(None);
+            }
+            if note.chars().count() > 2000 {
+                return Err(ApiError::bad_request(
+                    "note must be 2000 characters or fewer",
+                ));
+            }
+            Ok(Some(note))
+        })
+        .transpose()
+        .map(Option::flatten)
+}
+
+async fn ensure_player_identity_exists(
+    pool: &sqlx::PgPool,
+    identity: &PlayerIdentity,
+) -> Result<(), ApiError> {
+    let exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM player_identities
+            WHERE platform = $1
+              AND platform_player_id = $2
+        )
+        "#,
+    )
+    .bind(&identity.platform)
+    .bind(&identity.platform_player_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)?;
+    if !exists {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "player not found"));
+    }
+    Ok(())
+}
+
+async fn require_admin(state: &AppState, auth_user: &AuthUser) -> Result<(), ApiError> {
+    let pool = require_db(state)?;
+    let is_admin = crate::auth::resolve_is_admin(pool, auth_user, &state.admin_emails)
+        .await
+        .map_err(ApiError::internal)?;
+    if !is_admin {
+        return Err(ApiError::new(
+            StatusCode::FORBIDDEN,
+            "admin access is required for this operation",
+        ));
+    }
+    Ok(())
+}
+
+fn player_tag_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PlayerIdentityTagResponse, sqlx::Error> {
+    Ok(PlayerIdentityTagResponse {
+        tag: row.try_get("tag")?,
+        exclude_from_aggregates: row.try_get("exclude_from_aggregates")?,
+        note: row.try_get("note")?,
+        created_by_user_id: row.try_get("created_by_user_id")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+pub(crate) fn player_report_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PlayerIdentityReportResponse, sqlx::Error> {
+    Ok(PlayerIdentityReportResponse {
+        id: row.try_get("id")?,
+        platform: row.try_get("platform")?,
+        platform_player_id: row.try_get("platform_player_id")?,
+        report_type: row.try_get("report_type")?,
+        reported_by_user_id: row.try_get("reported_by_user_id")?,
+        note: row.try_get("note")?,
+        status: row.try_get("status")?,
+        reviewed_by_user_id: row.try_get("reviewed_by_user_id")?,
+        review_note: row.try_get("review_note")?,
+        reviewed_at: row.try_get("reviewed_at")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+pub(crate) fn refresh_rank_benchmarks_after_exclusion_change(
+    state: &AppState,
+    pool: &sqlx::PgPool,
+) {
+    if !state.rank_benchmark_enabled {
+        return;
+    }
+    let pool = pool.clone();
+    let windows = state.rank_benchmark_windows.to_vec();
+    let calc = state.rank_benchmark_calc;
+    tokio::spawn(async move {
+        match crate::processing::refresh_rank_benchmark(&pool, &windows, calc).await {
+            Ok(refreshed) => {
+                tracing::info!(
+                    refreshed,
+                    "rank benchmark refresh after player tag change finished"
+                )
+            }
+            Err(error) => tracing::error!(
+                ?error,
+                "rank benchmark refresh after player tag change failed"
+            ),
+        }
+    });
 }
 
 fn parse_uuid_filter(name: &str, value: &str) -> Result<Uuid, ApiError> {

@@ -2,6 +2,7 @@ use serde::{
     de::{self, SeqAccess, Visitor},
     Deserializer,
 };
+use sqlx::{Postgres, QueryBuilder};
 use std::fmt;
 use url::form_urlencoded;
 use uuid::Uuid;
@@ -167,4 +168,20 @@ pub(crate) fn parse_datetime_filter(name: &str, value: &str) -> Result<DateTime<
 
 fn normalize_key(key: &str) -> String {
     key.strip_suffix("[]").unwrap_or(key).to_owned()
+}
+
+pub(crate) fn push_aggregate_excluded_player_filter(
+    builder: &mut QueryBuilder<'_, Postgres>,
+    platform_sql: &str,
+    platform_player_id_sql: &str,
+) {
+    builder.push(
+        " AND NOT EXISTS (\
+         SELECT 1 FROM player_identity_tags aggregate_excluded_tag \
+         WHERE aggregate_excluded_tag.platform = ",
+    );
+    builder.push(platform_sql);
+    builder.push(" AND aggregate_excluded_tag.platform_player_id = ");
+    builder.push(platform_player_id_sql);
+    builder.push(" AND aggregate_excluded_tag.exclude_from_aggregates)");
 }

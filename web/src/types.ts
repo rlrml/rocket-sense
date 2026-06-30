@@ -873,7 +873,40 @@ export interface PlayerProfileResponse {
   first_seen_at: string | null;
   last_seen_at: string | null;
   is_pro: boolean;
+  tags: PlayerIdentityTag[];
   latest_replays: PlayerProfileReplayResponse[];
+}
+
+export interface PlayerIdentityTag {
+  tag: string;
+  exclude_from_aggregates: boolean;
+  note: string | null;
+  created_by_user_id: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlayerIdentityReport {
+  id: string;
+  platform: string;
+  platform_player_id: string;
+  report_type: string;
+  reported_by_user_id: string | null;
+  note: string | null;
+  status: "pending" | "accepted" | "dismissed";
+  reviewed_by_user_id: string | null;
+  review_note: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlayerReportsResponse {
+  reports: PlayerIdentityReport[];
+  count: number;
+  offset: number;
+  total: number;
+  next_offset: number | null;
 }
 
 export interface PlayerProfileReplayResponse {

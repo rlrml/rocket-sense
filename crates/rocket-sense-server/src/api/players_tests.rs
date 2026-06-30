@@ -100,6 +100,15 @@ fn public_display_name_is_trimmed_and_limited() {
 }
 
 #[test]
+fn report_and_tag_slugs_are_lowercase_ascii_slugs() {
+    assert_eq!(normalize_slug("report_type", " Smurf ").unwrap(), "smurf");
+    assert_eq!(normalize_slug("tag", "thrower_2").unwrap(), "thrower_2");
+    assert!(normalize_slug("tag", "2smurf").is_err());
+    assert!(normalize_slug("tag", "bad tag").is_err());
+    assert!(normalize_slug("tag", &"a".repeat(65)).is_err());
+}
+
+#[test]
 fn player_replay_query_uses_compact_replay_preview() {
     let identity = PlayerIdentity::new("epic".to_owned(), "abc123".to_owned()).unwrap();
     let filters = PlayerProfileFilters::default();

@@ -15,8 +15,8 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
-use utoipa::ToSchema;
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
@@ -66,6 +66,11 @@ pub fn router() -> Router<AppState> {
             post(refresh_rank_benchmarks),
         )
         .route("/admin/storage/gc-event-streams", post(gc_event_streams))
+        .route("/admin/player-reports", get(list_player_reports))
+        .route(
+            "/admin/player-reports/{report_id}/review",
+            post(review_player_report),
+        )
         .route("/admin/users", get(list_users))
         .route("/admin/users/{user_id}/admin", post(set_user_admin))
 }
@@ -216,6 +221,40 @@ pub struct GcEventStreamsResponse {
     pub deleted_objects: u64,
     pub reclaimed_storage_bytes: u64,
     pub dry_run: bool,
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+pub struct PlayerReportsQuery {
+    /// pending | accepted | dismissed
+    pub status: Option<String>,
+    #[serde(rename = "report-type", alias = "report_type")]
+    pub report_type: Option<String>,
+    pub count: Option<u32>,
+    pub offset: Option<u32>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PlayerReportsResponse {
+    pub reports: Vec<super::players::PlayerIdentityReportResponse>,
+    pub count: u32,
+    pub offset: u32,
+    pub total: u64,
+    pub next_offset: Option<u32>,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct ReviewPlayerReportRequest {
+    /// accepted | dismissed
+    pub status: String,
+    pub review_note: Option<String>,
+    /// When accepted, apply the report type as an admin tag. Defaults to true
+    /// for smurf reports and false for other report types.
+    pub apply_tag: Option<bool>,
+    /// Optional tag slug to apply instead of the report type.
+    pub tag: Option<String>,
+    pub exclude_from_aggregates: Option<bool>,
+    pub tag_note: Option<String>,
 }
 
 #[utoipa::path(
@@ -395,6 +434,180 @@ pub async fn gc_event_streams(
         reclaimed_storage_bytes: summary.reclaimed_storage_bytes,
         dry_run: summary.dry_run,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/admin/player-reports",
+    tag = "admin",
+    params(PlayerReportsQuery),
+    responses(
+        (status = 200, description = "Player reports awaiting or after review", body = PlayerReportsResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn list_player_reports(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Query(query): Query<PlayerReportsQuery>,
+) -> Result<Json<PlayerReportsResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let status = normalize_report_status_filter(query.status)?;
+    let report_type = query
+        .report_type
+        .map(|value| super::players::normalize_slug("report_type", &value))
+        .transpose()
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "report_type must be a lowercase slug starting with a letter",
+            )
+        })?;
+    let count = query.count.unwrap_or(100).clamp(1, 500);
+    let offset = query.offset.unwrap_or(0);
+
+    let total = load_player_reports_total(pool, status.as_deref(), report_type.as_deref()).await?;
+    let reports = load_player_report_rows(
+        pool,
+        status.as_deref(),
+        report_type.as_deref(),
+        count,
+        offset,
+    )
+    .await?;
+    let returned_through = offset.saturating_add(reports.len() as u32);
+    let next_offset = (u64::from(returned_through) < total).then_some(returned_through);
+
+    Ok(Json(PlayerReportsResponse {
+        reports,
+        count,
+        offset,
+        total,
+        next_offset,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/admin/player-reports/{report_id}/review",
+    tag = "admin",
+    params(("report_id" = Uuid, Path, description = "Report id")),
+    request_body = ReviewPlayerReportRequest,
+    responses(
+        (status = 200, description = "Player report reviewed", body = super::players::PlayerIdentityReportResponse),
+        (status = 400, description = "Invalid review request"),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Admin access required"),
+        (status = 404, description = "Report not found"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn review_player_report(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Path(report_id): Path<Uuid>,
+    Json(request): Json<ReviewPlayerReportRequest>,
+) -> Result<Json<super::players::PlayerIdentityReportResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    require_admin(&state, &auth_user).await?;
+    let status = normalize_review_status(&request.status)?;
+    let review_note = super::players::normalize_optional_note(request.review_note)
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "review_note is invalid"))?;
+    let tag_override = request
+        .tag
+        .as_deref()
+        .map(|tag| super::players::normalize_slug("tag", tag))
+        .transpose()
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "tag must be a lowercase slug starting with a letter",
+            )
+        })?;
+    let tag_note = super::players::normalize_optional_note(request.tag_note)
+        .map_err(|_| ApiError::new(StatusCode::BAD_REQUEST, "tag_note is invalid"))?;
+
+    let mut tx = pool.begin().await.map_err(ApiError::internal)?;
+    let row = sqlx::query(
+        r#"
+        UPDATE player_identity_reports
+        SET status = $2,
+            reviewed_by_user_id = $3,
+            review_note = $4,
+            reviewed_at = now(),
+            updated_at = now()
+        WHERE id = $1
+        RETURNING id, platform, platform_player_id, report_type, reported_by_user_id,
+                  note, status, reviewed_by_user_id, review_note, reviewed_at,
+                  created_at, updated_at
+        "#,
+    )
+    .bind(report_id)
+    .bind(status)
+    .bind(auth_user.id)
+    .bind(review_note.as_deref())
+    .fetch_optional(&mut *tx)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player report not found"))?;
+
+    let report = super::players::player_report_from_row(&row).map_err(ApiError::internal)?;
+    let apply_tag = status == "accepted"
+        && request
+            .apply_tag
+            .unwrap_or_else(|| report.report_type == "smurf");
+    let mut refresh_rank_benchmarks = false;
+    if apply_tag {
+        let tag = tag_override.unwrap_or_else(|| report.report_type.clone());
+        let exclude_from_aggregates = request
+            .exclude_from_aggregates
+            .unwrap_or_else(|| tag == "smurf");
+        sqlx::query(
+            r#"
+            INSERT INTO player_identity_tags (
+                platform,
+                platform_player_id,
+                tag,
+                exclude_from_aggregates,
+                note,
+                created_by_user_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6)
+            ON CONFLICT (platform, platform_player_id, tag)
+            DO UPDATE SET
+                exclude_from_aggregates = EXCLUDED.exclude_from_aggregates,
+                note = EXCLUDED.note,
+                created_by_user_id = EXCLUDED.created_by_user_id,
+                updated_at = now()
+            "#,
+        )
+        .bind(&report.platform)
+        .bind(&report.platform_player_id)
+        .bind(&tag)
+        .bind(exclude_from_aggregates)
+        .bind(tag_note.or_else(|| review_note.clone()))
+        .bind(auth_user.id)
+        .execute(&mut *tx)
+        .await
+        .map_err(ApiError::internal)?;
+        refresh_rank_benchmarks = exclude_from_aggregates;
+    }
+    tx.commit().await.map_err(ApiError::internal)?;
+
+    if refresh_rank_benchmarks {
+        super::players::refresh_rank_benchmarks_after_exclusion_change(&state, pool);
+    }
+
+    Ok(Json(report))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -871,6 +1084,99 @@ async fn require_admin(state: &AppState, auth_user: &AuthUser) -> Result<(), Api
         ));
     }
     Ok(())
+}
+
+fn normalize_report_status_filter(status: Option<String>) -> Result<Option<String>, ApiError> {
+    let Some(status) = status.map(|status| status.trim().to_lowercase()) else {
+        return Ok(Some("pending".to_owned()));
+    };
+    if status.is_empty() || status == "all" {
+        return Ok(None);
+    }
+    match status.as_str() {
+        "pending" | "accepted" | "dismissed" => Ok(Some(status)),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "status must be pending, accepted, dismissed, or all",
+        )),
+    }
+}
+
+fn normalize_review_status(status: &str) -> Result<&'static str, ApiError> {
+    match status.trim().to_lowercase().as_str() {
+        "accepted" | "accept" => Ok("accepted"),
+        "dismissed" | "dismiss" | "rejected" | "reject" => Ok("dismissed"),
+        _ => Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "status must be accepted or dismissed",
+        )),
+    }
+}
+
+async fn load_player_reports_total(
+    pool: &PgPool,
+    status: Option<&str>,
+    report_type: Option<&str>,
+) -> Result<u64, ApiError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*)::bigint AS total FROM player_identity_reports WHERE TRUE",
+    );
+    push_player_report_filters(&mut builder, status, report_type);
+    let total: i64 = builder
+        .build()
+        .fetch_one(pool)
+        .await
+        .map_err(ApiError::internal)?
+        .try_get("total")
+        .map_err(ApiError::internal)?;
+    Ok(total.max(0) as u64)
+}
+
+async fn load_player_report_rows(
+    pool: &PgPool,
+    status: Option<&str>,
+    report_type: Option<&str>,
+    count: u32,
+    offset: u32,
+) -> Result<Vec<super::players::PlayerIdentityReportResponse>, ApiError> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT id, platform, platform_player_id, report_type, reported_by_user_id,
+               note, status, reviewed_by_user_id, review_note, reviewed_at,
+               created_at, updated_at
+        FROM player_identity_reports
+        WHERE TRUE
+        "#,
+    );
+    push_player_report_filters(&mut builder, status, report_type);
+    builder.push(" ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC LIMIT ");
+    builder.push_bind(i64::from(count));
+    builder.push(" OFFSET ");
+    builder.push_bind(i64::from(offset));
+
+    builder
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?
+        .into_iter()
+        .map(|row| super::players::player_report_from_row(&row).map_err(ApiError::internal))
+        .collect()
+}
+
+fn push_player_report_filters<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    status: Option<&'args str>,
+    report_type: Option<&'args str>,
+) {
+    if let Some(status) = status {
+        builder.push(" AND status = ");
+        builder.push_bind(status);
+    }
+    if let Some(report_type) = report_type {
+        builder.push(" AND report_type = ");
+        builder.push_bind(report_type);
+    }
 }
 
 fn require_db(state: &AppState) -> Result<&PgPool, ApiError> {
