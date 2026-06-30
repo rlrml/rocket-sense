@@ -2364,14 +2364,7 @@ function ReplayStatsPage() {
           <h1>{replay?.original_file_name || "Replay stats"}</h1>
         </div>
         <div className="button-row">
-          {replay?.staleness.is_stale ? (
-            <StalenessChip
-              staleness={replay.staleness}
-              processingVersion={replay.processing_version}
-              replayId={replayId}
-              canReprocess={canReprocess}
-            />
-          ) : null}
+          {replay ? <ReplayStatusChip replay={replay} currentUser={currentUser} /> : null}
           {canReprocess ? (
             <button
               className="secondary-button"
