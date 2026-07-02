@@ -1720,10 +1720,11 @@ function BoostEconomyComparisonGrid({
   const rankRowsForGroup = (groupKey: string): BoostComparisonRow[] => {
     const metricKey = rankGroupMetricKey[groupKey];
     if (!metricKey || comparisonMode !== "players") return [];
+    const useBarValue = BOOST_BAR_VALUE_GROUPS.has(groupKey);
     return rankCohorts.flatMap((cohort) => {
       const raw = cohort.per_stat[metricKey]?.value;
       if (raw == null || !Number.isFinite(raw)) return [];
-      return [rankBoostComparisonRow(cohort, raw, rankWindowLabel)];
+      return [rankBoostComparisonRow(cohort, raw, rankWindowLabel, useBarValue)];
     });
   };
   const groupsWithRanks = groups.map((group) => {
@@ -1838,10 +1839,15 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
 // per-minute rate (matching this view's valueMode), so it drops onto the group
 // scale directly. The rank icon comes from `rank` (a representative tier for the
 // group), and the slate shade from `segmentColorClassName`.
+// Charts whose bars run short of the shared scale show the value on the bar
+// (`barValue`) rather than a right column, so the rank-cohort row must match.
+const BOOST_BAR_VALUE_GROUPS = new Set(["stolen-amounts", "overfill", "supersonic-use"]);
+
 function rankBoostComparisonRow(
   cohort: RankBenchmarkCohort,
   value: number,
-  rankWindowLabel?: string | null,
+  rankWindowLabel: string | null | undefined,
+  useBarValue: boolean,
 ): BoostComparisonRow {
   // For group grouping `rank_value` is already a group id (0..7); pick the middle
   // division as the representative tier for the icon (matches rankGroupIconUrl).
@@ -1862,7 +1868,7 @@ function rankBoostComparisonRow(
     playerIndex: null,
     sortValue: value,
     total: value,
-    valueLabel: label,
+    ...(useBarValue ? { barValue: label } : { valueLabel: label }),
     segments: [
       {
         className: "",
