@@ -1,7 +1,7 @@
 use super::{
     admin, auth, ballchasing, favorites, health, leaderboards, meta, movement_stats,
-    player_overview, players, positioning_stats, possession_stats, rank_benchmark_cohorts,
-    rank_trends, replays, stats, users,
+    player_overview, player_timeline, players, positioning_stats, possession_stats,
+    rank_benchmark_cohorts, rank_trends, replays, stats, users,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -59,6 +59,7 @@ use utoipa::{
         players::upsert_player_identity_tag,
         players::delete_player_identity_tag,
         player_overview::get_player_stat_overview,
+        player_timeline::get_player_timeline,
         positioning_stats::get_positioning_summary,
         possession_stats::get_possession_summary,
         rank_trends::get_rank_trends,
@@ -174,6 +175,9 @@ use utoipa::{
             player_overview::GoalTagAggregateResponse,
             player_overview::ScoringRateResponse,
             player_overview::RotationTimeShareResponse,
+            player_timeline::PlayerTimelineResponse,
+            player_timeline::PlayerTimelinePoint,
+            player_timeline::PlayerTimelineSession,
             positioning_stats::PositioningSummaryResponse,
             positioning_stats::PositioningCohortSummary,
             possession_stats::PossessionSummaryResponse,

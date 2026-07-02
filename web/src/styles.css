@@ -10209,3 +10209,101 @@ tbody tr:last-child td {
   white-space: nowrap;
   border: 0;
 }
+
+/* Player timeline (rank-over-time) page */
+.player-timeline-chart {
+  padding-top: 12px;
+}
+
+.player-timeline-tooltip {
+  min-width: 200px;
+  display: grid;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(15, 23, 42, 0.94);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.22);
+  color: #ffffff;
+  font-size: var(--text-sm);
+}
+
+.player-timeline-tooltip div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+.player-timeline-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-timeline-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: 0 0 auto;
+}
+
+.player-timeline-buckets-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.player-timeline .delta-positive {
+  color: #15803d;
+}
+
+.player-timeline .delta-negative {
+  color: #b91c1c;
+}
+
+/* Career stats period selector */
+.player-period-select {
+  align-items: center;
+}
+
+.player-period-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.player-period-stepper .stat-group-link[disabled] {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.player-period-label {
+  font-weight: var(--fw-semibold);
+  color: var(--text-strong);
+}
+
+/* Clickable period bands + linked list rows on the timeline */
+.player-timeline-band {
+  cursor: pointer;
+}
+
+.player-timeline-row {
+  cursor: pointer;
+}
+
+.player-timeline-row:hover,
+.player-timeline-row.is-hovered {
+  background: rgba(37, 99, 235, 0.08);
+}

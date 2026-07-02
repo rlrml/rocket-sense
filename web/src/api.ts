@@ -24,6 +24,7 @@ import type {
   PlayerReportsResponse,
   PlayerBoostTotalsResponse,
   PlayerStatOverviewResponse,
+  PlayerTimelineResponse,
   ProcessingVersionBreakdownResponse,
   ProcessingVersionResponse,
   RankBenchmarkCohortsResponse,
@@ -560,6 +561,16 @@ export function getPlayerStatOverview(
   params.set("player-id", `${platform}:${platformPlayerId}`);
   withMaterializedStatsDefault(params);
   return request<PlayerStatOverviewResponse>(`/api/v1/stats/player-overview?${params.toString()}`);
+}
+
+export function getPlayerTimeline(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams,
+): Promise<PlayerTimelineResponse> {
+  const params = new URLSearchParams(searchParams);
+  params.set("player-id", `${platform}:${platformPlayerId}`);
+  return request<PlayerTimelineResponse>(`/api/v1/stats/player-timeline?${params.toString()}`);
 }
 
 export function getPlayerKickoffSummary(

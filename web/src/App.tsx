@@ -83,6 +83,7 @@ import {
   getPlayerProfileByRef,
   getPlayerStatAggregates,
   getPlayerStatOverview,
+  getPlayerTimeline,
   getProcessingVersion,
   getPlayerBoostTotals,
   getRankBenchmarkCohorts,
@@ -126,7 +127,12 @@ import { mapDisplayName } from "./maps";
 import { subtrActorPlayerUrl } from "./playerLink";
 import { LocalReprocessProgressBar } from "./reprocessProgress";
 import { RankTrendsPage } from "./rankTrends";
-import { buildSeasonOptions, formatSeasonCode, formatSeasonLabel } from "./seasons";
+import {
+  buildSeasonOptions,
+  formatSeasonCode,
+  formatSeasonLabel,
+  FREE_TO_PLAY_SEASON_COUNT,
+} from "./seasons";
 import {
   getPreviewPlayerWarmupStatus,
   schedulePreviewPlayerWarmup,
@@ -135,6 +141,21 @@ import {
   warmPreviewPlayerForReplay,
 } from "./stats/playerWarmup";
 import { BoostProfileDetail } from "./stats/boost";
+import { PlayerTimelineSection } from "./stats/playerTimeline";
+import {
+  applyPeriodToParams,
+  formatPeriodLabel,
+  GAME_COUNT_BY_KIND,
+  lastGamesPeriodBounds,
+  latestPeriodAnchor,
+  parsePeriodParam,
+  PERIOD_PARAM,
+  periodBounds,
+  sessionPeriodBounds,
+  shiftPeriodAnchor,
+  type PeriodKind,
+  type PeriodSelection,
+} from "./stats/periods";
 import { GroundPlayProfileDetail } from "./stats/groundPlay";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
@@ -199,6 +220,8 @@ import type {
   PlayerIdentityReport,
   PlayerIdentityTag,
   PlayerStatOverviewResponse,
+  PlayerTimelineResponse,
+  PlayerTimelineSession,
   PositioningSummaryResponse,
   PossessionSummaryResponse,
   ProcessingVersionResponse,
@@ -428,6 +451,10 @@ export function App() {
             element={<PlayerStatsPage />}
           />
           <Route
+            path="/players/:platform/id/:platformPlayerId/timeline"
+            element={<PlayerStatsPage view="timeline" />}
+          />
+          <Route
             path="/players/:platform/id/:platformPlayerId/goals"
             element={
               <Suspense fallback={<StatusLine loading error={null} />}>
@@ -456,6 +483,10 @@ export function App() {
           <Route
             path="/players/:platform/:playerName/stats/:statGroup"
             element={<PlayerStatsPage />}
+          />
+          <Route
+            path="/players/:platform/:playerName/timeline"
+            element={<PlayerStatsPage view="timeline" />}
           />
           <Route
             path="/players/:platform/:playerName/goals"
@@ -1159,7 +1190,7 @@ const rankFilterOptions = [
   { value: "supersonic-legend", label: "Supersonic Legend" },
 ];
 
-const seasonFilterOptions: FilterOptionConfig[] = buildSeasonOptions("Any");
+const seasonFilterOptions: FilterOptionConfig[] = buildSeasonOptions("Any", { newestFirst: true });
 
 interface FilterOptionConfig {
   value: string;
@@ -4131,8 +4162,9 @@ type PlayerSupplementalErrorState = {
   errors: Partial<Record<PlayerSupplementalKey, string>>;
 };
 
-function PlayerStatsPage() {
+function PlayerStatsPage({ view = "stats" }: { view?: "stats" | "timeline" } = {}) {
   const { platform = "", platformPlayerId, playerName, statGroup } = useParams();
+  const isTimelineView = view === "timeline";
   const location = useLocation();
   const navigate = useNavigate();
   const currentUser = useCurrentUser();
@@ -4166,12 +4198,14 @@ function PlayerStatsPage() {
   // Mirror the section + segment filters in the address bar so the current view
   // is always shareable, even before the first nav click writes them explicitly.
   useEffect(() => {
+    // The timeline view has its own URL shape (no /stats/<group> segment).
+    if (isTimelineView) return;
     const canonical = canonicalPlayerStatsPath(routeBasePath, activeGroup.id, location.search);
     const current = `${location.pathname}${location.search}`;
     if (current !== canonical) {
       navigate(canonical, { replace: true });
     }
-  }, [activeGroup.id, location.pathname, location.search, navigate, routeBasePath]);
+  }, [activeGroup.id, isTimelineView, location.pathname, location.search, navigate, routeBasePath]);
   // When reached via a replay-group leaderboard drill-down, the `group` param is
   // already threaded into every stat fetch (so the numbers are group-scoped);
   // resolve the group here only to label the banner + offer a way back.
@@ -4279,6 +4313,21 @@ function PlayerStatsPage() {
     setPlayerSummary(null);
     const request = routeUsesExplicitId ? getPlayerProfile : getPlayerProfileByRef;
     request(platform, routePlayerRef, playerStatsSearchParams)
+      .catch((err: Error) => {
+        // The profile endpoint 404s when the filtered replay set is empty, so
+        // a period with no games (e.g. "Day" before today's first session)
+        // would blank the whole page — including the period selector needed to
+        // escape it. Fall back to the period-unscoped profile and let the stat
+        // panels render their zero states.
+        if (!playerStatsSearchParams.has("period")) throw err;
+        const unscoped = new URLSearchParams(playerStatsSearchParams);
+        unscoped.delete("period");
+        unscoped.delete("replay-date-after");
+        unscoped.delete("replay-date-before");
+        unscoped.delete("min-season");
+        unscoped.delete("max-season");
+        return request(platform, routePlayerRef, unscoped);
+      })
       .then((response) => {
         if (!cancelled) setPlayerSummary(response);
       })
@@ -4312,7 +4361,7 @@ function PlayerStatsPage() {
 
   useEffect(() => {
     let cancelled = false;
-    if (!hasResolvedPlayer) {
+    if (!hasResolvedPlayer || isTimelineView) {
       setStatsLoading(false);
       setStatsError(null);
       return () => {
@@ -4355,6 +4404,7 @@ function PlayerStatsPage() {
   }, [
     activeGroup,
     hasResolvedPlayer,
+    isTimelineView,
     playerStatsSearch,
     resolvedPlatform,
     resolvedPlatformPlayerId,
@@ -4428,7 +4478,7 @@ function PlayerStatsPage() {
     const missingKeys = activeSupplementalKeys.filter(
       (key) => !scopedSupplementalLoaded[key] && !scopedSupplementalLoading[key],
     );
-    if (!hasResolvedPlayer) return;
+    if (!hasResolvedPlayer || isTimelineView) return;
     if (missingKeys.length === 0) return;
 
     let cancelled = false;
@@ -4468,6 +4518,7 @@ function PlayerStatsPage() {
     activeGroup.id,
     activeSupplementalKeyList,
     hasResolvedPlayer,
+    isTimelineView,
     playerStatsSearch,
     resolvedPlatform,
     resolvedPlatformPlayerId,
@@ -4594,9 +4645,36 @@ function PlayerStatsPage() {
           ) : null}
 
           <PlayerStatsSegmentBar rankBenchmark={rankBenchmarkCohorts} />
-          <StatusLine loading={statsLoading} error={null} />
+          {hasResolvedPlayer ? (
+            <PlayerPeriodSelect
+              platform={resolvedPlatform}
+              platformPlayerId={resolvedPlatformPlayerId}
+              routeBasePath={routeBasePath}
+              requestSearch={playerStatsSearch}
+              onTimeline={isTimelineView}
+            />
+          ) : null}
+          {isTimelineView ? (
+            <>
+              <PlayerStatSectionsNav
+                routeBasePath={routeBasePath}
+                search={location.search}
+                activeId="timeline"
+              />
+              {hasResolvedPlayer ? (
+                <PlayerTimelineSection
+                  platform={resolvedPlatform}
+                  platformPlayerId={resolvedPlatformPlayerId}
+                  routeBasePath={routeBasePath}
+                  requestSearch={playerStatsSearch}
+                  search={location.search}
+                />
+              ) : null}
+            </>
+          ) : null}
+          {!isTimelineView ? <StatusLine loading={statsLoading} error={null} /> : null}
           {statsError ? <ApiNotice label="Player stats" message={statsError} /> : null}
-          {stats ? (
+          {!isTimelineView && stats ? (
             <PlayerAggregateStatsSections
               activeGroup={activeGroup}
               kickoffFilterSummary={kickoffFilterSummary}
@@ -4759,6 +4837,58 @@ function ExternalSiteLogo({ site }: { site: "trn" | "ballchasing" }) {
       alt=""
       title={logo.label}
     />
+  );
+}
+
+// The player timeline URL, dropping any active period scope (the timeline has
+// its own timeframe selector; carrying a period's date/season bounds over would
+// invisibly clip the chart).
+function playerTimelinePath(routeBasePath: string, search: string): string {
+  const params = stripKickoffSpawnParams(new URLSearchParams(search));
+  if (params.has("period")) {
+    params.delete("period");
+    params.delete("replay-date-after");
+    params.delete("replay-date-before");
+    params.delete("min-season");
+    params.delete("max-season");
+  }
+  const query = params.toString();
+  return `${routeBasePath}/timeline${query ? `?${query}` : ""}`;
+}
+
+// The stat-section tabs shared by the career stats pages and the timeline tab.
+function PlayerStatSectionsNav({
+  routeBasePath,
+  search,
+  activeId,
+}: {
+  routeBasePath: string;
+  search: string;
+  activeId: string;
+}) {
+  return (
+    <nav className="stat-group-nav" aria-label="Player stat sections">
+      {playerStatsSectionGroups.map((group) => {
+        const GroupIcon = group.icon;
+        return (
+          <Link
+            key={group.id}
+            className={`stat-group-link ${group.id === activeId ? "active" : ""}`}
+            to={playerStatGroupPath(routeBasePath, group.id, search)}
+          >
+            <GroupIcon size={16} />
+            <span>{group.label}</span>
+          </Link>
+        );
+      })}
+      <Link
+        className={`stat-group-link ${activeId === "timeline" ? "active" : ""}`}
+        to={playerTimelinePath(routeBasePath, search)}
+      >
+        <History size={16} />
+        <span>Timeline</span>
+      </Link>
+    </nav>
   );
 }
 
@@ -5650,6 +5780,257 @@ function PlayerStatsSegmentBar({
   );
 }
 
+// Season codes in timeline order (s1..s12 then f1..f23) for period prev/next.
+const orderedSeasonCodes: string[] = buildSeasonOptions("")
+  .map((option) => option.value)
+  .filter(Boolean);
+
+const playerPeriodKindChips: Array<{ kind: PeriodKind | null; label: string }> = [
+  { kind: null, label: "Career" },
+  { kind: "year", label: "Year" },
+  { kind: "season", label: "Season" },
+  { kind: "30d", label: "30 days" },
+  { kind: "week", label: "Week" },
+  { kind: "day", label: "Day" },
+  { kind: "last10", label: "Last 10" },
+  { kind: "last100", label: "Last 100" },
+  { kind: "session", label: "Session" },
+];
+
+// Time-period selector for the career stats pages: chips pick the most recent
+// career/year/season/30-days/week/day/last-N-games/session window, and prev/next
+// arrows step calendar and season/session windows into history. The selection
+// writes `period=` plus the concrete `replay-date-*` (or `min/max-season`)
+// bounds, which every stat fetch already forwards — see stats/periods.ts.
+// Session and last-N bounds come from the timeline endpoint, fetched lazily the
+// first time such a window is picked.
+function PlayerPeriodSelect({
+  platform,
+  platformPlayerId,
+  routeBasePath,
+  requestSearch,
+  onTimeline,
+}: {
+  platform: string;
+  platformPlayerId: string;
+  routeBasePath: string;
+  requestSearch: string;
+  /** True when rendered on the timeline tab, where the "View on timeline" link
+   * would point at the current page. */
+  onTimeline: boolean;
+}) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const active = useMemo(
+    () => parsePeriodParam(new URLSearchParams(location.search).get(PERIOD_PARAM)),
+    [location.search],
+  );
+
+  // The player's timeline (sessions + ordered games) backs the data-driven
+  // windows: session stepping and the last-N-games chips. Fetched without the
+  // active period's own bounds (it must cover games outside the selection) and
+  // cached per player + filter scope.
+  const timelineFetchKey = useMemo(() => {
+    const params = new URLSearchParams(requestSearch);
+    params.delete("timeline-window");
+    params.delete("timeline-buckets");
+    if (params.has(PERIOD_PARAM)) {
+      params.delete(PERIOD_PARAM);
+      params.delete("replay-date-after");
+      params.delete("replay-date-before");
+      params.delete("min-season");
+      params.delete("max-season");
+    }
+    params.sort();
+    return params.toString();
+  }, [requestSearch]);
+  const [timelineCache, setTimelineCache] = useState<{
+    scope: string;
+    timeline: PlayerTimelineResponse;
+  } | null>(null);
+  const scope = `${platform}\n${platformPlayerId}\n${timelineFetchKey}`;
+  const timeline = timelineCache?.scope === scope ? timelineCache.timeline : null;
+  const sessions = timeline?.sessions ?? null;
+
+  // Deduped by scope: the cache-state update re-runs the mount effect while
+  // the first request is still in flight, so concurrent callers must share one
+  // promise instead of each firing their own fetch.
+  const timelinePromiseRef = useRef<{
+    scope: string;
+    promise: Promise<PlayerTimelineResponse>;
+  } | null>(null);
+  const fetchTimeline = useCallback((): Promise<PlayerTimelineResponse> => {
+    if (timelineCache?.scope === scope) return Promise.resolve(timelineCache.timeline);
+    if (timelinePromiseRef.current?.scope === scope) return timelinePromiseRef.current.promise;
+    const promise = getPlayerTimeline(
+      platform,
+      platformPlayerId,
+      new URLSearchParams(timelineFetchKey),
+    )
+      .then((response) => {
+        setTimelineCache({ scope, timeline: response });
+        return response;
+      })
+      .finally(() => {
+        if (timelinePromiseRef.current?.scope === scope) timelinePromiseRef.current = null;
+      });
+    timelinePromiseRef.current = { scope, promise };
+    return promise;
+  }, [platform, platformPlayerId, scope, timelineFetchKey, timelineCache]);
+
+  // Arriving on a session-scoped link needs the list too (for prev/next).
+  useEffect(() => {
+    if (active?.kind !== "session" || sessions != null || !platform || !platformPlayerId) return;
+    fetchTimeline().catch(() => {
+      // Stepping is disabled while the list is missing; the scoped stats
+      // themselves are unaffected (the URL already carries the bounds).
+    });
+  }, [active?.kind, fetchTimeline, platform, platformPlayerId, sessions]);
+
+  const applySelection = (
+    selection: PeriodSelection | null,
+    bounds?: ReturnType<typeof periodBounds>,
+  ) => {
+    const params = new URLSearchParams(location.search);
+    applyPeriodToParams(params, selection, bounds);
+    const query = params.toString();
+    navigate(query ? `${location.pathname}?${query}` : location.pathname);
+  };
+
+  const applySession = (session: PlayerTimelineSession) => {
+    applySelection(
+      { kind: "session", anchor: session.start },
+      sessionPeriodBounds(session.start, session.end),
+    );
+  };
+
+  // Bounds spanning the most recent `count` games, anchored on the latest game.
+  const applyLastGames = (kind: PeriodKind, count: number, response: PlayerTimelineResponse) => {
+    const isos = response.points.map((point) => point.replay_date);
+    const bounds = lastGamesPeriodBounds(isos, count);
+    const latest = isos[isos.length - 1];
+    if (bounds && latest) applySelection({ kind, anchor: latest }, bounds);
+  };
+
+  const selectKind = (kind: PeriodKind | null) => {
+    if (kind === active?.kind || (kind == null && active == null)) return;
+    if (kind == null) {
+      applySelection(null);
+      return;
+    }
+    if (kind === "season") {
+      applySelection({ kind, anchor: `f${FREE_TO_PLAY_SEASON_COUNT}` });
+      return;
+    }
+    if (kind === "session") {
+      fetchTimeline()
+        .then((response) => {
+          const latest = response.sessions[response.sessions.length - 1];
+          if (latest) applySession(latest);
+        })
+        .catch(() => {});
+      return;
+    }
+    const gameCount = GAME_COUNT_BY_KIND[kind];
+    if (gameCount != null) {
+      fetchTimeline()
+        .then((response) => applyLastGames(kind, gameCount, response))
+        .catch(() => {});
+      return;
+    }
+    applySelection({ kind, anchor: latestPeriodAnchor(kind, new Date()) });
+  };
+
+  const step = (direction: -1 | 1) => {
+    if (!active) return;
+    if (active.kind === "season") {
+      const index = orderedSeasonCodes.indexOf(active.anchor.toLowerCase());
+      const nextCode = index >= 0 ? orderedSeasonCodes[index + direction] : undefined;
+      if (nextCode) applySelection({ kind: "season", anchor: nextCode });
+      return;
+    }
+    if (active.kind === "session") {
+      if (!sessions) return;
+      const index = sessions.findIndex((session) => session.start === active.anchor);
+      const next = index >= 0 ? sessions[index + direction] : undefined;
+      if (next) applySession(next);
+      return;
+    }
+    const anchor = shiftPeriodAnchor(active, direction);
+    if (anchor) applySelection({ kind: active.kind, anchor });
+  };
+
+  // Last-N-games windows are anchored to "now" and don't step through history.
+  const steppable = active != null && GAME_COUNT_BY_KIND[active.kind] == null;
+
+  const canStep = (direction: -1 | 1): boolean => {
+    if (!active || !steppable) return false;
+    if (active.kind === "season") {
+      const index = orderedSeasonCodes.indexOf(active.anchor.toLowerCase());
+      return index >= 0 && orderedSeasonCodes[index + direction] != null;
+    }
+    if (active.kind === "session") {
+      if (!sessions) return false;
+      const index = sessions.findIndex((session) => session.start === active.anchor);
+      return index >= 0 && sessions[index + direction] != null;
+    }
+    if (direction > 0) {
+      const anchor = shiftPeriodAnchor(active, 1);
+      const bounds = anchor ? periodBounds({ kind: active.kind, anchor }) : null;
+      return bounds != null && bounds.after.getTime() <= Date.now();
+    }
+    return shiftPeriodAnchor(active, -1) != null;
+  };
+
+  return (
+    <nav className="stat-group-nav player-period-select" aria-label="Time period">
+      <span className="segment-bar-label">Period</span>
+      {playerPeriodKindChips.map((chip) => (
+        <button
+          key={chip.kind ?? "all"}
+          type="button"
+          className={`stat-group-link ${(active?.kind ?? null) === chip.kind ? "active" : ""}`}
+          onClick={() => selectKind(chip.kind)}
+        >
+          {chip.label}
+        </button>
+      ))}
+      {active ? (
+        <span className="player-period-stepper">
+          {steppable ? (
+            <button
+              type="button"
+              className="stat-group-link"
+              aria-label="Previous period"
+              disabled={!canStep(-1)}
+              onClick={() => step(-1)}
+            >
+              ‹
+            </button>
+          ) : null}
+          <span className="player-period-label">{formatPeriodLabel(active)}</span>
+          {steppable ? (
+            <button
+              type="button"
+              className="stat-group-link"
+              aria-label="Next period"
+              disabled={!canStep(1)}
+              onClick={() => step(1)}
+            >
+              ›
+            </button>
+          ) : null}
+          {onTimeline ? null : (
+            <Link className="primary-link" to={playerTimelinePath(routeBasePath, location.search)}>
+              View on timeline
+            </Link>
+          )}
+        </span>
+      ) : null}
+    </nav>
+  );
+}
+
 // A stat section renders as an ordered list of panels. A "cards" panel is a
 // list of comparison cards: the combined view lays them out in a grid, and the
 // wins/losses split pairs them card-by-card so each metric keeps its win and
@@ -6073,21 +6454,11 @@ function PlayerAggregateStatsSections({
 
   return (
     <section className="stat-detail player-aggregate-stats">
-      <nav className="stat-group-nav" aria-label="Player stat sections">
-        {playerStatsSectionGroups.map((group) => {
-          const GroupIcon = group.icon;
-          return (
-            <Link
-              key={group.id}
-              className={`stat-group-link ${group.id === activeGroup.id ? "active" : ""}`}
-              to={playerStatGroupPath(routeBasePath, group.id, search)}
-            >
-              <GroupIcon size={16} />
-              <span>{group.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+      <PlayerStatSectionsNav
+        routeBasePath={routeBasePath}
+        search={search}
+        activeId={activeGroup.id}
+      />
 
       <header className="stat-detail-header">
         <div>

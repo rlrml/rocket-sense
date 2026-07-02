@@ -635,6 +635,47 @@ export interface PlayerStatOverviewResponse {
   rotation_depths: RotationTimeShareResponse[];
 }
 
+export interface PlayerTimelinePoint {
+  replay_id: string;
+  /** RFC3339 played-at timestamp (replays without one are excluded). */
+  replay_date: string;
+  /** Canonical playlist group key (e.g. "ranked-2v2"), when derivable. */
+  playlist_group: string | null;
+  season: string | null;
+  rank_tier: number | null;
+  rank_division: number | null;
+  rank_mmr: number | null;
+  /** Rank was carried forward from an earlier submission, not this replay's. */
+  rank_is_fallback: boolean;
+  /** "win" | "loss", or null for ties and replays missing scores/team. */
+  outcome: string | null;
+  /** Index into PlayerTimelineResponse.sessions, 0-based oldest first. */
+  session_index: number;
+}
+
+export interface PlayerTimelineSession {
+  session_index: number;
+  /** replay_date of the session's first game (game start). */
+  start: string;
+  /** replay_date of the session's last game (that game's start, not end). */
+  end: string;
+  replay_count: number;
+  wins: number;
+  losses: number;
+  start_mmr: number | null;
+  end_mmr: number | null;
+}
+
+export interface PlayerTimelineResponse {
+  points: PlayerTimelinePoint[];
+  sessions: PlayerTimelineSession[];
+  session_gap_minutes: number;
+  /** True when `limit` clipped older replays. */
+  truncated: boolean;
+  /** The season code `season=current` resolved to, when requested. */
+  resolved_season: string | null;
+}
+
 export interface EventStatMetricResponse {
   key: string;
   label: string;

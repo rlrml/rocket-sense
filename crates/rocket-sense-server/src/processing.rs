@@ -4381,7 +4381,7 @@ async fn resolve_benchmark_window(
 /// Pick the season `season:current` resolves to: the most recent season (by its
 /// `replay_date` range, not the text code) that already has enough replays,
 /// falling back to the most recent prior season while a new one is still thin.
-async fn resolve_current_season(pool: &PgPool) -> Result<Option<String>> {
+pub(crate) async fn resolve_current_season(pool: &PgPool) -> Result<Option<String>> {
     let rows = sqlx::query(
         r#"
         SELECT season, COUNT(*) AS cnt

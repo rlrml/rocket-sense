@@ -39,9 +39,14 @@ export function formatSeasonLabel(value: string): string {
   return `${prefix} S${parsed.number}`;
 }
 
-export function buildSeasonOptions(anyLabel: string): Array<{ value: string; label: string }> {
-  return [
-    { value: "", label: anyLabel },
+export function buildSeasonOptions(
+  anyLabel: string,
+  options: { newestFirst?: boolean } = {},
+): Array<{ value: string; label: string }> {
+  // Chronological order (legacy s1..s12 then free-to-play f1..f23). Callers that
+  // step through seasons rely on this order, so `newestFirst` only reverses the
+  // display list for dropdowns — the default order is unchanged.
+  const seasons = [
     ...Array.from({ length: LEGACY_SEASON_COUNT }, (_, index) => {
       const value = `s${index + 1}`;
       return { value, label: formatSeasonLabel(value) };
@@ -51,4 +56,6 @@ export function buildSeasonOptions(anyLabel: string): Array<{ value: string; lab
       return { value, label: formatSeasonLabel(value) };
     }),
   ];
+  if (options.newestFirst) seasons.reverse();
+  return [{ value: "", label: anyLabel }, ...seasons];
 }

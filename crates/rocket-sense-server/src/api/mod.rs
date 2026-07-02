@@ -10,6 +10,7 @@ mod meta;
 mod movement_stats;
 mod openapi;
 mod player_overview;
+mod player_timeline;
 mod players;
 mod positioning_stats;
 mod possession_stats;
@@ -75,6 +76,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(meta::router())
         .merge(movement_stats::router())
         .merge(player_overview::router())
+        .merge(player_timeline::router())
         .merge(positioning_stats::router())
         .merge(possession_stats::router())
         .merge(players::router())

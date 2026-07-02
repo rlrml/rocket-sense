@@ -405,7 +405,7 @@ const playlistOptions = [
   { value: "tournament", label: "Tournament" },
 ];
 
-const seasonOptions = buildSeasonOptions("Any season");
+const seasonOptions = buildSeasonOptions("Any season", { newestFirst: true });
 
 function dateInputFromParam(value: string | null): string {
   if (!value) return "";
