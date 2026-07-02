@@ -2022,8 +2022,8 @@ tbody tr:last-child td {
 
 .stat-group-nav {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
   padding-bottom: 2px;
 }
 
@@ -2055,7 +2055,12 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
-.replay-group-page .stat-group-nav,
+.replay-group-page .stat-group-nav {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .replay-group-page .group-participant-strip,
 .replay-group-page .replay-group-subgroup-list,
 .replay-group-page .ballchasing-mirror-status {
