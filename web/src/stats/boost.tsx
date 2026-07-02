@@ -1586,7 +1586,7 @@ function BoostEconomyComparisonGrid({
           playerIndex: summaryPlayerIndex(summary),
           sortValue: scaleBoostValue(summary, summary.stolen),
           total: scaleBoostValue(summary, summary.stolen),
-          valueLabel: boostValueLabel(summary, summary.stolen),
+          barValue: boostValueLabel(summary, summary.stolen),
           segments: stolenSegments(summary),
         }))
         .sort((left, right) => right.sortValue - left.sortValue),
@@ -1611,7 +1611,7 @@ function BoostEconomyComparisonGrid({
           playerIndex: summaryPlayerIndex(summary),
           sortValue: scaleBoostValue(summary, summary.overfill),
           total: scaleBoostValue(summary, summary.overfill),
-          valueLabel: boostValueLabel(summary, summary.overfill),
+          barValue: boostValueLabel(summary, summary.overfill),
           segments: [
             {
               className: "overfill-source",
@@ -1644,7 +1644,7 @@ function BoostEconomyComparisonGrid({
           playerIndex: summaryPlayerIndex(summary),
           sortValue: scaleBoostValue(summary, summary.usedWhileSupersonic),
           total: scaleBoostValue(summary, summary.usedWhileSupersonic),
-          valueLabel: boostValueLabel(summary, summary.usedWhileSupersonic),
+          barValue: boostValueLabel(summary, summary.usedWhileSupersonic),
           segments: [
             {
               className: "supersonic-source",
@@ -1773,7 +1773,10 @@ interface BoostComparisonRow {
   playerIndex: number | null;
   sortValue: number;
   total: number;
-  valueLabel: string;
+  /** Right-column value. Charts whose bars run short of the shared scale use
+   * `barValue` instead so the number still shows (trailing past the bar). */
+  valueLabel?: string;
+  barValue?: string;
   segments: BoostComparisonSegment[];
 }
 
@@ -1805,7 +1808,7 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
           subtitle={row.subtitle ?? teamLabel(row.team)}
         />
       ),
-      ariaLabel: `${row.name}: ${row.valueLabel}`,
+      ariaLabel: `${row.name}: ${row.valueLabel ?? row.barValue ?? ""}`,
       segments: row.segments.map((segment) => ({
         key: `${row.key}:${segment.label}`,
         className: boostComparisonSegmentClassName(row, segment),
@@ -1817,6 +1820,7 @@ function BoostComparisonGroupChart({ group }: { group: BoostComparisonGroup }) {
       total: row.total,
       maxValue: group.maxValue,
       valueLabel: row.valueLabel,
+      barValue: row.barValue,
     };
   });
 
