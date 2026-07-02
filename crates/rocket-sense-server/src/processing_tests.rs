@@ -25,6 +25,193 @@ fn materialized_dense_streams_are_excluded_from_event_counts() {
 }
 
 #[test]
+fn dense_streams_are_never_persisted_as_play_events() {
+    let movement = indexed_timeline_payload_event(
+        "movement",
+        0,
+        &serde_json::json!({
+            "start_time": 1.0,
+            "end_time": 2.0,
+            "duration": 1.0,
+            "player": { "Steam": 76561198000000001_u64 },
+            "avg_speed": 1200.0
+        }),
+    )
+    .expect("movement event should index");
+    let rotation = indexed_timeline_payload_event(
+        "rotation_role",
+        0,
+        &serde_json::json!({
+            "start_time": 1.0,
+            "end_time": 2.0,
+            "duration": 1.0,
+            "player": { "Steam": 76561198000000001_u64 },
+            "state": "first_man"
+        }),
+    )
+    .expect("rotation role event should index");
+    let touch = indexed_timeline_payload_event(
+        "touch",
+        0,
+        &serde_json::json!({
+            "time": 21.0,
+            "frame": 1260,
+            "player": { "Steam": 76561198000000001_u64 },
+            "team_is_team_0": true
+        }),
+    )
+    .expect("touch event should index");
+
+    // Dense telemetry stays in memory (and object storage); reviewable events
+    // like touches still become play_events rows.
+    assert!(!should_persist_play_event(&movement));
+    assert!(!should_persist_play_event(&rotation));
+    assert!(should_persist_play_event(&touch));
+}
+
+#[test]
+fn in_memory_movement_aggregation_matches_sql_semantics() {
+    let player = serde_json::json!({ "Steam": 76561198000000001_u64 });
+    let events = vec![
+        // Explicit per-state seconds keys win over the state fallback; speed is
+        // duration-weighted.
+        indexed_timeline_payload_event(
+            "movement",
+            0,
+            &serde_json::json!({
+                "start_time": 0.0,
+                "end_time": 2.0,
+                "duration": 2.0,
+                "player": player,
+                "avg_speed": 1000.0,
+                "total_distance": 2000.0,
+                "time_supersonic_speed": 0.75,
+                "time_ground": 1.5
+            }),
+        )
+        .expect("movement event should index"),
+        // No explicit seconds keys: the state fallback credits the whole
+        // duration, and the alternate speed/distance key names are honored.
+        indexed_timeline_payload_event(
+            "movement",
+            1,
+            &serde_json::json!({
+                "start_time": 2.0,
+                "end_time": 5.0,
+                "duration": 3.0,
+                "player": player,
+                "speed": 500.0,
+                "distance": 1000.0,
+                "speed_band": "slow_speed",
+                "height_band": "low_air"
+            }),
+        )
+        .expect("movement event should index"),
+        // Powerslide toggles pair on->off (1.5s); the trailing unclosed `on`
+        // still counts as a slide but adds no seconds.
+        indexed_timeline_payload_event(
+            "powerslide",
+            0,
+            &serde_json::json!({ "time": 10.0, "frame": 600, "player": player, "active": true }),
+        )
+        .expect("powerslide event should index"),
+        indexed_timeline_payload_event(
+            "powerslide",
+            1,
+            &serde_json::json!({ "time": 11.5, "frame": 690, "player": player, "active": false }),
+        )
+        .expect("powerslide event should index"),
+        indexed_timeline_payload_event(
+            "powerslide",
+            2,
+            &serde_json::json!({ "time": 12.0, "frame": 720, "player": player, "active": true }),
+        )
+        .expect("powerslide event should index"),
+        // Mechanic counts come from the kept mechanics stream, not the dense
+        // movement stream.
+        indexed_timeline_payload_event(
+            "mechanics",
+            0,
+            &serde_json::json!({ "kind": "wavedash", "time": 1.0, "frame": 60, "player": player }),
+        )
+        .expect("mechanic event should index"),
+    ];
+
+    let aggregates = player_replay_movement_aggregates_from_events(&events);
+    let aggregate = aggregates
+        .get("steam:76561198000000001")
+        .expect("player should have movement aggregate");
+    assert_eq!(aggregate.total_distance, 3000.0);
+    assert_eq!(aggregate.speed_weighted, 1000.0 * 2.0 + 500.0 * 3.0);
+    assert_eq!(aggregate.speed_weight, 5.0);
+    assert_eq!(aggregate.supersonic_seconds, 0.75);
+    assert_eq!(aggregate.ground_seconds, 1.5);
+    assert_eq!(aggregate.slow_seconds, 3.0);
+    assert_eq!(aggregate.low_air_seconds, 3.0);
+    assert_eq!(aggregate.boost_seconds, 0.0);
+    assert_eq!(aggregate.high_air_seconds, 0.0);
+    assert_eq!(aggregate.powerslide_count, 2);
+    assert_eq!(aggregate.powerslide_seconds, 1.5);
+    assert_eq!(aggregate.wavedashes, 1);
+    assert_eq!(aggregate.speed_flips, 0);
+    assert_eq!(aggregate.half_flips, 0);
+}
+
+#[test]
+fn first_man_stints_come_from_rotation_role_spans_in_memory() {
+    let player = serde_json::json!({ "Steam": 76561198000000001_u64 });
+    let events = vec![
+        indexed_timeline_payload_event(
+            "rotation_role",
+            0,
+            &serde_json::json!({
+                "start_time": 1.0,
+                "end_time": 4.0,
+                "duration": 3.0,
+                "player": player,
+                "state": "first_man"
+            }),
+        )
+        .expect("first-man span should index"),
+        // Non-first-man roles and zero-duration spans are excluded, matching
+        // INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL.
+        indexed_timeline_payload_event(
+            "rotation_role",
+            1,
+            &serde_json::json!({
+                "start_time": 4.0,
+                "end_time": 6.0,
+                "duration": 2.0,
+                "player": player,
+                "state": "mid"
+            }),
+        )
+        .expect("mid span should index"),
+        indexed_timeline_payload_event(
+            "rotation_role",
+            2,
+            &serde_json::json!({
+                "start_time": 6.0,
+                "end_time": 6.0,
+                "duration": 0.0,
+                "player": player,
+                "state": "first_man"
+            }),
+        )
+        .expect("zero-duration span should index"),
+    ];
+
+    let stints = first_man_stint_events(&events).collect::<Vec<_>>();
+    assert_eq!(stints.len(), 1);
+    let (event, duration) = &stints[0];
+    assert_eq!(*duration, 3.0);
+    assert!(event
+        .subjects
+        .iter()
+        .any(|subject| subject.role == "actor" && subject.id == "steam:76561198000000001"));
+}
+
+#[test]
 fn materialized_dense_stream_set_retains_live_read_streams() {
     // Streams still read at request time or counted must never be dropped.
     for kept in [
@@ -2000,6 +2187,9 @@ async fn reprocess_populates_all_materialized_tables() {
         "player_replay_event_counts",
         "player_replay_first_man_stints",
         "player_replay_positioning",
+        "player_replay_movement",
+        "player_replay_touch_breakdowns",
+        "player_replay_kickoff",
         "player_replay_possession",
         "player_replay_boost",
         "replay_team_control",

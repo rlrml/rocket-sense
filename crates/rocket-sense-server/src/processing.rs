@@ -1375,21 +1375,28 @@ const NON_INDEXED_TIMELINE_STREAMS: &[&str] =
 // from the in-memory event list below.
 const NON_PERSISTED_PLAY_EVENT_STREAMS: &[&str] = &["depth_role"];
 
-// Dense per-frame telemetry streams whose raw `play_events` rows are deleted
-// immediately after per-replay materialization (see
-// `delete_materialized_dense_stream_events`). These streams dominate row count
-// (~62% of all events) but are never read at request time: they are already
-// excluded from the user-facing aggregate event counts (kept in sync with
-// `AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL` / the exclusion list in
-// `INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL`) and their stats are served entirely
-// from the materialized `player_replay_*` tables. The canonical event stream is
-// always retained as a JSON object in storage, so dropping the relational index
-// loses nothing recoverable -- reprocessing rebuilds it. `boost_state` /
-// `boost_ledger` were retired by the subtr-actor boost-model rewrite (see the
-// v3 -> v4 note below) and are listed here only so any lingering rows from old
-// runs are reclaimed too. Streams that are still counted or read live
-// (`depth_role`, `player_activity`, `positioning_distance`, `possession`,
-// `touch`, `boost_pickup`, ...) are intentionally absent.
+// Dense per-frame telemetry streams that are never projected into permanent
+// `play_events` rows (excluded by `should_persist_play_event`). These streams
+// dominate row count (~70-80% of all events) but are never read at request
+// time: they are already excluded from the user-facing aggregate event counts
+// (kept in sync with `AGGREGATE_VISIBLE_EVENT_SOURCE_STREAM_SQL` / the
+// exclusion list in `INSERT_PLAYER_REPLAY_EVENT_COUNTS_SQL`) and their stats
+// are served entirely from the materialized `player_replay_*` tables, which
+// are populated straight from the in-memory event list during processing
+// (`insert_player_replay_positioning_from_events`,
+// `insert_player_replay_movement_from_events`,
+// `insert_player_replay_first_man_stints_from_events`). The canonical event
+// stream is always retained as a JSON object in storage, so skipping the
+// relational index loses nothing recoverable -- reprocessing rebuilds it.
+// `delete_materialized_dense_stream_events` still runs after materialization
+// as a guard that reclaims rows written by earlier versions (or by the
+// profile-timing backfill, which persists some of these streams row-by-row for
+// legacy replays). `boost_state` / `boost_ledger` were retired by the
+// subtr-actor boost-model rewrite (see the v3 -> v4 note below) and are listed
+// here only so any lingering rows from old runs are reclaimed too. Streams
+// that are still counted or read live (`depth_role`, `player_activity`,
+// `positioning_distance`, `possession`, `touch`, `boost_pickup`, ...) are
+// intentionally absent.
 const MATERIALIZED_DENSE_SOURCE_STREAMS: &[&str] = &[
     "positioning",
     "boost_state",
@@ -2505,16 +2512,34 @@ async fn persist_analysis_output(
         .await?;
     insert_player_replay_stat_facts(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_event_counts(pool, analysis_run_id, replay_id).await?;
-    insert_player_replay_first_man_stints(pool, analysis_run_id, replay_id).await?;
-    insert_player_replay_movement(pool, analysis_run_id, replay_id).await?;
+    insert_player_replay_first_man_stints_from_events(
+        pool,
+        analysis_run_id,
+        replay_id,
+        &output.indexed_events,
+        &output.metadata,
+        &replay_players,
+    )
+    .await?;
+    insert_player_replay_movement_from_events(
+        pool,
+        analysis_run_id,
+        replay_id,
+        &output.indexed_events,
+    )
+    .await?;
     insert_player_replay_touch_breakdowns(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_possession(pool, analysis_run_id, replay_id).await?;
     insert_replay_team_control(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_boost(pool, analysis_run_id, replay_id).await?;
     insert_player_replay_kickoff(pool, analysis_run_id, replay_id).await?;
-    // Every materializer above has now consumed the dense per-frame streams, so
-    // drop their raw rows to keep them from accumulating in the relational index.
-    // The full event stream stays in object storage as the source of truth.
+    // Dense per-frame streams are no longer written to `play_events` at all
+    // (see MATERIALIZED_DENSE_SOURCE_STREAMS / should_persist_play_event); the
+    // materializers above consume them straight from the in-memory event list.
+    // This delete is a cheap guard (index scan, normally zero rows) that
+    // reclaims dense rows written by earlier code versions when such a run is
+    // re-materialized. The full event stream stays in object storage as the
+    // source of truth.
     let dropped_dense_events =
         delete_materialized_dense_stream_events(pool, analysis_run_id, replay_id).await?;
     if dropped_dense_events > 0 {
@@ -2787,6 +2812,114 @@ pub async fn backfill_player_replay_first_man_stints(pool: &PgPool) -> Result<u6
     }
     tracing::info!(backfilled, total, "first-man stint backfill complete");
     Ok(backfilled)
+}
+
+/// The first-man stint predicate from `INSERT_PLAYER_REPLAY_FIRST_MAN_STINTS_SQL`,
+/// applied to the in-memory event list: modern runs emit stints as
+/// `rotation_role` spans with a `first_man` state attribute;
+/// `rotation_first_man_stint` is the retired stream kept for legacy scaffolds.
+/// Yields each qualifying event with its positive duration.
+fn first_man_stint_events(
+    events: &[IndexedEvent],
+) -> impl Iterator<Item = (&IndexedEvent, f64)> + '_ {
+    events.iter().filter_map(|event| {
+        let qualifies = match event.source_stream.as_str() {
+            "rotation_first_man_stint" => event.event_type_key == "rotation_first_man_stint",
+            "rotation_role" => {
+                event.attributes.get("state").and_then(Value::as_str) == Some("first_man")
+            }
+            _ => false,
+        };
+        if !qualifies {
+            return None;
+        }
+        event
+            .duration_seconds
+            .filter(|duration| *duration > 0.0)
+            .map(|duration| (event, duration))
+    })
+}
+
+/// Materialize `player_replay_first_man_stints` from the in-memory event list.
+/// The `rotation_role` source spans are dense telemetry that is never persisted
+/// to `play_events` (see `MATERIALIZED_DENSE_SOURCE_STREAMS`), so this is the
+/// only path that can see them during processing; `event_id` is minted fresh
+/// per stint since there is no play_events row to reference (the column is only
+/// part of the dedup primary key).
+async fn insert_player_replay_first_man_stints_from_events(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+    metadata: &ReplaySearchMetadata,
+    replay_players: &HashMap<String, Uuid>,
+) -> Result<()> {
+    sqlx::query(
+        "DELETE FROM player_replay_first_man_stints WHERE analysis_run_id = $1 AND replay_id = $2",
+    )
+    .bind(analysis_run_id)
+    .bind(replay_id)
+    .execute(pool)
+    .await
+    .context("failed to clear player replay first-man stints")?;
+
+    let players = positioning_players_from_metadata(metadata, replay_players);
+    let mut rows = Vec::new();
+    for (event, duration) in first_man_stint_events(events) {
+        let event_id = Uuid::now_v7();
+        let mut seen = HashSet::new();
+        for subject in &event.subjects {
+            if subject.role != "actor" || !seen.insert(subject.id.as_str()) {
+                continue;
+            }
+            let Some(player) = players.get(&subject.id) else {
+                continue;
+            };
+            rows.push((subject.id.clone(), player.clone(), event_id, duration));
+        }
+    }
+    if rows.is_empty() {
+        return Ok(());
+    }
+
+    for chunk in rows.chunks(PLAY_EVENT_INSERT_CHUNK_SIZE) {
+        let mut query = QueryBuilder::<Postgres>::new(
+            r#"
+            INSERT INTO player_replay_first_man_stints (
+                analysis_run_id,
+                replay_id,
+                replay_player_id,
+                player_subject_id,
+                platform,
+                platform_player_id,
+                team,
+                event_id,
+                duration_seconds
+            )
+            "#,
+        );
+        query.push_values(
+            chunk.iter().cloned(),
+            |mut row, (subject_id, player, event_id, duration)| {
+                row.push_bind(analysis_run_id)
+                    .push_bind(replay_id)
+                    .push_bind(player.replay_player_id)
+                    .push_bind(subject_id)
+                    .push_bind(player.platform)
+                    .push_bind(player.platform_player_id)
+                    .push_bind(player.team)
+                    .push_bind(event_id)
+                    .push_bind(duration);
+            },
+        );
+        query.push(" ON CONFLICT DO NOTHING");
+        query
+            .build()
+            .execute(pool)
+            .await
+            .context("failed to insert player replay first-man stints from in-memory events")?;
+    }
+    Ok(())
 }
 
 async fn insert_player_replay_positioning(
@@ -3193,6 +3326,377 @@ pub async fn backfill_player_replay_movement(pool: &PgPool, recompute: bool) -> 
     }
     tracing::info!(backfilled, total, "movement backfill complete");
     Ok(backfilled)
+}
+
+#[derive(Debug, Clone, Default)]
+struct PlayerReplayMovementAggregate {
+    total_distance: f64,
+    speed_weighted: f64,
+    speed_weight: f64,
+    slow_seconds: f64,
+    boost_seconds: f64,
+    supersonic_seconds: f64,
+    ground_seconds: f64,
+    low_air_seconds: f64,
+    high_air_seconds: f64,
+    powerslide_count: i64,
+    powerslide_seconds: f64,
+    speed_flips: i64,
+    wavedashes: i64,
+    half_flips: i64,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PowerslideToggle {
+    time: f64,
+    order: f64,
+    active: bool,
+}
+
+/// Port of the `rocket_sense_movement_seconds` SQL helper (migration 0066):
+/// prefer the largest explicit per-state seconds payload key; otherwise credit
+/// the event's whole duration when one of the state-ish payload fields matches.
+fn movement_state_seconds(
+    payload: &Value,
+    duration: f64,
+    explicit_keys: &[&str],
+    states: &[&str],
+) -> f64 {
+    let explicit = explicit_keys
+        .iter()
+        .filter_map(|key| payload.get(*key).and_then(Value::as_f64))
+        .fold(0.0_f64, f64::max);
+    if explicit > 0.0 {
+        return explicit;
+    }
+    const STATE_FIELDS: &[&str] = &[
+        "speed_band",
+        "band",
+        "speed_state",
+        "height_band",
+        "surface",
+        "air_state",
+        "state",
+        "kind",
+    ];
+    let matched = STATE_FIELDS.iter().any(|field| {
+        payload
+            .get(*field)
+            .and_then(Value::as_str)
+            .is_some_and(|value| states.contains(&value))
+    });
+    if matched {
+        duration.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// A powerslide toggle is active unless its payload says `active: false`,
+/// matching the SQL `(payload->>'active') IS DISTINCT FROM 'false'` (a missing
+/// or non-string/bool field counts as active).
+fn powerslide_toggle_active(payload: &Value) -> bool {
+    match payload.get("active") {
+        Some(Value::Bool(active)) => *active,
+        Some(Value::String(active)) => active != "false",
+        _ => true,
+    }
+}
+
+/// Pair each slide's leading `active:true` toggle with the next state edge,
+/// mirroring the `powerslide_toggles`/`powerslide_edges`/`powerslide_paired`
+/// CTEs in `INSERT_PLAYER_REPLAY_MOVEMENT_SQL` (and the client logic in
+/// web/src/stats/movement.tsx). Returns (slide count, total slide seconds); an
+/// unclosed trailing slide counts toward the count but adds no seconds.
+fn powerslide_spans(mut toggles: Vec<PowerslideToggle>) -> (i64, f64) {
+    toggles.sort_by(|a, b| {
+        a.time
+            .total_cmp(&b.time)
+            .then_with(|| a.order.total_cmp(&b.order))
+    });
+    let mut edges = Vec::new();
+    let mut previous = None;
+    for toggle in toggles {
+        if previous != Some(toggle.active) {
+            edges.push(toggle);
+        }
+        previous = Some(toggle.active);
+    }
+    let mut count = 0i64;
+    let mut seconds = 0.0_f64;
+    for (index, edge) in edges.iter().enumerate() {
+        if !edge.active {
+            continue;
+        }
+        count += 1;
+        if let Some(close) = edges.get(index + 1) {
+            seconds += (close.time - edge.time).max(0.0);
+        }
+    }
+    (count, seconds)
+}
+
+/// The in-memory equivalent of the `movement_events`/`event_aggregates`/
+/// `powerslide_spans` CTEs in `INSERT_PLAYER_REPLAY_MOVEMENT_SQL`, keyed by
+/// player subject id.
+fn player_replay_movement_aggregates_from_events(
+    events: &[IndexedEvent],
+) -> BTreeMap<String, PlayerReplayMovementAggregate> {
+    let mut aggregates: BTreeMap<String, PlayerReplayMovementAggregate> = BTreeMap::new();
+    let mut toggles: BTreeMap<String, Vec<PowerslideToggle>> = BTreeMap::new();
+    for event in events {
+        let in_movement_streams = matches!(event.source_stream.as_str(), "movement" | "powerslide");
+        let is_counted_mechanic = matches!(
+            event.event_type_key.as_str(),
+            "speed_flip" | "wavedash" | "half_flip"
+        );
+        if !in_movement_streams && !is_counted_mechanic {
+            continue;
+        }
+        let Some(subject) = event.primary_subject.as_ref() else {
+            continue;
+        };
+        let duration = indexed_event_duration(event);
+        let payload = &event.payload;
+        match event.event_type_key.as_str() {
+            "movement" => {
+                let aggregate = aggregates.entry(subject.id.clone()).or_default();
+                aggregate.total_distance += float_value(
+                    payload,
+                    &[
+                        "total_distance",
+                        "distance",
+                        "distance_traveled",
+                        "distance_uu",
+                    ],
+                )
+                .unwrap_or(0.0);
+                if duration > 0.0 {
+                    if let Some(speed) =
+                        float_value(payload, &["avg_speed", "average_speed", "speed"])
+                    {
+                        aggregate.speed_weighted += speed * duration;
+                        aggregate.speed_weight += duration;
+                    }
+                }
+                aggregate.slow_seconds += movement_state_seconds(
+                    payload,
+                    duration,
+                    &[
+                        "time_slow_speed",
+                        "slow_speed_seconds",
+                        "slow_speed_time_seconds",
+                        "time_slow_speed_seconds",
+                    ],
+                    &["slow_speed", "slow"],
+                );
+                aggregate.boost_seconds += movement_state_seconds(
+                    payload,
+                    duration,
+                    &[
+                        "time_boost_speed",
+                        "boost_speed_seconds",
+                        "boost_speed_time_seconds",
+                        "time_boost_speed_seconds",
+                    ],
+                    &["boost_speed", "boost"],
+                );
+                aggregate.supersonic_seconds += movement_state_seconds(
+                    payload,
+                    duration,
+                    &[
+                        "time_supersonic_speed",
+                        "supersonic_seconds",
+                        "supersonic_speed_time_seconds",
+                        "time_supersonic_speed_seconds",
+                    ],
+                    &["supersonic_speed", "supersonic"],
+                );
+                aggregate.ground_seconds += movement_state_seconds(
+                    payload,
+                    duration,
+                    &[
+                        "time_ground",
+                        "ground_seconds",
+                        "ground_time_seconds",
+                        "time_on_ground",
+                    ],
+                    &["ground", "on_ground"],
+                );
+                aggregate.low_air_seconds += movement_state_seconds(
+                    payload,
+                    duration,
+                    &["time_low_air", "low_air_seconds", "low_air_time_seconds"],
+                    &["low_air", "low"],
+                );
+                aggregate.high_air_seconds += movement_state_seconds(
+                    payload,
+                    duration,
+                    &["time_high_air", "high_air_seconds", "high_air_time_seconds"],
+                    &["high_air", "high"],
+                );
+            }
+            "powerslide" => {
+                toggles
+                    .entry(subject.id.clone())
+                    .or_default()
+                    .push(PowerslideToggle {
+                        time: payload.get("time").and_then(Value::as_f64).unwrap_or(0.0),
+                        order: payload.get("frame").and_then(Value::as_f64).unwrap_or(0.0),
+                        active: powerslide_toggle_active(payload),
+                    });
+            }
+            "speed_flip" => {
+                aggregates
+                    .entry(subject.id.clone())
+                    .or_default()
+                    .speed_flips += 1;
+            }
+            "wavedash" => {
+                aggregates.entry(subject.id.clone()).or_default().wavedashes += 1;
+            }
+            "half_flip" => {
+                aggregates.entry(subject.id.clone()).or_default().half_flips += 1;
+            }
+            _ => {}
+        }
+    }
+    for (player_subject_id, player_toggles) in toggles {
+        let (count, seconds) = powerslide_spans(player_toggles);
+        let aggregate = aggregates.entry(player_subject_id).or_default();
+        aggregate.powerslide_count = count;
+        aggregate.powerslide_seconds = seconds;
+    }
+    aggregates
+}
+
+/// Materialize `player_replay_movement` from the in-memory event list. The
+/// `movement`/`powerslide` source streams are dense telemetry that is never
+/// persisted to `play_events` (see `MATERIALIZED_DENSE_SOURCE_STREAMS`), so
+/// this is the only path that can see them during processing. Mirrors
+/// `INSERT_PLAYER_REPLAY_MOVEMENT_SQL`'s final SELECT: one row per rostered
+/// player from `replay_players` (zero-filled when the player has no movement
+/// events -- the profile read depends on those rows for correct cohort
+/// appearance counts), with the aggregates supplied from memory instead of a
+/// `play_events` scan.
+async fn insert_player_replay_movement_from_events(
+    pool: &PgPool,
+    analysis_run_id: Uuid,
+    replay_id: Uuid,
+    events: &[IndexedEvent],
+) -> Result<()> {
+    sqlx::query("DELETE FROM player_replay_movement WHERE analysis_run_id = $1 AND replay_id = $2")
+        .bind(analysis_run_id)
+        .bind(replay_id)
+        .execute(pool)
+        .await
+        .context("failed to clear player replay movement")?;
+
+    let aggregates = player_replay_movement_aggregates_from_events(events);
+
+    let mut query = QueryBuilder::<Postgres>::new(
+        r#"
+        INSERT INTO player_replay_movement (
+            analysis_run_id, replay_id, replay_player_id, player_subject_id,
+            platform, platform_player_id, team,
+            active_seconds, total_distance, speed_weighted, speed_weight,
+            slow_seconds, boost_seconds, supersonic_seconds,
+            ground_seconds, low_air_seconds, high_air_seconds,
+            powerslide_count, powerslide_seconds,
+            speed_flips, wavedashes, half_flips
+        )
+        SELECT
+        "#,
+    );
+    query.push_bind(analysis_run_id).push(
+        r#",
+            rp.replay_id,
+            rp.id,
+            concat(rp.platform, ':', rp.platform_player_id),
+            rp.platform,
+            rp.platform_player_id,
+            rp.team,
+            GREATEST(COALESCE(rp.active_time_seconds, 0.0), 0.0),
+            COALESCE(agg.total_distance, 0.0),
+            COALESCE(agg.speed_weighted, 0.0),
+            COALESCE(agg.speed_weight, 0.0),
+            COALESCE(agg.slow_seconds, 0.0),
+            COALESCE(agg.boost_seconds, 0.0),
+            COALESCE(agg.supersonic_seconds, 0.0),
+            COALESCE(agg.ground_seconds, 0.0),
+            COALESCE(agg.low_air_seconds, 0.0),
+            COALESCE(agg.high_air_seconds, 0.0),
+            COALESCE(agg.powerslide_count, 0),
+            COALESCE(agg.powerslide_seconds, 0.0),
+            COALESCE(agg.speed_flips, 0),
+            COALESCE(agg.wavedashes, 0),
+            COALESCE(agg.half_flips, 0)
+        FROM replay_players rp
+        LEFT JOIN ("#,
+    );
+    if aggregates.is_empty() {
+        query.push(
+            r#"
+            SELECT NULL::text AS player_subject_id, NULL::float8 AS total_distance,
+                   NULL::float8 AS speed_weighted, NULL::float8 AS speed_weight,
+                   NULL::float8 AS slow_seconds, NULL::float8 AS boost_seconds,
+                   NULL::float8 AS supersonic_seconds, NULL::float8 AS ground_seconds,
+                   NULL::float8 AS low_air_seconds, NULL::float8 AS high_air_seconds,
+                   NULL::int8 AS powerslide_count, NULL::float8 AS powerslide_seconds,
+                   NULL::int8 AS speed_flips, NULL::int8 AS wavedashes, NULL::int8 AS half_flips
+            WHERE FALSE
+            "#,
+        );
+    } else {
+        query.push("SELECT * FROM (");
+        query.push_values(aggregates, |mut row, (player_subject_id, aggregate)| {
+            row.push_bind(player_subject_id)
+                .push_bind(aggregate.total_distance)
+                .push_bind(aggregate.speed_weighted)
+                .push_bind(aggregate.speed_weight)
+                .push_bind(aggregate.slow_seconds)
+                .push_bind(aggregate.boost_seconds)
+                .push_bind(aggregate.supersonic_seconds)
+                .push_bind(aggregate.ground_seconds)
+                .push_bind(aggregate.low_air_seconds)
+                .push_bind(aggregate.high_air_seconds)
+                .push_bind(aggregate.powerslide_count)
+                .push_bind(aggregate.powerslide_seconds)
+                .push_bind(aggregate.speed_flips)
+                .push_bind(aggregate.wavedashes)
+                .push_bind(aggregate.half_flips);
+        });
+        query.push(
+            r#") AS values_rows(
+                player_subject_id, total_distance, speed_weighted, speed_weight,
+                slow_seconds, boost_seconds, supersonic_seconds,
+                ground_seconds, low_air_seconds, high_air_seconds,
+                powerslide_count, powerslide_seconds,
+                speed_flips, wavedashes, half_flips
+            )"#,
+        );
+    }
+    query.push(
+        r#"
+        ) agg ON agg.player_subject_id = concat(rp.platform, ':', rp.platform_player_id)
+        WHERE rp.replay_id = "#,
+    );
+    query.push_bind(replay_id);
+    query.push(
+        r#"
+          AND rp.platform IS NOT NULL
+          AND btrim(rp.platform) <> ''
+          AND rp.platform_player_id IS NOT NULL
+          AND btrim(rp.platform_player_id) <> ''
+        ON CONFLICT DO NOTHING
+        "#,
+    );
+    query
+        .build()
+        .execute(pool)
+        .await
+        .context("failed to insert player replay movement from in-memory events")?;
+    Ok(())
 }
 
 async fn insert_player_replay_touch_breakdowns(
@@ -6920,7 +7424,9 @@ fn prepare_indexed_events<'a>(
 }
 
 fn should_persist_play_event(event: &IndexedEvent) -> bool {
-    !NON_PERSISTED_PLAY_EVENT_STREAMS.contains(&event.source_stream.as_str())
+    let stream = event.source_stream.as_str();
+    !NON_PERSISTED_PLAY_EVENT_STREAMS.contains(&stream)
+        && !MATERIALIZED_DENSE_SOURCE_STREAMS.contains(&stream)
 }
 
 async fn insert_play_event_rows(

@@ -2,12 +2,12 @@
 # Reclaim the dense per-frame telemetry backlog from `play_events`.
 #
 # As of the post-materialization cleanup (see
-# `MATERIALIZED_DENSE_SOURCE_STREAMS` / `delete_materialized_dense_stream_events`
-# in crates/rocket-sense-server/src/processing.rs), newly processed replays no
-# longer retain their dense per-frame streams: the materializers consume them and
-# the raw rows are dropped at the end of processing. This script removes the
-# pre-existing backlog (replays processed before that change) so the disk is
-# reclaimed without reprocessing every replay.
+# `MATERIALIZED_DENSE_SOURCE_STREAMS` / `should_persist_play_event` in
+# crates/rocket-sense-server/src/processing.rs), newly processed replays never
+# write their dense per-frame streams to `play_events` at all: the materializers
+# consume them straight from the in-memory event list during processing. This
+# script removes the pre-existing backlog (replays processed before that change)
+# so the disk is reclaimed without reprocessing every replay.
 #
 # The streams below MUST match MATERIALIZED_DENSE_SOURCE_STREAMS. They are already
 # excluded from every user-facing count/aggregate and are served from the
