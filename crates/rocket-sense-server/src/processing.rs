@@ -6838,6 +6838,14 @@ async fn upsert_replay_search_metadata(
     replay_id: Uuid,
     metadata: &ReplaySearchMetadata,
 ) -> Result<HashMap<String, Uuid>> {
+    // The replay row UPDATE takes a row lock held until commit, serializing
+    // concurrent upserts for the same replay (e.g. the queued server job vs a
+    // client-WASM scaffold submission). Without it the DELETE + INSERTs below
+    // interleave and both runs' player rows survive, duplicating every player.
+    let mut tx = pool
+        .begin()
+        .await
+        .context("failed to begin replay search metadata transaction")?;
     sqlx::query(
         r#"
         UPDATE replays
@@ -6876,13 +6884,13 @@ async fn upsert_replay_search_metadata(
     .bind(metadata.has_pro_player)
     .bind(&metadata.season)
     .bind(metadata.summary.active_seconds)
-    .execute(pool)
+    .execute(&mut *tx)
     .await
     .context("failed to update replay search metadata")?;
 
     sqlx::query("DELETE FROM replay_players WHERE replay_id = $1")
         .bind(replay_id)
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .context("failed to replace replay players")?;
 
@@ -6928,7 +6936,7 @@ async fn upsert_replay_search_metadata(
         .bind(player.time_demolished_seconds.map(|value| value.0))
         .bind(player.time_most_back_seconds.map(|value| value.0))
         .bind(player.time_most_forward_seconds.map(|value| value.0))
-        .execute(pool)
+        .execute(&mut *tx)
         .await
         .context("failed to insert replay player")?;
 
@@ -6936,6 +6944,10 @@ async fn upsert_replay_search_metadata(
             replay_players.entry(key).or_insert(replay_player_id);
         }
     }
+
+    tx.commit()
+        .await
+        .context("failed to commit replay search metadata transaction")?;
 
     // Re-apply any client-submitted ranks: the player rows above were just
     // deleted and recreated, so durable submissions need to be copied back onto
