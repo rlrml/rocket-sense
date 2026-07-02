@@ -14,8 +14,7 @@ import {
   YAxis,
 } from "recharts";
 import { getPlayerTimeline } from "../api";
-import { rankIconUrl, rankLabel } from "../rank";
-import { formatSeasonCode } from "../seasons";
+import { rankLabel } from "../rank";
 import type { PlayerTimelinePoint, PlayerTimelineResponse, PlayerTimelineSession } from "../types";
 import {
   applyPeriodToParams,
@@ -86,6 +85,8 @@ interface BucketRow {
   /** Epoch-ms span of the period, used to shade+click the matching chart band. */
   x1: number;
   x2: number;
+  /** Epoch-ms of the last game — where the period's end-rating point is plotted. */
+  endTime: number;
   games: number;
   wins: number;
   losses: number;
@@ -220,6 +221,7 @@ function buildBucketRows(
       start: bounds.after,
       x1: bounds.after.getTime(),
       x2: bounds.before.getTime(),
+      endTime: new Date(last.replay_date).getTime(),
       games: bucketPoints.length,
       wins: bucketPoints.filter((point) => point.outcome === "win").length,
       losses: bucketPoints.filter((point) => point.outcome === "loss").length,
@@ -265,46 +267,38 @@ function inferTierBands(points: PlayerTimelinePoint[], yMin: number, yMax: numbe
   });
 }
 
-interface ChartDatum {
+// One plotted point per bucket: the rating at the end of that session/day/week.
+interface BucketDatum {
   t: number;
-  point: PlayerTimelinePoint;
-  [seriesKey: string]: number | PlayerTimelinePoint | null | undefined;
+  mmr: number;
+  row: BucketRow;
 }
 
-function TimelineTooltip({
+function BucketTooltip({
   active,
   payload,
 }: {
   active?: boolean;
-  payload?: Array<{ payload: ChartDatum }>;
+  payload?: Array<{ payload: BucketDatum }>;
 }) {
   const datum = active && payload && payload.length > 0 ? payload[0]!.payload : null;
   if (!datum) return null;
-  const point = datum.point;
-  const icon = point.rank_tier != null ? rankIconUrl(point.rank_tier) : null;
-  const label = rankLabel(point.rank_tier, point.rank_division);
+  const { row } = datum;
+  const delta =
+    row.startMmr != null && row.endMmr != null ? Math.round(row.endMmr - row.startMmr) : null;
   return (
     <div className="chart-tooltip player-timeline-tooltip">
-      <strong>
-        {new Date(point.replay_date).toLocaleString(undefined, {
-          month: "short",
-          day: "numeric",
-          hour: "numeric",
-          minute: "2-digit",
-        })}
-      </strong>
+      <strong>{row.label}</strong>
       <div>
-        {icon ? <img src={icon} alt="" width="18" height="18" /> : null}
-        <span>
-          {point.rank_mmr != null ? `${Math.round(point.rank_mmr)} MMR` : "No rank submitted"}
-          {label ? ` · ${label}` : ""}
-          {point.rank_is_fallback ? " · estimated from an earlier submission" : ""}
-        </span>
+        {row.startMmr != null && row.endMmr != null
+          ? `${Math.round(row.startMmr)} → ${Math.round(row.endMmr)} MMR`
+          : row.endMmr != null
+            ? `${Math.round(row.endMmr)} MMR`
+            : "No rank"}
+        {delta != null && delta !== 0 ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}
       </div>
       <div>
-        {point.playlist_group ?? "unknown playlist"}
-        {point.outcome ? ` · ${point.outcome}` : ""}
-        {point.season ? ` · ${formatSeasonCode(point.season)}` : ""}
+        {row.games} games · {row.wins}–{row.losses}
       </div>
     </div>
   );
@@ -425,22 +419,9 @@ export function PlayerTimelineSection({
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([group]) => group);
   }, [points]);
 
-  const chartData = useMemo(
-    () =>
-      points
-        .map((point) => ({ point, mmr: plottableMmr(point) }))
-        .filter((entry) => entry.mmr != null)
-        .map(({ point, mmr }) => ({
-          t: new Date(point.replay_date).getTime(),
-          point,
-          [`mmr:${point.playlist_group ?? "unknown"}`]: mmr,
-        })) satisfies ChartDatum[],
-    [points],
-  );
-
-  const mmrValues = chartData
-    .map((datum) => plottableMmr(datum.point))
-    .filter((value): value is number => value != null);
+  // Full observed MMR range (all games) sets the y-axis + tier bands so the
+  // per-bucket line has real context around it.
+  const mmrValues = points.map(plottableMmr).filter((value): value is number => value != null);
   const yMin = mmrValues.length > 0 ? Math.floor(Math.min(...mmrValues) / 20) * 20 - 20 : 0;
   const yMax = mmrValues.length > 0 ? Math.ceil(Math.max(...mmrValues) / 20) * 20 + 20 : 100;
 
@@ -461,6 +442,28 @@ export function PlayerTimelineSection({
     // Most recent first for the list.
     return rows.sort((a, b) => b.start.getTime() - a.start.getTime());
   }, [buckets, points, routeBasePath, search, sessions]);
+
+  // One point per bucket at its end rating, in chronological order: the chart
+  // tracks the granularity toggle (a smoothed session/day/week line rather than
+  // a dot per game).
+  const bucketChartData = useMemo<BucketDatum[]>(
+    () =>
+      bucketRows
+        .filter((row) => row.endMmr != null)
+        .map((row) => ({ t: row.endTime, mmr: row.endMmr as number, row }))
+        .sort((a, b) => a.t - b.t),
+    [bucketRows],
+  );
+
+  // Explicit x-domain covering the full period spans, so the shaded bands line
+  // up even though each plotted point sits at its bucket's end time.
+  const xDomain = useMemo<[number, number]>(() => {
+    if (bucketRows.length === 0) return [0, 1];
+    return [
+      Math.min(...bucketRows.map((row) => row.x1)),
+      Math.max(...bucketRows.map((row) => row.x2)),
+    ];
+  }, [bucketRows]);
 
   return (
     <section className="stat-detail player-timeline">
@@ -487,15 +490,15 @@ export function PlayerTimelineSection({
         </p>
       ) : null}
 
-      {chartData.length > 0 ? (
+      {bucketChartData.length > 0 ? (
         <div className="stat-panel player-timeline-chart">
           <ResponsiveContainer width="100%" height={340}>
-            <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
+            <LineChart data={bucketChartData} margin={{ top: 8, right: 16, bottom: 4, left: 0 }}>
               <CartesianGrid stroke={chartGrid} vertical={false} />
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={["dataMin", "dataMax"]}
+                domain={xDomain}
                 scale="time"
                 stroke={chartAxis}
                 tickFormatter={(value: number) =>
@@ -533,55 +536,19 @@ export function PlayerTimelineSection({
                   />
                 }
               />
-              <Tooltip content={<TimelineTooltip />} />
-              {seriesGroups.map((group, index) => (
-                <Line
-                  key={group}
-                  type="monotone"
-                  dataKey={`mmr:${group}`}
-                  name={group}
-                  stroke={seriesPalette[index % seriesPalette.length]}
-                  strokeWidth={2}
-                  connectNulls
-                  isAnimationActive={false}
-                  dot={({ key, cx, cy, payload }) =>
-                    cx == null || cy == null ? (
-                      <g key={key} />
-                    ) : (
-                      <circle
-                        key={key}
-                        cx={cx}
-                        cy={cy}
-                        r={2.5}
-                        stroke={seriesPalette[index % seriesPalette.length]}
-                        strokeWidth={1.5}
-                        // Hollow dot: the rank was carried forward, not submitted
-                        // with this game.
-                        fill={
-                          (payload as ChartDatum).point.rank_is_fallback
-                            ? "#ffffff"
-                            : seriesPalette[index % seriesPalette.length]
-                        }
-                      />
-                    )
-                  }
-                />
-              ))}
+              <Tooltip content={<BucketTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="mmr"
+                stroke={seriesPalette[0]}
+                strokeWidth={2}
+                connectNulls
+                isAnimationActive={false}
+                dot={{ r: 3, fill: seriesPalette[0], stroke: seriesPalette[0] }}
+                activeDot={{ r: 5 }}
+              />
             </LineChart>
           </ResponsiveContainer>
-          {seriesGroups.length > 1 ? (
-            <div className="player-timeline-legend">
-              {seriesGroups.map((group, index) => (
-                <span key={group}>
-                  <span
-                    className="player-timeline-legend-swatch"
-                    style={{ background: seriesPalette[index % seriesPalette.length] }}
-                  />
-                  {group}
-                </span>
-              ))}
-            </div>
-          ) : null}
         </div>
       ) : null}
 
