@@ -1334,7 +1334,11 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
 // Bumped v11 -> v12 for subtr-actor's multi-frame dodge-contact flip reset
 // detector: reprocessing classifies resets where contact begins before the
 // dodge byte is sampled but the dodge still carries through the ball.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v12";
+// Bumped v12 -> v13 for subtr-actor's dodge-touch rate-limit bypass: the soft
+// first contact of a carry no longer swallows the dodge-powered launch touch,
+// so reprocessing recovers flip-reset conversions, air-dribble touch runs, and
+// flick launch measurements that the touch rate limit had dropped.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v13";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -9344,6 +9348,12 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v12",
         "subtr-actor flip reset detection now handles multi-frame dodge contact; \
          reprocess to classify dodge resets where the dodge carries through the ball.",
+    ),
+    (
+        "rocket-sense-event-stream:v13",
+        "subtr-actor dodge touches bypass the touch rate limit; reprocess to \
+         recover flip-reset conversions, air-dribble runs, and flick launches \
+         that a preceding soft carry contact had suppressed.",
     ),
 ];
 
