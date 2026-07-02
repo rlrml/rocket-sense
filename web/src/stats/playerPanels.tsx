@@ -186,7 +186,7 @@ function playerRateComparisonRows(
       format: (value) => `${formatRate(value)}/5m`,
       maxValue,
       windowLabel: rankWindowLabel,
-      valueColumn: true,
+      valueColumn: false,
     }),
   );
   return rows;
@@ -728,7 +728,7 @@ function profileRateComparisonRows(
         format: (value) => `${formatRate(value)}/5m`,
         maxValue,
         windowLabel: rankWindowLabel,
-        valueColumn: true,
+        valueColumn: false,
       }),
     );
   }
@@ -796,7 +796,7 @@ function shootingPercentageRows(
       format: (value) => formatPercentage(value),
       maxValue: 100,
       windowLabel: rankWindowLabel,
-      valueColumn: true,
+      valueColumn: false,
     }),
   );
   return rows;
@@ -886,7 +886,7 @@ function assistPercentageRows(
       format: (value) => formatPercentage(value),
       maxValue: 100,
       windowLabel: rankWindowLabel,
-      valueColumn: true,
+      valueColumn: false,
     }),
   );
   return rows;
