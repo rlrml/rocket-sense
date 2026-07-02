@@ -183,13 +183,26 @@ function buildBucketRows(
       const endIso = session?.end ?? last.replay_date;
       selection = { kind: "session", anchor: startIso };
       bounds = sessionPeriodBounds(startIso, endIso);
-      label = new Date(startIso).toLocaleString(undefined, {
+      // "<date>, <start> – <end>" when the session stays within one day (the
+      // usual case for gap-clustered sessions); otherwise spell out both ends.
+      const start = new Date(startIso);
+      const end = new Date(endIso);
+      const timeOpts: Intl.DateTimeFormatOptions = { hour: "numeric", minute: "2-digit" };
+      const dateOpts: Intl.DateTimeFormatOptions = {
         month: "short",
         day: "numeric",
         year: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
+      };
+      label =
+        start.toDateString() === end.toDateString()
+          ? `${start.toLocaleDateString(undefined, dateOpts)}, ${start.toLocaleTimeString(
+              undefined,
+              timeOpts,
+            )} – ${end.toLocaleTimeString(undefined, timeOpts)}`
+          : `${start.toLocaleString(undefined, { ...dateOpts, ...timeOpts })} – ${end.toLocaleString(
+              undefined,
+              { ...dateOpts, ...timeOpts },
+            )}`;
     } else {
       selection = { kind, anchor: key };
       bounds = periodBounds(selection)!;
