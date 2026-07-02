@@ -10,11 +10,12 @@ import {
   Tooltip,
   usePlotArea,
   useXAxisScale,
+  useYAxisScale,
   XAxis,
   YAxis,
 } from "recharts";
 import { getPlayerTimeline } from "../api";
-import { rankLabel } from "../rank";
+import { rankIconUrl, rankLabel } from "../rank";
 import type { PlayerTimelinePoint, PlayerTimelineResponse, PlayerTimelineSession } from "../types";
 import {
   applyPeriodToParams,
@@ -304,6 +305,49 @@ function BucketTooltip({
   );
 }
 
+// Official rank logos on each tier band, right-aligned at the band's vertical
+// centre with the tier name beside them. Rendered inside a `Customized` slot so
+// the v3 plot-area / y-scale hooks resolve against this chart's context.
+function TierIcons({ bands }: { bands: TierBand[] }) {
+  const plot = usePlotArea();
+  const yScale = useYAxisScale();
+  if (!plot || !yScale) return null;
+  const size = 20;
+  const rightEdge = plot.x + plot.width - 6;
+  return (
+    <g opacity={0.9}>
+      {bands.map((band) => {
+        const icon = rankIconUrl(band.tier);
+        const yMid = (Number(yScale(band.y1)) + Number(yScale(band.y2))) / 2;
+        const cy = Math.max(plot.y + size / 2, Math.min(plot.y + plot.height - size / 2, yMid));
+        return (
+          <g key={`tier-icon-${band.tier}`}>
+            <text
+              x={rightEdge - size - 4}
+              y={cy}
+              textAnchor="end"
+              dominantBaseline="central"
+              fontSize={11}
+              fill={chartAxis}
+            >
+              {rankLabel(band.tier, null) ?? ""}
+            </text>
+            {icon ? (
+              <image
+                href={icon}
+                x={rightEdge - size}
+                y={cy - size / 2}
+                width={size}
+                height={size}
+              />
+            ) : null}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
 // Clickable period bands drawn over the plot, shaded per bucket and linked to
 // the list below by hover. Rendered inside a recharts `Customized` slot so the
 // v3 plot-area / x-scale hooks resolve against this chart's context.
@@ -518,12 +562,6 @@ export function PlayerTimelineSection({
                   y2={band.y2}
                   fill={tierShades[index % tierShades.length]}
                   stroke="none"
-                  label={{
-                    value: rankLabel(band.tier, null) ?? "",
-                    position: "insideRight",
-                    fill: chartAxis,
-                    fontSize: 11,
-                  }}
                 />
               ))}
               <Customized
@@ -536,6 +574,7 @@ export function PlayerTimelineSection({
                   />
                 }
               />
+              <Customized component={<TierIcons bands={tierBands} />} />
               <Tooltip content={<BucketTooltip />} />
               <Line
                 type="monotone"
