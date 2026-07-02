@@ -94,6 +94,18 @@ interface BucketRow {
   href: string;
 }
 
+// A point's MMR only when it reflects a real rank. Unranked (tier 0)
+// submissions carry a placeholder MMR (e.g. ~367 for an otherwise-Champion
+// player) that isn't a real ladder position, so they're excluded from the plot
+// and the entry/exit chaining — otherwise one bad submission drops a spurious
+// spike into the chart and poisons the carried-forward MMR.
+function plottableMmr(point: PlayerTimelinePoint): number | null {
+  if (point.rank_mmr == null || point.rank_tier == null || point.rank_tier <= 0) {
+    return null;
+  }
+  return point.rank_mmr;
+}
+
 // Running "last known MMR" up to and including each point. A period's *entry*
 // MMR is then the last known value BEFORE its first game — the rating the
 // player carried into it — so consecutive periods chain (one's end == the
@@ -104,7 +116,8 @@ function lastKnownMmrPrefix(points: PlayerTimelinePoint[]): (number | null)[] {
   const prefix: (number | null)[] = [];
   let last: number | null = null;
   for (const point of points) {
-    if (point.rank_mmr != null) last = point.rank_mmr;
+    const mmr = plottableMmr(point);
+    if (mmr != null) last = mmr;
     prefix.push(last);
   }
   return prefix;
@@ -157,7 +170,7 @@ function buildBucketRows(
     // known MMR at the very start of history (nothing precedes it).
     const entryMmr =
       (startIdx > 0 ? lastMmr[startIdx - 1] : null) ??
-      bucketPoints.find((point) => point.rank_mmr != null)?.rank_mmr ??
+      bucketPoints.map(plottableMmr).find((mmr) => mmr != null) ??
       null;
     const exitMmr = lastMmr[endIdx];
 
@@ -402,17 +415,18 @@ export function PlayerTimelineSection({
   const chartData = useMemo(
     () =>
       points
-        .filter((point) => point.rank_mmr != null)
-        .map((point) => ({
+        .map((point) => ({ point, mmr: plottableMmr(point) }))
+        .filter((entry) => entry.mmr != null)
+        .map(({ point, mmr }) => ({
           t: new Date(point.replay_date).getTime(),
           point,
-          [`mmr:${point.playlist_group ?? "unknown"}`]: point.rank_mmr,
+          [`mmr:${point.playlist_group ?? "unknown"}`]: mmr,
         })) satisfies ChartDatum[],
     [points],
   );
 
   const mmrValues = chartData
-    .map((datum) => datum.point.rank_mmr)
+    .map((datum) => plottableMmr(datum.point))
     .filter((value): value is number => value != null);
   const yMin = mmrValues.length > 0 ? Math.floor(Math.min(...mmrValues) / 20) * 20 - 20 : 0;
   const yMax = mmrValues.length > 0 ? Math.ceil(Math.max(...mmrValues) / 20) * 20 + 20 : 100;
