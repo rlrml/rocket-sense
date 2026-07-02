@@ -1,6 +1,7 @@
 import { type Dispatch, type SetStateAction, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
+  Brush,
   CartesianGrid,
   Customized,
   Line,
@@ -367,12 +368,18 @@ function PeriodBands({
   if (!plot || !scale) return null;
   const left = plot.x;
   const right = plot.x + plot.width;
-  const toPixel = (value: number) => Math.max(left, Math.min(right, Number(scale(value))));
+  const clamp = (value: number) => Math.max(left, Math.min(right, value));
   return (
     <g>
       {rows.map((row, index) => {
-        const a = toPixel(row.x1);
-        const b = toPixel(row.x2);
+        const rawA = Number(scale(row.x1));
+        const rawB = Number(scale(row.x2));
+        // Skip bands entirely outside the visible x-window (e.g. the brushed
+        // range, or rank-less lead-in before the fitted domain) so they don't
+        // pile up as slivers against an edge.
+        if ((rawA < left && rawB < left) || (rawA > right && rawB > right)) return null;
+        const a = clamp(rawA);
+        const b = clamp(rawB);
         const bandLeft = Math.min(a, b);
         // Single-game sessions collapse to a hairline; keep a clickable minimum.
         const bandWidth = Math.max(Math.abs(b - a), 3);
@@ -499,16 +506,6 @@ export function PlayerTimelineSection({
     [bucketRows],
   );
 
-  // Explicit x-domain covering the full period spans, so the shaded bands line
-  // up even though each plotted point sits at its bucket's end time.
-  const xDomain = useMemo<[number, number]>(() => {
-    if (bucketRows.length === 0) return [0, 1];
-    return [
-      Math.min(...bucketRows.map((row) => row.x1)),
-      Math.max(...bucketRows.map((row) => row.x2)),
-    ];
-  }, [bucketRows]);
-
   return (
     <section className="stat-detail player-timeline">
       <header className="stat-detail-header">
@@ -542,7 +539,10 @@ export function PlayerTimelineSection({
               <XAxis
                 dataKey="t"
                 type="number"
-                domain={xDomain}
+                // "dataMin"/"dataMax" fit the axis to the plotted (rank-bearing)
+                // points and follow the brush window, so a long rank-less
+                // lead-in doesn't compress the real data.
+                domain={["dataMin", "dataMax"]}
                 scale="time"
                 stroke={chartAxis}
                 tickFormatter={(value: number) =>
@@ -586,6 +586,20 @@ export function PlayerTimelineSection({
                 dot={{ r: 3, fill: seriesPalette[0], stroke: seriesPalette[0] }}
                 activeDot={{ r: 5 }}
               />
+              {bucketChartData.length > 2 ? (
+                <Brush
+                  dataKey="t"
+                  height={22}
+                  travellerWidth={8}
+                  stroke={chartAxis}
+                  tickFormatter={(value: number) =>
+                    new Date(value).toLocaleDateString(undefined, {
+                      month: "short",
+                      day: "numeric",
+                    })
+                  }
+                />
+              ) : null}
             </LineChart>
           </ResponsiveContainer>
         </div>
