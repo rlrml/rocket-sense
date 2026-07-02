@@ -94,85 +94,111 @@ interface BucketRow {
   href: string;
 }
 
-function sessionRows(
+// Running "last known MMR" up to and including each point. A period's *entry*
+// MMR is then the last known value BEFORE its first game — the rating the
+// player carried into it — so consecutive periods chain (one's end == the
+// next's start) and the delta is the true net change over the period. (Using
+// the first game's own after-match MMR as the start would double-count that
+// game and leave day-to-day values that don't line up.)
+function lastKnownMmrPrefix(points: PlayerTimelinePoint[]): (number | null)[] {
+  const prefix: (number | null)[] = [];
+  let last: number | null = null;
+  for (const point of points) {
+    if (point.rank_mmr != null) last = point.rank_mmr;
+    prefix.push(last);
+  }
+  return prefix;
+}
+
+function bucketKeyForPoint(point: PlayerTimelinePoint, kind: BucketKind): string {
+  if (kind === "session") return `s${point.session_index}`;
+  const anchor = formatLocalDateAnchor(new Date(point.replay_date));
+  if (kind === "day") return anchor;
+  // A week bucket keys on its Monday, which periodBounds derives from any date
+  // inside the week.
+  return formatLocalDateAnchor(
+    periodBounds({ kind: "week", anchor })?.after ?? new Date(point.replay_date),
+  );
+}
+
+// Group the (chronological) points into contiguous session/day/week buckets,
+// each labelled + linked to its period-scoped stats and annotated with the
+// entry/exit MMR that makes the list chain sensibly.
+function buildBucketRows(
+  points: PlayerTimelinePoint[],
   sessions: PlayerTimelineSession[],
+  kind: BucketKind,
   routeBasePath: string,
   search: string,
 ): BucketRow[] {
-  return sessions.map((session) => {
-    const selection: PeriodSelection = { kind: "session", anchor: session.start };
-    const bounds = sessionPeriodBounds(session.start, session.end);
-    return {
-      key: `session-${session.session_index}`,
-      label: new Date(session.start).toLocaleString(undefined, {
+  const lastMmr = lastKnownMmrPrefix(points);
+  const order: string[] = [];
+  const indicesByKey = new Map<string, number[]>();
+  points.forEach((point, index) => {
+    const key = bucketKeyForPoint(point, kind);
+    let indices = indicesByKey.get(key);
+    if (!indices) {
+      indices = [];
+      indicesByKey.set(key, indices);
+      order.push(key);
+    }
+    indices.push(index);
+  });
+
+  return order.map((key) => {
+    const indices = indicesByKey.get(key)!;
+    const startIdx = indices[0]!;
+    const endIdx = indices[indices.length - 1]!;
+    const bucketPoints = indices.map((index) => points[index]!);
+    const first = bucketPoints[0]!;
+    const last = bucketPoints[bucketPoints.length - 1]!;
+
+    // Entry = MMR carried into the period; fall back to the period's own first
+    // known MMR at the very start of history (nothing precedes it).
+    const entryMmr =
+      (startIdx > 0 ? lastMmr[startIdx - 1] : null) ??
+      bucketPoints.find((point) => point.rank_mmr != null)?.rank_mmr ??
+      null;
+    const exitMmr = lastMmr[endIdx];
+
+    let selection: PeriodSelection;
+    let bounds: PeriodBounds;
+    let label: string;
+    if (kind === "session") {
+      const session = sessions[first.session_index];
+      const startIso = session?.start ?? first.replay_date;
+      const endIso = session?.end ?? last.replay_date;
+      selection = { kind: "session", anchor: startIso };
+      bounds = sessionPeriodBounds(startIso, endIso);
+      label = new Date(startIso).toLocaleString(undefined, {
         month: "short",
         day: "numeric",
         year: "numeric",
         hour: "numeric",
         minute: "2-digit",
-      }),
-      start: new Date(session.start),
+      });
+    } else {
+      selection = { kind, anchor: key };
+      bounds = periodBounds(selection)!;
+      const dayLabel = bounds.after.toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric",
+        year: "numeric",
+      });
+      label = kind === "day" ? dayLabel : `Week of ${dayLabel}`;
+    }
+
+    return {
+      key: `${kind}-${key}`,
+      label,
+      start: bounds.after,
       x1: bounds.after.getTime(),
       x2: bounds.before.getTime(),
-      games: session.replay_count,
-      wins: session.wins,
-      losses: session.losses,
-      startMmr: session.start_mmr,
-      endMmr: session.end_mmr,
-      href: periodScopedStatsHref(routeBasePath, search, selection, bounds),
-    };
-  });
-}
-
-function calendarRows(
-  points: PlayerTimelinePoint[],
-  kind: "day" | "week",
-  routeBasePath: string,
-  search: string,
-): BucketRow[] {
-  const buckets = new Map<string, PlayerTimelinePoint[]>();
-  for (const point of points) {
-    const date = new Date(point.replay_date);
-    const anchor = formatLocalDateAnchor(date);
-    // A week bucket is keyed by its Monday, which periodBounds derives from
-    // any anchor date inside the week.
-    const key =
-      kind === "day"
-        ? anchor
-        : formatLocalDateAnchor(periodBounds({ kind: "week", anchor })?.after ?? date);
-    const bucket = buckets.get(key);
-    if (bucket) {
-      bucket.push(point);
-    } else {
-      buckets.set(key, [point]);
-    }
-  }
-  return [...buckets.entries()].map(([anchor, bucketPoints]) => {
-    const selection: PeriodSelection = { kind, anchor };
-    const direct = bucketPoints.filter(
-      (point) => !point.rank_is_fallback && point.rank_mmr != null,
-    );
-    const bounds = periodBounds(selection);
-    const start = bounds?.after ?? new Date(bucketPoints[0]!.replay_date);
-    const end = bounds?.before ?? new Date(bucketPoints[bucketPoints.length - 1]!.replay_date);
-    return {
-      key: `${kind}-${anchor}`,
-      label:
-        kind === "day"
-          ? start.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" })
-          : `Week of ${start.toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-              year: "numeric",
-            })}`,
-      start,
-      x1: start.getTime(),
-      x2: end.getTime(),
       games: bucketPoints.length,
       wins: bucketPoints.filter((point) => point.outcome === "win").length,
       losses: bucketPoints.filter((point) => point.outcome === "loss").length,
-      startMmr: direct[0]?.rank_mmr ?? null,
-      endMmr: direct[direct.length - 1]?.rank_mmr ?? null,
+      startMmr: entryMmr,
+      endMmr: exitMmr,
       href: periodScopedStatsHref(routeBasePath, search, selection, bounds),
     };
   });
@@ -404,10 +430,7 @@ export function PlayerTimelineSection({
   }, [points, seriesGroups, yMin, yMax]);
 
   const bucketRows = useMemo(() => {
-    const rows =
-      buckets === "session"
-        ? sessionRows(sessions, routeBasePath, search)
-        : calendarRows(points, buckets, routeBasePath, search);
+    const rows = buildBucketRows(points, sessions, buckets, routeBasePath, search);
     // Most recent first for the list.
     return rows.sort((a, b) => b.start.getTime() - a.start.getTime());
   }, [buckets, points, routeBasePath, search, sessions]);
@@ -559,7 +582,7 @@ export function PlayerTimelineSection({
                   <th>{buckets === "session" ? "Session" : buckets === "day" ? "Day" : "Week"}</th>
                   <th>Games</th>
                   <th>W – L</th>
-                  <th>MMR</th>
+                  <th>MMR (start → end)</th>
                   <th aria-label="Open period stats" />
                 </tr>
               </thead>
@@ -585,14 +608,22 @@ export function PlayerTimelineSection({
                         {row.wins} – {row.losses}
                       </td>
                       <td>
-                        {row.endMmr != null ? Math.round(row.endMmr) : "—"}
-                        {delta != null && delta !== 0 ? (
-                          <span className={delta > 0 ? "delta-positive" : "delta-negative"}>
-                            {" "}
-                            ({delta > 0 ? "+" : ""}
-                            {delta})
-                          </span>
-                        ) : null}
+                        {row.startMmr != null && row.endMmr != null ? (
+                          <>
+                            {Math.round(row.startMmr)} → {Math.round(row.endMmr)}
+                            {delta != null && delta !== 0 ? (
+                              <span className={delta > 0 ? "delta-positive" : "delta-negative"}>
+                                {" "}
+                                ({delta > 0 ? "+" : ""}
+                                {delta})
+                              </span>
+                            ) : null}
+                          </>
+                        ) : row.endMmr != null ? (
+                          Math.round(row.endMmr)
+                        ) : (
+                          "—"
+                        )}
                       </td>
                       <td>
                         <Link
