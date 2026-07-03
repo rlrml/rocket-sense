@@ -9699,6 +9699,47 @@ tbody tr:last-child td {
   color: #1e293b;
   font-size: var(--text-base);
 }
+/* Freshness / provenance strip: when the benchmark was materialized and which
+   subtr-actor / rocket-sense versions processed the underlying replays. */
+.rank-trends-freshness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  margin: 14px 0 2px;
+  padding: 8px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  font-size: var(--text-sm);
+  color: #334155;
+}
+.rank-trends-fresh-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+.rank-trends-fresh-item[title] {
+  cursor: help;
+}
+.rank-trends-fresh-label {
+  color: #64748b;
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: var(--text-xs);
+}
+.rank-trends-fresh-mixed {
+  color: #b45309;
+  font-weight: var(--fw-semibold);
+}
+.rank-trends-fresh-muted {
+  color: #94a3b8;
+}
+.rank-trends-fresh-muted .rank-trends-fresh-label {
+  color: #94a3b8;
+}
 .rank-trends-searchbar {
   display: flex;
   align-items: center;

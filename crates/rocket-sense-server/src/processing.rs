@@ -4926,6 +4926,9 @@ async fn refresh_rank_benchmark_window(
     resolved: &ResolvedBenchmarkWindow,
     calc: CalcStyle,
 ) -> Result<()> {
+    // Server pipeline snapshot that RUNS this aggregation (recorded on the meta
+    // row alongside the source-replay provenance computed below).
+    let current = current_processing_version();
     let mut tx = pool.begin().await?;
 
     for table in [
@@ -5317,13 +5320,89 @@ async fn refresh_rank_benchmark_window(
     );
     builder.build().execute(&mut *tx).await?;
 
+    // Source-replay provenance (see migration 0085): the distribution of
+    // processed_with_* versions across the replays feeding this window. Unlike
+    // the `current` server snapshot below, this reflects what actually produced
+    // the underlying event counts, so it reveals whether the trends are on the
+    // latest subtr-actor or on stale, un-reprocessed data. Mirrors the window
+    // predicate + appearance gate of the benchmark query above.
+    let mut summary_builder = QueryBuilder::<Postgres>::new(
+        r#"
+        WITH src AS (
+            SELECT
+                r.processed_with_subtr_actor_version AS subtr_actor_version,
+                r.processed_with_subtr_actor_git_sha AS subtr_actor_git_sha,
+                r.processed_with_rocket_sense_git_sha AS rocket_sense_git_sha,
+                r.processed_with_event_stream_schema_version AS event_stream_schema_version,
+                COUNT(*) AS replay_count
+            FROM replays r
+            WHERE r.canonical_analysis_run_id IS NOT NULL
+              AND EXISTS (
+                    SELECT 1 FROM replay_players rp
+                    WHERE rp.replay_id = r.id
+                      AND rp.rank_tier >= 1
+                      AND rp.platform IS NOT NULL
+                      AND btrim(rp.platform) <> ''
+                      AND rp.platform_player_id IS NOT NULL
+                      AND btrim(rp.platform_player_id) <> ''
+                      AND rp.active_time_seconds >= "#,
+    );
+    summary_builder.push_bind(MIN_APPEARANCE_SECONDS);
+    summary_builder.push(") AND ");
+    match window {
+        BenchmarkWindow::Rolling { .. } => {
+            let start = resolved
+                .window_start
+                .ok_or_else(|| anyhow!("rolling window missing resolved start"))?;
+            summary_builder.push("r.replay_date IS NOT NULL AND r.replay_date >= ");
+            summary_builder.push_bind(start);
+        }
+        BenchmarkWindow::Season(_) => {
+            let code = resolved
+                .season_code
+                .as_ref()
+                .ok_or_else(|| anyhow!("season window missing resolved code"))?;
+            summary_builder.push("r.season = ");
+            summary_builder.push_bind(code);
+        }
+    }
+    summary_builder.push(
+        r#"
+            GROUP BY 1, 2, 3, 4
+        )
+        SELECT jsonb_build_object(
+            'total_replay_count', COALESCE(SUM(replay_count), 0)::bigint,
+            'versions', COALESCE(
+                jsonb_agg(
+                    jsonb_build_object(
+                        'subtr_actor_version', subtr_actor_version,
+                        'subtr_actor_git_sha', subtr_actor_git_sha,
+                        'rocket_sense_git_sha', rocket_sense_git_sha,
+                        'event_stream_schema_version', event_stream_schema_version,
+                        'replay_count', replay_count
+                    ) ORDER BY replay_count DESC
+                ),
+                '[]'::jsonb
+            )
+        )
+        FROM src
+        "#,
+    );
+    let source_version_summary: serde_json::Value = summary_builder
+        .build_query_scalar()
+        .fetch_one(&mut *tx)
+        .await?;
+
     sqlx::query(
         r#"
         INSERT INTO rank_benchmark_meta (
             window_key, window_kind, window_start, window_end, season_code, display_label,
-            calc_style, computed_at
+            calc_style, computed_at,
+            computed_with_subtr_actor_version, computed_with_subtr_actor_git_sha,
+            computed_with_rocket_sense_git_sha, computed_with_event_stream_schema_version,
+            source_version_summary
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, now())
+        VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, $11, $12)
         "#,
     )
     .bind(&resolved.window_key)
@@ -5333,6 +5412,11 @@ async fn refresh_rank_benchmark_window(
     .bind(&resolved.season_code)
     .bind(&resolved.label)
     .bind(calc.as_str())
+    .bind(current.subtr_actor_version)
+    .bind(current.subtr_actor_git_sha)
+    .bind(current.rocket_sense_git_sha)
+    .bind(current.event_stream_schema_version)
+    .bind(source_version_summary)
     .execute(&mut *tx)
     .await?;
 

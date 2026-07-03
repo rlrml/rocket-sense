@@ -1179,9 +1179,41 @@ export interface RankTrendMetric {
   values: Array<number | null>;
 }
 
+// The server build that ran a window's aggregation (which build materialized
+// the benchmark) -- distinct from the source-replay provenance below.
+export interface ProcessingSnapshot {
+  subtr_actor_version: string | null;
+  subtr_actor_git_sha: string | null;
+  rocket_sense_git_sha: string | null;
+  event_stream_schema_version: string | null;
+}
+
+// One (subtr-actor version, rocket-sense sha) cohort among the replays feeding a
+// window. versions[0] is the dominant one.
+export interface SourceVersionShare {
+  subtr_actor_version: string | null;
+  subtr_actor_git_sha: string | null;
+  rocket_sense_git_sha: string | null;
+  event_stream_schema_version: string | null;
+  replay_count: number;
+}
+
+// Provenance of the data behind a window: what versions actually processed the
+// replays that fed the benchmark. Reveals whether the trends reflect the latest
+// subtr-actor or stale, un-reprocessed data.
+export interface SourceVersionSummary {
+  total_replay_count: number;
+  versions: SourceVersionShare[];
+}
+
 export interface RankTrendsWindow {
   key: string;
   label: string;
+  // When this window was last materialized (ISO 8601). Null for windows
+  // materialized before provenance tracking was added.
+  computed_at: string | null;
+  computed_with: ProcessingSnapshot | null;
+  source_versions: SourceVersionSummary | null;
 }
 
 export interface RankTrendsResponse {
