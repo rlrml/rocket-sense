@@ -370,13 +370,19 @@ function shortSha(sha: string | null | undefined): string | null {
   return sha.length > 10 ? sha.slice(0, 8) : sha;
 }
 
-// A subtr-actor version string ("v1.1.0-38-ga078e256") or, failing that, its
-// short git sha.
+// A human label for a subtr-actor build. The crate version ("1.1.0") is
+// constant across builds, so the git sha is what actually distinguishes
+// revisions -- lead with the version but append the short sha. If the version
+// string already embeds the sha (a `git describe` like "v1.1.0-38-ga078e256"),
+// it stands alone.
 function subtrActorLabel(share: {
   subtr_actor_version: string | null;
   subtr_actor_git_sha: string | null;
 }): string {
-  return share.subtr_actor_version || shortSha(share.subtr_actor_git_sha) || "unknown";
+  const sha = shortSha(share.subtr_actor_git_sha);
+  const ver = share.subtr_actor_version;
+  if (ver && sha && !ver.includes(sha)) return `${ver} @ ${sha}`;
+  return sha || ver || "unknown";
 }
 
 function relativeTime(iso: string | null): string | null {
