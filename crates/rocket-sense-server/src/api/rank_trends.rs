@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 
 use axum::{extract::RawQuery, extract::State, routing::get, Json, Router};
-use serde::Serialize;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use utoipa::ToSchema;
 
@@ -38,10 +39,70 @@ pub struct RankTrendMetric {
     pub values: Vec<Option<f64>>,
 }
 
+/// The server pipeline snapshot that ran the aggregation for a window. Records
+/// which build *materialized* the benchmark -- distinct from the source-replay
+/// provenance below, which describes what produced the underlying event data.
+#[derive(Debug, Clone, Serialize, ToSchema)]
+pub struct ProcessingSnapshot {
+    pub subtr_actor_version: Option<String>,
+    pub subtr_actor_git_sha: Option<String>,
+    pub rocket_sense_git_sha: Option<String>,
+    pub event_stream_schema_version: Option<String>,
+}
+
+impl ProcessingSnapshot {
+    /// `None` when no field is populated (rows materialized before provenance
+    /// tracking, or a dev build with no versions).
+    fn from_parts(
+        subtr_actor_version: Option<String>,
+        subtr_actor_git_sha: Option<String>,
+        rocket_sense_git_sha: Option<String>,
+        event_stream_schema_version: Option<String>,
+    ) -> Option<Self> {
+        let has_any = subtr_actor_version.is_some()
+            || subtr_actor_git_sha.is_some()
+            || rocket_sense_git_sha.is_some()
+            || event_stream_schema_version.is_some();
+        has_any.then_some(Self {
+            subtr_actor_version,
+            subtr_actor_git_sha,
+            rocket_sense_git_sha,
+            event_stream_schema_version,
+        })
+    }
+}
+
+/// One (subtr-actor version, rocket-sense sha) cohort among the replays feeding
+/// a window, with how many replays carry it. `versions[0]` is the dominant one.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SourceVersionShare {
+    pub subtr_actor_version: Option<String>,
+    pub subtr_actor_git_sha: Option<String>,
+    pub rocket_sense_git_sha: Option<String>,
+    pub event_stream_schema_version: Option<String>,
+    pub replay_count: i64,
+}
+
+/// Provenance of the data behind a window: the distribution of
+/// `processed_with_*` versions across the replays that fed the benchmark. This
+/// is what reveals whether the trends reflect the latest subtr-actor or stale,
+/// un-reprocessed data.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct SourceVersionSummary {
+    pub total_replay_count: i64,
+    pub versions: Vec<SourceVersionShare>,
+}
+
 #[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct RankTrendsWindow {
     pub key: String,
     pub label: String,
+    /// When this window was last materialized (freshness marker).
+    pub computed_at: Option<DateTime<Utc>>,
+    /// The server build that ran the aggregation.
+    pub computed_with: Option<ProcessingSnapshot>,
+    /// Version distribution of the replays that fed the benchmark.
+    pub source_versions: Option<SourceVersionSummary>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -118,18 +179,34 @@ async fn load_rank_trends(
     outcome: &str,
     rank_grouping: &str,
 ) -> Result<RankTrendsResponse, sqlx::Error> {
-    // Available windows (labelled) from the meta table.
+    // Available windows (labelled) from the meta table, each carrying its
+    // freshness + provenance (see migration 0085).
     let meta_rows = sqlx::query(
-        "SELECT window_key, display_label FROM rank_benchmark_meta ORDER BY computed_at DESC",
+        "SELECT window_key, display_label, computed_at, \
+                computed_with_subtr_actor_version, computed_with_subtr_actor_git_sha, \
+                computed_with_rocket_sense_git_sha, computed_with_event_stream_schema_version, \
+                source_version_summary \
+         FROM rank_benchmark_meta ORDER BY computed_at DESC",
     )
     .fetch_all(pool)
     .await?;
     let available_windows: Vec<RankTrendsWindow> = meta_rows
         .iter()
         .map(|row| {
+            let source_versions = row
+                .try_get::<Option<serde_json::Value>, _>("source_version_summary")?
+                .and_then(|value| serde_json::from_value::<SourceVersionSummary>(value).ok());
             Ok(RankTrendsWindow {
                 key: row.try_get("window_key")?,
                 label: row.try_get("display_label")?,
+                computed_at: row.try_get("computed_at")?,
+                computed_with: ProcessingSnapshot::from_parts(
+                    row.try_get("computed_with_subtr_actor_version")?,
+                    row.try_get("computed_with_subtr_actor_git_sha")?,
+                    row.try_get("computed_with_rocket_sense_git_sha")?,
+                    row.try_get("computed_with_event_stream_schema_version")?,
+                ),
+                source_versions,
             })
         })
         .collect::<Result<_, sqlx::Error>>()?;

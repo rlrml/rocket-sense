@@ -19,7 +19,7 @@ import {
 import { getRankTrends } from "./api";
 import { rankGroupIconUrl, rankIconUrl } from "./rank";
 import { metricFormat } from "./stats/metricFormats";
-import type { RankTrendMetric, RankTrendsResponse } from "./types";
+import type { RankTrendMetric, RankTrendsResponse, RankTrendsWindow } from "./types";
 
 const outcomeOptions = [
   { value: "all", label: "All games" },
@@ -365,6 +365,109 @@ function MetricCard({
   );
 }
 
+function shortSha(sha: string | null | undefined): string | null {
+  if (!sha) return null;
+  return sha.length > 10 ? sha.slice(0, 8) : sha;
+}
+
+// A human label for a subtr-actor build. The crate version ("1.1.0") is
+// constant across builds, so the git sha is what actually distinguishes
+// revisions -- lead with the version but append the short sha. If the version
+// string already embeds the sha (a `git describe` like "v1.1.0-38-ga078e256"),
+// it stands alone.
+function subtrActorLabel(share: {
+  subtr_actor_version: string | null;
+  subtr_actor_git_sha: string | null;
+}): string {
+  const sha = shortSha(share.subtr_actor_git_sha);
+  const ver = share.subtr_actor_version;
+  if (ver && sha && !ver.includes(sha)) return `${ver} @ ${sha}`;
+  return sha || ver || "unknown";
+}
+
+function relativeTime(iso: string | null): string | null {
+  if (!iso) return null;
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return null;
+  const secs = Math.max(0, (Date.now() - then) / 1000);
+  const mins = secs / 60;
+  const hrs = mins / 60;
+  const days = hrs / 24;
+  if (days >= 1) return `${Math.round(days)}d ago`;
+  if (hrs >= 1) return `${Math.round(hrs)}h ago`;
+  if (mins >= 1) return `${Math.round(mins)}m ago`;
+  return "just now";
+}
+
+/**
+ * Freshness + provenance for the selected window: when the benchmark was
+ * materialized, and which subtr-actor / rocket-sense versions processed the
+ * replays behind it (the dominant cohort, with a tooltip breaking down the rest).
+ * This is what tells you whether the trends reflect the latest pipeline or stale,
+ * un-reprocessed data.
+ */
+function RankTrendsFreshness({ windowMeta }: { windowMeta: RankTrendsWindow | null }) {
+  if (!windowMeta) return null;
+  const updated = relativeTime(windowMeta.computed_at);
+  const src = windowMeta.source_versions;
+  const total = src?.total_replay_count ?? 0;
+  const dominant = src && src.versions.length > 0 ? src.versions[0] : null;
+  const cohortCount = src?.versions.length ?? 0;
+  const pct = dominant && total > 0 ? Math.round((dominant.replay_count / total) * 100) : null;
+
+  const breakdown = src
+    ? src.versions
+        .map((v) => {
+          const p = total > 0 ? Math.round((v.replay_count / total) * 100) : 0;
+          const rs = shortSha(v.rocket_sense_git_sha) ?? "unknown";
+          return `${p}%  subtr-actor ${subtrActorLabel(v)} · rocket-sense ${rs}  (${v.replay_count.toLocaleString()} replays)`;
+        })
+        .join("\n")
+    : undefined;
+
+  const computedWithSha = shortSha(windowMeta.computed_with?.rocket_sense_git_sha);
+
+  if (!updated && !dominant) return null;
+
+  return (
+    <div className="rank-trends-freshness">
+      {updated ? (
+        <span className="rank-trends-fresh-item" title={windowMeta.computed_at ?? undefined}>
+          <span className="rank-trends-fresh-label">Updated</span> {updated}
+        </span>
+      ) : null}
+      {dominant ? (
+        <span className="rank-trends-fresh-item" title={breakdown}>
+          <span className="rank-trends-fresh-label">Data · subtr-actor</span>{" "}
+          {subtrActorLabel(dominant)}
+          {pct != null && pct < 100
+            ? ` (${pct}% of ${total.toLocaleString()} replays)`
+            : total > 0
+              ? ` (${total.toLocaleString()} replays)`
+              : ""}
+          {cohortCount > 1 ? (
+            <span className="rank-trends-fresh-mixed"> · {cohortCount} versions</span>
+          ) : null}
+        </span>
+      ) : null}
+      {dominant && shortSha(dominant.rocket_sense_git_sha) ? (
+        <span className="rank-trends-fresh-item">
+          <span className="rank-trends-fresh-label">rocket-sense</span>{" "}
+          {shortSha(dominant.rocket_sense_git_sha)}
+        </span>
+      ) : null}
+      {computedWithSha ? (
+        <span
+          className="rank-trends-fresh-item rank-trends-fresh-muted"
+          title="Server build that ran the aggregation"
+        >
+          <span className="rank-trends-fresh-label">Materialized by</span> {computedWithSha}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function RankTrendsPage() {
   const { metricKey } = useParams();
   const focusedKey = metricKey ?? null;
@@ -541,6 +644,8 @@ export function RankTrendsPage() {
           {controls}
         </header>
 
+        <RankTrendsFreshness windowMeta={data?.window ?? null} />
+
         {error ? <div className="stat-empty">Couldn’t load rank trends: {error}</div> : null}
         {loading && !data ? <div className="stat-empty">Loading…</div> : null}
         {data && !loading && !focusedMetric ? (
@@ -571,6 +676,8 @@ export function RankTrendsPage() {
         </div>
         {controls}
       </header>
+
+      <RankTrendsFreshness windowMeta={data?.window ?? null} />
 
       <nav className="stat-group-nav rank-trends-tabs" aria-label="Rank trend categories">
         {sections.map((s) => {
