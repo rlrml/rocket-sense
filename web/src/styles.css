@@ -4226,6 +4226,21 @@ tbody tr:last-child td {
   background: var(--aerial-wall-back-left);
 }
 
+.source-segment.aerial-seg-side-left,
+.chart-legend .aerial-seg-side-left::before {
+  background: var(--aerial-side-left);
+}
+
+.source-segment.aerial-seg-side-end,
+.chart-legend .aerial-seg-side-end::before {
+  background: var(--aerial-side-end);
+}
+
+.source-segment.aerial-seg-side-right,
+.chart-legend .aerial-seg-side-right::before {
+  background: var(--aerial-side-right);
+}
+
 .source-segment.aerial-seg-goal-aerial,
 .chart-legend .aerial-seg-goal-aerial::before {
   background: var(--aerial-goal-aerial);

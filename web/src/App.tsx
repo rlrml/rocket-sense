@@ -156,6 +156,7 @@ import {
   type PeriodKind,
   type PeriodSelection,
 } from "./stats/periods";
+import { AerialsProfileDetail } from "./stats/aerials";
 import { GroundPlayProfileDetail } from "./stats/groundPlay";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
@@ -6255,6 +6256,19 @@ function PlayerAggregateStatsSections({
           platformPlayerId={platformPlayerId}
           playerName={playerName}
           search={contentSearch}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "aerials") {
+      add(
+        "aerials-profile",
+        <AerialsProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+          playlistHref={playerAerialPlaylistHref(routeBasePath, contentSearch, "wall_aerial")}
         />,
       );
     }
