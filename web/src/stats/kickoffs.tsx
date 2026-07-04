@@ -19,7 +19,7 @@ import {
   useState,
 } from "react";
 import { PlayerIdentity } from "../playerIdentity";
-import { subtrActorPlayerUrl } from "../playerLink";
+import { eventCaseExportUrl, subtrActorPlayerUrl } from "../playerLink";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import { formatBoostPercent } from "./boostUnits";
 import type { EventClip } from "./EventClipPlayer";
@@ -500,6 +500,9 @@ export function KickoffDetail({ events, players, replayId, scope }: KickoffDetai
                         : "Loading…"
                     }
                     openHref={subtrActorPlayerUrl(replayId)}
+                    exportHref={
+                      activeKickoff ? eventCaseExportUrl(activeKickoff.event.id) : undefined
+                    }
                   />
                 </Suspense>
               ) : null}

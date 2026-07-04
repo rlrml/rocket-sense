@@ -8082,6 +8082,13 @@ tbody tr:last-child td {
   white-space: nowrap;
 }
 
+.event-preview-pip-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .event-preview-pip-open {
   display: inline-flex;
   align-items: center;
