@@ -151,6 +151,11 @@
   --aerial-wall-back-right: #eab308;
   --aerial-wall-back: #9333ea;
   --aerial-wall-back-left: #db2777;
+  /* Side panel: the wall panel collapsed to handedness. Left/right echo the
+     wall-left / wall-right hues; the sideless end walls go neutral slate. */
+  --aerial-side-left: #0891b2;
+  --aerial-side-end: #64748b;
+  --aerial-side-right: #f97316;
   /* Goals panel needs five internally-distinct hues: blue / violet / sky / rose
      / amber. It can't reuse the mechanic hues wholesale because it carries both
      a high-aerial and a flip-reset segment, which would otherwise collide. */

@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { listPlayerEvents } from "../api";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import {
   comparisonSubjectLabel,
@@ -9,6 +10,7 @@ import {
   subjectMagnitudeRows,
   subjectSplitRows,
 } from "./comparisonPanels";
+import { wallAerialSide } from "./aerialKinds";
 import { statPlayerRank, type StatPlayerRank } from "./shared";
 import { touchPayloadValue } from "./touchTags";
 
@@ -93,6 +95,16 @@ const WALL_VALUES: AerialValue[] = [
   { id: "back_left", label: "Back-left", segmentClass: "aerial-seg-wall-back-left" },
 ];
 
+// The wall panel above collapsed to handedness: each rounded corner folds into
+// its side wall, and the pure end walls (front / back) — which have no side —
+// share an "end walls" segment. Answers "which side does this player attack
+// from?" without the eight-way split's noise.
+const SIDE_VALUES: AerialValue[] = [
+  { id: "left", label: "Left", segmentClass: "aerial-seg-side-left" },
+  { id: "end", label: "End walls", segmentClass: "aerial-seg-side-end" },
+  { id: "right", label: "Right", segmentClass: "aerial-seg-side-right" },
+];
+
 // The aerial-flavored subset of GoalTagKind. A single goal can carry more than
 // one of these (e.g. an air dribble that is also a high aerial), so the bars
 // count tags, not goals — hence the "tags" noun on the panel.
@@ -117,6 +129,7 @@ const HEIGHT_VALUES: AerialValue[] = [
 const COMPOSITION_PANELS: AerialPanelConfig[] = [
   { id: "origin", title: "Air dribbles by origin", noun: "air dribbles", values: ORIGIN_VALUES },
   { id: "wall", title: "Wall aerials by wall", noun: "wall aerials", values: WALL_VALUES },
+  { id: "side", title: "Wall aerials by side", noun: "wall aerials", values: SIDE_VALUES },
   { id: "goals", title: "Aerial goals by type", noun: "aerial goal tags", values: GOAL_VALUES },
   {
     id: "height",
@@ -228,7 +241,12 @@ function AerialPanel({
   return (
     <StatComparisonPanel
       emptyLabel={`No ${panel.noun} are available yet.`}
-      footer={<AerialLegend panelId={panel.id} values={panel.values} replayId={replayId} />}
+      footer={
+        <AerialLegend
+          values={panel.values}
+          href={(valueId) => panelValueHref(panel.id, valueId, replayId)}
+        />
+      }
       rows={rows}
       title={panel.title}
     />
@@ -236,7 +254,7 @@ function AerialPanel({
 }
 
 // In a single-replay context each composition legend tag deep-links to a clip
-// playlist. The origin/wall breakdowns reuse the air-dribble / wall-aerial
+// playlist. The origin/wall/side breakdowns reuse the air-dribble / wall-aerial
 // playlist with a payload sub-filter; aerial goal tags reuse the existing goal
 // playlist. The height-band touches have no standalone clip, so they stay plain
 // labels. (The per-mechanic panels link from their titles instead — see
@@ -250,6 +268,8 @@ function panelValueHref(panelId: string, valueId: string, replayId?: string): st
       return `/replays/${replay}/aerials/air_dribble?origin=${value}`;
     case "wall":
       return `/replays/${replay}/aerials/wall_aerial?wall=${value}`;
+    case "side":
+      return `/replays/${replay}/aerials/wall_aerial?side=${value}`;
     case "goals":
       return `/replays/${replay}/goals/${value}`;
     default:
@@ -258,19 +278,18 @@ function panelValueHref(panelId: string, valueId: string, replayId?: string): st
 }
 
 function AerialLegend({
-  panelId,
   values,
-  replayId,
+  href: hrefFor,
 }: {
-  panelId: string;
   values: AerialValue[];
-  replayId?: string;
+  /** Clip-playlist href for one legend value; undefined values render plain. */
+  href?: (valueId: string) => string | undefined;
 }) {
   if (!values.length) return null;
   return (
     <div className="chart-legend">
       {values.map((value) => {
-        const href = panelValueHref(panelId, value.id, replayId);
+        const href = hrefFor?.(value.id);
         return href ? (
           <Link
             className={`${value.segmentClass} chart-legend-link`}
@@ -288,6 +307,119 @@ function AerialLegend({
       })}
     </div>
   );
+}
+
+// Career / lifetime view: wall-aerial breakdowns (by wall and by side) for one
+// player over the active replay set. Self-fetching like GroundPlayProfileDetail
+// so the section can be injected into the player stats page without threading
+// event state through. Only the wall_aerial stream is loaded — a few events per
+// game — unlike the per-replay section, whose touch/goal streams are too heavy
+// to pull across a whole career.
+export function AerialsProfileDetail({
+  platform,
+  platformPlayerId,
+  playerName,
+  search,
+  playlistHref,
+}: {
+  platform: string;
+  platformPlayerId: string;
+  playerName: string;
+  search: string;
+  /** Player-scoped wall-aerial playlist href carrying the active stat filters. */
+  playlistHref: string;
+}) {
+  const [events, setEvents] = useState<MechanicEventResponse[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setEvents(null);
+    listPlayerEvents(
+      `${platform}:${platformPlayerId}`,
+      ["wall_aerial"],
+      new URLSearchParams(search),
+    )
+      .then((response) => {
+        if (!cancelled) setEvents(response.events);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, platformPlayerId, search]);
+
+  // Career events come pre-filtered to the target player (player-id query), so
+  // every event belongs to the single subject — no per-player attribution needed.
+  const subject = useMemo(() => {
+    if (!events) return null;
+    const built: AerialSubject = {
+      key: `${platform}:${platformPlayerId}`,
+      name: playerName || platformPlayerId,
+      platform,
+      platformPlayerId,
+      rank: null,
+      team: null,
+      counts: { [MIX_COUNTS_SLOT]: {}, wall: {}, side: {} },
+    };
+    for (const event of events) accumulate(built, event);
+    return built;
+  }, [events, playerName, platform, platformPlayerId]);
+
+  if (loading) {
+    return <div className="stat-empty">Loading wall-aerial data...</div>;
+  }
+  if (error) {
+    return <div className="stat-empty">Wall-aerial data is unavailable: {error}</div>;
+  }
+  if (!subject || panelTotal(subject, "wall") === 0) {
+    return <div className="stat-empty">No wall aerials were detected for this replay set yet.</div>;
+  }
+
+  const careerPanels = COMPOSITION_PANELS.filter(
+    (panel) => panel.id === "wall" || panel.id === "side",
+  );
+  return (
+    <div className="aerials-detail">
+      <StatComparisonGrid contained={false}>
+        {careerPanels.map((panel) => (
+          <StatComparisonPanel
+            key={panel.id}
+            emptyLabel={`No ${panel.noun} are available yet.`}
+            footer={
+              <AerialLegend
+                values={panel.values}
+                href={(valueId) => appendQueryParam(playlistHref, panel.id, valueId)}
+              />
+            }
+            rows={subjectSplitRows([subject], panel.values, {
+              amount: (row, value) => row.counts[panel.id][value.id] ?? 0,
+              total: (row) => panelTotal(row, panel.id),
+              format: formatCount,
+              label: (row) => comparisonSubjectLabel(row, "aerials"),
+              minLabelShare: 0.16,
+            })}
+            title={panel.title}
+          />
+        ))}
+      </StatComparisonGrid>
+    </div>
+  );
+}
+
+// The playlist href already carries the stats-filter query, so the wall / side
+// sub-filter has to append rather than start a new query string.
+function appendQueryParam(href: string, key: string, value: string): string {
+  const separator = href.includes("?") ? "&" : "?";
+  return `${href}${separator}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
 }
 
 function panelTotal(subject: AerialSubject, panelId: string): number {
@@ -343,6 +475,8 @@ function accumulate(subject: AerialSubject, event: MechanicEventResponse) {
       bump(subject, "mix", "wall_aerial");
       const wall = stringPayload(event.payload, "wall");
       if (wall && WALL_VALUES.some((value) => value.id === wall)) bump(subject, "wall", wall);
+      const side = wall ? wallAerialSide(wall) : null;
+      if (side) bump(subject, "side", side);
       break;
     }
     case "air_dribble": {

@@ -20,3 +20,27 @@ export function aerialKindLabel(kind: string): string {
     kind.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase())
   );
 }
+
+// Collapses the eight attack-relative WallAerialWall values into a left / right
+// handedness, folding each rounded corner into its side wall. The pure end
+// walls (front / back) have no side, so they land in "end". Shared by the
+// stats panel and the clip playlist's `?side=` filter.
+export type WallAerialSide = "left" | "right" | "end";
+
+export function wallAerialSide(wall: string): WallAerialSide | null {
+  switch (wall) {
+    case "left":
+    case "front_left":
+    case "back_left":
+      return "left";
+    case "right":
+    case "front_right":
+    case "back_right":
+      return "right";
+    case "front":
+    case "back":
+      return "end";
+    default:
+      return null;
+  }
+}

@@ -13,7 +13,7 @@ import { subtrActorPlayerUrl } from "../playerLink";
 import type { MechanicEventResponse } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import { EventClipPlayer } from "./EventClipPlayer";
-import { aerialKindLabel } from "./aerialKinds";
+import { aerialKindLabel, wallAerialSide } from "./aerialKinds";
 import { eventAnchorFrame, eventDisplayTime } from "./eventPreview";
 import { preloadReplayModel } from "./replayModel";
 
@@ -64,10 +64,12 @@ export function buildAerialClip(row: AerialRow, replayNonce: number): EventClip 
 interface AerialFilter {
   origin: string | null;
   wall: string | null;
+  /** Wall handedness (left / right / end) — a coarser cut than `wall`. */
+  side: string | null;
 }
 
 function readAerialFilter(params: URLSearchParams): AerialFilter {
-  return { origin: params.get("origin"), wall: params.get("wall") };
+  return { origin: params.get("origin"), wall: params.get("wall"), side: params.get("side") };
 }
 
 // Stats filters (team-size, game-type, …) belong on the listPlayerEvents request;
@@ -76,6 +78,7 @@ function eventRequestParams(params: URLSearchParams): URLSearchParams {
   const next = new URLSearchParams(params);
   next.delete("origin");
   next.delete("wall");
+  next.delete("side");
   return next;
 }
 
@@ -265,6 +268,12 @@ function matchesFilter(event: MechanicEventResponse, filter: AerialFilter): bool
   if (filter.wall && stringPayload(event.payload, "wall") !== filter.wall) {
     return false;
   }
+  if (filter.side) {
+    const wall = stringPayload(event.payload, "wall");
+    if (!wall || wallAerialSide(wall) !== filter.side) {
+      return false;
+    }
+  }
   return true;
 }
 
@@ -421,7 +430,9 @@ function AerialPlaylist({
     ? `${formatLabel(filter.origin)} ${kindLabel.toLowerCase()}s`
     : filter.wall
       ? `${formatLabel(filter.wall)}-wall ${kindLabel.toLowerCase()}s`
-      : `${kindLabel} clips`;
+      : filter.side
+        ? `${sideFilterLabel(filter.side)} ${kindLabel.toLowerCase()}s`
+        : `${kindLabel} clips`;
   // Game N ordinals: short UUIDv7 prefixes collide for replays uploaded close
   // together, so headings need a per-playlist number to stay distinguishable.
   const replayOrdinals = useMemo(() => {
@@ -642,6 +653,12 @@ function teamLabel(team: number | null): string {
 
 function formatLabel(value: string): string {
   return value.replaceAll("_", " ").replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+// "left" / "right" are handedness ("Left-side wall aerials"); "end" covers the
+// front and back walls, which have no side ("End-wall wall aerials").
+function sideFilterLabel(side: string): string {
+  return side === "end" ? "End-wall" : `${formatLabel(side)}-side`;
 }
 
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {

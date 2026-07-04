@@ -242,7 +242,7 @@ export const statGroups: StatGroup[] = [
     label: "Aerials",
     icon: Plane,
     description:
-      "Aerial mechanics ranked per player: flip resets, double taps, air dribbles (by origin), wall aerials (by wall), ceiling shots, aerial goals, and aerial touches by height.",
+      "Aerial mechanics ranked per player: flip resets, double taps, air dribbles (by origin), wall aerials (by wall and side), ceiling shots, aerial goals, and aerial touches by height.",
     terms: [
       "aerial",
       "air",
