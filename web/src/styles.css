@@ -10498,7 +10498,7 @@ tbody tr:last-child td {
 
 .outcomes-margin-records {
   display: grid;
-  gap: 8px;
+  gap: 12px;
 }
 
 .outcomes-margin-chart-legend {
@@ -10530,34 +10530,70 @@ tbody tr:last-child td {
   background: var(--outcome-negative);
 }
 
-.outcomes-margin-record {
+.outcomes-margin-chart {
   display: grid;
-  grid-template-columns: minmax(92px, 128px) minmax(0, 1fr);
-  align-items: center;
+  grid-template-columns: repeat(4, minmax(72px, 1fr));
   gap: 10px;
+  min-width: 0;
+}
+
+.outcomes-margin-column {
+  display: grid;
+  grid-template-rows: minmax(34px, auto) 180px auto;
+  gap: 6px;
+  min-width: 0;
+  text-align: center;
+}
+
+.outcomes-margin-column-value {
+  display: grid;
+  gap: 1px;
+  align-self: end;
+  color: var(--text-strong);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.outcomes-margin-column-share {
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+}
+
+.outcomes-margin-vertical-track {
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.outcomes-margin-vertical-fill {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  overflow: hidden;
+  border-radius: 4px 4px 0 0;
+}
+
+.outcomes-margin-vertical-segment {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  color: white;
+  font-size: var(--text-3xs);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgb(15 23 42 / 0.42);
 }
 
 .outcomes-margin-record-label {
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: var(--fw-semibold);
-}
-
-.outcomes-margin-record .player-comparison-track {
-  height: 22px;
-}
-
-.outcomes-margin-record-total {
-  color: inherit;
-  font-weight: inherit;
-}
-
-.outcomes-margin-record .source-segment-label {
-  font-size: var(--text-3xs);
-}
-
-.outcomes-margin-record .bar-value-label.trailing {
-  padding-right: 0;
 }
 
 .outcomes-histogram-grid {
