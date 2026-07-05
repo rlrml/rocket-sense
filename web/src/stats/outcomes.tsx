@@ -89,6 +89,10 @@ function formatCountNoun(count: number, noun: string): string {
   return `${count} ${count === 1 ? noun : `${noun}s`}`;
 }
 
+function formatCountPercent(count: number, share: number): string {
+  return `${count.toLocaleString()} (${formatPercent(share)})`;
+}
+
 function possessiveName(name: string): string {
   const trimmed = name.trim();
   if (!trimmed) return "Player's";
@@ -494,10 +498,16 @@ function MarginRecords({
           const heightPercent = total > 0 ? (share / maxShare) * 100 : 0;
           const winHeight = total > 0 ? (record.wins / total) * 100 : 0;
           const lossHeight = total > 0 ? (record.losses / total) * 100 : 0;
-          const winScaledShare = games > 0 ? record.wins / games / maxShare : 0;
-          const lossScaledShare = games > 0 ? record.losses / games / maxShare : 0;
+          const winShare = games > 0 ? record.wins / games : 0;
+          const lossShare = games > 0 ? record.losses / games : 0;
+          const winMarginShare = total > 0 ? record.wins / total : 0;
+          const lossMarginShare = total > 0 ? record.losses / total : 0;
+          const winScaledShare = maxShare > 0 ? winShare / maxShare : 0;
+          const lossScaledShare = maxShare > 0 ? lossShare / maxShare : 0;
           const recordLabel = `${record.wins.toLocaleString()}–${record.losses.toLocaleString()}`;
-          const valueLabel = `${record.wins.toLocaleString()}–${record.losses.toLocaleString()} (${total.toLocaleString()}, ${formatPercent(share)})`;
+          const winLabel = formatCountPercent(record.wins, winMarginShare);
+          const lossLabel = formatCountPercent(record.losses, lossMarginShare);
+          const valueLabel = `${record.wins.toLocaleString()}–${record.losses.toLocaleString()} (${total.toLocaleString()}, ${formatPercent(share)}); ${playerTeamLabel}: ${winLabel}; ${opponentTeamLabel}: ${lossLabel}`;
           return (
             <div
               key={record.label}
@@ -522,20 +532,16 @@ function MarginRecords({
                   <div
                     className="outcomes-margin-vertical-segment outcomes-bar-positive"
                     style={{ height: `${winHeight}%` }}
-                    title={`${playerTeamLabel}: ${formatCountNoun(record.wins, "game")}`}
+                    title={`${playerTeamLabel}: ${formatCountNoun(record.wins, "game")} (${formatPercent(winMarginShare)} of ${record.label})`}
                   >
-                    {winScaledShare >= MARGIN_SEGMENT_LABEL_MIN_SCALED_SHARE
-                      ? record.wins.toLocaleString()
-                      : ""}
+                    {winScaledShare >= MARGIN_SEGMENT_LABEL_MIN_SCALED_SHARE ? winLabel : ""}
                   </div>
                   <div
                     className="outcomes-margin-vertical-segment outcomes-bar-negative"
                     style={{ height: `${lossHeight}%` }}
-                    title={`${opponentTeamLabel}: ${formatCountNoun(record.losses, "game")}`}
+                    title={`${opponentTeamLabel}: ${formatCountNoun(record.losses, "game")} (${formatPercent(lossMarginShare)} of ${record.label})`}
                   >
-                    {lossScaledShare >= MARGIN_SEGMENT_LABEL_MIN_SCALED_SHARE
-                      ? record.losses.toLocaleString()
-                      : ""}
+                    {lossScaledShare >= MARGIN_SEGMENT_LABEL_MIN_SCALED_SHARE ? lossLabel : ""}
                   </div>
                 </div>
               </div>
