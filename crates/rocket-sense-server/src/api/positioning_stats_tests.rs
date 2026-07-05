@@ -44,3 +44,64 @@ fn positioning_summary_query_materialized_splits_cohorts_over_filtered_replays()
     assert!(sql.contains("SUM(distance_to_ball_weighted)"));
     assert!(sql.contains("GROUP BY cohort"));
 }
+
+#[test]
+fn teammate_role_delta_query_targets_two_v_two_teammate_samples() {
+    let query = PositioningStatsQuery::from_raw_query(
+        Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+    )
+    .expect("positioning query should parse");
+    let builder = build_teammate_role_delta_query(&query);
+    let sql = builder.sql();
+
+    assert!(sql.contains("target_appearances"));
+    assert!(sql.contains("team_counts"));
+    assert!(sql.contains("twos_replays"));
+    assert!(sql.contains("HAVING COUNT(*) = 2 AND bool_and(team_players = 2)"));
+    assert!(sql.contains("mate.player_subject_id <> ta.player_subject_id"));
+    assert!(sql.contains("role_most_forward_seconds"));
+    assert!(sql.contains("delta_pp"));
+}
+
+#[test]
+fn teammate_role_delta_buckets_are_centered_five_point_buckets() {
+    let buckets = role_delta_bucket_templates();
+
+    assert_eq!(buckets.len(), 23);
+    assert_eq!(buckets[0].key, "back-tail");
+    assert_eq!(buckets[0].label, ">52.5");
+    assert_eq!(buckets[11].key, "neutral");
+    assert_eq!(buckets[11].label, "-2.5..+2.5");
+    assert_eq!(buckets[22].key, "forward-tail");
+    assert_eq!(buckets[22].label, ">52.5");
+
+    assert_eq!(
+        buckets
+            .iter()
+            .find(|bucket| role_delta_bucket_contains(bucket, -2.5))
+            .map(|bucket| bucket.key.as_str()),
+        Some("neutral")
+    );
+    assert_eq!(
+        buckets
+            .iter()
+            .find(|bucket| role_delta_bucket_contains(bucket, 2.5))
+            .map(|bucket| bucket.key.as_str()),
+        Some("neutral")
+    );
+    assert_eq!(
+        buckets
+            .iter()
+            .find(|bucket| role_delta_bucket_contains(bucket, -2.51))
+            .map(|bucket| bucket.key.as_str()),
+        Some("back-n7_5-n2_5")
+    );
+    assert_eq!(
+        buckets
+            .iter()
+            .find(|bucket| role_delta_bucket_contains(bucket, 2.51))
+            .map(|bucket| bucket.key.as_str()),
+        Some("forward-2_5-7_5")
+    );
+}

@@ -868,6 +868,27 @@ export interface PositioningSummaryResponse {
   player: PositioningCohortSummary;
   teammates: PositioningCohortSummary | null;
   opponents: PositioningCohortSummary | null;
+  teammate_role_delta_histogram: PositioningRoleDeltaHistogram;
+}
+
+export interface PositioningRoleDeltaHistogram {
+  /** Target-player 2v2 game samples included in this histogram. */
+  sample_count: number;
+  /** Bucket width in percentage points for non-tail buckets. */
+  bucket_width_pp: number;
+  buckets: PositioningRoleDeltaBucket[];
+}
+
+export type PositioningRoleDeltaDirection = "back" | "neutral" | "forward";
+
+export interface PositioningRoleDeltaBucket {
+  key: string;
+  label: string;
+  full_label: string;
+  direction: PositioningRoleDeltaDirection;
+  lower_pp: number | null;
+  upper_pp: number | null;
+  count: number;
 }
 
 export interface PositioningCohortSummary {

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type {
   MechanicEventResponse,
   PositioningCohortSummary,
+  PositioningRoleDeltaHistogram,
   PositioningSummaryResponse,
   RankBenchmarkCohort,
   ReplayPlayer,
@@ -120,7 +121,6 @@ export function PositioningDetail({
       summaries={summaries}
       cohort={cohort}
       emptyContext={scope === "group" ? "this group" : "this replay"}
-      showRoleBalanceHistogram={scope === "group"}
     />
   );
 }
@@ -138,7 +138,7 @@ export function PositioningSummariesView({
   preserveOrder = false,
   cohort = false,
   rankSummaries = [],
-  showRoleBalanceHistogram = false,
+  roleDeltaHistogram = null,
 }: {
   summaries: PlayerPositioningSummary[];
   emptyContext?: string;
@@ -152,7 +152,7 @@ export function PositioningSummariesView({
   // palette (teal -> grey -> purple) and key the directional zones to a fixed
   // defensive/neutral/offensive ramp instead of each player's team colour.
   cohort?: boolean;
-  showRoleBalanceHistogram?: boolean;
+  roleDeltaHistogram?: PositioningRoleDeltaHistogram | null;
 }) {
   const colors: OutcomeDistributionColors = cohort
     ? PLAYER_RELATIVE_OUTCOME_COLORS
@@ -257,22 +257,19 @@ export function PositioningSummariesView({
           />
         </section>
 
-        {showRoleBalanceHistogram ? (
+        {roleDeltaHistogram && roleDeltaHistogram.sample_count > 0 ? (
           <section className="chart-panel full-span">
             <header className="chart-panel-header">
-              <h3>Most back vs most forward balance</h3>
-              <span>Signed percentage-point gap between rotation extremes</span>
+              <h3>2v2 teammate role delta</h3>
+              <span>Per-game most-forward share gap against teammate</span>
             </header>
             <p className="chart-panel-note">
-              Net role balance is <strong>most forward share minus most back share</strong>. Values
-              from <strong>-1 to +1 percentage point</strong> are neutral; outside that band,
-              players are bucketed in two-point bands through the historical 5th-95th percentile
-              range.
+              Each sample is one 2v2 game: this player&apos;s{" "}
+              <strong>most forward share minus their teammate&apos;s most forward share</strong>.
+              Negative buckets mean the player was more often the deeper teammate; positive buckets
+              mean they were more often furthest forward.
             </p>
-            <RoleBalanceChart
-              summaries={withRanks}
-              emptyLabel={`No teammate-role balance spans are available for ${emptyContext}.`}
-            />
+            <RoleDeltaHistogramChart histogram={roleDeltaHistogram} />
           </section>
         ) : null}
 
@@ -568,43 +565,13 @@ export function PositioningSummariesView({
   );
 }
 
-function RoleBalanceChart({
-  summaries,
-  emptyLabel,
-}: {
-  summaries: PlayerPositioningSummary[];
-  emptyLabel: string;
-}) {
-  const balanceSummaries = summaries.filter((summary) => roleBalanceTotal(summary) > 0);
-  if (!balanceSummaries.length) return <div className="stat-empty">{emptyLabel}</div>;
-
-  const bucketCounts = new Map<
-    string,
-    { bucket: RoleBalanceBucket; samples: RoleBalanceSample[] }
-  >();
-  for (const summary of balanceSummaries) {
-    const balance = roleBalance(summary);
-    const bucket = roleBalanceBucket(balance);
-    const existing = bucketCounts.get(bucket.key);
-    if (existing) {
-      existing.samples.push({ name: summary.name, balance });
-    } else {
-      bucketCounts.set(bucket.key, { bucket, samples: [{ name: summary.name, balance }] });
-    }
-  }
-
-  const total = balanceSummaries.length;
-  const buckets = ROLE_BALANCE_HISTOGRAM_BUCKETS.map((bucket) => {
-    const entry = bucketCounts.get(bucket.key);
-    const samples = entry?.samples ?? [];
-    const count = samples.length;
-    return {
-      bucket,
-      count,
-      samples,
-      share: count / total,
-    };
-  });
+function RoleDeltaHistogramChart({ histogram }: { histogram: PositioningRoleDeltaHistogram }) {
+  const total = histogram.sample_count;
+  if (total <= 0) return null;
+  const buckets = histogram.buckets.map((bucket) => ({
+    bucket,
+    share: bucket.count / total,
+  }));
   const maxShare = Math.max(0.01, ...buckets.map((bucket) => bucket.share));
 
   return (
@@ -613,29 +580,30 @@ function RoleBalanceChart({
       style={outcomeDistributionColorStyle(PLAYER_RELATIVE_OUTCOME_COLORS)}
     >
       <div className="positioning-role-balance-direction">
-        <span>More most forward</span>
-        <span>Neutral</span>
         <span>More most back</span>
+        <span>Neutral</span>
+        <span>More most forward</span>
       </div>
       <div
         className="positioning-role-balance-bars"
         role="img"
-        aria-label="Most forward to most back role-balance histogram"
+        aria-label="2v2 teammate role delta histogram"
       >
-        {buckets.map(({ bucket, count, samples, share }) => {
+        {buckets.map(({ bucket, share }) => {
+          const count = bucket.count;
           const shareLabel = formatPercent(count, total);
           const barHeight = share > 0 ? Math.max(8, (share / maxShare) * 100) : 0;
-          const title = `${bucket.fullLabel}: ${shareLabel} (${count.toLocaleString()} ${
-            count === 1 ? "row" : "rows"
-          }${samples.length ? `: ${samples.map(formatRoleBalanceSample).join(", ")}` : ""})`;
+          const title = `${bucket.full_label}: ${shareLabel} (${count.toLocaleString()} ${
+            count === 1 ? "game" : "games"
+          })`;
           return (
             <div className="positioning-role-balance-column" key={bucket.key} title={title}>
               <span className="positioning-role-balance-count">{count > 0 ? shareLabel : ""}</span>
               <span className="positioning-role-balance-track">
                 <span
                   className={`source-segment ${outcomeSegmentClassName(
-                    roleBalanceBucketTone(bucket),
-                    roleBalanceLevel(bucket),
+                    roleDeltaBucketTone(bucket.direction),
+                    roleDeltaBucketLevel(bucket.direction, bucket.upper_pp),
                   )}`}
                   style={{ height: `${barHeight}%` }}
                 />
@@ -649,151 +617,20 @@ function RoleBalanceChart({
   );
 }
 
-type RoleBalanceDirection = "back" | "neutral" | "forward";
-
-interface RoleBalanceSample {
-  name: string;
-  balance: number;
-}
-
-interface RoleBalanceBucket {
-  key: string;
-  label: string;
-  fullLabel: string;
-  direction: RoleBalanceDirection;
-  lower: number | null;
-  upper: number | null;
-}
-
-const ROLE_BALANCE_NEUTRAL_LIMIT = 0.01;
-const ROLE_BALANCE_TAIL_LIMIT = 0.21;
-const ROLE_BALANCE_BIN_WIDTH = 0.02;
-
-const ROLE_BALANCE_HISTOGRAM_BUCKETS: RoleBalanceBucket[] = [
-  roleBalanceTailBucket("forward"),
-  ...roleBalanceDirectionalBuckets("forward").reverse(),
-  roleBalanceBucketDef("neutral", "-1..+1", "Neutral -1 to +1 pp", "neutral", null, 0.01),
-  ...roleBalanceDirectionalBuckets("back"),
-  roleBalanceTailBucket("back"),
-];
-
-function roleBalanceBucketDef(
-  key: string,
-  label: string,
-  fullLabel: string,
-  direction: RoleBalanceDirection,
-  lower: number | null,
-  upper: number | null,
-): RoleBalanceBucket {
-  return { key, label, fullLabel, direction, lower, upper };
-}
-
-function roleBalanceDirectionalBuckets(
-  direction: Exclude<RoleBalanceDirection, "neutral">,
-): RoleBalanceBucket[] {
-  const buckets: RoleBalanceBucket[] = [];
-  const neutralPct = Math.round(ROLE_BALANCE_NEUTRAL_LIMIT * 100);
-  const tailPct = Math.round(ROLE_BALANCE_TAIL_LIMIT * 100);
-  const binPct = Math.round(ROLE_BALANCE_BIN_WIDTH * 100);
-  for (let lowerPct = neutralPct; lowerPct < tailPct; lowerPct += binPct) {
-    const roundedLower = lowerPct / 100;
-    const upper = (lowerPct + binPct) / 100;
-    const label = `${formatBucketBoundary(roundedLower)}-${formatBucketBoundary(upper)}`;
-    const prefix = direction === "back" ? "Most back" : "Most forward";
-    buckets.push(
-      roleBalanceBucketDef(
-        `${direction}-${formatBucketKey(roundedLower)}-${formatBucketKey(upper)}`,
-        label,
-        `${prefix} ${label} pp`,
-        direction,
-        roundedLower,
-        upper,
-      ),
-    );
-  }
-  return buckets;
-}
-
-function roleBalanceTailBucket(
-  direction: Exclude<RoleBalanceDirection, "neutral">,
-): RoleBalanceBucket {
-  const threshold = ROLE_BALANCE_TAIL_LIMIT;
-  const label = `>${formatBucketBoundary(threshold)}`;
-  const prefix = direction === "back" ? "Most back" : "Most forward";
-  return roleBalanceBucketDef(
-    `${direction}-gt-${formatBucketKey(threshold)}`,
-    label,
-    `${prefix} ${label} pp`,
-    direction,
-    threshold,
-    null,
-  );
-}
-
-function roleBalanceBucket(balance: number): RoleBalanceBucket {
-  const magnitude = Math.abs(balance);
-  if (magnitude <= ROLE_BALANCE_NEUTRAL_LIMIT) {
-    return ROLE_BALANCE_HISTOGRAM_BUCKETS.find((bucket) => bucket.direction === "neutral")!;
-  }
-
-  const direction: Exclude<RoleBalanceDirection, "neutral"> = balance < 0 ? "back" : "forward";
-  const bucket = ROLE_BALANCE_HISTOGRAM_BUCKETS.find(
-    (candidate) =>
-      candidate.direction === direction &&
-      candidate.lower != null &&
-      magnitude > candidate.lower &&
-      (candidate.upper == null || magnitude <= candidate.upper),
-  );
-  return bucket ?? roleBalanceTailBucket(direction);
-}
-
-function roleBalanceLevel(bucket: RoleBalanceBucket): OutcomeDistributionLevel {
-  if (bucket.direction === "neutral") return "narrow";
-  if (bucket.upper == null || bucket.upper >= 0.15) return "strong";
-  if (bucket.upper <= 0.07) return "clear";
+function roleDeltaBucketLevel(
+  direction: "back" | "neutral" | "forward",
+  upperPp: number | null,
+): OutcomeDistributionLevel {
+  if (direction === "neutral") return "narrow";
+  if (upperPp == null || Math.abs(upperPp) >= 37.5) return "strong";
+  if (Math.abs(upperPp) <= 12.5) return "clear";
   return "unknown";
 }
 
-function roleBalanceBucketTone(bucket: RoleBalanceBucket): OutcomeDistributionTone {
-  if (bucket.direction === "back") return "positive";
-  if (bucket.direction === "forward") return "negative";
+function roleDeltaBucketTone(direction: "back" | "neutral" | "forward"): OutcomeDistributionTone {
+  if (direction === "back") return "positive";
+  if (direction === "forward") return "negative";
   return "neutral";
-}
-
-function roleBalance(summary: PlayerPositioningSummary): number {
-  const total = roleBalanceTotal(summary);
-  if (total <= 0) return 0;
-  return (summary.roleSeconds.most_forward - summary.roleSeconds.most_back) / total;
-}
-
-function formatRoleBalanceSample(sample: RoleBalanceSample): string {
-  return `${sample.name} ${formatSignedPercentagePoints(sample.balance)}`;
-}
-
-function formatSignedPercentagePoints(value: number): string {
-  const percentagePoints = value * 100;
-  const rounded =
-    Math.abs(percentagePoints) < 10
-      ? percentagePoints.toFixed(1)
-      : Math.round(percentagePoints).toString();
-  return `${percentagePoints > 0 ? "+" : ""}${rounded} pp`;
-}
-
-function formatBucketBoundary(value: number): string {
-  return Math.round(value * 100).toString();
-}
-
-function formatBucketKey(value: number): string {
-  return formatBucketBoundary(value).replace("-", "n");
-}
-
-function roleBalanceTotal(summary: PlayerPositioningSummary): number {
-  return (
-    summary.roleSeconds.most_back +
-    summary.roleSeconds.mid +
-    summary.roleSeconds.most_forward +
-    summary.roleSeconds.other
-  );
 }
 
 function PositioningBarRows({
@@ -954,6 +791,7 @@ export function PlayerPositioningCohorts({
       emptyContext="the selected games"
       preserveOrder
       cohort
+      roleDeltaHistogram={response.teammate_role_delta_histogram}
       label={(summary) =>
         summary.rankCohort
           ? rankCohortLabel(summary.rankCohort, rankWindowLabel)
