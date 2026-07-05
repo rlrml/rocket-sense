@@ -3914,6 +3914,33 @@ tbody tr:last-child td {
   min-width: 0;
 }
 
+.positioning-role-balance {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.positioning-role-balance-histogram {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding-top: 4px;
+}
+
+.positioning-role-balance-histogram h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+}
+
+.positioning-role-balance-bucket {
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+
 .positioning-track {
   height: 24px;
   border: 1px solid var(--border);

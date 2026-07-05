@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import type {
   MechanicEventResponse,
   PositioningCohortSummary,
@@ -180,6 +180,102 @@ export function PositioningSummariesView({
       <div className="stat-section-grid">
         <section className="chart-panel full-span">
           <header className="chart-panel-header">
+            <h3>Teammate role</h3>
+            <span>Most back, mid, most forward</span>
+          </header>
+          <p className="chart-panel-note">
+            Share of time at each depth relative to teammates, from <strong>most back</strong>{" "}
+            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.{" "}
+            <strong>Mid</strong>, <strong>other</strong> (unranked), and <strong>solo</strong>{" "}
+            (alone on the team) are grey.
+          </p>
+          <ZoneLegend
+            cohort={cohort}
+            colors={colors}
+            colorKey
+            caption={cohort ? undefined : DIRECTIONAL_COLOUR_CAPTION}
+            items={[
+              {
+                key: "most_back",
+                abbr: "B",
+                label: "Most back",
+                tone: "positive",
+                note: "furthest back",
+              },
+              {
+                key: "mid",
+                abbr: "M",
+                label: "Mid",
+                tone: "neutral",
+                note: "middle of the rotation",
+              },
+              {
+                key: "most_forward",
+                abbr: "F",
+                label: "Most forward",
+                tone: "negative",
+                note: "furthest up",
+              },
+              { key: "other", abbr: "O", label: "Other", tone: "neutral", note: "unranked moment" },
+              { key: "solo", abbr: "S", label: "Solo", tone: "neutral", note: "alone on the team" },
+            ]}
+          />
+          <PositioningBarRows
+            colors={colors}
+            summaries={withRanks}
+            label={label}
+            preserveOrder={preserveOrder}
+            emptyLabel={`No teammate-role spans are available for ${emptyContext}.`}
+            segments={(summary) => {
+              const [own, neutral, opposite] = directionalTones(summary.team, zoneMode);
+              // Diverging scheme: the two rotation ends carry colour, everything
+              // without a clear front/back rank (mid, other, solo, unknown) is grey.
+              const roleTone: Record<PositioningRole, OutcomeDistributionTone> = {
+                most_back: own,
+                mid: neutral,
+                most_forward: opposite,
+                other: neutral,
+                no_teammates: neutral,
+                unknown: neutral,
+              };
+              return roleOrder.map((role) =>
+                positioningSegment(
+                  `role-${role}`,
+                  roleLabel(role),
+                  roleAbbr(role),
+                  summary.roleSeconds[role],
+                  roleTotal(summary),
+                  roleTone[role],
+                ),
+              );
+            }}
+            sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
+            total={roleTotal}
+          />
+        </section>
+
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
+            <h3>Most back vs most forward balance</h3>
+            <span>Signed percentage-point gap between rotation extremes</span>
+          </header>
+          <p className="chart-panel-note">
+            Net role balance is <strong>most forward share minus most back share</strong>. Values
+            from <strong>-2.5 to +2.5 percentage points</strong> are neutral; outside that band,
+            players are bucketed by the observed distribution of current replay data.
+          </p>
+          <RoleBalanceChart
+            colors={colors}
+            summaries={withRanks}
+            label={label}
+            preserveOrder={preserveOrder}
+            zoneMode={zoneMode}
+            emptyLabel={`No teammate-role balance spans are available for ${emptyContext}.`}
+          />
+        </section>
+
+        <section className="chart-panel full-span">
+          <header className="chart-panel-header">
             <h3>Field position</h3>
             <span>Defensive, neutral, offensive thirds</span>
           </header>
@@ -315,82 +411,6 @@ export function PositioningSummariesView({
             }}
             sortValue={(summary) => share(summary.inFrontOfBallSeconds, summary.trackedSeconds)}
             total={(summary) => summary.trackedSeconds}
-          />
-        </section>
-
-        <section className="chart-panel full-span">
-          <header className="chart-panel-header">
-            <h3>Teammate role</h3>
-            <span>Most back, mid, most forward</span>
-          </header>
-          <p className="chart-panel-note">
-            Share of time at each depth relative to teammates, from <strong>most back</strong>{" "}
-            (rotated furthest back) through <strong>mid</strong> to <strong>most forward</strong>.{" "}
-            <strong>Mid</strong>, <strong>other</strong> (unranked), and <strong>solo</strong>{" "}
-            (alone on the team) are grey.
-          </p>
-          <ZoneLegend
-            cohort={cohort}
-            colors={colors}
-            colorKey
-            caption={cohort ? undefined : DIRECTIONAL_COLOUR_CAPTION}
-            items={[
-              {
-                key: "most_back",
-                abbr: "B",
-                label: "Most back",
-                tone: "positive",
-                note: "furthest back",
-              },
-              {
-                key: "mid",
-                abbr: "M",
-                label: "Mid",
-                tone: "neutral",
-                note: "middle of the rotation",
-              },
-              {
-                key: "most_forward",
-                abbr: "F",
-                label: "Most forward",
-                tone: "negative",
-                note: "furthest up",
-              },
-              { key: "other", abbr: "O", label: "Other", tone: "neutral", note: "unranked moment" },
-              { key: "solo", abbr: "S", label: "Solo", tone: "neutral", note: "alone on the team" },
-            ]}
-          />
-          <PositioningBarRows
-            colors={colors}
-            summaries={withRanks}
-            label={label}
-            preserveOrder={preserveOrder}
-            emptyLabel={`No teammate-role spans are available for ${emptyContext}.`}
-            segments={(summary) => {
-              const [own, neutral, opposite] = directionalTones(summary.team, zoneMode);
-              // Diverging scheme: the two rotation ends carry colour, everything
-              // without a clear front/back rank (mid, other, solo, unknown) is grey.
-              const roleTone: Record<PositioningRole, OutcomeDistributionTone> = {
-                most_back: own,
-                mid: neutral,
-                most_forward: opposite,
-                other: neutral,
-                no_teammates: neutral,
-                unknown: neutral,
-              };
-              return roleOrder.map((role) =>
-                positioningSegment(
-                  `role-${role}`,
-                  roleLabel(role),
-                  roleAbbr(role),
-                  summary.roleSeconds[role],
-                  roleTotal(summary),
-                  roleTone[role],
-                ),
-              );
-            }}
-            sortValue={(summary) => share(summary.roleSeconds.most_forward, roleTotal(summary))}
-            total={roleTotal}
           />
         </section>
 
@@ -544,6 +564,229 @@ export function PositioningSummariesView({
       </div>
     </div>
   );
+}
+
+function RoleBalanceChart({
+  summaries,
+  emptyLabel,
+  label,
+  preserveOrder = false,
+  colors,
+  zoneMode,
+}: {
+  summaries: PlayerPositioningSummary[];
+  emptyLabel: string;
+  label: (summary: PlayerPositioningSummary) => ReactNode;
+  preserveOrder?: boolean;
+  colors: OutcomeDistributionColors;
+  zoneMode: ZoneToneMode;
+}) {
+  const rowStyle = outcomeDistributionColorStyle(colors);
+  const balanceSummaries = summaries.filter((summary) => roleBalanceTotal(summary) > 0);
+  if (!balanceSummaries.length) return <div className="stat-empty">{emptyLabel}</div>;
+
+  const ordered = preserveOrder
+    ? balanceSummaries
+    : balanceSummaries
+        .slice()
+        .sort(
+          (left, right) => roleBalance(right) - roleBalance(left) || compareSummaries(left, right),
+        );
+  const maxBalance = Math.max(
+    0.1,
+    ...balanceSummaries.map((summary) => Math.abs(roleBalance(summary))),
+  );
+
+  const rows: ComparisonRow[] = ordered.map((summary) => {
+    const balance = roleBalance(summary);
+    const bucket = roleBalanceBucket(balance);
+    const tone = roleBalanceTone(summary, bucket.direction, zoneMode);
+    const value = Math.abs(balance);
+    const labelText = formatRoleBalance(balance);
+    return {
+      key: summary.key,
+      label: label(summary),
+      ariaLabel: `${summary.name}: ${labelText}, ${bucket.label}`,
+      style: rowStyle,
+      segments: [
+        {
+          key: "balance",
+          className: outcomeSegmentClassName(tone, roleBalanceLevel(bucket)),
+          label: bucket.label,
+          value,
+          title: `${summary.name}: ${labelText} (${bucket.label})`,
+        },
+      ],
+      total: value,
+      maxValue: maxBalance,
+      barValue: formatSignedPercentagePoints(balance),
+      valueLabel: bucket.label,
+      placeholder: labelText,
+    };
+  });
+
+  return (
+    <div className="positioning-role-balance">
+      <ComparisonRows rows={rows} emptyLabel={emptyLabel} />
+      <div className="positioning-role-balance-histogram">
+        <h4>Bucket distribution</h4>
+        <ComparisonRows
+          rows={roleBalanceHistogramRows(
+            balanceSummaries,
+            outcomeDistributionColorStyle(PLAYER_RELATIVE_OUTCOME_COLORS),
+          )}
+          emptyLabel="No role-balance buckets are available."
+        />
+      </div>
+    </div>
+  );
+}
+
+function roleBalanceHistogramRows(
+  summaries: PlayerPositioningSummary[],
+  style: CSSProperties | undefined,
+): ComparisonRow[] {
+  const buckets = new Map<string, { bucket: RoleBalanceBucket; count: number; names: string[] }>();
+  for (const summary of summaries) {
+    const bucket = roleBalanceBucket(roleBalance(summary));
+    const existing = buckets.get(bucket.key);
+    if (existing) {
+      existing.count += 1;
+      existing.names.push(summary.name);
+    } else {
+      buckets.set(bucket.key, { bucket, count: 1, names: [summary.name] });
+    }
+  }
+
+  const total = summaries.length;
+  return Array.from(buckets.values())
+    .sort((left, right) => left.bucket.sortValue - right.bucket.sortValue)
+    .map(({ bucket, count, names }) => {
+      const shareValue = count / total;
+      const shareLabel = formatPercent(count, total);
+      const tone =
+        bucket.direction === "back"
+          ? "positive"
+          : bucket.direction === "forward"
+            ? "negative"
+            : "neutral";
+      return {
+        key: bucket.key,
+        label: <span className="positioning-role-balance-bucket">{bucket.label}</span>,
+        ariaLabel: `${bucket.label}: ${shareLabel}`,
+        style,
+        segments: [
+          {
+            key: "share",
+            className: outcomeSegmentClassName(tone, roleBalanceLevel(bucket)),
+            label: bucket.label,
+            value: shareValue,
+            title: `${bucket.label}: ${shareLabel} (${count.toLocaleString()} ${count === 1 ? "row" : "rows"}: ${names.join(", ")})`,
+          },
+        ],
+        total: shareValue,
+        maxValue: 1,
+        valueLabel: shareLabel,
+        placeholder: shareLabel,
+      };
+    });
+}
+
+type RoleBalanceDirection = "back" | "neutral" | "forward";
+
+interface RoleBalanceBucket {
+  key: string;
+  label: string;
+  direction: RoleBalanceDirection;
+  sortValue: number;
+  upper: number | null;
+}
+
+const ROLE_BALANCE_BUCKETS: Array<{ upper: number | null; label: string }> = [
+  { upper: 0.025, label: "2.5 pp" },
+  { upper: 0.1, label: "2.5-10 pp" },
+  { upper: 0.2, label: "10-20 pp" },
+  { upper: 0.3, label: "20-30 pp" },
+  { upper: 0.4, label: "30-40 pp" },
+  { upper: null, label: ">40 pp" },
+];
+
+function roleBalanceBucket(balance: number): RoleBalanceBucket {
+  const magnitude = Math.abs(balance);
+  if (magnitude <= ROLE_BALANCE_BUCKETS[0]!.upper!) {
+    return {
+      key: "neutral",
+      label: "Neutral -2.5 to +2.5 pp",
+      direction: "neutral",
+      sortValue: 0,
+      upper: ROLE_BALANCE_BUCKETS[0]!.upper,
+    };
+  }
+
+  const direction: Exclude<RoleBalanceDirection, "neutral"> = balance < 0 ? "back" : "forward";
+  const bucketIndex = ROLE_BALANCE_BUCKETS.findIndex(
+    (bucket, index) => index > 0 && (bucket.upper == null || magnitude <= bucket.upper),
+  );
+  const bucket =
+    ROLE_BALANCE_BUCKETS[bucketIndex] ?? ROLE_BALANCE_BUCKETS[ROLE_BALANCE_BUCKETS.length - 1]!;
+  const sign = direction === "back" ? -1 : 1;
+  return {
+    key: `${direction}-${bucket.label}`,
+    label: `${direction === "back" ? "Most back" : "Most forward"} ${bucket.label}`,
+    direction,
+    sortValue: sign * bucketIndex,
+    upper: bucket.upper,
+  };
+}
+
+function roleBalanceLevel(bucket: RoleBalanceBucket): OutcomeDistributionLevel {
+  if (bucket.direction === "neutral") return "narrow";
+  if (bucket.upper == null || bucket.upper >= 0.3) return "strong";
+  if (bucket.upper <= 0.1) return "clear";
+  return "unknown";
+}
+
+function roleBalanceTone(
+  summary: PlayerPositioningSummary,
+  direction: RoleBalanceDirection,
+  mode: ZoneToneMode,
+): OutcomeDistributionTone {
+  const [back, neutral, forward] = directionalTones(summary.team, mode);
+  if (direction === "back") return back;
+  if (direction === "forward") return forward;
+  return neutral;
+}
+
+function roleBalance(summary: PlayerPositioningSummary): number {
+  const total = roleBalanceTotal(summary);
+  if (total <= 0) return 0;
+  return (summary.roleSeconds.most_forward - summary.roleSeconds.most_back) / total;
+}
+
+function roleBalanceTotal(summary: PlayerPositioningSummary): number {
+  return (
+    summary.roleSeconds.most_back +
+    summary.roleSeconds.mid +
+    summary.roleSeconds.most_forward +
+    summary.roleSeconds.other
+  );
+}
+
+function formatRoleBalance(balance: number): string {
+  const absolute = formatSignedPercentagePoints(Math.abs(balance));
+  const bucket = roleBalanceBucket(balance);
+  if (bucket.direction === "back") return `Back ${absolute}`;
+  if (bucket.direction === "forward") return `Forward ${absolute}`;
+  return `Neutral ${formatSignedPercentagePoints(balance)}`;
+}
+
+function formatSignedPercentagePoints(value: number): string {
+  const percentagePoints = value * 100;
+  const rounded =
+    Math.abs(percentagePoints) < 10
+      ? percentagePoints.toFixed(1)
+      : Math.round(percentagePoints).toString();
+  return `${percentagePoints > 0 ? "+" : ""}${rounded} pp`;
 }
 
 function PositioningBarRows({
