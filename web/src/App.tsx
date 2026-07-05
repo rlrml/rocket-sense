@@ -157,6 +157,7 @@ import {
   type PeriodSelection,
 } from "./stats/periods";
 import { AerialsProfileDetail } from "./stats/aerials";
+import { CoreGoalGameHistograms } from "./stats/coreGoalHistograms";
 import { GroundPlayProfileDetail } from "./stats/groundPlay";
 import { OutcomesProfileDetail } from "./stats/outcomes";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
@@ -6308,6 +6309,18 @@ function PlayerAggregateStatsSections({
     }
 
     if (activeGroup.id === "core" && contentOverview) {
+      add(
+        "core-goal-games",
+        <CoreGoalGameHistograms
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+          view={sectionView}
+        />,
+      );
       addCards(
         "core",
         buildCoreProfileCards({

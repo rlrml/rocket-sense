@@ -10450,6 +10450,42 @@ tbody tr:last-child td {
   gap: 16px 24px;
 }
 
+.core-goal-histograms {
+  gap: 14px;
+}
+
+.core-goal-histogram-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px 24px;
+}
+
+.core-goal-histogram {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.core-goal-histogram-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--career-cohort-color, var(--border-strong));
+}
+
+.core-goal-histogram-title .stat-player-name-line {
+  min-width: 0;
+}
+
+.core-goal-histogram .outcomes-histogram-track {
+  height: 82px;
+}
+
+.core-goal-histogram-bar {
+  background: var(--career-cohort-color, #64748b);
+}
+
 .outcomes-histogram {
   display: grid;
   gap: 6px;

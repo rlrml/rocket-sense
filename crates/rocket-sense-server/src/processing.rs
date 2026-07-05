@@ -4986,6 +4986,7 @@ async fn refresh_rank_benchmark_window(
                 rp.rank_tier,
                 rp.team AS team,
                 rp.score AS score,
+                COALESCE(rp.goals, 0) AS goals,
                 "#,
     );
     crate::api::push_playlist_group_key_expression(&mut builder, "r");
@@ -5051,8 +5052,8 @@ async fn refresh_rank_benchmark_window(
         appearance_bucket AS (
             SELECT a.analysis_run_id, a.replay_id, a.player_subject_id,
                    rank.grouping AS rank_grouping, rank.value AS rank_value,
-                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds, a.score,
-                   bucket.outcome
+                   a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds,
+                   a.score, a.goals, bucket.outcome
             FROM appearance_keyed a
             CROSS JOIN LATERAL (
                 SELECT 'tier'::text AS grouping, a.rank_tier AS value
@@ -5097,6 +5098,19 @@ async fn refresh_rank_benchmark_window(
             GROUP BY ev.analysis_run_id, scorer_rp.replay_id, player_subject_id, tag->>'kind'
         ),
         goal_tag_kinds AS (SELECT DISTINCT kind FROM goal_tag_counts),
+        -- Goal-game distribution buckets for Core histograms. The values are
+        -- shares (denom = 1), not rates: "what proportion of games had N
+        -- scoreboard goals." The final bucket absorbs rare high-goal games so
+        -- the metric-key universe remains fixed.
+        goal_game_buckets(bucket_key, min_goals, max_goals) AS (
+            VALUES
+                ('0', 0, 0),
+                ('1', 1, 1),
+                ('2', 2, 2),
+                ('3', 3, 3),
+                ('4', 4, 4),
+                ('5_plus', 5, NULL)
+        ),
         -- Every lifetime-stat metric, long-format, one row per (appearance,
         -- metric). Each metric reduces to a (numerator, denom) pair so the same
         -- median/mean machinery covers counts, rates and gauges: rate metrics use
@@ -5126,6 +5140,17 @@ async fn refresh_rank_benchmark_window(
                    ab.score * 60.0, ab.active_seconds, ab.non_demo_active_seconds
             FROM appearance_bucket ab
             WHERE ab.score IS NOT NULL
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'core:goal_games:' || b.bucket_key,
+                   CASE
+                       WHEN ab.goals >= b.min_goals AND (b.max_goals IS NULL OR ab.goals <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0,
+                   NULL
+            FROM appearance_bucket ab
+            CROSS JOIN goal_game_buckets b
             UNION ALL
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
@@ -5245,6 +5270,10 @@ async fn refresh_rank_benchmark_window(
                    MIN(a.appearance_outcome) AS team_outcome,
                    ROUND(AVG(a.rank_tier))::int AS team_rank_tier,
                    COALESCE(NULLIF(MAX(r.active_seconds), 0.0), MAX(a.active_seconds)) AS team_seconds,
+                   CASE
+                       WHEN a.team = 0 THEN MAX(r.team_zero_score)
+                       WHEN a.team = 1 THEN MAX(r.team_one_score)
+                   END AS team_score,
                    COUNT(*) AS qualified_count
             FROM appearance_keyed a
             JOIN replays r ON r.id = a.replay_id
@@ -5264,7 +5293,7 @@ async fn refresh_rank_benchmark_window(
         -- buckets as player appearances (team tier -> pooled group id).
         team_bucket AS (
             SELECT tu.analysis_run_id, tu.replay_id, tu.team, tu.playlist_group_key,
-                   tu.team_seconds,
+                   tu.team_seconds, tu.team_score,
                    rank.grouping AS rank_grouping, rank.value AS rank_value,
                    bucket.outcome
             FROM team_unit tu
@@ -5294,6 +5323,7 @@ async fn refresh_rank_benchmark_window(
              AND a.player_subject_id = mv.player_subject_id
             WHERE mv.rank_grouping = 'tier' AND mv.outcome = 'all'
               AND a.team IN (0, 1)
+              AND mv.metric_key !~ '^core:goal_games:'
             GROUP BY a.analysis_run_id, a.replay_id, a.team, mv.metric_key
         ),
         -- One value per (team-game, metric): additive metrics rate over the
@@ -5316,6 +5346,17 @@ async fn refresh_rank_benchmark_window(
               ON tm.analysis_run_id = tb.analysis_run_id
              AND tm.replay_id = tb.replay_id
              AND tm.team = tb.team
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'core:goal_games:' || b.bucket_key,
+                   CASE
+                       WHEN tb.team_score >= b.min_goals AND (b.max_goals IS NULL OR tb.team_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0
+            FROM team_bucket tb
+            CROSS JOIN goal_game_buckets b
+            WHERE tb.team_score IS NOT NULL
             UNION ALL
             SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
                    tb.replay_id, tb.team, 'meta:game_seconds', tb.team_seconds, 1.0

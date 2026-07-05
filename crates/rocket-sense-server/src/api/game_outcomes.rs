@@ -46,6 +46,10 @@ pub struct GameOutcomeResponse {
     /// Team goals not credited to the player (clamped at zero in case own-goal
     /// accounting ever puts the player's tally above the team score).
     pub teammate_goals: i32,
+    /// Individual scoreboard goals for each teammate appearance in the game.
+    pub teammate_goal_counts: Vec<i32>,
+    /// Individual scoreboard goals for each opponent appearance in the game.
+    pub opponent_goal_counts: Vec<i32>,
     /// `true` = win, `false` = loss, `null` = tie (equal scores — rare;
     /// typically disconnects/forfeits that ended level).
     pub won: Option<bool>,
@@ -145,6 +149,7 @@ async fn load_game_outcomes(
         WITH target_games AS (
             SELECT
                 rp.replay_id,
+                rp.id AS target_replay_player_id,
                 r.replay_date,
                 r.playlist,
                 rp.team AS player_team,
@@ -171,8 +176,26 @@ async fn load_game_outcomes(
             opponent_score,
             player_goals,
             GREATEST(team_score - player_goals, 0) AS teammate_goals,
+            COALESCE(teammate_goal_counts, ARRAY[]::integer[]) AS teammate_goal_counts,
+            COALESCE(opponent_goal_counts, ARRAY[]::integer[]) AS opponent_goal_counts,
             COUNT(*) OVER () AS total_count
         FROM target_games
+        LEFT JOIN LATERAL (
+            SELECT array_agg(COALESCE(teammate.goals, 0) ORDER BY teammate.id) AS teammate_goal_counts
+            FROM replay_players teammate
+            WHERE teammate.replay_id = target_games.replay_id
+              AND teammate.id <> target_games.target_replay_player_id
+              AND teammate.team = target_games.player_team
+              AND (teammate.active_time_seconds IS NULL OR teammate.active_time_seconds > 0)
+        ) teammates ON TRUE
+        LEFT JOIN LATERAL (
+            SELECT array_agg(COALESCE(opponent.goals, 0) ORDER BY opponent.team, opponent.id) AS opponent_goal_counts
+            FROM replay_players opponent
+            WHERE opponent.replay_id = target_games.replay_id
+              AND opponent.team IN (0, 1)
+              AND opponent.team <> target_games.player_team
+              AND (opponent.active_time_seconds IS NULL OR opponent.active_time_seconds > 0)
+        ) opponents ON TRUE
         ORDER BY replay_date DESC NULLS LAST, replay_id
         LIMIT
         "#,
@@ -205,6 +228,8 @@ async fn load_game_outcomes(
                 opponent_score,
                 player_goals: row.try_get("player_goals")?,
                 teammate_goals: row.try_get("teammate_goals")?,
+                teammate_goal_counts: row.try_get("teammate_goal_counts")?,
+                opponent_goal_counts: row.try_get("opponent_goal_counts")?,
                 won: match team_score.cmp(&opponent_score) {
                     std::cmp::Ordering::Greater => Some(true),
                     std::cmp::Ordering::Less => Some(false),

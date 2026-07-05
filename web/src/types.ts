@@ -1292,6 +1292,10 @@ export interface GameOutcomeRow {
   player_goals: number;
   // Team goals not credited to the player (clamped at zero server-side).
   teammate_goals: number;
+  // Individual scoreboard goals for each teammate appearance in the game.
+  teammate_goal_counts: number[];
+  // Individual scoreboard goals for each opponent appearance in the game.
+  opponent_goal_counts: number[];
   // true = win, false = loss, null = tie (rare; e.g. disconnects).
   won: boolean | null;
 }

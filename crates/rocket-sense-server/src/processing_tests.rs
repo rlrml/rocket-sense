@@ -2306,15 +2306,20 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
     seed_replay(r1, run1, 2, 1, 310.0).await;
     seed_replay(r2, run2, 0, 1, 300.0).await;
 
-    let seed_player =
-        |replay: Uuid, pid: &str, team: i32, rank_tier: Option<i32>, score: i32, active: f64| {
-            let pool = pool.clone();
-            let pid = pid.to_owned();
-            async move {
-                sqlx::query(
+    let seed_player = |replay: Uuid,
+                       pid: &str,
+                       team: i32,
+                       rank_tier: Option<i32>,
+                       score: i32,
+                       goals: i32,
+                       active: f64| {
+        let pool = pool.clone();
+        let pid = pid.to_owned();
+        async move {
+            sqlx::query(
                 "INSERT INTO replay_players (id, replay_id, name, platform, platform_player_id, \
-                                             team, rank_tier, score, active_time_seconds) \
-                 VALUES ($1, $2, $3, 'steam', $3, $4, $5, $6, $7)",
+                                             team, rank_tier, score, goals, active_time_seconds) \
+                 VALUES ($1, $2, $3, 'steam', $3, $4, $5, $6, $7, $8)",
             )
             .bind(Uuid::now_v7())
             .bind(replay)
@@ -2322,20 +2327,21 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
             .bind(team)
             .bind(rank_tier)
             .bind(score)
+            .bind(goals)
             .bind(active)
             .execute(&pool)
             .await
             .expect("insert replay player");
-            }
-        };
-    seed_player(r1, "p1", 0, Some(10), 100, 300.0).await;
-    seed_player(r1, "p2", 0, Some(11), 200, 290.0).await;
-    seed_player(r1, "p3", 1, Some(12), 50, 300.0).await;
-    seed_player(r1, "p4", 1, Some(13), 60, 300.0).await;
-    seed_player(r2, "p5", 0, None, 10, 300.0).await; // unranked -> team 0 incomplete
-    seed_player(r2, "p6", 0, Some(9), 20, 300.0).await;
-    seed_player(r2, "p7", 1, Some(4), 30, 300.0).await;
-    seed_player(r2, "p8", 1, Some(5), 40, 300.0).await;
+        }
+    };
+    seed_player(r1, "p1", 0, Some(10), 100, 2, 300.0).await;
+    seed_player(r1, "p2", 0, Some(11), 200, 0, 290.0).await;
+    seed_player(r1, "p3", 1, Some(12), 50, 1, 300.0).await;
+    seed_player(r1, "p4", 1, Some(13), 60, 0, 300.0).await;
+    seed_player(r2, "p5", 0, None, 10, 0, 300.0).await; // unranked -> team 0 incomplete
+    seed_player(r2, "p6", 0, Some(9), 20, 0, 300.0).await;
+    seed_player(r2, "p7", 1, Some(4), 30, 1, 300.0).await;
+    seed_player(r2, "p8", 1, Some(5), 40, 0, 300.0).await;
 
     // Event counts: only positive counts are stored (0-filled by the refresh).
     let goal_type_id: i32 = sqlx::query_scalar(
@@ -2526,6 +2532,16 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
         2.0 * 60.0 / 300.0,
     );
     assert_close(
+        "player tier 10 two-goal games",
+        stat("player", "tier", 10, "all", "core:goal_games:2").await,
+        1.0,
+    );
+    assert_close(
+        "player tier 11 zero-goal games",
+        stat("player", "tier", 11, "all", "core:goal_games:0").await,
+        1.0,
+    );
+    assert_close(
         "player tier 11 boost:avg_amount",
         stat("player", "tier", 11, "all", "boost:avg_amount").await,
         8700.0 / 290.0,
@@ -2544,6 +2560,11 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
         "team tier 11 goal (all)",
         stat("team", "tier", 11, "all", "goal").await,
         2.0 * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 two-goal games",
+        stat("team", "tier", 11, "all", "core:goal_games:2").await,
+        1.0,
     );
     assert_close(
         "team tier 11 goal (win)",
@@ -2612,6 +2633,11 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
         "team tier 13 goal",
         stat("team", "tier", 13, "all", "goal").await,
         0.0,
+    );
+    assert_close(
+        "team tier 13 one-goal games",
+        stat("team", "tier", 13, "all", "core:goal_games:1").await,
+        1.0,
     );
     // R2 team 1 -> tier ROUND(4.5) = 5, one goal over 300s.
     assert_close(
