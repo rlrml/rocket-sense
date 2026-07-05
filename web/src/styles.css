@@ -3957,9 +3957,9 @@ tbody tr:last-child td {
 
 .positioning-role-balance-bars {
   display: grid;
-  grid-template-columns: repeat(11, minmax(24px, 1fr));
+  grid-template-columns: repeat(23, minmax(18px, 1fr));
   align-items: end;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
