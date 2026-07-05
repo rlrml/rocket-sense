@@ -378,6 +378,16 @@ fn push_materialized_span_select(builder: &mut QueryBuilder<'_, Postgres>, susta
     ));
 }
 
+fn push_materialized_location_select(builder: &mut QueryBuilder<'_, Postgres>) {
+    builder.push(
+        r#"
+        SELECT cohort, kv.key AS field_third, team AS player_team, SUM(kv.value::float8) AS duration
+        FROM cohort_rows, jsonb_each_text(location_third_seconds) kv
+        GROUP BY cohort, kv.key, team
+        "#,
+    );
+}
+
 /// Roster query backing both per-cohort `appearance_count` and the
 /// `active_time_seconds` denominator, reusing the live `cohort_appearances` CTE
 /// (over `replay_players`) so the materialized read reports exactly the live
@@ -496,13 +506,7 @@ async fn load_possession_summary_materialized(
     {
         let mut q = QueryBuilder::<Postgres>::new("");
         push_materialized_possession_cohorts(&mut q, filters);
-        q.push(
-            r#"
-            SELECT cohort, kv.key AS field_third, team AS player_team, SUM(kv.value::float8) AS duration
-            FROM cohort_rows, jsonb_each_text(location_third_seconds) kv
-            GROUP BY cohort, kv.key, team
-            "#,
-        );
+        push_materialized_location_select(&mut q);
         for row in q.build().fetch_all(pool).await? {
             let cohort: String = row.try_get("cohort")?;
             let field_third: String = row.try_get("field_third")?;

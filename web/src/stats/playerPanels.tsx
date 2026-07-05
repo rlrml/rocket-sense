@@ -2364,6 +2364,7 @@ export function PossessionSummaryPanel({
       ? possessionTeamSubjects(summary, playerName)
       : possessionProfileSubjects(summary, playerName).map(possessionAdvancedProfileSubject);
   const teamCharts = summary.team ? teamControlCharts(summary.team) : [];
+  const zoneCharts = possessionZoneDistributionCharts(subjects);
 
   return (
     <div
@@ -2378,6 +2379,7 @@ export function PossessionSummaryPanel({
         the team-control shares, so no metric key genuinely corresponds.
       */}
       <PossessionAdvancedCharts charts={teamCharts} />
+      <PossessionAdvancedCharts charts={zoneCharts} />
       <PossessionAdvancedCharts
         subjects={subjects}
         rankCohorts={rankCohorts}
@@ -2451,6 +2453,102 @@ function teamControlChart(
     };
   });
   return { key, title, rows };
+}
+
+type PossessionZone = "offensive" | "neutral" | "defensive";
+
+const possessionZoneBuckets: Array<{
+  key: PossessionZone;
+  label: string;
+  thirdKey: string;
+  className: string;
+}> = [
+  {
+    key: "offensive",
+    label: "Offensive",
+    thirdKey: "opponent_third",
+    className: "possession-zone-offensive",
+  },
+  {
+    key: "neutral",
+    label: "Neutral",
+    thirdKey: "neutral_third",
+    className: "possession-zone-neutral",
+  },
+  {
+    key: "defensive",
+    label: "Defensive",
+    thirdKey: "own_third",
+    className: "possession-zone-defensive",
+  },
+];
+
+function possessionZoneDistributionCharts(
+  subjects: PossessionAdvancedSubject[],
+): TeamControlChart[] {
+  return [
+    {
+      key: "possession-zones",
+      title: "Possession zones",
+      rows: possessionZoneDistributionRows(subjects),
+    },
+  ];
+}
+
+function possessionZoneDistributionRows(subjects: PossessionAdvancedSubject[]): ComparisonRow[] {
+  return subjects.map((subject) => {
+    const totalSeconds = possessionLocationTotal(subject.cohort.locations);
+    const segments = possessionZoneBuckets.map((bucket) => {
+      const seconds = possessionLocationBucketSeconds(
+        subject.cohort.locations.thirds,
+        bucket.thirdKey,
+      );
+      const share = totalSeconds > 0 ? seconds / totalSeconds : 0;
+      const percent = formatShare(share);
+      const duration = formatDurationSeconds(seconds);
+      return {
+        key: bucket.key,
+        className: bucket.className,
+        label: bucket.label,
+        value: seconds,
+        visibleLabel: share >= 0.16 ? `${bucket.label} ${percent}` : undefined,
+        title: statPercentWithValue(percent, duration, bucket.label),
+      };
+    });
+    const summary =
+      totalSeconds > 0
+        ? possessionZoneBuckets
+            .map((bucket) => {
+              const seconds = possessionLocationBucketSeconds(
+                subject.cohort.locations.thirds,
+                bucket.thirdKey,
+              );
+              const share = seconds / totalSeconds;
+              return `${bucket.label} ${formatShare(share)}`;
+            })
+            .join(", ")
+        : "no possession zone time";
+    return {
+      key: `possession-zones:${subject.key}`,
+      label: subject.label,
+      ariaLabel: `${subject.name}: ${summary}`,
+      segments,
+      total: totalSeconds,
+      placeholder: "0%",
+    };
+  });
+}
+
+function possessionLocationTotal(location: PossessionLocationSummary): number {
+  if (Number.isFinite(location.total_duration_seconds) && location.total_duration_seconds > 0) {
+    return location.total_duration_seconds;
+  }
+  return location.thirds.reduce((sum, bucket) => sum + bucket.duration_seconds, 0);
+}
+
+function possessionLocationBucketSeconds(buckets: PossessionTimeBucket[], key: string): number {
+  const value = buckets.find((bucket) => bucket.key === key)?.duration_seconds ?? 0;
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 // Oriented keys (own_* / opponent_* / neutral*) are player-relative, so they
