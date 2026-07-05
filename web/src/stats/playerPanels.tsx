@@ -5,9 +5,14 @@ import type {
   EventStatSummaryResponse,
   MvpSummaryResponse,
   PlayerStatOverviewResponse,
+  PossessionLocationSummary,
+  PossessionMixValue,
+  PossessionSpanSummary,
   PossessionSummaryResponse,
   PossessionTeamControl,
   PossessionTeamMetric,
+  PossessionTimeBucket,
+  PossessionTouchSummary,
   RankBenchmarkCohort,
   RotationTimeShareResponse,
   StatAggregateResponse,
@@ -31,6 +36,9 @@ import {
   PLAYER_RELATIVE_OUTCOME_COLORS,
   rankCohortDerivedRows,
   rankCohortMagnitudeRows,
+  rankCohortTeamDerivedRows,
+  rankCohortTeamMagnitudeRows,
+  rankCohortTeamValues,
   rankCohortValues,
   StatPlayerLabel,
   statPercentWithValue,
@@ -331,6 +339,9 @@ export function CoreProfileComparison(props: {
   playerName: string;
   stats: StatAggregateResponse[];
   view?: CoreProfileView;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
+  activeTimeSeconds?: number | null;
 }) {
   return <ComparisonCardGrid cards={buildCoreProfileCards(props)} />;
 }
@@ -346,20 +357,28 @@ export function buildCoreProfileCards({
   view = "player",
   rankCohorts = [],
   rankWindowLabel,
+  activeTimeSeconds,
 }: {
   overview: PlayerStatOverviewResponse;
   playerName: string;
   stats: StatAggregateResponse[];
   // "player" compares the player to per-player teammate/opponent averages.
   // "team" sums the whole team (player + teammates) vs the opponent team and
-  // shows per-game team totals (no per-player division).
+  // shows per-5-min team rates (no per-player division).
   view?: CoreProfileView;
-  // Rank-average cohorts add a slate row per selected rank to the per-player
-  // count cards (goals/assists/shots/saves/demos/deaths). The team view shows
-  // per-game team totals, which the per-player benchmark doesn't map onto, so
-  // rank rows are player-view only.
+  // Rank-average cohorts add a slate row per selected rank to the count cards
+  // (score/goals/assists/shots/saves/demos/deaths) and percentage cards. The
+  // player view reads the per-player `per_stat` benchmarks; the team view
+  // reads the team-level `team_per_stat` benchmarks (rates per
+  // team-active-minute, shown per 5 min like the team's own rows), skipping
+  // any rank that lacks a team value (thin sample or an older server).
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // The profiled player's total active seconds across the set
+  // (StatAggregateSetResponse.active_time_seconds). The player is present for
+  // the whole of every game, so this doubles as the team's wall-clock time —
+  // the denominator for the team view's per-5-min rates.
+  activeTimeSeconds?: number | null;
 }): ComparisonCard[] {
   const demos = aggregateProfileRateStat("demos", "Demos", stats, isDemoStat);
   const deaths = aggregateProfileRateStat("deaths", "Deaths", stats, isDeathStat);
@@ -372,45 +391,71 @@ export function buildCoreProfileCards({
   // baseline, so it only renders in the player view; there is no teammate/
   // opponent MVP breakdown in the response to pool into a team total.
   const mvpRows = mvpComparisonRows(overview.mvp, playerName);
+  const teamActiveMinutes = coreTeamActiveMinutes(activeTimeSeconds, score);
+  const teamCard = (key: string, title: string, rate: ScoringRateLike, metricKey: string) =>
+    teamRateCard(key, title, rate, teamActiveMinutes, rankCohorts, metricKey, rankWindowLabel);
   const cards =
     view === "team"
       ? [
-          teamRateCard("score", "Score (per game)", score, overview.replay_count),
-          teamRateCard("goals", "Goals (per game)", goals, overview.replay_count),
-          teamRateCard("assists", "Assists (per game)", assists, overview.replay_count),
-          teamRateCard("shots", "Shots (per game)", shots, overview.replay_count),
-          teamRateCard("saves", "Saves (per game)", saves, overview.replay_count),
+          teamCard("score", "Score (per 5 min)", score, "score"),
+          teamCard("goals", "Goals (per 5 min)", goals, "goal"),
+          teamCard("assists", "Assists (per 5 min)", assists, "assist"),
+          teamCard("shots", "Shots (per 5 min)", shots, "shot"),
+          teamCard("saves", "Saves (per 5 min)", saves, "save"),
           {
             key: "demos",
-            title: "Demos (per game)",
-            rows: teamCountCardRows(
+            title: "Demos (per 5 min)",
+            rows: teamRateCardRows(
               "Demos",
               demos.eventCount + demos.teammateEventCount,
               demos.opponentEventCount,
-              overview.replay_count,
+              teamActiveMinutes,
+              rankCohorts,
+              "demolition",
+              rankWindowLabel,
             ),
           },
           {
             key: "deaths",
-            title: "Deaths (per game)",
-            rows: teamCountCardRows(
+            title: "Deaths (per 5 min)",
+            rows: teamRateCardRows(
               "Deaths",
               deaths.eventCount + deaths.teammateEventCount,
               deaths.opponentEventCount,
-              overview.replay_count,
+              teamActiveMinutes,
+              rankCohorts,
+              "death",
+              rankWindowLabel,
             ),
           },
           {
             key: "shooting-percentage",
             title: "Shooting percentage (%)",
-            rows: teamPercentageCardRows(
-              "Shooting percentage",
-              "goals/shots",
-              goals.count + goals.teammate_count,
-              shots.count + shots.teammate_count,
-              goals.opponent_count,
-              shots.opponent_count,
-            ),
+            rows: [
+              ...teamPercentageCardRows(
+                "Shooting percentage",
+                "goals/shots",
+                goals.count + goals.teammate_count,
+                shots.count + shots.teammate_count,
+                goals.opponent_count,
+                shots.opponent_count,
+              ),
+              // Typical-rank team shooting %: the rank's team goal rate over
+              // its team shot rate (the per-minute denominators cancel).
+              ...rankCohortTeamDerivedRows({
+                cohorts: rankCohorts,
+                derive: (teamPerStat) => {
+                  const goalRate = teamPerStat.goal?.value;
+                  const shotRate = teamPerStat.shot?.value;
+                  if (goalRate == null || shotRate == null || shotRate <= 0) return null;
+                  return (goalRate / shotRate) * 100;
+                },
+                format: (value) => formatPercentage(value),
+                maxValue: 100,
+                windowLabel: rankWindowLabel,
+                valueColumn: false,
+              }),
+            ],
           },
           {
             key: "assist-percentage",
@@ -418,14 +463,31 @@ export function buildCoreProfileCards({
             // Team assist rate is the team's assists over the team's goals; the
             // per-player self-scored-goal adjustment used in the player view
             // does not apply once the whole team is pooled.
-            rows: teamPercentageCardRows(
-              "Assist percentage",
-              "assists/goals",
-              assists.count + assists.teammate_count,
-              goals.count + goals.teammate_count,
-              assists.opponent_count,
-              goals.opponent_count,
-            ),
+            rows: [
+              ...teamPercentageCardRows(
+                "Assist percentage",
+                "assists/goals",
+                assists.count + assists.teammate_count,
+                goals.count + goals.teammate_count,
+                assists.opponent_count,
+                goals.opponent_count,
+              ),
+              // Typical-rank team assist %: the rank's team assist rate over
+              // its team goal rate.
+              ...rankCohortTeamDerivedRows({
+                cohorts: rankCohorts,
+                derive: (teamPerStat) => {
+                  const assistRate = teamPerStat.assist?.value;
+                  const goalRate = teamPerStat.goal?.value;
+                  if (assistRate == null || goalRate == null || goalRate <= 0) return null;
+                  return (assistRate / goalRate) * 100;
+                },
+                format: (value) => formatPercentage(value),
+                maxValue: 100,
+                windowLabel: rankWindowLabel,
+                valueColumn: false,
+              }),
+            ],
           },
         ]
       : [
@@ -963,45 +1025,96 @@ function teamSideCohortKey(side: TeamSide): CareerCohortKey {
   return side === "team" ? "player" : "opponents";
 }
 
-function teamRateCard(key: string, title: string, rate: ScoringRateLike, replayCount: number) {
+// The team view's rate denominator: the profiled player's total active
+// minutes, which span every game in the set and so approximate the team's
+// wall-clock time. Falls back to deriving the total from the score count/rate
+// pair when the explicit active-time total is unavailable.
+function coreTeamActiveMinutes(
+  activeTimeSeconds: number | null | undefined,
+  score: ScoringRateLike,
+): number | null {
+  if (activeTimeSeconds != null && Number.isFinite(activeTimeSeconds) && activeTimeSeconds > 0) {
+    return activeTimeSeconds / 60;
+  }
+  if (score.count > 0 && score.per_active_minute != null && score.per_active_minute > 0) {
+    return score.count / score.per_active_minute;
+  }
+  return null;
+}
+
+function teamRateCard(
+  key: string,
+  title: string,
+  rate: ScoringRateLike,
+  activeMinutes: number | null,
+  rankCohorts: RankBenchmarkCohort[],
+  metricKey: string,
+  rankWindowLabel?: string | null,
+) {
   return {
     key,
     title,
-    rows: teamCountCardRows(
+    rows: teamRateCardRows(
       title.replace(/\s*\(.*\)\s*$/, ""),
       rate.count + rate.teammate_count,
       rate.opponent_count,
-      replayCount,
+      activeMinutes,
+      rankCohorts,
+      metricKey,
+      rankWindowLabel,
     ),
   };
 }
 
-function teamCountCardRows(
+function teamRateCardRows(
   statName: string,
   teamCount: number,
   opponentTeamCount: number,
-  replayCount: number,
+  activeMinutes: number | null,
+  rankCohorts: RankBenchmarkCohort[] = [],
+  // The benchmark metric_key for this stat in `team_per_stat`; omit for stats
+  // with no team benchmark counterpart so no rank rows are added.
+  metricKey?: string,
+  rankWindowLabel?: string | null,
 ): ComparisonRow[] {
-  const games = Math.max(1, replayCount);
-  const teamPerGame = teamCount / games;
-  const opponentPerGame = opponentTeamCount / games;
-  const maxValue = Math.max(1, teamPerGame, opponentPerGame);
+  const toRate = (count: number) =>
+    activeMinutes != null && activeMinutes > 0 ? (count / activeMinutes) * rateWindowMinutes : 0;
+  const teamRate = toRate(teamCount);
+  const opponentRate = toRate(opponentTeamCount);
+  // Fold every selected rank's per-5-min team value into the shared scale so
+  // the rank rows don't overflow the track.
+  const rankRates = metricKey
+    ? rankCohortTeamValues(rankCohorts, metricKey, (raw) => raw * rateWindowMinutes)
+    : [];
+  const maxValue = Math.max(1, teamRate, opponentRate, ...rankRates);
   return [
-    teamCountRow("team", statName, teamCount, teamPerGame, maxValue),
-    teamCountRow("opponentTeam", statName, opponentTeamCount, opponentPerGame, maxValue),
+    teamRateRow("team", statName, teamCount, teamRate, maxValue),
+    teamRateRow("opponentTeam", statName, opponentTeamCount, opponentRate, maxValue),
+    // One slate-shaded row per selected rank, from the team-level benchmark.
+    ...(metricKey
+      ? rankCohortTeamMagnitudeRows({
+          cohorts: rankCohorts,
+          metricKey,
+          toValue: (raw) => raw * rateWindowMinutes,
+          format: (value) => `${formatRate(value)}/5m`,
+          maxValue,
+          windowLabel: rankWindowLabel,
+          valueColumn: false,
+        })
+      : []),
   ];
 }
 
-function teamCountRow(
+function teamRateRow(
   side: TeamSide,
   statName: string,
   total: number,
-  perGame: number,
+  rate: number,
   maxValue: number,
 ): ComparisonRow {
   const cohortKey = teamSideCohortKey(side);
   const label = TEAM_SIDE_LABEL[side];
-  const perGameLabel = `${formatRate(perGame)}/game`;
+  const rateLabel = `${formatRate(rate)}/5m`;
   const totalLabel = `${total.toLocaleString()} total`;
   return {
     key: side,
@@ -1017,21 +1130,21 @@ function teamCountRow(
         subtitle={`${label} · ${totalLabel}`}
       />
     ),
-    ariaLabel: `${label}: ${perGameLabel}`,
+    ariaLabel: `${label}: ${rateLabel} ${careerRateWindowLabel(rateWindowMinutes * 60)}`,
     segments: [
       {
         key: "rate",
         className: careerCohortSegmentClassName(cohortKey),
         label: statName,
-        value: Math.max(0, perGame),
-        visibleLabel: perGame > 0 ? perGameLabel : undefined,
-        title: `${perGameLabel} (${totalLabel})`,
+        value: Math.max(0, rate),
+        visibleLabel: rate > 0 ? rateLabel : undefined,
+        title: `${rateLabel} (${totalLabel})`,
       },
     ],
-    total: Math.max(0, perGame),
+    total: Math.max(0, rate),
     maxValue,
     valueLabel: <span title={totalLabel}>{totalLabel}</span>,
-    placeholder: perGameLabel,
+    placeholder: rateLabel,
   };
 }
 
@@ -2234,15 +2347,22 @@ export function PossessionSummaryPanel({
   summary,
   rankCohorts = [],
   rankWindowLabel,
+  view = "player",
 }: {
   playerName?: string;
   summary: PossessionSummaryResponse;
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // "player" compares the player's own possession to the per-player teammate/
+  // opponent cohorts; "team" pools the player with their teammates into "Your
+  // team" vs the pooled opponent team, rating counts per 5 wall-clock minutes
+  // (the player's active time) and reading rank rows from `team_per_stat`.
+  view?: CoreProfileView;
 }) {
-  const subjects = possessionProfileSubjects(summary, playerName).map(
-    possessionAdvancedProfileSubject,
-  );
+  const subjects =
+    view === "team"
+      ? possessionTeamSubjects(summary, playerName)
+      : possessionProfileSubjects(summary, playerName).map(possessionAdvancedProfileSubject);
   const teamCharts = summary.team ? teamControlCharts(summary.team) : [];
 
   return (
@@ -2250,12 +2370,19 @@ export function PossessionSummaryPanel({
       className="stat-comparison-grid possession-profile-grid"
       aria-label="Possession comparisons"
     >
-      {/* Team-control charts are team-relative, not rank-comparable. */}
+      {/*
+        Team-control charts (team_control / loose-possession streams) render in
+        BOTH views: they are already team-relative. They carry no benchmark row
+        even in the team view — the benchmark's possession:* keys describe
+        INDIVIDUAL possession (touch-to-touch spans), a different concept from
+        the team-control shares, so no metric key genuinely corresponds.
+      */}
       <PossessionAdvancedCharts charts={teamCharts} />
       <PossessionAdvancedCharts
         subjects={subjects}
         rankCohorts={rankCohorts}
         rankWindowLabel={rankWindowLabel}
+        grain={view === "team" ? "team" : "player"}
       />
     </div>
   );
@@ -2398,5 +2525,206 @@ function possessionAdvancedProfileSubject(
     activeTimeSeconds: subject.activeTimeSeconds,
     cohort: subject.cohort,
     segmentClassName: subject.segmentClassName,
+  };
+}
+
+// --- Possession team view --------------------------------------------------
+//
+// Pools the player's own possession cohort with the pooled-teammates cohort
+// into one whole-team subject, compared against the pooled opponent team.
+// Individual possession spans are touch-to-touch and disjoint across players,
+// so summing them is the team's genuine individual-possession total. Both team
+// subjects rate per the PLAYER's active seconds — the player is on the field
+// for every game in the set, so their active time is the team's wall-clock
+// time (the same denominator convention as the Core team view) — which makes
+// the per-5-min charts whole-team rates, directly comparable to the benchmark
+// team grain (`team_per_stat`) that possessionAdvanced reads in team grain.
+function possessionTeamSubjects(
+  summary: PossessionSummaryResponse,
+  playerName: string,
+): PossessionAdvancedSubject[] {
+  const subjects = possessionProfileSubjects(summary, playerName);
+  const bySide = (key: CareerCohortKey) =>
+    subjects.find((subject) => subject.cohortKey === key) ?? null;
+  const player = bySide("player");
+  if (!player) return [];
+  const teammates = bySide("teammates");
+  const opponents = bySide("opponents");
+  const wallClockSeconds = player.activeTimeSeconds;
+  const games = player.appearances;
+
+  const teamSubject = (
+    key: string,
+    name: string,
+    cohortKey: CareerCohortKey,
+    parts: PossessionProfileSubject[],
+  ): PossessionAdvancedSubject => ({
+    key,
+    name,
+    label: possessionAdvancedCohortLabel({
+      appearanceCount: games,
+      className: careerCohortClassName(cohortKey),
+      name,
+      subtitle: "Team",
+    }),
+    activeTimeSeconds: wallClockSeconds,
+    cohort: {
+      key,
+      label: name,
+      appearance_count: games,
+      active_time_seconds: wallClockSeconds,
+      possessions: pooledPossessionSpans(parts.map((part) => part.cohort.possessions)),
+      controlled_plays: pooledPossessionSpans(parts.map((part) => part.cohort.controlled_plays)),
+      touches: pooledPossessionTouches(parts.map((part) => part.cohort.touches)),
+      locations: pooledPossessionLocations(parts.map((part) => part.cohort.locations)),
+    },
+    segmentClassName: careerCohortSegmentClassName(cohortKey),
+  });
+
+  const rows = [
+    teamSubject("team", TEAM_SIDE_LABEL.team, "player", [
+      player,
+      ...(teammates ? [teammates] : []),
+    ]),
+  ];
+  if (opponents) {
+    rows.push(teamSubject("opponentTeam", TEAM_SIDE_LABEL.opponentTeam, "opponents", [opponents]));
+  }
+  return rows;
+}
+
+// Sum the additive fields of several per-cohort span summaries and re-derive
+// every average/share from the pooled sums, so each ratio is the honest
+// count- or time-weighted pool (never an average of averages).
+function pooledPossessionSpans(spans: PossessionSpanSummary[]): PossessionSpanSummary {
+  const sum = (value: (span: PossessionSpanSummary) => number) =>
+    spans.reduce((total, span) => total + value(span), 0);
+  const count = sum((span) => span.possession_count);
+  const duration = sum((span) => span.total_duration_seconds);
+  const touchCount = sum((span) => span.total_touch_count);
+  const advance = sum((span) => span.total_advance_distance);
+  const retreat = sum((span) => span.total_retreat_distance);
+  const carry = sum((span) => span.carry_time_seconds);
+  const airDribble = sum((span) => span.air_dribble_time_seconds);
+  const ratio = (numerator: number, denominator: number) =>
+    denominator > 0 ? numerator / denominator : null;
+  // Count-weighted pool of a per-possession share: reconstruct each cohort's
+  // underlying count (share × possessions) and re-divide by the pooled count,
+  // skipping cohorts that report no share.
+  const pooledCountShare = (share: (span: PossessionSpanSummary) => number | null) => {
+    let matching = 0;
+    let total = 0;
+    for (const span of spans) {
+      const value = share(span);
+      if (value == null || !Number.isFinite(value)) continue;
+      matching += value * span.possession_count;
+      total += span.possession_count;
+    }
+    return ratio(matching, total);
+  };
+  const histogram = new Map<string, { label: string; count: number }>();
+  for (const span of spans) {
+    for (const bucket of span.duration_histogram) {
+      const existing = histogram.get(bucket.key);
+      if (existing) {
+        existing.count += bucket.count;
+      } else {
+        histogram.set(bucket.key, { label: bucket.label, count: bucket.count });
+      }
+    }
+  }
+  return {
+    possession_count: count,
+    total_duration_seconds: duration,
+    avg_duration_seconds: ratio(duration, count),
+    total_touch_count: touchCount,
+    avg_touches_per_possession: ratio(touchCount, count),
+    total_advance_distance: advance,
+    total_retreat_distance: retreat,
+    avg_advance_distance: ratio(advance, count),
+    avg_retreat_distance: ratio(retreat, count),
+    carry_time_seconds: carry,
+    air_dribble_time_seconds: airDribble,
+    // Shares of pooled possession time, mirroring the server's share_of_time.
+    carry_time_share: ratio(carry, duration),
+    air_dribble_time_share: ratio(airDribble, duration),
+    sustained_control_share: pooledCountShare((span) => span.sustained_control_share),
+    with_carry_share: pooledCountShare((span) => span.with_carry_share),
+    with_air_dribble_share: pooledCountShare((span) => span.with_air_dribble_share),
+    with_aerial_touch_share: pooledCountShare((span) => span.with_aerial_touch_share),
+    with_wall_touch_share: pooledCountShare((span) => span.with_wall_touch_share),
+    duration_histogram: Array.from(histogram, ([key, bucket]) => ({
+      key,
+      label: bucket.label,
+      count: bucket.count,
+    })),
+  };
+}
+
+function pooledPossessionTouches(touches: PossessionTouchSummary[]): PossessionTouchSummary {
+  const sum = (value: (touch: PossessionTouchSummary) => number) =>
+    touches.reduce((total, touch) => total + value(touch), 0);
+  const firstTouches = sum((touch) => touch.first_touch_count);
+  const firstTouchControls = sum((touch) => touch.first_touch_control_count);
+  return {
+    classified_touch_count: sum((touch) => touch.classified_touch_count),
+    first_touch_count: firstTouches,
+    first_touch_control_count: firstTouchControls,
+    first_touch_control_share: firstTouches > 0 ? firstTouchControls / firstTouches : null,
+    contested_touch_count: sum((touch) => touch.contested_touch_count),
+    first_touch_intentions: pooledPossessionMix(touches.map((t) => t.first_touch_intentions)),
+    intentions: pooledPossessionMix(touches.map((t) => t.intentions)),
+    surfaces: pooledPossessionMix(touches.map((t) => t.surfaces)),
+  };
+}
+
+function pooledPossessionMix(mixes: PossessionMixValue[][]): PossessionMixValue[] {
+  const byKey = new Map<string | null, PossessionMixValue>();
+  const values: PossessionMixValue[] = [];
+  for (const mix of mixes) {
+    for (const value of mix) {
+      const existing = byKey.get(value.key);
+      if (existing) {
+        existing.count += value.count;
+      } else {
+        const pooled = { ...value };
+        byKey.set(value.key, pooled);
+        values.push(pooled);
+      }
+    }
+  }
+  return values;
+}
+
+function pooledPossessionLocations(
+  locations: PossessionLocationSummary[],
+): PossessionLocationSummary {
+  const total = locations.reduce((sum, location) => sum + location.total_duration_seconds, 0);
+  const pooledBuckets = (
+    buckets: (location: PossessionLocationSummary) => PossessionTimeBucket[],
+  ): PossessionTimeBucket[] => {
+    const byKey = new Map<string, PossessionTimeBucket>();
+    const values: PossessionTimeBucket[] = [];
+    for (const location of locations) {
+      for (const bucket of buckets(location)) {
+        const existing = byKey.get(bucket.key);
+        if (existing) {
+          existing.duration_seconds += bucket.duration_seconds;
+        } else {
+          const pooled = { ...bucket };
+          byKey.set(bucket.key, pooled);
+          values.push(pooled);
+        }
+      }
+    }
+    for (const bucket of values) {
+      bucket.share = total > 0 ? bucket.duration_seconds / total : null;
+    }
+    return values;
+  };
+  return {
+    total_duration_seconds: total,
+    halves: pooledBuckets((location) => location.halves),
+    thirds: pooledBuckets((location) => location.thirds),
   };
 }

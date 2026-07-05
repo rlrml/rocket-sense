@@ -468,6 +468,126 @@ export function rankCohortDerivedRows(config: {
   return rows;
 }
 
+// --- Team-level rank benchmarks -------------------------------------------
+//
+// `RankBenchmarkCohort.team_per_stat` mirrors `per_stat` at TEAM granularity:
+// rates per team-active-minute with the whole roster pooled (additive metrics
+// are roster sums; share/gauge metrics are time-weighted roster means). The
+// field is optional (old servers) and may be empty (thin samples); every
+// helper here treats missing data as "skip the row" so a card never shows a
+// phantom rank row.
+
+function rankCohortTeamPerStat(cohort: RankBenchmarkCohort): RankBenchmarkCohort["per_stat"] {
+  return cohort.team_per_stat ?? {};
+}
+
+/**
+ * The display values a metric contributes across the selected ranks' TEAM
+ * benchmarks, so a team card can fold them into its shared `maxValue` (the
+ * team analogue of {@link rankCohortValues}). Pass the same `toValue` the rows
+ * use (e.g. ×5 for per-team-minute rates shown per 5 min).
+ */
+export function rankCohortTeamValues(
+  cohorts: RankBenchmarkCohort[],
+  metricKey: string,
+  toValue: (raw: number) => number,
+): number[] {
+  return cohorts
+    .map((cohort) => rankCohortTeamPerStat(cohort)[metricKey]?.value)
+    .filter((value): value is number => value != null && Number.isFinite(value))
+    .map(toValue);
+}
+
+/**
+ * One magnitude bar row per selected rank for a TEAM stat (the team analogue
+ * of {@link rankCohortMagnitudeRows}), looked up by `metricKey` in each
+ * cohort's `team_per_stat`. `toValue` maps the stored per-team-active-minute
+ * rate into the card's display units (e.g. ×5 for per-5-min team rates).
+ */
+export function rankCohortTeamMagnitudeRows(config: {
+  cohorts: RankBenchmarkCohort[];
+  metricKey: string;
+  toValue: (raw: number) => number;
+  format: (value: number) => string;
+  maxValue: number;
+  windowLabel?: string | null;
+  valueColumn?: boolean;
+}): ComparisonRow[] {
+  const { cohorts, metricKey, toValue, format, maxValue, windowLabel, valueColumn } = config;
+  const rows: ComparisonRow[] = [];
+  for (const cohort of cohorts) {
+    const stat = rankCohortTeamPerStat(cohort)[metricKey];
+    if (!stat || stat.value == null || !Number.isFinite(stat.value)) continue;
+    const value = toValue(stat.value);
+    if (!Number.isFinite(value)) continue;
+    const formatted = format(value);
+    const word = rankCohortAggregatorWord(stat.aggregator);
+    const safe = Math.max(0, value);
+    rows.push({
+      key: `rank-${cohort.rank_value}`,
+      label: rankCohortLabelNode(cohort, word, windowLabel),
+      ariaLabel: `Rank ${word} (${cohort.label}): ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+          label: cohort.label,
+          value: safe,
+          title: `Rank ${word} (${cohort.label}): ${formatted}`,
+        },
+      ],
+      total: safe,
+      maxValue,
+      ...(valueColumn ? { valueLabel: formatted } : { barValue: formatted }),
+      placeholder: formatted,
+    });
+  }
+  return rows;
+}
+
+/**
+ * Like {@link rankCohortDerivedRows} but `derive` sees the cohort's whole
+ * `team_per_stat` map, for team ratio metrics (e.g. team shooting % = team
+ * goal rate / team shot rate — both per-minute, so the duration cancels).
+ * `derive` returns null to skip that rank.
+ */
+export function rankCohortTeamDerivedRows(config: {
+  cohorts: RankBenchmarkCohort[];
+  derive: (teamPerStat: RankBenchmarkCohort["per_stat"]) => number | null;
+  format: (value: number) => string;
+  maxValue: number;
+  windowLabel?: string | null;
+  valueColumn?: boolean;
+}): ComparisonRow[] {
+  const { cohorts, derive, format, maxValue, windowLabel, valueColumn } = config;
+  const rows: ComparisonRow[] = [];
+  for (const cohort of cohorts) {
+    const value = derive(rankCohortTeamPerStat(cohort));
+    if (value == null || !Number.isFinite(value)) continue;
+    const formatted = format(value);
+    const safe = Math.max(0, value);
+    rows.push({
+      key: `rank-${cohort.rank_value}`,
+      label: rankCohortLabelNode(cohort, "median", windowLabel),
+      ariaLabel: `Rank median (${cohort.label}): ${formatted}`,
+      segments: [
+        {
+          key: "value",
+          className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+          label: cohort.label,
+          value: safe,
+          title: `Rank median (${cohort.label}): ${formatted}`,
+        },
+      ],
+      total: safe,
+      maxValue,
+      ...(valueColumn ? { valueLabel: formatted } : { barValue: formatted }),
+      placeholder: formatted,
+    });
+  }
+  return rows;
+}
+
 /**
  * One distribution (parts-of-a-whole) bar row per selected rank, where each band
  * reads a 0..1 share straight from the cohort's `per_stat[band.metricKey]`. Bands
@@ -482,12 +602,18 @@ export function rankCohortDistributionRows(config: {
   // Derive a band's share from the cohort when it has no direct metric_key
   // (e.g. the "level with ball" middle band = 1 − behind − ahead).
   deriveShare?: (cohort: RankBenchmarkCohort, bandId: string) => number | null;
+  // Read the TEAM-grain map (`team_per_stat`) instead of the per-player map:
+  // for share metrics the team benchmark is the players' time-weighted team
+  // mean, so it stays a 0..1 share and renders identically. Rows whose cohort
+  // lacks team data collapse to total 0 and are skipped like any empty row.
+  teamGrain?: boolean;
 }): ComparisonRow[] {
-  const { cohorts, bands, colorStyle, windowLabel, deriveShare } = config;
+  const { cohorts, bands, colorStyle, windowLabel, deriveShare, teamGrain } = config;
   const rows: ComparisonRow[] = [];
   for (const cohort of cohorts) {
+    const perStat = teamGrain ? rankCohortTeamPerStat(cohort) : cohort.per_stat;
     const segments: SegmentedBarSegment[] = bands.map((band) => {
-      const direct = cohort.per_stat[band.metricKey]?.value;
+      const direct = perStat[band.metricKey]?.value;
       const raw = direct != null ? direct : (deriveShare?.(cohort, band.id) ?? 0);
       const share = Number.isFinite(raw) && raw > 0 ? raw : 0;
       return {

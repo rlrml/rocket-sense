@@ -29,6 +29,8 @@ import {
   outcomeSegmentClassName,
   rankCohortDistributionRows,
   rankCohortMagnitudeRows,
+  rankCohortTeamMagnitudeRows,
+  rankCohortTeamValues,
   rankCohortValues,
   type SegmentedBarSegment,
   StatPlayerLabel,
@@ -258,6 +260,8 @@ export function MovementDetail({
 type CareerMovementSummary = PlayerMovementSummary & {
   careerCohort: CareerCohortKey;
   appearanceCount: number;
+  // Overrides the careerCohort-derived subtitle (career team-view rows).
+  subtitleOverride?: string;
 };
 
 export function PlayerMovementCohorts(props: {
@@ -272,21 +276,32 @@ export function buildMovementCohortCards({
   playerName,
   rankCohorts = [],
   rankWindowLabel,
+  view = "player",
 }: {
   response: MovementSummaryResponse;
   playerName: string;
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // "player" compares the player to the pooled per-player teammate/opponent
+  // cohorts; "team" pools the player with their teammates into "Your team" vs
+  // the pooled opponent team. Additive stats (distance, powerslides, flips)
+  // become whole-roster rates per the player's active seconds (the team's
+  // wall-clock time — the Core team view's denominator convention); gauges
+  // (avg speed) and the band distributions stay time-weighted roster means/
+  // shares. Rank rows then read the benchmark's matching team grain
+  // (`team_per_stat`).
+  view?: "player" | "team";
 }): ComparisonCard[] {
-  const summaries: CareerMovementSummary[] = [
-    movementCohortSummary("cohort-self", "player", playerName || "Player", response.player),
-  ];
-  if (response.teammates) {
+  const teamView = view === "team";
+  const summaries: CareerMovementSummary[] = teamView
+    ? movementTeamSummaries(response)
+    : [movementCohortSummary("cohort-self", "player", playerName || "Player", response.player)];
+  if (!teamView && response.teammates) {
     summaries.push(
       movementCohortSummary("cohort-teammates", "teammates", "Teammates", response.teammates),
     );
   }
-  if (response.opponents) {
+  if (!teamView && response.opponents) {
     summaries.push(
       movementCohortSummary("cohort-opponents", "opponents", "Opponents", response.opponents),
     );
@@ -339,8 +354,12 @@ export function buildMovementCohortCards({
     },
   ];
 
-  // One magnitude card with player/teammate/opponent rows plus a slate row per
-  // selected rank, all sharing one scale so the rank bars don't overflow.
+  // One magnitude card with player/teammate/opponent (or team-view your-team/
+  // opponent-team) rows plus a slate row per selected rank, all sharing one
+  // scale so the rank bars don't overflow. The team view reads the rank rows
+  // from `team_per_stat`; a rank without a team value shows no row.
+  const cohortValues = teamView ? rankCohortTeamValues : rankCohortValues;
+  const cohortMagnitudeRows = teamView ? rankCohortTeamMagnitudeRows : rankCohortMagnitudeRows;
   const magnitudeCard = (
     key: string,
     title: string,
@@ -349,12 +368,12 @@ export function buildMovementCohortCards({
     metricKey: string | null,
     toRankValue: (raw: number) => number,
   ): ComparisonCard => {
-    const rankValues = metricKey ? rankCohortValues(rankCohorts, metricKey, toRankValue) : [];
+    const rankValues = metricKey ? cohortValues(rankCohorts, metricKey, toRankValue) : [];
     const maxValue = Math.max(1, ...summaries.map((s) => value(s) ?? 0), ...rankValues);
     const rows = careerMovementMagnitudeRows(summaries, value, format, maxValue);
     if (metricKey) {
       rows.push(
-        ...rankCohortMagnitudeRows({
+        ...cohortMagnitudeRows({
           cohorts: rankCohorts,
           metricKey,
           toValue: toRankValue,
@@ -375,6 +394,8 @@ export function buildMovementCohortCards({
   ): ComparisonCard => {
     const rows = careerMovementDistributionRows(summaries, bands, totalFor);
     rows.push(
+      // Band shares are gauges: the team grain is the players' time-weighted
+      // team mean, still a 0..1 share, so both grains render identically.
       ...rankCohortDistributionRows({
         cohorts: rankCohorts,
         bands: bands.map((band, index) => ({
@@ -385,6 +406,7 @@ export function buildMovementCohortCards({
         })),
         colorStyle: outcomeDistributionColorStyle(BAND_COLORS),
         windowLabel: rankWindowLabel,
+        teamGrain: teamView,
       }),
     );
     return { key, title, rows };
@@ -453,6 +475,53 @@ export function buildMovementCohortCards({
   ];
 
   return cards;
+}
+
+// The career TEAM view's rows: "Your team" pools the player's summary with the
+// pooled-teammates cohort; "Opponent team" is the (already pooled) opponents
+// cohort. Every MovementCohortSummary field is additive (seconds, distances,
+// counts, the speed weighted sum), so gauges (avg speed) and band shares come
+// out as time-weighted roster means. Only the RATE denominator differs from a
+// player summary: both team rows rate per the PLAYER's active seconds — the
+// player is on the field for every game in the set, so their active time is
+// the team's wall-clock time (the Core team view's denominator convention) —
+// not the roster's pooled seconds, which makes the per-5-min values whole-team
+// rates comparable to the benchmark team grain (`team_per_stat`).
+function movementTeamSummaries(response: MovementSummaryResponse): CareerMovementSummary[] {
+  const wallClockSeconds = response.player.active_seconds;
+  const games = response.player.appearance_count;
+  const teamSummary = (
+    key: string,
+    careerCohort: CareerCohortKey,
+    name: string,
+    parts: MovementCohortSummary[],
+  ): CareerMovementSummary => ({
+    ...movementCohortSummary(key, careerCohort, name, sumMovementCohorts(parts)),
+    activeSeconds: wallClockSeconds,
+    appearanceCount: games,
+    subtitleOverride: "Team",
+  });
+  const summaries = [
+    // Same your-side/their-side cohort colors as the Core team view.
+    teamSummary("team", "player", "Your team", [
+      response.player,
+      ...(response.teammates ? [response.teammates] : []),
+    ]),
+  ];
+  if (response.opponents) {
+    summaries.push(teamSummary("opponentTeam", "opponents", "Opponent team", [response.opponents]));
+  }
+  return summaries;
+}
+
+function sumMovementCohorts(parts: MovementCohortSummary[]): MovementCohortSummary {
+  const result = { ...parts[0] };
+  for (const part of parts.slice(1)) {
+    for (const key of Object.keys(result) as Array<keyof MovementCohortSummary>) {
+      result[key] += part[key];
+    }
+  }
+  return result;
 }
 
 function movementCohortSummary(
@@ -556,7 +625,9 @@ function careerMovementDistributionRows(
 }
 
 function movementCohortLabel(summary: CareerMovementSummary): ReactNode {
-  const suffix = summary.careerCohort === "player" ? "games" : "appearances";
+  // Team-view rows always count games (the profiled player spans every game).
+  const suffix =
+    summary.careerCohort === "player" || summary.subtitleOverride ? "games" : "appearances";
   return (
     <StatPlayerLabel
       className={careerCohortClassName(summary.careerCohort)}
@@ -566,7 +637,7 @@ function movementCohortLabel(summary: CareerMovementSummary): ReactNode {
       profilePath={null}
       rank={null}
       showPlatformBadge={false}
-      subtitle={`${careerCohortSubtitle(summary.careerCohort)} · ${summary.appearanceCount.toLocaleString()} ${suffix}`}
+      subtitle={`${summary.subtitleOverride ?? careerCohortSubtitle(summary.careerCohort)} · ${summary.appearanceCount.toLocaleString()} ${suffix}`}
     />
   );
 }

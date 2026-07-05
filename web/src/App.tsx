@@ -6050,6 +6050,13 @@ type StatPanel =
 // One pairable cell in the wins/losses split (a whole node panel, or one card).
 type SplitUnit = { key: string; node: ReactNode };
 
+// Career sub-pages with a Player/Team view toggle: each has a team-aggregated
+// rendering (whole-roster production vs the opponent team) plus rank rows from
+// the benchmark's team grain (`team_per_stat`). Positioning is deliberately
+// absent — it is gauge/share-only, so a pooled "your team" row would just
+// blend the player and teammates rows it already shows.
+const TEAM_VIEW_SECTION_IDS = new Set(["core", "boost", "possession", "touches", "movement"]);
+
 function PlayerAggregateStatsSections({
   activeGroup,
   kickoffFilterSummary,
@@ -6117,11 +6124,20 @@ function PlayerAggregateStatsSections({
     navigate(query ? `${location.pathname}?${query}` : location.pathname);
   };
   const splitOutcome = playerOutcomeSplitEnabled(search);
-  // Per-sub-page Player/Team view toggle (pilot: Core). Local state so it mirrors
-  // the existing per-stat touches/boost/possession toggles; the closure below
-  // applies it to both the combined and the wins/losses-split renders.
-  const [coreView, setCoreView] = useState<CoreProfileView>("player");
-  const showCoreViewToggle = activeGroup.id === "core" && overview?.team_size !== 1;
+  // Per-sub-page Player/Team view toggle. Local state, kept per sub-page id so
+  // each page remembers its own selection while browsing; the closure below
+  // applies it to both the combined and the wins/losses-split renders. Hidden
+  // for 1v1 sets (team == player) and for the sections without a team
+  // rendering (positioning is gauge/share-only: a pooled "your team" row would
+  // just blend the player and teammates rows already shown).
+  const [teamViewBySection, setTeamViewBySection] = useState<
+    Partial<Record<string, CoreProfileView>>
+  >({});
+  const sectionView: CoreProfileView = teamViewBySection[activeGroup.id] ?? "player";
+  const setSectionView = (view: CoreProfileView) =>
+    setTeamViewBySection((previous) => ({ ...previous, [activeGroup.id]: view }));
+  const showSectionViewToggle =
+    TEAM_VIEW_SECTION_IDS.has(activeGroup.id) && overview?.team_size !== 1;
   const outcomeState = usePlayerOutcomeStatBundles({
     activeGroup,
     enabled: splitOutcome,
@@ -6249,6 +6265,7 @@ function PlayerAggregateStatsSections({
           search={contentSearch}
           rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
           rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+          view={sectionView}
         />,
       );
     }
@@ -6297,9 +6314,10 @@ function PlayerAggregateStatsSections({
           overview: contentOverview,
           playerName,
           stats: contentSectionStats,
-          view: coreView,
+          view: sectionView,
           rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
           rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
+          activeTimeSeconds: contentStats.active_time_seconds,
         }),
       );
     }
@@ -6312,6 +6330,7 @@ function PlayerAggregateStatsSections({
           playerName,
           rankCohorts: contentRankBenchmarkCohorts?.cohorts ?? [],
           rankWindowLabel: contentRankBenchmarkCohorts?.window_label,
+          view: sectionView,
         }),
       );
     }
@@ -6387,6 +6406,7 @@ function PlayerAggregateStatsSections({
           summary={contentPossessionSummary}
           rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
           rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+          view={sectionView}
         />,
       );
     }
@@ -6408,6 +6428,7 @@ function PlayerAggregateStatsSections({
           playerName={playerName}
           rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
           rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
+          view={sectionView}
         />,
       );
     }
@@ -6540,26 +6561,26 @@ function PlayerAggregateStatsSections({
         )}
       </header>
 
-      {showCoreViewToggle ? (
+      {showSectionViewToggle ? (
         <div className="boost-page-controls">
           <div className="boost-comparison-tabs" role="tablist" aria-label="Stat view mode">
             <button
-              className={coreView === "player" ? "active" : ""}
-              onClick={() => setCoreView("player")}
+              className={sectionView === "player" ? "active" : ""}
+              onClick={() => setSectionView("player")}
               role="tab"
               title="Compare the player to teammate and opponent per-player averages"
               type="button"
-              aria-selected={coreView === "player"}
+              aria-selected={sectionView === "player"}
             >
               Player
             </button>
             <button
-              className={coreView === "team" ? "active" : ""}
-              onClick={() => setCoreView("team")}
+              className={sectionView === "team" ? "active" : ""}
+              onClick={() => setSectionView("team")}
               role="tab"
-              title="Compare whole-team per-game totals: your team vs the opponent team"
+              title="Compare whole-team production: your team vs the opponent team"
               type="button"
-              aria-selected={coreView === "team"}
+              aria-selected={sectionView === "team"}
             >
               Team
             </button>

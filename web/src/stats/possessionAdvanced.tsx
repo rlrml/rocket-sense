@@ -17,6 +17,11 @@ import {
 // units the benchmark can express carry one.
 type PossessionRankMetric = (perStat: RankBenchmarkCohort["per_stat"]) => number | null;
 
+// Which benchmark map a chart's rank rows read: the per-player `per_stat` or
+// the whole-roster `team_per_stat` (see shared.tsx "Team-level rank
+// benchmarks" for the units).
+export type PossessionBenchmarkGrain = "player" | "team";
+
 // Read a single benchmark metric value, or null when absent/non-finite.
 function benchmarkValue(perStat: RankBenchmarkCohort["per_stat"], key: string): number | null {
   const value = perStat[key]?.value;
@@ -70,11 +75,17 @@ export function PossessionAdvancedCharts({
   subjects,
   rankCohorts = [],
   rankWindowLabel,
-  charts = possessionAdvancedMetricCharts(subjects ?? [], rankCohorts, rankWindowLabel),
+  grain = "player",
+  charts = possessionAdvancedMetricCharts(subjects ?? [], rankCohorts, rankWindowLabel, grain),
 }: {
   subjects?: PossessionAdvancedSubject[];
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // "team" reads rank benchmarks from `team_per_stat` (whole-roster rates per
+  // team-active-minute / time-weighted team means) for subjects that pool a
+  // whole team; only the charts whose team-grain semantics are clean carry a
+  // teamRankMetric, the rest simply show no rank row in the team view.
+  grain?: PossessionBenchmarkGrain;
   charts?: PossessionAdvancedChart[];
 }) {
   return (
@@ -90,6 +101,7 @@ function possessionAdvancedMetricCharts(
   subjects: PossessionAdvancedSubject[],
   rankCohorts: RankBenchmarkCohort[] = [],
   rankWindowLabel?: string | null,
+  grain: PossessionBenchmarkGrain = "player",
 ): PossessionAdvancedChart[] {
   const definitions: Array<{
     key: string;
@@ -100,6 +112,15 @@ function possessionAdvancedMetricCharts(
     // Only set where the benchmark stores a unit-compatible metric; the other
     // charts are per-possession averages the per-minute benchmark can't match.
     rankMetric?: PossessionRankMetric;
+    // Team-view counterpart, fed `team_per_stat`. Only set where the TEAM
+    // benchmark's semantics match the pooled team subjects: additive counts
+    // are already per team-active-minute, per-possession ratios cancel their
+    // /minute, and `carry_time_share` is the time-weighted team mean exactly
+    // like the pooled subjects compute it. Charts built on the gauge
+    // `possession:duration_share` (a player-mean share) get NO team metric:
+    // the team chart shows whole-roster possession seconds per 5 wall-clock
+    // minutes, which that player-mean can't express without the roster size.
+    teamRankMetric?: PossessionRankMetric;
   }> = [
     {
       key: "possessions-per-5-active-min",
@@ -109,6 +130,11 @@ function possessionAdvancedMetricCharts(
       format: formatRate,
       // benchmark possession:count is per active minute -> per 5 min.
       rankMetric: (ps) => {
+        const v = benchmarkValue(ps, "possession:count");
+        return v == null ? null : v * 5;
+      },
+      // team possession:count is per team-active-minute -> per 5 team minutes.
+      teamRankMetric: (ps) => {
         const v = benchmarkValue(ps, "possession:count");
         return v == null ? null : v * 5;
       },
@@ -149,6 +175,7 @@ function possessionAdvancedMetricCharts(
       metric: (subject) => subject.cohort.possessions.avg_touches_per_possession,
       format: formatRate,
       rankMetric: (ps) => benchmarkPerPossession(ps, "possession:touch_count"),
+      teamRankMetric: (ps) => benchmarkPerPossession(ps, "possession:touch_count"),
     },
     {
       key: "advance-per-possession",
@@ -156,6 +183,7 @@ function possessionAdvancedMetricCharts(
       metric: (subject) => subject.cohort.possessions.avg_advance_distance,
       format: formatDistanceRequired,
       rankMetric: (ps) => benchmarkPerPossession(ps, "possession:advance_distance"),
+      teamRankMetric: (ps) => benchmarkPerPossession(ps, "possession:advance_distance"),
     },
     {
       key: "own-half-possession",
@@ -176,6 +204,9 @@ function possessionAdvancedMetricCharts(
       metric: (subject) => subject.cohort.possessions.carry_time_share,
       format: formatShareRequired,
       rankMetric: (ps) => benchmarkValue(ps, "possession:carry_time_share"),
+      // Gauge: the team benchmark is the players' active-time-weighted mean
+      // share, the same statistic the pooled team subject computes.
+      teamRankMetric: (ps) => benchmarkValue(ps, "possession:carry_time_share"),
     },
     {
       key: "first-touch-control-rate",
@@ -201,6 +232,7 @@ function possessionAdvancedMetricCharts(
       definition,
       rankCohorts,
       rankWindowLabel,
+      grain,
     );
     return rows.length > 0 ? [{ key: definition.key, title: definition.title, rows }] : [];
   });
@@ -214,18 +246,20 @@ function possessionAdvancedMagnitudeRows(
     format: (value: number) => string;
     maxValue?: number;
     rankMetric?: PossessionRankMetric;
+    teamRankMetric?: PossessionRankMetric;
   },
   rankCohorts: RankBenchmarkCohort[] = [],
   rankWindowLabel?: string | null,
+  grain: PossessionBenchmarkGrain = "player",
 ): ComparisonRow[] {
   const values = subjects.map((subject) => definition.metric(subject));
   if (!values.some((value) => value != null)) return [];
   // Rank values participate in the shared scale only when this chart has a
-  // unit-compatible benchmark metric.
-  const rankMetric = definition.rankMetric;
+  // unit-compatible benchmark metric for the requested grain.
+  const rankMetric = grain === "team" ? definition.teamRankMetric : definition.rankMetric;
   const rankRows = rankMetric
     ? rankCohorts.flatMap((cohort) => {
-        const value = rankMetric(cohort.per_stat);
+        const value = rankMetric(grain === "team" ? (cohort.team_per_stat ?? {}) : cohort.per_stat);
         if (value == null || !Number.isFinite(value)) return [];
         return [{ cohort, value }];
       })

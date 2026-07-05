@@ -280,6 +280,7 @@ export function BoostProfileDetail({
   search,
   rankCohorts = [],
   rankWindowLabel,
+  view = "player",
 }: {
   platform: string;
   platformPlayerId: string;
@@ -287,6 +288,14 @@ export function BoostProfileDetail({
   search: string;
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // "player" compares the player to the pooled per-player teammate/opponent
+  // cohorts; "team" pools the player with their teammates into "Your team" vs
+  // the pooled opponent team. Team rows rate per the player's tracked seconds
+  // (the player is on the field all game, so that is the team's wall-clock
+  // time — the Core team view's denominator convention), making the
+  // per-minute values whole-team rates comparable to the benchmark's
+  // `team_per_stat` (rates per team-active-minute).
+  view?: "player" | "team";
 }) {
   const [totals, setTotals] = useState<PlayerBoostTotalsResponse | null>(null);
   const [padControl, setPadControl] = useState<BoostPadControlResponse | null>(null);
@@ -354,11 +363,14 @@ export function BoostProfileDetail({
     );
   }
 
-  const { levelRows, summaries } = boostProfileData(totals, {
-    platform,
-    platformPlayerId,
-    playerName,
-  });
+  const { levelRows, summaries } =
+    view === "team"
+      ? boostProfileTeamData(totals)
+      : boostProfileData(totals, {
+          platform,
+          platformPlayerId,
+          playerName,
+        });
 
   return (
     <section className="boost-profile-panel">
@@ -371,11 +383,14 @@ export function BoostProfileDetail({
         profilePathForSummary={(summary) => playerProfilePath(summary)}
         segmentColorClassNameForSummary={boostProfileSegmentColorClassName}
         showPlatformBadgeForSummary={(summary) => summary.key === "player"}
-        subtitleForSummary={(summary) => careerCohortSubtitle(boostProfileCohort(summary))}
+        subtitleForSummary={(summary) =>
+          boostProfileTeamSide(summary) ? "Team" : careerCohortSubtitle(boostProfileCohort(summary))
+        }
         summaries={summaries}
         valueMode="per-minute"
         rankCohorts={rankCohorts}
         rankWindowLabel={rankWindowLabel}
+        rankGrain={view === "team" ? "team" : "player"}
       />
       <BoostProfilePadControlMap
         error={padControlError}
@@ -390,7 +405,16 @@ function boostProfileSegmentColorClassName(summary: BoostPlayerSummary): string 
   return careerCohortSegmentClassName(boostProfileCohort(summary));
 }
 
+// Which side a career TEAM-view summary is, or null for the player-view
+// per-cohort summaries (keys "player"/"teammates"/"opponents").
+function boostProfileTeamSide(summary: BoostPlayerSummary): "team" | "opponentTeam" | null {
+  return summary.key === "team" || summary.key === "opponentTeam" ? summary.key : null;
+}
+
 function boostProfileCohort(summary: BoostPlayerSummary): CareerCohortKey {
+  // Team view reuses the your-side/their-side cohort colors (player vs
+  // opponents), matching the Core team view.
+  if (summary.key === "team") return "player";
   return careerCohortKey(summary.key) ?? "opponents";
 }
 
@@ -662,6 +686,56 @@ function boostProfileData(
     summaries: rows,
     levelRows: rows.map(boostProfileLevelRow),
   };
+}
+
+// The career TEAM view: "Your team" pools the player's totals with the pooled
+// teammates cohort; "Opponent team" is the (already pooled) opponents cohort.
+//
+// Every PlayerBoostTotal field is additive (amounts, pad counts, band seconds,
+// tracked seconds, the boost-amount weighted sum), so the pooled summary's
+// time-weighted stats (average boost, band shares -> level rows) come straight
+// out of `boostProfileSummary`/`boostProfileLevelRow` on the summed totals.
+// Only the RATE denominator differs from a player summary: team production
+// rates divide by the team's wall-clock seconds — approximated by the
+// profiled player's own tracked seconds, which span every game in the set —
+// not the roster's pooled seconds (a team of 3 does not get 3x the minutes).
+// That matches the benchmark team grain (`team_per_stat`, rates per
+// team-active-minute) the grid's rank rows read in team grain.
+function boostProfileTeamData(totals: PlayerBoostTotalsResponse): {
+  summaries: BoostPlayerSummary[];
+  levelRows: BoostLevelDistributionRow[];
+} {
+  const wallClockSeconds = Math.max(0, totals.player.tracked_seconds);
+  const identity = { platform: null, platformPlayerId: null };
+  const pooled = [
+    boostProfileSummary(
+      "team",
+      "Your team",
+      totals.teammates ? sumBoostTotals(totals.player, totals.teammates) : totals.player,
+      identity,
+    ),
+    totals.opponents
+      ? boostProfileSummary("opponentTeam", "Opponent team", totals.opponents, identity)
+      : null,
+  ].filter((summary): summary is BoostPlayerSummary =>
+    Boolean(summary && boostSummaryHasData(summary)),
+  );
+
+  return {
+    summaries: pooled.map((summary) => ({ ...summary, trackedSeconds: wallClockSeconds })),
+    // Level rows keep the pooled tracked seconds so band percentages stay the
+    // roster's time-weighted distribution (they would exceed 100% of the
+    // wall clock).
+    levelRows: pooled.map(boostProfileLevelRow),
+  };
+}
+
+function sumBoostTotals(left: PlayerBoostTotal, right: PlayerBoostTotal): PlayerBoostTotal {
+  const result = { ...left };
+  for (const key of Object.keys(result) as Array<keyof PlayerBoostTotal>) {
+    result[key] = left[key] + right[key];
+  }
+  return result;
 }
 
 function boostProfileSummary(
@@ -1108,6 +1182,7 @@ function BoostEconomyComparisonGrid({
   valueMode = "totals",
   rankCohorts = [],
   rankWindowLabel,
+  rankGrain = "player",
 }: {
   comparisonMode: BoostComparisonMode;
   durationSeconds: number;
@@ -1127,6 +1202,12 @@ function BoostEconomyComparisonGrid({
   // counterpart, so they get no rank row.
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // Which benchmark map the rank rows read: the per-player `per_stat` (rates
+  // per player-active-minute) or, for the career team view whose summaries
+  // rate per team wall-clock minute, the whole-roster `team_per_stat` (rates
+  // per team-active-minute). Ranks lacking a value in the chosen map simply
+  // show no row.
+  rankGrain?: "player" | "team";
 }) {
   const boostLevelsByPlayer = new Map(levelRows.map((row) => [row.key, row]));
   const summaryPlayerIndex = (summary: BoostPlayerSummary) =>
@@ -1722,7 +1803,8 @@ function BoostEconomyComparisonGrid({
     if (!metricKey || comparisonMode !== "players") return [];
     const useBarValue = BOOST_BAR_VALUE_GROUPS.has(groupKey);
     return rankCohorts.flatMap((cohort) => {
-      const raw = cohort.per_stat[metricKey]?.value;
+      const perStat = rankGrain === "team" ? (cohort.team_per_stat ?? {}) : cohort.per_stat;
+      const raw = perStat[metricKey]?.value;
       if (raw == null || !Number.isFinite(raw)) return [];
       return [rankBoostComparisonRow(cohort, raw, rankWindowLabel, useBarValue)];
     });
