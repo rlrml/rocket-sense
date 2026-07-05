@@ -84,19 +84,38 @@ function formatPercent(value: number | null): string {
   return value == null ? "–" : `${(value * 100).toFixed(1)}%`;
 }
 
+function formatCountNoun(count: number, noun: string): string {
+  return `${count} ${count === 1 ? noun : `${noun}s`}`;
+}
+
+function possessiveName(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return "Player's";
+  return trimmed.endsWith("s") ? `${trimmed}'` : `${trimmed}'s`;
+}
+
+interface IntegerBucket {
+  value: number;
+  label: string;
+  count: number;
+}
+
 // Contiguous integer buckets covering [min(values, floor)..max(values, ceil)],
 // so histograms always show every intermediate bucket (including empty ones).
-function integerBuckets(values: number[], floor = 0): Array<{ value: number; count: number }> {
+function integerBuckets(values: number[], floor = 0, maxBucket?: number): IntegerBucket[] {
   if (values.length === 0) return [];
-  const lo = Math.min(floor, ...values);
-  let hi = Math.max(floor, ...values);
+  const bucketValues =
+    maxBucket == null ? values : values.map((value) => Math.min(value, maxBucket));
+  const lo = Math.min(floor, ...bucketValues);
+  let hi = Math.max(floor, ...bucketValues);
   // Guard against a degenerate single-bucket span rendering as one giant bar.
   if (lo === hi) hi = lo + 1;
-  const buckets: Array<{ value: number; count: number }> = [];
+  const buckets: IntegerBucket[] = [];
   for (let value = lo; value <= hi; value += 1) {
-    buckets.push({ value, count: 0 });
+    const capped = maxBucket != null && value === maxBucket;
+    buckets.push({ value, label: capped ? `${value}+` : String(value), count: 0 });
   }
-  for (const value of values) {
+  for (const value of bucketValues) {
     buckets[value - lo].count += 1;
   }
   return buckets;
@@ -111,15 +130,16 @@ function Histogram({
   values,
   noun,
   tone,
+  maxBucket,
 }: {
   title: string;
   values: number[];
   noun: string;
   /** Fixed tone for every bar, or per-bucket-value tone (the margin histogram). */
   tone: BarTone | ((bucketValue: number) => BarTone);
+  maxBucket?: number;
 }) {
-  const buckets = useMemo(() => integerBuckets(values), [values]);
-  const maxCount = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  const buckets = useMemo(() => integerBuckets(values, 0, maxBucket), [maxBucket, values]);
   const meanValue = mean(values);
   const medianValue = median(values);
 
@@ -137,26 +157,30 @@ function Histogram({
         <div className="outcomes-histogram-bars" role="img" aria-label={`${title} histogram`}>
           {buckets.map((bucket) => {
             const barTone = typeof tone === "function" ? tone(bucket.value) : tone;
+            const share = values.length > 0 ? bucket.count / values.length : 0;
+            const shareLabel = formatPercent(share);
+            const label =
+              typeof tone === "function" && bucket.value > 0 ? `+${bucket.label}` : bucket.label;
             return (
               <div
                 key={bucket.value}
                 className="outcomes-histogram-column"
-                title={`${bucket.value}: ${bucket.count} ${noun}`}
+                title={`${bucket.label}: ${formatCountNoun(bucket.count, noun)} (${shareLabel})`}
               >
                 <div className="outcomes-histogram-count">
                   {bucket.count > 0 ? bucket.count : ""}
                 </div>
                 <div className="outcomes-histogram-track">
                   <div
-                    className={`outcomes-histogram-bar outcomes-bar-${barTone}`}
-                    style={{ height: `${(bucket.count / maxCount) * 100}%` }}
-                  />
+                    className={`outcomes-histogram-bar outcomes-bar-${barTone}${bucket.count > 0 ? " outcomes-histogram-bar-labeled" : ""}`}
+                    style={{ height: `${share * 100}%` }}
+                  >
+                    {bucket.count > 0 ? (
+                      <span className="outcomes-histogram-share">{shareLabel}</span>
+                    ) : null}
+                  </div>
                 </div>
-                <div className="outcomes-histogram-label">
-                  {typeof tone === "function" && bucket.value > 0
-                    ? `+${bucket.value}`
-                    : bucket.value}
-                </div>
+                <div className="outcomes-histogram-label">{label}</div>
               </div>
             );
           })}
@@ -168,7 +192,7 @@ function Histogram({
 
 // --- scoreline heatmap -------------------------------------------------------------
 
-function ScorelineHeatmap({ games }: { games: GameOutcomeRow[] }) {
+function ScorelineHeatmap({ games, playerName }: { games: GameOutcomeRow[]; playerName: string }) {
   const { cells, maxTeam, maxOpponent, maxCount } = useMemo(() => {
     const counts = new Map<string, number>();
     let maxTeam = 0;
@@ -189,7 +213,8 @@ function ScorelineHeatmap({ games }: { games: GameOutcomeRow[] }) {
     return <div className="stat-empty">No games in the current replay set.</div>;
   }
 
-  // Rows: your-team goals descending so wins collect toward the top-right.
+  const playerPossessive = possessiveName(playerName);
+  // Rows: the profile player's team goals descending so wins collect toward the top-right.
   const teamValues: number[] = [];
   for (let value = maxTeam; value >= 0; value -= 1) teamValues.push(value);
   const opponentValues: number[] = [];
@@ -197,7 +222,7 @@ function ScorelineHeatmap({ games }: { games: GameOutcomeRow[] }) {
 
   return (
     <div className="outcomes-heatmap-wrap">
-      <div className="outcomes-heatmap-y-title">Your team goals</div>
+      <div className="outcomes-heatmap-y-title">{playerPossessive} team goals</div>
       <div className="outcomes-heatmap-body">
         <div
           className="outcomes-heatmap"
@@ -243,7 +268,7 @@ function ScorelineHeatmap({ games }: { games: GameOutcomeRow[] }) {
             </div>
           ))}
         </div>
-        <div className="outcomes-heatmap-x-title">Opponent goals</div>
+        <div className="outcomes-heatmap-x-title">{playerPossessive} opponents' goals</div>
       </div>
     </div>
   );
@@ -341,11 +366,16 @@ export function OutcomesProfileDetail({
   const goalSeries = useMemo(() => {
     if (!games) return null;
     return {
-      total: games.map((game) => game.team_score + game.opponent_score),
-      team: games.map((game) => game.team_score),
-      player: games.map((game) => game.player_goals),
-      teammates: games.map((game) => game.teammate_goals),
-      opponents: games.map((game) => game.opponent_score),
+      team: {
+        total: games.map((game) => game.team_score + game.opponent_score),
+        playerTeam: games.map((game) => game.team_score),
+        opponentTeam: games.map((game) => game.opponent_score),
+      },
+      players: {
+        player: games.map((game) => game.player_goals),
+        teammates: games.flatMap((game) => game.teammate_goal_counts),
+        opponents: games.flatMap((game) => game.opponent_goal_counts),
+      },
     };
   }, [games]);
 
@@ -361,6 +391,7 @@ export function OutcomesProfileDetail({
 
   const marginTone = (margin: number): BarTone =>
     margin > 0 ? "positive" : margin < 0 ? "negative" : "neutral";
+  const playerPossessive = possessiveName(playerName);
 
   return (
     <div className="outcomes-detail">
@@ -372,45 +403,67 @@ export function OutcomesProfileDetail({
         <Histogram
           title="Margin distribution"
           values={summary.margins}
-          noun="games"
+          noun="game"
           tone={marginTone}
         />
       </section>
 
       <section className="chart-panel">
-        <h3>Goals per game</h3>
+        <h3>Team goals per game</h3>
         <div className="outcomes-histogram-grid">
           <Histogram
             title="Total goals in game"
-            values={goalSeries.total}
-            noun="games"
+            values={goalSeries.team.total}
+            noun="game"
             tone="neutral"
           />
           <Histogram
-            title="Your team's goals"
-            values={goalSeries.team}
-            noun="games"
+            title={`${playerPossessive} team goals`}
+            values={goalSeries.team.playerTeam}
+            noun="game"
             tone="positive"
-          />
-          <Histogram title="Your goals" values={goalSeries.player} noun="games" tone="positive" />
-          <Histogram
-            title="Teammate goals"
-            values={goalSeries.teammates}
-            noun="games"
-            tone="positive"
+            maxBucket={7}
           />
           <Histogram
-            title="Opponent goals"
-            values={goalSeries.opponents}
-            noun="games"
+            title={`${playerPossessive} opponents' team goals`}
+            values={goalSeries.team.opponentTeam}
+            noun="game"
             tone="negative"
+            maxBucket={7}
+          />
+        </div>
+      </section>
+
+      <section className="chart-panel">
+        <h3>Player goals by appearance</h3>
+        <div className="outcomes-histogram-grid">
+          <Histogram
+            title={`${playerPossessive} goals`}
+            values={goalSeries.players.player}
+            noun="game"
+            tone="positive"
+            maxBucket={5}
+          />
+          <Histogram
+            title={`${playerPossessive} teammates' goals`}
+            values={goalSeries.players.teammates}
+            noun="appearance"
+            tone="positive"
+            maxBucket={5}
+          />
+          <Histogram
+            title={`${playerPossessive} opponents' goals`}
+            values={goalSeries.players.opponents}
+            noun="appearance"
+            tone="negative"
+            maxBucket={5}
           />
         </div>
       </section>
 
       <section className="chart-panel">
         <h3>Scorelines</h3>
-        <ScorelineHeatmap games={games} />
+        <ScorelineHeatmap games={games} playerName={playerName} />
       </section>
     </div>
   );

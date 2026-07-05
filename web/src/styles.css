@@ -10587,6 +10587,26 @@ tbody tr:last-child td {
   border-radius: 2px 2px 0 0;
 }
 
+.outcomes-histogram-bar-labeled {
+  box-sizing: border-box;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  min-height: 18px;
+  padding-top: 2px;
+  overflow: hidden;
+}
+
+.outcomes-histogram-share {
+  color: white;
+  font-size: var(--text-3xs);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgb(15 23 42 / 0.42);
+  white-space: nowrap;
+}
+
 .outcomes-bar-positive {
   background: var(--outcome-positive);
 }
