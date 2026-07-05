@@ -2218,6 +2218,455 @@ async fn reprocess_populates_all_materialized_tables() {
     }
 }
 
+/// Validates the rank-benchmark refresh SQL end-to-end against a real
+/// Postgres, focusing on the TEAM grain (migration 0086): completeness/rank
+/// gating of team units, additive-vs-gauge team aggregation, the team
+/// denominator (`replays.active_seconds`), `meta:game_seconds`, and the
+/// player-grain rows staying shape-identical (now tagged `grain = 'player'`).
+///
+/// Seeds a small synthetic dataset (no replay files) with hand-computable
+/// numbers, then runs the actual `refresh_rank_benchmark` and asserts exact
+/// values. Same env gating as `reprocess_populates_all_materialized_tables`:
+/// set `RS_REPROCESS_TEST_DATABASE_URL` to a FRESH, EMPTY database. Run with:
+///   RS_REPROCESS_TEST_DATABASE_URL=postgres://... cargo test -p rocket-sense-server \
+///     rank_benchmark_refresh_materializes_team_grain -- --ignored --nocapture
+#[tokio::test]
+#[ignore = "requires RS_REPROCESS_TEST_DATABASE_URL"]
+async fn rank_benchmark_refresh_materializes_team_grain() {
+    let Ok(database_url) = std::env::var("RS_REPROCESS_TEST_DATABASE_URL") else {
+        eprintln!("skipping: RS_REPROCESS_TEST_DATABASE_URL not set");
+        return;
+    };
+
+    let pool = rocket_sense_db::connect(&database_url)
+        .await
+        .expect("connect to test db");
+    rocket_sense_db::run_migrations(&pool)
+        .await
+        .expect("run migrations");
+
+    // One ranked-2v2 replay whose two teams are both complete + fully ranked.
+    // Team 0 (win): P1 tier 10 (300s active, score 100, 2 goals),
+    //               P2 tier 11 (290s active, score 200) -> team tier 11 (10.5
+    //               rounds away from zero), team seconds = replays.active_seconds = 310.
+    // Team 1 (loss): P3 tier 12, P4 tier 13 -> team tier 13 (12.5 -> 13).
+    let r1 = Uuid::now_v7();
+    let run1 = Uuid::now_v7();
+    // A second replay whose team 0 carries an UNRANKED player (rank_tier NULL),
+    // so team 0 is incomplete and must NOT materialize a team unit; team 1
+    // (tiers 4 + 5 -> team tier 5, one goal by P7, 300s) must.
+    let r2 = Uuid::now_v7();
+    let run2 = Uuid::now_v7();
+
+    let seed_replay = |replay: Uuid,
+                       run: Uuid,
+                       team_zero_score: i32,
+                       team_one_score: i32,
+                       active_seconds: f64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query(
+                "INSERT INTO replays (id, uploaded_by_user_id, file_sha256, original_file_name, \
+                                      byte_size, storage_key, storage_encoding, storage_byte_size) \
+                 VALUES ($1, NULL, $2, 'bench.replay', 1, $3, 'zstd', 1)",
+            )
+            .bind(replay)
+            .bind(format!("sha-{replay}"))
+            .bind(format!("replays/{replay}.replay"))
+            .execute(&pool)
+            .await
+            .expect("insert replay");
+            sqlx::query(
+                "INSERT INTO analysis_runs (id, replay_id, status, extractor_name, extractor_version, \
+                                            input_file_sha256, event_stream_schema_version) \
+                 VALUES ($1, $2, 'succeeded', 'test', '1', $3, '1')",
+            )
+            .bind(run)
+            .bind(replay)
+            .bind(format!("sha-{replay}"))
+            .execute(&pool)
+            .await
+            .expect("insert analysis run");
+            sqlx::query(
+                "UPDATE replays SET canonical_analysis_run_id = $2, \
+                        replay_date = now() - interval '1 day', replay_game_type = 'ranked', \
+                        team_zero_score = $3, team_one_score = $4, active_seconds = $5 \
+                 WHERE id = $1",
+            )
+            .bind(replay)
+            .bind(run)
+            .bind(team_zero_score)
+            .bind(team_one_score)
+            .bind(active_seconds)
+            .execute(&pool)
+            .await
+            .expect("update replay metadata");
+        }
+    };
+    seed_replay(r1, run1, 2, 1, 310.0).await;
+    seed_replay(r2, run2, 0, 1, 300.0).await;
+
+    let seed_player =
+        |replay: Uuid, pid: &str, team: i32, rank_tier: Option<i32>, score: i32, active: f64| {
+            let pool = pool.clone();
+            let pid = pid.to_owned();
+            async move {
+                sqlx::query(
+                "INSERT INTO replay_players (id, replay_id, name, platform, platform_player_id, \
+                                             team, rank_tier, score, active_time_seconds) \
+                 VALUES ($1, $2, $3, 'steam', $3, $4, $5, $6, $7)",
+            )
+            .bind(Uuid::now_v7())
+            .bind(replay)
+            .bind(&pid)
+            .bind(team)
+            .bind(rank_tier)
+            .bind(score)
+            .bind(active)
+            .execute(&pool)
+            .await
+            .expect("insert replay player");
+            }
+        };
+    seed_player(r1, "p1", 0, Some(10), 100, 300.0).await;
+    seed_player(r1, "p2", 0, Some(11), 200, 290.0).await;
+    seed_player(r1, "p3", 1, Some(12), 50, 300.0).await;
+    seed_player(r1, "p4", 1, Some(13), 60, 300.0).await;
+    seed_player(r2, "p5", 0, None, 10, 300.0).await; // unranked -> team 0 incomplete
+    seed_player(r2, "p6", 0, Some(9), 20, 300.0).await;
+    seed_player(r2, "p7", 1, Some(4), 30, 300.0).await;
+    seed_player(r2, "p8", 1, Some(5), 40, 300.0).await;
+
+    // Event counts: only positive counts are stored (0-filled by the refresh).
+    let goal_type_id: i32 = sqlx::query_scalar(
+        "INSERT INTO event_types (key, display_name, category) VALUES ('goal', 'Goal', 'core') \
+         ON CONFLICT (key) DO UPDATE SET display_name = EXCLUDED.display_name RETURNING id",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("insert goal event type");
+    for (run, replay, pid, team, count) in [(run1, r1, "p1", 0, 2i32), (run2, r2, "p7", 1, 1i32)] {
+        sqlx::query(
+            "INSERT INTO player_replay_event_counts \
+             (analysis_run_id, replay_id, player_subject_id, platform, platform_player_id, team, event_type_id, event_count) \
+             VALUES ($1, $2, 'steam:' || $3, 'steam', $3, $4, $5, $6)",
+        )
+        .bind(run)
+        .bind(replay)
+        .bind(pid)
+        .bind(team)
+        .bind(goal_type_id)
+        .bind(count)
+        .execute(&pool)
+        .await
+        .expect("insert event count");
+    }
+
+    // Boost: additive counter (collected) + gauge (avg_amount = weighted_sum /
+    // tracked_seconds; P1 -> 50, P2 -> 30; team pooled -> 23700 / 590).
+    for (pid, team, collected, weighted_sum, tracked) in [
+        ("p1", 0, 1000.0, 15000.0, 300.0),
+        ("p2", 0, 500.0, 8700.0, 290.0),
+    ] {
+        sqlx::query(
+            "INSERT INTO player_replay_boost \
+             (analysis_run_id, replay_id, player_subject_id, platform, platform_player_id, team, \
+              boost_collected, boost_amount_weighted_sum, tracked_seconds) \
+             VALUES ($1, $2, 'steam:' || $3, 'steam', $3, $4, $5, $6, $7)",
+        )
+        .bind(run1)
+        .bind(r1)
+        .bind(pid)
+        .bind(team)
+        .bind(collected)
+        .bind(weighted_sum)
+        .bind(tracked)
+        .execute(&pool)
+        .await
+        .expect("insert boost row");
+    }
+
+    // Movement: gauge avg_speed (P1 1000, P2 1400 -> team 706000/590) and
+    // additive distance (150000 total over the 310s team game).
+    for (pid, team, speed_weighted, speed_weight, distance, active) in [
+        ("p1", 0, 300_000.0, 300.0, 100_000.0, 300.0),
+        ("p2", 0, 406_000.0, 290.0, 50_000.0, 290.0),
+    ] {
+        sqlx::query(
+            "INSERT INTO player_replay_movement \
+             (analysis_run_id, replay_id, player_subject_id, platform, platform_player_id, team, \
+              active_seconds, speed_weighted, speed_weight, total_distance) \
+             VALUES ($1, $2, 'steam:' || $3, 'steam', $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(run1)
+        .bind(r1)
+        .bind(pid)
+        .bind(team)
+        .bind(active)
+        .bind(speed_weighted)
+        .bind(speed_weight)
+        .bind(distance)
+        .execute(&pool)
+        .await
+        .expect("insert movement row");
+    }
+
+    // Possession: additive count + gauge duration_share ((60+40)/(300+290)).
+    for (pid, team, count, duration) in [("p1", 0, 5i64, 60.0), ("p2", 0, 3i64, 40.0)] {
+        sqlx::query(
+            "INSERT INTO player_replay_possession \
+             (analysis_run_id, replay_id, player_subject_id, platform, platform_player_id, team, \
+              possession_count, duration_seconds) \
+             VALUES ($1, $2, 'steam:' || $3, 'steam', $3, $4, $5, $6)",
+        )
+        .bind(run1)
+        .bind(r1)
+        .bind(pid)
+        .bind(team)
+        .bind(count)
+        .bind(duration)
+        .execute(&pool)
+        .await
+        .expect("insert possession row");
+    }
+
+    // Positioning: gauge share ((150+145)/(300+290) = 0.5) and weighted
+    // distance-to-ball ((900000+870000)/(300+290) = 3000).
+    for (pid, team, def_third, tracked, dtb_weighted, dtb_weight) in [
+        ("p1", 0, 150.0, 300.0, 900_000.0, 300.0),
+        ("p2", 0, 145.0, 290.0, 870_000.0, 290.0),
+    ] {
+        sqlx::query(
+            "INSERT INTO player_replay_positioning \
+             (analysis_run_id, replay_id, player_subject_id, platform, platform_player_id, team, \
+              defensive_third_seconds, tracked_seconds, distance_to_ball_weighted, distance_to_ball_weight) \
+             VALUES ($1, $2, 'steam:' || $3, 'steam', $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(run1)
+        .bind(r1)
+        .bind(pid)
+        .bind(team)
+        .bind(def_third)
+        .bind(tracked)
+        .bind(dtb_weighted)
+        .bind(dtb_weight)
+        .execute(&pool)
+        .await
+        .expect("insert positioning row");
+    }
+
+    // Stat facts: additive count metric, per-player denominators live but the
+    // team denominator is the team game ((10+20)*60/310).
+    for (pid, team, value, ats) in [("p1", 0, 10.0, 300.0), ("p2", 0, 20.0, 290.0)] {
+        sqlx::query(
+            "INSERT INTO player_replay_stat_facts \
+             (analysis_run_id, replay_id, player_subject_id, platform, platform_player_id, team, \
+              stat_key, value, unit, active_time_seconds) \
+             VALUES ($1, $2, 'steam:' || $3, 'steam', $3, $4, 'ball-advance', $5, 'count', $6)",
+        )
+        .bind(run1)
+        .bind(r1)
+        .bind(pid)
+        .bind(team)
+        .bind(value)
+        .bind(ats)
+        .execute(&pool)
+        .await
+        .expect("insert stat fact row");
+    }
+
+    let refreshed = refresh_rank_benchmark(
+        &pool,
+        &[BenchmarkWindow::Rolling { months: 6 }],
+        CalcStyle::PerAppearance,
+    )
+    .await
+    .expect("refresh rank benchmark");
+    assert_eq!(refreshed, 1, "one window refreshed");
+
+    let stat = |grain: &str, grouping: &str, rank_value: i32, outcome: &str, metric: &str| {
+        let pool = pool.clone();
+        let (grain, grouping, outcome, metric) = (
+            grain.to_owned(),
+            grouping.to_owned(),
+            outcome.to_owned(),
+            metric.to_owned(),
+        );
+        async move {
+            sqlx::query_scalar::<_, Option<f64>>(
+                "SELECT mean_per_active_minute FROM rank_benchmark_stats \
+                 WHERE window_key = 'rolling-6m' AND playlist_group_key = 'ranked-2v2' \
+                   AND grain = $1 AND rank_grouping = $2 AND rank_value = $3 \
+                   AND outcome = $4 AND metric_key = $5",
+            )
+            .bind(&grain)
+            .bind(&grouping)
+            .bind(rank_value)
+            .bind(&outcome)
+            .bind(&metric)
+            .fetch_optional(&pool)
+            .await
+            .expect("query benchmark stat")
+            .flatten()
+        }
+    };
+    let assert_close = |label: &str, actual: Option<f64>, expected: f64| {
+        let actual = actual.unwrap_or_else(|| panic!("{label}: row missing"));
+        assert!(
+            (actual - expected).abs() < 1e-9,
+            "{label}: got {actual}, expected {expected}"
+        );
+    };
+
+    // (a) Player grain unchanged in shape: per-appearance rates at the exact
+    // tier, and no team-only synthetic metric.
+    assert_close(
+        "player tier 10 goal",
+        stat("player", "tier", 10, "all", "goal").await,
+        2.0 * 60.0 / 300.0,
+    );
+    assert_close(
+        "player tier 11 boost:avg_amount",
+        stat("player", "tier", 11, "all", "boost:avg_amount").await,
+        8700.0 / 290.0,
+    );
+    let player_meta: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rank_benchmark_stats WHERE grain = 'player' AND metric_key = 'meta:game_seconds'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count player meta metric");
+    assert_eq!(player_meta, 0, "meta:game_seconds is team-grain only");
+
+    // (b) Team grain: hand-computed sums over the seeded team-games.
+    // R1 team 0 -> tier ROUND(10.5) = 11, team seconds 310.
+    assert_close(
+        "team tier 11 goal (all)",
+        stat("team", "tier", 11, "all", "goal").await,
+        2.0 * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 goal (win)",
+        stat("team", "tier", 11, "win", "goal").await,
+        2.0 * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 score",
+        stat("team", "tier", 11, "all", "score").await,
+        (100.0 + 200.0) * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 boost:collected",
+        stat("team", "tier", 11, "all", "boost:collected").await,
+        1500.0 * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 boost:avg_amount (pooled gauge)",
+        stat("team", "tier", 11, "all", "boost:avg_amount").await,
+        23_700.0 / 590.0,
+    );
+    assert_close(
+        "team tier 11 movement:avg_speed",
+        stat("team", "tier", 11, "all", "movement:avg_speed").await,
+        706_000.0 / 590.0,
+    );
+    assert_close(
+        "team tier 11 movement:distance",
+        stat("team", "tier", 11, "all", "movement:distance").await,
+        150_000.0 * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 possession:count",
+        stat("team", "tier", 11, "all", "possession:count").await,
+        8.0 * 60.0 / 310.0,
+    );
+    assert_close(
+        "team tier 11 possession:duration_share",
+        stat("team", "tier", 11, "all", "possession:duration_share").await,
+        100.0 / 590.0,
+    );
+    assert_close(
+        "team tier 11 positioning:defensive_third_share",
+        stat(
+            "team",
+            "tier",
+            11,
+            "all",
+            "positioning:defensive_third_share",
+        )
+        .await,
+        0.5,
+    );
+    assert_close(
+        "team tier 11 positioning:distance_to_ball",
+        stat("team", "tier", 11, "all", "positioning:distance_to_ball").await,
+        3000.0,
+    );
+    assert_close(
+        "team tier 11 fact:ball-advance",
+        stat("team", "tier", 11, "all", "fact:ball-advance").await,
+        30.0 * 60.0 / 310.0,
+    );
+    // R1 team 1 -> tier ROUND(12.5) = 13, zero goals (0-filled).
+    assert_close(
+        "team tier 13 goal",
+        stat("team", "tier", 13, "all", "goal").await,
+        0.0,
+    );
+    // R2 team 1 -> tier ROUND(4.5) = 5, one goal over 300s.
+    assert_close(
+        "team tier 5 goal",
+        stat("team", "tier", 5, "all", "goal").await,
+        1.0 * 60.0 / 300.0,
+    );
+    // Group granularity: tier 11 -> group (11-1)/3 = 3.
+    assert_close(
+        "team group 3 goal",
+        stat("team", "group", 3, "all", "goal").await,
+        2.0 * 60.0 / 310.0,
+    );
+
+    // (c) meta:game_seconds carries the team-game length.
+    assert_close(
+        "team tier 11 meta:game_seconds",
+        stat("team", "tier", 11, "all", "meta:game_seconds").await,
+        310.0,
+    );
+
+    // Incomplete team (unranked P5): R2 team 0 (whose qualifying-player tier
+    // would be 9) must not materialize any team rows.
+    let incomplete: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM rank_benchmark_stats \
+         WHERE grain = 'team' AND rank_grouping = 'tier' AND rank_value = 9",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("count incomplete-team rows");
+    assert_eq!(
+        incomplete, 0,
+        "incomplete team must not enter the benchmark"
+    );
+
+    // Team population: 1 team-game, 2 contributing players for R1 team 0.
+    let (players, replays): (i32, i32) = sqlx::query_as(
+        "SELECT distinct_player_count, replay_count FROM rank_benchmark_population \
+         WHERE window_key = 'rolling-6m' AND playlist_group_key = 'ranked-2v2' \
+           AND grain = 'team' AND rank_grouping = 'tier' AND rank_value = 11 AND outcome = 'all'",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("team population row");
+    assert_eq!((players, replays), (2, 1), "team population counts");
+
+    // Player population rows still materialize under grain = 'player'.
+    let player_pop: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM rank_benchmark_population WHERE grain = 'player'")
+            .fetch_one(&pool)
+            .await
+            .expect("player population rows");
+    assert!(player_pop > 0, "player population rows exist");
+}
+
 /// Regression guard for the sqlx **decode-type** bug class: a Rust
 /// `row.try_get::<T>()` whose `T` doesn't match the SQL column type (e.g. `i64`
 /// for an `INT4` column, or `f64` for a `NUMERIC` expression) compiles fine and
@@ -2362,6 +2811,32 @@ async fn stats_read_paths_decode_after_reprocess() {
     .execute(&pool)
     .await
     .expect("seed rank_benchmark_stats");
+    // Team-grain rows (migration 0086): an adequately-sampled team population
+    // (>= MIN_SAMPLE) plus one stats row, so the cohorts endpoint's
+    // `team_per_stat` read path both gates and decodes against real rows.
+    sqlx::query(
+        "INSERT INTO rank_benchmark_population \
+         (window_key, grain, playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count) \
+         VALUES ($1, 'team', $2, 'tier', $3, 'all', 25, 40)",
+    )
+    .bind(window_key)
+    .bind(&group_key)
+    .bind(tier)
+    .execute(&pool)
+    .await
+    .expect("seed team rank_benchmark_population");
+    sqlx::query(
+        "INSERT INTO rank_benchmark_stats \
+         (window_key, grain, playlist_group_key, rank_grouping, rank_value, outcome, metric_key, \
+          median_per_active_minute, mean_per_active_minute, aggregator) \
+         VALUES ($1, 'team', $2, 'tier', $3, 'all', 'goal', 0.7, 0.75, 'mean')",
+    )
+    .bind(window_key)
+    .bind(&group_key)
+    .bind(tier)
+    .execute(&pool)
+    .await
+    .expect("seed team rank_benchmark_stats");
 
     // Router wired like prod: materialized reads on, benchmark enabled.
     let state = crate::app::AppState {
@@ -2453,6 +2928,43 @@ async fn stats_read_paths_decode_after_reprocess() {
         ranks > 0,
         "benchmark population decode did not run (group_key={group_key}); \
          seed did not match the resolved cohort"
+    );
+
+    // Team grain: explicitly select the seeded tier so a cohort is returned,
+    // and assert its `team_per_stat` served the seeded team-grain row (the
+    // seeded team population clears MIN_SAMPLE, so no group fallback applies).
+    let response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri(format!(
+                    "/api/v1/stats/rank-benchmark?{q}&rank-benchmark-grouping=tier&rank-benchmark-rank={tier}"
+                ))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .expect("router responds");
+    let body = to_bytes(response.into_body(), usize::MAX)
+        .await
+        .expect("read rank-benchmark body");
+    let json: serde_json::Value = serde_json::from_slice(&body).expect("rank-benchmark json");
+    let team_goal_value = json
+        .get("cohorts")
+        .and_then(|v| v.as_array())
+        .and_then(|cohorts| {
+            cohorts
+                .iter()
+                .find(|c| c.get("rank_value").and_then(|v| v.as_i64()) == Some(tier as i64))
+        })
+        .and_then(|cohort| cohort.get("team_per_stat"))
+        .and_then(|map| map.get("goal"))
+        .and_then(|stat| stat.get("value"))
+        .and_then(|v| v.as_f64());
+    assert_eq!(
+        team_goal_value,
+        Some(0.75),
+        "team_per_stat did not serve the seeded team-grain benchmark row"
     );
 
     let _ = std::fs::remove_dir_all(&storage_root);

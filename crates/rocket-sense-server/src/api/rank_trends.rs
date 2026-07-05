@@ -234,6 +234,7 @@ async fn load_rank_trends(
         "SELECT playlist_group_key, SUM(distinct_player_count) AS players \
          FROM rank_benchmark_population \
          WHERE window_key = $1 AND outcome = 'all' AND rank_grouping = 'group' \
+           AND grain = 'player' \
          GROUP BY playlist_group_key ORDER BY players DESC, playlist_group_key",
     )
     .bind(&window.key)
@@ -265,6 +266,7 @@ async fn load_rank_trends(
     let pop_rows = sqlx::query(
         "SELECT rank_value, distinct_player_count FROM rank_benchmark_population \
          WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 AND rank_grouping = $4 \
+           AND grain = 'player' \
          ORDER BY rank_value",
     )
     .bind(&window.key)
@@ -306,7 +308,8 @@ async fn load_rank_trends(
         "SELECT metric_key, rank_value, aggregator, \
                 CASE WHEN aggregator = 'mean' THEN mean_per_active_minute ELSE median_per_active_minute END AS value \
          FROM rank_benchmark_stats \
-         WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 AND rank_grouping = $4",
+         WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 AND rank_grouping = $4 \
+           AND grain = 'player'",
     )
     .bind(&window.key)
     .bind(&group_key)
