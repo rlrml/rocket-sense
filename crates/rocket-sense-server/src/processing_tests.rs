@@ -2635,6 +2635,26 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
         1.0,
     );
     assert_close(
+        "player tier 10 win share",
+        stat("player", "tier", 10, "all", "outcome:win_share").await,
+        1.0,
+    );
+    assert_close(
+        "player tier 10 +1 margin",
+        stat("player", "tier", 10, "all", "outcome:margin:pos1").await,
+        1.0,
+    );
+    assert_close(
+        "player tier 10 team goals",
+        stat("player", "tier", 10, "all", "outcome:team_goals:2").await,
+        1.0,
+    );
+    assert_close(
+        "player tier 10 opponent team goals",
+        stat("player", "tier", 10, "all", "outcome:opponent_team_goals:1").await,
+        1.0,
+    );
+    assert_close(
         "player tier 11 zero-goal games",
         stat("player", "tier", 11, "all", "core:goal_games:0").await,
         1.0,
@@ -2662,6 +2682,21 @@ async fn rank_benchmark_refresh_materializes_team_grain() {
     assert_close(
         "team tier 11 two-goal games",
         stat("team", "tier", 11, "all", "core:goal_games:2").await,
+        1.0,
+    );
+    assert_close(
+        "team tier 11 win share",
+        stat("team", "tier", 11, "all", "outcome:win_share").await,
+        1.0,
+    );
+    assert_close(
+        "team tier 11 +1 margin",
+        stat("team", "tier", 11, "all", "outcome:margin:pos1").await,
+        1.0,
+    );
+    assert_close(
+        "team tier 11 total goals",
+        stat("team", "tier", 11, "all", "outcome:total_goals:3").await,
         1.0,
     );
     assert_close(

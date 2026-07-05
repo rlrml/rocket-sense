@@ -6293,6 +6293,8 @@ function PlayerAggregateStatsSections({
           platform={platform}
           platformPlayerId={platformPlayerId}
           playerName={playerName}
+          rankCohorts={contentRankBenchmarkCohorts?.cohorts ?? []}
+          rankWindowLabel={contentRankBenchmarkCohorts?.window_label}
           search={contentSearch}
         />,
       );

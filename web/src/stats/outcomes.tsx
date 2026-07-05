@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getPlayerGameOutcomes } from "../api";
-import type { GameOutcomeRow } from "../types";
+import type { GameOutcomeRow, RankBenchmarkCohort } from "../types";
+import { rankAverageShadeClass } from "./shared";
 
 // The Outcomes section distributes game results for one target player: win/loss
 // record, records by goal margin, a signed margin histogram, goal-count
@@ -147,6 +148,61 @@ function signedBucketLabel(bucket: IntegerBucket): string {
   return bucket.value > 0 ? `+${bucket.label}` : bucket.label;
 }
 
+type RankMetricGrain = "player" | "team";
+
+function rankMetricMap(
+  cohort: RankBenchmarkCohort,
+  grain: RankMetricGrain,
+): RankBenchmarkCohort["per_stat"] {
+  return grain === "team" ? (cohort.team_per_stat ?? {}) : cohort.per_stat;
+}
+
+function finiteRankValue(
+  cohort: RankBenchmarkCohort,
+  grain: RankMetricGrain,
+  metricKey: string,
+): number | null {
+  const value = rankMetricMap(cohort, grain)[metricKey]?.value;
+  return value != null && Number.isFinite(value) ? Math.max(0, value) : null;
+}
+
+function marginMetricKey(bucketValue: number): string {
+  if (bucketValue <= -4) return "outcome:margin:neg4_plus";
+  if (bucketValue >= 4) return "outcome:margin:pos4_plus";
+  if (bucketValue < 0) return `outcome:margin:neg${Math.abs(bucketValue)}`;
+  if (bucketValue > 0) return `outcome:margin:pos${bucketValue}`;
+  return "outcome:margin:0";
+}
+
+function goalBucketMetricKey(prefix: string, maxBucket: number, bucketValue: number): string {
+  return `${prefix}:${bucketValue >= maxBucket ? `${maxBucket}_plus` : String(bucketValue)}`;
+}
+
+function rankMetricMaxShare(
+  cohorts: RankBenchmarkCohort[],
+  grain: RankMetricGrain,
+  metricKeys: string[],
+): number {
+  return Math.max(
+    0,
+    ...cohorts.flatMap((cohort) =>
+      metricKeys.map((metricKey) => finiteRankValue(cohort, grain, metricKey) ?? 0),
+    ),
+  );
+}
+
+const OUTCOME_RANK_METRIC_PREFIXES = ["outcome:", "core:goal_games:"];
+
+function hasOutcomeRankBenchmarkMetrics(cohorts: RankBenchmarkCohort[]): boolean {
+  return cohorts.some((cohort) =>
+    [cohort.per_stat, cohort.team_per_stat ?? {}].some((metrics) =>
+      Object.keys(metrics).some((metricKey) =>
+        OUTCOME_RANK_METRIC_PREFIXES.some((prefix) => metricKey.startsWith(prefix)),
+      ),
+    ),
+  );
+}
+
 // --- histogram -------------------------------------------------------------------
 
 type BarTone = "positive" | "negative" | "neutral";
@@ -158,6 +214,10 @@ function Histogram({
   tone,
   minBucket,
   maxBucket,
+  rankCohorts = [],
+  rankMetricGrain = "player",
+  rankMetricKey,
+  rankWindowLabel,
   scaleMaxShare,
 }: {
   title: string;
@@ -167,6 +227,10 @@ function Histogram({
   tone: BarTone | ((bucketValue: number) => BarTone);
   minBucket?: number;
   maxBucket?: number;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankMetricGrain?: RankMetricGrain;
+  rankMetricKey?: (bucket: IntegerBucket) => string;
+  rankWindowLabel?: string | null;
   scaleMaxShare?: number;
 }) {
   const buckets = useMemo(
@@ -179,7 +243,33 @@ function Histogram({
     0,
     ...buckets.map((bucket) => (values.length > 0 ? bucket.count / values.length : 0)),
   );
-  const yScaleMaxShare = Math.max(Number.EPSILON, scaleMaxShare ?? ownMaxShare);
+  const rankSharesByBucket = useMemo(
+    () =>
+      buckets.map((bucket) => {
+        if (!rankMetricKey) return [];
+        const metricKey = rankMetricKey(bucket);
+        return rankCohorts.flatMap((cohort) => {
+          const share = finiteRankValue(cohort, rankMetricGrain, metricKey);
+          return share == null
+            ? []
+            : [
+                {
+                  key: `rank-${cohort.rank_value}`,
+                  label: cohort.label,
+                  className: rankAverageShadeClass(cohort.rank_value, cohort.rank_grouping),
+                  share,
+                  title: `${cohort.label} rank average${rankWindowLabel ? ` (${rankWindowLabel})` : ""}: ${formatPercent(share)}`,
+                },
+              ];
+        });
+      }),
+    [buckets, rankCohorts, rankMetricGrain, rankMetricKey, rankWindowLabel],
+  );
+  const rankMaxShare = Math.max(
+    0,
+    ...rankSharesByBucket.flatMap((shares) => shares.map((rankShare) => rankShare.share)),
+  );
+  const yScaleMaxShare = Math.max(Number.EPSILON, scaleMaxShare ?? ownMaxShare, rankMaxShare);
   const signedLabels = typeof tone === "function";
 
   return (
@@ -200,6 +290,7 @@ function Histogram({
             const shareLabel = formatPercent(share);
             const label = signedLabels ? signedBucketLabel(bucket) : bucket.label;
             const scaledHeight = share > 0 ? (share / yScaleMaxShare) * 100 : 0;
+            const rankShares = rankSharesByBucket[bucket.value - buckets[0].value] ?? [];
             return (
               <div
                 key={bucket.value}
@@ -210,6 +301,21 @@ function Histogram({
                   {bucket.count > 0 ? bucket.count : ""}
                 </div>
                 <div className="outcomes-histogram-track">
+                  {rankShares.map((rankShare, index) => {
+                    const markerHeight =
+                      rankShare.share > 0 ? (rankShare.share / yScaleMaxShare) * 100 : 0;
+                    return (
+                      <span
+                        key={rankShare.key}
+                        className={`outcomes-histogram-rank-marker ${rankShare.className}`}
+                        style={{
+                          bottom: `${markerHeight}%`,
+                          transform: `translateY(50%) translateX(${(index - (rankShares.length - 1) / 2) * 4}px)`,
+                        }}
+                        title={rankShare.title}
+                      />
+                    );
+                  })}
                   <div
                     className={`outcomes-histogram-bar outcomes-bar-${barTone}${bucket.count > 0 ? " outcomes-histogram-bar-labeled" : ""}`}
                     style={{ height: `${scaledHeight}%` }}
@@ -315,7 +421,15 @@ function ScorelineHeatmap({ games, playerName }: { games: GameOutcomeRow[]; play
 
 // --- page ---------------------------------------------------------------------------
 
-function RecordStrip({ summary, playerName }: { summary: OutcomeSummary; playerName: string }) {
+function RecordStrip({
+  rankCohorts = [],
+  summary,
+  playerName,
+}: {
+  rankCohorts?: RankBenchmarkCohort[];
+  summary: OutcomeSummary;
+  playerName: string;
+}) {
   const items: Array<{ label: string; value: string }> = [
     { label: "Games", value: summary.games.toLocaleString() },
     { label: "Wins", value: summary.wins.toLocaleString() },
@@ -325,6 +439,11 @@ function RecordStrip({ summary, playerName }: { summary: OutcomeSummary; playerN
     items.push({ label: "Ties", value: summary.ties.toLocaleString() });
   }
   items.push({ label: "Win rate", value: formatPercent(summary.winRate) });
+  for (const cohort of rankCohorts) {
+    const winRate = finiteRankValue(cohort, "player", "outcome:win_share");
+    if (winRate == null) continue;
+    items.push({ label: `${cohort.label} win rate`, value: formatPercent(winRate) });
+  }
 
   return (
     <section className="chart-panel outcomes-summary" aria-label={`${playerName} record`}>
@@ -436,11 +555,15 @@ export function OutcomesProfileDetail({
   platform,
   platformPlayerId,
   playerName,
+  rankCohorts = [],
+  rankWindowLabel,
   search,
 }: {
   platform: string;
   platformPlayerId: string;
   playerName: string;
+  rankCohorts?: RankBenchmarkCohort[];
+  rankWindowLabel?: string | null;
   search: string;
 }) {
   const [games, setGames] = useState<GameOutcomeRow[] | null>(null);
@@ -485,19 +608,35 @@ export function OutcomesProfileDetail({
   }, [games]);
   const goalScales = useMemo(() => {
     if (!goalSeries) return null;
+    const playerRankKeys = ["0", "1", "2", "3", "4", "5_plus"].map(
+      (bucket) => `core:goal_games:${bucket}`,
+    );
+    const teamRankKeys = ["0", "1", "2", "3", "4", "5", "6", "7_plus"].flatMap((bucket) => [
+      `outcome:team_goals:${bucket}`,
+      `outcome:opponent_team_goals:${bucket}`,
+    ]);
+    const totalRankKeys = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11_plus"].map(
+      (bucket) => `outcome:total_goals:${bucket}`,
+    );
     return {
-      team: maxBucketShare([
-        { values: goalSeries.team.total },
-        { values: goalSeries.team.playerTeam, maxBucket: 7 },
-        { values: goalSeries.team.opponentTeam, maxBucket: 7 },
-      ]),
-      players: maxBucketShare([
-        { values: goalSeries.players.player, maxBucket: 5 },
-        { values: goalSeries.players.teammates, maxBucket: 5 },
-        { values: goalSeries.players.opponents, maxBucket: 5 },
-      ]),
+      team: Math.max(
+        maxBucketShare([
+          { values: goalSeries.team.total, maxBucket: 11 },
+          { values: goalSeries.team.playerTeam, maxBucket: 7 },
+          { values: goalSeries.team.opponentTeam, maxBucket: 7 },
+        ]),
+        rankMetricMaxShare(rankCohorts, "team", [...teamRankKeys, ...totalRankKeys]),
+      ),
+      players: Math.max(
+        maxBucketShare([
+          { values: goalSeries.players.player, maxBucket: 5 },
+          { values: goalSeries.players.teammates, maxBucket: 5 },
+          { values: goalSeries.players.opponents, maxBucket: 5 },
+        ]),
+        rankMetricMaxShare(rankCohorts, "player", playerRankKeys),
+      ),
     };
-  }, [goalSeries]);
+  }, [goalSeries, rankCohorts]);
 
   if (loading) {
     return <div className="stat-empty">Loading game outcomes...</div>;
@@ -512,10 +651,19 @@ export function OutcomesProfileDetail({
   const marginTone = (margin: number): BarTone =>
     margin > 0 ? "positive" : margin < 0 ? "negative" : "neutral";
   const playerPossessive = possessiveName(playerName);
+  const showMissingRankBenchmarkNotice =
+    rankCohorts.length > 0 && !hasOutcomeRankBenchmarkMetrics(rankCohorts);
 
   return (
     <div className="outcomes-detail">
-      <RecordStrip summary={summary} playerName={playerName} />
+      <RecordStrip summary={summary} playerName={playerName} rankCohorts={rankCohorts} />
+
+      {showMissingRankBenchmarkNotice ? (
+        <div className="api-notice outcomes-rank-notice">
+          Rank benchmarks are selected, but outcome benchmark rows have not been materialized for
+          this window yet.
+        </div>
+      ) : null}
 
       <section className="chart-panel">
         <h3>Goal margin outcomes</h3>
@@ -535,6 +683,9 @@ export function OutcomesProfileDetail({
           tone={marginTone}
           minBucket={-4}
           maxBucket={4}
+          rankCohorts={rankCohorts}
+          rankMetricKey={(bucket) => marginMetricKey(bucket.value)}
+          rankWindowLabel={rankWindowLabel}
         />
       </section>
 
@@ -546,6 +697,11 @@ export function OutcomesProfileDetail({
             values={goalSeries.team.total}
             noun="game"
             tone="neutral"
+            maxBucket={11}
+            rankCohorts={rankCohorts}
+            rankMetricGrain="team"
+            rankMetricKey={(bucket) => goalBucketMetricKey("outcome:total_goals", 11, bucket.value)}
+            rankWindowLabel={rankWindowLabel}
             scaleMaxShare={goalScales.team}
           />
           <Histogram
@@ -554,6 +710,10 @@ export function OutcomesProfileDetail({
             noun="game"
             tone="positive"
             maxBucket={7}
+            rankCohorts={rankCohorts}
+            rankMetricGrain="team"
+            rankMetricKey={(bucket) => goalBucketMetricKey("outcome:team_goals", 7, bucket.value)}
+            rankWindowLabel={rankWindowLabel}
             scaleMaxShare={goalScales.team}
           />
           <Histogram
@@ -562,6 +722,12 @@ export function OutcomesProfileDetail({
             noun="game"
             tone="negative"
             maxBucket={7}
+            rankCohorts={rankCohorts}
+            rankMetricGrain="team"
+            rankMetricKey={(bucket) =>
+              goalBucketMetricKey("outcome:opponent_team_goals", 7, bucket.value)
+            }
+            rankWindowLabel={rankWindowLabel}
             scaleMaxShare={goalScales.team}
           />
         </div>
@@ -576,6 +742,9 @@ export function OutcomesProfileDetail({
             noun="game"
             tone="positive"
             maxBucket={5}
+            rankCohorts={rankCohorts}
+            rankMetricKey={(bucket) => goalBucketMetricKey("core:goal_games", 5, bucket.value)}
+            rankWindowLabel={rankWindowLabel}
             scaleMaxShare={goalScales.players}
           />
           <Histogram
@@ -584,6 +753,9 @@ export function OutcomesProfileDetail({
             noun="appearance"
             tone="positive"
             maxBucket={5}
+            rankCohorts={rankCohorts}
+            rankMetricKey={(bucket) => goalBucketMetricKey("core:goal_games", 5, bucket.value)}
+            rankWindowLabel={rankWindowLabel}
             scaleMaxShare={goalScales.players}
           />
           <Histogram
@@ -592,6 +764,9 @@ export function OutcomesProfileDetail({
             noun="appearance"
             tone="negative"
             maxBucket={5}
+            rankCohorts={rankCohorts}
+            rankMetricKey={(bucket) => goalBucketMetricKey("core:goal_games", 5, bucket.value)}
+            rankWindowLabel={rankWindowLabel}
             scaleMaxShare={goalScales.players}
           />
         </div>

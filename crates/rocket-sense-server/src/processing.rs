@@ -5001,6 +5001,14 @@ async fn refresh_rank_benchmark_window(
                 rp.team AS team,
                 rp.score AS score,
                 COALESCE(rp.goals, 0) AS goals,
+                CASE
+                    WHEN rp.team = 0 THEN r.team_zero_score
+                    WHEN rp.team = 1 THEN r.team_one_score
+                END AS team_score,
+                CASE
+                    WHEN rp.team = 0 THEN r.team_one_score
+                    WHEN rp.team = 1 THEN r.team_zero_score
+                END AS opponent_score,
                 "#,
     );
     crate::api::push_playlist_group_key_expression(&mut builder, "r");
@@ -5068,7 +5076,12 @@ async fn refresh_rank_benchmark_window(
             SELECT a.analysis_run_id, a.replay_id, a.player_subject_id,
                    rank.grouping AS rank_grouping, rank.value AS rank_value,
                    a.playlist_group_key, a.active_seconds, a.non_demo_active_seconds,
-                   a.score, a.goals, bucket.outcome
+                   a.score, a.goals, a.team_score, a.opponent_score,
+                   CASE
+                       WHEN a.team_score IS NOT NULL AND a.opponent_score IS NOT NULL
+                       THEN a.team_score - a.opponent_score
+                   END AS goal_margin,
+                   a.appearance_outcome, bucket.outcome
             FROM appearance_keyed a
             CROSS JOIN LATERAL (
                 SELECT 'tier'::text AS grouping, a.rank_tier AS value
@@ -5126,6 +5139,44 @@ async fn refresh_rank_benchmark_window(
                 ('4', 4, 4),
                 ('5_plus', 5, NULL)
         ),
+        team_goal_buckets(bucket_key, min_goals, max_goals) AS (
+            VALUES
+                ('0', 0, 0),
+                ('1', 1, 1),
+                ('2', 2, 2),
+                ('3', 3, 3),
+                ('4', 4, 4),
+                ('5', 5, 5),
+                ('6', 6, 6),
+                ('7_plus', 7, NULL)
+        ),
+        total_goal_buckets(bucket_key, min_goals, max_goals) AS (
+            VALUES
+                ('0', 0, 0),
+                ('1', 1, 1),
+                ('2', 2, 2),
+                ('3', 3, 3),
+                ('4', 4, 4),
+                ('5', 5, 5),
+                ('6', 6, 6),
+                ('7', 7, 7),
+                ('8', 8, 8),
+                ('9', 9, 9),
+                ('10', 10, 10),
+                ('11_plus', 11, NULL)
+        ),
+        margin_buckets(bucket_key, min_margin, max_margin) AS (
+            VALUES
+                ('neg4_plus', NULL, -4),
+                ('neg3', -3, -3),
+                ('neg2', -2, -2),
+                ('neg1', -1, -1),
+                ('0', 0, 0),
+                ('pos1', 1, 1),
+                ('pos2', 2, 2),
+                ('pos3', 3, 3),
+                ('pos4_plus', 4, NULL)
+        ),
         -- Every lifetime-stat metric, long-format, one row per (appearance,
         -- metric). Each metric reduces to a (numerator, denom) pair so the same
         -- median/mean machinery covers counts, rates and gauges: rate metrics use
@@ -5166,6 +5217,70 @@ async fn refresh_rank_benchmark_window(
                    NULL
             FROM appearance_bucket ab
             CROSS JOIN goal_game_buckets b
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'outcome:win_share',
+                   CASE WHEN ab.appearance_outcome = 'win' THEN 1.0 ELSE 0.0 END,
+                   1.0,
+                   NULL
+            FROM appearance_bucket ab
+            WHERE ab.appearance_outcome IS NOT NULL
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'outcome:margin:' || b.bucket_key,
+                   CASE
+                       WHEN ab.goal_margin IS NOT NULL
+                        AND (b.min_margin IS NULL OR ab.goal_margin >= b.min_margin)
+                        AND (b.max_margin IS NULL OR ab.goal_margin <= b.max_margin)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0,
+                   NULL
+            FROM appearance_bucket ab
+            CROSS JOIN margin_buckets b
+            WHERE ab.goal_margin IS NOT NULL
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'outcome:team_goals:' || b.bucket_key,
+                   CASE
+                       WHEN ab.team_score IS NOT NULL
+                        AND ab.team_score >= b.min_goals
+                        AND (b.max_goals IS NULL OR ab.team_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0,
+                   NULL
+            FROM appearance_bucket ab
+            CROSS JOIN team_goal_buckets b
+            WHERE ab.team_score IS NOT NULL
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'outcome:opponent_team_goals:' || b.bucket_key,
+                   CASE
+                       WHEN ab.opponent_score IS NOT NULL
+                        AND ab.opponent_score >= b.min_goals
+                        AND (b.max_goals IS NULL OR ab.opponent_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0,
+                   NULL
+            FROM appearance_bucket ab
+            CROSS JOIN team_goal_buckets b
+            WHERE ab.opponent_score IS NOT NULL
+            UNION ALL
+            SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
+                   ab.replay_id, ab.player_subject_id, 'outcome:total_goals:' || b.bucket_key,
+                   CASE
+                       WHEN ab.team_score IS NOT NULL AND ab.opponent_score IS NOT NULL
+                        AND ab.team_score + ab.opponent_score >= b.min_goals
+                        AND (b.max_goals IS NULL OR ab.team_score + ab.opponent_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0,
+                   NULL
+            FROM appearance_bucket ab
+            CROSS JOIN total_goal_buckets b
+            WHERE ab.team_score IS NOT NULL AND ab.opponent_score IS NOT NULL
             UNION ALL
             SELECT ab.playlist_group_key, ab.rank_grouping, ab.rank_value, ab.outcome,
                    ab.replay_id, ab.player_subject_id, m.metric_key, m.numerator, m.denom, NULL
@@ -5289,6 +5404,10 @@ async fn refresh_rank_benchmark_window(
                        WHEN a.team = 0 THEN MAX(r.team_zero_score)
                        WHEN a.team = 1 THEN MAX(r.team_one_score)
                    END AS team_score,
+                   CASE
+                       WHEN a.team = 0 THEN MAX(r.team_one_score)
+                       WHEN a.team = 1 THEN MAX(r.team_zero_score)
+                   END AS opponent_score,
                    COUNT(*) AS qualified_count
             FROM appearance_keyed a
             JOIN replays r ON r.id = a.replay_id
@@ -5308,7 +5427,12 @@ async fn refresh_rank_benchmark_window(
         -- buckets as player appearances (team tier -> pooled group id).
         team_bucket AS (
             SELECT tu.analysis_run_id, tu.replay_id, tu.team, tu.playlist_group_key,
-                   tu.team_seconds, tu.team_score,
+                   tu.team_seconds, tu.team_score, tu.opponent_score,
+                   CASE
+                       WHEN tu.team_score IS NOT NULL AND tu.opponent_score IS NOT NULL
+                       THEN tu.team_score - tu.opponent_score
+                   END AS goal_margin,
+                   tu.team_outcome,
                    rank.grouping AS rank_grouping, rank.value AS rank_value,
                    bucket.outcome
             FROM team_unit tu
@@ -5339,6 +5463,7 @@ async fn refresh_rank_benchmark_window(
             WHERE mv.rank_grouping = 'tier' AND mv.outcome = 'all'
               AND a.team IN (0, 1)
               AND mv.metric_key !~ '^core:goal_games:'
+              AND mv.metric_key !~ '^outcome:'
             GROUP BY a.analysis_run_id, a.replay_id, a.team, mv.metric_key
         ),
         -- One value per (team-game, metric): additive metrics rate over the
@@ -5372,6 +5497,65 @@ async fn refresh_rank_benchmark_window(
             FROM team_bucket tb
             CROSS JOIN goal_game_buckets b
             WHERE tb.team_score IS NOT NULL
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'outcome:win_share',
+                   CASE WHEN tb.team_outcome = 'win' THEN 1.0 ELSE 0.0 END,
+                   1.0
+            FROM team_bucket tb
+            WHERE tb.team_outcome IS NOT NULL
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'outcome:margin:' || b.bucket_key,
+                   CASE
+                       WHEN tb.goal_margin IS NOT NULL
+                        AND (b.min_margin IS NULL OR tb.goal_margin >= b.min_margin)
+                        AND (b.max_margin IS NULL OR tb.goal_margin <= b.max_margin)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0
+            FROM team_bucket tb
+            CROSS JOIN margin_buckets b
+            WHERE tb.goal_margin IS NOT NULL
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'outcome:team_goals:' || b.bucket_key,
+                   CASE
+                       WHEN tb.team_score IS NOT NULL
+                        AND tb.team_score >= b.min_goals
+                        AND (b.max_goals IS NULL OR tb.team_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0
+            FROM team_bucket tb
+            CROSS JOIN team_goal_buckets b
+            WHERE tb.team_score IS NOT NULL
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'outcome:opponent_team_goals:' || b.bucket_key,
+                   CASE
+                       WHEN tb.opponent_score IS NOT NULL
+                        AND tb.opponent_score >= b.min_goals
+                        AND (b.max_goals IS NULL OR tb.opponent_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0
+            FROM team_bucket tb
+            CROSS JOIN team_goal_buckets b
+            WHERE tb.opponent_score IS NOT NULL
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'outcome:total_goals:' || b.bucket_key,
+                   CASE
+                       WHEN tb.team_score IS NOT NULL AND tb.opponent_score IS NOT NULL
+                        AND tb.team_score + tb.opponent_score >= b.min_goals
+                        AND (b.max_goals IS NULL OR tb.team_score + tb.opponent_score <= b.max_goals)
+                       THEN 1.0 ELSE 0.0
+                   END,
+                   1.0
+            FROM team_bucket tb
+            CROSS JOIN total_goal_buckets b
+            WHERE tb.team_score IS NOT NULL AND tb.opponent_score IS NOT NULL
             UNION ALL
             SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
                    tb.replay_id, tb.team, 'meta:game_seconds', tb.team_seconds, 1.0

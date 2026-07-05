@@ -10686,10 +10686,34 @@ tbody tr:last-child td {
 }
 
 .outcomes-histogram-track {
+  position: relative;
   display: flex;
   align-items: flex-end;
   height: 180px;
   border-bottom: 1px solid var(--border-strong);
+}
+
+.outcomes-histogram-rank-marker {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  z-index: 2;
+  height: 0;
+  border-top: 2px solid currentcolor;
+  color: var(--career-cohort-color, var(--text-strong));
+  filter: drop-shadow(0 1px 0 var(--surface));
+  pointer-events: auto;
+}
+
+.outcomes-histogram-rank-marker::after {
+  position: absolute;
+  top: -4px;
+  right: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: currentcolor;
+  content: "";
 }
 
 .outcomes-histogram-bar {
