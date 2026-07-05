@@ -3,6 +3,7 @@ mod auth;
 mod ballchasing;
 mod event_stats;
 mod favorites;
+mod game_outcomes;
 mod health;
 mod leaderboards;
 mod mechanics;
@@ -70,6 +71,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(ballchasing::router())
         .merge(event_stats::router())
         .merge(favorites::router())
+        .merge(game_outcomes::router())
         .merge(health::router())
         .merge(leaderboards::router())
         .merge(mechanics::router())

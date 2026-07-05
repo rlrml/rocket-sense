@@ -1,5 +1,5 @@
 use super::{
-    admin, auth, ballchasing, favorites, health, leaderboards, meta, movement_stats,
+    admin, auth, ballchasing, favorites, game_outcomes, health, leaderboards, meta, movement_stats,
     player_overview, player_timeline, players, positioning_stats, possession_stats,
     rank_benchmark_cohorts, rank_trends, replays, stats, users,
 };
@@ -58,6 +58,7 @@ use utoipa::{
         players::report_player_identity,
         players::upsert_player_identity_tag,
         players::delete_player_identity_tag,
+        game_outcomes::get_player_game_outcomes,
         player_overview::get_player_stat_overview,
         player_timeline::get_player_timeline,
         positioning_stats::get_positioning_summary,
@@ -170,6 +171,8 @@ use utoipa::{
             players::PlayerProfileResponse,
             players::PlayerProfileReplayResponse,
             players::PlayerProfileReplayTeamScoresResponse,
+            game_outcomes::GameOutcomesResponse,
+            game_outcomes::GameOutcomeResponse,
             player_overview::PlayerStatOverviewResponse,
             player_overview::MvpSummaryResponse,
             player_overview::GoalTagAggregateResponse,

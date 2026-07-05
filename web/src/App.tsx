@@ -158,6 +158,7 @@ import {
 } from "./stats/periods";
 import { AerialsProfileDetail } from "./stats/aerials";
 import { GroundPlayProfileDetail } from "./stats/groundPlay";
+import { OutcomesProfileDetail } from "./stats/outcomes";
 import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/registry";
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
@@ -280,13 +281,17 @@ const navItems = [
   { to: "/about", label: "About", icon: Info },
 ];
 
-const replayStatsSectionGroups: StatGroup[] = completedStatGroups;
-const aggregateStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
-  (group) => group.id !== "shot-map",
+// Outcomes distributes game results for one target player (career/period view),
+// which has no replay- or group-level analogue — keep it off those pages.
+const replayStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
+  (group) => group.id !== "outcomes",
 );
 // Mirror the aggregate-safe game stats: only show completed groups (Mechanics /
-// Rotation are hidden pending a rewrite — see stats/registry.tsx).
-const playerStatsSectionGroups: StatGroup[] = aggregateStatsSectionGroups;
+// Rotation are hidden pending a rewrite — see stats/registry.tsx), minus the
+// shot map (needs the 3D scene), plus the player-scope-only Outcomes section.
+const playerStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
+  (group) => group.id !== "shot-map",
+);
 
 export function App() {
   const location = useLocation();
@@ -6252,6 +6257,18 @@ function PlayerAggregateStatsSections({
       add(
         "ground-play-profile",
         <GroundPlayProfileDetail
+          platform={platform}
+          platformPlayerId={platformPlayerId}
+          playerName={playerName}
+          search={contentSearch}
+        />,
+      );
+    }
+
+    if (activeGroup.id === "outcomes") {
+      add(
+        "outcomes-profile",
+        <OutcomesProfileDetail
           platform={platform}
           platformPlayerId={platformPlayerId}
           playerName={playerName}
