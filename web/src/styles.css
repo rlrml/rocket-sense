@@ -3936,23 +3936,70 @@ tbody tr:last-child td {
 
 .positioning-role-balance-histogram {
   display: grid;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
-  padding-top: 4px;
+  padding-top: 2px;
 }
 
-.positioning-role-balance-histogram h4 {
-  margin: 0;
+.positioning-role-balance-direction {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 10px;
   color: var(--muted);
   font-size: var(--text-sm);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
+  font-weight: var(--fw-semibold);
 }
 
-.positioning-role-balance-bucket {
-  color: var(--text);
-  font-size: var(--text-sm);
-  font-weight: var(--fw-semibold);
+.positioning-role-balance-direction span:last-child {
+  text-align: right;
+}
+
+.positioning-role-balance-bars {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(24px, 1fr));
+  align-items: end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.positioning-role-balance-column {
+  display: grid;
+  grid-template-rows: 18px 118px auto;
+  gap: 4px;
+  min-width: 0;
+  text-align: center;
+}
+
+.positioning-role-balance-count {
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.positioning-role-balance-track {
+  display: flex;
+  align-items: flex-end;
+  height: 118px;
+  min-width: 0;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+.positioning-role-balance-track .source-segment {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  border-radius: 3px 3px 0 0;
+}
+
+.positioning-role-balance-label {
+  min-width: 0;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 
 .positioning-track {
