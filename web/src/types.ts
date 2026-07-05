@@ -1256,6 +1256,14 @@ export interface RankBenchmarkCohort {
   is_player_default: boolean;
   distinct_player_count: number | null;
   per_stat: Record<string, RankBenchmarkCohortStat>;
+  // Team-level benchmarks: rates per team-active-MINUTE with the whole roster
+  // pooled (additive metrics are roster sums; share/gauge metrics are
+  // time-weighted roster means). Includes the synthetic key
+  // "meta:game_seconds" (average team-game duration in seconds), which
+  // converts a per-minute rate into a per-game total. Optional so the page
+  // keeps working against servers that predate the field — treat missing as
+  // an empty map.
+  team_per_stat?: Record<string, RankBenchmarkCohortStat>;
 }
 
 export interface RankBenchmarkCohortsResponse {

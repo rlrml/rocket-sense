@@ -21,6 +21,8 @@ import {
   careerRateValue,
   careerRateWindowLabel,
   rankCohortMagnitudeRows,
+  rankCohortTeamMagnitudeRows,
+  rankCohortTeamValues,
   rankCohortValues,
   StatPlayerLabel,
   statPlayerRank,
@@ -135,6 +137,8 @@ interface TouchSubject {
   team: number | null;
   showPlatformBadge: boolean;
   careerCohort?: CareerCohortKey | null;
+  // Overrides the careerCohort-derived subtitle (career team view rows).
+  subtitle?: string;
   totalTouches: number;
   totalAdvance: number;
   // dimension id -> (value id -> touch count / summed advance distance)
@@ -233,19 +237,31 @@ export function TouchProfileComparison({
   playerName = "Player",
   rankCohorts = [],
   rankWindowLabel,
+  view = "player",
 }: {
   breakdown: TouchAggregateBreakdownResponse;
   playerName?: string;
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
+  // "player" compares the player to the pooled per-player teammate/opponent
+  // cohorts; "team" pools the player with their teammates into "Your team" vs
+  // the pooled opponent team, rating per the player's active seconds (the
+  // team's wall-clock time — the Core team view's denominator convention), so
+  // the per-5-min values are whole-roster team rates. Rank rows then read the
+  // benchmark's team grain (`team_per_stat`, rates per team-active-minute).
+  view?: "player" | "team";
 }) {
   const rateWindowSeconds = profileRateWindowSeconds(breakdown);
   // Benchmark touch counts are per active minute, so only comparable in the
   // per-5-min rate mode (career view), not the raw-count fallback.
   const rankEnabled = rateWindowSeconds != null;
+  const rankGrain = view === "team" ? ("team" as const) : ("player" as const);
   const subjects = useMemo(
-    () => touchProfileSubjects(breakdown, rateWindowSeconds, playerName),
-    [breakdown, playerName, rateWindowSeconds],
+    () =>
+      view === "team"
+        ? touchTeamProfileSubjects(breakdown, rateWindowSeconds)
+        : touchProfileSubjects(breakdown, rateWindowSeconds, playerName),
+    [breakdown, playerName, rateWindowSeconds, view],
   );
   const totalTouches = subjects.reduce((sum, subject) => sum + subject.totalTouches, 0);
   const totalAdvance = subjects.reduce((sum, subject) => sum + subject.totalAdvance, 0);
@@ -278,6 +294,7 @@ export function TouchProfileComparison({
           rankMetricKey="touch"
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
+          rankGrain={rankGrain}
         />
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
@@ -309,6 +326,7 @@ export function TouchProfileComparison({
           rankMetricKey="fact:aerial-touch-count"
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
+          rankGrain={rankGrain}
         />
         <TouchValuePanel
           key="profile-high-aerial-count"
@@ -322,6 +340,7 @@ export function TouchProfileComparison({
           rankMetricKey="fact:high-aerial-touch-count"
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
+          rankGrain={rankGrain}
         />
         <TouchValuePanel
           key="profile-control-count"
@@ -337,6 +356,7 @@ export function TouchProfileComparison({
           rankMetricKey="fact:control-touch-count"
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
+          rankGrain={rankGrain}
         />
         <TouchValuePanel
           key="profile-total-advance"
@@ -352,6 +372,7 @@ export function TouchProfileComparison({
           rankMetricKey="fact:ball-advance"
           rankWindowLabel={rankWindowLabel}
           rankEnabled={rankEnabled}
+          rankGrain={rankGrain}
         />
         {TOUCH_DIMENSIONS.map((dimension) => (
           <TouchChartPanel
@@ -416,6 +437,7 @@ function TouchValuePanel({
   rankMetricKey,
   rankWindowLabel,
   rankEnabled = false,
+  rankGrain = "player",
 }: {
   title: string;
   contextLabel: string;
@@ -432,6 +454,11 @@ function TouchValuePanel({
   rankMetricKey?: string;
   rankWindowLabel?: string | null;
   rankEnabled?: boolean;
+  // "team" reads the whole-roster `team_per_stat` benchmark (rates per
+  // team-active-minute) for the career team view, whose subjects are team
+  // rates on the same wall-clock denominator. Ranks lacking a team value
+  // simply show no row.
+  rankGrain?: "player" | "team";
 }) {
   const value =
     LOCATION_DIMENSION.values.find((candidate) => candidate.id === valueId) ??
@@ -439,8 +466,9 @@ function TouchValuePanel({
   const metricFn =
     subjectMetric ?? ((subject) => metricMap(subject, LOCATION_DIMENSION, metric)[valueId] ?? 0);
   const showRanks = rankEnabled && rankMetricKey != null;
+  const cohortValues = rankGrain === "team" ? rankCohortTeamValues : rankCohortValues;
   // Benchmark counts are per active minute; subjects are scaled per 5 min.
-  const rankValues = showRanks ? rankCohortValues(rankCohorts, rankMetricKey!, (v) => v * 5) : [];
+  const rankValues = showRanks ? cohortValues(rankCohorts, rankMetricKey!, (v) => v * 5) : [];
   const maxValue = Math.max(1, ...subjects.map(metricFn), ...rankValues);
   const rows = subjectMagnitudeRows(subjects, {
     metric: metricFn,
@@ -452,8 +480,9 @@ function TouchValuePanel({
     maxValueOverride: maxValue,
   });
   if (showRanks) {
+    const cohortRows = rankGrain === "team" ? rankCohortTeamMagnitudeRows : rankCohortMagnitudeRows;
     rows.push(
-      ...rankCohortMagnitudeRows({
+      ...cohortRows({
         cohorts: rankCohorts,
         metricKey: rankMetricKey!,
         toValue: (v) => v * 5,
@@ -505,6 +534,74 @@ function touchProfileSubjects(
     }
     return subject;
   });
+}
+
+// The career TEAM view's subjects: "Your team" pools the player's touches with
+// the pooled-teammates cohort, vs the (already pooled) opponent-team cohort.
+// Touch counts and advance distances are additive, so summing the cohorts is
+// the team's genuine total; BOTH team rows then rate per the PLAYER's active
+// seconds — the player is on the field for every game in the set, so their
+// active time is the team's wall-clock time (the Core team view's denominator
+// convention). That makes the per-5-min values whole-roster team rates,
+// directly comparable to the benchmark team grain (`team_per_stat`).
+function touchTeamProfileSubjects(
+  breakdown: TouchAggregateBreakdownResponse,
+  rateWindowSeconds: number | null,
+): TouchSubject[] {
+  const bySide = (key: CareerCohortKey) =>
+    breakdown.cohorts.find((cohort) => careerCohortKey(cohort.key) === key) ?? null;
+  const player = bySide("player");
+  if (!player) return [];
+  const teammates = bySide("teammates");
+  const opponents = bySide("opponents");
+  const scale =
+    rateWindowSeconds == null
+      ? 1
+      : (careerRateValue(1, player.active_time_seconds, rateWindowSeconds) ?? 1);
+
+  const teamSubject = (
+    key: string,
+    name: string,
+    careerCohort: CareerCohortKey,
+    parts: TouchAggregateCohortResponse[],
+  ): TouchSubject => {
+    const subject = emptySubject(`touch-team:${key}`, {
+      name,
+      platform: null,
+      platformPlayerId: null,
+      rank: null,
+      team: null,
+      showPlatformBadge: false,
+      careerCohort,
+      subtitle: "Team",
+    });
+    for (const cohort of parts) {
+      subject.totalTouches += cohort.total_touch_count * scale;
+      subject.totalAdvance += cohort.total_advance_distance * scale;
+      for (const dimension of TOUCH_DIMENSIONS) {
+        const source = cohort.dimensions.find((candidate) => candidate.key === dimension.id);
+        if (!source) continue;
+        for (const value of source.values) {
+          const valueId = dimensionValueIdFromKey(dimension, value.key);
+          subject.countsByDimension[dimension.id][valueId] =
+            (subject.countsByDimension[dimension.id][valueId] ?? 0) + value.touch_count * scale;
+          subject.advanceByDimension[dimension.id][valueId] =
+            (subject.advanceByDimension[dimension.id][valueId] ?? 0) +
+            value.advance_distance * scale;
+        }
+      }
+    }
+    return subject;
+  };
+
+  const subjects = [
+    // Same your-side/their-side cohort colors as the Core team view.
+    teamSubject("team", "Your team", "player", [player, ...(teammates ? [teammates] : [])]),
+  ];
+  if (opponents) {
+    subjects.push(teamSubject("opponentTeam", "Opponent team", "opponents", [opponents]));
+  }
+  return subjects;
 }
 
 function profileRateWindowSeconds(breakdown: TouchAggregateBreakdownResponse): number | null {
@@ -842,7 +939,7 @@ function touchSubjectLabel(subject: TouchSubject) {
         profilePath={null}
         rank={null}
         showPlatformBadge={false}
-        subtitle={careerCohortSubtitle(subject.careerCohort)}
+        subtitle={subject.subtitle ?? careerCohortSubtitle(subject.careerCohort)}
       />
     );
   }
