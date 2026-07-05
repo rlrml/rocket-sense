@@ -31,6 +31,7 @@ use super::stats::{
 };
 use crate::app::AppState;
 use crate::auth::OptionalAuthUser;
+use crate::rank_benchmark::MIN_SAMPLE;
 
 pub fn router() -> Router<AppState> {
     Router::new().route("/stats/rank-benchmark", get(get_rank_benchmark_cohorts))
@@ -81,7 +82,7 @@ pub struct RankBenchmarkRankOption {
 /// One rank's benchmark value for a single metric. `value` is the aggregator's
 /// pick (median for common stats, pooled mean for rare ones), already in the
 /// metric's natural units; `aggregator` is carried so the UI can label it.
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Clone, Serialize, ToSchema)]
 pub struct RankBenchmarkCohortStat {
     pub value: Option<f64>,
     pub aggregator: String,
@@ -99,6 +100,14 @@ pub struct RankBenchmarkCohort {
     pub is_player_default: bool,
     pub distinct_player_count: Option<i64>,
     pub per_stat: HashMap<String, RankBenchmarkCohortStat>,
+    /// Team-grain benchmark for the same `(window, playlist group, rank,
+    /// outcome)` cell: `metric_key -> value` where additive metrics are rates
+    /// per TEAM-active-minute (whole-team production over the replay's
+    /// live-play minutes) and gauges/shares are the players' time-weighted
+    /// team average. Gated by the team population's `MIN_SAMPLE` independently
+    /// of the player map (a thin tier falls back to its pooled rank group);
+    /// empty when no adequately-sampled team benchmark is materialized.
+    pub team_per_stat: HashMap<String, RankBenchmarkCohortStat>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -276,6 +285,7 @@ async fn load_rank_benchmark_cohorts(
     let population_rows = sqlx::query(
         "SELECT rank_value, distinct_player_count FROM rank_benchmark_population \
          WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 AND rank_grouping = $4 \
+           AND grain = 'player' \
          ORDER BY rank_value",
     )
     .bind(&window_key)
@@ -330,7 +340,7 @@ async fn load_rank_benchmark_cohorts(
                     CASE WHEN s.aggregator = 'mean' THEN s.mean_per_active_minute ELSE s.median_per_active_minute END AS value \
              FROM rank_benchmark_stats s \
              WHERE s.window_key = $1 AND s.playlist_group_key = $2 AND s.rank_grouping = $3 \
-               AND s.outcome = $4 AND s.rank_value = ANY($5)",
+               AND s.outcome = $4 AND s.rank_value = ANY($5) AND s.grain = 'player'",
         )
         .bind(&window_key)
         .bind(&group_key)
@@ -352,6 +362,108 @@ async fn load_rank_benchmark_cohorts(
         }
     }
 
+    // Team-grain benchmark for each selected rank, gated independently of the
+    // player map: a rank's team cell is served only when its team population
+    // clears `MIN_SAMPLE`; a thin exact tier falls back to its pooled rank
+    // group's team cell; a rank with no adequately-sampled cell serves an
+    // empty map.
+    let mut team_per_stat_by_rank: HashMap<i32, HashMap<String, RankBenchmarkCohortStat>> =
+        HashMap::new();
+    if !selected.is_empty() {
+        let team_population_rows = sqlx::query(
+            "SELECT rank_grouping, rank_value, distinct_player_count \
+             FROM rank_benchmark_population \
+             WHERE window_key = $1 AND playlist_group_key = $2 AND outcome = $3 \
+               AND grain = 'team'",
+        )
+        .bind(&window_key)
+        .bind(&group_key)
+        .bind(outcome)
+        .fetch_all(pool)
+        .await?;
+        let mut team_population: HashMap<(String, i32), i64> = HashMap::new();
+        for row in &team_population_rows {
+            let rank_grouping: String = row.try_get("rank_grouping")?;
+            let rank_value: i32 = row.try_get("rank_value")?;
+            // INT4 column: decode as i32 and widen (see the player population
+            // decode above).
+            let count = i64::from(row.try_get::<i32, _>("distinct_player_count")?);
+            team_population.insert((rank_grouping, rank_value), count);
+        }
+        let adequate = |rank_grouping: &str, rank_value: i32| {
+            team_population
+                .get(&(rank_grouping.to_owned(), rank_value))
+                .copied()
+                .unwrap_or(0)
+                >= MIN_SAMPLE
+        };
+
+        // Resolve each selected rank to the team cell it serves (if any).
+        let mut cell_by_rank: HashMap<i32, (&'static str, i32)> = HashMap::new();
+        for &rank_value in &selected {
+            let cell = if adequate(grouping_str, rank_value) {
+                Some((grouping_str, rank_value))
+            } else if matches!(grouping, RankGrouping::Tier) {
+                let group_value = crate::ranks::rank_group_id(rank_value);
+                adequate("group", group_value).then_some(("group", group_value))
+            } else {
+                None
+            };
+            if let Some(cell) = cell {
+                cell_by_rank.insert(rank_value, cell);
+            }
+        }
+
+        if !cell_by_rank.is_empty() {
+            let cells: HashSet<(&'static str, i32)> = cell_by_rank.values().copied().collect();
+            let (cell_groupings, cell_values): (Vec<String>, Vec<i32>) = cells
+                .iter()
+                .map(|&(rank_grouping, rank_value)| (rank_grouping.to_owned(), rank_value))
+                .unzip();
+            let team_stat_rows = sqlx::query(
+                "SELECT s.rank_grouping, s.rank_value, s.metric_key, s.aggregator, \
+                        CASE WHEN s.aggregator = 'mean' THEN s.mean_per_active_minute ELSE s.median_per_active_minute END AS value \
+                 FROM rank_benchmark_stats s \
+                 WHERE s.window_key = $1 AND s.playlist_group_key = $2 AND s.outcome = $3 \
+                   AND s.grain = 'team' \
+                   AND (s.rank_grouping, s.rank_value) IN (SELECT * FROM unnest($4::text[], $5::int[]))",
+            )
+            .bind(&window_key)
+            .bind(&group_key)
+            .bind(outcome)
+            .bind(&cell_groupings)
+            .bind(&cell_values)
+            .fetch_all(pool)
+            .await?;
+            let mut per_stat_by_cell: HashMap<
+                (String, i32),
+                HashMap<String, RankBenchmarkCohortStat>,
+            > = HashMap::new();
+            for row in &team_stat_rows {
+                let rank_grouping: String = row.try_get("rank_grouping")?;
+                let rank_value: i32 = row.try_get("rank_value")?;
+                let metric_key: String = row.try_get("metric_key")?;
+                per_stat_by_cell
+                    .entry((rank_grouping, rank_value))
+                    .or_default()
+                    .insert(
+                        metric_key,
+                        RankBenchmarkCohortStat {
+                            value: row.try_get("value")?,
+                            aggregator: row.try_get("aggregator")?,
+                        },
+                    );
+            }
+            for (&rank_value, &(cell_grouping, cell_value)) in &cell_by_rank {
+                if let Some(per_stat) =
+                    per_stat_by_cell.get(&(cell_grouping.to_owned(), cell_value))
+                {
+                    team_per_stat_by_rank.insert(rank_value, per_stat.clone());
+                }
+            }
+        }
+    }
+
     let cohorts = selected
         .iter()
         .map(|&rank_value| RankBenchmarkCohort {
@@ -361,6 +473,9 @@ async fn load_rank_benchmark_cohorts(
             is_player_default: requested_ranks.is_none() && Some(rank_value) == default_rank_value,
             distinct_player_count: population_by_rank.get(&rank_value).copied(),
             per_stat: per_stat_by_rank.remove(&rank_value).unwrap_or_default(),
+            team_per_stat: team_per_stat_by_rank
+                .remove(&rank_value)
+                .unwrap_or_default(),
         })
         .collect();
 

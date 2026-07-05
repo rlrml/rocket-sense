@@ -4919,6 +4919,37 @@ pub(crate) async fn resolve_current_season(pool: &PgPool) -> Result<Option<Strin
     Ok(most_recent)
 }
 
+/// Additive-vs-gauge classification for the TEAM grain, applied generically to
+/// the same `metric_key` universe the player grain materializes (each metric's
+/// `(numerator, denom)` expression is defined in the `metric_values` CTE of
+/// [`refresh_rank_benchmark_window`]; this is the single place the team-side
+/// semantics of those keys are encoded):
+///
+/// * ADDITIVE metrics (event counts incl. `score` and `goaltag:*`, boost
+///   counters/pads/overfill, `possession:count`/`touch_count`/
+///   `advance_distance`, `movement:powerslides`, `movement:distance`, and
+///   `fact:*` counts): the team's per-game numerator is the SUM of its
+///   players' numerators, and the rate denominator is the TEAM's active
+///   seconds (the replay's live-play length) -- a team of 3 does not get 3x
+///   the minutes. Pooled mean = SUM(team numerators) / SUM(team seconds);
+///   median = percentile over per-team-game rates.
+///
+/// * GAUGE / share metrics (`boost:avg_amount`, every `*_share` key,
+///   `movement:avg_speed`, `positioning:distance_to_ball`,
+///   `positioning:distance_to_teammates`): the team's per-game value is the
+///   weight-pooled mean across its players (SUM of the players' weighted
+///   numerators / SUM of their weights, i.e. the active/tracked-time-weighted
+///   team average), served as a level exactly like the player grain.
+///
+/// The synthetic team-only `meta:game_seconds` metric is emitted separately
+/// (numerator = team seconds, denom = 1) so its "rate" IS the team-game
+/// length in seconds, letting readers convert per-minute rates to per-game.
+///
+/// `tm` is the `team_metric` CTE row; keep the predicate generic (suffix +
+/// explicit gauge keys) so new metrics classify correctly by naming convention.
+const TEAM_GAUGE_METRIC_PREDICATE_SQL: &str = "(tm.metric_key ~ '_share$' OR tm.metric_key IN \
+     ('boost:avg_amount', 'movement:avg_speed', 'positioning:distance_to_ball', 'positioning:distance_to_teammates'))";
+
 /// Replace one window's `rank_benchmark_*` rows in a single transaction.
 async fn refresh_rank_benchmark_window(
     pool: &PgPool,
@@ -4953,6 +4984,7 @@ async fn refresh_rank_benchmark_window(
                 rp.replay_id,
                 concat(rp.platform, ':', rp.platform_player_id) AS player_subject_id,
                 rp.rank_tier,
+                rp.team AS team,
                 rp.score AS score,
                 "#,
     );
@@ -5182,6 +5214,135 @@ async fn refresh_rank_benchmark_window(
              AND gtc.player_subject_id = ab.player_subject_id
              AND gtc.kind = k.kind
         ),
+        -- ===== TEAM grain =====
+        -- One sample unit per (replay, team) whose roster is COMPLETE and fully
+        -- ranked: every rostered player on the team passed the appearance
+        -- filters above AND the team is at the replay's full team size.
+        --
+        -- Rostered players per (replay, team), using the same participation
+        -- rule as `push_replay_team_size_expression` (team set, recorded
+        -- active time NULL or > 0), restricted to the window's replays.
+        team_roster AS (
+            SELECT rp.replay_id, rp.team, COUNT(*) AS roster_count
+            FROM replay_players rp
+            WHERE rp.replay_id IN (SELECT DISTINCT replay_id FROM appearance_keyed)
+              AND rp.team IN (0, 1)
+              AND (rp.active_time_seconds IS NULL OR rp.active_time_seconds > 0)
+            GROUP BY rp.replay_id, rp.team
+        ),
+        replay_team_size AS (
+            SELECT replay_id, MAX(roster_count) AS team_size
+            FROM team_roster
+            GROUP BY replay_id
+        ),
+        -- Qualifying (appearance-passing) players per (replay, team): the
+        -- team's rank tier is the rounded average of its players' tiers, and
+        -- the team's denominator is the replay's live-play length (overtime-
+        -- inclusive `replays.active_seconds`), falling back to the team's max
+        -- player active time when the replay-level column is absent.
+        team_qualified AS (
+            SELECT a.analysis_run_id, a.replay_id, a.team, a.playlist_group_key,
+                   MIN(a.appearance_outcome) AS team_outcome,
+                   ROUND(AVG(a.rank_tier))::int AS team_rank_tier,
+                   COALESCE(NULLIF(MAX(r.active_seconds), 0.0), MAX(a.active_seconds)) AS team_seconds,
+                   COUNT(*) AS qualified_count
+            FROM appearance_keyed a
+            JOIN replays r ON r.id = a.replay_id
+            WHERE a.team IN (0, 1)
+            GROUP BY a.analysis_run_id, a.replay_id, a.team, a.playlist_group_key
+        ),
+        team_unit AS (
+            SELECT tq.*
+            FROM team_qualified tq
+            JOIN team_roster tr
+              ON tr.replay_id = tq.replay_id AND tr.team = tq.team
+             AND tr.roster_count = tq.qualified_count
+            JOIN replay_team_size ts
+              ON ts.replay_id = tq.replay_id AND ts.team_size = tq.qualified_count
+        ),
+        -- Fan each team-game across the same rank granularities and outcome
+        -- buckets as player appearances (team tier -> pooled group id).
+        team_bucket AS (
+            SELECT tu.analysis_run_id, tu.replay_id, tu.team, tu.playlist_group_key,
+                   tu.team_seconds,
+                   rank.grouping AS rank_grouping, rank.value AS rank_value,
+                   bucket.outcome
+            FROM team_unit tu
+            CROSS JOIN LATERAL (
+                SELECT 'tier'::text AS grouping, tu.team_rank_tier AS value
+                UNION ALL
+                SELECT 'group'::text, CASE WHEN tu.team_rank_tier = 22 THEN 7 ELSE (tu.team_rank_tier - 1) / 3 END
+            ) rank
+            CROSS JOIN LATERAL (
+                SELECT 'all'::text AS outcome
+                UNION ALL
+                SELECT tu.team_outcome WHERE tu.team_outcome IS NOT NULL
+            ) bucket
+        ),
+        -- Per-(team-game, metric) sums across the team's players. Sourced from
+        -- the player metric rows in their ('tier', 'all') bucket, which is 1:1
+        -- with appearances (every appearance emits exactly that bucket), so no
+        -- metric expression is duplicated and the player/team numerators can
+        -- never drift apart.
+        team_metric AS (
+            SELECT a.analysis_run_id, a.replay_id, a.team, mv.metric_key,
+                   SUM(mv.numerator) AS numerator_sum,
+                   SUM(mv.denom) AS denom_sum
+            FROM metric_values mv
+            JOIN appearance_keyed a
+              ON a.replay_id = mv.replay_id
+             AND a.player_subject_id = mv.player_subject_id
+            WHERE mv.rank_grouping = 'tier' AND mv.outcome = 'all'
+              AND a.team IN (0, 1)
+            GROUP BY a.analysis_run_id, a.replay_id, a.team, mv.metric_key
+        ),
+        -- One value per (team-game, metric): additive metrics rate over the
+        -- TEAM's seconds, gauges pool the players' weighted numerators over
+        -- their summed weights (see TEAM_GAUGE_METRIC_PREDICATE_SQL for the
+        -- classification rationale). `meta:game_seconds` (denom = 1) exposes
+        -- the team-game length itself so readers can convert rates to
+        -- per-game numbers.
+        team_rate_units AS (
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, tm.metric_key,
+                   tm.numerator_sum AS numerator,
+                   CASE WHEN "#,
+    );
+    builder.push(TEAM_GAUGE_METRIC_PREDICATE_SQL);
+    builder.push(
+        r#" THEN tm.denom_sum ELSE tb.team_seconds END AS denom
+            FROM team_bucket tb
+            JOIN team_metric tm
+              ON tm.analysis_run_id = tb.analysis_run_id
+             AND tm.replay_id = tb.replay_id
+             AND tm.team = tb.team
+            UNION ALL
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   tb.replay_id, tb.team, 'meta:game_seconds', tb.team_seconds, 1.0
+            FROM team_bucket tb
+        ),
+        team_stat_agg AS (
+            SELECT playlist_group_key, rank_grouping, rank_value, outcome, metric_key,
+                   percentile_cont(0.5) WITHIN GROUP (ORDER BY CASE WHEN denom > 0 THEN numerator / denom END) AS median_per_active_minute,
+                   CASE WHEN SUM(denom) > 0 THEN SUM(numerator) / SUM(denom) END AS mean_per_active_minute
+            FROM team_rate_units
+            GROUP BY playlist_group_key, rank_grouping, rank_value, outcome, metric_key
+        ),
+        -- Team-grain sample adequacy: replay_count counts distinct team-games
+        -- and distinct_player_count the distinct players contributing to the
+        -- bucket's teams (the same MIN_SAMPLE gate the read path applies to
+        -- player-grain buckets).
+        team_population AS (
+            SELECT tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome,
+                   COUNT(DISTINCT a.player_subject_id)::int AS distinct_player_count,
+                   COUNT(DISTINCT (tb.replay_id, tb.team))::int AS replay_count
+            FROM team_bucket tb
+            JOIN appearance_keyed a
+              ON a.analysis_run_id = tb.analysis_run_id
+             AND a.replay_id = tb.replay_id
+             AND a.team = tb.team
+            GROUP BY tb.playlist_group_key, tb.rank_grouping, tb.rank_value, tb.outcome
+        ),
         "#,
     );
 
@@ -5291,7 +5452,7 @@ async fn refresh_rank_benchmark_window(
         ),
         ins_stats AS (
             INSERT INTO rank_benchmark_stats (
-                window_key, playlist_group_key, rank_grouping, rank_value, outcome, metric_key,
+                window_key, grain, playlist_group_key, rank_grouping, rank_value, outcome, metric_key,
                 median_per_active_minute, median_per_non_demo_active_minute,
                 mean_per_active_minute, mean_per_non_demo_active_minute, aggregator
             )
@@ -5299,24 +5460,43 @@ async fn refresh_rank_benchmark_window(
     );
     builder.push_bind(&resolved.window_key);
     builder.push(
-        r#", sa.playlist_group_key, sa.rank_grouping, sa.rank_value, sa.outcome, sa.metric_key,
+        r#", 'player', sa.playlist_group_key, sa.rank_grouping, sa.rank_value, sa.outcome, sa.metric_key,
                    sa.median_per_active_minute, sa.median_per_non_demo_active_minute,
                    sa.mean_per_active_minute, sa.mean_per_non_demo_active_minute, agg.aggregator
             FROM stat_agg sa
             JOIN stat_aggregator agg
               ON agg.playlist_group_key = sa.playlist_group_key
              AND agg.metric_key = sa.metric_key
+            UNION ALL
+            -- Team grain: no non-demo variant (a team is never "demolished"),
+            -- and the served aggregator is the pooled mean, matching the
+            -- player grain's across-the-board 'mean' choice above.
+            SELECT "#,
+    );
+    builder.push_bind(&resolved.window_key);
+    builder.push(
+        r#", 'team', tsa.playlist_group_key, tsa.rank_grouping, tsa.rank_value, tsa.outcome, tsa.metric_key,
+                   tsa.median_per_active_minute, NULL,
+                   tsa.mean_per_active_minute, NULL, 'mean'
+            FROM team_stat_agg tsa
             RETURNING 1
         )
         INSERT INTO rank_benchmark_population (
-            window_key, playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
+            window_key, grain, playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
         )
         SELECT "#,
     );
     builder.push_bind(&resolved.window_key);
     builder.push(
-        r#", playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
-        FROM population"#,
+        r#", 'player', playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
+        FROM population
+        UNION ALL
+        SELECT "#,
+    );
+    builder.push_bind(&resolved.window_key);
+    builder.push(
+        r#", 'team', playlist_group_key, rank_grouping, rank_value, outcome, distinct_player_count, replay_count
+        FROM team_population"#,
     );
     builder.build().execute(&mut *tx).await?;
 
