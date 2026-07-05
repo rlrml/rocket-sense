@@ -10497,15 +10497,44 @@ tbody tr:last-child td {
 }
 
 .outcomes-margin-records {
+  display: grid;
+  gap: 8px;
+}
+
+.outcomes-margin-chart-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 24px;
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+}
+
+.outcomes-margin-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.outcomes-margin-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.outcomes-margin-swatch-positive {
+  background: var(--outcome-positive);
+}
+
+.outcomes-margin-swatch-negative {
+  background: var(--outcome-negative);
 }
 
 .outcomes-margin-record {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: minmax(92px, 128px) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
 }
 
 .outcomes-margin-record-label {
@@ -10514,22 +10543,21 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
-.outcomes-margin-record-value {
-  font-weight: var(--fw-bold);
-  font-variant-numeric: tabular-nums;
-}
-
-.outcomes-record-wins {
-  color: var(--outcome-positive);
-}
-
-.outcomes-record-losses {
-  color: var(--outcome-negative);
+.outcomes-margin-record .player-comparison-track {
+  height: 22px;
 }
 
 .outcomes-margin-record-total {
-  color: var(--muted);
-  font-weight: var(--fw-medium);
+  color: inherit;
+  font-weight: inherit;
+}
+
+.outcomes-margin-record .source-segment-label {
+  font-size: var(--text-3xs);
+}
+
+.outcomes-margin-record .bar-value-label.trailing {
+  padding-right: 0;
 }
 
 .outcomes-histogram-grid {

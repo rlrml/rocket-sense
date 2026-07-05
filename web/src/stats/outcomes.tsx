@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { getPlayerGameOutcomes } from "../api";
 import type { GameOutcomeRow } from "../types";
+import { ComparisonBar, type SegmentedBarSegment } from "./shared";
 
 // The Outcomes section distributes game results for one target player: win/loss
 // record, records by goal margin, a signed margin histogram, goal-count
@@ -338,12 +339,66 @@ function RecordStrip({ summary, playerName }: { summary: OutcomeSummary; playerN
   );
 }
 
-function MarginRecords({ records, games }: { records: MarginRecord[]; games: number }) {
+const MARGIN_SEGMENT_LABEL_MIN_SHARE = 0.08;
+
+function marginRecordSegments(
+  record: MarginRecord,
+  games: number,
+  playerTeamLabel: string,
+  opponentTeamLabel: string,
+): SegmentedBarSegment[] {
+  const visibleLabel = (count: number) =>
+    games > 0 && count / games >= MARGIN_SEGMENT_LABEL_MIN_SHARE
+      ? count.toLocaleString()
+      : undefined;
+  return [
+    {
+      key: "wins",
+      className: "outcomes-bar-positive",
+      label: playerTeamLabel,
+      value: record.wins,
+      visibleLabel: visibleLabel(record.wins),
+      title: `${playerTeamLabel}: ${formatCountNoun(record.wins, "game")}`,
+    },
+    {
+      key: "losses",
+      className: "outcomes-bar-negative",
+      label: opponentTeamLabel,
+      value: record.losses,
+      visibleLabel: visibleLabel(record.losses),
+      title: `${opponentTeamLabel}: ${formatCountNoun(record.losses, "game")}`,
+    },
+  ];
+}
+
+function MarginRecords({
+  records,
+  games,
+  playerName,
+}: {
+  records: MarginRecord[];
+  games: number;
+  playerName: string;
+}) {
+  const playerPossessive = possessiveName(playerName);
+  const playerTeamLabel = `${playerPossessive} team wins`;
+  const opponentTeamLabel = "Opponent team wins";
   return (
     <div className="outcomes-margin-records">
+      <div className="outcomes-margin-chart-legend" aria-hidden="true">
+        <span className="outcomes-margin-legend-item">
+          <span className="outcomes-margin-swatch outcomes-margin-swatch-positive" />
+          {playerTeamLabel}
+        </span>
+        <span className="outcomes-margin-legend-item">
+          <span className="outcomes-margin-swatch outcomes-margin-swatch-negative" />
+          {opponentTeamLabel}
+        </span>
+      </div>
       {records.map((record) => {
         const total = record.wins + record.losses;
         const share = games > 0 ? total / games : null;
+        const valueLabel = `${record.wins.toLocaleString()}–${record.losses.toLocaleString()} (${total.toLocaleString()}, ${formatPercent(share)})`;
         return (
           <div
             key={record.label}
@@ -351,15 +406,14 @@ function MarginRecords({ records, games }: { records: MarginRecord[]; games: num
             title={`${record.label}: ${record.wins} wins, ${record.losses} losses (${formatPercent(share)})`}
           >
             <span className="outcomes-margin-record-label">{record.label}</span>
-            <span className="outcomes-margin-record-value">
-              <span className="outcomes-record-wins">{record.wins}</span>
-              {"–"}
-              <span className="outcomes-record-losses">{record.losses}</span>
-              <span className="outcomes-margin-record-total">
-                {" "}
-                ({total}, {formatPercent(share)})
-              </span>
-            </span>
+            <ComparisonBar
+              ariaLabel={`${record.label}: ${valueLabel}`}
+              barValue={<span className="outcomes-margin-record-total">{valueLabel}</span>}
+              maxValue={games}
+              placeholder="0 games"
+              segments={marginRecordSegments(record, games, playerTeamLabel, opponentTeamLabel)}
+              total={total}
+            />
           </div>
         );
       })}
@@ -457,7 +511,11 @@ export function OutcomesProfileDetail({
 
       <section className="chart-panel">
         <h3>Goal margin</h3>
-        <MarginRecords records={summary.marginRecords} games={summary.games} />
+        <MarginRecords
+          records={summary.marginRecords}
+          games={summary.games}
+          playerName={playerName}
+        />
         <Histogram
           title="Margin distribution"
           values={summary.margins}
