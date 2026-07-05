@@ -7,6 +7,8 @@ import type {
   EventStatSummaryResponse,
   EventTypesResponse,
   FavoritesResponse,
+  GameOutcomeRow,
+  GameOutcomesResponse,
   GroupBoostTotalsResponse,
   LinkedIdentitiesResponse,
   ListReplayGroupsResponse,
@@ -775,6 +777,34 @@ export function getPlayerBoostTotals(
   params.set("include-teammates", "true");
   withMaterializedStatsDefault(params);
   return request<PlayerBoostTotalsResponse>(`/api/v1/stats/boost-totals?${params.toString()}`);
+}
+
+// Fetch every per-game outcome row for the player's filtered replay set,
+// looping pages until the server reports no next offset (rows are tiny, so the
+// Outcomes page computes all distributions client-side from the full set).
+export async function getPlayerGameOutcomes(
+  platform: string,
+  platformPlayerId: string,
+  searchParams: URLSearchParams = new URLSearchParams(),
+): Promise<GameOutcomeRow[]> {
+  const scopedParams = new URLSearchParams(searchParams);
+  scopedParams.set("player-id", `${platform}:${platformPlayerId}`);
+  scopedParams.delete("count");
+  scopedParams.delete("offset");
+
+  const games: GameOutcomeRow[] = [];
+  let offset: number | null = 0;
+  while (offset != null) {
+    const params = new URLSearchParams(scopedParams);
+    params.set("count", "2000");
+    params.set("offset", String(offset));
+    const response = await request<GameOutcomesResponse>(
+      `/api/v1/stats/game-outcomes?${params.toString()}`,
+    );
+    games.push(...response.games);
+    offset = response.next_offset;
+  }
+  return games;
 }
 
 export function getPlayerBoostPadControl(

@@ -1268,3 +1268,30 @@ export interface RankBenchmarkCohortsResponse {
   available_windows: RankBenchmarkWindowOption[];
   cohorts: RankBenchmarkCohort[];
 }
+
+// One game's outcome from the target player's perspective, returned by
+// GET /api/v1/stats/game-outcomes. All Outcomes-page distributions (win rate,
+// margin histogram, scoreline heatmap, goal-count histograms) are derived from
+// these rows client-side.
+export interface GameOutcomeRow {
+  replay_id: string;
+  replay_date: string | null;
+  playlist: string | null;
+  // Team index (0 or 1) the target player was on.
+  player_team: number;
+  team_score: number;
+  opponent_score: number;
+  player_goals: number;
+  // Team goals not credited to the player (clamped at zero server-side).
+  teammate_goals: number;
+  // true = win, false = loss, null = tie (rare; e.g. disconnects).
+  won: boolean | null;
+}
+
+export interface GameOutcomesResponse {
+  games: GameOutcomeRow[];
+  count: number;
+  offset: number;
+  total_count: number;
+  next_offset: number | null;
+}

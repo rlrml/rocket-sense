@@ -1,0 +1,417 @@
+import { useEffect, useMemo, useState } from "react";
+import { getPlayerGameOutcomes } from "../api";
+import type { GameOutcomeRow } from "../types";
+
+// The Outcomes section distributes game results for one target player: win/loss
+// record, records by goal margin, a signed margin histogram, goal-count
+// histograms, and a scoreline heatmap. Everything is computed client-side from
+// the per-game rows returned by /api/v1/stats/game-outcomes; there is no
+// replay- or group-scope analogue, so this section is player-scope only.
+
+// --- distribution computation ---------------------------------------------------
+
+interface OutcomeSummary {
+  games: number;
+  wins: number;
+  losses: number;
+  ties: number;
+  /** Wins over all games (ties count against, matching the record strip). */
+  winRate: number | null;
+  /** Signed goal margin (team − opponent) per game. */
+  margins: number[];
+  marginRecords: MarginRecord[];
+}
+
+interface MarginRecord {
+  label: string;
+  wins: number;
+  losses: number;
+}
+
+function computeOutcomeSummary(games: GameOutcomeRow[]): OutcomeSummary {
+  let wins = 0;
+  let losses = 0;
+  let ties = 0;
+  const margins: number[] = [];
+  for (const game of games) {
+    const margin = game.team_score - game.opponent_score;
+    margins.push(margin);
+    if (margin > 0) wins += 1;
+    else if (margin < 0) losses += 1;
+    else ties += 1;
+  }
+
+  const marginRecords: MarginRecord[] = [1, 2, 3].map((magnitude) => ({
+    label: `${magnitude}-goal games`,
+    wins: margins.filter((margin) => margin === magnitude).length,
+    losses: margins.filter((margin) => margin === -magnitude).length,
+  }));
+  marginRecords.push({
+    label: "4+ goal games",
+    wins: margins.filter((margin) => margin >= 4).length,
+    losses: margins.filter((margin) => margin <= -4).length,
+  });
+
+  return {
+    games: games.length,
+    wins,
+    losses,
+    ties,
+    winRate: games.length > 0 ? wins / games.length : null,
+    margins,
+    marginRecords,
+  };
+}
+
+function mean(values: number[]): number | null {
+  if (values.length === 0) return null;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function median(values: number[]): number | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function formatStat(value: number | null): string {
+  if (value == null) return "–";
+  return Number.isInteger(value) ? String(value) : value.toFixed(2);
+}
+
+function formatPercent(value: number | null): string {
+  return value == null ? "–" : `${(value * 100).toFixed(1)}%`;
+}
+
+// Contiguous integer buckets covering [min(values, floor)..max(values, ceil)],
+// so histograms always show every intermediate bucket (including empty ones).
+function integerBuckets(values: number[], floor = 0): Array<{ value: number; count: number }> {
+  if (values.length === 0) return [];
+  const lo = Math.min(floor, ...values);
+  let hi = Math.max(floor, ...values);
+  // Guard against a degenerate single-bucket span rendering as one giant bar.
+  if (lo === hi) hi = lo + 1;
+  const buckets: Array<{ value: number; count: number }> = [];
+  for (let value = lo; value <= hi; value += 1) {
+    buckets.push({ value, count: 0 });
+  }
+  for (const value of values) {
+    buckets[value - lo].count += 1;
+  }
+  return buckets;
+}
+
+// --- histogram -------------------------------------------------------------------
+
+type BarTone = "positive" | "negative" | "neutral";
+
+function Histogram({
+  title,
+  values,
+  noun,
+  tone,
+}: {
+  title: string;
+  values: number[];
+  noun: string;
+  /** Fixed tone for every bar, or per-bucket-value tone (the margin histogram). */
+  tone: BarTone | ((bucketValue: number) => BarTone);
+}) {
+  const buckets = useMemo(() => integerBuckets(values), [values]);
+  const maxCount = Math.max(1, ...buckets.map((bucket) => bucket.count));
+  const meanValue = mean(values);
+  const medianValue = median(values);
+
+  return (
+    <div className="outcomes-histogram">
+      <div className="outcomes-histogram-heading">
+        <h4>{title}</h4>
+        <span>
+          mean {formatStat(meanValue)} · median {formatStat(medianValue)}
+        </span>
+      </div>
+      {buckets.length === 0 ? (
+        <div className="stat-empty">No games in the current replay set.</div>
+      ) : (
+        <div className="outcomes-histogram-bars" role="img" aria-label={`${title} histogram`}>
+          {buckets.map((bucket) => {
+            const barTone = typeof tone === "function" ? tone(bucket.value) : tone;
+            return (
+              <div
+                key={bucket.value}
+                className="outcomes-histogram-column"
+                title={`${bucket.value}: ${bucket.count} ${noun}`}
+              >
+                <div className="outcomes-histogram-count">
+                  {bucket.count > 0 ? bucket.count : ""}
+                </div>
+                <div className="outcomes-histogram-track">
+                  <div
+                    className={`outcomes-histogram-bar outcomes-bar-${barTone}`}
+                    style={{ height: `${(bucket.count / maxCount) * 100}%` }}
+                  />
+                </div>
+                <div className="outcomes-histogram-label">
+                  {typeof tone === "function" && bucket.value > 0
+                    ? `+${bucket.value}`
+                    : bucket.value}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- scoreline heatmap -------------------------------------------------------------
+
+function ScorelineHeatmap({ games }: { games: GameOutcomeRow[] }) {
+  const { cells, maxTeam, maxOpponent, maxCount } = useMemo(() => {
+    const counts = new Map<string, number>();
+    let maxTeam = 0;
+    let maxOpponent = 0;
+    let maxCount = 0;
+    for (const game of games) {
+      maxTeam = Math.max(maxTeam, game.team_score);
+      maxOpponent = Math.max(maxOpponent, game.opponent_score);
+      const key = `${game.team_score}:${game.opponent_score}`;
+      const next = (counts.get(key) ?? 0) + 1;
+      counts.set(key, next);
+      maxCount = Math.max(maxCount, next);
+    }
+    return { cells: counts, maxTeam, maxOpponent, maxCount };
+  }, [games]);
+
+  if (games.length === 0) {
+    return <div className="stat-empty">No games in the current replay set.</div>;
+  }
+
+  // Rows: your-team goals descending so wins collect toward the top-right.
+  const teamValues: number[] = [];
+  for (let value = maxTeam; value >= 0; value -= 1) teamValues.push(value);
+  const opponentValues: number[] = [];
+  for (let value = 0; value <= maxOpponent; value += 1) opponentValues.push(value);
+
+  return (
+    <div className="outcomes-heatmap-wrap">
+      <div className="outcomes-heatmap-y-title">Your team goals</div>
+      <div className="outcomes-heatmap-body">
+        <div
+          className="outcomes-heatmap"
+          style={{ gridTemplateColumns: `auto repeat(${opponentValues.length}, 1fr)` }}
+        >
+          {teamValues.map((team) => (
+            <div
+              key={`row-${team}`}
+              className="outcomes-heatmap-row"
+              style={{ display: "contents" }}
+            >
+              <div className="outcomes-heatmap-axis-label">{team}</div>
+              {opponentValues.map((opponent) => {
+                const count = cells.get(`${team}:${opponent}`) ?? 0;
+                const tone =
+                  team > opponent
+                    ? "var(--outcome-positive)"
+                    : team < opponent
+                      ? "var(--outcome-negative)"
+                      : "var(--muted)";
+                // Opacity scale over frequency; empty cells stay near-white so
+                // the win/loss/tie regions still read from the faint base tint.
+                // Capped at 70% so the count stays legible on the densest cell.
+                const share = maxCount > 0 ? count / maxCount : 0;
+                const mix = count > 0 ? 16 + Math.round(share * 54) : 4;
+                return (
+                  <div
+                    key={`${team}:${opponent}`}
+                    className={`outcomes-heatmap-cell${team === opponent ? " outcomes-heatmap-tie" : ""}`}
+                    style={{ background: `color-mix(in srgb, ${tone} ${mix}%, white)` }}
+                    title={`${team}–${opponent}: ${count} game${count === 1 ? "" : "s"}${team === opponent ? " (tie)" : ""}`}
+                  >
+                    {count > 0 ? count : ""}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+          <div className="outcomes-heatmap-axis-label" />
+          {opponentValues.map((opponent) => (
+            <div key={`col-${opponent}`} className="outcomes-heatmap-axis-label">
+              {opponent}
+            </div>
+          ))}
+        </div>
+        <div className="outcomes-heatmap-x-title">Opponent goals</div>
+      </div>
+    </div>
+  );
+}
+
+// --- page ---------------------------------------------------------------------------
+
+function RecordStrip({ summary, playerName }: { summary: OutcomeSummary; playerName: string }) {
+  const items: Array<{ label: string; value: string }> = [
+    { label: "Games", value: summary.games.toLocaleString() },
+    { label: "Wins", value: summary.wins.toLocaleString() },
+    { label: "Losses", value: summary.losses.toLocaleString() },
+  ];
+  if (summary.ties > 0) {
+    items.push({ label: "Ties", value: summary.ties.toLocaleString() });
+  }
+  items.push({ label: "Win rate", value: formatPercent(summary.winRate) });
+
+  return (
+    <section className="chart-panel outcomes-summary" aria-label={`${playerName} record`}>
+      {items.map((item) => (
+        <div key={item.label} className="outcomes-summary-item">
+          <div className="outcomes-summary-value">{item.value}</div>
+          <div className="outcomes-summary-label">{item.label}</div>
+        </div>
+      ))}
+    </section>
+  );
+}
+
+function MarginRecords({ records }: { records: MarginRecord[] }) {
+  return (
+    <div className="outcomes-margin-records">
+      {records.map((record) => {
+        const total = record.wins + record.losses;
+        return (
+          <div
+            key={record.label}
+            className="outcomes-margin-record"
+            title={`${record.label}: ${record.wins} wins, ${record.losses} losses`}
+          >
+            <span className="outcomes-margin-record-label">{record.label}</span>
+            <span className="outcomes-margin-record-value">
+              <span className="outcomes-record-wins">{record.wins}</span>
+              {"–"}
+              <span className="outcomes-record-losses">{record.losses}</span>
+              <span className="outcomes-margin-record-total"> ({total})</span>
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// Career / period view: fetches every per-game outcome row for the player's
+// filtered replay set. Self-fetching like BoostProfileDetail/GroundPlayProfileDetail
+// so the section drops into the player stats page without threading state.
+export function OutcomesProfileDetail({
+  platform,
+  platformPlayerId,
+  playerName,
+  search,
+}: {
+  platform: string;
+  platformPlayerId: string;
+  playerName: string;
+  search: string;
+}) {
+  const [games, setGames] = useState<GameOutcomeRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setGames(null);
+    getPlayerGameOutcomes(platform, platformPlayerId, new URLSearchParams(search))
+      .then((rows) => {
+        if (!cancelled) setGames(rows);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setError(err.message);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [platform, platformPlayerId, search]);
+
+  const summary = useMemo(() => (games ? computeOutcomeSummary(games) : null), [games]);
+  const goalSeries = useMemo(() => {
+    if (!games) return null;
+    return {
+      total: games.map((game) => game.team_score + game.opponent_score),
+      team: games.map((game) => game.team_score),
+      player: games.map((game) => game.player_goals),
+      teammates: games.map((game) => game.teammate_goals),
+      opponents: games.map((game) => game.opponent_score),
+    };
+  }, [games]);
+
+  if (loading) {
+    return <div className="stat-empty">Loading game outcomes...</div>;
+  }
+  if (error) {
+    return <div className="stat-empty">Game outcomes are unavailable: {error}</div>;
+  }
+  if (!games || !summary || !goalSeries || games.length === 0) {
+    return <div className="stat-empty">No finished games are in this replay set yet.</div>;
+  }
+
+  const marginTone = (margin: number): BarTone =>
+    margin > 0 ? "positive" : margin < 0 ? "negative" : "neutral";
+
+  return (
+    <div className="outcomes-detail">
+      <RecordStrip summary={summary} playerName={playerName} />
+
+      <section className="chart-panel">
+        <h3>Goal margin</h3>
+        <MarginRecords records={summary.marginRecords} />
+        <Histogram
+          title="Margin distribution"
+          values={summary.margins}
+          noun="games"
+          tone={marginTone}
+        />
+      </section>
+
+      <section className="chart-panel">
+        <h3>Goals per game</h3>
+        <div className="outcomes-histogram-grid">
+          <Histogram
+            title="Total goals in game"
+            values={goalSeries.total}
+            noun="games"
+            tone="neutral"
+          />
+          <Histogram
+            title="Your team's goals"
+            values={goalSeries.team}
+            noun="games"
+            tone="positive"
+          />
+          <Histogram title="Your goals" values={goalSeries.player} noun="games" tone="positive" />
+          <Histogram
+            title="Teammate goals"
+            values={goalSeries.teammates}
+            noun="games"
+            tone="positive"
+          />
+          <Histogram
+            title="Opponent goals"
+            values={goalSeries.opponents}
+            noun="games"
+            tone="negative"
+          />
+        </div>
+      </section>
+
+      <section className="chart-panel">
+        <h3>Scorelines</h3>
+        <ScorelineHeatmap games={games} />
+      </section>
+    </div>
+  );
+}

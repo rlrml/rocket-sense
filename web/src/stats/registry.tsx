@@ -11,6 +11,7 @@ import {
   MapPinned,
   Plane,
   RotateCw,
+  Scale,
   Sparkles,
   Trophy,
 } from "lucide-react";
@@ -269,6 +270,21 @@ export const statGroups: StatGroup[] = [
     usesAggregateStats: false,
     eventTypes: groundPlayEventTypes,
     Detail: GroundPlayDetail,
+  },
+  {
+    // Player-scope (career/period) only: distributions of game results for one
+    // target player have no replay- or group-level analogue, so App.tsx keeps
+    // this section off the replay/group stats pages. The panel self-fetches
+    // per-game rows from /stats/game-outcomes (see stats/outcomes.tsx).
+    id: "outcomes",
+    label: "Outcomes",
+    icon: Scale,
+    description:
+      "Game outcomes: win/loss record, records by goal margin, margin distribution, goal-count histograms, and a scoreline heatmap.",
+    terms: [],
+    completed: true,
+    usesAggregateStats: false,
+    eventTypes: [],
   },
   {
     id: "possession",
