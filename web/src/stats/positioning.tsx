@@ -615,10 +615,7 @@ function RoleDeltaHistogramChart({ histogram }: { histogram: PositioningRoleDelt
               <span className={countClassName}>{showShareLabel ? shareLabel : ""}</span>
               <span className="positioning-role-balance-track">
                 <span
-                  className={`source-segment ${outcomeSegmentClassName(
-                    roleDeltaBucketTone(bucket.direction),
-                    roleDeltaBucketLevel(bucket.direction, bucket.upper_pp),
-                  )}`}
+                  className={`source-segment ${roleDeltaBucketClassName(bucket.direction)}`}
                   style={{ height: `${barHeight}%` }}
                 />
               </span>
@@ -631,6 +628,12 @@ function RoleDeltaHistogramChart({ histogram }: { histogram: PositioningRoleDelt
       </div>
     </div>
   );
+}
+
+function roleDeltaBucketClassName(direction: "back" | "neutral" | "forward"): string {
+  if (direction === "back") return "role-delta-back";
+  if (direction === "forward") return "role-delta-forward";
+  return "role-delta-neutral";
 }
 
 function roleDeltaBucketAxisLabel(
@@ -661,22 +664,6 @@ function roleDeltaBucketIsMajorTick(
 function formatRoleDeltaAxisPp(value: number): string {
   const rounded = Math.round(value);
   return Number.isFinite(rounded) ? String(rounded) : "0";
-}
-
-function roleDeltaBucketLevel(
-  direction: "back" | "neutral" | "forward",
-  upperPp: number | null,
-): OutcomeDistributionLevel {
-  if (direction === "neutral") return "narrow";
-  if (upperPp == null || Math.abs(upperPp) >= 37.5) return "strong";
-  if (Math.abs(upperPp) <= 12.5) return "clear";
-  return "unknown";
-}
-
-function roleDeltaBucketTone(direction: "back" | "neutral" | "forward"): OutcomeDistributionTone {
-  if (direction === "back") return "positive";
-  if (direction === "forward") return "negative";
-  return "neutral";
 }
 
 function PositioningBarRows({

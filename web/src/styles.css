@@ -3994,6 +3994,34 @@ tbody tr:last-child td {
   border-radius: 3px 3px 0 0;
 }
 
+.positioning-role-balance-track .role-delta-back {
+  background: var(--outcome-positive);
+}
+
+.positioning-role-balance-track .role-delta-forward {
+  background: var(--outcome-negative);
+}
+
+.positioning-role-balance-track .role-delta-neutral {
+  position: relative;
+  background: linear-gradient(
+    90deg,
+    var(--outcome-positive) 0 50%,
+    var(--outcome-negative) 50% 100%
+  );
+}
+
+.positioning-role-balance-track .role-delta-neutral::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: var(--surface);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--text-strong), transparent 82%);
+  content: "";
+}
+
 .positioning-role-balance-label {
   min-width: 0;
   color: var(--muted);
