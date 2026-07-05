@@ -592,13 +592,27 @@ function RoleDeltaHistogramChart({ histogram }: { histogram: PositioningRoleDelt
         {buckets.map(({ bucket, share }) => {
           const count = bucket.count;
           const shareLabel = formatPercent(count, total);
+          const showShareLabel = share >= 0.035;
+          const countClassName = [
+            "positioning-role-balance-count",
+            share >= maxShare * 0.98 ? "is-peak-label" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           const barHeight = share > 0 ? Math.max(8, (share / maxShare) * 100) : 0;
+          const axisLabel = roleDeltaBucketAxisLabel(bucket);
+          const labelClassName = [
+            "positioning-role-balance-label",
+            roleDeltaBucketIsMajorTick(bucket) ? "is-major-tick" : "",
+          ]
+            .filter(Boolean)
+            .join(" ");
           const title = `${bucket.full_label}: ${shareLabel} (${count.toLocaleString()} ${
             count === 1 ? "game" : "games"
           })`;
           return (
             <div className="positioning-role-balance-column" key={bucket.key} title={title}>
-              <span className="positioning-role-balance-count">{count > 0 ? shareLabel : ""}</span>
+              <span className={countClassName}>{showShareLabel ? shareLabel : ""}</span>
               <span className="positioning-role-balance-track">
                 <span
                   className={`source-segment ${outcomeSegmentClassName(
@@ -608,13 +622,45 @@ function RoleDeltaHistogramChart({ histogram }: { histogram: PositioningRoleDelt
                   style={{ height: `${barHeight}%` }}
                 />
               </span>
-              <span className="positioning-role-balance-label">{bucket.label}</span>
+              <span className={labelClassName} aria-label={bucket.full_label}>
+                {axisLabel}
+              </span>
             </div>
           );
         })}
       </div>
     </div>
   );
+}
+
+function roleDeltaBucketAxisLabel(
+  bucket: PositioningRoleDeltaHistogram["buckets"][number],
+): string {
+  if (bucket.direction === "neutral") return "0";
+  const boundary =
+    bucket.lower_pp == null
+      ? bucket.upper_pp
+      : bucket.upper_pp == null
+        ? bucket.lower_pp
+        : (bucket.lower_pp + bucket.upper_pp) / 2;
+  const magnitude = formatRoleDeltaAxisPp(Math.abs(boundary ?? 0));
+  const prefix = bucket.direction === "back" ? "-" : "+";
+  const suffix = bucket.lower_pp == null || bucket.upper_pp == null ? "+" : "";
+  return `${prefix}${magnitude}${suffix}`;
+}
+
+function roleDeltaBucketIsMajorTick(
+  bucket: PositioningRoleDeltaHistogram["buckets"][number],
+): boolean {
+  if (bucket.direction === "neutral") return true;
+  if (bucket.lower_pp == null || bucket.upper_pp == null) return true;
+  const center = Math.abs((bucket.lower_pp + bucket.upper_pp) / 2);
+  return center < 50 && Math.round(center) % 10 === 0;
+}
+
+function formatRoleDeltaAxisPp(value: number): string {
+  const rounded = Math.round(value);
+  return Number.isFinite(rounded) ? String(rounded) : "0";
 }
 
 function roleDeltaBucketLevel(
