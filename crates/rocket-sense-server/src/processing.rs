@@ -1546,7 +1546,6 @@ struct ReplaySearchPlayer {
 
 const PLAYER_LEAVE_EXCLUSION_MIN_MISSING_SECONDS: f64 = 30.0;
 const AGGREGATE_EXCLUSION_REASON_PLAYER_LEFT_OR_INACTIVE: &str = "player-left-or-inactive";
-const AGGREGATE_EXCLUSION_REASON_MISSING_PLAYER_ACTIVE_TIME: &str = "missing-player-active-time";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct OrderedFloat(f64);
@@ -7539,12 +7538,11 @@ fn replay_aggregate_exclusion_from_metadata(
         .active_seconds
         .filter(|seconds| seconds.is_finite() && *seconds > 0.0)?;
 
+    let mut has_unknown_player_active_seconds = false;
     for player in &metadata.players {
         let Some(player_active_seconds) = player.active_time_seconds.map(|value| value.0) else {
-            return Some(ReplayAggregateExclusion {
-                exclude_from_aggregates: true,
-                reason: Some(AGGREGATE_EXCLUSION_REASON_MISSING_PLAYER_ACTIVE_TIME),
-            });
+            has_unknown_player_active_seconds = true;
+            continue;
         };
         if (active_seconds - player_active_seconds).max(0.0)
             >= PLAYER_LEAVE_EXCLUSION_MIN_MISSING_SECONDS
@@ -7554,6 +7552,10 @@ fn replay_aggregate_exclusion_from_metadata(
                 reason: Some(AGGREGATE_EXCLUSION_REASON_PLAYER_LEFT_OR_INACTIVE),
             });
         }
+    }
+
+    if has_unknown_player_active_seconds {
+        return None;
     }
 
     Some(ReplayAggregateExclusion {

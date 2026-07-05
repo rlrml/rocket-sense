@@ -127,6 +127,15 @@ fn aggregate_exclusion_keeps_complete_games() {
 }
 
 #[test]
+fn aggregate_exclusion_keeps_short_missing_player_activity() {
+    let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), Some(285.0)]);
+    let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
+
+    assert!(!exclusion.exclude_from_aggregates);
+    assert_eq!(exclusion.reason, None);
+}
+
+#[test]
 fn aggregate_exclusion_flags_long_missing_player_activity() {
     let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), Some(260.0)]);
     let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
@@ -149,12 +158,19 @@ fn aggregate_exclusion_prefers_activity_summary() {
 }
 
 #[test]
-fn aggregate_exclusion_flags_missing_player_activity() {
+fn aggregate_exclusion_is_unknown_with_missing_player_activity_time() {
     let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), None]);
+
+    assert_eq!(replay_aggregate_exclusion(&metadata), None);
+}
+
+#[test]
+fn aggregate_exclusion_flags_known_long_missing_player_activity_with_unknown_player_time() {
+    let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(260.0), None]);
     let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
 
     assert!(exclusion.exclude_from_aggregates);
-    assert_eq!(exclusion.reason, Some("missing-player-active-time"));
+    assert_eq!(exclusion.reason, Some("player-left-or-inactive"));
 }
 
 #[test]
