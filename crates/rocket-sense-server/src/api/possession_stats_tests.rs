@@ -222,6 +222,26 @@ fn materialized_possession_cohort_query_omits_rank_peers() {
 }
 
 #[test]
+fn materialized_possession_location_query_reads_materialized_zone_buckets() {
+    let query = PossessionStatsQuery::from_raw_query(
+        Some("team-size=2&game-type=ranked&player-id=Steam:76561198000000000"),
+        None,
+        true,
+    )
+    .expect("possession query should parse");
+    let mut builder = QueryBuilder::<Postgres>::new("");
+    push_materialized_possession_cohorts(&mut builder, &query);
+    push_materialized_location_select(&mut builder);
+    let sql = builder.sql();
+
+    assert!(sql.contains("FROM player_replay_possession poss"));
+    assert!(sql.contains("jsonb_each_text(location_third_seconds)"));
+    assert!(sql.contains("SUM(kv.value::float8) AS duration"));
+    assert!(sql.contains("GROUP BY cohort, kv.key, team"));
+    assert!(!sql.contains("play_event_player_possession_details"));
+}
+
+#[test]
 fn materialized_appearance_count_uses_full_roster_not_sparse_rows() {
     // Regression: the materialized possession table only has rows for players who
     // recorded possession events, so counting those rows undercounts cohort
