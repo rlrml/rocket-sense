@@ -100,25 +100,51 @@ interface IntegerBucket {
   count: number;
 }
 
-// Contiguous integer buckets covering [min(values, floor)..max(values, ceil)],
-// so histograms always show every intermediate bucket (including empty ones).
-function integerBuckets(values: number[], floor = 0, maxBucket?: number): IntegerBucket[] {
+interface IntegerBucketOptions {
+  floor?: number;
+  minBucket?: number;
+  maxBucket?: number;
+}
+
+// Contiguous integer buckets covering the clamped value range plus the floor, so
+// histograms always show every intermediate bucket (including empty ones).
+function integerBuckets(values: number[], options: IntegerBucketOptions = {}): IntegerBucket[] {
   if (values.length === 0) return [];
-  const bucketValues =
-    maxBucket == null ? values : values.map((value) => Math.min(value, maxBucket));
-  const lo = Math.min(floor, ...bucketValues);
-  let hi = Math.max(floor, ...bucketValues);
+  const { floor = 0, minBucket, maxBucket } = options;
+  const bucketValues = values.map((value) => {
+    const lowerBounded = minBucket == null ? value : Math.max(value, minBucket);
+    return maxBucket == null ? lowerBounded : Math.min(lowerBounded, maxBucket);
+  });
+  const lo = Math.min(floor, minBucket ?? floor, ...bucketValues);
+  let hi = Math.max(floor, maxBucket ?? floor, ...bucketValues);
   // Guard against a degenerate single-bucket span rendering as one giant bar.
   if (lo === hi) hi = lo + 1;
   const buckets: IntegerBucket[] = [];
   for (let value = lo; value <= hi; value += 1) {
-    const capped = maxBucket != null && value === maxBucket;
-    buckets.push({ value, label: capped ? `${value}+` : String(value), count: 0 });
+    const lowerCapped = minBucket != null && value === minBucket;
+    const upperCapped = maxBucket != null && value === maxBucket;
+    const label = lowerCapped ? `<=${value}` : upperCapped ? `${value}+` : String(value);
+    buckets.push({ value, label, count: 0 });
   }
   for (const value of bucketValues) {
     buckets[value - lo].count += 1;
   }
   return buckets;
+}
+
+function maxBucketShare(series: Array<{ values: number[] } & IntegerBucketOptions>): number {
+  return Math.max(
+    0,
+    ...series.flatMap(({ values, ...options }) =>
+      integerBuckets(values, options).map((bucket) =>
+        values.length > 0 ? bucket.count / values.length : 0,
+      ),
+    ),
+  );
+}
+
+function signedBucketLabel(bucket: IntegerBucket): string {
+  return bucket.value > 0 ? `+${bucket.label}` : bucket.label;
 }
 
 // --- histogram -------------------------------------------------------------------
@@ -130,18 +156,31 @@ function Histogram({
   values,
   noun,
   tone,
+  minBucket,
   maxBucket,
+  scaleMaxShare,
 }: {
   title: string;
   values: number[];
   noun: string;
   /** Fixed tone for every bar, or per-bucket-value tone (the margin histogram). */
   tone: BarTone | ((bucketValue: number) => BarTone);
+  minBucket?: number;
   maxBucket?: number;
+  scaleMaxShare?: number;
 }) {
-  const buckets = useMemo(() => integerBuckets(values, 0, maxBucket), [maxBucket, values]);
+  const buckets = useMemo(
+    () => integerBuckets(values, { minBucket, maxBucket }),
+    [maxBucket, minBucket, values],
+  );
   const meanValue = mean(values);
   const medianValue = median(values);
+  const ownMaxShare = Math.max(
+    0,
+    ...buckets.map((bucket) => (values.length > 0 ? bucket.count / values.length : 0)),
+  );
+  const yScaleMaxShare = Math.max(Number.EPSILON, scaleMaxShare ?? ownMaxShare);
+  const signedLabels = typeof tone === "function";
 
   return (
     <div className="outcomes-histogram">
@@ -159,13 +198,13 @@ function Histogram({
             const barTone = typeof tone === "function" ? tone(bucket.value) : tone;
             const share = values.length > 0 ? bucket.count / values.length : 0;
             const shareLabel = formatPercent(share);
-            const label =
-              typeof tone === "function" && bucket.value > 0 ? `+${bucket.label}` : bucket.label;
+            const label = signedLabels ? signedBucketLabel(bucket) : bucket.label;
+            const scaledHeight = share > 0 ? (share / yScaleMaxShare) * 100 : 0;
             return (
               <div
                 key={bucket.value}
                 className="outcomes-histogram-column"
-                title={`${bucket.label}: ${formatCountNoun(bucket.count, noun)} (${shareLabel})`}
+                title={`${label}: ${formatCountNoun(bucket.count, noun)} (${shareLabel})`}
               >
                 <div className="outcomes-histogram-count">
                   {bucket.count > 0 ? bucket.count : ""}
@@ -173,7 +212,7 @@ function Histogram({
                 <div className="outcomes-histogram-track">
                   <div
                     className={`outcomes-histogram-bar outcomes-bar-${barTone}${bucket.count > 0 ? " outcomes-histogram-bar-labeled" : ""}`}
-                    style={{ height: `${share * 100}%` }}
+                    style={{ height: `${scaledHeight}%` }}
                   >
                     {bucket.count > 0 ? (
                       <span className="outcomes-histogram-share">{shareLabel}</span>
@@ -299,23 +338,27 @@ function RecordStrip({ summary, playerName }: { summary: OutcomeSummary; playerN
   );
 }
 
-function MarginRecords({ records }: { records: MarginRecord[] }) {
+function MarginRecords({ records, games }: { records: MarginRecord[]; games: number }) {
   return (
     <div className="outcomes-margin-records">
       {records.map((record) => {
         const total = record.wins + record.losses;
+        const share = games > 0 ? total / games : null;
         return (
           <div
             key={record.label}
             className="outcomes-margin-record"
-            title={`${record.label}: ${record.wins} wins, ${record.losses} losses`}
+            title={`${record.label}: ${record.wins} wins, ${record.losses} losses (${formatPercent(share)})`}
           >
             <span className="outcomes-margin-record-label">{record.label}</span>
             <span className="outcomes-margin-record-value">
               <span className="outcomes-record-wins">{record.wins}</span>
               {"–"}
               <span className="outcomes-record-losses">{record.losses}</span>
-              <span className="outcomes-margin-record-total"> ({total})</span>
+              <span className="outcomes-margin-record-total">
+                {" "}
+                ({total}, {formatPercent(share)})
+              </span>
             </span>
           </div>
         );
@@ -378,6 +421,21 @@ export function OutcomesProfileDetail({
       },
     };
   }, [games]);
+  const goalScales = useMemo(() => {
+    if (!goalSeries) return null;
+    return {
+      team: maxBucketShare([
+        { values: goalSeries.team.total },
+        { values: goalSeries.team.playerTeam, maxBucket: 7 },
+        { values: goalSeries.team.opponentTeam, maxBucket: 7 },
+      ]),
+      players: maxBucketShare([
+        { values: goalSeries.players.player, maxBucket: 5 },
+        { values: goalSeries.players.teammates, maxBucket: 5 },
+        { values: goalSeries.players.opponents, maxBucket: 5 },
+      ]),
+    };
+  }, [goalSeries]);
 
   if (loading) {
     return <div className="stat-empty">Loading game outcomes...</div>;
@@ -385,7 +443,7 @@ export function OutcomesProfileDetail({
   if (error) {
     return <div className="stat-empty">Game outcomes are unavailable: {error}</div>;
   }
-  if (!games || !summary || !goalSeries || games.length === 0) {
+  if (!games || !summary || !goalSeries || !goalScales || games.length === 0) {
     return <div className="stat-empty">No finished games are in this replay set yet.</div>;
   }
 
@@ -399,12 +457,14 @@ export function OutcomesProfileDetail({
 
       <section className="chart-panel">
         <h3>Goal margin</h3>
-        <MarginRecords records={summary.marginRecords} />
+        <MarginRecords records={summary.marginRecords} games={summary.games} />
         <Histogram
           title="Margin distribution"
           values={summary.margins}
           noun="game"
           tone={marginTone}
+          minBucket={-4}
+          maxBucket={4}
         />
       </section>
 
@@ -416,6 +476,7 @@ export function OutcomesProfileDetail({
             values={goalSeries.team.total}
             noun="game"
             tone="neutral"
+            scaleMaxShare={goalScales.team}
           />
           <Histogram
             title={`${playerPossessive} team goals`}
@@ -423,6 +484,7 @@ export function OutcomesProfileDetail({
             noun="game"
             tone="positive"
             maxBucket={7}
+            scaleMaxShare={goalScales.team}
           />
           <Histogram
             title={`${playerPossessive} opponents' team goals`}
@@ -430,6 +492,7 @@ export function OutcomesProfileDetail({
             noun="game"
             tone="negative"
             maxBucket={7}
+            scaleMaxShare={goalScales.team}
           />
         </div>
       </section>
@@ -443,6 +506,7 @@ export function OutcomesProfileDetail({
             noun="game"
             tone="positive"
             maxBucket={5}
+            scaleMaxShare={goalScales.players}
           />
           <Histogram
             title={`${playerPossessive} teammates' goals`}
@@ -450,6 +514,7 @@ export function OutcomesProfileDetail({
             noun="appearance"
             tone="positive"
             maxBucket={5}
+            scaleMaxShare={goalScales.players}
           />
           <Histogram
             title={`${playerPossessive} opponents' goals`}
@@ -457,6 +522,7 @@ export function OutcomesProfileDetail({
             noun="appearance"
             tone="negative"
             maxBucket={5}
+            scaleMaxShare={goalScales.players}
           />
         </div>
       </section>

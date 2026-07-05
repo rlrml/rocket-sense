@@ -10624,7 +10624,7 @@ tbody tr:last-child td {
 .outcomes-histogram-track {
   display: flex;
   align-items: flex-end;
-  height: 132px;
+  height: 180px;
   border-bottom: 1px solid var(--border-strong);
 }
 
