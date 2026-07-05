@@ -1493,6 +1493,7 @@ struct ReplaySearchMetadata {
     replay_date: Option<DateTime<Utc>>,
     season: Option<String>,
     summary: ReplaySummaryMetadata,
+    aggregate_exclusion: Option<ReplayAggregateExclusion>,
     has_pro_player: bool,
     players: Vec<ReplaySearchPlayer>,
 }
@@ -1519,6 +1520,12 @@ struct ReplaySummaryMetadata {
     match_guid: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ReplayAggregateExclusion {
+    exclude_from_aggregates: bool,
+    reason: Option<&'static str>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ReplaySearchPlayer {
     name: String,
@@ -1536,6 +1543,10 @@ struct ReplaySearchPlayer {
     time_most_back_seconds: Option<OrderedFloat>,
     time_most_forward_seconds: Option<OrderedFloat>,
 }
+
+const PLAYER_LEAVE_EXCLUSION_MIN_MISSING_SECONDS: f64 = 30.0;
+const AGGREGATE_EXCLUSION_REASON_PLAYER_LEFT_OR_INACTIVE: &str = "player-left-or-inactive";
+const AGGREGATE_EXCLUSION_REASON_MISSING_PLAYER_ACTIVE_TIME: &str = "missing-player-active-time";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct OrderedFloat(f64);
@@ -4864,7 +4875,9 @@ async fn resolve_benchmark_window(
                 r#"
                 SELECT MIN(replay_date) AS lo, MAX(replay_date) AS hi, COUNT(*) AS cnt
                 FROM replays
-                WHERE season = $1 AND canonical_analysis_run_id IS NOT NULL
+                WHERE season = $1
+                  AND canonical_analysis_run_id IS NOT NULL
+                  AND NOT exclude_from_aggregates
                 "#,
             )
             .bind(&resolved_code)
@@ -4897,6 +4910,7 @@ pub(crate) async fn resolve_current_season(pool: &PgPool) -> Result<Option<Strin
         WHERE season IS NOT NULL
           AND btrim(season) <> ''
           AND canonical_analysis_run_id IS NOT NULL
+          AND NOT exclude_from_aggregates
           AND replay_date IS NOT NULL
         GROUP BY season
         ORDER BY MAX(replay_date) DESC
@@ -5005,6 +5019,7 @@ async fn refresh_rank_benchmark_window(
             JOIN replays r
               ON r.id = rp.replay_id
              AND r.canonical_analysis_run_id IS NOT NULL
+             AND NOT r.exclude_from_aggregates
             WHERE rp.rank_tier >= 1
               AND rp.platform IS NOT NULL
               AND btrim(rp.platform) <> ''
@@ -5558,6 +5573,7 @@ async fn refresh_rank_benchmark_window(
                 COUNT(*) AS replay_count
             FROM replays r
             WHERE r.canonical_analysis_run_id IS NOT NULL
+              AND NOT r.exclude_from_aggregates
               AND EXISTS (
                     SELECT 1 FROM replay_players rp
                     WHERE rp.replay_id = r.id
@@ -6110,6 +6126,7 @@ fn replay_search_metadata_from_scaffold_json(scaffold: &Value) -> ReplaySearchMe
         replay_date,
         season: season_code_json(replay_meta.get("season")),
         summary: replay_summary_metadata_json(scaffold, &all_headers),
+        aggregate_exclusion: replay_aggregate_exclusion_from_scaffold_json(scaffold),
         has_pro_player,
         players,
     }
@@ -6236,6 +6253,27 @@ fn replay_summary_metadata_json(scaffold: &Value, all_headers: &[Value]) -> Repl
             .map(normalize_header_value)
             .filter(|value| !value.trim().is_empty()),
     }
+}
+
+fn replay_aggregate_exclusion_from_scaffold_json(
+    scaffold: &Value,
+) -> Option<ReplayAggregateExclusion> {
+    let summary = scaffold.get("activity_summary")?;
+    if let Some(has_absent_player) = summary.get("has_absent_player").and_then(Value::as_bool) {
+        return Some(replay_aggregate_exclusion_from_activity_flag(
+            has_absent_player,
+        ));
+    }
+
+    let players = summary.get("players").and_then(Value::as_array)?;
+    Some(replay_aggregate_exclusion_from_activity_flag(
+        players.iter().any(|player| {
+            player
+                .get("absent_for_extended_period")
+                .and_then(Value::as_bool)
+                == Some(true)
+        }),
+    ))
 }
 
 /// JSON twin of [`team_score_from_events`]: sum `goals_delta` over `core_player`
@@ -6518,6 +6556,9 @@ fn replay_search_metadata(timeline: &ReplayStatsTimelineScaffold) -> ReplaySearc
         replay_date,
         season: replay_meta.season.map(|season| season.code()),
         summary: replay_summary_metadata(timeline),
+        aggregate_exclusion: Some(replay_aggregate_exclusion_from_activity_summary(
+            &timeline.activity_summary,
+        )),
         has_pro_player,
         players,
     }
@@ -6552,8 +6593,31 @@ fn replay_search_metadata_from_meta(replay_meta: &ReplayMeta) -> ReplaySearchMet
         replay_date,
         season: replay_meta.season.map(|season| season.code()),
         summary: replay_summary_metadata_from_meta(replay_meta),
+        aggregate_exclusion: None,
         has_pro_player,
         players,
+    }
+}
+
+fn replay_aggregate_exclusion_from_activity_summary(
+    activity_summary: &subtr_actor::ReplayStatsActivitySummary,
+) -> ReplayAggregateExclusion {
+    replay_aggregate_exclusion_from_activity_flag(activity_summary.has_absent_player)
+}
+
+fn replay_aggregate_exclusion_from_activity_flag(
+    has_absent_player: bool,
+) -> ReplayAggregateExclusion {
+    if has_absent_player {
+        ReplayAggregateExclusion {
+            exclude_from_aggregates: true,
+            reason: Some(AGGREGATE_EXCLUSION_REASON_PLAYER_LEFT_OR_INACTIVE),
+        }
+    } else {
+        ReplayAggregateExclusion {
+            exclude_from_aggregates: false,
+            reason: None,
+        }
     }
 }
 
@@ -7143,6 +7207,7 @@ async fn upsert_replay_search_metadata(
     replay_id: Uuid,
     metadata: &ReplaySearchMetadata,
 ) -> Result<HashMap<String, Uuid>> {
+    let aggregate_exclusion = replay_aggregate_exclusion(metadata);
     // The replay row UPDATE takes a row lock held until commit, serializing
     // concurrent upserts for the same replay (e.g. the queued server job vs a
     // client-WASM scaffold submission). Without it the DELETE + INSERTs below
@@ -7169,6 +7234,12 @@ async fn upsert_replay_search_metadata(
             has_pro_player = has_pro_player OR $14,
             season = COALESCE($15, season),
             active_seconds = COALESCE($16, active_seconds),
+            exclude_from_aggregates = COALESCE($17, exclude_from_aggregates),
+            aggregate_exclusion_reason = CASE
+                WHEN $17::boolean IS NULL THEN aggregate_exclusion_reason
+                WHEN $17 THEN $18
+                ELSE NULL
+            END,
             updated_at = now()
         WHERE id = $1
         "#,
@@ -7189,6 +7260,12 @@ async fn upsert_replay_search_metadata(
     .bind(metadata.has_pro_player)
     .bind(&metadata.season)
     .bind(metadata.summary.active_seconds)
+    .bind(
+        aggregate_exclusion
+            .as_ref()
+            .map(|value| value.exclude_from_aggregates),
+    )
+    .bind(aggregate_exclusion.as_ref().and_then(|value| value.reason))
     .execute(&mut *tx)
     .await
     .context("failed to update replay search metadata")?;
@@ -7262,6 +7339,43 @@ async fn upsert_replay_search_metadata(
         .context("failed to re-apply rank submissions after player upsert")?;
 
     Ok(replay_players)
+}
+
+fn replay_aggregate_exclusion(metadata: &ReplaySearchMetadata) -> Option<ReplayAggregateExclusion> {
+    metadata
+        .aggregate_exclusion
+        .or_else(|| replay_aggregate_exclusion_from_metadata(metadata))
+}
+
+fn replay_aggregate_exclusion_from_metadata(
+    metadata: &ReplaySearchMetadata,
+) -> Option<ReplayAggregateExclusion> {
+    let active_seconds = metadata
+        .summary
+        .active_seconds
+        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)?;
+
+    for player in &metadata.players {
+        let Some(player_active_seconds) = player.active_time_seconds.map(|value| value.0) else {
+            return Some(ReplayAggregateExclusion {
+                exclude_from_aggregates: true,
+                reason: Some(AGGREGATE_EXCLUSION_REASON_MISSING_PLAYER_ACTIVE_TIME),
+            });
+        };
+        if (active_seconds - player_active_seconds).max(0.0)
+            >= PLAYER_LEAVE_EXCLUSION_MIN_MISSING_SECONDS
+        {
+            return Some(ReplayAggregateExclusion {
+                exclude_from_aggregates: true,
+                reason: Some(AGGREGATE_EXCLUSION_REASON_PLAYER_LEFT_OR_INACTIVE),
+            });
+        }
+    }
+
+    Some(ReplayAggregateExclusion {
+        exclude_from_aggregates: false,
+        reason: None,
+    })
 }
 
 pub(crate) async fn sync_player_identities_for_replay(

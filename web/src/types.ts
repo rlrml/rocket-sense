@@ -67,6 +67,8 @@ export interface ReplayResponse {
   map_code: string | null;
   replay_date: string | null;
   has_pro_player: boolean;
+  exclude_from_aggregates: boolean;
+  aggregate_exclusion_reason: string | null;
   players: ReplayPlayer[];
   summary: {
     team_scores: {

@@ -45,6 +45,7 @@ pub(crate) struct ReplaySetFilterInput {
     pub(crate) max_season: Option<String>,
     pub(crate) target_player_id: Option<String>,
     pub(crate) player_outcome: Option<String>,
+    pub(crate) include_incomplete_games: Option<bool>,
 }
 
 impl ReplaySetFilterInput {
@@ -94,6 +95,10 @@ impl ReplaySetFilterInput {
             max_season: params.first(&["max-season", "max_season"]),
             target_player_id: params.first(&["player-id", "player_id"]),
             player_outcome: params.first(&["player-outcome", "player_outcome"]),
+            include_incomplete_games: params
+                .first(&["include-incomplete-games", "include_incomplete_games"])
+                .map(|value| parse_bool_filter("include-incomplete-games", &value))
+                .transpose()?,
         })
     }
 }
@@ -128,6 +133,7 @@ pub(crate) struct ReplaySetFilters {
     pub(crate) max_season_ord: Option<i32>,
     pub(crate) playlist_group_key: Option<String>,
     pub(crate) player_outcome: Option<PlayerReplayOutcomeFilter>,
+    pub(crate) include_incomplete_games: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -271,6 +277,7 @@ impl ReplaySetFilters {
             max_season_ord,
             playlist_group_key: None,
             player_outcome,
+            include_incomplete_games: input.include_incomplete_games.unwrap_or(false),
         })
     }
 }
@@ -304,6 +311,7 @@ impl ReplaySetFilters {
             && self.max_season_ord.is_none()
             && self.playlist_group_key.is_none()
             && self.player_outcome.is_none()
+            && self.include_incomplete_games
     }
 }
 
@@ -351,6 +359,12 @@ pub(crate) fn append_replay_set_filters<'args>(
     filters: &'args ReplaySetFilters,
     replay_alias: &str,
 ) {
+    if !filters.include_incomplete_games {
+        builder
+            .push(" AND NOT ")
+            .push(replay_alias)
+            .push(".exclude_from_aggregates");
+    }
     if let Some(pattern) = &filters.search_pattern {
         builder
             .push(" AND (")

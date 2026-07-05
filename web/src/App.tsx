@@ -1085,6 +1085,7 @@ function ReplayListPage() {
                     <ReplayLink className="primary-link" replayId={replay.id}>
                       {replay.original_file_name || replay.id}
                     </ReplayLink>
+                    <ReplayAggregateExclusionIcon replay={replay} />
                     <UploaderPill uploader={replay.uploaded_by} />
                   </div>
                 </div>
@@ -2943,7 +2944,10 @@ function ReplayStatsPage() {
       <header className="page-header">
         <div>
           <p className="eyebrow">Game stats</p>
-          <h1>{replay?.original_file_name || "Replay stats"}</h1>
+          <div className="replay-detail-title">
+            <h1>{replay?.original_file_name || "Replay stats"}</h1>
+            {replay ? <ReplayAggregateExclusionIcon replay={replay} size={18} /> : null}
+          </div>
         </div>
         <div className="page-header-actions">
           {replay ? <ReplayStatusChip replay={replay} currentUser={currentUser} /> : null}
@@ -9700,6 +9704,33 @@ function ReplayStatusChip({
     );
   }
   return <Chip tone={STATUS_TONE[replay.status] ?? "neutral"}>{statusLabel(replay.status)}</Chip>;
+}
+
+function ReplayAggregateExclusionIcon({
+  replay,
+  size = 14,
+}: {
+  replay: ReplayResponse;
+  size?: number;
+}) {
+  if (!replay.exclude_from_aggregates) return null;
+  const label = replayAggregateExclusionLabel(replay.aggregate_exclusion_reason);
+  return (
+    <span className="replay-aggregate-exclusion-icon" title={label} aria-label={label} role="img">
+      <AlertTriangle size={size} />
+    </span>
+  );
+}
+
+function replayAggregateExclusionLabel(reason: string | null): string {
+  switch (reason) {
+    case "player-left-or-inactive":
+      return "Excluded from leaderboards, rank trends, and career stats because a player left or was inactive.";
+    case "missing-player-active-time":
+      return "Excluded from leaderboards, rank trends, and career stats because player activity time is incomplete.";
+    default:
+      return "Excluded from leaderboards, rank trends, and career stats.";
+  }
 }
 
 function statusLabel(status: string): string {

@@ -90,8 +90,40 @@ fn replay_set_filters_render_game_type_and_team_size_clauses() {
     append_replay_set_filters(&mut builder, &filters, "r");
     let sql = builder.sql();
 
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
     assert!(sql.contains("r.replay_game_type = ANY("));
     assert!(sql.contains("team_player_count"));
+}
+
+#[test]
+fn replay_set_filters_exclude_incomplete_games_by_default() {
+    let filters =
+        filters_from_input(ReplaySetFilterInput::default()).expect("filters should parse");
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
+    assert!(!filters.include_incomplete_games);
+    assert!(!filters.is_empty());
+}
+
+#[test]
+fn replay_set_filters_can_include_incomplete_games() {
+    let filters = filters_from_input(ReplaySetFilterInput {
+        include_incomplete_games: Some(true),
+        ..ReplaySetFilterInput::default()
+    })
+    .expect("filters should parse");
+
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    let sql = builder.sql();
+
+    assert!(!sql.contains("exclude_from_aggregates"));
+    assert!(filters.include_incomplete_games);
+    assert!(filters.is_empty());
 }
 
 #[test]

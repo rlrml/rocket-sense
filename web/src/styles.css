@@ -534,6 +534,13 @@ a {
   overflow-wrap: anywhere;
 }
 
+.replay-detail-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .page-header-note {
   max-width: 760px;
   margin: 6px 0 0;
@@ -793,6 +800,13 @@ tbody tr:last-child td {
   max-width: 48ch;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.replay-aggregate-exclusion-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: #b45309;
 }
 
 .replay-card-meta {

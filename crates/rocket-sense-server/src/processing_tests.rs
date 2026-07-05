@@ -69,6 +69,101 @@ fn dense_streams_are_never_persisted_as_play_events() {
     assert!(should_persist_play_event(&touch));
 }
 
+fn aggregate_exclusion_metadata(
+    replay_active_seconds: Option<f64>,
+    player_active_seconds: &[Option<f64>],
+) -> ReplaySearchMetadata {
+    ReplaySearchMetadata {
+        playlist: None,
+        game_type: ReplayGameTypeMetadata::default(),
+        map_code: None,
+        replay_date: None,
+        season: None,
+        summary: ReplaySummaryMetadata {
+            active_seconds: replay_active_seconds,
+            ..ReplaySummaryMetadata::default()
+        },
+        aggregate_exclusion: None,
+        has_pro_player: false,
+        players: player_active_seconds
+            .iter()
+            .enumerate()
+            .map(|(index, active_seconds)| ReplaySearchPlayer {
+                name: format!("player-{index}"),
+                platform: Some("steam".to_owned()),
+                platform_player_id: Some(index.to_string()),
+                team: (index % 2) as i32,
+                is_pro: false,
+                score: None,
+                goals: None,
+                assists: None,
+                saves: None,
+                shots: None,
+                active_time_seconds: active_seconds.map(OrderedFloat),
+                time_demolished_seconds: None,
+                time_most_back_seconds: None,
+                time_most_forward_seconds: None,
+            })
+            .collect(),
+    }
+}
+
+fn default_activity_summary() -> subtr_actor::ReplayStatsActivitySummary {
+    subtr_actor::ReplayStatsActivitySummary {
+        live_play_seconds: 0.0,
+        absent_player_min_missing_seconds: PLAYER_LEAVE_EXCLUSION_MIN_MISSING_SECONDS as f32,
+        has_absent_player: false,
+        players: vec![],
+    }
+}
+
+#[test]
+fn aggregate_exclusion_keeps_complete_games() {
+    let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), Some(298.0)]);
+    let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
+
+    assert!(!exclusion.exclude_from_aggregates);
+    assert_eq!(exclusion.reason, None);
+}
+
+#[test]
+fn aggregate_exclusion_flags_long_missing_player_activity() {
+    let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), Some(260.0)]);
+    let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
+
+    assert!(exclusion.exclude_from_aggregates);
+    assert_eq!(exclusion.reason, Some("player-left-or-inactive"));
+}
+
+#[test]
+fn aggregate_exclusion_prefers_activity_summary() {
+    let mut metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), Some(300.0)]);
+    metadata.aggregate_exclusion = Some(ReplayAggregateExclusion {
+        exclude_from_aggregates: true,
+        reason: Some("player-left-or-inactive"),
+    });
+    let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
+
+    assert!(exclusion.exclude_from_aggregates);
+    assert_eq!(exclusion.reason, Some("player-left-or-inactive"));
+}
+
+#[test]
+fn aggregate_exclusion_flags_missing_player_activity() {
+    let metadata = aggregate_exclusion_metadata(Some(300.0), &[Some(300.0), None]);
+    let exclusion = replay_aggregate_exclusion(&metadata).expect("classification should be known");
+
+    assert!(exclusion.exclude_from_aggregates);
+    assert_eq!(exclusion.reason, Some("missing-player-active-time"));
+}
+
+#[test]
+fn aggregate_exclusion_is_unknown_without_replay_active_time() {
+    let metadata = aggregate_exclusion_metadata(None, &[Some(300.0), None]);
+
+    assert_eq!(replay_aggregate_exclusion(&metadata), None);
+}
+
 #[test]
 fn in_memory_movement_aggregation_matches_sql_semantics() {
     let player = serde_json::json!({ "Steam": 76561198000000001_u64 });
@@ -436,6 +531,7 @@ fn replay_search_metadata_backfills_missing_scoreboard_stats_from_core_events() 
             ),
         ]),
         frames: vec![],
+        activity_summary: default_activity_summary(),
         positioning_summary: vec![],
         accumulation_tracks: vec![],
     };
@@ -1604,6 +1700,7 @@ fn stats_timeline_with_events(
         },
         events,
         frames: vec![],
+        activity_summary: default_activity_summary(),
         positioning_summary: vec![],
         accumulation_tracks: vec![],
     }
@@ -1813,6 +1910,7 @@ fn stats_timeline_fixture_for_client_json(
                 is_team_0: false,
             }],
         }],
+        activity_summary: default_activity_summary(),
         positioning_summary: vec![],
         accumulation_tracks: vec![subtr_actor::AccumulationTrack {
             player_id: ps4_player,

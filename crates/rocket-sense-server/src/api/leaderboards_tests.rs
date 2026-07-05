@@ -72,6 +72,7 @@ fn uploads_total_query_counts_distinct_uploaders() {
     let sql = uploads_total_query(&filters).into_sql();
     assert!(sql.contains("COUNT(DISTINCT r.uploaded_by_user_id)"));
     assert!(sql.contains("r.uploaded_by_user_id IS NOT NULL"));
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
 }
 
 #[test]
@@ -94,7 +95,7 @@ fn appearances_rank_query_counts_distinct_replays() {
 }
 
 #[test]
-fn appearances_rank_query_omits_replays_join_when_unfiltered() {
+fn appearances_rank_query_joins_replays_for_default_incomplete_game_exclusion() {
     let filters = filters_from_query("");
     let paging = LeaderboardPaging {
         count: 50,
@@ -102,10 +103,25 @@ fn appearances_rank_query_omits_replays_join_when_unfiltered() {
     };
     let sql = appearances_rank_query(&filters, &paging).into_sql();
 
-    // No filter touches the replays table, so the join is dropped and the query
-    // can ride the covering index as an index-only scan.
+    assert!(sql.contains("FROM replay_players rp JOIN replays r ON r.id = rp.replay_id"));
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
+    assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
+    assert!(sql.contains("aggregate_excluded_tag.exclude_from_aggregates"));
+    assert!(sql.contains("GROUP BY rp.platform, rp.platform_player_id"));
+}
+
+#[test]
+fn appearances_rank_query_omits_replays_join_when_incomplete_games_are_explicitly_included() {
+    let filters = filters_from_query("include-incomplete-games=true");
+    let paging = LeaderboardPaging {
+        count: 50,
+        offset: 0,
+    };
+    let sql = appearances_rank_query(&filters, &paging).into_sql();
+
     assert!(sql.contains("FROM replay_players rp WHERE"));
     assert!(!sql.contains("JOIN replays"));
+    assert!(!sql.contains("r.exclude_from_aggregates"));
     assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
     assert!(sql.contains("aggregate_excluded_tag.exclude_from_aggregates"));
     assert!(sql.contains("GROUP BY rp.platform, rp.platform_player_id"));
@@ -218,6 +234,7 @@ fn event_rank_query_builds_ctes_and_metric_order() {
     assert!(sql.contains("JOIN play_event_subjects subject ON subject.replay_player_id = rp.id"));
     assert!(sql.contains("event.analysis_run_id = r.canonical_analysis_run_id"));
     assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
     // stat-term filter resolves to an event_types subselect
     assert!(sql.contains("event.event_type_id IN (SELECT stat_filter.id FROM event_types"));
     // replay filter applied
@@ -241,6 +258,7 @@ fn event_rank_query_counts_goals_from_scoreboard() {
     assert!(sql.contains("COALESCE(SUM(rp.goals), 0)::bigint AS event_count"));
     assert!(sql.contains("HAVING COALESCE(SUM(rp.goals), 0) > 0"));
     assert!(sql.contains("team_player_count"));
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
     assert!(!sql.contains("JOIN play_event_subjects subject"));
     assert!(!sql.contains("event.event_type_id IN"));
     assert!(sql.contains("ORDER BY per_active_minute DESC NULLS LAST, event_count DESC"));
@@ -400,6 +418,7 @@ fn stat_rank_query_reads_materialized_facts() {
     assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
     assert!(sql.contains("SUM(fact.denominator_value) AS denominator_value"));
     assert!(sql.contains("team_player_count"));
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
     assert!(sql.contains("share_of_active_time"));
     assert!(sql.contains("ORDER BY value_per_active_minute DESC NULLS LAST, value DESC"));
 }
@@ -437,6 +456,7 @@ fn stat_rank_query_can_read_boost_count_materialization() {
     assert!(sql.contains("SUM(boost.tracked_seconds) AS active_time_seconds"));
     assert!(sql.contains("NULL::float8 AS denominator_value"));
     assert!(sql.contains("team_player_count"));
+    assert!(sql.contains("NOT r.exclude_from_aggregates"));
     assert!(sql.contains("ORDER BY value_per_active_minute DESC NULLS LAST, value DESC"));
 }
 

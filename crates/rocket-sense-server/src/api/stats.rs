@@ -384,6 +384,13 @@ pub struct StatAggregatesQuery {
     /// Restrict the replay set to games the focused player won or lost.
     #[serde(rename = "player-outcome", alias = "player_outcome")]
     pub player_outcome: Option<String>,
+    /// Include replays automatically excluded from aggregate surfaces because a
+    /// player appears to have left or gone untracked for an extended period.
+    #[serde(
+        rename = "include-incomplete-games",
+        alias = "include_incomplete_games"
+    )]
+    pub include_incomplete_games: Option<bool>,
     /// Restrict aggregate event counts to event types matching one or more
     /// search terms. Denominators still cover the full filtered replay set.
     #[serde(
@@ -552,6 +559,7 @@ impl StatAggregateFilters {
                 max_season: query.max_season,
                 target_player_id: query.player_id.clone(),
                 player_outcome: query.player_outcome,
+                include_incomplete_games: query.include_incomplete_games,
             },
             auth_user_id,
         )?;
@@ -608,6 +616,7 @@ impl StatAggregatesQuery {
             status: replay_set.status,
             player_id: params.first(&["player-id", "player_id"]),
             player_outcome: params.first(&["player-outcome", "player_outcome"]),
+            include_incomplete_games: replay_set.include_incomplete_games,
             stat_terms: params.values(&["stat-term", "stat_terms"]),
             include_teammates: params
                 .first(&["include-teammates", "include_teammates"])
