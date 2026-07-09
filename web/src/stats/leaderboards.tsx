@@ -22,15 +22,32 @@ import { StatPlayerLabel } from "./shared";
 
 type MetricKind = "appearances" | "uploads" | "event" | "stat";
 type Aggregation = "total" | "per-game" | "per-minute" | "share" | "average";
+type LeaderboardWindow = "daily" | "trailing-7d" | "season";
 
 const PAGE_SIZE = 50;
 const RATE_WINDOW_MINUTES = 5;
-const DEFAULT_MIN_GAMES = "10";
 const DEFAULT_BOARD = "event:goal";
 
-const EVENT_AGGREGATIONS: Aggregation[] = ["total", "per-game", "per-minute"];
-const STAT_AGGREGATIONS: Aggregation[] = ["total", "per-game", "per-minute", "share"];
+const EVENT_AGGREGATIONS: Aggregation[] = ["total", "per-minute"];
+const STAT_AGGREGATIONS: Aggregation[] = ["total", "per-minute"];
 const AVERAGE_STAT_AGGREGATIONS: Aggregation[] = ["average"];
+
+const windowOptions: Array<{ value: LeaderboardWindow; label: string }> = [
+  { value: "daily", label: "Today" },
+  { value: "trailing-7d", label: "Last 7 days" },
+  { value: "season", label: "Season" },
+];
+
+function defaultMinGames(window: LeaderboardWindow): string {
+  switch (window) {
+    case "daily":
+      return "3";
+    case "trailing-7d":
+      return "10";
+    case "season":
+      return "25";
+  }
+}
 
 // A leaderboard is one METRIC ranked by an AGGREGATION within a SCOPE. Every
 // rankable thing — counted events, accumulated stats, plain activity counts —
@@ -148,7 +165,7 @@ const statOptions: Array<{
     label: "Ball advance",
     category: "possession",
     unit: "uu",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Distance the player advanced the ball during possessions.",
   },
   {
@@ -172,7 +189,7 @@ const statOptions: Array<{
     label: "High aerial touches",
     category: "mechanic",
     unit: "count",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Touches classified as high aerial contacts.",
   },
   {
@@ -180,7 +197,7 @@ const statOptions: Array<{
     label: "Control touches",
     category: "possession",
     unit: "count",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Touches classified as controlled contacts.",
   },
   {
@@ -188,7 +205,7 @@ const statOptions: Array<{
     label: "Big boost pad count",
     category: "boost",
     unit: "count",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Big boost pads collected by the player.",
   },
   {
@@ -196,7 +213,7 @@ const statOptions: Array<{
     label: "Small boost pad count",
     category: "boost",
     unit: "count",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Small boost pads collected by the player.",
   },
   {
@@ -204,7 +221,7 @@ const statOptions: Array<{
     label: "Boost from big pads",
     category: "boost",
     unit: "boost",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Boost amount collected from big pads.",
   },
   {
@@ -212,7 +229,7 @@ const statOptions: Array<{
     label: "Boost from small pads",
     category: "boost",
     unit: "boost",
-    aggregations: ["total", "per-game", "per-minute"],
+    aggregations: STAT_AGGREGATIONS,
     description: "Boost amount collected from small pads.",
   },
 ];
@@ -248,16 +265,18 @@ function defaultAggregation(metric: CatalogMetric): Aggregation | null {
 // Build the full metric catalog: static activity + stat metrics, plus one entry
 // per countable event type from the live registry.
 function buildCatalog(eventTypes: EventTypeResponse[]): CatalogMetric[] {
-  const statMetrics: CatalogMetric[] = statOptions.map((option) => ({
-    id: `stat:${option.value}`,
-    kind: "stat",
-    label: option.label,
-    category: option.category,
-    param: option.value,
-    unit: option.unit,
-    aggregations: option.aggregations,
-    description: option.description,
-  }));
+  const statMetrics: CatalogMetric[] = statOptions
+    .filter((option) => !isAverageStat(option.value))
+    .map((option) => ({
+      id: `stat:${option.value}`,
+      kind: "stat",
+      label: option.label,
+      category: option.category,
+      param: option.value,
+      unit: option.unit,
+      aggregations: option.aggregations,
+      description: option.description,
+    }));
   const eventMetrics: CatalogMetric[] = eventTypes.map((eventType) => ({
     id: `event:${eventType.key}`,
     kind: "event",
@@ -307,14 +326,6 @@ function resolveBoard(id: string, catalog: CatalogMetric[]): CatalogMetric | nul
 }
 function formatRate(value: number | null): string {
   return value == null ? "-" : value.toLocaleString(undefined, { maximumFractionDigits: 2 });
-}
-
-function formatPercent(value: number | null): string {
-  if (value == null || !Number.isFinite(value)) return "-";
-  return value.toLocaleString(undefined, {
-    maximumFractionDigits: 1,
-    style: "percent",
-  });
 }
 
 function formatDurationCompact(value: number | null): string {
@@ -405,19 +416,7 @@ const playlistOptions = [
   { value: "tournament", label: "Tournament" },
 ];
 
-const seasonOptions = buildSeasonOptions("Any season", { newestFirst: true });
-
-function dateInputFromParam(value: string | null): string {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
-}
-
-function replayDateParam(value: string, edge: "start" | "end"): string {
-  const suffix = edge === "start" ? "T00:00:00" : "T23:59:59.999";
-  return new Date(`${value}${suffix}`).toISOString();
-}
+const seasonOptions = buildSeasonOptions("Current season", { newestFirst: true });
 
 // Read the selected board id, migrating the legacy metric/event-type/stat params
 // so old links and bookmarks still resolve.
@@ -688,7 +687,6 @@ function EventLeaderboard({
               <th>Rank</th>
               <th>Total</th>
               <th>Games</th>
-              <th>Per game</th>
               <th>{rateColumnLabel}</th>
             </tr>
           </thead>
@@ -716,7 +714,6 @@ function EventLeaderboard({
                   </td>
                   <td>{row.event_count.toLocaleString()}</td>
                   <td>{row.replay_count.toLocaleString()}</td>
-                  <td>{formatRate(row.count_per_game)}</td>
                   <td>{formatRate(perRateWindow(row.per_active_minute, rateWindowMinutes))}</td>
                 </tr>
               );
@@ -750,7 +747,6 @@ function StatLeaderboard({
     useLeaderboard<StatLeaderboardRow>(getStatLeaderboard, filterKey);
   const rateColumnLabel = rateWindowMinutes === 1 ? "Per min" : `Per ${rateWindowMinutes} min`;
   const averageStat = isAverageStat(statKey);
-  const showShare = unit === "seconds" && !averageStat;
 
   if (loading) return <div className="stat-empty">Loading leaderboard…</div>;
   if (error) return <div className="stat-empty">Failed to load leaderboard: {error}</div>;
@@ -810,9 +806,7 @@ function StatLeaderboard({
                 <th>Player</th>
                 <th>Rank</th>
                 <th>Total</th>
-                {showShare ? <th>Share</th> : null}
                 <th>Games</th>
-                <th>Per game</th>
                 <th>{rateColumnLabel}</th>
               </tr>
             </thead>
@@ -839,9 +833,7 @@ function StatLeaderboard({
                       />
                     </td>
                     <td>{formatStatValue(row.value, unit)}</td>
-                    {showShare ? <td>{formatPercent(row.share_of_active_time)}</td> : null}
                     <td>{row.replay_count.toLocaleString()}</td>
-                    <td>{formatStatValue(row.value_per_game, unit)}</td>
                     <td>{perStatWindow(row.value_per_active_minute, rateWindowMinutes, unit)}</td>
                   </tr>
                 );
@@ -1072,9 +1064,10 @@ export function LeaderboardsPage() {
   const gameType = params.get("game-type") ?? "";
   const playlist = params.get("playlist") ?? "";
   const season = params.get("season") ?? "";
-  const replayDateAfter = dateInputFromParam(params.get("replay-date-after"));
-  const replayDateBefore = dateInputFromParam(params.get("replay-date-before"));
-  const minGames = params.get("min-games") ?? DEFAULT_MIN_GAMES;
+  const windowParam = params.get("window");
+  const window: LeaderboardWindow =
+    windowParam === "daily" || windowParam === "season" ? windowParam : "trailing-7d";
+  const minGames = params.get("min-games") ?? defaultMinGames(window);
 
   const selectedEventType =
     metric.kind === "event" ? eventTypes.find((option) => option.key === metric.param) : undefined;
@@ -1087,27 +1080,14 @@ export function LeaderboardsPage() {
       : metric.aggregations.includes(sortParam as Aggregation)
         ? (sortParam as Aggregation)
         : defaultAggregation(metric);
-  const showMinGames = metric.kind === "event" || metric.kind === "stat";
+  const showMinGames =
+    activeSort === "per-minute" && (metric.kind === "event" || metric.kind === "stat");
 
   const setParam = useCallback(
     (key: string, value: string) => {
       const next = new URLSearchParams(location.search);
       if (value) {
         next.set(key, value);
-      } else {
-        next.delete(key);
-      }
-      const query = next.toString();
-      navigate(query ? `${location.pathname}?${query}` : location.pathname, { replace: true });
-    },
-    [location.pathname, location.search, navigate],
-  );
-
-  const setReplayDateParam = useCallback(
-    (key: "replay-date-after" | "replay-date-before", value: string, edge: "start" | "end") => {
-      const next = new URLSearchParams(location.search);
-      if (value) {
-        next.set(key, replayDateParam(value, edge));
       } else {
         next.delete(key);
       }
@@ -1141,44 +1121,45 @@ export function LeaderboardsPage() {
   // own metric param, ranking, and min-games threshold on top.
   const replayFilterKey = useMemo(() => {
     const filters = new URLSearchParams();
+    filters.set("window", window);
     if (teamSize) filters.set("team-size", teamSize);
     if (gameType) filters.set("game-type", gameType);
     if (playlist) filters.set("playlist", playlist);
-    if (season) {
+    if (window === "season" && season) {
       filters.set("season", season);
-      // Production leaderboards already support season ranges. Keep the exact
-      // `season` param for replay-list links, and encode the same choice as a
-      // one-season range for leaderboard API reads.
-      filters.set("min-season", season);
-      filters.set("max-season", season);
     }
-    const rawReplayDateAfter = params.get("replay-date-after");
-    const rawReplayDateBefore = params.get("replay-date-before");
-    if (rawReplayDateAfter) filters.set("replay-date-after", rawReplayDateAfter);
-    if (rawReplayDateBefore) filters.set("replay-date-before", rawReplayDateBefore);
     return filters.toString();
-  }, [gameType, params, playlist, season, teamSize]);
+  }, [gameType, playlist, season, teamSize, window]);
 
   const boardFilterKey = useMemo(() => {
     const filters = new URLSearchParams(replayFilterKey);
     if (metric.kind === "event") {
       if (metric.param) filters.set("event-type", metric.param);
       if (activeSort && activeSort !== "total") filters.set("sort", activeSort);
-      if (minGames) filters.set("min-games", minGames);
+      if (activeSort === "per-minute" && minGames) filters.set("min-games", minGames);
     } else if (metric.kind === "stat") {
       if (metric.param) filters.set("stat", metric.param);
       if (activeSort) filters.set("sort", activeSort);
-      if (minGames) filters.set("min-games", minGames);
+      if (activeSort === "per-minute" && minGames) filters.set("min-games", minGames);
     }
     return filters.toString();
   }, [activeSort, metric.kind, metric.param, minGames, replayFilterKey]);
 
   const replayBrowseFilterKey = useMemo(() => {
     const filters = new URLSearchParams(replayFilterKey);
-    filters.delete("min-season");
-    filters.delete("max-season");
+    filters.delete("window");
+    if (window === "daily") {
+      const start = new Date();
+      start.setUTCHours(0, 0, 0, 0);
+      filters.set("replay-date-after", start.toISOString());
+    } else if (window === "trailing-7d") {
+      filters.set(
+        "replay-date-after",
+        new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      );
+    }
     return filters.toString();
-  }, [replayFilterKey]);
+  }, [replayFilterKey, window]);
 
   return (
     <section className="page leaderboards-page">
@@ -1192,6 +1173,13 @@ export function LeaderboardsPage() {
       <MetricCatalog catalog={catalog} selectedId={metric.id} onSelect={selectBoard} />
 
       <div className="player-segment-bar leaderboard-scope-bar">
+        <SegmentNav
+          ariaLabel="Leaderboard window"
+          label="Window"
+          current={window}
+          options={windowOptions}
+          onSelect={(value) => setParam("window", value)}
+        />
         <SegmentNav
           ariaLabel="Mode segment"
           label="Mode"
@@ -1219,46 +1207,28 @@ export function LeaderboardsPage() {
             ))}
           </select>
         </label>
-        <label className="leaderboard-playlist-filter">
-          <span className="segment-bar-label">Season</span>
-          <select
-            value={season}
-            onChange={(event) => setParam("season", event.currentTarget.value)}
-          >
-            {seasonOptions.map((option) => (
-              <option key={option.value || "all"} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="leaderboard-playlist-filter">
-          <span className="segment-bar-label">From date</span>
-          <input
-            type="date"
-            value={replayDateAfter}
-            onChange={(event) =>
-              setReplayDateParam("replay-date-after", event.currentTarget.value, "start")
-            }
-          />
-        </label>
-        <label className="leaderboard-playlist-filter">
-          <span className="segment-bar-label">To date</span>
-          <input
-            type="date"
-            value={replayDateBefore}
-            onChange={(event) =>
-              setReplayDateParam("replay-date-before", event.currentTarget.value, "end")
-            }
-          />
-        </label>
+        {window === "season" ? (
+          <label className="leaderboard-playlist-filter">
+            <span className="segment-bar-label">Season</span>
+            <select
+              value={season}
+              onChange={(event) => setParam("season", event.currentTarget.value)}
+            >
+              {seasonOptions.map((option) => (
+                <option key={option.value || "current"} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         {showMinGames ? (
           <label className="leaderboard-playlist-filter">
             <span className="segment-bar-label">Min games</span>
             <input
               type="number"
               min="1"
-              placeholder={DEFAULT_MIN_GAMES}
+              placeholder={defaultMinGames(window)}
               value={minGames}
               onChange={(event) => setParam("min-games", event.currentTarget.value)}
             />

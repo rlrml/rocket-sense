@@ -7,6 +7,7 @@ mod app;
 mod auth;
 mod ballchasing;
 mod ballchasing_sync;
+mod leaderboard_cache;
 mod processing;
 mod rank_benchmark;
 mod ranks;
