@@ -117,7 +117,7 @@ fn appearances_rank_query_omits_replays_join_when_incomplete_games_are_explicitl
         count: 50,
         offset: 0,
     };
-    let sql = appearances_rank_query(&filters, &paging).into_sql();
+    let sql = appearances_rank_query(&filters, None, &paging).into_sql();
 
     assert!(sql.contains("FROM replay_players rp WHERE"));
     assert!(!sql.contains("JOIN replays"));
