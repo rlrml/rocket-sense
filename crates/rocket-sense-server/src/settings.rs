@@ -124,6 +124,12 @@ pub struct Settings {
     /// `play_event_subjects`/`play_events` scan. Default false so the page stays
     /// correct until the reprocess backfill has populated the table.
     pub materialized_stat_counts: bool,
+    /// Enables the disposable player/window leaderboard read-model refresh.
+    /// Canonical replay facts remain authoritative; this cache is expected to
+    /// be deleted and fully rebuilt frequently.
+    pub leaderboard_cache_enabled: bool,
+    /// Cadence for full leaderboard cache rebuilds. Defaults to ten minutes.
+    pub leaderboard_cache_refresh_interval: Duration,
     /// Gates the rank-median benchmark cohort: the recurring refresh job, the
     /// admin trigger, and the `rank_benchmark_*` read-path fields. Default false
     /// until the first refresh has populated `rank_benchmark_stats`.
@@ -206,6 +212,16 @@ impl Settings {
         let materialized_stat_counts = env::var("ROCKET_SENSE_MATERIALIZED_STAT_COUNTS")
             .map(|value| value == "1" || value.to_lowercase() == "true")
             .unwrap_or(true);
+        let leaderboard_cache_enabled = env::var("ROCKET_SENSE_LEADERBOARD_CACHE")
+            .map(|value| value != "0" && value.to_lowercase() != "false")
+            .unwrap_or(true);
+        let leaderboard_cache_refresh_interval = Duration::from_secs(
+            env::var("ROCKET_SENSE_LEADERBOARD_CACHE_REFRESH_SECS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(10 * 60)
+                .max(60),
+        );
         let rank_benchmark_enabled = env::var("ROCKET_SENSE_RANK_BENCHMARK")
             .map(|value| value == "1" || value.to_lowercase() == "true")
             .unwrap_or(false);
@@ -248,6 +264,8 @@ impl Settings {
             run_replay_processing_workers,
             background_processing_concurrency,
             materialized_stat_counts,
+            leaderboard_cache_enabled,
+            leaderboard_cache_refresh_interval,
             rank_benchmark_enabled,
             rank_benchmark_windows,
             rank_benchmark_default_window,
