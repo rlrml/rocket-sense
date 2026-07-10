@@ -1,6 +1,6 @@
 import { ExternalLink } from "lucide-react";
 import { lazy, Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
 import { eventCaseExportUrl, subtrActorPlayerUrl } from "../playerLink";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
@@ -13,6 +13,7 @@ import {
   useEventPreviewSelection,
 } from "./eventPreview";
 import { StatPlayerLabel, statPlayerRank } from "./shared";
+import { CopyPlayLink } from "./PlayLink";
 import { isIgnoredGoalTag } from "./goalTagFilters";
 
 export const goalEventTypes = ["goal_context"];
@@ -93,6 +94,7 @@ export function buildGoalClip(goal: GoalRow, replayNonce: number): EventClip | n
 }
 
 export function GoalsDetail({ events, players, replayId, scope = "replay" }: GoalsDetailProps) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const goals = useMemo(() => buildGoalRows(events), [events]);
   const goalKey = useCallback((goal: GoalRow) => goal.event.id, []);
   const buildClip = useCallback(buildGoalClip, []);
@@ -109,7 +111,18 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
     activeKey: activeId,
     clip,
     activateItem: activateGoal,
-  } = useEventPreviewSelection(goals, goalKey, buildClip);
+  } = useEventPreviewSelection(goals, goalKey, buildClip, searchParams.get("event"));
+
+  const selectGoal = useCallback(
+    (goal: GoalRow, force: boolean) => {
+      activateGoal(goal, force);
+      if (!force || searchParams.get("event") === goal.event.id) return;
+      const next = new URLSearchParams(searchParams);
+      next.set("event", goal.event.id);
+      setSearchParams(next, { replace: true });
+    },
+    [activateGoal, searchParams, setSearchParams],
+  );
 
   if (scope === "group") {
     return <GroupGoalsDetail goals={goals} players={players} />;
@@ -131,7 +144,7 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
                   key={goal.event.id}
                   goal={goal}
                   active={goal.event.id === activeId}
-                  onActivate={(force) => activateGoal(goal, force)}
+                  onActivate={(force) => selectGoal(goal, force)}
                   typeHref={goalTypeHref}
                   replayId={replayId}
                 />
@@ -162,6 +175,7 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
                 }
                 openHref={subtrActorPlayerUrl(replayId)}
                 exportHref={activeGoal ? eventCaseExportUrl(activeGoal.event.id) : undefined}
+                eventId={activeGoal?.event.id}
                 showDebug={false}
               />
             </Suspense>
@@ -371,6 +385,12 @@ export function GoalCard({
           </div>
           <div className="goal-card-header-right">
             <strong>{formatSeconds(goal.time)}</strong>
+            <CopyPlayLink
+              eventId={goal.event.id}
+              className="goal-card-play-link"
+              size={14}
+              stopPropagation
+            />
             {gameHref ? (
               // The card itself is a <button>, so this can't be a real link;
               // route imperatively instead and keep the card's hover/click intact.

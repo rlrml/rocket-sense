@@ -8,7 +8,7 @@ import {
   type ReplayFreeCameraPreset,
   type ReplayPlayer,
 } from "@rlrml/player";
-import { Check, ExternalLink, Link2 } from "lucide-react";
+import { ExternalLink } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   contactCaptureMoment,
@@ -16,6 +16,7 @@ import {
   setFreeCameraPresetInstant,
 } from "./contactCamera";
 import { PLAYER_ASSET_BASE } from "./playerAssets";
+import { CopyPlayLink } from "./PlayLink";
 import { preloadReplay, preloadReplayModel } from "./replayModel";
 
 // Re-exported for existing importers; the loader itself now lives in replayModel.ts
@@ -119,11 +120,12 @@ interface EventClipPreviewProps {
   openHref: string;
   openTitle?: string;
   /**
-   * Machine-readable subtr-actor case export URL for the event currently shown.
-   * When set, a copy button appears in the pip bar so the export link can be
-   * handed to subtr-actor for writing/correcting a test against the clip.
+   * Machine-readable play export URL for the event currently shown. Retained
+   * for callers that already construct the URL themselves.
    */
   exportHref?: string;
+  /** Event id for the canonical machine-readable play link. */
+  eventId?: string;
   showDebug?: boolean;
 }
 
@@ -134,6 +136,7 @@ export function EventClipPreview({
   openHref,
   openTitle = "Open full player",
   exportHref,
+  eventId,
   showDebug = false,
 }: EventClipPreviewProps) {
   return (
@@ -141,7 +144,7 @@ export function EventClipPreview({
       <div className="event-preview-pip-bar">
         <span className="event-preview-pip-label">{label}</span>
         <div className="event-preview-pip-actions">
-          {exportHref ? <CopyExportLinkButton href={exportHref} /> : null}
+          {eventId || exportHref ? <CopyPlayLink eventId={eventId} href={exportHref} /> : null}
           <a className="event-preview-pip-open" href={openHref} title={openTitle}>
             <ExternalLink size={13} />
           </a>
@@ -149,43 +152,6 @@ export function EventClipPreview({
       </div>
       <EventClipPlayer replayId={replayId} clip={clip} showDebug={showDebug} />
     </aside>
-  );
-}
-
-/**
- * Copy the clip's subtr-actor case export link. Left-click copies the absolute
- * URL; the anchor still supports open-in-new-tab / right-click "copy link" for
- * anyone who wants the raw JSON directly.
- */
-function CopyExportLinkButton({ href }: { href: string }) {
-  const [copied, setCopied] = useState(false);
-  const absolute = (() => {
-    try {
-      return new URL(href, window.location.origin).toString();
-    } catch {
-      return href;
-    }
-  })();
-  return (
-    <a
-      className="event-preview-pip-open"
-      href={href}
-      title={copied ? "Export link copied" : "Copy subtr-actor export link"}
-      onClick={(event) => {
-        // Plain click copies; modified clicks (new tab, etc.) fall through to
-        // the browser so the export JSON can still be opened directly.
-        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-          return;
-        }
-        event.preventDefault();
-        void navigator.clipboard?.writeText(absolute).then(() => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1500);
-        });
-      }}
-    >
-      {copied ? <Check size={13} /> : <Link2 size={13} />}
-    </a>
   );
 }
 

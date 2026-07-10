@@ -13,12 +13,17 @@ export function useEventPreviewSelection<TItem>(
   items: readonly TItem[],
   getItemKey: (item: TItem) => string,
   buildClip: (item: TItem, replayNonce: number) => EventClip | null,
+  preferredKey?: string | null,
 ): EventPreviewSelection<TItem> {
   const [activeItem, setActiveItem] = useState<TItem | null>(null);
   const [replayNonce, setReplayNonce] = useState(0);
 
   useEffect(() => {
     setActiveItem((current) => {
+      if (preferredKey) {
+        const preferredItem = items.find((item) => getItemKey(item) === preferredKey);
+        if (preferredItem) return preferredItem;
+      }
       if (current) {
         const currentKey = getItemKey(current);
         const refreshedItem = items.find((item) => getItemKey(item) === currentKey);
@@ -28,7 +33,7 @@ export function useEventPreviewSelection<TItem>(
       }
       return items[0] ?? null;
     });
-  }, [getItemKey, items]);
+  }, [getItemKey, items, preferredKey]);
 
   const activateItem = (item: TItem, forceReplay: boolean) => {
     setActiveItem(item);

@@ -1744,7 +1744,11 @@ async fn build_subtr_actor_case(
                 'fileUrl', $2 || '/api/v1/replays/' || replay.id::text || '/file',
                 'rocketSenseUrl', CASE
                     WHEN $2 = '' THEN NULL
-                    ELSE $2 || '/replays/' || replay.id::text
+                    ELSE $2 || '/replays/' || replay.id::text || '/stats/' ||
+                        CASE event_type.key
+                            WHEN 'goal_context' THEN 'goals'
+                            ELSE 'mechanics'
+                        END || '?event=' || event.id::text
                 END
             )),
             'subject', CASE

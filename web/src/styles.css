@@ -7962,6 +7962,27 @@ tbody tr:last-child td {
     color 0.12s ease;
 }
 
+.goal-card-play-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #334155;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    color 0.12s ease;
+}
+
+.goal-card-play-link:hover,
+.goal-card-play-link:focus-visible {
+  background: #2563eb;
+  color: #fff;
+}
+
 .goal-card-game-link:hover,
 .goal-card-game-link:focus-visible {
   background: #2563eb;
