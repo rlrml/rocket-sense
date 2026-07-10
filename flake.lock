@@ -313,10 +313,10 @@
         "uv2nix": "uv2nix"
       },
       "locked": {
-        "lastModified": 1783658406,
-        "narHash": "sha256-v1JnCRa1wui53ygaFi2QWDqCebifG5wtXUVbzga+xLg=",
-        "rev": "44c28a347dc390fa4e49b91d60055112d764d02c",
-        "revCount": 1887,
+        "lastModified": 1783661051,
+        "narHash": "sha256-Wmxz2r8xf66XNUrx/L7a05M7J+8HcoH3o7ASuwsaywM=",
+        "rev": "e1e51d7ba44d6c57f8f5947dbc41639230ab0043",
+        "revCount": 1888,
         "type": "git",
         "url": "file:./vendor/subtr-actor"
       },
