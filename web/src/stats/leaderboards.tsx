@@ -417,6 +417,7 @@ const playlistOptions = [
 ];
 
 const seasonOptions = buildSeasonOptions("Current season", { newestFirst: true });
+const DEFAULT_GAME_TYPE = "ranked";
 
 // Read the selected board id, migrating the legacy metric/event-type/stat params
 // so old links and bookmarks still resolve.
@@ -1061,12 +1062,12 @@ export function LeaderboardsPage() {
   );
 
   const teamSize = params.get("team-size") ?? "";
-  const gameType = params.get("game-type") ?? "";
+  const gameType = params.has("game-type") ? (params.get("game-type") ?? "") : DEFAULT_GAME_TYPE;
   const playlist = params.get("playlist") ?? "";
   const season = params.get("season") ?? "";
   const windowParam = params.get("window");
   const window: LeaderboardWindow =
-    windowParam === "daily" || windowParam === "season" ? windowParam : "trailing-7d";
+    windowParam === "daily" || windowParam === "trailing-7d" ? windowParam : "season";
   const minGames = params.get("min-games") ?? defaultMinGames(window);
 
   const selectedEventType =
@@ -1088,6 +1089,10 @@ export function LeaderboardsPage() {
       const next = new URLSearchParams(location.search);
       if (value) {
         next.set(key, value);
+      } else if (key === "game-type") {
+        // Keep an explicit empty scope in the URL so choosing "Any" overrides
+        // the ranked default used for a missing parameter.
+        next.set(key, "");
       } else {
         next.delete(key);
       }
