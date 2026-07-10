@@ -22,6 +22,7 @@ mod tests;
 
 const DEFAULT_LIMIT: u32 = 50;
 const MAX_LIMIT: u32 = 200;
+const ALL_SCOPE: &str = "*";
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -40,6 +41,222 @@ pub fn router() -> Router<AppState> {
 struct LeaderboardPaging {
     count: u32,
     offset: u32,
+}
+
+/// Standard windows backed by disposable player/window aggregates. The cache
+/// is only a read model: live replay/fact queries remain the correctness
+/// fallback and the cache is expected to be fully rebuilt often.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeaderboardWindow {
+    Daily,
+    TrailingSevenDays,
+    Season,
+}
+
+impl LeaderboardWindow {
+    fn from_params(params: &QueryParams) -> Result<Option<Self>, ApiError> {
+        match params
+            .first(&["window"])
+            .map(|value| value.trim().to_ascii_lowercase())
+            .as_deref()
+        {
+            None | Some("") => Ok(None),
+            Some("daily") | Some("day") => Ok(Some(Self::Daily)),
+            Some("trailing-7d") | Some("trailing_7d") | Some("7d") => {
+                Ok(Some(Self::TrailingSevenDays))
+            }
+            Some("season") => Ok(Some(Self::Season)),
+            Some(_) => Err(ApiError::bad_request(
+                "window must be one of: daily, trailing-7d, season",
+            )),
+        }
+    }
+
+    fn kind(self) -> &'static str {
+        match self {
+            Self::Daily => "daily",
+            Self::TrailingSevenDays => "trailing-7d",
+            Self::Season => "season",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct CachedLeaderboardScope {
+    window: LeaderboardWindow,
+    season: Option<String>,
+    game_type: String,
+    team_size: i16,
+    playlist: String,
+}
+
+impl CachedLeaderboardScope {
+    fn from_filters(window: Option<LeaderboardWindow>, filters: &ReplaySetFilters) -> Option<Self> {
+        let window = window?;
+        let only_standard_dimensions = filters.search_pattern.is_none()
+            && filters.player_name_patterns.is_empty()
+            && filters.replay_ids.is_empty()
+            && filters.file_sha256s.is_empty()
+            && filters.group_id.is_none()
+            && filters.project_id.is_none()
+            && filters.maps.is_empty()
+            && filters.pro.is_none()
+            && filters.uploader_user_id.is_none()
+            && filters.status.is_none()
+            && filters.created_after.is_none()
+            && filters.created_before.is_none()
+            && filters.replay_date_after.is_none()
+            && filters.replay_date_before.is_none()
+            && filters.min_rank_tier.is_none()
+            && filters.max_rank_tier.is_none()
+            && filters.rank_scope_player.is_none()
+            && filters.min_season_ord.is_none()
+            && filters.max_season_ord.is_none()
+            && filters.playlist_group_key.is_none()
+            && filters.player_outcome.is_none()
+            && filters.playlists.len() <= 1
+            && filters.game_types.len() <= 1
+            && filters.team_sizes.len() <= 1
+            && filters.seasons.len() <= 1
+            // The cache reflects the default aggregate-included population, so it
+            // cannot serve an explicit include-incomplete-games request.
+            && !filters.include_incomplete_games;
+        if !only_standard_dimensions {
+            return None;
+        }
+        if window != LeaderboardWindow::Season && !filters.seasons.is_empty() {
+            return None;
+        }
+
+        Some(Self {
+            window,
+            season: filters.seasons.first().cloned(),
+            game_type: filters
+                .game_types
+                .first()
+                .cloned()
+                .unwrap_or_else(|| ALL_SCOPE.to_owned()),
+            team_size: filters
+                .team_sizes
+                .first()
+                .copied()
+                .and_then(|value| i16::try_from(value).ok())
+                .unwrap_or(0),
+            playlist: filters
+                .playlists
+                .first()
+                .cloned()
+                .unwrap_or_else(|| ALL_SCOPE.to_owned()),
+        })
+    }
+}
+
+fn push_live_window_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    window: Option<LeaderboardWindow>,
+    filters: &'args ReplaySetFilters,
+    replay_alias: &str,
+) {
+    let Some(window) = window else {
+        return;
+    };
+    match window {
+        LeaderboardWindow::Daily => {
+            builder.push(" AND COALESCE(");
+            builder.push(replay_alias);
+            builder.push(".replay_date, ");
+            builder.push(replay_alias);
+            builder.push(
+                ".created_at) >= date_trunc('day', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'",
+            );
+        }
+        LeaderboardWindow::TrailingSevenDays => {
+            builder.push(" AND COALESCE(");
+            builder.push(replay_alias);
+            builder.push(".replay_date, ");
+            builder.push(replay_alias);
+            builder.push(".created_at) >= now() - interval '7 days'");
+        }
+        LeaderboardWindow::Season if filters.seasons.is_empty() => {
+            builder.push(" AND lower(btrim(");
+            builder.push(replay_alias);
+            builder.push(
+                ".season)) = (SELECT lower(btrim(current_replay.season)) \
+                 FROM replays current_replay \
+                 WHERE current_replay.season IS NOT NULL \
+                   AND btrim(current_replay.season) <> '' \
+                   AND current_replay.canonical_analysis_run_id IS NOT NULL \
+                 ORDER BY COALESCE(current_replay.replay_date, current_replay.created_at) DESC \
+                 LIMIT 1)",
+            );
+        }
+        LeaderboardWindow::Season => {}
+    }
+}
+
+async fn cache_scope_available(
+    pool: &sqlx::PgPool,
+    scope: &CachedLeaderboardScope,
+) -> Result<bool, sqlx::Error> {
+    let available = match scope.window {
+        LeaderboardWindow::Daily => {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM leaderboard_cache_windows WHERE window_key = 'daily')",
+            )
+            .fetch_one(pool)
+            .await?
+        }
+        LeaderboardWindow::TrailingSevenDays => {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (SELECT 1 FROM leaderboard_cache_windows WHERE window_key = 'trailing-7d')",
+            )
+            .fetch_one(pool)
+            .await?
+        }
+        LeaderboardWindow::Season => {
+            sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS (\
+                 SELECT 1 FROM leaderboard_cache_windows \
+                 WHERE window_kind = 'season' \
+                   AND (($1::text IS NULL AND is_current) OR season = $1))",
+            )
+            .bind(scope.season.as_deref())
+            .fetch_one(pool)
+            .await?
+        }
+    };
+    Ok(available)
+}
+
+fn push_cached_scope_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    scope: &'args CachedLeaderboardScope,
+    row_alias: &str,
+) {
+    builder.push(" JOIN leaderboard_cache_windows cache_window ON cache_window.window_key = ");
+    builder.push(row_alias);
+    builder.push(".window_key WHERE cache_window.window_kind = ");
+    builder.push_bind(scope.window.kind());
+    if scope.window == LeaderboardWindow::Season {
+        if let Some(season) = &scope.season {
+            builder.push(" AND cache_window.season = ");
+            builder.push_bind(season);
+        } else {
+            builder.push(" AND cache_window.is_current");
+        }
+    }
+    builder.push(" AND ");
+    builder.push(row_alias);
+    builder.push(".scope_game_type = ");
+    builder.push_bind(&scope.game_type);
+    builder.push(" AND ");
+    builder.push(row_alias);
+    builder.push(".scope_team_size = ");
+    builder.push_bind(scope.team_size);
+    builder.push(" AND ");
+    builder.push(row_alias);
+    builder.push(".scope_playlist = ");
+    builder.push_bind(&scope.playlist);
 }
 
 impl LeaderboardPaging {
@@ -67,12 +284,20 @@ impl LeaderboardPaging {
 fn parse_filters(
     raw_query: Option<&str>,
     auth_user_id: Option<Uuid>,
-) -> Result<(ReplaySetFilters, LeaderboardPaging), ApiError> {
+) -> Result<
+    (
+        ReplaySetFilters,
+        LeaderboardPaging,
+        Option<LeaderboardWindow>,
+    ),
+    ApiError,
+> {
     let params = QueryParams::from_raw(raw_query);
     let paging = LeaderboardPaging::from_params(&params)?;
+    let window = LeaderboardWindow::from_params(&params)?;
     let input = ReplaySetFilterInput::from_query_params(&params)?;
     let filters = ReplaySetFilters::from_input(input, auth_user_id)?;
-    Ok((filters, paging))
+    Ok((filters, paging, window))
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -119,6 +344,7 @@ pub struct AppearancesLeaderboardRowResponse {
     path = "/api/v1/leaderboards/uploads",
     tag = "leaderboards",
     params(
+        ("window" = Option<String>, Query, description = "Standard cached window: daily, trailing-7d, or season"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter (ranked, casual, tournament, ...)"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
@@ -140,11 +366,12 @@ pub async fn get_uploads_leaderboard(
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<UploadsLeaderboardResponse>, ApiError> {
     let db = require_db(&state)?;
-    let (filters, paging) = parse_filters(raw_query.as_deref(), auth_user.as_ref().map(|u| u.id))?;
+    let (filters, paging, window) =
+        parse_filters(raw_query.as_deref(), auth_user.as_ref().map(|u| u.id))?;
 
     let (total, rows) = tokio::try_join!(
-        load_uploads_total(db, &filters),
-        load_uploads_rows(db, &filters, &paging),
+        load_uploads_total(db, &filters, window),
+        load_uploads_rows(db, &filters, window, &paging),
     )
     .map_err(ApiError::internal)?;
 
@@ -163,6 +390,7 @@ pub async fn get_uploads_leaderboard(
     path = "/api/v1/leaderboards/appearances",
     tag = "leaderboards",
     params(
+        ("window" = Option<String>, Query, description = "Standard cached window: daily, trailing-7d, or season"),
         ("game-type" = Option<Vec<String>>, Query, description = "Competitive context filter (ranked, casual, tournament, ...)"),
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
@@ -184,11 +412,21 @@ pub async fn get_appearances_leaderboard(
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<AppearancesLeaderboardResponse>, ApiError> {
     let db = require_db(&state)?;
-    let (filters, paging) = parse_filters(raw_query.as_deref(), auth_user.as_ref().map(|u| u.id))?;
+    let (filters, paging, window) =
+        parse_filters(raw_query.as_deref(), auth_user.as_ref().map(|u| u.id))?;
+    let mut cached_scope = CachedLeaderboardScope::from_filters(window, &filters);
+    if let Some(scope) = &cached_scope {
+        if !cache_scope_available(db, scope)
+            .await
+            .map_err(ApiError::internal)?
+        {
+            cached_scope = None;
+        }
+    }
 
     let (total, rows) = tokio::try_join!(
-        load_appearances_total(db, &filters),
-        load_appearances_rows(db, &filters, &paging),
+        load_appearances_total(db, &filters, window, cached_scope.as_ref()),
+        load_appearances_rows(db, &filters, window, cached_scope.as_ref(), &paging),
     )
     .map_err(ApiError::internal)?;
 
@@ -205,8 +443,9 @@ pub async fn get_appearances_leaderboard(
 async fn load_uploads_total(
     pool: &sqlx::PgPool,
     filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
 ) -> Result<u64, sqlx::Error> {
-    let total: i64 = uploads_total_query(filters)
+    let total: i64 = uploads_total_query(filters, window)
         .build()
         .fetch_one(pool)
         .await?
@@ -217,9 +456,10 @@ async fn load_uploads_total(
 async fn load_uploads_rows(
     pool: &sqlx::PgPool,
     filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
     paging: &LeaderboardPaging,
 ) -> Result<Vec<UploadsLeaderboardRowResponse>, sqlx::Error> {
-    let rows = uploads_rows_query(filters, paging)
+    let rows = uploads_rows_query(filters, window, paging)
         .build()
         .fetch_all(pool)
         .await?;
@@ -238,17 +478,22 @@ async fn load_uploads_rows(
         .collect::<Result<Vec<_>, sqlx::Error>>()
 }
 
-fn uploads_total_query(filters: &ReplaySetFilters) -> QueryBuilder<'_, Postgres> {
+fn uploads_total_query(
+    filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
+) -> QueryBuilder<'_, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT COUNT(DISTINCT r.uploaded_by_user_id) AS total FROM replays r \
          WHERE r.uploaded_by_user_id IS NOT NULL",
     );
     append_replay_set_filters(&mut builder, filters, "r");
+    push_live_window_filter(&mut builder, window, filters, "r");
     builder
 }
 
 fn uploads_rows_query<'args>(
     filters: &'args ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
     paging: &LeaderboardPaging,
 ) -> QueryBuilder<'args, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new(
@@ -258,6 +503,7 @@ fn uploads_rows_query<'args>(
          WHERE r.uploaded_by_user_id IS NOT NULL",
     );
     append_replay_set_filters(&mut builder, filters, "r");
+    push_live_window_filter(&mut builder, window, filters, "r");
     builder.push(
         " GROUP BY r.uploaded_by_user_id, u.display_name \
          ORDER BY upload_count DESC, u.display_name ASC NULLS LAST, r.uploaded_by_user_id \
@@ -272,24 +518,34 @@ fn uploads_rows_query<'args>(
 async fn load_appearances_total(
     pool: &sqlx::PgPool,
     filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
+    cached_scope: Option<&CachedLeaderboardScope>,
 ) -> Result<u64, sqlx::Error> {
-    let total: i64 = appearances_total_query(filters)
-        .build()
-        .fetch_one(pool)
-        .await?
-        .try_get("total")?;
+    let total: i64 = match cached_scope {
+        Some(scope) => cached_appearances_total_query(scope),
+        None => appearances_total_query(filters, window),
+    }
+    .build()
+    .fetch_one(pool)
+    .await?
+    .try_get("total")?;
     Ok(total.max(0) as u64)
 }
 
 async fn load_appearances_rows(
     pool: &sqlx::PgPool,
     filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
+    cached_scope: Option<&CachedLeaderboardScope>,
     paging: &LeaderboardPaging,
 ) -> Result<Vec<AppearancesLeaderboardRowResponse>, sqlx::Error> {
-    let rows = appearances_rank_query(filters, paging)
-        .build()
-        .fetch_all(pool)
-        .await?;
+    let rows = match cached_scope {
+        Some(scope) => cached_appearances_rank_query(scope, paging),
+        None => appearances_rank_query(filters, window, paging),
+    }
+    .build()
+    .fetch_all(pool)
+    .await?;
 
     let mut entries = rows
         .into_iter()
@@ -317,7 +573,7 @@ async fn load_appearances_rows(
         .iter()
         .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
         .collect();
-    let profiles = load_player_profiles(pool, &pairs, filters).await?;
+    let profiles = load_player_profiles(pool, &pairs, filters, window).await?;
     for entry in &mut entries {
         if let Some(profile) =
             profiles.get(&(entry.platform.clone(), entry.platform_player_id.clone()))
@@ -350,6 +606,7 @@ async fn load_player_profiles(
     pool: &sqlx::PgPool,
     pairs: &[PlayerKey],
     filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
 ) -> Result<std::collections::HashMap<PlayerKey, PlayerProfile>, sqlx::Error> {
     if pairs.is_empty() {
         return Ok(std::collections::HashMap::new());
@@ -369,7 +626,7 @@ async fn load_player_profiles(
     builder.push(" GROUP BY rp.platform, rp.platform_player_id");
 
     let rows = builder.build().fetch_all(pool).await?;
-    let estimated_ranks = load_estimated_player_ranks(pool, pairs, filters).await?;
+    let estimated_ranks = load_estimated_player_ranks(pool, pairs, filters, window).await?;
     let mut profiles = HashMap::with_capacity(rows.len());
     for row in rows {
         let platform: String = row.try_get("platform")?;
@@ -400,6 +657,7 @@ async fn load_estimated_player_ranks(
     pool: &sqlx::PgPool,
     pairs: &[PlayerKey],
     filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
 ) -> Result<HashMap<String, EstimatedPlayerRank>, sqlx::Error> {
     let playlist_ids = rank_playlist_ids_for_filters(filters);
     if playlist_ids.len() != 1 {
@@ -432,6 +690,7 @@ async fn load_estimated_player_ranks(
     );
     builder.push_bind(playlist_ids[0]);
     append_replay_set_filters(&mut builder, filters, "r");
+    push_live_window_filter(&mut builder, window, filters, "r");
     builder.push(
         " ORDER BY s.platform_player_id, \
          COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, s.updated_at DESC",
@@ -505,8 +764,9 @@ fn ranked_playlist_id_for_team_size(team_size: i32) -> Option<i32> {
 fn append_appearances_from_where<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     filters: &'args ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
 ) {
-    if filters.is_empty() {
+    if filters.is_empty() && window.is_none() {
         builder.push(
             " FROM replay_players rp \
              WHERE rp.platform IS NOT NULL AND btrim(rp.platform) <> '' \
@@ -523,10 +783,12 @@ fn append_appearances_from_where<'args>(
     );
     push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
     append_replay_set_filters(builder, filters, "r");
+    push_live_window_filter(builder, window, filters, "r");
 }
 
 fn appearances_rank_query<'args>(
     filters: &'args ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
     paging: &LeaderboardPaging,
 ) -> QueryBuilder<'args, Postgres> {
     // Deliberately lean: only the columns the existing
@@ -538,7 +800,7 @@ fn appearances_rank_query<'args>(
         "SELECT rp.platform AS platform, rp.platform_player_id AS platform_player_id, \
          COUNT(DISTINCT rp.replay_id) AS appearance_count",
     );
-    append_appearances_from_where(&mut builder, filters);
+    append_appearances_from_where(&mut builder, filters, window);
     builder.push(
         " GROUP BY rp.platform, rp.platform_player_id \
          ORDER BY appearance_count DESC, rp.platform, rp.platform_player_id \
@@ -550,10 +812,40 @@ fn appearances_rank_query<'args>(
     builder
 }
 
-fn appearances_total_query(filters: &ReplaySetFilters) -> QueryBuilder<'_, Postgres> {
+fn appearances_total_query(
+    filters: &ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
+) -> QueryBuilder<'_, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new("SELECT COUNT(*) AS total FROM (SELECT 1");
-    append_appearances_from_where(&mut builder, filters);
+    append_appearances_from_where(&mut builder, filters, window);
     builder.push(" GROUP BY rp.platform, rp.platform_player_id) ranked_players");
+    builder
+}
+
+fn cached_appearances_rank_query<'args>(
+    scope: &'args CachedLeaderboardScope,
+    paging: &LeaderboardPaging,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT cached.platform, cached.platform_player_id, \
+         cached.replay_count AS appearance_count \
+         FROM leaderboard_player_window_totals cached",
+    );
+    push_cached_scope_filter(&mut builder, scope, "cached");
+    builder.push(
+        " ORDER BY cached.replay_count DESC, cached.platform, cached.platform_player_id LIMIT ",
+    );
+    builder.push_bind(i64::from(paging.count));
+    builder.push(" OFFSET ");
+    builder.push_bind(i64::from(paging.offset));
+    builder
+}
+
+fn cached_appearances_total_query(scope: &CachedLeaderboardScope) -> QueryBuilder<'_, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*) AS total FROM leaderboard_player_window_totals cached",
+    );
+    push_cached_scope_filter(&mut builder, scope, "cached");
     builder
 }
 
@@ -648,6 +940,7 @@ pub struct EventLeaderboardRowResponse {
 #[derive(Debug, Clone)]
 struct EventLeaderboardFilters {
     replay: ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
     stat_terms: Vec<String>,
     sort: EventSort,
     min_games: i64,
@@ -660,6 +953,7 @@ impl EventLeaderboardFilters {
     ) -> Result<(Self, LeaderboardPaging), ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let paging = LeaderboardPaging::from_params(&params)?;
+        let window = LeaderboardWindow::from_params(&params)?;
         let replay = ReplaySetFilters::from_input(
             ReplaySetFilterInput::from_query_params(&params)?,
             auth_user_id,
@@ -680,6 +974,7 @@ impl EventLeaderboardFilters {
         Ok((
             Self {
                 replay,
+                window,
                 stat_terms,
                 sort,
                 min_games,
@@ -707,6 +1002,14 @@ impl EventLeaderboardFilters {
             _ => EventCountSource::AnySubject,
         }
     }
+
+    fn qualifying_min_games(&self) -> i64 {
+        if self.sort == EventSort::PerMinute {
+            self.min_games
+        } else {
+            1
+        }
+    }
 }
 
 #[utoipa::path(
@@ -714,6 +1017,7 @@ impl EventLeaderboardFilters {
     path = "/api/v1/leaderboards/event",
     tag = "leaderboards",
     params(
+        ("window" = Option<String>, Query, description = "Standard cached window: daily, trailing-7d, or season"),
         ("event-type" = Option<Vec<String>>, Query, description = "Event-type filter (alias stat-term); fuzzy-matches event_types key/display/category. Empty = all user-facing events"),
         ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, or per-minute"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
@@ -743,14 +1047,32 @@ pub async fn get_event_leaderboard(
         auth_user.as_ref().map(|u| u.id),
     )?;
 
-    let (total, rows, matched) = tokio::try_join!(
-        load_event_total(db, &filters),
-        load_event_rows(db, &filters, &paging),
-        async {
-            resolve_matched_event_types(db, &filters.stat_terms)
-                .await
-                .map_err(ApiError::internal)
-        },
+    let matched = resolve_matched_event_types(db, &filters.stat_terms)
+        .await
+        .map_err(ApiError::internal)?;
+    let mut cached_scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay);
+    if let Some(scope) = &cached_scope {
+        if !cache_scope_available(db, scope)
+            .await
+            .map_err(ApiError::internal)?
+        {
+            cached_scope = None;
+        }
+    }
+    let cached_metric_key = (matched.len() == 1).then(|| matched[0].key.as_str());
+    let use_cache = cached_scope.is_some()
+        && cached_metric_key.is_some()
+        && matches!(filters.sort, EventSort::Total | EventSort::PerMinute);
+    let cached_scope_ref = if use_cache {
+        cached_scope.as_ref()
+    } else {
+        None
+    };
+    let cached_metric_key = if use_cache { cached_metric_key } else { None };
+
+    let (total, rows) = tokio::try_join!(
+        load_event_total(db, &filters, cached_scope_ref, cached_metric_key),
+        load_event_rows(db, &filters, cached_scope_ref, cached_metric_key, &paging,),
     )?;
 
     let next_offset = paging.next_offset(rows.len(), total);
@@ -774,27 +1096,39 @@ pub async fn get_event_leaderboard(
 async fn load_event_total(
     pool: &sqlx::PgPool,
     filters: &EventLeaderboardFilters,
+    cached_scope: Option<&CachedLeaderboardScope>,
+    cached_metric_key: Option<&str>,
 ) -> Result<u64, ApiError> {
-    let total: i64 = event_total_query(filters)
-        .build()
-        .fetch_one(pool)
-        .await
-        .map_err(ApiError::internal)?
-        .try_get("total")
-        .map_err(ApiError::internal)?;
+    let total: i64 = match (cached_scope, cached_metric_key) {
+        (Some(scope), Some(metric_key)) => cached_event_total_query(filters, scope, metric_key),
+        _ => event_total_query(filters),
+    }
+    .build()
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)?
+    .try_get("total")
+    .map_err(ApiError::internal)?;
     Ok(total.max(0) as u64)
 }
 
 async fn load_event_rows(
     pool: &sqlx::PgPool,
     filters: &EventLeaderboardFilters,
+    cached_scope: Option<&CachedLeaderboardScope>,
+    cached_metric_key: Option<&str>,
     paging: &LeaderboardPaging,
 ) -> Result<Vec<EventLeaderboardRowResponse>, ApiError> {
-    let rows = event_rank_query(filters, paging)
-        .build()
-        .fetch_all(pool)
-        .await
-        .map_err(ApiError::internal)?;
+    let rows = match (cached_scope, cached_metric_key) {
+        (Some(scope), Some(metric_key)) => {
+            cached_event_rank_query(filters, scope, metric_key, paging)
+        }
+        _ => event_rank_query(filters, paging),
+    }
+    .build()
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
 
     let mut entries = rows
         .into_iter()
@@ -825,7 +1159,7 @@ async fn load_event_rows(
         .iter()
         .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
         .collect();
-    let profiles = load_player_profiles(pool, &pairs, &filters.replay)
+    let profiles = load_player_profiles(pool, &pairs, &filters.replay, filters.window)
         .await
         .map_err(ApiError::internal)?;
     for entry in &mut entries {
@@ -869,6 +1203,7 @@ fn push_event_ctes<'args>(
         );
         push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
         append_replay_set_filters(builder, &filters.replay, "r");
+        push_live_window_filter(builder, filters.window, &filters.replay, "r");
         builder.push(
             " GROUP BY rp.platform, rp.platform_player_id \
              HAVING COALESCE(SUM(rp.",
@@ -889,6 +1224,7 @@ fn push_event_ctes<'args>(
         );
         push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
         append_replay_set_filters(builder, &filters.replay, "r");
+        push_live_window_filter(builder, filters.window, &filters.replay, "r");
         builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
         return;
     }
@@ -920,6 +1256,7 @@ fn push_event_ctes<'args>(
     );
     push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
     append_replay_set_filters(builder, &filters.replay, "r");
+    push_live_window_filter(builder, filters.window, &filters.replay, "r");
     builder.push(
         " GROUP BY rp.platform, rp.platform_player_id), \
          denominators AS (\
@@ -935,6 +1272,7 @@ fn push_event_ctes<'args>(
     );
     push_aggregate_excluded_player_filter(builder, "rp.platform", "rp.platform_player_id");
     append_replay_set_filters(builder, &filters.replay, "r");
+    push_live_window_filter(builder, filters.window, &filters.replay, "r");
     builder.push(" GROUP BY rp.platform, rp.platform_player_id)");
 }
 
@@ -955,7 +1293,7 @@ fn event_rank_query<'args>(
          JOIN denominators d ON d.platform = e.platform AND d.platform_player_id = e.platform_player_id \
          WHERE d.replay_count >= ",
     );
-    builder.push_bind(filters.min_games);
+    builder.push_bind(filters.qualifying_min_games());
     builder.push(" ORDER BY ");
     builder.push(filters.sort.order_sql());
     builder.push(", e.platform, e.platform_player_id LIMIT ");
@@ -973,7 +1311,59 @@ fn event_total_query(filters: &EventLeaderboardFilters) -> QueryBuilder<'_, Post
          JOIN denominators d ON d.platform = e.platform AND d.platform_player_id = e.platform_player_id \
          WHERE d.replay_count >= ",
     );
-    builder.push_bind(filters.min_games);
+    builder.push_bind(filters.qualifying_min_games());
+    builder
+}
+
+fn cached_event_rank_query<'args>(
+    filters: &'args EventLeaderboardFilters,
+    scope: &'args CachedLeaderboardScope,
+    metric_key: &'args str,
+    paging: &LeaderboardPaging,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT cached.platform, cached.platform_player_id, \
+         ROUND(cached.total_value)::bigint AS event_count, \
+         cached.replay_count, cached.active_time_seconds, \
+         cached.total_value / NULLIF(cached.replay_count, 0) AS count_per_game, \
+         cached.value_per_5_minutes / 5.0 AS per_active_minute \
+         FROM leaderboard_player_window_metrics cached",
+    );
+    push_cached_scope_filter(&mut builder, scope, "cached");
+    builder.push(" AND cached.metric_kind = 'event' AND cached.metric_key = ");
+    builder.push_bind(metric_key);
+    if filters.sort == EventSort::PerMinute {
+        builder.push(" AND cached.replay_count >= ");
+        builder.push_bind(filters.min_games);
+    }
+    match filters.sort {
+        EventSort::Total => builder.push(" ORDER BY cached.total_value DESC"),
+        EventSort::PerMinute => builder
+            .push(" ORDER BY cached.value_per_5_minutes DESC NULLS LAST, cached.total_value DESC"),
+        EventSort::PerGame => unreachable!("per-game event rankings use the live query"),
+    };
+    builder.push(", cached.platform, cached.platform_player_id LIMIT ");
+    builder.push_bind(i64::from(paging.count));
+    builder.push(" OFFSET ");
+    builder.push_bind(i64::from(paging.offset));
+    builder
+}
+
+fn cached_event_total_query<'args>(
+    filters: &'args EventLeaderboardFilters,
+    scope: &'args CachedLeaderboardScope,
+    metric_key: &'args str,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*) AS total FROM leaderboard_player_window_metrics cached",
+    );
+    push_cached_scope_filter(&mut builder, scope, "cached");
+    builder.push(" AND cached.metric_kind = 'event' AND cached.metric_key = ");
+    builder.push_bind(metric_key);
+    if filters.sort == EventSort::PerMinute {
+        builder.push(" AND cached.replay_count >= ");
+        builder.push_bind(filters.min_games);
+    }
     builder
 }
 
@@ -1375,6 +1765,7 @@ pub struct StatLeaderboardRowResponse {
 #[derive(Debug, Clone)]
 struct StatLeaderboardFilters {
     replay: ReplaySetFilters,
+    window: Option<LeaderboardWindow>,
     metric: StatLeaderboardMetric,
     sort: StatLeaderboardSort,
     min_games: i64,
@@ -1387,6 +1778,7 @@ impl StatLeaderboardFilters {
     ) -> Result<(Self, LeaderboardPaging), ApiError> {
         let params = QueryParams::from_raw(raw_query);
         let paging = LeaderboardPaging::from_params(&params)?;
+        let window = LeaderboardWindow::from_params(&params)?;
         let replay = ReplaySetFilters::from_input(
             ReplaySetFilterInput::from_query_params(&params)?,
             auth_user_id,
@@ -1408,12 +1800,21 @@ impl StatLeaderboardFilters {
         Ok((
             Self {
                 replay,
+                window,
                 metric,
                 sort,
                 min_games,
             },
             paging,
         ))
+    }
+
+    fn qualifying_min_games(&self) -> i64 {
+        if self.sort == StatLeaderboardSort::PerMinute {
+            self.min_games
+        } else {
+            1
+        }
     }
 }
 
@@ -1422,6 +1823,7 @@ impl StatLeaderboardFilters {
     path = "/api/v1/leaderboards/stat",
     tag = "leaderboards",
     params(
+        ("window" = Option<String>, Query, description = "Standard cached window: daily, trailing-7d, or season"),
         ("stat" = Option<String>, Query, description = "Materialized stat metric: ball-opponent-half (default), possession-time, ball-advance, touches-per-possession, avg-possession-duration, high-aerial-touch-count, control-touch-count, big-boost-pad-count, small-boost-pad-count, big-boost-amount, or small-boost-amount"),
         ("sort" = Option<String>, Query, description = "Ranking metric: total (default), per-game, per-minute, share, or average"),
         ("min-games" = Option<u32>, Query, description = "Minimum replay appearances to qualify (default 1)"),
@@ -1448,10 +1850,29 @@ pub async fn get_stat_leaderboard(
     let db = require_db(&state)?;
     let (filters, paging) =
         StatLeaderboardFilters::from_query(raw_query.as_deref(), auth_user.as_ref().map(|u| u.id))?;
+    let mut cached_scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay);
+    if let Some(scope) = &cached_scope {
+        if !cache_scope_available(db, scope)
+            .await
+            .map_err(ApiError::internal)?
+        {
+            cached_scope = None;
+        }
+    }
+    let use_cache = cached_scope.is_some()
+        && matches!(
+            filters.sort,
+            StatLeaderboardSort::Total | StatLeaderboardSort::PerMinute
+        );
+    let cached_scope = if use_cache {
+        cached_scope.as_ref()
+    } else {
+        None
+    };
 
     let (total, rows) = tokio::try_join!(
-        load_stat_total(db, &filters),
-        load_stat_rows(db, &filters, &paging),
+        load_stat_total(db, &filters, cached_scope),
+        load_stat_rows(db, &filters, cached_scope, &paging),
     )?;
 
     let next_offset = paging.next_offset(rows.len(), total);
@@ -1474,27 +1895,35 @@ pub async fn get_stat_leaderboard(
 async fn load_stat_total(
     pool: &sqlx::PgPool,
     filters: &StatLeaderboardFilters,
+    cached_scope: Option<&CachedLeaderboardScope>,
 ) -> Result<u64, ApiError> {
-    let total: i64 = stat_total_query(filters)
-        .build()
-        .fetch_one(pool)
-        .await
-        .map_err(ApiError::internal)?
-        .try_get("total")
-        .map_err(ApiError::internal)?;
+    let total: i64 = match cached_scope {
+        Some(scope) => cached_stat_total_query(filters, scope),
+        None => stat_total_query(filters),
+    }
+    .build()
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)?
+    .try_get("total")
+    .map_err(ApiError::internal)?;
     Ok(total.max(0) as u64)
 }
 
 async fn load_stat_rows(
     pool: &sqlx::PgPool,
     filters: &StatLeaderboardFilters,
+    cached_scope: Option<&CachedLeaderboardScope>,
     paging: &LeaderboardPaging,
 ) -> Result<Vec<StatLeaderboardRowResponse>, ApiError> {
-    let rows = stat_rank_query(filters, paging)
-        .build()
-        .fetch_all(pool)
-        .await
-        .map_err(ApiError::internal)?;
+    let rows = match cached_scope {
+        Some(scope) => cached_stat_rank_query(filters, scope, paging),
+        None => stat_rank_query(filters, paging),
+    }
+    .build()
+    .fetch_all(pool)
+    .await
+    .map_err(ApiError::internal)?;
 
     let mut entries = rows
         .into_iter()
@@ -1528,7 +1957,7 @@ async fn load_stat_rows(
         .iter()
         .map(|entry| (entry.platform.clone(), entry.platform_player_id.clone()))
         .collect();
-    let profiles = load_player_profiles(pool, &pairs, &filters.replay)
+    let profiles = load_player_profiles(pool, &pairs, &filters.replay, filters.window)
         .await
         .map_err(ApiError::internal)?;
     for entry in &mut entries {
@@ -1582,6 +2011,7 @@ fn push_stat_fact_cte<'args>(
             "possession.platform_player_id",
         );
         append_replay_set_filters(builder, &filters.replay, "r");
+        push_live_window_filter(builder, filters.window, &filters.replay, "r");
         builder.push(
             " GROUP BY possession.platform, possession.platform_player_id \
              HAVING SUM(possession.possession_count) > 0)",
@@ -1615,6 +2045,7 @@ fn push_stat_fact_cte<'args>(
             "boost.platform_player_id",
         );
         append_replay_set_filters(builder, &filters.replay, "r");
+        push_live_window_filter(builder, filters.window, &filters.replay, "r");
         builder.push(
             " GROUP BY boost.platform, boost.platform_player_id \
              HAVING COALESCE(SUM(",
@@ -1639,6 +2070,7 @@ fn push_stat_fact_cte<'args>(
     builder.push_bind(definition.fact_key());
     push_aggregate_excluded_player_filter(builder, "fact.platform", "fact.platform_player_id");
     append_replay_set_filters(builder, &filters.replay, "r");
+    push_live_window_filter(builder, filters.window, &filters.replay, "r");
     builder.push(
         " GROUP BY fact.platform, fact.platform_player_id \
          HAVING COALESCE(SUM(fact.value), 0.0) > 0)",
@@ -1675,7 +2107,7 @@ fn stat_rank_query<'args>(
         " FROM metric_values m \
          WHERE m.replay_count >= ",
     );
-    builder.push_bind(filters.min_games);
+    builder.push_bind(filters.qualifying_min_games());
     builder.push(" ORDER BY ");
     builder.push(filters.sort.order_sql());
     builder.push(", m.platform, m.platform_player_id LIMIT ");
@@ -1692,6 +2124,57 @@ fn stat_total_query(filters: &StatLeaderboardFilters) -> QueryBuilder<'_, Postgr
         " SELECT COUNT(*) AS total FROM metric_values m \
          WHERE m.replay_count >= ",
     );
-    builder.push_bind(filters.min_games);
+    builder.push_bind(filters.qualifying_min_games());
+    builder
+}
+
+fn cached_stat_rank_query<'args>(
+    filters: &'args StatLeaderboardFilters,
+    scope: &'args CachedLeaderboardScope,
+    paging: &LeaderboardPaging,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT cached.platform, cached.platform_player_id, \
+         cached.total_value AS value, cached.replay_count, \
+         cached.active_time_seconds, cached.sample_count, \
+         cached.total_value / NULLIF(cached.replay_count, 0) AS value_per_game, \
+         cached.value_per_5_minutes / 5.0 AS value_per_active_minute, \
+         NULL::float8 AS share_of_active_time \
+         FROM leaderboard_player_window_metrics cached",
+    );
+    push_cached_scope_filter(&mut builder, scope, "cached");
+    builder.push(" AND cached.metric_kind = 'stat' AND cached.metric_key = ");
+    builder.push_bind(filters.metric.definition().key);
+    if filters.sort == StatLeaderboardSort::PerMinute {
+        builder.push(" AND cached.replay_count >= ");
+        builder.push_bind(filters.min_games);
+    }
+    match filters.sort {
+        StatLeaderboardSort::Total => builder.push(" ORDER BY cached.total_value DESC"),
+        StatLeaderboardSort::PerMinute => builder
+            .push(" ORDER BY cached.value_per_5_minutes DESC NULLS LAST, cached.total_value DESC"),
+        _ => unreachable!("unsupported cached stat sort uses the live query"),
+    };
+    builder.push(", cached.platform, cached.platform_player_id LIMIT ");
+    builder.push_bind(i64::from(paging.count));
+    builder.push(" OFFSET ");
+    builder.push_bind(i64::from(paging.offset));
+    builder
+}
+
+fn cached_stat_total_query<'args>(
+    filters: &'args StatLeaderboardFilters,
+    scope: &'args CachedLeaderboardScope,
+) -> QueryBuilder<'args, Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*) AS total FROM leaderboard_player_window_metrics cached",
+    );
+    push_cached_scope_filter(&mut builder, scope, "cached");
+    builder.push(" AND cached.metric_kind = 'stat' AND cached.metric_key = ");
+    builder.push_bind(filters.metric.definition().key);
+    if filters.sort == StatLeaderboardSort::PerMinute {
+        builder.push(" AND cached.replay_count >= ");
+        builder.push_bind(filters.min_games);
+    }
     builder
 }

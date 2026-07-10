@@ -1,5 +1,5 @@
 use crate::{
-    api, processing,
+    api, leaderboard_cache, processing,
     rank_benchmark::{BenchmarkWindow, CalcStyle},
     settings, telemetry,
 };
@@ -93,6 +93,12 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
                     state.storage.clone(),
                     settings.background_processing_concurrency,
                 );
+                if settings.leaderboard_cache_enabled {
+                    leaderboard_cache::start_refresh_job(
+                        pool.clone(),
+                        settings.leaderboard_cache_refresh_interval,
+                    );
+                }
                 if let Some(api_key) = &state.ballchasing_api_key {
                     crate::ballchasing_sync::start_ballchasing_group_sync_workers(
                         pool.clone(),
@@ -148,6 +154,12 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
         storage.clone(),
         settings.background_processing_concurrency,
     );
+    if settings.leaderboard_cache_enabled {
+        leaderboard_cache::start_refresh_job(
+            pool.clone(),
+            settings.leaderboard_cache_refresh_interval,
+        );
+    }
     if let Some(api_key) = &settings.ballchasing_api_key {
         crate::ballchasing_sync::start_ballchasing_group_sync_workers(
             pool.clone(),

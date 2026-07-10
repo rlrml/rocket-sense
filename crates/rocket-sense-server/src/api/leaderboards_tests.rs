@@ -53,7 +53,7 @@ fn uploads_rows_query_groups_and_paginates() {
         count: 25,
         offset: 50,
     };
-    let sql = uploads_rows_query(&filters, &paging).into_sql();
+    let sql = uploads_rows_query(&filters, None, &paging).into_sql();
 
     assert!(sql.contains("FROM replays r JOIN users u ON u.id = r.uploaded_by_user_id"));
     assert!(sql.contains("r.uploaded_by_user_id IS NOT NULL"));
@@ -69,7 +69,7 @@ fn uploads_rows_query_groups_and_paginates() {
 #[test]
 fn uploads_total_query_counts_distinct_uploaders() {
     let filters = filters_from_query("");
-    let sql = uploads_total_query(&filters).into_sql();
+    let sql = uploads_total_query(&filters, None).into_sql();
     assert!(sql.contains("COUNT(DISTINCT r.uploaded_by_user_id)"));
     assert!(sql.contains("r.uploaded_by_user_id IS NOT NULL"));
     assert!(sql.contains("NOT r.exclude_from_aggregates"));
@@ -82,7 +82,7 @@ fn appearances_rank_query_counts_distinct_replays() {
         count: 50,
         offset: 0,
     };
-    let sql = appearances_rank_query(&filters, &paging).into_sql();
+    let sql = appearances_rank_query(&filters, None, &paging).into_sql();
 
     assert!(sql.contains("COUNT(DISTINCT rp.replay_id) AS appearance_count"));
     assert!(sql.contains("FROM replay_players rp JOIN replays r ON r.id = rp.replay_id"));
@@ -101,7 +101,7 @@ fn appearances_rank_query_joins_replays_for_default_incomplete_game_exclusion() 
         count: 50,
         offset: 0,
     };
-    let sql = appearances_rank_query(&filters, &paging).into_sql();
+    let sql = appearances_rank_query(&filters, None, &paging).into_sql();
 
     assert!(sql.contains("FROM replay_players rp JOIN replays r ON r.id = rp.replay_id"));
     assert!(sql.contains("NOT r.exclude_from_aggregates"));
@@ -117,7 +117,7 @@ fn appearances_rank_query_omits_replays_join_when_incomplete_games_are_explicitl
         count: 50,
         offset: 0,
     };
-    let sql = appearances_rank_query(&filters, &paging).into_sql();
+    let sql = appearances_rank_query(&filters, None, &paging).into_sql();
 
     assert!(sql.contains("FROM replay_players rp WHERE"));
     assert!(!sql.contains("JOIN replays"));
@@ -130,7 +130,7 @@ fn appearances_rank_query_omits_replays_join_when_incomplete_games_are_explicitl
 #[test]
 fn appearances_total_query_wraps_grouped_subquery() {
     let filters = filters_from_query("");
-    let sql = appearances_total_query(&filters).into_sql();
+    let sql = appearances_total_query(&filters, None).into_sql();
     assert!(sql.contains("SELECT COUNT(*) AS total FROM (SELECT 1"));
     assert!(sql.contains("GROUP BY rp.platform, rp.platform_player_id) ranked_players"));
 }
@@ -144,7 +144,7 @@ fn appearances_rank_query_rejects_invalid_game_type() {
 
 #[test]
 fn leaderboard_filters_parse_exact_season_and_replay_date_range() {
-    let (filters, _) = parse_filters(
+    let (filters, _, _) = parse_filters(
         Some(
             "season=f18&replay-date-after=2026-01-01T00%3A00%3A00Z&replay-date-before=2026-01-31T23%3A59%3A59.999Z",
         ),
@@ -155,6 +155,51 @@ fn leaderboard_filters_parse_exact_season_and_replay_date_range() {
     assert_eq!(filters.seasons, ["f18"]);
     assert!(filters.replay_date_after.is_some());
     assert!(filters.replay_date_before.is_some());
+}
+
+#[test]
+fn leaderboard_window_parses_standard_windows() {
+    for (raw, expected) in [
+        ("window=daily", LeaderboardWindow::Daily),
+        ("window=trailing-7d", LeaderboardWindow::TrailingSevenDays),
+        ("window=season", LeaderboardWindow::Season),
+    ] {
+        let params = QueryParams::from_raw(Some(raw));
+        assert_eq!(
+            LeaderboardWindow::from_params(&params).unwrap(),
+            Some(expected)
+        );
+    }
+
+    let params = QueryParams::from_raw(Some("window=forever"));
+    assert!(LeaderboardWindow::from_params(&params).is_err());
+}
+
+#[test]
+fn cached_scope_accepts_only_single_standard_dimensions() {
+    let filters = filters_from_query("game-type=ranked&team-size=2&playlist=ranked-doubles");
+    let scope =
+        CachedLeaderboardScope::from_filters(Some(LeaderboardWindow::TrailingSevenDays), &filters)
+            .expect("standard scope should use the cache");
+    assert_eq!(scope.game_type, "ranked");
+    assert_eq!(scope.team_size, 2);
+    assert_eq!(scope.playlist, "ranked-doubles");
+
+    let filters = filters_from_query("game-type=ranked&game-type=casual");
+    assert!(CachedLeaderboardScope::from_filters(
+        Some(LeaderboardWindow::TrailingSevenDays),
+        &filters
+    )
+    .is_none());
+
+    // The cache is the default aggregate-included population, so an explicit
+    // include-incomplete-games request must fall back to the live query.
+    let filters = filters_from_query("include-incomplete-games=true");
+    assert!(CachedLeaderboardScope::from_filters(
+        Some(LeaderboardWindow::TrailingSevenDays),
+        &filters
+    )
+    .is_none());
 }
 
 #[test]
@@ -322,6 +367,30 @@ fn event_total_query_counts_qualifying_players() {
     assert!(sql.contains("WITH event_counts AS"));
     assert!(sql.contains("SELECT COUNT(*) AS total FROM event_counts e"));
     assert!(sql.contains("d.replay_count >= "));
+}
+
+#[test]
+fn cached_event_rate_query_is_an_ordered_player_window_read() {
+    let (filters, paging) = event_filters(
+        "window=trailing-7d&event-type=goal&sort=per-minute&min-games=10&game-type=ranked&team-size=2",
+    );
+    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
+    let sql = cached_event_rank_query(&filters, &scope, "goal", &paging).into_sql();
+
+    assert!(sql.contains("FROM leaderboard_player_window_metrics cached"));
+    assert!(sql.contains("cache_window.window_kind"));
+    assert!(sql.contains("cached.metric_kind = 'event'"));
+    assert!(sql.contains("cached.replay_count >="));
+    assert!(sql.contains("ORDER BY cached.value_per_5_minutes DESC NULLS LAST"));
+    assert!(!sql.contains("GROUP BY"));
+}
+
+#[test]
+fn event_min_games_only_changes_per_five_minute_eligibility() {
+    let (total, _) = event_filters("sort=total&min-games=50");
+    assert_eq!(total.qualifying_min_games(), 1);
+    let (rate, _) = event_filters("sort=per-minute&min-games=50");
+    assert_eq!(rate.qualifying_min_games(), 50);
 }
 
 fn stat_filters(raw_query: &str) -> (StatLeaderboardFilters, LeaderboardPaging) {
@@ -517,4 +586,27 @@ fn stat_rank_query_reads_average_possession_duration() {
     assert!(sql.contains("FROM player_replay_possession possession"));
     assert!(sql.contains("SUM(possession.duration_seconds)::float8"));
     assert!(sql.contains("ORDER BY value DESC"));
+}
+
+#[test]
+fn cached_stat_rate_query_is_an_ordered_player_window_read() {
+    let (filters, paging) =
+        stat_filters("window=season&season=f23&stat=possession-time&sort=per-minute&min-games=25");
+    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
+    let sql = cached_stat_rank_query(&filters, &scope, &paging).into_sql();
+
+    assert!(sql.contains("FROM leaderboard_player_window_metrics cached"));
+    assert!(sql.contains("cache_window.season"));
+    assert!(sql.contains("cached.metric_kind = 'stat'"));
+    assert!(sql.contains("cached.replay_count >="));
+    assert!(sql.contains("ORDER BY cached.value_per_5_minutes DESC NULLS LAST"));
+    assert!(!sql.contains("GROUP BY"));
+}
+
+#[test]
+fn stat_min_games_only_changes_per_five_minute_eligibility() {
+    let (total, _) = stat_filters("sort=total&min-games=50");
+    assert_eq!(total.qualifying_min_games(), 1);
+    let (rate, _) = stat_filters("sort=per-minute&min-games=50");
+    assert_eq!(rate.qualifying_min_games(), 50);
 }
