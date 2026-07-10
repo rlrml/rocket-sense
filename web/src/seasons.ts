@@ -39,6 +39,17 @@ export function formatSeasonLabel(value: string): string {
   return `${prefix} S${parsed.number}`;
 }
 
+/** Chronological comparison across the legacy and free-to-play numbering eras. */
+export function compareSeasonCodes(left: string, right: string): number {
+  const leftSeason = parseSeasonCode(left);
+  const rightSeason = parseSeasonCode(right);
+  if (!leftSeason || !rightSeason) return left.localeCompare(right);
+  if (leftSeason.era !== rightSeason.era) {
+    return leftSeason.era === "legacy" ? -1 : 1;
+  }
+  return leftSeason.number - rightSeason.number;
+}
+
 export function buildSeasonOptions(
   anyLabel: string,
   options: { newestFirst?: boolean } = {},
