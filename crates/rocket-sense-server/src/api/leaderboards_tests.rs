@@ -158,6 +158,18 @@ fn leaderboard_filters_parse_exact_season_and_replay_date_range() {
 }
 
 #[test]
+fn season_window_with_explicit_range_does_not_add_current_season_filter() {
+    let filters = filters_from_query("min-season=f20&max-season=f23");
+    let mut builder = QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE TRUE");
+    append_replay_set_filters(&mut builder, &filters, "r");
+    push_live_window_filter(&mut builder, Some(LeaderboardWindow::Season), &filters, "r");
+    let sql = builder.sql();
+
+    assert!(sql.contains("lower(btrim(r.season))"));
+    assert!(!sql.contains("FROM replays current_replay"));
+}
+
+#[test]
 fn leaderboard_window_parses_standard_windows() {
     for (raw, expected) in [
         ("window=daily", LeaderboardWindow::Daily),
@@ -200,6 +212,38 @@ fn cached_scope_accepts_only_single_standard_dimensions() {
         &filters
     )
     .is_none());
+}
+
+#[test]
+fn cached_scope_accepts_season_ranges_only_for_the_season_window() {
+    let filters = filters_from_query("min-season=f20&max-season=f23&game-type=ranked");
+    let scope = CachedLeaderboardScope::from_filters(Some(LeaderboardWindow::Season), &filters)
+        .expect("season ranges should use per-season cache rows");
+    assert!(scope.has_season_range());
+    assert_eq!(scope.min_season_ord, Some(1020));
+    assert_eq!(scope.max_season_ord, Some(1023));
+
+    assert!(CachedLeaderboardScope::from_filters(
+        Some(LeaderboardWindow::TrailingSevenDays),
+        &filters
+    )
+    .is_none());
+}
+
+#[test]
+fn cached_appearance_range_query_sums_season_rows_per_player() {
+    let filters = filters_from_query("min-season=f20&max-season=f23&game-type=ranked");
+    let scope = CachedLeaderboardScope::from_filters(Some(LeaderboardWindow::Season), &filters)
+        .expect("season range should use cache");
+    let paging = LeaderboardPaging {
+        count: 50,
+        offset: 0,
+    };
+    let sql = cached_appearances_rank_query(&scope, &paging).into_sql();
+
+    assert!(sql.contains("SUM(cached.replay_count)::bigint AS appearance_count"));
+    assert!(sql.contains("GROUP BY cached.platform, cached.platform_player_id"));
+    assert!(sql.contains("lower(btrim(cache_window.season))"));
 }
 
 #[test]
@@ -383,6 +427,20 @@ fn cached_event_rate_query_is_an_ordered_player_window_read() {
     assert!(sql.contains("cached.replay_count >="));
     assert!(sql.contains("ORDER BY cached.value_per_5_minutes DESC NULLS LAST"));
     assert!(!sql.contains("GROUP BY"));
+}
+
+#[test]
+fn cached_event_range_query_recomputes_rate_after_summing_seasons() {
+    let (filters, paging) = event_filters(
+        "window=season&min-season=f20&max-season=f23&event-type=goal&sort=per-minute&min-games=25",
+    );
+    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
+    let sql = cached_event_rank_query(&filters, &scope, "goal", &paging).into_sql();
+
+    assert!(sql.contains("SUM(cached.total_value)::float8 AS total_value"));
+    assert!(sql.contains("SUM(cached.active_time_seconds)::float8 AS active_time_seconds"));
+    assert!(sql.contains("aggregated.total_value * 60.0 / aggregated.active_time_seconds"));
+    assert!(sql.contains("WHERE aggregated.replay_count >="));
 }
 
 #[test]
@@ -601,6 +659,20 @@ fn cached_stat_rate_query_is_an_ordered_player_window_read() {
     assert!(sql.contains("cached.replay_count >="));
     assert!(sql.contains("ORDER BY cached.value_per_5_minutes DESC NULLS LAST"));
     assert!(!sql.contains("GROUP BY"));
+}
+
+#[test]
+fn cached_stat_range_query_recomputes_rate_after_summing_seasons() {
+    let (filters, paging) = stat_filters(
+        "window=season&min-season=f20&max-season=f23&stat=possession-time&sort=per-minute&min-games=25",
+    );
+    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
+    let sql = cached_stat_rank_query(&filters, &scope, &paging).into_sql();
+
+    assert!(sql.contains("SUM(cached.total_value)::float8 AS total_value"));
+    assert!(sql.contains("SUM(cached.sample_count)::bigint AS sample_count"));
+    assert!(sql.contains("aggregated.total_value * 60.0 / aggregated.active_time_seconds"));
+    assert!(sql.contains("WHERE aggregated.replay_count >="));
 }
 
 #[test]

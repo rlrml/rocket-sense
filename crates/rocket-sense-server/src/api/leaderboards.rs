@@ -8,7 +8,10 @@ use uuid::Uuid;
 
 use super::{
     query::{parse_u32_filter, push_aggregate_excluded_player_filter, QueryParams},
-    replay_set::{append_replay_set_filters, ReplaySetFilterInput, ReplaySetFilters},
+    replay_set::{
+        append_replay_set_filters, push_season_ordinal_expression, ReplaySetFilterInput,
+        ReplaySetFilters,
+    },
     replays::{require_db, ApiError},
     stats::{
         append_stat_term_event_filter, append_user_facing_stat_event_join_filter,
@@ -85,12 +88,25 @@ impl LeaderboardWindow {
 struct CachedLeaderboardScope {
     window: LeaderboardWindow,
     season: Option<String>,
+    min_season_ord: Option<i32>,
+    max_season_ord: Option<i32>,
     game_type: String,
     team_size: i16,
     playlist: String,
 }
 
 impl CachedLeaderboardScope {
+    fn has_season_range(&self) -> bool {
+        self.window == LeaderboardWindow::Season
+            && (self.min_season_ord.is_some() || self.max_season_ord.is_some())
+    }
+
+    fn uses_current_season(&self) -> bool {
+        self.window == LeaderboardWindow::Season
+            && self.season.is_none()
+            && !self.has_season_range()
+    }
+
     fn from_filters(window: Option<LeaderboardWindow>, filters: &ReplaySetFilters) -> Option<Self> {
         let window = window?;
         let only_standard_dimensions = filters.search_pattern.is_none()
@@ -110,8 +126,6 @@ impl CachedLeaderboardScope {
             && filters.min_rank_tier.is_none()
             && filters.max_rank_tier.is_none()
             && filters.rank_scope_player.is_none()
-            && filters.min_season_ord.is_none()
-            && filters.max_season_ord.is_none()
             && filters.playlist_group_key.is_none()
             && filters.player_outcome.is_none()
             && filters.playlists.len() <= 1
@@ -124,13 +138,19 @@ impl CachedLeaderboardScope {
         if !only_standard_dimensions {
             return None;
         }
-        if window != LeaderboardWindow::Season && !filters.seasons.is_empty() {
+        if window != LeaderboardWindow::Season
+            && (!filters.seasons.is_empty()
+                || filters.min_season_ord.is_some()
+                || filters.max_season_ord.is_some())
+        {
             return None;
         }
 
         Some(Self {
             window,
             season: filters.seasons.first().cloned(),
+            min_season_ord: filters.min_season_ord,
+            max_season_ord: filters.max_season_ord,
             game_type: filters
                 .game_types
                 .first()
@@ -177,7 +197,11 @@ fn push_live_window_filter<'args>(
             builder.push(replay_alias);
             builder.push(".created_at) >= now() - interval '7 days'");
         }
-        LeaderboardWindow::Season if filters.seasons.is_empty() => {
+        LeaderboardWindow::Season
+            if filters.seasons.is_empty()
+                && filters.min_season_ord.is_none()
+                && filters.max_season_ord.is_none() =>
+        {
             builder.push(" AND lower(btrim(");
             builder.push(replay_alias);
             builder.push(
@@ -198,34 +222,49 @@ async fn cache_scope_available(
     pool: &sqlx::PgPool,
     scope: &CachedLeaderboardScope,
 ) -> Result<bool, sqlx::Error> {
-    let available = match scope.window {
-        LeaderboardWindow::Daily => {
-            sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (SELECT 1 FROM leaderboard_cache_windows WHERE window_key = 'daily')",
-            )
-            .fetch_one(pool)
-            .await?
-        }
-        LeaderboardWindow::TrailingSevenDays => {
-            sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (SELECT 1 FROM leaderboard_cache_windows WHERE window_key = 'trailing-7d')",
-            )
-            .fetch_one(pool)
-            .await?
-        }
-        LeaderboardWindow::Season => {
-            sqlx::query_scalar::<_, bool>(
-                "SELECT EXISTS (\
-                 SELECT 1 FROM leaderboard_cache_windows \
-                 WHERE window_kind = 'season' \
-                   AND (($1::text IS NULL AND is_current) OR season = $1))",
-            )
-            .bind(scope.season.as_deref())
-            .fetch_one(pool)
-            .await?
-        }
-    };
-    Ok(available)
+    let mut builder = QueryBuilder::<Postgres>::new(
+        "SELECT EXISTS (SELECT 1 FROM leaderboard_cache_windows cache_window WHERE ",
+    );
+    push_cached_window_filter(&mut builder, scope, "cache_window");
+    builder.push(")");
+    builder.build_query_scalar().fetch_one(pool).await
+}
+
+fn push_cached_window_filter<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    scope: &'args CachedLeaderboardScope,
+    window_alias: &str,
+) {
+    builder.push(window_alias);
+    builder.push(".window_kind = ");
+    builder.push_bind(scope.window.kind());
+    if scope.window != LeaderboardWindow::Season {
+        return;
+    }
+    if scope.uses_current_season() {
+        builder.push(" AND ");
+        builder.push(window_alias);
+        builder.push(".is_current");
+        return;
+    }
+    if let Some(season) = &scope.season {
+        builder.push(" AND ");
+        builder.push(window_alias);
+        builder.push(".season = ");
+        builder.push_bind(season);
+    }
+    if let Some(min_season_ord) = scope.min_season_ord {
+        builder.push(" AND ");
+        push_season_ordinal_expression(builder, window_alias);
+        builder.push(" >= ");
+        builder.push_bind(min_season_ord);
+    }
+    if let Some(max_season_ord) = scope.max_season_ord {
+        builder.push(" AND ");
+        push_season_ordinal_expression(builder, window_alias);
+        builder.push(" <= ");
+        builder.push_bind(max_season_ord);
+    }
 }
 
 fn push_cached_scope_filter<'args>(
@@ -235,16 +274,8 @@ fn push_cached_scope_filter<'args>(
 ) {
     builder.push(" JOIN leaderboard_cache_windows cache_window ON cache_window.window_key = ");
     builder.push(row_alias);
-    builder.push(".window_key WHERE cache_window.window_kind = ");
-    builder.push_bind(scope.window.kind());
-    if scope.window == LeaderboardWindow::Season {
-        if let Some(season) = &scope.season {
-            builder.push(" AND cache_window.season = ");
-            builder.push_bind(season);
-        } else {
-            builder.push(" AND cache_window.is_current");
-        }
-    }
+    builder.push(".window_key WHERE ");
+    push_cached_window_filter(builder, scope, "cache_window");
     builder.push(" AND ");
     builder.push(row_alias);
     builder.push(".scope_game_type = ");
@@ -349,6 +380,8 @@ pub struct AppearancesLeaderboardRowResponse {
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
         ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("min-season" = Option<String>, Query, description = "Inclusive earliest replay season, e.g. f18"),
+        ("max-season" = Option<String>, Query, description = "Inclusive latest replay season, e.g. f23"),
         ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
         ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
@@ -395,6 +428,8 @@ pub async fn get_uploads_leaderboard(
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
         ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("min-season" = Option<String>, Query, description = "Inclusive earliest replay season, e.g. f18"),
+        ("max-season" = Option<String>, Query, description = "Inclusive latest replay season, e.g. f23"),
         ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
         ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
@@ -826,6 +861,23 @@ fn cached_appearances_rank_query<'args>(
     scope: &'args CachedLeaderboardScope,
     paging: &LeaderboardPaging,
 ) -> QueryBuilder<'args, Postgres> {
+    if scope.has_season_range() {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT cached.platform, cached.platform_player_id, \
+             SUM(cached.replay_count)::bigint AS appearance_count \
+             FROM leaderboard_player_window_totals cached",
+        );
+        push_cached_scope_filter(&mut builder, scope, "cached");
+        builder.push(
+            " GROUP BY cached.platform, cached.platform_player_id \
+             ORDER BY appearance_count DESC, cached.platform, cached.platform_player_id LIMIT ",
+        );
+        builder.push_bind(i64::from(paging.count));
+        builder.push(" OFFSET ");
+        builder.push_bind(i64::from(paging.offset));
+        return builder;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT cached.platform, cached.platform_player_id, \
          cached.replay_count AS appearance_count \
@@ -842,6 +894,16 @@ fn cached_appearances_rank_query<'args>(
 }
 
 fn cached_appearances_total_query(scope: &CachedLeaderboardScope) -> QueryBuilder<'_, Postgres> {
+    if scope.has_season_range() {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*) AS total FROM (SELECT 1 \
+             FROM leaderboard_player_window_totals cached",
+        );
+        push_cached_scope_filter(&mut builder, scope, "cached");
+        builder.push(" GROUP BY cached.platform, cached.platform_player_id) aggregated_players");
+        return builder;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT COUNT(*) AS total FROM leaderboard_player_window_totals cached",
     );
@@ -1025,6 +1087,8 @@ impl EventLeaderboardFilters {
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
         ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("min-season" = Option<String>, Query, description = "Inclusive earliest replay season, e.g. f18"),
+        ("max-season" = Option<String>, Query, description = "Inclusive latest replay season, e.g. f23"),
         ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
         ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
@@ -1321,6 +1385,42 @@ fn cached_event_rank_query<'args>(
     metric_key: &'args str,
     paging: &LeaderboardPaging,
 ) -> QueryBuilder<'args, Postgres> {
+    if scope.has_season_range() {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT aggregated.platform, aggregated.platform_player_id, \
+             ROUND(aggregated.total_value)::bigint AS event_count, \
+             aggregated.replay_count, aggregated.active_time_seconds, \
+             aggregated.total_value / NULLIF(aggregated.replay_count, 0) AS count_per_game, \
+             CASE WHEN aggregated.active_time_seconds > 0 \
+             THEN aggregated.total_value * 60.0 / aggregated.active_time_seconds ELSE NULL END \
+             AS per_active_minute \
+             FROM (SELECT cached.platform, cached.platform_player_id, \
+             SUM(cached.total_value)::float8 AS total_value, \
+             SUM(cached.replay_count)::bigint AS replay_count, \
+             SUM(cached.active_time_seconds)::float8 AS active_time_seconds \
+             FROM leaderboard_player_window_metrics cached",
+        );
+        push_cached_scope_filter(&mut builder, scope, "cached");
+        builder.push(" AND cached.metric_kind = 'event' AND cached.metric_key = ");
+        builder.push_bind(metric_key);
+        builder.push(" GROUP BY cached.platform, cached.platform_player_id) aggregated");
+        if filters.sort == EventSort::PerMinute {
+            builder.push(" WHERE aggregated.replay_count >= ");
+            builder.push_bind(filters.min_games);
+        }
+        match filters.sort {
+            EventSort::Total => builder.push(" ORDER BY aggregated.total_value DESC"),
+            EventSort::PerMinute => builder
+                .push(" ORDER BY per_active_minute DESC NULLS LAST, aggregated.total_value DESC"),
+            EventSort::PerGame => unreachable!("per-game event rankings use the live query"),
+        };
+        builder.push(", aggregated.platform, aggregated.platform_player_id LIMIT ");
+        builder.push_bind(i64::from(paging.count));
+        builder.push(" OFFSET ");
+        builder.push_bind(i64::from(paging.offset));
+        return builder;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT cached.platform, cached.platform_player_id, \
          ROUND(cached.total_value)::bigint AS event_count, \
@@ -1354,6 +1454,23 @@ fn cached_event_total_query<'args>(
     scope: &'args CachedLeaderboardScope,
     metric_key: &'args str,
 ) -> QueryBuilder<'args, Postgres> {
+    if scope.has_season_range() {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*) AS total FROM (SELECT 1 \
+             FROM leaderboard_player_window_metrics cached",
+        );
+        push_cached_scope_filter(&mut builder, scope, "cached");
+        builder.push(" AND cached.metric_kind = 'event' AND cached.metric_key = ");
+        builder.push_bind(metric_key);
+        builder.push(" GROUP BY cached.platform, cached.platform_player_id");
+        if filters.sort == EventSort::PerMinute {
+            builder.push(" HAVING SUM(cached.replay_count) >= ");
+            builder.push_bind(filters.min_games);
+        }
+        builder.push(") aggregated_players");
+        return builder;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT COUNT(*) AS total FROM leaderboard_player_window_metrics cached",
     );
@@ -1831,6 +1948,8 @@ impl StatLeaderboardFilters {
         ("team-size" = Option<Vec<String>>, Query, description = "Team size filter (1-4 or 1v1/2v2/3v3/4v4)"),
         ("playlist" = Option<Vec<String>>, Query, description = "Playlist/game-mode filter"),
         ("season" = Option<Vec<String>>, Query, description = "Exact replay season filter, e.g. f18 or s12"),
+        ("min-season" = Option<String>, Query, description = "Inclusive earliest replay season, e.g. f18"),
+        ("max-season" = Option<String>, Query, description = "Inclusive latest replay season, e.g. f23"),
         ("replay-date-after" = Option<String>, Query, description = "Only include games played after this RFC3339 timestamp"),
         ("replay-date-before" = Option<String>, Query, description = "Only include games played before this RFC3339 timestamp"),
         ("count" = Option<u32>, Query, description = "Maximum rows to return (default 50, max 200)"),
@@ -2133,6 +2252,44 @@ fn cached_stat_rank_query<'args>(
     scope: &'args CachedLeaderboardScope,
     paging: &LeaderboardPaging,
 ) -> QueryBuilder<'args, Postgres> {
+    if scope.has_season_range() {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT aggregated.platform, aggregated.platform_player_id, \
+             aggregated.total_value AS value, aggregated.replay_count, \
+             aggregated.active_time_seconds, aggregated.sample_count, \
+             aggregated.total_value / NULLIF(aggregated.replay_count, 0) AS value_per_game, \
+             CASE WHEN aggregated.active_time_seconds > 0 \
+             THEN aggregated.total_value * 60.0 / aggregated.active_time_seconds ELSE NULL END \
+             AS value_per_active_minute, NULL::float8 AS share_of_active_time \
+             FROM (SELECT cached.platform, cached.platform_player_id, \
+             SUM(cached.total_value)::float8 AS total_value, \
+             SUM(cached.replay_count)::bigint AS replay_count, \
+             SUM(cached.active_time_seconds)::float8 AS active_time_seconds, \
+             SUM(cached.sample_count)::bigint AS sample_count \
+             FROM leaderboard_player_window_metrics cached",
+        );
+        push_cached_scope_filter(&mut builder, scope, "cached");
+        builder.push(" AND cached.metric_kind = 'stat' AND cached.metric_key = ");
+        builder.push_bind(filters.metric.definition().key);
+        builder.push(" GROUP BY cached.platform, cached.platform_player_id) aggregated");
+        if filters.sort == StatLeaderboardSort::PerMinute {
+            builder.push(" WHERE aggregated.replay_count >= ");
+            builder.push_bind(filters.min_games);
+        }
+        match filters.sort {
+            StatLeaderboardSort::Total => builder.push(" ORDER BY aggregated.total_value DESC"),
+            StatLeaderboardSort::PerMinute => builder.push(
+                " ORDER BY value_per_active_minute DESC NULLS LAST, aggregated.total_value DESC",
+            ),
+            _ => unreachable!("unsupported cached stat sort uses the live query"),
+        };
+        builder.push(", aggregated.platform, aggregated.platform_player_id LIMIT ");
+        builder.push_bind(i64::from(paging.count));
+        builder.push(" OFFSET ");
+        builder.push_bind(i64::from(paging.offset));
+        return builder;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT cached.platform, cached.platform_player_id, \
          cached.total_value AS value, cached.replay_count, \
@@ -2166,6 +2323,23 @@ fn cached_stat_total_query<'args>(
     filters: &'args StatLeaderboardFilters,
     scope: &'args CachedLeaderboardScope,
 ) -> QueryBuilder<'args, Postgres> {
+    if scope.has_season_range() {
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*) AS total FROM (SELECT 1 \
+             FROM leaderboard_player_window_metrics cached",
+        );
+        push_cached_scope_filter(&mut builder, scope, "cached");
+        builder.push(" AND cached.metric_kind = 'stat' AND cached.metric_key = ");
+        builder.push_bind(filters.metric.definition().key);
+        builder.push(" GROUP BY cached.platform, cached.platform_player_id");
+        if filters.sort == StatLeaderboardSort::PerMinute {
+            builder.push(" HAVING SUM(cached.replay_count) >= ");
+            builder.push_bind(filters.min_games);
+        }
+        builder.push(") aggregated_players");
+        return builder;
+    }
+
     let mut builder = QueryBuilder::<Postgres>::new(
         "SELECT COUNT(*) AS total FROM leaderboard_player_window_metrics cached",
     );

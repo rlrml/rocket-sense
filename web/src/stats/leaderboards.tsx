@@ -10,7 +10,7 @@ import {
 } from "../api";
 import { playerProfilePath } from "../playerIdentity";
 import { rankIconUrl, rankLabel } from "../rank";
-import { buildSeasonOptions } from "../seasons";
+import { buildSeasonOptions, compareSeasonCodes } from "../seasons";
 import type {
   AppearancesLeaderboardRow,
   EventLeaderboardRow,
@@ -1064,7 +1064,11 @@ export function LeaderboardsPage() {
   const teamSize = params.get("team-size") ?? "";
   const gameType = params.has("game-type") ? (params.get("game-type") ?? "") : DEFAULT_GAME_TYPE;
   const playlist = params.get("playlist") ?? "";
-  const season = params.get("season") ?? "";
+  // Exact-season links remain valid; the range controls project an exact value
+  // into both ends until the user expands it.
+  const exactSeason = params.get("season") ?? "";
+  const minSeason = params.get("min-season") ?? exactSeason;
+  const maxSeason = params.get("max-season") ?? exactSeason;
   const windowParam = params.get("window");
   const window: LeaderboardWindow =
     windowParam === "daily" || windowParam === "trailing-7d" ? windowParam : "season";
@@ -1102,6 +1106,33 @@ export function LeaderboardsPage() {
     [location.pathname, location.search, navigate],
   );
 
+  const setSeasonBoundary = useCallback(
+    (boundary: "min" | "max", value: string) => {
+      const next = new URLSearchParams(location.search);
+      next.delete("season");
+      next.delete("min-season");
+      next.delete("max-season");
+
+      let nextMin = boundary === "min" ? value : minSeason;
+      let nextMax = boundary === "max" ? value : maxSeason;
+      if (nextMin && nextMax && compareSeasonCodes(nextMin, nextMax) > 0) {
+        if (boundary === "min") nextMax = nextMin;
+        else nextMin = nextMax;
+      }
+
+      if (nextMin && nextMax && nextMin === nextMax) {
+        next.set("season", nextMin);
+      } else {
+        if (nextMin) next.set("min-season", nextMin);
+        if (nextMax) next.set("max-season", nextMax);
+      }
+
+      const query = next.toString();
+      navigate(query ? `${location.pathname}?${query}` : location.pathname, { replace: true });
+    },
+    [location.pathname, location.search, maxSeason, minSeason, navigate],
+  );
+
   const selectBoard = useCallback(
     (id: string) => {
       const next = new URLSearchParams(location.search);
@@ -1130,11 +1161,16 @@ export function LeaderboardsPage() {
     if (teamSize) filters.set("team-size", teamSize);
     if (gameType) filters.set("game-type", gameType);
     if (playlist) filters.set("playlist", playlist);
-    if (window === "season" && season) {
-      filters.set("season", season);
+    if (window === "season") {
+      if (minSeason && maxSeason && minSeason === maxSeason) {
+        filters.set("season", minSeason);
+      } else {
+        if (minSeason) filters.set("min-season", minSeason);
+        if (maxSeason) filters.set("max-season", maxSeason);
+      }
     }
     return filters.toString();
-  }, [gameType, playlist, season, teamSize, window]);
+  }, [gameType, maxSeason, minSeason, playlist, teamSize, window]);
 
   const boardFilterKey = useMemo(() => {
     const filters = new URLSearchParams(replayFilterKey);
@@ -1213,19 +1249,35 @@ export function LeaderboardsPage() {
           </select>
         </label>
         {window === "season" ? (
-          <label className="leaderboard-playlist-filter">
+          <nav className="stat-group-nav" aria-label="Season range">
             <span className="segment-bar-label">Season</span>
-            <select
-              value={season}
-              onChange={(event) => setParam("season", event.currentTarget.value)}
-            >
-              {seasonOptions.map((option) => (
-                <option key={option.value || "current"} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label className="segment-bar-select">
+              <span className="segment-bar-select-label">Min</span>
+              <select
+                value={minSeason}
+                onChange={(event) => setSeasonBoundary("min", event.currentTarget.value)}
+              >
+                {seasonOptions.map((option) => (
+                  <option key={option.value || "current"} value={option.value}>
+                    {option.value ? option.label : maxSeason ? "Earliest" : option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="segment-bar-select">
+              <span className="segment-bar-select-label">Max</span>
+              <select
+                value={maxSeason}
+                onChange={(event) => setSeasonBoundary("max", event.currentTarget.value)}
+              >
+                {seasonOptions.map((option) => (
+                  <option key={option.value || "current"} value={option.value}>
+                    {option.value ? option.label : minSeason ? "Latest" : option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </nav>
         ) : null}
         {showMinGames ? (
           <label className="leaderboard-playlist-filter">

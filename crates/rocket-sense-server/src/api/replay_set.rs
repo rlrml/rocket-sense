@@ -538,6 +538,11 @@ pub(crate) fn append_replay_set_filters<'args>(
         }
         builder.push(")");
     }
+    if filters.min_season_ord.is_some() || filters.max_season_ord.is_some() {
+        builder.push(" AND ");
+        builder.push(replay_alias);
+        builder.push(".season IS NOT NULL");
+    }
     if let Some(min_season_ord) = filters.min_season_ord {
         builder.push(" AND ");
         push_season_ordinal_expression(builder, replay_alias);
@@ -581,7 +586,7 @@ pub(crate) fn push_replay_group_subtree_membership_filter<'args>(
 /// ordinal, mirroring `parse_season_filter` so range bounds compare against the
 /// same scale. Non-conforming / NULL seasons evaluate to NULL, which excludes
 /// them from any bounded range (correct: their position is unknown).
-fn push_season_ordinal_expression<'args>(
+pub(crate) fn push_season_ordinal_expression<'args>(
     builder: &mut QueryBuilder<'args, Postgres>,
     replay_alias: &str,
 ) {

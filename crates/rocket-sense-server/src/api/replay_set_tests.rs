@@ -281,6 +281,7 @@ fn season_range_filter_renders_ordinal_expression() {
     append_replay_set_filters(&mut builder, &filters, "r");
     let sql = builder.sql();
 
+    assert!(sql.contains("r.season IS NOT NULL"));
     assert!(sql.contains("lower(btrim(r.season)) ~ '^[sf][0-9]+$'"));
     assert!(sql.contains(">= "));
     assert!(sql.contains("<= "));
