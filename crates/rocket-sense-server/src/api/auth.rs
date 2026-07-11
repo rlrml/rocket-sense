@@ -1,4 +1,5 @@
 use super::replays::{require_db, ApiError};
+use super::visibility::Visibility;
 use crate::{
     app::AppState,
     auth::{issue_access_token, issue_dev_token, AccessToken, AuthError, AuthUser, SESSION_COOKIE},
@@ -40,6 +41,7 @@ pub fn router() -> Router<AppState> {
         .route("/auth/profile-token", post(create_profile_token))
         .route("/auth/logout", post(logout))
         .route("/me", get(get_current_user))
+        .route("/me/settings", axum::routing::patch(update_user_settings))
         .route("/me/linked-identities", get(list_current_user_identities))
 }
 
@@ -147,6 +149,18 @@ pub struct CurrentUserResponse {
     pub display_name: String,
     pub provider_name: String,
     pub is_admin: bool,
+    /// Default visibility applied to the user's newly uploaded replays.
+    pub default_replay_visibility: Visibility,
+    /// Default visibility applied to the user's newly created replay groups.
+    pub default_group_visibility: Visibility,
+}
+
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct UpdateUserSettingsRequest {
+    #[serde(default)]
+    pub default_replay_visibility: Option<Visibility>,
+    #[serde(default)]
+    pub default_group_visibility: Option<Visibility>,
 }
 
 #[derive(Debug, Serialize, ToSchema)]
@@ -178,11 +192,22 @@ pub async fn get_current_user(
     auth_user: AuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<CurrentUserResponse>, AuthError> {
-    let is_admin = match &state.db {
-        Some(pool) => crate::auth::resolve_is_admin(pool, &auth_user, &state.admin_emails)
-            .await
-            .map_err(|_| AuthError::internal("failed to resolve admin status"))?,
-        None => false,
+    let (is_admin, default_replay_visibility, default_group_visibility) = match &state.db {
+        Some(pool) => {
+            let is_admin = crate::auth::resolve_is_admin(pool, &auth_user, &state.admin_emails)
+                .await
+                .map_err(|_| AuthError::internal("failed to resolve admin status"))?;
+            let default_replay_visibility =
+                read_default_visibility(pool, auth_user.id, "default_replay_visibility").await?;
+            let default_group_visibility =
+                read_default_visibility(pool, auth_user.id, "default_group_visibility").await?;
+            (
+                is_admin,
+                default_replay_visibility,
+                default_group_visibility,
+            )
+        }
+        None => (false, Visibility::default(), Visibility::default()),
     };
 
     Ok(Json(CurrentUserResponse {
@@ -191,6 +216,89 @@ pub async fn get_current_user(
         display_name: auth_user.display_name,
         provider_name: auth_user.provider_name,
         is_admin,
+        default_replay_visibility,
+        default_group_visibility,
+    }))
+}
+
+/// Read one of the user's default-visibility columns (a fixed identifier, never
+/// input). Defaults to public when the row or value is missing.
+async fn read_default_visibility(
+    pool: &sqlx::PgPool,
+    user_id: Uuid,
+    column: &str,
+) -> Result<Visibility, AuthError> {
+    let sql = format!("SELECT {column} FROM users WHERE id = $1");
+    let value: Option<String> = sqlx::query_scalar(&sql)
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|_| AuthError::internal("failed to load user settings"))?;
+    Ok(value
+        .as_deref()
+        .map(Visibility::from_db)
+        .unwrap_or_default())
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/v1/me/settings",
+    tag = "auth",
+    request_body = UpdateUserSettingsRequest,
+    responses(
+        (status = 200, description = "Updated account settings", body = CurrentUserResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 503, description = "Postgres connection is not configured")
+    ),
+    security(
+        ("bearer_auth" = [])
+    )
+)]
+pub async fn update_user_settings(
+    auth_user: AuthUser,
+    State(state): State<AppState>,
+    Json(request): Json<UpdateUserSettingsRequest>,
+) -> Result<Json<CurrentUserResponse>, ApiError> {
+    let pool = require_db(&state)?;
+    // Resolve admin status (also upserts the user row so the UPDATE has a target).
+    let is_admin = crate::auth::resolve_is_admin(pool, &auth_user, &state.admin_emails)
+        .await
+        .map_err(ApiError::internal)?;
+    if let Some(visibility) = request.default_replay_visibility {
+        sqlx::query(
+            "UPDATE users SET default_replay_visibility = $2, updated_at = now() WHERE id = $1",
+        )
+        .bind(auth_user.id)
+        .bind(visibility.as_str())
+        .execute(pool)
+        .await
+        .map_err(ApiError::internal)?;
+    }
+    if let Some(visibility) = request.default_group_visibility {
+        sqlx::query(
+            "UPDATE users SET default_group_visibility = $2, updated_at = now() WHERE id = $1",
+        )
+        .bind(auth_user.id)
+        .bind(visibility.as_str())
+        .execute(pool)
+        .await
+        .map_err(ApiError::internal)?;
+    }
+    let default_replay_visibility =
+        super::visibility::user_default_visibility(pool, auth_user.id, "default_replay_visibility")
+            .await?;
+    let default_group_visibility =
+        super::visibility::user_default_visibility(pool, auth_user.id, "default_group_visibility")
+            .await?;
+
+    Ok(Json(CurrentUserResponse {
+        id: auth_user.id,
+        email: auth_user.email,
+        display_name: auth_user.display_name,
+        provider_name: auth_user.provider_name,
+        is_admin,
+        default_replay_visibility,
+        default_group_visibility,
     }))
 }
 

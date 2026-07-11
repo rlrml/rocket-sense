@@ -451,18 +451,10 @@ fn replay_filter_indexes_include_trigram_search_and_sort_pagination_support() {
 
 #[test]
 fn replay_filter_options_query_sources_maps_and_seasons() {
-    assert!(ReplayFilterOptionKind::Map
-        .sql()
-        .contains("SELECT map_code AS value"));
-    assert!(ReplayFilterOptionKind::Map
-        .sql()
-        .contains("GROUP BY map_code"));
-    assert!(ReplayFilterOptionKind::Season
-        .sql()
-        .contains("SELECT season AS value"));
-    assert!(ReplayFilterOptionKind::Season
-        .sql()
-        .contains("GROUP BY season"));
+    assert_eq!(ReplayFilterOptionKind::Map.column(), "map_code");
+    assert_eq!(ReplayFilterOptionKind::Map.limit(), 500);
+    assert_eq!(ReplayFilterOptionKind::Season.column(), "season");
+    assert_eq!(ReplayFilterOptionKind::Season.limit(), 200);
 }
 
 #[test]
@@ -476,7 +468,7 @@ fn replay_group_select_includes_member_count() {
 
 #[test]
 fn replay_group_search_is_case_insensitive() {
-    let where_clause = replay_group_search_where_clause("$1");
+    let where_clause = format!("WHERE {}", replay_group_search_condition("$1"));
     let sql = replay_group_select_sql(&where_clause);
 
     assert!(where_clause.contains("replay_group.name ILIKE $1"));

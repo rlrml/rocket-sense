@@ -679,6 +679,14 @@ pub async fn get_stat_aggregates(
     filters.rank_benchmark_enabled = state.rank_benchmark_enabled;
     filters.rank_benchmark_windows = state.rank_benchmark_windows.clone();
     filters.rank_benchmark_default_window = state.rank_benchmark_default_window.clone();
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        filters.player.as_ref(),
+        &filters.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let aggregates = load_stat_aggregates(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -714,6 +722,14 @@ pub async fn get_player_boost_totals(
     if filters.player.is_none() {
         return Err(ApiError::bad_request("boost totals require player-id"));
     }
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        filters.player.as_ref(),
+        &filters.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let totals = if filters.materialized_stat_counts {
         load_player_boost_totals_materialized(db, &filters)
             .await
@@ -751,6 +767,14 @@ pub async fn get_player_boost_pad_control(
             "boost pad control requires player-id",
         ));
     }
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        filters.player.as_ref(),
+        &filters.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let response = load_player_boost_pad_control(db, &filters)
         .await
         .map_err(ApiError::internal)?;
@@ -777,6 +801,14 @@ pub async fn get_processing_version_breakdown(
     let db = require_db(&state)?;
     let query = StatAggregatesQuery::from_raw_query(raw_query.as_deref())?;
     let filters = StatAggregateFilters::from_query(query, auth_user.as_ref().map(|user| user.id))?;
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        filters.player.as_ref(),
+        &filters.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let breakdown = load_processing_version_breakdown(db, &filters)
         .await
         .map_err(ApiError::internal)?;

@@ -23,6 +23,7 @@ mod replays;
 mod spa;
 mod stats;
 mod users;
+mod visibility;
 
 /// Reused by `crate::processing` to key the rank-median benchmark population on
 /// the exact same playlist-group expression the read path filters by (a
@@ -34,7 +35,8 @@ pub(crate) use replay_set::push_playlist_group_key_expression;
 /// through the exact same store/dedup/preflight/enqueue path as a user upload,
 /// without widening the whole `replays` module.
 pub(crate) use replays::{
-    find_replay_by_external_replay_id, import_replay_from_bytes, ReplayImportRequest,
+    can_user_access_replay, find_replay_by_external_replay_id, import_replay_from_bytes,
+    ReplayImportRequest,
 };
 
 /// Boost materialization helpers reused by `crate::processing` to populate

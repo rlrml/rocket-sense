@@ -214,6 +214,14 @@ pub async fn get_rank_benchmark_cohorts(
     filters.rank_benchmark_enabled = state.rank_benchmark_enabled;
     filters.rank_benchmark_windows = state.rank_benchmark_windows.clone();
     filters.rank_benchmark_default_window = state.rank_benchmark_default_window.clone();
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        filters.player.as_ref(),
+        &filters.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
 
     let response = load_rank_benchmark_cohorts(db, &filters, requested_ranks, grouping)
         .await

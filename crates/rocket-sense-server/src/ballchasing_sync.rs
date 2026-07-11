@@ -27,7 +27,8 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use crate::api::{
-    find_replay_by_external_replay_id, import_replay_from_bytes, ReplayImportRequest,
+    can_user_access_replay, find_replay_by_external_replay_id, import_replay_from_bytes,
+    ReplayImportRequest,
 };
 use crate::ballchasing::{BallchasingClient, BallchasingGroup};
 
@@ -194,6 +195,14 @@ async fn attach_replay(
         .await
         .context("lookup by external replay id failed")?
     {
+        if !can_user_access_replay(pool, existing.id, created_by_user_id)
+            .await
+            .map_err(|error| anyhow!("replay access check failed: {}", error.message()))?
+        {
+            return Err(anyhow!(
+                "an inaccessible replay with this ballchasing id already exists"
+            ));
+        }
         summary.replays_existing += 1;
         return Ok(existing.id);
     }
@@ -254,8 +263,11 @@ async fn upsert_mirror_subgroup(
     created_by_user_id: Uuid,
 ) -> Result<Uuid> {
     let row = sqlx::query(
-        "INSERT INTO replay_groups (id, parent_group_id, name, created_by_user_id, ballchasing_group_id) \
-         VALUES ($1, $2, $3, $4, $5) \
+        "INSERT INTO replay_groups (\
+             id, parent_group_id, name, created_by_user_id, ballchasing_group_id, visibility\
+         ) \
+         SELECT $1, $2, $3, $4, $5, parent.visibility \
+         FROM replay_groups parent WHERE parent.id = $2 \
          ON CONFLICT (ballchasing_group_id) WHERE ballchasing_group_id IS NOT NULL \
          DO UPDATE SET name = EXCLUDED.name, parent_group_id = EXCLUDED.parent_group_id, updated_at = now() \
          RETURNING id",

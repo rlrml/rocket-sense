@@ -129,6 +129,14 @@ pub async fn get_player_game_outcomes(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
     )?;
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        Some(&query.player),
+        &query.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let response = load_game_outcomes(db, &query)
         .await
         .map_err(ApiError::internal)?;
