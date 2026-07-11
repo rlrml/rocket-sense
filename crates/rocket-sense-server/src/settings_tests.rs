@@ -91,3 +91,32 @@ fn egress_proxies_parse_bare_and_named_entries() {
     assert_eq!(exits[1].name, "nl-ams");
     assert_eq!(exits[1].proxy.as_deref(), Some("socks5h://127.0.0.1:9002"));
 }
+
+#[test]
+fn epic_token_key_parses_hex_and_base64() {
+    let key_bytes = [0xabu8; 32];
+
+    let hex_encoded = hex::encode(key_bytes);
+    assert_eq!(
+        parse_epic_token_encryption_key(&hex_encoded).unwrap(),
+        key_bytes
+    );
+
+    let base64_encoded = {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(key_bytes)
+    };
+    assert_eq!(
+        parse_epic_token_encryption_key(&base64_encoded).unwrap(),
+        key_bytes
+    );
+}
+
+#[test]
+fn epic_token_key_rejects_wrong_length_and_garbage() {
+    // 16 bytes instead of 32.
+    let error = parse_epic_token_encryption_key(&hex::encode([1u8; 16])).unwrap_err();
+    assert!(error.to_string().contains("32 bytes"));
+
+    assert!(parse_epic_token_encryption_key("not hex, not base64!!").is_err());
+}

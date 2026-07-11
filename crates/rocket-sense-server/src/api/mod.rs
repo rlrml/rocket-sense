@@ -22,6 +22,7 @@ mod replay_set;
 mod replays;
 mod spa;
 mod stats;
+mod training_packs;
 mod users;
 
 /// Reused by `crate::processing` to key the rank-median benchmark population on
@@ -86,6 +87,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(rank_trends::router())
         .merge(replays::router())
         .merge(stats::router())
+        .merge(training_packs::router())
         .merge(users::router())
         .with_state(state)
 }
