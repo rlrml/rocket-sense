@@ -41,6 +41,9 @@ pub struct AppState {
     /// Ballchasing.com API key for mirroring ballchasing groups. `None` disables
     /// the ballchasing mirror endpoints.
     pub ballchasing_api_key: Option<Arc<str>>,
+    /// 32-byte key for authenticated encryption of stored Epic refresh tokens.
+    /// `None` disables the Epic link / training-pack publish endpoints.
+    pub epic_token_encryption_key: Option<Arc<[u8; 32]>>,
     /// Round-robin SOCKS5 egress pool for rate-limited upstreams (ballchasing
     /// replay-file proxying). A single direct exit unless proxies are configured.
     pub egress: Arc<EgressPool>,
@@ -82,6 +85,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         rank_benchmark_calc: settings.rank_benchmark_calc,
         admin_emails: Arc::from(settings.admin_emails),
         ballchasing_api_key: settings.ballchasing_api_key.map(Arc::from),
+        epic_token_encryption_key: settings.epic_token_encryption_key.map(Arc::new),
         egress,
     };
 

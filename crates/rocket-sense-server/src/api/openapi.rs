@@ -1,7 +1,7 @@
 use super::{
     admin, auth, ballchasing, favorites, game_outcomes, health, leaderboards, meta, movement_stats,
     player_overview, player_timeline, players, positioning_stats, possession_stats,
-    rank_benchmark_cohorts, rank_trends, replays, stats, users,
+    rank_benchmark_cohorts, rank_trends, replays, stats, training_packs, users,
 };
 use utoipa::{
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
@@ -92,6 +92,11 @@ use utoipa::{
         replays::reprocess_replay,
         replays::reprocess_replay_client,
         replays::set_replay_ranks,
+        training_packs::get_epic_link,
+        training_packs::start_epic_link,
+        training_packs::complete_epic_link,
+        training_packs::unlink_epic_account,
+        training_packs::publish_training_pack,
         users::get_user_profile,
     ),
     components(
@@ -228,6 +233,13 @@ use utoipa::{
             crate::ranks::RankSubmission,
             crate::ranks::SubmittedRank,
             crate::ranks::SkillSnapshot,
+            training_packs::EpicLinkStatusResponse,
+            training_packs::EpicLinkStartResponse,
+            training_packs::CompleteEpicLinkRequest,
+            training_packs::EpicLinkResponse,
+            training_packs::PublishTrainingPackRequest,
+            training_packs::PublishTrainingRoundRequest,
+            training_packs::PublishTrainingPackResponse,
             users::UserProfileResponse,
             users::UserGameIdentity,
         )
@@ -243,7 +255,8 @@ use utoipa::{
         (name = "users", description = "Rocket Sense user (uploader) profile endpoints"),
         (name = "stats", description = "Aggregate replay statistics endpoints"),
         (name = "replays", description = "Replay upload and metadata endpoints"),
-        (name = "replay-groups", description = "Replay group endpoints")
+        (name = "replay-groups", description = "Replay group endpoints"),
+        (name = "training-packs", description = "Epic account linking and PsyNet training pack publishing")
     ),
     modifiers(&SecurityAddon)
 )]

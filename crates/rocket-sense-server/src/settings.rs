@@ -150,6 +150,11 @@ pub struct Settings {
     /// Ballchasing.com API key used to mirror/sync ballchasing groups. When
     /// absent, ballchasing mirror endpoints are disabled.
     pub ballchasing_api_key: Option<String>,
+    /// 32-byte key for authenticated encryption of stored Epic refresh tokens
+    /// (`ROCKET_SENSE_EPIC_TOKEN_ENCRYPTION_KEY`, hex- or base64-encoded).
+    /// When absent, the Epic account link / training-pack publish endpoints
+    /// are disabled.
+    pub epic_token_encryption_key: Option<[u8; 32]>,
     /// Outbound egress pool used for rate-limited / ban-prone upstreams (e.g.
     /// proxying replay files from ballchasing.com). Defaults to a single direct
     /// exit, preserving today's behavior until SOCKS5 proxies are configured.
@@ -249,6 +254,12 @@ impl Settings {
             .ok()
             .map(|value| value.trim().to_owned())
             .filter(|value| !value.is_empty());
+        let epic_token_encryption_key = env::var("ROCKET_SENSE_EPIC_TOKEN_ENCRYPTION_KEY")
+            .ok()
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty())
+            .map(|value| parse_epic_token_encryption_key(&value))
+            .transpose()?;
         let egress = parse_egress_settings();
 
         Ok(Self {
@@ -272,9 +283,31 @@ impl Settings {
             rank_benchmark_calc,
             admin_emails,
             ballchasing_api_key,
+            epic_token_encryption_key,
             egress,
         })
     }
+}
+
+/// Parse `ROCKET_SENSE_EPIC_TOKEN_ENCRYPTION_KEY`: exactly 32 bytes, encoded
+/// as either 64 hex characters or standard base64. Fails fast on anything
+/// else so a mis-pasted key can never silently encrypt tokens with the wrong
+/// material.
+fn parse_epic_token_encryption_key(raw: &str) -> Result<[u8; 32]> {
+    use base64::Engine as _;
+
+    let bytes = hex::decode(raw)
+        .ok()
+        .or_else(|| base64::engine::general_purpose::STANDARD.decode(raw).ok())
+        .context(
+            "ROCKET_SENSE_EPIC_TOKEN_ENCRYPTION_KEY must be hex or base64 (32 bytes decoded)",
+        )?;
+    bytes.as_slice().try_into().map_err(|_| {
+        anyhow::anyhow!(
+            "ROCKET_SENSE_EPIC_TOKEN_ENCRYPTION_KEY must decode to exactly 32 bytes, got {}",
+            bytes.len()
+        )
+    })
 }
 
 /// Build the egress pool config from the environment.
