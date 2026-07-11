@@ -112,7 +112,7 @@ fn report_and_tag_slugs_are_lowercase_ascii_slugs() {
 fn player_replay_query_uses_compact_replay_preview() {
     let identity = PlayerIdentity::new("epic".to_owned(), "abc123".to_owned()).unwrap();
     let filters = PlayerProfileFilters::default();
-    let query = player_replays_query(&identity, &filters, 10);
+    let query = player_replays_query(&identity, &filters, None, 10);
     let sql = query.sql();
 
     assert!(sql.contains("SELECT"));
@@ -123,6 +123,7 @@ fn player_replay_query_uses_compact_replay_preview() {
     assert!(sql.contains("FROM replay_players profile_player"));
     assert!(sql.contains("profile_player.platform = $1"));
     assert!(sql.contains("profile_player.platform_player_id = $2"));
+    assert!(sql.contains("r.visibility = 'public'"));
     assert!(sql.contains("LIMIT $3"));
     assert!(!sql.contains("jsonb_agg"));
     assert!(!sql.contains("FROM replay_players player"));
@@ -137,13 +138,26 @@ fn player_replay_query_filters_group_subtrees() {
         group_id: Some(group_id),
         ..PlayerProfileFilters::default()
     };
-    let query = player_replays_query(&identity, &filters, 10);
+    let query = player_replays_query(&identity, &filters, None, 10);
     let sql = query.sql();
 
     assert!(sql.contains("FROM replay_group_replays profile_group"));
     assert!(sql.contains("WITH RECURSIVE group_subtree"));
     assert!(sql.contains("child.parent_group_id = parent.id"));
     assert!(sql.contains("profile_group.group_id IN"));
+}
+
+#[test]
+fn player_replay_query_includes_owned_and_shared_replays_for_viewer() {
+    let identity = PlayerIdentity::new("epic".to_owned(), "abc123".to_owned()).unwrap();
+    let filters = PlayerProfileFilters::default();
+    let viewer_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let query = player_replays_query(&identity, &filters, Some(viewer_id), 10);
+    let sql = query.sql();
+
+    assert!(sql.contains("r.visibility = 'public'"));
+    assert!(sql.contains("r.uploaded_by_user_id"));
+    assert!(sql.contains("FROM replay_shares s"));
 }
 
 #[test]

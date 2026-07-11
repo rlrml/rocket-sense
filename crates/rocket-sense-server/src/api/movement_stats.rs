@@ -97,6 +97,14 @@ pub async fn get_movement_summary(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
     )?;
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        Some(&query.player),
+        &query.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let response = load_movement_summary(db, &query)
         .await
         .map_err(ApiError::internal)?;

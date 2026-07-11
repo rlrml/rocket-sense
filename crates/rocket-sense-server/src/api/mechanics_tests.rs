@@ -188,15 +188,33 @@ fn event_review_playlist_query_sorts_most_recent_replays_first() {
     })
     .unwrap();
 
-    let builder = find_mechanic_events_query(&filters);
+    let builder = find_mechanic_events_query(&filters, None);
     let sql = builder.sql();
 
+    assert!(sql.contains("replay.visibility = 'public'"));
     assert!(
         sql.contains(
             "ORDER BY COALESCE(replay.replay_date, replay.created_at) DESC NULLS LAST, replay.created_at DESC, event.replay_id, COALESCE(event.event_time, event.start_time, 0), event.id"
         ),
         "event review playlist should default to most recent replay first, got: {sql}"
     );
+}
+
+#[test]
+fn direct_event_query_allows_unlisted_but_gates_private_replays() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        event_ids: vec![Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap()],
+        count: Some(10),
+        ..MechanicEventsQuery::default()
+    })
+    .unwrap();
+    let viewer_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
+    let builder = find_mechanic_events_query(&filters, Some(viewer_id));
+    let sql = builder.sql();
+
+    assert!(sql.contains("replay.visibility <> 'private'"));
+    assert!(sql.contains("replay.uploaded_by_user_id"));
+    assert!(sql.contains("FROM replay_shares s"));
 }
 
 #[test]
@@ -210,7 +228,7 @@ fn event_review_playlist_query_filters_payload_classifications() {
     })
     .unwrap();
 
-    let builder = find_mechanic_events_query(&filters);
+    let builder = find_mechanic_events_query(&filters, None);
     let sql = builder.sql();
 
     assert!(sql.contains("payload.payload ->> $"));

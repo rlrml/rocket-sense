@@ -744,6 +744,12 @@ pub async fn create_replay(
         .await
         .map_err(ApiError::internal)?
     {
+        if !super::visibility::can_view_replay(&state, db, replay.id, Some(&auth_user)).await? {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "an inaccessible replay with the same content already exists",
+            ));
+        }
         let mut replay = maybe_upsert_preflight_metadata(db, replay, bytes.clone()).await?;
         ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
         maybe_enqueue_replay_processing(&state, db, &replay).await?;
@@ -791,6 +797,14 @@ pub async fn create_replay(
     .await
     .map_err(ApiError::internal)?;
     let replay = insert_result.replay;
+    if !insert_result.created
+        && !super::visibility::can_view_replay(&state, db, replay.id, Some(&auth_user)).await?
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "an inaccessible replay with the same content already exists",
+        ));
+    }
 
     let mut replay = maybe_upsert_preflight_metadata(db, replay, bytes).await?;
     ingest_bundled_ranks(db, replay.id, rank_submission.as_ref()).await;
@@ -935,13 +949,15 @@ pub async fn list_replays(
     )
 )]
 pub async fn list_replay_filter_options(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
 ) -> Result<Json<ReplayFilterOptionsResponse>, ApiError> {
     let db = require_db(&state)?;
-    let maps = load_replay_filter_options(db, ReplayFilterOptionKind::Map)
+    let viewer_id = viewer.as_ref().map(|user| user.id);
+    let maps = load_replay_filter_options(db, ReplayFilterOptionKind::Map, viewer_id)
         .await
         .map_err(ApiError::internal)?;
-    let seasons = load_replay_filter_options(db, ReplayFilterOptionKind::Season)
+    let seasons = load_replay_filter_options(db, ReplayFilterOptionKind::Season, viewer_id)
         .await
         .map_err(ApiError::internal)?;
 
@@ -1640,13 +1656,11 @@ pub async fn list_replay_group_replays(
             "replay group not found",
         ));
     }
-    let total = count_replay_group_replays(db, group_id)
-        .await
-        .map_err(ApiError::internal)?;
-    let mut replays = load_replay_group_replays(db, group_id)
+    let mut replays = load_replay_group_replays(db, group_id, viewer.as_ref().map(|user| user.id))
         .await
         .map_err(ApiError::internal)?;
     annotate_replay_manage(db, viewer.as_ref(), &mut replays).await?;
+    let total = replays.len() as u64;
 
     Ok(Json(ListReplaysResponse {
         count: replays.len() as u32,
@@ -3076,6 +3090,15 @@ pub async fn find_replay_by_external_replay_id(
         .transpose()
 }
 
+/// Access check used by background importers before reusing an existing replay.
+pub async fn can_user_access_replay(
+    pool: &PgPool,
+    replay_id: Uuid,
+    user_id: Uuid,
+) -> Result<bool, ApiError> {
+    super::visibility::can_view_replay_for_user_id(pool, replay_id, user_id).await
+}
+
 /// Record a source replay id on a replay that does not yet have one (e.g. a file
 /// that was uploaded manually before we knew its ballchasing id).
 async fn set_replay_external_replay_id_if_absent(
@@ -3124,6 +3147,14 @@ pub async fn import_replay_from_bytes(
         .await
         .map_err(ApiError::internal)?
     {
+        if !super::visibility::can_view_replay_for_user_id(db, replay.id, uploaded_by_user_id)
+            .await?
+        {
+            return Err(ApiError::new(
+                StatusCode::CONFLICT,
+                "an inaccessible replay with the same content already exists",
+            ));
+        }
         if let Some(external) = external_replay_id {
             set_replay_external_replay_id_if_absent(db, replay.id, external)
                 .await
@@ -3166,6 +3197,20 @@ pub async fn import_replay_from_bytes(
     )
     .await
     .map_err(ApiError::internal)?;
+
+    if !insert_result.created
+        && !super::visibility::can_view_replay_for_user_id(
+            db,
+            insert_result.replay.id,
+            uploaded_by_user_id,
+        )
+        .await?
+    {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "an inaccessible replay with the same content already exists",
+        ));
+    }
 
     let replay = maybe_upsert_preflight_metadata(db, insert_result.replay, bytes).await?;
     if insert_result.created {
@@ -3293,6 +3338,15 @@ async fn require_replay_manager(
 }
 
 /// Change a replay's visibility. Owner or admin only.
+#[utoipa::path(
+    patch,
+    path = "/api/v1/replays/{replay_id}/visibility",
+    tag = "replays",
+    request_body = super::visibility::SetVisibilityRequest,
+    params(("replay_id" = Uuid, Path, description = "Rocket Sense replay id")),
+    responses((status = 200, description = "Updated replay", body = ReplayResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn set_replay_visibility(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3324,6 +3378,14 @@ pub async fn set_replay_visibility(
 }
 
 /// List the users a replay has been explicitly shared with. Owner or admin only.
+#[utoipa::path(
+    get,
+    path = "/api/v1/replays/{replay_id}/shares",
+    tag = "replays",
+    params(("replay_id" = Uuid, Path, description = "Rocket Sense replay id")),
+    responses((status = 200, description = "Replay share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn list_replay_shares(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3341,6 +3403,15 @@ pub async fn list_replay_shares(
 }
 
 /// Grant a user read access to a replay. Owner or admin only.
+#[utoipa::path(
+    post,
+    path = "/api/v1/replays/{replay_id}/shares",
+    tag = "replays",
+    request_body = super::visibility::ShareTargetRequest,
+    params(("replay_id" = Uuid, Path, description = "Rocket Sense replay id")),
+    responses((status = 200, description = "Updated replay share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn add_replay_share(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3371,6 +3442,15 @@ pub async fn add_replay_share(
 }
 
 /// Revoke a user's read access to a replay. Owner or admin only.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/replays/{replay_id}/shares",
+    tag = "replays",
+    request_body = super::visibility::ShareTargetRequest,
+    params(("replay_id" = Uuid, Path, description = "Rocket Sense replay id")),
+    responses((status = 200, description = "Updated replay share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn remove_replay_share(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3403,6 +3483,14 @@ pub async fn remove_replay_share(
 }
 
 /// List the users a replay group has been explicitly shared with. Manager only.
+#[utoipa::path(
+    get,
+    path = "/api/v1/replay-groups/{group_id}/shares",
+    tag = "replay-groups",
+    params(("group_id" = Uuid, Path, description = "Replay group id")),
+    responses((status = 200, description = "Replay-group share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn list_replay_group_shares(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3420,6 +3508,15 @@ pub async fn list_replay_group_shares(
 }
 
 /// Grant a user read access to a replay group. Manager only.
+#[utoipa::path(
+    post,
+    path = "/api/v1/replay-groups/{group_id}/shares",
+    tag = "replay-groups",
+    request_body = super::visibility::ShareTargetRequest,
+    params(("group_id" = Uuid, Path, description = "Replay group id")),
+    responses((status = 200, description = "Updated replay-group share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn add_replay_group_share(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3450,6 +3547,15 @@ pub async fn add_replay_group_share(
 }
 
 /// Revoke a user's read access to a replay group. Manager only.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/replay-groups/{group_id}/shares",
+    tag = "replay-groups",
+    request_body = super::visibility::ShareTargetRequest,
+    params(("group_id" = Uuid, Path, description = "Replay group id")),
+    responses((status = 200, description = "Updated replay-group share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn remove_replay_group_share(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -3656,43 +3762,37 @@ async fn resolve_manager_target_user(
     }
 }
 
-async fn count_replay_group_replays(pool: &PgPool, group_id: Uuid) -> Result<u64, sqlx::Error> {
-    // Count distinct replays across this group and all descendant groups, so a
-    // non-leaf group reports its full subtree.
-    let sql = format!(
-        "SELECT COUNT(DISTINCT replay_id) FROM replay_group_replays WHERE group_id IN {}",
-        group_subtree_ids_subquery("$1")
-    );
-    let total: i64 = sqlx::query_scalar(sql.as_str())
-        .bind(group_id)
-        .fetch_one(pool)
-        .await?;
-
-    Ok(total.max(0) as u64)
-}
-
 async fn load_replay_group_replays(
     pool: &PgPool,
     group_id: Uuid,
+    viewer_user_id: Option<Uuid>,
 ) -> Result<Vec<ReplayResponse>, sqlx::Error> {
     // EXISTS against the subtree id set returns each replay once even when it is
     // attached to several descendant groups.
-    let sql = replay_select_sql(&format!(
+    let mut where_clause = format!(
         r#"
         WHERE EXISTS (
             SELECT 1 FROM replay_group_replays group_replay
             WHERE group_replay.replay_id = r.id
               AND group_replay.group_id IN {}
         )
-        ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC
         "#,
         group_subtree_ids_subquery("$1")
+    );
+    where_clause.push_str(&super::visibility::replay_list_visibility_sql(
+        "r",
+        viewer_user_id.map(|_| "$2"),
     ));
+    where_clause.push_str(
+        " ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC",
+    );
+    let sql = replay_select_sql(&where_clause);
 
-    let rows = sqlx::query(sql.as_str())
-        .bind(group_id)
-        .fetch_all(pool)
-        .await?;
+    let mut query = sqlx::query(sql.as_str()).bind(group_id);
+    if let Some(viewer_user_id) = viewer_user_id {
+        query = query.bind(viewer_user_id);
+    }
+    let rows = query.fetch_all(pool).await?;
 
     rows.into_iter().map(replay_from_row).collect()
 }
@@ -3716,19 +3816,23 @@ async fn resolve_replay_group_update_replays(
         ));
     }
 
-    let rows = sqlx::query(
-        r#"
-        SELECT id
-        FROM replays
-        WHERE id = ANY($1)
-           OR file_sha256 = ANY($2)
-        "#,
-    )
-    .bind(&request.replay_ids)
-    .bind(&file_sha256s)
-    .fetch_all(pool)
-    .await
-    .map_err(ApiError::internal)?;
+    let mut explicit_query =
+        QueryBuilder::<Postgres>::new("SELECT r.id FROM replays r WHERE (r.id = ANY(");
+    explicit_query
+        .push_bind(&request.replay_ids)
+        .push(") OR r.file_sha256 = ANY(")
+        .push_bind(&file_sha256s)
+        .push("))");
+    // Exact ids and hashes behave like direct links: unlisted is allowed, but
+    // a private replay cannot be attached to a group merely by guessing its id.
+    // Otherwise an attacker could isolate its supposedly anonymous aggregates
+    // in a new group and recover the replay's stats.
+    super::visibility::push_replay_direct_visibility(&mut explicit_query, "r", auth_user_id);
+    let rows = explicit_query
+        .build()
+        .fetch_all(pool)
+        .await
+        .map_err(ApiError::internal)?;
     let mut replay_ids = rows
         .into_iter()
         .map(|row| row.try_get("id"))
@@ -4023,28 +4127,17 @@ enum ReplayFilterOptionKind {
 }
 
 impl ReplayFilterOptionKind {
-    fn sql(self) -> &'static str {
+    fn column(self) -> &'static str {
         match self {
-            Self::Map => {
-                r#"
-                SELECT map_code AS value, count(*) AS replay_count
-                FROM replays
-                WHERE map_code IS NOT NULL AND btrim(map_code) <> ''
-                GROUP BY map_code
-                ORDER BY replay_count DESC, map_code ASC
-                LIMIT 500
-                "#
-            }
-            Self::Season => {
-                r#"
-                SELECT season AS value, count(*) AS replay_count
-                FROM replays
-                WHERE season IS NOT NULL AND btrim(season) <> ''
-                GROUP BY season
-                ORDER BY replay_count DESC, season ASC
-                LIMIT 200
-                "#
-            }
+            Self::Map => "map_code",
+            Self::Season => "season",
+        }
+    }
+
+    fn limit(self) -> i64 {
+        match self {
+            Self::Map => 500,
+            Self::Season => 200,
         }
     }
 }
@@ -4052,8 +4145,20 @@ impl ReplayFilterOptionKind {
 async fn load_replay_filter_options(
     pool: &PgPool,
     kind: ReplayFilterOptionKind,
+    viewer_user_id: Option<Uuid>,
 ) -> Result<Vec<ReplayFilterOptionResponse>, sqlx::Error> {
-    let rows = sqlx::query(kind.sql()).fetch_all(pool).await?;
+    let column = kind.column();
+    let mut builder = QueryBuilder::<Postgres>::new(format!(
+        "SELECT r.{column} AS value, count(*) AS replay_count FROM replays r \
+         WHERE r.{column} IS NOT NULL AND btrim(r.{column}) <> ''"
+    ));
+    super::visibility::push_replay_list_visibility(&mut builder, "r", viewer_user_id);
+    builder
+        .push(format!(
+            " GROUP BY r.{column} ORDER BY replay_count DESC, r.{column} ASC LIMIT "
+        ))
+        .push_bind(kind.limit());
+    let rows = builder.build().fetch_all(pool).await?;
     rows.into_iter()
         .map(|row| {
             let value: String = row.try_get("value")?;

@@ -66,6 +66,22 @@ pub struct PlayerStatsVisibilityResponse {
 
 /// Change a player's career-stats visibility. The identity owner (verified
 /// claim or matching login) or an admin only.
+#[utoipa::path(
+    put,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/stats-visibility",
+    tag = "players",
+    request_body = super::visibility::SetVisibilityRequest,
+    params(
+        ("platform" = String, Path, description = "Player platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id")
+    ),
+    responses(
+        (status = 200, description = "Updated career-stats visibility", body = PlayerStatsVisibilityResponse),
+        (status = 401, description = "Authentication required"),
+        (status = 403, description = "Player identity is not managed by this user")
+    ),
+    security(("bearer_auth" = []))
+)]
 pub async fn set_player_stats_visibility(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -95,6 +111,17 @@ pub async fn set_player_stats_visibility(
 }
 
 /// List the users a player's career stats have been shared with. Owner/admin.
+#[utoipa::path(
+    get,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/stats-shares",
+    tag = "players",
+    params(
+        ("platform" = String, Path, description = "Player platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id")
+    ),
+    responses((status = 200, description = "Career-stats share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn list_player_stats_shares(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -113,6 +140,18 @@ pub async fn list_player_stats_shares(
 }
 
 /// Grant a user read access to a player's career stats. Owner/admin.
+#[utoipa::path(
+    post,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/stats-shares",
+    tag = "players",
+    request_body = super::visibility::ShareTargetRequest,
+    params(
+        ("platform" = String, Path, description = "Player platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id")
+    ),
+    responses((status = 200, description = "Updated career-stats share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn add_player_stats_share(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -151,6 +190,18 @@ pub async fn add_player_stats_share(
 }
 
 /// Revoke a user's read access to a player's career stats. Owner/admin.
+#[utoipa::path(
+    delete,
+    path = "/api/v1/players/{platform}/id/{platform_player_id}/stats-shares",
+    tag = "players",
+    request_body = super::visibility::ShareTargetRequest,
+    params(
+        ("platform" = String, Path, description = "Player platform"),
+        ("platform_player_id" = String, Path, description = "Platform-scoped player id")
+    ),
+    responses((status = 200, description = "Updated career-stats share list", body = super::visibility::ListSharesResponse)),
+    security(("bearer_auth" = []))
+)]
 pub async fn remove_player_stats_share(
     auth_user: AuthUser,
     State(state): State<AppState>,
@@ -425,7 +476,9 @@ pub async fn get_player_profile(
     let query = PlayerProfileQuery::from_raw_query(raw_query.as_deref())?;
     let filters = PlayerProfileFilters::from_query(query)?;
 
-    let profile = load_required_player_profile(db, &identity, &filters).await?;
+    let profile =
+        load_required_player_profile(db, &identity, &filters, viewer.as_ref().map(|user| user.id))
+            .await?;
     let profile =
         annotate_player_visibility(&state, db, &identity, viewer.as_ref(), profile).await?;
 
@@ -444,7 +497,9 @@ pub async fn get_player_profile_by_ref(
     let identity = resolve_player_display_name(db, platform, player_ref, &filters)
         .await?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))?;
-    let profile = load_required_player_profile(db, &identity, &filters).await?;
+    let profile =
+        load_required_player_profile(db, &identity, &filters, viewer.as_ref().map(|user| user.id))
+            .await?;
     let profile =
         annotate_player_visibility(&state, db, &identity, viewer.as_ref(), profile).await?;
 
@@ -900,8 +955,9 @@ async fn load_required_player_profile(
     pool: &sqlx::PgPool,
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
+    viewer_user_id: Option<Uuid>,
 ) -> Result<PlayerProfileResponse, ApiError> {
-    load_player_profile(pool, identity, filters)
+    load_player_profile(pool, identity, filters, viewer_user_id)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "player not found"))
@@ -1031,6 +1087,7 @@ async fn load_player_profile(
     pool: &sqlx::PgPool,
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
+    viewer_user_id: Option<Uuid>,
 ) -> Result<Option<PlayerProfileResponse>, sqlx::Error> {
     let mut summary_query = QueryBuilder::<Postgres>::new(
         r#"
@@ -1064,7 +1121,7 @@ async fn load_player_profile(
 
     let names = load_player_names(pool, identity, filters).await?;
     let tags = load_player_tags(pool, identity).await?;
-    let latest_replays = load_player_replays(pool, identity, filters, 10).await?;
+    let latest_replays = load_player_replays(pool, identity, filters, viewer_user_id, 10).await?;
 
     Ok(Some(PlayerProfileResponse {
         platform: identity.platform.clone(),
@@ -1341,9 +1398,10 @@ async fn load_player_replays(
     pool: &sqlx::PgPool,
     identity: &PlayerIdentity,
     filters: &PlayerProfileFilters,
+    viewer_user_id: Option<Uuid>,
     limit: i64,
 ) -> Result<Vec<PlayerProfileReplayResponse>, sqlx::Error> {
-    let rows = player_replays_query(identity, filters, limit)
+    let rows = player_replays_query(identity, filters, viewer_user_id, limit)
         .build()
         .fetch_all(pool)
         .await?;
@@ -1367,6 +1425,7 @@ async fn load_player_replays(
 fn player_replays_query<'args>(
     identity: &'args PlayerIdentity,
     filters: &'args PlayerProfileFilters,
+    viewer_user_id: Option<Uuid>,
     limit: i64,
 ) -> QueryBuilder<'args, Postgres> {
     let mut query = QueryBuilder::<Postgres>::new(
@@ -1387,6 +1446,7 @@ fn player_replays_query<'args>(
     query.push_bind(&identity.platform_player_id);
     query.push(")");
     append_replay_filters(&mut query, filters, "r");
+    super::visibility::push_replay_list_visibility(&mut query, "r", viewer_user_id);
     query.push(
         " ORDER BY COALESCE(r.replay_date, r.created_at) DESC NULLS LAST, r.created_at DESC LIMIT ",
     );

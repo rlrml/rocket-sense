@@ -176,6 +176,14 @@ pub async fn get_player_timeline(
         raw_query.as_deref(),
         auth_user.as_ref().map(|user| user.id),
     )?;
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        Some(&query.player),
+        &query.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
 
     let mut resolved_season = None;
     if query.wants_current_season {

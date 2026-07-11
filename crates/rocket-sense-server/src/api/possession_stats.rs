@@ -218,6 +218,14 @@ pub async fn get_possession_summary(
         auth_user.as_ref().map(|user| user.id),
         state.materialized_stat_counts,
     )?;
+    super::visibility::enforce_stat_scope_visibility(
+        &state,
+        db,
+        query.player.as_ref(),
+        &query.replay_set,
+        auth_user.as_ref(),
+    )
+    .await?;
     let response = load_possession_summary(db, &query)
         .await
         .map_err(ApiError::internal)?;

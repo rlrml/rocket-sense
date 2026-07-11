@@ -1,4 +1,7 @@
-use crate::{app::AppState, auth::AuthUser};
+use crate::{
+    app::AppState,
+    auth::{AuthUser, OptionalAuthUser},
+};
 use axum::{
     extract::{Path, RawQuery, State},
     http::{HeaderMap, StatusCode},
@@ -899,14 +902,66 @@ struct ErrorResponse {
     error: String,
 }
 
+async fn enforce_mechanic_scope_visibility(
+    state: &AppState,
+    db: &PgPool,
+    filters: &MechanicEventFilters,
+    viewer: Option<&AuthUser>,
+) -> Result<(), ApiError> {
+    if let Some(replay_id) = filters.replay_id {
+        if !super::visibility::can_view_replay(state, db, replay_id, viewer)
+            .await
+            .map_err(|error| ApiError::internal(error.message()))?
+        {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+        }
+    }
+    if let Some(group_id) = filters.group_id {
+        if !super::visibility::can_view_group(state, db, group_id, viewer)
+            .await
+            .map_err(|error| ApiError::internal(error.message()))?
+        {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "replay group not found",
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn require_event_viewer_access(
+    state: &AppState,
+    db: &PgPool,
+    event_id: Uuid,
+    viewer: Option<&AuthUser>,
+) -> Result<(), ApiError> {
+    let replay_id: Uuid = sqlx::query_scalar("SELECT replay_id FROM play_events WHERE id = $1")
+        .bind(event_id)
+        .fetch_optional(db)
+        .await
+        .map_err(ApiError::internal)?
+        .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "event not found"))?;
+    if super::visibility::can_view_replay(state, db, replay_id, viewer)
+        .await
+        .map_err(|error| ApiError::internal(error.message()))?
+    {
+        Ok(())
+    } else {
+        Err(ApiError::new(StatusCode::NOT_FOUND, "event not found"))
+    }
+}
+
 pub async fn list_mechanic_events(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<MechanicEventsResponse>, ApiError> {
     let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let db = require_db(&state)?;
     let filters = MechanicEventFilters::from_query(query)?;
-    let events = find_mechanic_events(db, &filters)
+    enforce_mechanic_scope_visibility(&state, db, &filters, viewer.as_ref()).await?;
+    let events = find_mechanic_events(db, &filters, viewer.as_ref().map(|user| user.id))
         .await
         .map_err(ApiError::internal)?;
     let count = events.len() as u32;
@@ -927,13 +982,15 @@ pub async fn list_event_types() -> Result<Json<EventTypesResponse>, ApiError> {
 }
 
 pub async fn event_review_playlist(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<EventReviewPlaylist>, ApiError> {
     let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let db = require_db(&state)?;
     let filters = MechanicEventFilters::from_query(query)?;
-    let events = find_mechanic_events(db, &filters)
+    enforce_mechanic_scope_visibility(&state, db, &filters, viewer.as_ref()).await?;
+    let events = find_mechanic_events(db, &filters, viewer.as_ref().map(|user| user.id))
         .await
         .map_err(ApiError::internal)?;
 
@@ -946,12 +1003,14 @@ pub async fn event_review_playlist(
 }
 
 pub async fn event_review_evaluation(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     RawQuery(raw_query): RawQuery,
 ) -> Result<Json<EventReviewEvaluationResponse>, ApiError> {
     let query = MechanicEventsQuery::from_raw_query(raw_query.as_deref())?;
     let db = require_db(&state)?;
     let filters = MechanicEventFilters::from_query(query)?;
+    enforce_mechanic_scope_visibility(&state, db, &filters, viewer.as_ref()).await?;
     let options = EventEvaluationOptions::from_raw_query(raw_query.as_deref())?;
     let evaluation = evaluate_reviewed_events(db, &filters, &options)
         .await
@@ -1039,13 +1098,15 @@ pub async fn get_saved_event_playlist(
 }
 
 pub async fn saved_event_playlist_manifest(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(playlist_id): Path<Uuid>,
 ) -> Result<Json<EventReviewPlaylist>, ApiError> {
     let db = require_db(&state)?;
     let playlist = get_saved_playlist(db, playlist_id).await?;
     let filters = MechanicEventFilters::from_playlist_spec(&playlist.spec)?;
-    let events = find_mechanic_events(db, &filters)
+    enforce_mechanic_scope_visibility(&state, db, &filters, viewer.as_ref()).await?;
+    let events = find_mechanic_events(db, &filters, viewer.as_ref().map(|user| user.id))
         .await
         .map_err(ApiError::internal)?;
 
@@ -1064,6 +1125,7 @@ pub async fn create_mechanic_event_review(
     Json(request): Json<CreateReviewRequest>,
 ) -> Result<(StatusCode, Json<CreateReviewResponse>), ApiError> {
     let db = require_db(&state)?;
+    require_event_viewer_access(&state, db, event_id, Some(&auth_user)).await?;
     upsert_user(db, &auth_user)
         .await
         .map_err(ApiError::internal)?;
@@ -1238,6 +1300,12 @@ pub async fn create_missed_event_review(
     Json(request): Json<CreateMissedEventReviewRequest>,
 ) -> Result<(StatusCode, Json<MissedEventReviewResponse>), ApiError> {
     let db = require_db(&state)?;
+    if !super::visibility::can_view_replay(&state, db, request.replay_id, Some(&auth_user))
+        .await
+        .map_err(|error| ApiError::internal(error.message()))?
+    {
+        return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+    }
     upsert_user(db, &auth_user)
         .await
         .map_err(ApiError::internal)?;
@@ -1412,6 +1480,7 @@ pub async fn create_event_tag(
     Json(request): Json<CreateEventTagRequest>,
 ) -> Result<(StatusCode, Json<EventTagResponse>), ApiError> {
     let db = require_db(&state)?;
+    require_event_viewer_access(&state, db, event_id, Some(&auth_user)).await?;
     upsert_user(db, &auth_user)
         .await
         .map_err(ApiError::internal)?;
@@ -1562,6 +1631,7 @@ pub async fn delete_event_tag(
     Path((event_id, tag)): Path<(Uuid, String)>,
 ) -> Result<StatusCode, ApiError> {
     let db = require_db(&state)?;
+    require_event_viewer_access(&state, db, event_id, Some(&auth_user)).await?;
     let tag = normalize_tag(&tag)?;
     let result = sqlx::query(
         "DELETE FROM event_tags WHERE event_id = $1 AND tag = $2 AND tagger_user_id = $3",
@@ -1608,10 +1678,12 @@ pub async fn list_event_tags(
 
 /// All tags applied to a single event.
 pub async fn list_event_tags_for_event(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     Path(event_id): Path<Uuid>,
 ) -> Result<Json<Vec<EventTagResponse>>, ApiError> {
     let db = require_db(&state)?;
+    require_event_viewer_access(&state, db, event_id, viewer.as_ref()).await?;
     let rows = sqlx::query(
         r#"
         SELECT id, event_id, replay_id, tag, tagger_user_id, notes, created_at
@@ -1643,11 +1715,13 @@ pub async fn list_event_tags_for_event(
 
 /// Self-contained "consider this" export for one event.
 pub async fn export_event_case(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(event_id): Path<Uuid>,
 ) -> Result<Json<Value>, ApiError> {
     let db = require_db(&state)?;
+    require_event_viewer_access(&state, db, event_id, viewer.as_ref()).await?;
     let base = request_base_url(&headers);
     let case = build_subtr_actor_case(db, event_id, base.as_deref())
         .await?
@@ -1657,6 +1731,7 @@ pub async fn export_event_case(
 
 /// Bulk export: every event carrying a tag, as a set of `subtr_actor_case`s.
 pub async fn export_tag_cases(
+    OptionalAuthUser(viewer): OptionalAuthUser,
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(tag): Path<String>,
@@ -1664,18 +1739,24 @@ pub async fn export_tag_cases(
     let db = require_db(&state)?;
     let tag = normalize_tag(&tag)?;
     let base = request_base_url(&headers);
-    let event_ids: Vec<Uuid> = sqlx::query_scalar(
-        r#"
-        SELECT DISTINCT event_id
-        FROM event_tags
-        WHERE tag = $1 AND event_id IS NOT NULL
-        ORDER BY event_id
-        "#,
-    )
-    .bind(&tag)
-    .fetch_all(db)
-    .await
-    .map_err(ApiError::internal)?;
+    let mut event_query = QueryBuilder::<Postgres>::new(
+        "SELECT DISTINCT tag_row.event_id FROM event_tags tag_row \
+         JOIN play_events event ON event.id = tag_row.event_id \
+         JOIN replays replay ON replay.id = event.replay_id \
+         WHERE tag_row.tag = ",
+    );
+    event_query.push_bind(&tag);
+    super::visibility::push_replay_list_visibility(
+        &mut event_query,
+        "replay",
+        viewer.as_ref().map(|user| user.id),
+    );
+    event_query.push(" ORDER BY tag_row.event_id");
+    let event_ids: Vec<Uuid> = event_query
+        .build_query_scalar()
+        .fetch_all(db)
+        .await
+        .map_err(ApiError::internal)?;
     let mut cases = Vec::with_capacity(event_ids.len());
     for event_id in event_ids {
         if let Some(case) = build_subtr_actor_case(db, event_id, base.as_deref()).await? {
@@ -3338,14 +3419,16 @@ fn ratio(numerator: i64, denominator: i64) -> Option<f64> {
 async fn find_mechanic_events(
     pool: &PgPool,
     filters: &MechanicEventFilters,
+    viewer_user_id: Option<Uuid>,
 ) -> Result<Vec<MechanicEventResponse>, sqlx::Error> {
-    let mut builder = find_mechanic_events_query(filters);
+    let mut builder = find_mechanic_events_query(filters, viewer_user_id);
     let rows = builder.build().fetch_all(pool).await?;
     rows.into_iter().map(mechanic_event_from_row).collect()
 }
 
 fn find_mechanic_events_query<'args>(
     filters: &'args MechanicEventFilters,
+    viewer_user_id: Option<Uuid>,
 ) -> QueryBuilder<'args, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
@@ -3403,6 +3486,12 @@ fn find_mechanic_events_query<'args>(
         WHERE event.analysis_run_id = replay.canonical_analysis_run_id
         "#,
     );
+
+    if filters.replay_id.is_some() || !filters.event_ids.is_empty() {
+        super::visibility::push_replay_direct_visibility(&mut builder, "replay", viewer_user_id);
+    } else {
+        super::visibility::push_replay_list_visibility(&mut builder, "replay", viewer_user_id);
+    }
 
     if filters.event_ids.is_empty() && filters.mechanics.is_empty() {
         let context_event_types = context_event_type_keys_for_filter();

@@ -3602,6 +3602,7 @@ function ReplayGroupSubgroups({
 
 function ReplayGroupStatsPage() {
   const { groupId = "" } = useParams();
+  const currentUser = useCurrentUser();
   const [group, setGroup] = useState<ReplayGroupResponse | null>(null);
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
   const [groupLoading, setGroupLoading] = useState(true);
@@ -3697,7 +3698,7 @@ function ReplayGroupStatsPage() {
           listShares={() => listReplayGroupShares(group.id)}
           addShare={(target) => addReplayGroupShare(group.id, target)}
           removeShare={(target) => removeReplayGroupShare(group.id, target)}
-          currentUserId={null}
+          currentUserId={currentUser?.id ?? null}
         />
       ) : null}
 

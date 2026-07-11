@@ -7,7 +7,7 @@
 //! players' career aggregates, so the aggregation queries are intentionally
 //! untouched.
 //!
-//! Access rules (see also `migrations/0089_visibility.sql`):
+//! Access rules (see also `migrations/0091_visibility.sql`):
 //! - `public` — listed and readable by anyone.
 //! - `unlisted` — readable by anyone with the direct link/id, hidden from lists.
 //! - `private` — readable only by the owner/manager/admin, or a user the
@@ -18,12 +18,17 @@ use std::collections::HashSet;
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+use super::replay_set::{PlayerStatFilter, ReplaySetFilters};
 use super::replays::ApiError;
 use crate::{app::AppState, auth::AuthUser};
+
+#[cfg(test)]
+#[path = "visibility_tests.rs"]
+mod tests;
 
 /// How visible a resource is to users other than its owner/managers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, ToSchema)]
@@ -47,13 +52,15 @@ impl Visibility {
         }
     }
 
-    /// Parse a database/API string, defaulting unknown values to `public` so a
-    /// stray value can never accidentally hide data.
+    /// Parse a database string. The check constraints should make the fallback
+    /// unreachable, but fail closed if corrupt or future data reaches an older
+    /// server rather than accidentally publishing it.
     pub(crate) fn from_db(value: &str) -> Self {
         match value {
+            "public" => Visibility::Public,
             "unlisted" => Visibility::Unlisted,
             "private" => Visibility::Private,
-            _ => Visibility::Public,
+            _ => Visibility::Private,
         }
     }
 
@@ -129,6 +136,32 @@ pub(crate) async fn can_view_replay(
         return Ok(true);
     }
     viewer_is_admin(state, pool, viewer).await
+}
+
+/// Direct replay access for background jobs that have a persisted user id but
+/// no request-time [`AuthUser`]. Configured admins are persisted as admins on
+/// normal authenticated use, so the database flag is sufficient here.
+pub(crate) async fn can_view_replay_for_user_id(
+    pool: &PgPool,
+    replay_id: Uuid,
+    viewer_user_id: Uuid,
+) -> Result<bool, ApiError> {
+    sqlx::query_scalar(
+        "SELECT EXISTS (\
+            SELECT 1 FROM replays r WHERE r.id = $1 AND (\
+                r.visibility <> 'private' \
+                OR r.uploaded_by_user_id = $2 \
+                OR EXISTS (SELECT 1 FROM replay_shares s \
+                    WHERE s.replay_id = r.id AND s.user_id = $2) \
+                OR EXISTS (SELECT 1 FROM users u WHERE u.id = $2 AND u.is_admin)\
+            )\
+        )",
+    )
+    .bind(replay_id)
+    .bind(viewer_user_id)
+    .fetch_one(pool)
+    .await
+    .map_err(ApiError::internal)
 }
 
 /// Direct-access check for a single replay group (creator/manager/share/admin
@@ -256,6 +289,49 @@ pub(crate) async fn can_view_player_stats(
     viewer_is_admin(state, pool, viewer).await
 }
 
+/// Privacy gate shared by every player-stat endpoint. Player-scoped career
+/// data is direct access to that player's stats; a single replay or explicit
+/// group scope is likewise direct access to that resource. Multi-replay sets
+/// remain aggregate queries by design.
+pub(crate) async fn enforce_stat_scope_visibility(
+    state: &AppState,
+    pool: &PgPool,
+    player: Option<&PlayerStatFilter>,
+    replay_set: &ReplaySetFilters,
+    viewer: Option<&AuthUser>,
+) -> Result<(), ApiError> {
+    if let Some(player) = player {
+        if !can_view_player_stats(
+            state,
+            pool,
+            &player.platform,
+            &player.platform_player_id,
+            viewer,
+        )
+        .await?
+        {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "player stats not found",
+            ));
+        }
+    }
+    if let Some(group_id) = replay_set.group_id {
+        if !can_view_group(state, pool, group_id, viewer).await? {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "replay group not found",
+            ));
+        }
+    }
+    if let [replay_id] = replay_set.replay_ids.as_slice() {
+        if !can_view_replay(state, pool, *replay_id, viewer).await? {
+            return Err(ApiError::new(StatusCode::NOT_FOUND, "replay not found"));
+        }
+    }
+    Ok(())
+}
+
 /// The career-stats visibility of a player identity, for display on the profile
 /// response. Defaults to public when the identity has no row yet.
 pub(crate) async fn player_stats_visibility(
@@ -373,6 +449,79 @@ pub(crate) fn group_list_visibility_sql(viewer_param: Option<&str>) -> String {
         Some("replay_group_managers"),
         viewer_param,
     )
+}
+
+/// SQL predicate (with a leading `AND`) limiting a replay list to public rows,
+/// plus rows owned by or explicitly shared with the viewer. Unlisted replays
+/// remain available by direct id/link but do not appear in lists.
+pub(crate) fn replay_list_visibility_sql(replay_alias: &str, viewer_param: Option<&str>) -> String {
+    list_visibility_sql(
+        &format!("{replay_alias}.visibility"),
+        &format!("{replay_alias}.uploaded_by_user_id"),
+        &format!("{replay_alias}.id"),
+        "replay_shares",
+        "replay_id",
+        None,
+        viewer_param,
+    )
+}
+
+/// QueryBuilder form of [`replay_list_visibility_sql`] for callers whose bind
+/// positions are assigned dynamically.
+pub(crate) fn push_replay_list_visibility<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+    viewer_user_id: Option<Uuid>,
+) {
+    match viewer_user_id {
+        Some(viewer_user_id) => {
+            builder
+                .push(format!(
+                    " AND ({replay_alias}.visibility = 'public' OR \
+                     {replay_alias}.uploaded_by_user_id = "
+                ))
+                .push_bind(viewer_user_id)
+                .push(format!(
+                    " OR EXISTS (SELECT 1 FROM replay_shares s \
+                     WHERE s.replay_id = {replay_alias}.id AND s.user_id = "
+                ))
+                .push_bind(viewer_user_id)
+                .push("))");
+        }
+        None => {
+            builder.push(format!(" AND {replay_alias}.visibility = 'public'"));
+        }
+    }
+}
+
+/// Restrict an explicit replay-id/link lookup to rows the viewer may access.
+/// Unlike a list, this admits unlisted rows; only private rows require a grant.
+pub(crate) fn push_replay_direct_visibility<'args>(
+    builder: &mut QueryBuilder<'args, Postgres>,
+    replay_alias: &str,
+    viewer_user_id: Option<Uuid>,
+) {
+    match viewer_user_id {
+        Some(viewer_user_id) => {
+            builder
+                .push(format!(
+                    " AND ({replay_alias}.visibility <> 'private' OR \
+                     {replay_alias}.uploaded_by_user_id = "
+                ))
+                .push_bind(viewer_user_id)
+                .push(format!(
+                    " OR EXISTS (SELECT 1 FROM replay_shares s \
+                     WHERE s.replay_id = {replay_alias}.id AND s.user_id = "
+                ))
+                .push_bind(viewer_user_id)
+                .push(") OR EXISTS (SELECT 1 FROM users u WHERE u.id = ")
+                .push_bind(viewer_user_id)
+                .push(" AND u.is_admin)))");
+        }
+        None => {
+            builder.push(format!(" AND {replay_alias}.visibility <> 'private'"));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

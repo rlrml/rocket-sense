@@ -244,6 +244,10 @@ export function PrivacyPanel({
 }) {
   const [current, setCurrent] = useState<Visibility>(visibility);
 
+  useEffect(() => {
+    setCurrent(visibility);
+  }, [visibility]);
+
   return (
     <div className="privacy-panel">
       <p className="privacy-panel-title">
