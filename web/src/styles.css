@@ -7665,6 +7665,7 @@ tbody tr:last-child td {
     aspect-ratio: auto;
     width: 100%;
     height: auto;
+    min-height: 0;
   }
 
   .goal-card.goal-card:has(.goal-diagram-panel) .kickoff-path-svg {
@@ -8036,17 +8037,14 @@ tbody tr:last-child td {
 }
 
 /* When a card carries a buildup diagram, lay the text content and the diagram
-   side by side: the text stacks in a left column and the diagram sits flush to
-   the right. The diagram inherits its height from the text column (the grid row
-   height) and derives its width from the field's aspect ratio, so it never
-   makes the card any taller than the info already sitting beside it. */
+   side by side in separate grid columns. Keeping the thumbnail in normal flow
+   prevents right-aligned card controls from being hidden underneath it. */
 .goal-card:has(.goal-diagram-panel) {
-  display: flex;
-  flex-direction: row;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: stretch;
   gap: 18px;
-  /* Positioning context for the absolutely-placed diagram, which is taken out of
-     flow so only the text column decides the card's height. */
+  /* Positioning context for the expanded, viewport-anchored diagram. */
   position: relative;
 }
 
@@ -8059,17 +8057,18 @@ tbody tr:last-child td {
   flex: 1 1 auto;
 }
 
-/* No chrome around the field: the diagram fills its slot edge to edge. It takes
-   its height from the rest of the row (the text column) and its width from the
-   field aspect ratio, so it just fits whatever the card already is. */
+/* No chrome around the field: the compact diagram fills its slot edge to edge. */
 .goal-card:has(.goal-diagram-panel) > .goal-diagram-panel {
   display: grid;
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  right: 0;
-  /* Height comes from the card (= the text column); width follows the field
-     aspect ratio. So the diagram just fits whatever the row already is. */
+  position: relative;
+  inset: auto;
+  /* Keep the resting thumbnail compact while giving it a real grid column, so
+     right-aligned controls cannot be painted underneath it. Hover expansion
+     still uses the viewport-sized rule below. */
+  align-self: center;
+  width: 6.25rem;
+  height: auto;
+  min-height: 0;
   aspect-ratio: 640 / 536;
   margin: 0;
   padding: 0;
@@ -8111,6 +8110,7 @@ tbody tr:last-child td {
   margin: 0;
   height: var(--exp-h, 68vh);
   width: auto;
+  min-height: 0;
   z-index: 200;
   padding: 10px;
   border-radius: 10px;
