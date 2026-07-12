@@ -357,11 +357,12 @@ resource "kubernetes_deployment_v1" "server" {
             value = "true"
           }
 
-          # Keep the expensive rank-benchmark materializer disabled until its
-          # full-dataset refresh is replaced with bounded incremental work.
+          # Serve the existing rank-benchmark materialization so career profile
+          # comparisons remain available. The worker refresh stays disabled
+          # below until its full-dataset work is made incremental.
           env {
             name  = "ROCKET_SENSE_RANK_BENCHMARK"
-            value = "false"
+            value = "true"
           }
 
           env {
