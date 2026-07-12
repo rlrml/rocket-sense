@@ -283,6 +283,9 @@ const LeaderboardsPage = lazyWithChunkLoadRecovery(() =>
 const UserProfilePage = lazyWithChunkLoadRecovery(() =>
   import("./UserProfilePage").then((module) => ({ default: module.UserProfilePage })),
 );
+const CampaignsPage = lazyWithChunkLoadRecovery(() =>
+  import("./CampaignsPage").then((module) => ({ default: module.CampaignsPage })),
+);
 
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
@@ -290,6 +293,7 @@ const navItems = [
   { to: "/leaderboards", label: "Leaderboards", icon: Trophy, end: true },
   { to: "/rank-trends", label: "Rank Trends", icon: TrendingUp },
   { to: "/events/review", label: "Events", icon: Activity },
+  { to: "/campaigns", label: "Campaigns", icon: ListOrdered },
   { to: "/admin/processing", label: "Admin", icon: ServerCog, adminOnly: true },
   { to: "/admin/player-reports", label: "Reports", icon: AlertTriangle, adminOnly: true },
   { to: "/about", label: "About", icon: Info },
@@ -536,6 +540,7 @@ export function App() {
           <Route path="/rank-trends/:metricKey" element={<RankTrendsPage />} />
           <Route path="/events/review" element={<EventsReviewPage />} />
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
+          <Route path="/campaigns" element={<CampaignsPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
           <Route path="/admin/player-reports" element={<AdminPlayerReportsPage />} />
           <Route path="/admin/recently-processed" element={<AdminRecentlyProcessedPage />} />

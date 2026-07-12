@@ -1354,3 +1354,51 @@ export interface GameOutcomesResponse {
   total_count: number;
   next_offset: number | null;
 }
+
+// --- Review campaigns -------------------------------------------------------
+
+export type ReviewCampaignStatus = "draft" | "active" | "complete" | "archived";
+
+export interface ReviewCampaignDecisionOption {
+  key: string;
+  status?: string;
+  label?: string;
+}
+
+export interface ReviewCampaignSummary {
+  id: string;
+  slug: string;
+  title: string;
+  question: string;
+  status: ReviewCampaignStatus;
+  item_count: number;
+  label_count: number;
+  distinct_labeled_items: number;
+  // 0 when the viewer is anonymous.
+  my_labeled_count: number;
+  created_at: string;
+}
+
+export interface ReviewCampaignListResponse {
+  count: number;
+  campaigns: ReviewCampaignSummary[];
+}
+
+export interface ReviewCampaignDetailResponse extends ReviewCampaignSummary {
+  description: string | null;
+  decision_vocabulary: ReviewCampaignDecisionOption[];
+  generator: Record<string, unknown>;
+  labels_per_item: number;
+}
+
+export interface ReviewCampaignImportSkip {
+  candidate: string;
+  reason: string;
+}
+
+export interface CreateReviewCampaignResponse {
+  id: string;
+  slug: string;
+  imported: number;
+  skipped: ReviewCampaignImportSkip[];
+}
