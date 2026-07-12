@@ -2,7 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { lazy, Suspense, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { playerProfilePath } from "../playerIdentity";
-import { eventCaseExportUrl, subtrActorPlayerUrl } from "../playerLink";
+import { eventIdentityUrl, subtrActorPlayerUrl } from "../playerLink";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import type { GoalBuildupTouch, GoalPathPlayer, GoalScoringTouch } from "./GoalShapeDiagram";
@@ -174,7 +174,7 @@ export function GoalsDetail({ events, players, replayId, scope = "replay" }: Goa
                     : "Loading…"
                 }
                 openHref={subtrActorPlayerUrl(replayId)}
-                exportHref={activeGoal ? eventCaseExportUrl(activeGoal.event.id) : undefined}
+                playHref={activeGoal ? eventIdentityUrl(activeGoal.event.id) : undefined}
                 eventId={activeGoal?.event.id}
                 showDebug={false}
               />

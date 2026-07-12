@@ -1,6 +1,37 @@
 use super::*;
 
 #[test]
+fn event_identity_response_is_a_compact_stable_contract() {
+    let event_id = Uuid::parse_str("019f0605-064c-7a91-b408-65b227ab06ca").unwrap();
+    let replay_id = Uuid::parse_str("019ee9cb-40a1-7c30-9a2e-a846172dd869").unwrap();
+    let response = EventIdentityResponse {
+        event_id,
+        replay_id,
+        event_type: "goal_context".to_owned(),
+        frame: Some(1338),
+        time_seconds: Some(74.766_761_779_785_16),
+        url: event_rocket_sense_url(
+            Some("https://rocket-sense.example"),
+            replay_id,
+            "goal_context",
+            event_id,
+        ),
+    };
+
+    assert_eq!(
+        serde_json::to_value(response).unwrap(),
+        serde_json::json!({
+            "eventId": "019f0605-064c-7a91-b408-65b227ab06ca",
+            "replayId": "019ee9cb-40a1-7c30-9a2e-a846172dd869",
+            "eventType": "goal_context",
+            "frame": 1338,
+            "timeSeconds": 74.76676177978516,
+            "url": "https://rocket-sense.example/replays/019ee9cb-40a1-7c30-9a2e-a846172dd869/stats/goals?event=019f0605-064c-7a91-b408-65b227ab06ca"
+        })
+    );
+}
+
+#[test]
 fn event_review_playlist_url_preserves_filter_fields() {
     let replay_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
     let uploader_id = Uuid::parse_str("019e5336-5e24-7281-8267-189914aa46b5").unwrap();

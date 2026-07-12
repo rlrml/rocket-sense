@@ -2,7 +2,7 @@ import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import type { MechanicEventResponse, ReplayPlayer } from "../types";
 import type { EventClip } from "./EventClipPlayer";
 import { buildGoalRows } from "./goals";
-import { eventCaseExportUrl, subtrActorPlayerUrl } from "../playerLink";
+import { eventIdentityUrl, subtrActorPlayerUrl } from "../playerLink";
 import type { ScoringTouchPoint } from "./ScoringTouchHeatmap3D";
 
 const ScoringTouchHeatmap3D = lazy(() =>
@@ -82,7 +82,7 @@ export function ShotMapDetail({
               clip={selectedClip}
               label={shotMapClipLabel(selectedPoint)}
               openHref={subtrActorPlayerUrl(replayId)}
-              exportHref={eventCaseExportUrl(selectedPoint.id)}
+              playHref={eventIdentityUrl(selectedPoint.id)}
               showDebug={false}
             />
           </Suspense>

@@ -92,6 +92,7 @@ pub fn router() -> Router<AppState> {
             post(create_event_tag).get(list_event_tags_for_event),
         )
         .route("/events/{event_id}/tags/{tag}", delete(delete_event_tag))
+        .route("/events/{event_id}/identity", get(get_event_identity))
         .route("/events/{event_id}/export", get(export_event_case))
         .route("/mechanics/{event_id}/export", get(export_event_case))
         .route("/events/tags/{tag}/export", get(export_tag_cases))
@@ -1711,6 +1712,75 @@ pub async fn list_event_tags_for_event(
         })
         .collect::<Result<Vec<_>, ApiError>>()?;
     Ok(Json(tags))
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EventIdentityResponse {
+    pub event_id: Uuid,
+    pub replay_id: Uuid,
+    pub event_type: String,
+    pub frame: Option<i32>,
+    pub time_seconds: Option<f64>,
+    pub url: String,
+}
+
+/// Compact, stable coordinates for identifying one detected event without the
+/// payload, nearby-event context, or replay download metadata in a case export.
+pub async fn get_event_identity(
+    OptionalAuthUser(viewer): OptionalAuthUser,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(event_id): Path<Uuid>,
+) -> Result<Json<EventIdentityResponse>, ApiError> {
+    let db = require_db(&state)?;
+    require_event_viewer_access(&state, db, event_id, viewer.as_ref()).await?;
+    let row = sqlx::query(
+        r#"
+        SELECT
+            event.replay_id,
+            event_type.key AS event_type,
+            COALESCE(event.event_frame, event.start_frame) AS frame,
+            COALESCE(event.event_time, event.start_time) AS time_seconds
+        FROM play_events event
+        JOIN event_types event_type ON event_type.id = event.event_type_id
+        WHERE event.id = $1
+        "#,
+    )
+    .bind(event_id)
+    .fetch_optional(db)
+    .await
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "event not found"))?;
+    let replay_id: Uuid = row.try_get("replay_id").map_err(ApiError::internal)?;
+    let event_type: String = row.try_get("event_type").map_err(ApiError::internal)?;
+    let base = request_base_url(&headers);
+
+    Ok(Json(EventIdentityResponse {
+        event_id,
+        replay_id,
+        url: event_rocket_sense_url(base.as_deref(), replay_id, &event_type, event_id),
+        event_type,
+        frame: row.try_get("frame").map_err(ApiError::internal)?,
+        time_seconds: row.try_get("time_seconds").map_err(ApiError::internal)?,
+    }))
+}
+
+fn event_rocket_sense_url(
+    base_url: Option<&str>,
+    replay_id: Uuid,
+    event_type: &str,
+    event_id: Uuid,
+) -> String {
+    let stat_group = if event_type == "goal_context" {
+        "goals"
+    } else {
+        "mechanics"
+    };
+    format!(
+        "{}/replays/{replay_id}/stats/{stat_group}?event={event_id}",
+        base_url.unwrap_or("")
+    )
 }
 
 /// Self-contained "consider this" export for one event.

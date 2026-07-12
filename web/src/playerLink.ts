@@ -19,3 +19,8 @@ export function subtrActorPlayerUrl(replayId: string): string {
 export function eventCaseExportUrl(eventId: string): string {
   return `/api/v1/events/${encodeURIComponent(eventId)}/export`;
 }
+
+/** Compact event/replay coordinates suitable for identifying one play. */
+export function eventIdentityUrl(eventId: string): string {
+  return `/api/v1/events/${encodeURIComponent(eventId)}/identity`;
+}

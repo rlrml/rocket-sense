@@ -120,10 +120,10 @@ interface EventClipPreviewProps {
   openHref: string;
   openTitle?: string;
   /**
-   * Machine-readable play export URL for the event currently shown. Retained
-   * for callers that already construct the URL themselves.
+   * Machine-readable identity URL for the event currently shown. Retained for
+   * callers that already construct the URL themselves.
    */
-  exportHref?: string;
+  playHref?: string;
   /** Event id for the canonical machine-readable play link. */
   eventId?: string;
   showDebug?: boolean;
@@ -135,7 +135,7 @@ export function EventClipPreview({
   label,
   openHref,
   openTitle = "Open full player",
-  exportHref,
+  playHref,
   eventId,
   showDebug = false,
 }: EventClipPreviewProps) {
@@ -144,7 +144,7 @@ export function EventClipPreview({
       <div className="event-preview-pip-bar">
         <span className="event-preview-pip-label">{label}</span>
         <div className="event-preview-pip-actions">
-          {eventId || exportHref ? <CopyPlayLink eventId={eventId} href={exportHref} /> : null}
+          {eventId || playHref ? <CopyPlayLink eventId={eventId} href={playHref} /> : null}
           <a className="event-preview-pip-open" href={openHref} title={openTitle}>
             <ExternalLink size={13} />
           </a>

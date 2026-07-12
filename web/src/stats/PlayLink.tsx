@@ -1,6 +1,6 @@
 import { Check, Link2 } from "lucide-react";
 import { useState } from "react";
-import { eventCaseExportUrl } from "../playerLink";
+import { eventIdentityUrl } from "../playerLink";
 
 interface CopyPlayLinkProps {
   eventId?: string;
@@ -11,12 +11,9 @@ interface CopyPlayLinkProps {
 }
 
 /**
- * Copy the canonical, machine-readable link for a detected play.
- *
- * The URL returns an event case containing the replay download URL and hash,
- * exact frame/time coordinates, detected payload, and nearby events. It is
- * deliberately event-generic so goals, saves, demos, and future play types can
- * all use the same sharing contract.
+ * Copy a compact, machine-readable identity link for a detected play. The URL
+ * returns only the event/replay ids, type, frame/time coordinates, and a link
+ * back to the event in Rocket Sense.
  */
 export function CopyPlayLink({
   eventId,
@@ -26,7 +23,7 @@ export function CopyPlayLink({
   stopPropagation = false,
 }: CopyPlayLinkProps) {
   const [copied, setCopied] = useState(false);
-  const href = providedHref ?? (eventId ? eventCaseExportUrl(eventId) : "");
+  const href = providedHref ?? (eventId ? eventIdentityUrl(eventId) : "");
   const absolute = absoluteUrl(href);
 
   const copy = () => {
