@@ -23,6 +23,7 @@ pub fn router() -> Router<AppState> {
             get(spa_index),
         )
         .route("/players/{platform}/{platform_player_id}", get(spa_index))
+        .route("/campaigns", get(spa_index))
         .route("/events/review", get(spa_index))
         .route("/mechanics/review", get(spa_index))
         .route("/admin/processing", get(spa_index))

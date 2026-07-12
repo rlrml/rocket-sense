@@ -1,6 +1,7 @@
 mod admin;
 mod auth;
 mod ballchasing;
+mod campaigns;
 mod event_stats;
 mod favorites;
 mod game_outcomes;
@@ -71,6 +72,7 @@ fn api_v1_router(state: AppState) -> Router {
         .merge(admin::router())
         .merge(auth::router())
         .merge(ballchasing::router())
+        .merge(campaigns::router())
         .merge(event_stats::router())
         .merge(favorites::router())
         .merge(game_outcomes::router())
