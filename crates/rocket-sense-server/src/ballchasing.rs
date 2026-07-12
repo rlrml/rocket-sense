@@ -25,6 +25,36 @@ const LIST_PAGE_SIZE: u32 = 200;
 /// How many times to retry a single request after a 429 before giving up.
 const MAX_RATE_LIMIT_RETRIES: u32 = 5;
 
+#[derive(Debug, thiserror::Error)]
+pub enum BallchasingError {
+    #[error("ballchasing request failed: {url}")]
+    Transport {
+        url: String,
+        #[source]
+        source: reqwest::Error,
+    },
+    #[error("ballchasing rate limit exceeded after {retries} retries: {url}")]
+    RateLimit { url: String, retries: u32 },
+    #[error("ballchasing returned {status} for {url}")]
+    Status { url: String, status: StatusCode },
+    #[error("failed to read ballchasing replay file {replay_id}")]
+    ReplayBody {
+        replay_id: String,
+        #[source]
+        source: reqwest::Error,
+    },
+}
+
+impl BallchasingError {
+    pub fn status(&self) -> Option<StatusCode> {
+        match self {
+            Self::Status { status, .. } => Some(*status),
+            Self::RateLimit { .. } => Some(StatusCode::TOO_MANY_REQUESTS),
+            Self::Transport { .. } | Self::ReplayBody { .. } => None,
+        }
+    }
+}
+
 /// A ballchasing group as returned by the list/detail endpoints. Only the fields
 /// the mirror needs are decoded.
 #[derive(Debug, Clone, Deserialize)]
@@ -120,25 +150,36 @@ impl BallchasingClient {
     }
 
     /// Download the raw `.replay` file bytes for a ballchasing replay.
-    pub async fn download_replay(&self, replay_id: &str) -> Result<Bytes> {
+    pub async fn download_replay(
+        &self,
+        replay_id: &str,
+    ) -> std::result::Result<Bytes, BallchasingError> {
         let url = format!("{BALLCHASING_API_BASE}/replays/{replay_id}/file");
         self.get_with_retry(&url, "application/octet-stream")
             .await?
             .bytes()
             .await
-            .with_context(|| format!("failed to read ballchasing replay file {replay_id}"))
+            .map_err(|source| BallchasingError::ReplayBody {
+                replay_id: replay_id.to_owned(),
+                source,
+            })
     }
 
     async fn get_json_bytes(&self, url: &str) -> Result<Bytes> {
         self.get_with_retry(url, "application/json")
-            .await?
+            .await
+            .map_err(anyhow::Error::new)?
             .bytes()
             .await
             .with_context(|| format!("failed to read ballchasing response from {url}"))
     }
 
     /// Issue a GET, honoring the min-interval throttle and retrying on 429.
-    async fn get_with_retry(&self, url: &str, accept: &str) -> Result<reqwest::Response> {
+    async fn get_with_retry(
+        &self,
+        url: &str,
+        accept: &str,
+    ) -> std::result::Result<reqwest::Response, BallchasingError> {
         let mut attempt = 0;
         loop {
             self.throttle().await;
@@ -150,13 +191,17 @@ impl BallchasingClient {
                 .header(reqwest::header::ACCEPT, accept)
                 .send()
                 .await
-                .with_context(|| format!("ballchasing request failed: {url}"))?;
+                .map_err(|source| BallchasingError::Transport {
+                    url: url.to_owned(),
+                    source,
+                })?;
 
             if response.status() == StatusCode::TOO_MANY_REQUESTS {
                 if attempt >= MAX_RATE_LIMIT_RETRIES {
-                    return Err(anyhow!(
-                        "ballchasing rate limit exceeded after {attempt} retries: {url}"
-                    ));
+                    return Err(BallchasingError::RateLimit {
+                        url: url.to_owned(),
+                        retries: attempt,
+                    });
                 }
                 let wait =
                     retry_after(&response).unwrap_or_else(|| Duration::from_secs(2 << attempt));
@@ -168,7 +213,10 @@ impl BallchasingClient {
 
             if !response.status().is_success() {
                 let status = response.status();
-                return Err(anyhow!("ballchasing returned {status} for {url}"));
+                return Err(BallchasingError::Status {
+                    url: url.to_owned(),
+                    status,
+                });
             }
             return Ok(response);
         }

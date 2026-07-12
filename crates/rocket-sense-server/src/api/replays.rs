@@ -22,7 +22,7 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use rocket_sense_storage::{
     decode_bytes_with_limit, encode_bytes, raw_replay_key, replay_mime_type, sha256_hex,
-    ObjectStorage, StorageEncoding, StorageError, DEFAULT_STORAGE_ENCODING,
+    StorageEncoding, StorageError, DEFAULT_STORAGE_ENCODING,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::types::Json as SqlxJson;
@@ -1298,7 +1298,7 @@ pub async fn create_ballchasing_mirror_group(
     Json(request): Json<CreateBallchasingMirrorRequest>,
 ) -> Result<Json<ReplayGroupResponse>, ApiError> {
     let db = require_db(&state)?;
-    let api_key = state.ballchasing_api_key.as_deref().ok_or_else(|| {
+    let client = state.ballchasing_client.as_deref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ballchasing integration is not configured",
@@ -1339,7 +1339,6 @@ pub async fn create_ballchasing_mirror_group(
     {
         Some(name) => name.to_owned(),
         None => {
-            let client = crate::ballchasing::BallchasingClient::new(api_key.to_owned());
             client
                 .get_group(&ballchasing_group_id)
                 .await
@@ -1422,7 +1421,7 @@ pub async fn trigger_ballchasing_group_sync(
 ) -> Result<Json<ReplayGroupResponse>, ApiError> {
     let db = require_db(&state)?;
     require_replay_group_manager(&state, db, group_id, &auth_user).await?;
-    if state.ballchasing_api_key.is_none() {
+    if state.ballchasing_client.is_none() {
         return Err(ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "ballchasing integration is not configured",
@@ -1943,7 +1942,8 @@ pub async fn remove_replay_group_manager(
     responses(
         (status = 200, description = "Raw replay file"),
         (status = 404, description = "Replay or replay file was not found"),
-        (status = 503, description = "Postgres connection is not configured")
+        (status = 502, description = "A remote replay source failed or rejected the request"),
+        (status = 503, description = "Postgres or remote replay storage is not configured")
     )
 )]
 pub async fn download_replay_file(
@@ -3015,6 +3015,23 @@ fn storage_read_error(error: StorageError) -> ApiError {
         StorageError::Read { source, .. } if source.kind() == std::io::ErrorKind::NotFound => {
             ApiError::new(StatusCode::NOT_FOUND, "replay file not found")
         }
+        StorageError::Read { key, source }
+            if crate::ballchasing_storage::is_ballchasing_replay_key(key)
+                && source.kind() == std::io::ErrorKind::NotConnected =>
+        {
+            ApiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Ballchasing replay storage is not configured",
+            )
+        }
+        StorageError::Read { key, .. }
+            if crate::ballchasing_storage::is_ballchasing_replay_key(key) =>
+        {
+            ApiError::new(
+                StatusCode::BAD_GATEWAY,
+                "failed to fetch the replay from Ballchasing",
+            )
+        }
         _ => ApiError::internal(error),
     }
 }
@@ -3123,15 +3140,15 @@ pub struct ReplayImportRequest<'a> {
     pub original_file_name: Option<&'a str>,
     pub external_replay_id: Option<&'a str>,
     pub uploaded_by_user_id: Uuid,
+    /// Object key that the routed storage backend resolves on demand.
+    pub external_storage_key: &'a str,
 }
 
-/// Programmatic equivalent of `create_replay`: store the bytes (dedup by
-/// SHA-256), insert the replay row, run preflight metadata extraction, and
-/// enqueue processing. Reused by background importers so they exercise the exact
-/// same path as a user upload, without the HTTP/multipart layer.
+/// Import a replay whose raw bytes remain in an externally backed object key:
+/// deduplicate by SHA-256, insert metadata, run preflight extraction, and enqueue
+/// processing without writing the bytes to Rocket Sense object storage.
 pub async fn import_replay_from_bytes(
     db: &PgPool,
-    storage: &dyn ObjectStorage,
     process_in_background: bool,
     request: ReplayImportRequest<'_>,
 ) -> Result<ReplayResponse, ApiError> {
@@ -3140,6 +3157,7 @@ pub async fn import_replay_from_bytes(
         original_file_name,
         external_replay_id,
         uploaded_by_user_id,
+        external_storage_key,
     } = request;
     let file_sha256 = sha256_hex(&bytes);
 
@@ -3165,15 +3183,9 @@ pub async fn import_replay_from_bytes(
         return Ok(replay);
     }
 
-    let stored = storage
-        .put_with_encoding(
-            &raw_replay_key(&file_sha256),
-            bytes.clone(),
-            Some(replay_mime_type()),
-            DEFAULT_STORAGE_ENCODING,
-        )
-        .await
-        .map_err(ApiError::internal)?;
+    let storage_key = external_storage_key.to_owned();
+    let storage_encoding = StorageEncoding::Identity;
+    let storage_byte_size = bytes.len() as u64;
     let visibility = super::visibility::user_default_visibility(
         db,
         uploaded_by_user_id,
@@ -3186,10 +3198,10 @@ pub async fn import_replay_from_bytes(
             replay_id: Uuid::now_v7(),
             file_sha256: &file_sha256,
             original_file_name,
-            byte_size: stored.byte_size,
-            storage_key: &stored.key,
-            storage_encoding: stored.storage_encoding,
-            storage_byte_size: stored.storage_byte_size,
+            byte_size: bytes.len() as u64,
+            storage_key: &storage_key,
+            storage_encoding,
+            storage_byte_size,
             uploaded_by_user_id,
             external_replay_id,
             visibility,

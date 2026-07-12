@@ -5,10 +5,12 @@
 //! (`replay_groups.ballchasing_group_id`). Syncing walks the ballchasing tree:
 //! each ballchasing subgroup becomes a nested replay group (keyed by its
 //! ballchasing id so re-runs are idempotent), and each ballchasing replay is
-//! imported through the normal upload pipeline (downloading only the ones not
-//! already present) and attached to the matching group. Because groups nest,
-//! stats on the mirror root automatically aggregate the whole subtree (see
-//! migration 0077).
+//! imported through the normal metadata and analysis pipeline (downloading only
+//! the ones not already present) and attached to the matching group. Their raw
+//! bytes remain on Ballchasing and are fetched dynamically for processing,
+//! download, and reprocessing; derived stats and artifacts remain in Rocket
+//! Sense. Because groups nest, stats on the mirror root automatically aggregate
+//! the whole subtree (see migration 0077).
 //!
 //! The heavy work (downloading + parsing potentially hundreds of replays under
 //! a 2 req/s ballchasing rate limit) runs as an apalis background job, mirroring
@@ -21,7 +23,6 @@ use apalis::prelude::*;
 use apalis_postgres::{
     CompactType, Config as ApalisPostgresConfig, JsonCodec, PgNotify, PostgresStorage,
 };
-use rocket_sense_storage::ObjectStorage;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -31,6 +32,7 @@ use crate::api::{
     ReplayImportRequest,
 };
 use crate::ballchasing::{BallchasingClient, BallchasingGroup};
+use crate::ballchasing_storage::ballchasing_replay_key;
 
 const BALLCHASING_SYNC_QUEUE_NAME: &str = "rocket-sense:ballchasing-group-sync";
 
@@ -57,9 +59,8 @@ struct MirrorRoot {
 /// Idempotent: subgroups upsert by ballchasing id and memberships use
 /// `ON CONFLICT DO NOTHING`, so re-running only adds what is new.
 pub async fn sync_mirror_group(
+    client: &BallchasingClient,
     pool: &PgPool,
-    storage: &dyn ObjectStorage,
-    api_key: &str,
     process_in_background: bool,
     root_group_id: Uuid,
 ) -> Result<SyncSummary> {
@@ -69,11 +70,9 @@ pub async fn sync_mirror_group(
 
     mark_sync_started(pool, root_group_id).await?;
 
-    let client = BallchasingClient::new(api_key.to_owned());
     let result = walk_tree(
-        &client,
+        client,
         pool,
-        storage,
         process_in_background,
         root_group_id,
         &root.ballchasing_group_id,
@@ -106,7 +105,6 @@ pub async fn sync_mirror_group(
 async fn walk_tree(
     client: &BallchasingClient,
     pool: &PgPool,
-    storage: &dyn ObjectStorage,
     process_in_background: bool,
     root_group_id: Uuid,
     root_ballchasing_id: &str,
@@ -142,7 +140,6 @@ async fn walk_tree(
                 let replay_id = attach_replay(
                     client,
                     pool,
-                    storage,
                     process_in_background,
                     &replay_ref.id,
                     replay_ref.replay_title.as_deref(),
@@ -178,13 +175,13 @@ async fn walk_tree(
     Ok(summary)
 }
 
-/// Resolve a ballchasing replay to a rocket-sense replay id, downloading and
-/// importing it only if it is not already present (matched by ballchasing id).
+/// Resolve a Ballchasing replay to a Rocket Sense replay id, downloading it for
+/// hashing and preflight but recording a dynamically resolved storage key rather
+/// than retaining the raw bytes locally.
 #[allow(clippy::too_many_arguments)]
 async fn attach_replay(
     client: &BallchasingClient,
     pool: &PgPool,
-    storage: &dyn ObjectStorage,
     process_in_background: bool,
     ballchasing_replay_id: &str,
     replay_title: Option<&str>,
@@ -208,15 +205,18 @@ async fn attach_replay(
     }
 
     let bytes = client.download_replay(ballchasing_replay_id).await?;
+    let file_sha256 = rocket_sense_storage::sha256_hex(&bytes);
+    let storage_key = ballchasing_replay_key(ballchasing_replay_id, &file_sha256)
+        .map_err(|error| anyhow!("invalid Ballchasing replay storage key: {error}"))?;
     let replay = import_replay_from_bytes(
         pool,
-        storage,
         process_in_background,
         ReplayImportRequest {
             bytes,
             original_file_name: replay_title,
             external_replay_id: Some(ballchasing_replay_id),
             uploaded_by_user_id: created_by_user_id,
+            external_storage_key: &storage_key,
         },
     )
     .await
@@ -347,8 +347,7 @@ pub struct BallchasingGroupSyncJob {
 #[derive(Clone)]
 struct BallchasingSyncWorkerState {
     pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    api_key: Arc<str>,
+    client: Arc<BallchasingClient>,
     process_in_background: bool,
 }
 
@@ -401,9 +400,8 @@ async fn run_sync_job(
 ) -> Result<(), BoxDynError> {
     tracing::info!(group_id = %job.group_id, "started ballchasing group sync job");
     sync_mirror_group(
+        state.client.as_ref(),
         &state.pool,
-        state.storage.as_ref(),
-        &state.api_key,
         state.process_in_background,
         job.group_id,
     )
@@ -415,14 +413,12 @@ async fn run_sync_job(
 /// worker, it uses a fresh worker name per attempt and restarts on failure.
 pub fn start_ballchasing_group_sync_workers(
     pool: PgPool,
-    storage: Arc<dyn ObjectStorage>,
-    api_key: Arc<str>,
+    client: Arc<BallchasingClient>,
     process_in_background: bool,
 ) {
     let state = BallchasingSyncWorkerState {
         pool,
-        storage,
-        api_key,
+        client,
         process_in_background,
     };
 
