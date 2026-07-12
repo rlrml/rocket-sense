@@ -516,7 +516,7 @@ pub(crate) fn push_replay_direct_visibility<'args>(
                 .push_bind(viewer_user_id)
                 .push(") OR EXISTS (SELECT 1 FROM users u WHERE u.id = ")
                 .push_bind(viewer_user_id)
-                .push(" AND u.is_admin)))");
+                .push(" AND u.is_admin))");
         }
         None => {
             builder.push(format!(" AND {replay_alias}.visibility <> 'private'"));

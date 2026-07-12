@@ -46,4 +46,9 @@ fn direct_replay_access_allows_unlisted_but_gates_private() {
     assert!(sql.contains("r.uploaded_by_user_id = $1"));
     assert!(sql.contains("s.replay_id = r.id AND s.user_id = $2"));
     assert!(sql.contains("u.id = $3 AND u.is_admin"));
+    assert_eq!(
+        sql.matches('(').count(),
+        sql.matches(')').count(),
+        "direct replay visibility SQL must have balanced parentheses: {sql}"
+    );
 }
