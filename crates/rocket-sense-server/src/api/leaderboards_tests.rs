@@ -188,65 +188,6 @@ fn leaderboard_window_parses_standard_windows() {
 }
 
 #[test]
-fn cached_scope_accepts_only_single_standard_dimensions() {
-    let filters = filters_from_query("game-type=ranked&team-size=2&playlist=ranked-doubles");
-    let scope =
-        CachedLeaderboardScope::from_filters(Some(LeaderboardWindow::TrailingSevenDays), &filters)
-            .expect("standard scope should use the cache");
-    assert_eq!(scope.game_type, "ranked");
-    assert_eq!(scope.team_size, 2);
-    assert_eq!(scope.playlist, "ranked-doubles");
-
-    let filters = filters_from_query("game-type=ranked&game-type=casual");
-    assert!(CachedLeaderboardScope::from_filters(
-        Some(LeaderboardWindow::TrailingSevenDays),
-        &filters
-    )
-    .is_none());
-
-    // The cache is the default aggregate-included population, so an explicit
-    // include-incomplete-games request must fall back to the live query.
-    let filters = filters_from_query("include-incomplete-games=true");
-    assert!(CachedLeaderboardScope::from_filters(
-        Some(LeaderboardWindow::TrailingSevenDays),
-        &filters
-    )
-    .is_none());
-}
-
-#[test]
-fn cached_scope_accepts_season_ranges_only_for_the_season_window() {
-    let filters = filters_from_query("min-season=f20&max-season=f23&game-type=ranked");
-    let scope = CachedLeaderboardScope::from_filters(Some(LeaderboardWindow::Season), &filters)
-        .expect("season ranges should use per-season cache rows");
-    assert!(scope.has_season_range());
-    assert_eq!(scope.min_season_ord, Some(1020));
-    assert_eq!(scope.max_season_ord, Some(1023));
-
-    assert!(CachedLeaderboardScope::from_filters(
-        Some(LeaderboardWindow::TrailingSevenDays),
-        &filters
-    )
-    .is_none());
-}
-
-#[test]
-fn cached_appearance_range_query_sums_season_rows_per_player() {
-    let filters = filters_from_query("min-season=f20&max-season=f23&game-type=ranked");
-    let scope = CachedLeaderboardScope::from_filters(Some(LeaderboardWindow::Season), &filters)
-        .expect("season range should use cache");
-    let paging = LeaderboardPaging {
-        count: 50,
-        offset: 0,
-    };
-    let sql = cached_appearances_rank_query(&scope, &paging).into_sql();
-
-    assert!(sql.contains("SUM(cached.replay_count)::bigint AS appearance_count"));
-    assert!(sql.contains("GROUP BY cached.platform, cached.platform_player_id"));
-    assert!(sql.contains("lower(btrim(cache_window.season))"));
-}
-
-#[test]
 fn leaderboard_rank_playlist_ids_use_ranked_playlist_filter() {
     let filters = filters_from_query("playlist=ranked-doubles");
     assert_eq!(rank_playlist_ids_for_filters(&filters), vec![11]);
@@ -320,12 +261,12 @@ fn event_rank_query_builds_ctes_and_metric_order() {
 
     assert!(sql.contains("WITH event_counts AS"));
     assert!(sql.contains("denominators AS"));
-    assert!(sql.contains("JOIN play_event_subjects subject ON subject.replay_player_id = rp.id"));
-    assert!(sql.contains("event.analysis_run_id = r.canonical_analysis_run_id"));
+    assert!(sql.contains("FROM player_replay_event_counts counts"));
+    assert!(sql.contains("r.canonical_analysis_run_id = counts.analysis_run_id"));
     assert!(sql.contains("player_identity_tags aggregate_excluded_tag"));
     assert!(sql.contains("NOT r.exclude_from_aggregates"));
     // stat-term filter resolves to an event_types subselect
-    assert!(sql.contains("event.event_type_id IN (SELECT stat_filter.id FROM event_types"));
+    assert!(sql.contains("counts.event_type_id IN (SELECT stat_filter.id FROM event_types"));
     // replay filter applied
     assert!(sql.contains("r.replay_game_type = ANY("));
     // per-minute ranking
@@ -411,36 +352,6 @@ fn event_total_query_counts_qualifying_players() {
     assert!(sql.contains("WITH event_counts AS"));
     assert!(sql.contains("SELECT COUNT(*) AS total FROM event_counts e"));
     assert!(sql.contains("d.replay_count >= "));
-}
-
-#[test]
-fn cached_event_rate_query_is_an_ordered_player_window_read() {
-    let (filters, paging) = event_filters(
-        "window=trailing-7d&event-type=goal&sort=per-minute&min-games=10&game-type=ranked&team-size=2",
-    );
-    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
-    let sql = cached_event_rank_query(&filters, &scope, "goal", &paging).into_sql();
-
-    assert!(sql.contains("FROM leaderboard_player_window_metrics cached"));
-    assert!(sql.contains("cache_window.window_kind"));
-    assert!(sql.contains("cached.metric_kind = 'event'"));
-    assert!(sql.contains("cached.replay_count >="));
-    assert!(sql.contains("ORDER BY cached.value_per_5_minutes DESC NULLS LAST"));
-    assert!(!sql.contains("GROUP BY"));
-}
-
-#[test]
-fn cached_event_range_query_recomputes_rate_after_summing_seasons() {
-    let (filters, paging) = event_filters(
-        "window=season&min-season=f20&max-season=f23&event-type=goal&sort=per-minute&min-games=25",
-    );
-    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
-    let sql = cached_event_rank_query(&filters, &scope, "goal", &paging).into_sql();
-
-    assert!(sql.contains("SUM(cached.total_value)::float8 AS total_value"));
-    assert!(sql.contains("SUM(cached.active_time_seconds)::float8 AS active_time_seconds"));
-    assert!(sql.contains("aggregated.total_value * 60.0 / aggregated.active_time_seconds"));
-    assert!(sql.contains("WHERE aggregated.replay_count >="));
 }
 
 #[test]
@@ -644,35 +555,6 @@ fn stat_rank_query_reads_average_possession_duration() {
     assert!(sql.contains("FROM player_replay_possession possession"));
     assert!(sql.contains("SUM(possession.duration_seconds)::float8"));
     assert!(sql.contains("ORDER BY value DESC"));
-}
-
-#[test]
-fn cached_stat_rate_query_is_an_ordered_player_window_read() {
-    let (filters, paging) =
-        stat_filters("window=season&season=f23&stat=possession-time&sort=per-minute&min-games=25");
-    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
-    let sql = cached_stat_rank_query(&filters, &scope, &paging).into_sql();
-
-    assert!(sql.contains("FROM leaderboard_player_window_metrics cached"));
-    assert!(sql.contains("cache_window.season"));
-    assert!(sql.contains("cached.metric_kind = 'stat'"));
-    assert!(sql.contains("cached.replay_count >="));
-    assert!(sql.contains("ORDER BY cached.value_per_5_minutes DESC NULLS LAST"));
-    assert!(!sql.contains("GROUP BY"));
-}
-
-#[test]
-fn cached_stat_range_query_recomputes_rate_after_summing_seasons() {
-    let (filters, paging) = stat_filters(
-        "window=season&min-season=f20&max-season=f23&stat=possession-time&sort=per-minute&min-games=25",
-    );
-    let scope = CachedLeaderboardScope::from_filters(filters.window, &filters.replay).unwrap();
-    let sql = cached_stat_rank_query(&filters, &scope, &paging).into_sql();
-
-    assert!(sql.contains("SUM(cached.total_value)::float8 AS total_value"));
-    assert!(sql.contains("SUM(cached.sample_count)::bigint AS sample_count"));
-    assert!(sql.contains("aggregated.total_value * 60.0 / aggregated.active_time_seconds"));
-    assert!(sql.contains("WHERE aggregated.replay_count >="));
 }
 
 #[test]

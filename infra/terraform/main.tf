@@ -236,6 +236,14 @@ resource "kubernetes_deployment_v1" "postgres" {
           name  = "postgres"
           image = "postgres:16-alpine"
 
+          # Notice dead application pods while a backend is still executing a
+          # long query. Without this, PostgreSQL may not observe the closed TCP
+          # connection until it tries to return a result, leaving orphaned
+          # refreshes running for hours after a rollout or node disruption.
+          args = [
+            "-c", "client_connection_check_interval=10s",
+          ]
+
           port {
             name           = "postgres"
             container_port = 5432
@@ -349,10 +357,11 @@ resource "kubernetes_deployment_v1" "server" {
             value = "true"
           }
 
-          # Enable the rank-median benchmark cohort (read path + daily refresh).
+          # Keep the expensive rank-benchmark materializer disabled until its
+          # full-dataset refresh is replaced with bounded incremental work.
           env {
             name  = "ROCKET_SENSE_RANK_BENCHMARK"
-            value = "true"
+            value = "false"
           }
 
           env {
@@ -648,10 +657,11 @@ resource "kubernetes_deployment_v1" "worker" {
             value = tostring(var.worker_processing_concurrency)
           }
 
-          # The worker runs the daily rank-benchmark refresh job; gate it on too.
+          # See the server deployment note: the rank benchmark remains off
+          # until its write amplification is bounded.
           env {
             name  = "ROCKET_SENSE_RANK_BENCHMARK"
-            value = "true"
+            value = "false"
           }
 
           env {
