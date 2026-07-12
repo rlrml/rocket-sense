@@ -1338,7 +1338,14 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
 // first contact of a carry no longer swallows the dodge-powered launch touch,
 // so reprocessing recovers flip-reset conversions, air-dribble touch runs, and
 // flick launch measurements that the touch rate limit had dropped.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v13";
+// Bumped v13 -> v14 for subtr-actor's dedicated beaten-to-ball detector: what
+// was previously only a WhiffEvent subtype is now its own `beaten_to_ball`
+// event stream (retrospective, touch-anchored, tuned toward recall to feed the
+// event-review labeling campaigns). The submodule bump also preserves mechanic
+// goal tags through late saves. Bumping marks prior analyses stale so
+// reprocessing emits the new `beaten_to_ball` stream for confirm/reject
+// labeling and re-tags the affected mechanic goals.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v14";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -10477,6 +10484,12 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "subtr-actor dodge touches bypass the touch rate limit; reprocess to \
          recover flip-reset conversions, air-dribble runs, and flick launches \
          that a preceding soft carry contact had suppressed.",
+    ),
+    (
+        "rocket-sense-event-stream:v14",
+        "subtr-actor promotes beaten-to-ball to its own event stream (was a whiff \
+         subtype) and preserves mechanic goal tags through late saves; reprocess \
+         to surface beaten_to_ball candidates for review labeling.",
     ),
 ];
 

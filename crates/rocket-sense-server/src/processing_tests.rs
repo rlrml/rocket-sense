@@ -1993,6 +1993,11 @@ fn envelope_event(
             stream: stream.to_owned(),
             label: stream.to_owned(),
             scope: subtr_actor::EventScope::Match,
+            // Fixture events model a completed, batch-projected stream, which the
+            // collector always emits as `Finalized` (analysis_graph upgrades every
+            // event to Finalized before diffing). processing.rs does not branch on
+            // lifecycle, but match the real batch output for fidelity.
+            lifecycle: subtr_actor::EventLifecycle::Finalized,
             timing,
             primary_player: None,
             secondary_player: None,

@@ -4313,7 +4313,9 @@ fn unescape_like_pattern(pattern: &str) -> String {
     output
 }
 
-async fn upsert_user(pool: &PgPool, auth_user: &AuthUser) -> Result<(), sqlx::Error> {
+// Shared with `super::campaigns`, which needs the same ensure-reviewer-row
+// step before inserting rows with a reviewer FK.
+pub(super) async fn upsert_user(pool: &PgPool, auth_user: &AuthUser) -> Result<(), sqlx::Error> {
     sqlx::query(
         r#"
         INSERT INTO users (id, primary_email, display_name)

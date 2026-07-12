@@ -32,6 +32,9 @@ import type {
   ProcessingVersionBreakdownResponse,
   ProcessingVersionResponse,
   RankBenchmarkCohortsResponse,
+  CreateReviewCampaignResponse,
+  ReviewCampaignDetailResponse,
+  ReviewCampaignListResponse,
   RankTrendsResponse,
   RecentlyProcessedReplaysResponse,
   ReplayProcessingDiagnosticsResponse,
@@ -1165,6 +1168,40 @@ export function createAccountToken(
     credentials: "same-origin",
     includeAccessToken: options.includeAccessToken,
   });
+}
+
+// --- Review campaigns -------------------------------------------------------
+
+export function listReviewCampaigns(): Promise<ReviewCampaignListResponse> {
+  return request<ReviewCampaignListResponse>("/api/v1/campaigns");
+}
+
+export function getReviewCampaign(campaignId: string): Promise<ReviewCampaignDetailResponse> {
+  return request<ReviewCampaignDetailResponse>(
+    `/api/v1/campaigns/${encodeURIComponent(campaignId)}`,
+  );
+}
+
+export function createReviewCampaign(body: {
+  title: string;
+  slug?: string;
+  question?: string;
+  description?: string;
+  playlist: unknown;
+}): Promise<CreateReviewCampaignResponse> {
+  return request<CreateReviewCampaignResponse>("/api/v1/campaigns", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+export function reviewCampaignPlaylistUrl(campaignId: string): string {
+  return `/api/v1/campaigns/${encodeURIComponent(campaignId)}/playlist`;
+}
+
+export function reviewCampaignLabelsExportUrl(campaignId: string): string {
+  return `/api/v1/campaigns/${encodeURIComponent(campaignId)}/labels.jsonl`;
 }
 
 function cacheReplays(replays: ReplayResponse[]): void {

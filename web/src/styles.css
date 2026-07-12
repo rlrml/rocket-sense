@@ -10950,3 +10950,103 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
   text-align: center;
 }
+
+/* --- Review campaigns page ------------------------------------------------ */
+
+.campaigns-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 360px);
+  gap: 20px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .campaigns-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.campaigns-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.campaign-card,
+.campaign-new-form {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.campaign-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.campaign-card-header h3 {
+  margin: 0 0 4px;
+}
+
+.campaign-progress-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--text-sm);
+  margin-bottom: 4px;
+}
+
+.campaign-progress-track {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.campaign-progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent, #4f6bed);
+}
+
+.campaign-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.campaign-card-meta {
+  margin-left: auto;
+  font-size: var(--text-sm);
+}
+
+.campaign-primary-action {
+  border-color: var(--accent, #4f6bed);
+  color: var(--accent, #4f6bed);
+  font-weight: var(--fw-semibold);
+}
+
+.campaign-new-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.campaign-form-error {
+  color: #b3261e;
+  font-size: var(--text-sm);
+}
+
+.campaign-import-result ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
