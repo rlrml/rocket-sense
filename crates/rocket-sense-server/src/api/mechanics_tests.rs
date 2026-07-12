@@ -362,6 +362,11 @@ fn event_type_catalog_is_code_defined_and_canonical() {
     assert!(event_type("goal_tag_air_dribble_goal").is_none());
     assert_eq!(event_type("dodge").unwrap().category, "basic");
     assert_eq!(event_type("touch").unwrap().category, "other");
+    // beaten_to_ball is a first-class subtr-actor event (its own stream, no
+    // longer a whiff subtype); it must reach the review catalog so campaigns can
+    // label it, mirroring whiff's "other" category.
+    assert_eq!(event_type("whiff").unwrap().category, "other");
+    assert_eq!(event_type("beaten_to_ball").unwrap().category, "other");
     assert_eq!(event_type("boost_pickup").unwrap().category, "other");
     assert!(event_type("boost_pickup_both").is_none());
     assert_eq!(event_type("rotation_role").unwrap().category, "positioning");
