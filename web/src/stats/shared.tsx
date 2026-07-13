@@ -270,6 +270,14 @@ export function careerCohortLabel(
   return `Rank median${tierLabel ? ` (${tierLabel})` : ""}`;
 }
 
+export function playerTeamLabel(playerName = "Player"): string {
+  return `${playerName}'s team`;
+}
+
+export function playerRelativeLabel(label: string, playerName = "Player"): string {
+  return label.startsWith("Your ") ? `${playerName}'s ${label.slice("Your ".length)}` : label;
+}
+
 export function careerCohortSubtitle(key: CareerCohortKey): string {
   if (key === "player") return "Player";
   if (key === "teammates") return "Teammates";

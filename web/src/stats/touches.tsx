@@ -20,6 +20,7 @@ import {
   CAREER_RATE_WINDOW_SECONDS,
   careerRateValue,
   careerRateWindowLabel,
+  playerTeamLabel,
   rankCohortMagnitudeRows,
   rankCohortTeamMagnitudeRows,
   rankCohortTeamValues,
@@ -244,7 +245,7 @@ export function TouchProfileComparison({
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
   // "player" compares the player to the pooled per-player teammate/opponent
-  // cohorts; "team" pools the player with their teammates into "Your team" vs
+  // cohorts; "team" pools the player with their teammates into the player's team vs
   // the pooled opponent team, rating per the player's active seconds (the
   // team's wall-clock time — the Core team view's denominator convention), so
   // the per-5-min values are whole-roster team rates. Rank rows then read the
@@ -259,7 +260,7 @@ export function TouchProfileComparison({
   const subjects = useMemo(
     () =>
       view === "team"
-        ? touchTeamProfileSubjects(breakdown, rateWindowSeconds)
+        ? touchTeamProfileSubjects(breakdown, rateWindowSeconds, playerName)
         : touchProfileSubjects(breakdown, rateWindowSeconds, playerName),
     [breakdown, playerName, rateWindowSeconds, view],
   );
@@ -536,7 +537,7 @@ function touchProfileSubjects(
   });
 }
 
-// The career TEAM view's subjects: "Your team" pools the player's touches with
+// The career TEAM view's subjects: the player's team pools their touches with
 // the pooled-teammates cohort, vs the (already pooled) opponent-team cohort.
 // Touch counts and advance distances are additive, so summing the cohorts is
 // the team's genuine total; BOTH team rows then rate per the PLAYER's active
@@ -547,6 +548,7 @@ function touchProfileSubjects(
 function touchTeamProfileSubjects(
   breakdown: TouchAggregateBreakdownResponse,
   rateWindowSeconds: number | null,
+  playerName: string,
 ): TouchSubject[] {
   const bySide = (key: CareerCohortKey) =>
     breakdown.cohorts.find((cohort) => careerCohortKey(cohort.key) === key) ?? null;
@@ -596,7 +598,10 @@ function touchTeamProfileSubjects(
 
   const subjects = [
     // Same your-side/their-side cohort colors as the Core team view.
-    teamSubject("team", "Your team", "player", [player, ...(teammates ? [teammates] : [])]),
+    teamSubject("team", playerTeamLabel(playerName), "player", [
+      player,
+      ...(teammates ? [teammates] : []),
+    ]),
   ];
   if (opponents) {
     subjects.push(teamSubject("opponentTeam", "Opponent team", "opponents", [opponents]));

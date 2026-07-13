@@ -28,6 +28,8 @@ import {
   careerCohortSubtitle,
   careerRateValue,
   careerRateWindowLabel,
+  playerRelativeLabel,
+  playerTeamLabel,
   type CareerCohortKey,
   type ComparisonCard,
   ComparisonCardGrid,
@@ -393,7 +395,16 @@ export function buildCoreProfileCards({
   const mvpRows = mvpComparisonRows(overview.mvp, playerName);
   const teamActiveMinutes = coreTeamActiveMinutes(activeTimeSeconds, score);
   const teamCard = (key: string, title: string, rate: ScoringRateLike, metricKey: string) =>
-    teamRateCard(key, title, rate, teamActiveMinutes, rankCohorts, metricKey, rankWindowLabel);
+    teamRateCard(
+      key,
+      title,
+      rate,
+      teamActiveMinutes,
+      playerName,
+      rankCohorts,
+      metricKey,
+      rankWindowLabel,
+    );
   const cards =
     view === "team"
       ? [
@@ -410,6 +421,7 @@ export function buildCoreProfileCards({
               demos.eventCount + demos.teammateEventCount,
               demos.opponentEventCount,
               teamActiveMinutes,
+              playerName,
               rankCohorts,
               "demolition",
               rankWindowLabel,
@@ -423,6 +435,7 @@ export function buildCoreProfileCards({
               deaths.eventCount + deaths.teammateEventCount,
               deaths.opponentEventCount,
               teamActiveMinutes,
+              playerName,
               rankCohorts,
               "death",
               rankWindowLabel,
@@ -439,6 +452,7 @@ export function buildCoreProfileCards({
                 shots.count + shots.teammate_count,
                 goals.opponent_count,
                 shots.opponent_count,
+                playerName,
               ),
               // Typical-rank team shooting %: the rank's team goal rate over
               // its team shot rate (the per-minute denominators cancel).
@@ -471,6 +485,7 @@ export function buildCoreProfileCards({
                 goals.count + goals.teammate_count,
                 assists.opponent_count,
                 goals.opponent_count,
+                playerName,
               ),
               // Typical-rank team assist %: the rank's team assist rate over
               // its team goal rate.
@@ -1016,10 +1031,9 @@ export type CoreProfileView = "player" | "team";
 // colors (player vs opponents) since blue/orange swap game to game.
 type TeamSide = "team" | "opponentTeam";
 
-const TEAM_SIDE_LABEL: Record<TeamSide, string> = {
-  team: "Your team",
-  opponentTeam: "Opponent team",
-};
+function teamSideLabel(side: TeamSide, playerName: string): string {
+  return side === "team" ? playerTeamLabel(playerName) : "Opponent team";
+}
 
 function teamSideCohortKey(side: TeamSide): CareerCohortKey {
   return side === "team" ? "player" : "opponents";
@@ -1047,6 +1061,7 @@ function teamRateCard(
   title: string,
   rate: ScoringRateLike,
   activeMinutes: number | null,
+  playerName: string,
   rankCohorts: RankBenchmarkCohort[],
   metricKey: string,
   rankWindowLabel?: string | null,
@@ -1059,6 +1074,7 @@ function teamRateCard(
       rate.count + rate.teammate_count,
       rate.opponent_count,
       activeMinutes,
+      playerName,
       rankCohorts,
       metricKey,
       rankWindowLabel,
@@ -1071,6 +1087,7 @@ function teamRateCardRows(
   teamCount: number,
   opponentTeamCount: number,
   activeMinutes: number | null,
+  playerName: string,
   rankCohorts: RankBenchmarkCohort[] = [],
   // The benchmark metric_key for this stat in `team_per_stat`; omit for stats
   // with no team benchmark counterpart so no rank rows are added.
@@ -1088,8 +1105,8 @@ function teamRateCardRows(
     : [];
   const maxValue = Math.max(1, teamRate, opponentRate, ...rankRates);
   return [
-    teamRateRow("team", statName, teamCount, teamRate, maxValue),
-    teamRateRow("opponentTeam", statName, opponentTeamCount, opponentRate, maxValue),
+    teamRateRow("team", statName, teamCount, teamRate, maxValue, playerName),
+    teamRateRow("opponentTeam", statName, opponentTeamCount, opponentRate, maxValue, playerName),
     // One slate-shaded row per selected rank, from the team-level benchmark.
     ...(metricKey
       ? rankCohortTeamMagnitudeRows({
@@ -1111,9 +1128,10 @@ function teamRateRow(
   total: number,
   rate: number,
   maxValue: number,
+  playerName: string,
 ): ComparisonRow {
   const cohortKey = teamSideCohortKey(side);
-  const label = TEAM_SIDE_LABEL[side];
+  const label = teamSideLabel(side, playerName);
   const rateLabel = `${formatRate(rate)}/5m`;
   const totalLabel = `${total.toLocaleString()} total`;
   return {
@@ -1155,10 +1173,18 @@ function teamPercentageCardRows(
   teamDenominator: number,
   opponentNumerator: number,
   opponentDenominator: number,
+  playerName: string,
 ): ComparisonRow[] {
   return [
-    teamPercentageRow("team", statName, totalName, teamNumerator, teamDenominator),
-    teamPercentageRow("opponentTeam", statName, totalName, opponentNumerator, opponentDenominator),
+    teamPercentageRow("team", statName, totalName, teamNumerator, teamDenominator, playerName),
+    teamPercentageRow(
+      "opponentTeam",
+      statName,
+      totalName,
+      opponentNumerator,
+      opponentDenominator,
+      playerName,
+    ),
   ];
 }
 
@@ -1168,9 +1194,10 @@ function teamPercentageRow(
   totalName: string,
   numerator: number,
   denominator: number,
+  playerName: string,
 ): ComparisonRow {
   const cohortKey = teamSideCohortKey(side);
-  const label = TEAM_SIDE_LABEL[side];
+  const label = teamSideLabel(side, playerName);
   const pct = percentage(numerator, denominator);
   const pctLabel = formatPercentage(pct);
   const totalLabel = `${numerator.toLocaleString()}/${denominator.toLocaleString()}`;
@@ -2354,8 +2381,8 @@ export function PossessionSummaryPanel({
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
   // "player" compares the player's own possession to the per-player teammate/
-  // opponent cohorts; "team" pools the player with their teammates into "Your
-  // team" vs the pooled opponent team, rating counts per 5 wall-clock minutes
+  // opponent cohorts; "team" pools the player with their teammates into the
+  // player's team vs the pooled opponent team, rating counts per 5 wall-clock minutes
   // (the player's active time) and reading rank rows from `team_per_stat`.
   view?: CoreProfileView;
 }) {
@@ -2363,7 +2390,7 @@ export function PossessionSummaryPanel({
     view === "team"
       ? possessionTeamSubjects(summary, playerName)
       : possessionProfileSubjects(summary, playerName).map(possessionAdvancedProfileSubject);
-  const teamCharts = summary.team ? teamControlCharts(summary.team) : [];
+  const teamCharts = summary.team ? teamControlCharts(summary.team, playerName) : [];
   const zoneCharts = possessionZoneDistributionCharts(subjects);
 
   return (
@@ -2402,12 +2429,12 @@ interface TeamControlChart {
  * they ride the global win/loss outcome control like every other stat — each
  * card shows your-team / neutral / opponents shares.
  */
-function teamControlCharts(team: PossessionTeamControl): TeamControlChart[] {
+function teamControlCharts(team: PossessionTeamControl, playerName: string): TeamControlChart[] {
   return [
-    teamControlChart("team-possession-share", "Team possession", team.loose_possession),
-    teamControlChart("team-control-share", "Team control", team.possession),
-    teamControlChart("ball-half", "Ball half", team.ball_halves),
-    teamControlChart("ball-thirds", "Ball thirds", team.ball_thirds),
+    teamControlChart("team-possession-share", "Team possession", team.loose_possession, playerName),
+    teamControlChart("team-control-share", "Team control", team.possession, playerName),
+    teamControlChart("ball-half", "Ball half", team.ball_halves, playerName),
+    teamControlChart("ball-thirds", "Ball thirds", team.ball_thirds, playerName),
   ];
 }
 
@@ -2418,17 +2445,19 @@ function teamControlChart(
   key: string,
   title: string,
   metric: PossessionTeamMetric,
+  playerName: string,
 ): TeamControlChart {
   const total = metric.total_duration_seconds;
   const buckets =
     metric.buckets.length > 0
       ? metric.buckets
       : [
-          { key: "own", label: "Your team", duration_seconds: 0, share: 0 },
+          { key: "own", label: playerTeamLabel(playerName), duration_seconds: 0, share: 0 },
           { key: "neutral", label: "Neutral", duration_seconds: 0, share: 0 },
           { key: "opponent", label: "Opponents", duration_seconds: 0, share: 0 },
         ];
   const rows: ComparisonRow[] = buckets.map((bucket) => {
+    const label = playerRelativeLabel(bucket.label, playerName);
     const share = total > 0 ? bucket.duration_seconds / total : 0;
     const formatted = formatShare(share);
     // Seconds in this bucket per 5 minutes of tracked time (share * 5 min).
@@ -2436,15 +2465,15 @@ function teamControlChart(
     const per5Label = `${formatDurationSeconds(per5)}/5m`;
     return {
       key: `${key}:${bucket.key}`,
-      label: <span className="possession-team-bucket-label">{bucket.label}</span>,
-      ariaLabel: `${bucket.label}: ${per5Label} (${formatted})`,
+      label: <span className="possession-team-bucket-label">{label}</span>,
+      ariaLabel: `${label}: ${per5Label} (${formatted})`,
       segments: [
         {
           key: "value",
           className: teamControlClass(bucket.key),
-          label: bucket.label,
+          label,
           value: share,
-          title: `${bucket.label}: ${per5Label} (${formatted})`,
+          title: `${label}: ${per5Label} (${formatted})`,
         },
       ],
       total: share,
@@ -2680,13 +2709,17 @@ function possessionTeamSubjects(
   });
 
   const rows = [
-    teamSubject("team", TEAM_SIDE_LABEL.team, "player", [
+    teamSubject("team", teamSideLabel("team", playerName), "player", [
       player,
       ...(teammates ? [teammates] : []),
     ]),
   ];
   if (opponents) {
-    rows.push(teamSubject("opponentTeam", TEAM_SIDE_LABEL.opponentTeam, "opponents", [opponents]));
+    rows.push(
+      teamSubject("opponentTeam", teamSideLabel("opponentTeam", playerName), "opponents", [
+        opponents,
+      ]),
+    );
   }
   return rows;
 }
