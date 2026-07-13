@@ -19,6 +19,7 @@ import {
   careerCohortSegmentClassName,
   careerCohortSubtitle,
   careerRateValue,
+  playerTeamLabel,
   type CareerCohortKey,
   type ComparisonCard,
   ComparisonCardGrid,
@@ -283,7 +284,7 @@ export function buildMovementCohortCards({
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
   // "player" compares the player to the pooled per-player teammate/opponent
-  // cohorts; "team" pools the player with their teammates into "Your team" vs
+  // cohorts; "team" pools the player with their teammates into the player's team vs
   // the pooled opponent team. Additive stats (distance, powerslides, flips)
   // become whole-roster rates per the player's active seconds (the team's
   // wall-clock time — the Core team view's denominator convention); gauges
@@ -294,7 +295,7 @@ export function buildMovementCohortCards({
 }): ComparisonCard[] {
   const teamView = view === "team";
   const summaries: CareerMovementSummary[] = teamView
-    ? movementTeamSummaries(response)
+    ? movementTeamSummaries(response, playerName)
     : [movementCohortSummary("cohort-self", "player", playerName || "Player", response.player)];
   if (!teamView && response.teammates) {
     summaries.push(
@@ -477,7 +478,7 @@ export function buildMovementCohortCards({
   return cards;
 }
 
-// The career TEAM view's rows: "Your team" pools the player's summary with the
+// The career TEAM view's rows: the player's team pools their summary with the
 // pooled-teammates cohort; "Opponent team" is the (already pooled) opponents
 // cohort. Every MovementCohortSummary field is additive (seconds, distances,
 // counts, the speed weighted sum), so gauges (avg speed) and band shares come
@@ -487,7 +488,10 @@ export function buildMovementCohortCards({
 // the team's wall-clock time (the Core team view's denominator convention) —
 // not the roster's pooled seconds, which makes the per-5-min values whole-team
 // rates comparable to the benchmark team grain (`team_per_stat`).
-function movementTeamSummaries(response: MovementSummaryResponse): CareerMovementSummary[] {
+function movementTeamSummaries(
+  response: MovementSummaryResponse,
+  playerName: string,
+): CareerMovementSummary[] {
   const wallClockSeconds = response.player.active_seconds;
   const games = response.player.appearance_count;
   const teamSummary = (
@@ -503,7 +507,7 @@ function movementTeamSummaries(response: MovementSummaryResponse): CareerMovemen
   });
   const summaries = [
     // Same your-side/their-side cohort colors as the Core team view.
-    teamSummary("team", "player", "Your team", [
+    teamSummary("team", "player", playerTeamLabel(playerName), [
       response.player,
       ...(response.teammates ? [response.teammates] : []),
     ]),

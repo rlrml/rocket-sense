@@ -33,6 +33,7 @@ import {
   careerCohortKey,
   careerCohortSegmentClassName,
   careerCohortSubtitle,
+  playerTeamLabel,
   type ComparisonRow,
   PlayerComparisonChart,
   type CareerCohortKey,
@@ -289,7 +290,7 @@ export function BoostProfileDetail({
   rankCohorts?: RankBenchmarkCohort[];
   rankWindowLabel?: string | null;
   // "player" compares the player to the pooled per-player teammate/opponent
-  // cohorts; "team" pools the player with their teammates into "Your team" vs
+  // cohorts; "team" pools the player with their teammates into the player's team vs
   // the pooled opponent team. Team rows rate per the player's tracked seconds
   // (the player is on the field all game, so that is the team's wall-clock
   // time — the Core team view's denominator convention), making the
@@ -365,7 +366,7 @@ export function BoostProfileDetail({
 
   const { levelRows, summaries } =
     view === "team"
-      ? boostProfileTeamData(totals)
+      ? boostProfileTeamData(totals, playerName)
       : boostProfileData(totals, {
           platform,
           platformPlayerId,
@@ -688,7 +689,7 @@ function boostProfileData(
   };
 }
 
-// The career TEAM view: "Your team" pools the player's totals with the pooled
+// The career TEAM view: the player's team pools their totals with the pooled
 // teammates cohort; "Opponent team" is the (already pooled) opponents cohort.
 //
 // Every PlayerBoostTotal field is additive (amounts, pad counts, band seconds,
@@ -701,7 +702,10 @@ function boostProfileData(
 // not the roster's pooled seconds (a team of 3 does not get 3x the minutes).
 // That matches the benchmark team grain (`team_per_stat`, rates per
 // team-active-minute) the grid's rank rows read in team grain.
-function boostProfileTeamData(totals: PlayerBoostTotalsResponse): {
+function boostProfileTeamData(
+  totals: PlayerBoostTotalsResponse,
+  playerName: string,
+): {
   summaries: BoostPlayerSummary[];
   levelRows: BoostLevelDistributionRow[];
 } {
@@ -710,7 +714,7 @@ function boostProfileTeamData(totals: PlayerBoostTotalsResponse): {
   const pooled = [
     boostProfileSummary(
       "team",
-      "Your team",
+      playerTeamLabel(playerName),
       totals.teammates ? sumBoostTotals(totals.player, totals.teammates) : totals.player,
       identity,
     ),

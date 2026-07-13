@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { getPlayerGameOutcomes } from "../api";
 import type { GameOutcomeRow, RankBenchmarkCohort } from "../types";
-import { careerCohortClassName, rankAverageShadeClass, rankCohortIconUrl } from "./shared";
+import {
+  careerCohortClassName,
+  playerTeamLabel,
+  rankAverageShadeClass,
+  rankCohortIconUrl,
+} from "./shared";
 import type { CoreProfileView } from "./playerPanels";
 
 const GOAL_BUCKETS = [
@@ -119,7 +124,7 @@ function buildSubjects(
       ? [
           actualSubject(
             "team",
-            "Your team",
+            playerTeamLabel(playerName),
             pluralize(games.length, "game"),
             careerCohortClassName("player"),
             games.map((game) => game.team_score),
