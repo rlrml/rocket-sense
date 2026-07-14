@@ -219,7 +219,7 @@ fn event_review_playlist_query_sorts_most_recent_replays_first() {
     })
     .unwrap();
 
-    let builder = find_mechanic_events_query(&filters, None);
+    let builder = find_mechanic_events_query(&filters, MechanicEventVisibility::Public);
     let sql = builder.sql();
 
     assert!(sql.contains("replay.visibility = 'public'"));
@@ -240,12 +240,26 @@ fn direct_event_query_allows_unlisted_but_gates_private_replays() {
     })
     .unwrap();
     let viewer_id = Uuid::parse_str("0196f449-e997-7413-af77-28082e6478f0").unwrap();
-    let builder = find_mechanic_events_query(&filters, Some(viewer_id));
+    let builder = find_mechanic_events_query(&filters, MechanicEventVisibility::Viewer(viewer_id));
     let sql = builder.sql();
 
     assert!(sql.contains("replay.visibility <> 'private'"));
     assert!(sql.contains("replay.uploaded_by_user_id"));
     assert!(sql.contains("FROM replay_shares s"));
+}
+
+#[test]
+fn admin_event_query_does_not_add_a_visibility_predicate() {
+    let filters = MechanicEventFilters::from_query(MechanicEventsQuery {
+        count: Some(10),
+        ..MechanicEventsQuery::default()
+    })
+    .unwrap();
+    let builder = find_mechanic_events_query(&filters, MechanicEventVisibility::Admin);
+    let sql = builder.sql();
+
+    assert!(!sql.contains("replay.visibility"));
+    assert!(!sql.contains("FROM replay_shares s"));
 }
 
 #[test]
@@ -259,7 +273,7 @@ fn event_review_playlist_query_filters_payload_classifications() {
     })
     .unwrap();
 
-    let builder = find_mechanic_events_query(&filters, None);
+    let builder = find_mechanic_events_query(&filters, MechanicEventVisibility::Public);
     let sql = builder.sql();
 
     assert!(sql.contains("payload.payload ->> $"));

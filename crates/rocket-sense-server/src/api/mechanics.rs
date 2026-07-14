@@ -3491,14 +3491,67 @@ async fn find_mechanic_events(
     filters: &MechanicEventFilters,
     viewer_user_id: Option<Uuid>,
 ) -> Result<Vec<MechanicEventResponse>, sqlx::Error> {
-    let mut builder = find_mechanic_events_query(filters, viewer_user_id);
+    let visibility = mechanic_event_visibility(pool, viewer_user_id).await?;
+    let mut builder = find_mechanic_events_query(filters, visibility);
     let rows = builder.build().fetch_all(pool).await?;
     rows.into_iter().map(mechanic_event_from_row).collect()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MechanicEventVisibility {
+    Public,
+    Viewer(Uuid),
+    Admin,
+}
+
+async fn mechanic_event_visibility(
+    pool: &PgPool,
+    viewer_user_id: Option<Uuid>,
+) -> Result<MechanicEventVisibility, sqlx::Error> {
+    let Some(viewer_user_id) = viewer_user_id else {
+        return Ok(MechanicEventVisibility::Public);
+    };
+
+    let row = sqlx::query(
+        r#"
+        SELECT
+            COALESCE(
+                (SELECT is_admin FROM users WHERE id = $1),
+                false
+            ) AS is_admin,
+            EXISTS (
+                SELECT 1
+                FROM replays replay
+                WHERE replay.uploaded_by_user_id = $1
+                  AND replay.visibility <> 'public'
+                UNION ALL
+                SELECT 1
+                FROM replay_shares share
+                JOIN replays replay ON replay.id = share.replay_id
+                WHERE share.user_id = $1
+                  AND replay.visibility <> 'public'
+            ) AS has_non_public_access
+        "#,
+    )
+    .bind(viewer_user_id)
+    .fetch_one(pool)
+    .await?;
+
+    if row.try_get("is_admin")? {
+        Ok(MechanicEventVisibility::Admin)
+    } else if row.try_get("has_non_public_access")? {
+        Ok(MechanicEventVisibility::Viewer(viewer_user_id))
+    } else {
+        // Avoid the authenticated OR predicate when it cannot add any rows.
+        // Keeping the public equality lets PostgreSQL walk the replay-date
+        // index and stop at the requested event page.
+        Ok(MechanicEventVisibility::Public)
+    }
+}
+
 fn find_mechanic_events_query<'args>(
     filters: &'args MechanicEventFilters,
-    viewer_user_id: Option<Uuid>,
+    visibility: MechanicEventVisibility,
 ) -> QueryBuilder<'args, Postgres> {
     let mut builder = QueryBuilder::<Postgres>::new(
         r#"
@@ -3557,10 +3610,21 @@ fn find_mechanic_events_query<'args>(
         "#,
     );
 
-    if filters.replay_id.is_some() || !filters.event_ids.is_empty() {
-        super::visibility::push_replay_direct_visibility(&mut builder, "replay", viewer_user_id);
-    } else {
-        super::visibility::push_replay_list_visibility(&mut builder, "replay", viewer_user_id);
+    if visibility != MechanicEventVisibility::Admin {
+        let viewer_user_id = match visibility {
+            MechanicEventVisibility::Viewer(viewer_user_id) => Some(viewer_user_id),
+            MechanicEventVisibility::Public => None,
+            MechanicEventVisibility::Admin => unreachable!(),
+        };
+        if filters.replay_id.is_some() || !filters.event_ids.is_empty() {
+            super::visibility::push_replay_direct_visibility(
+                &mut builder,
+                "replay",
+                viewer_user_id,
+            );
+        } else {
+            super::visibility::push_replay_list_visibility(&mut builder, "replay", viewer_user_id);
+        }
     }
 
     if filters.event_ids.is_empty() && filters.mechanics.is_empty() {
