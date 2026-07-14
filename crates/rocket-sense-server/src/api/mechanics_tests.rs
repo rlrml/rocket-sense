@@ -225,7 +225,7 @@ fn event_review_playlist_query_sorts_most_recent_replays_first() {
     assert!(sql.contains("replay.visibility = 'public'"));
     assert!(
         sql.contains(
-            "ORDER BY COALESCE(replay.replay_date, replay.created_at) DESC NULLS LAST, replay.created_at DESC, event.replay_id, COALESCE(event.event_time, event.start_time, 0), event.id"
+            "ORDER BY replay.replay_date DESC NULLS LAST, replay.created_at DESC, replay.id, COALESCE(event.event_time, event.start_time, 0), event.id"
         ),
         "event review playlist should default to most recent replay first, got: {sql}"
     );

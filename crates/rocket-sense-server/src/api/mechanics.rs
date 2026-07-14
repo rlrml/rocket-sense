@@ -3731,9 +3731,14 @@ fn find_mechanic_events_query<'args>(
         &filters.payload_setup_rotation_directions,
     );
 
+    // Keep replay_date as the leading sort key so
+    // replays_replay_date_id_idx can stop after the requested page. Using a
+    // COALESCE expression here forces PostgreSQL to sort every matching event.
+    // Replays without a parsed date remain deterministic at the end of the
+    // queue, ordered by upload time and id.
     builder
         .push(
-            " ORDER BY COALESCE(replay.replay_date, replay.created_at) DESC NULLS LAST, replay.created_at DESC, event.replay_id, COALESCE(event.event_time, event.start_time, 0), event.id",
+            " ORDER BY replay.replay_date DESC NULLS LAST, replay.created_at DESC, replay.id, COALESCE(event.event_time, event.start_time, 0), event.id",
         )
         .push(" LIMIT ")
         .push_bind(filters.count as i64)
