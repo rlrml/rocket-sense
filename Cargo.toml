@@ -3,6 +3,8 @@ resolver = "2"
 members = [
     "crates/rocket-sense-db",
     "crates/rocket-sense-egress",
+    "crates/rocket-sense-mistakes",
+    "crates/rocket-sense-mistakes-wasm",
     "crates/rocket-sense-server",
     "crates/rocket-sense-storage",
 ]

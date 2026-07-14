@@ -308,7 +308,9 @@ const replayStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
 // Rotation are hidden pending a rewrite — see stats/registry.tsx), minus the
 // shot map (needs the 3D scene), plus the player-scope-only Outcomes section.
 const playerStatsSectionGroups: StatGroup[] = completedStatGroups.filter(
-  (group) => group.id !== "shot-map",
+  // Coaching detects mistakes per replay in the browser (needs one parsed
+  // replay + the 3D clip player), so like the shot map it has no career view.
+  (group) => group.id !== "shot-map" && group.id !== "coaching",
 );
 
 export function App() {
@@ -2769,12 +2771,23 @@ function ReplayStatsPage() {
 
     setEventsLoading(true);
     setEventsError(null);
+    // Sections without server event types (e.g. Coaching, which detects
+    // client-side over the parsed replay) must not fall through to an
+    // unfiltered fetch of every indexed event.
+    const groupEventTypes = eventTypesForGroup(activeGroup.id);
+    if (groupEventTypes.length === 0 && activeGroup.Detail) {
+      setEvents([]);
+      setEventsLoading(false);
+      return () => {
+        cancelled = true;
+      };
+    }
     replayPromise
       .catch(() => null)
       .then((replayResponse) =>
         listReplayEvents(
           replayId,
-          eventTypesForGroup(activeGroup.id),
+          groupEventTypes,
           replayResponse?.processing_version.processed_at ?? null,
         ),
       )

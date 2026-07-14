@@ -8,6 +8,12 @@ statistics built with `subtr-actor`.
 
 - Treat `subtr-actor` as the source of truth for replay parsing and frame/stat
   extraction. Keep replay-domain logic there unless it is clearly service-specific.
+- Mistake detection (`crates/rocket-sense-mistakes`, surfaced as the web
+  "Coaching" section) is a line-faithful port of RLVision's `ml/mistakes.py`
+  gated by golden parity tests — see
+  [`docs/mistake-detection-port.md`](docs/mistake-detection-port.md) before
+  changing detector behavior, and rebuild the committed WASM package with
+  `just mistakes-vendor` after any detector change.
 - When working on statistics (computing, aggregating, or presenting them), follow
   the principles in [`docs/stats-principles.md`](docs/stats-principles.md). Most
   importantly: segment stats by player count / playlist by default — pooling

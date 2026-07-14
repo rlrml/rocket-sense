@@ -1,0 +1,22 @@
+[package]
+name = "rocket-sense-mistakes-wasm"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+description = "wasm-bindgen bindings for rocket-sense-mistakes (in-browser mistake detection)"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+rocket-sense-mistakes = { path = "../rocket-sense-mistakes" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+wasm-bindgen = "0.2.121"
+console_error_panic_hook = "0.1"

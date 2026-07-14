@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@rlrml/player": "file:vendor/@rlrml/player",
+    "@rocket-sense/mistakes": "file:vendor/@rocket-sense/mistakes",
     "camera-controls": "^2.10.1",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",

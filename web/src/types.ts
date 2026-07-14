@@ -1402,3 +1402,84 @@ export interface CreateReviewCampaignResponse {
   imported: number;
   skipped: ReviewCampaignImportSkip[];
 }
+
+// --- Client-side mistake detection (see docs/mistake-detection-port.md) -----
+
+/** One detected mistake marker from the @rocket-sense/mistakes WASM module. */
+export interface MistakeMarker {
+  kind: string;
+  time: number;
+  t_start: number;
+  t_end: number;
+  player_idx: number;
+  player: string;
+  with_player?: string;
+  severity: number;
+  score: number;
+  features: number[];
+  features_version: number;
+  evidence?: Record<string, unknown>;
+}
+
+export interface MistakeDetectResponse {
+  detector_version: string;
+  features_version: number;
+  focus_player_idx: number;
+  focus_player_key: string;
+  focus_player_name: string;
+  markers: MistakeMarker[];
+}
+
+export type MistakeReviewStatus =
+  | "confirmed"
+  | "rejected"
+  | "corrected"
+  | "uncertain"
+  | "needs_second_review";
+
+export interface CreateMistakeReviewRequest {
+  kind: string;
+  player_key: string;
+  player_name?: string;
+  time: number;
+  t_start: number;
+  t_end: number;
+  event_frame?: number | null;
+  start_frame?: number | null;
+  end_frame?: number | null;
+  severity: number;
+  features: number[];
+  features_version?: number;
+  evidence?: Record<string, unknown>;
+  detector_version?: string;
+  status: MistakeReviewStatus;
+  notes?: string;
+  corrected_kind?: string;
+}
+
+export interface MistakeReviewResponse {
+  review_id: string;
+  event_id: string;
+  replay_id: string;
+  source_event_id: string;
+  status: string;
+  created_at: string;
+}
+
+export interface MistakeReviewListItem {
+  source_event_id: string;
+  kind: string;
+  status: string;
+  review_id: string;
+  reviewed_event_type_key: string | null;
+  notes: string | null;
+  created_at: string;
+  player_key: string | null;
+  time: number | null;
+  t_start: number | null;
+  t_end: number | null;
+}
+
+export interface MistakeReviewListResponse {
+  reviews: MistakeReviewListItem[];
+}

@@ -9,3 +9,11 @@
 !*/
 !@rlrml/.subtr-actor-rev
 !@rlrml/*/package.json
+
+# @rocket-sense/mistakes is first-party (built from crates/rocket-sense-
+# mistakes-wasm by scripts/build-mistakes-vendor) and its output IS committed,
+# so npm ci and the Nix web build work without extra toolchain wiring.
+!@rocket-sense/mistakes/package.json
+!@rocket-sense/mistakes/*.js
+!@rocket-sense/mistakes/*.d.ts
+!@rocket-sense/mistakes/*.wasm

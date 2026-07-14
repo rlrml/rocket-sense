@@ -5,6 +5,7 @@ import {
   Dribbble,
   Gauge,
   Goal,
+  GraduationCap,
   Hand,
   type LucideIcon,
   Map as MapIcon,
@@ -29,6 +30,7 @@ import { GoalsDetail, goalEventTypes } from "./goals";
 import { GroundPlayDetail, groundPlayEventTypes } from "./groundPlay";
 import { KickoffDetail, kickoffEventTypes } from "./kickoffs";
 import { MechanicsDetail, mechanicEventTypes } from "./mechanics";
+import { MistakesDetail, mistakeEventTypes } from "./mistakes";
 import { MovementDetail, movementEventTypes, movementMechanicEventTypes } from "./movement";
 import { PositioningDetail, positioningEventTypes } from "./positioning";
 import { PossessionDetail, possessionEventTypes } from "./possession";
@@ -223,6 +225,22 @@ export const statGroups: StatGroup[] = [
     usesAggregateStats: false,
     eventTypes: mechanicEventTypes,
     Detail: MechanicsDetail,
+  },
+  {
+    // Client-side mistake detection over the parsed replay (WASM); no server
+    // events are fetched — eventTypes stays empty on purpose. Replay scope
+    // only: mistakes need the 3D clip player and a single focus player.
+    id: "coaching",
+    label: "Coaching",
+    icon: GraduationCap,
+    description:
+      "Detected gameplay mistakes for one player — positioning, decision-making, kickoffs, and recoveries — with clips you can confirm or reject.",
+    terms: [],
+    completed: true,
+    usesAggregateStats: false,
+    groupLayout: "drill-down-only",
+    eventTypes: mistakeEventTypes,
+    Detail: MistakesDetail,
   },
   {
     id: "touches",

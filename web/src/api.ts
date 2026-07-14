@@ -21,6 +21,9 @@ import type {
   EventLeaderboardResponse,
   StatLeaderboardResponse,
   MechanicEventsResponse,
+  CreateMistakeReviewRequest,
+  MistakeReviewListResponse,
+  MistakeReviewResponse,
   MovementSummaryResponse,
   PlayerIdentityReport,
   PlayerIdentityTag,
@@ -1297,4 +1300,30 @@ function readReplayEventsCache(): Record<string, MechanicEventsResponse> {
   } catch {
     return {};
   }
+}
+
+// --- Client-side mistake detection reviews ---------------------------------
+// Detection runs in the browser (see docs/mistake-detection-port.md); these
+// endpoints persist user reviews of surfaced mistakes onto play_events +
+// event_reviews and read back the signed-in user's latest review per mistake
+// (rejected mistakes are hidden from the viewer but their reviews persist).
+
+export function listMistakeReviews(replayId: string): Promise<MistakeReviewListResponse> {
+  return request<MistakeReviewListResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/mistakes/reviews`,
+  );
+}
+
+export function createMistakeReview(
+  replayId: string,
+  body: CreateMistakeReviewRequest,
+): Promise<MistakeReviewResponse> {
+  return request<MistakeReviewResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/mistakes/reviews`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 }
