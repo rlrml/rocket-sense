@@ -15,6 +15,12 @@ build: web-build
 vendor:
     ./scripts/ensure-subtr-vendor
 
+# Rebuild the committed @rocket-sense/mistakes WASM package from
+# crates/rocket-sense-mistakes{,-wasm}. Run (and commit the result) whenever
+# detector code changes; requires the wasm32 target + wasm-bindgen-cli.
+mistakes-vendor:
+    ./scripts/build-mistakes-vendor
+
 web-dev:
     cd web && npm run dev
 

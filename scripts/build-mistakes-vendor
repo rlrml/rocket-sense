@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Rebuild the vendored @rocket-sense/mistakes WASM package from the workspace
+# crates (crates/rocket-sense-mistakes{,-wasm}).
+#
+# Unlike the @rlrml/* packages (generated from the subtr-actor submodule flake
+# and gitignored), this package's built output IS committed: it is first-party
+# code, small (~570 KB wasm), and committing it keeps `npm ci` + the Nix web
+# build working without any extra toolchain wiring. Re-run this script and
+# commit the result whenever detector code changes — and bump DETECTOR_VERSION
+# in crates/rocket-sense-mistakes/src/lib.rs when behavior changes in a
+# way that should re-identify events.
+#
+# Requires: the wasm32-unknown-unknown target (rustup target add
+# wasm32-unknown-unknown) and wasm-bindgen-cli matching the wasm-bindgen crate
+# version (cargo install wasm-bindgen-cli --version 0.2.121).
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+out_dir="web/vendor/@rocket-sense/mistakes"
+
+cargo build --release --target wasm32-unknown-unknown -p rocket-sense-mistakes-wasm
+wasm-bindgen --target web --out-dir "$out_dir" \
+  target/wasm32-unknown-unknown/release/rocket_sense_mistakes_wasm.wasm
+
+# The reranker artifact ships alongside the wasm, pre-gzipped (the client
+# reprocess worker inflates it with DecompressionStream). The canonical copy lives with
+# the golden fixtures — the parity tests prove the wasm build scores it
+# exactly like the Python oracle — so sync from there rather than committing
+# two independently-updatable copies.
+cp crates/rocket-sense-mistakes/fixtures/mistake_models.json.gz "$out_dir/mistake_models.json.gz"
+
+echo "Vendored $(du -h "$out_dir/rocket_sense_mistakes_wasm_bg.wasm" | cut -f1) wasm into $out_dir"
+echo "Vendored $(du -h "$out_dir/mistake_models.json.gz" | cut -f1) reranker artifact into $out_dir"

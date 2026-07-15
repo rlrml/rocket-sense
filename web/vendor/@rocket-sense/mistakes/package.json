@@ -1,0 +1,19 @@
+{
+  "name": "@rocket-sense/mistakes",
+  "version": "0.1.0",
+  "description": "In-browser Rocket League mistake detection (rocket-sense-mistakes compiled to WebAssembly)",
+  "type": "module",
+  "main": "rocket_sense_mistakes_wasm.js",
+  "types": "rocket_sense_mistakes_wasm.d.ts",
+  "files": [
+    "rocket_sense_mistakes_wasm_bg.wasm",
+    "rocket_sense_mistakes_wasm.js",
+    "rocket_sense_mistakes_wasm.d.ts",
+    "mistake_models.json.gz"
+  ],
+  "sideEffects": [
+    "./snippets/*"
+  ],
+  "license": "MIT",
+  "private": true
+}

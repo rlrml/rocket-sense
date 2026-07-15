@@ -1402,3 +1402,91 @@ export interface CreateReviewCampaignResponse {
   imported: number;
   skipped: ReviewCampaignImportSkip[];
 }
+
+// --- Mistake detection (native processing + client reprocess WASM) ----------
+
+/** One detected mistake marker persisted by processing or returned by WASM. */
+export interface MistakeMarker {
+  kind: string;
+  time: number;
+  t_start: number;
+  t_end: number;
+  player_idx: number;
+  player: string;
+  with_player?: string;
+  severity: number;
+  /** The reranker model's keep probability when the kind has a model,
+   * otherwise equal to severity (the heuristic path). */
+  score: number;
+  /** The model's keep threshold that gated this marker; absent on the
+   * heuristic path. */
+  model_keep_threshold?: number;
+  features: number[];
+  features_version: number;
+  evidence?: Record<string, unknown>;
+}
+
+export interface MistakeDetectResponse {
+  detector_version: string;
+  features_version: number;
+  focus_player_idx: number;
+  focus_player_key: string;
+  focus_player_name: string;
+  /** Kinds gated by a reranker model in this run (0 = pure heuristics). */
+  model_count: number;
+  markers: MistakeMarker[];
+}
+
+export type MistakeReviewStatus =
+  | "confirmed"
+  | "rejected"
+  | "corrected"
+  | "uncertain"
+  | "needs_second_review";
+
+export interface CreateMistakeReviewRequest {
+  kind: string;
+  player_key: string;
+  player_name?: string;
+  time: number;
+  t_start: number;
+  t_end: number;
+  event_frame?: number | null;
+  start_frame?: number | null;
+  end_frame?: number | null;
+  severity: number;
+  features: number[];
+  features_version?: number;
+  evidence?: Record<string, unknown>;
+  detector_version?: string;
+  status: MistakeReviewStatus;
+  notes?: string;
+  corrected_kind?: string;
+}
+
+export interface MistakeReviewResponse {
+  review_id: string;
+  event_id: string;
+  replay_id: string;
+  source_event_id: string;
+  status: string;
+  created_at: string;
+}
+
+export interface MistakeReviewListItem {
+  source_event_id: string;
+  kind: string;
+  status: string;
+  review_id: string;
+  reviewed_event_type_key: string | null;
+  notes: string | null;
+  created_at: string;
+  player_key: string | null;
+  time: number | null;
+  t_start: number | null;
+  t_end: number | null;
+}
+
+export interface MistakeReviewListResponse {
+  reviews: MistakeReviewListItem[];
+}

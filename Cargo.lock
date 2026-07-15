@@ -314,6 +314,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "console_error_panic_hook"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a06aeb73f470f66dcdbf7223caeebb85984942f22f1adb2a088cf9668146bbbc"
+dependencies = [
+ "cfg-if",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1846,6 +1856,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocket-sense-mistakes"
+version = "0.1.0"
+dependencies = [
+ "boxcars",
+ "flate2",
+ "serde",
+ "serde_json",
+ "subtr-actor",
+]
+
+[[package]]
+name = "rocket-sense-mistakes-wasm"
+version = "0.1.0"
+dependencies = [
+ "console_error_panic_hook",
+ "rocket-sense-mistakes",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "rocket-sense-server"
 version = "0.1.0"
 dependencies = [
@@ -1857,12 +1890,14 @@ dependencies = [
  "boxcars",
  "bytes",
  "chrono",
+ "flate2",
  "futures",
  "jsonwebtoken",
  "mime",
  "reqwest",
  "rocket-sense-db",
  "rocket-sense-egress",
+ "rocket-sense-mistakes",
  "rocket-sense-storage",
  "serde",
  "serde_json",
@@ -1988,6 +2023,17 @@ checksum = "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e"
 dependencies = [
  "serde_core",
  "serde_derive",
+]
+
+[[package]]
+name = "serde-wasm-bindgen"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8302e169f0eddcc139c70f139d19d6467353af16f9fce27e8c30158036a1e16b"
+dependencies = [
+ "js-sys",
+ "serde",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -3063,7 +3109,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

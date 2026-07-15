@@ -80,6 +80,7 @@
             pkgs.cargo-watch
             pkgs.cachix
             pkgs.curl
+            pkgs.git
             # gcloud + the GKE auth plugin so kubectl can authenticate to the
             # railbird-gke cluster (its kubeconfig user execs
             # gke-gcloud-auth-plugin).

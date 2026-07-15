@@ -86,7 +86,7 @@ export default defineConfig({
   // via `new URL(..., import.meta.url)`. Keep them out of esbuild prebundling so
   // those asset URLs resolve correctly, and emit workers as ES modules.
   optimizeDeps: {
-    exclude: ["@rlrml/player"],
+    exclude: ["@rlrml/player", "@rocket-sense/mistakes"],
   },
   worker: {
     format: "es",

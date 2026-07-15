@@ -1,0 +1,24 @@
+[package]
+name = "rocket-sense-mistakes"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+edition.workspace = true
+description = "Heuristic mistake detection over subtr-actor replay frame data (port of RLVision's ml/mistakes.py)"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+flate2 = { workspace = true }
+
+# Dev-only: the adapter-parity harness parses a real .replay through the
+# vendored subtr-actor and diffs detector output against the RLAgent-parser
+# path (see tests/adapter_parity.rs).
+[dev-dependencies.subtr-actor]
+workspace = true
+
+[dev-dependencies.boxcars]
+workspace = true

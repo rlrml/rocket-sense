@@ -1,0 +1,3 @@
+# The adapter-parity harness needs one real .replay fixture; the repo-root
+# *.replay ignore targets user-dropped replays, not committed test fixtures.
+!*.replay

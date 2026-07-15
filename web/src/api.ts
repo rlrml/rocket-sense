@@ -21,6 +21,9 @@ import type {
   EventLeaderboardResponse,
   StatLeaderboardResponse,
   MechanicEventsResponse,
+  CreateMistakeReviewRequest,
+  MistakeReviewListResponse,
+  MistakeReviewResponse,
   MovementSummaryResponse,
   PlayerIdentityReport,
   PlayerIdentityTag,
@@ -1127,10 +1130,10 @@ export interface ReprocessReplayClientResponse {
   status: string;
 }
 
-// Upload a browser-computed stats-timeline scaffold for the server to persist as
-// a new canonical analysis run (no server-side subtr-actor re-run). `scaffoldJson`
-// is the raw JSON text from `computeStatsTimelineScaffoldJson`; it is spliced into
-// the body directly rather than re-stringified, since it can be many megabytes.
+// Upload a browser-computed stats-timeline + mistake scaffold for the server to
+// persist as a new canonical analysis run (no server-side subtr-actor re-run).
+// `scaffoldJson` is spliced into the body directly rather than re-stringified,
+// since it can be many megabytes.
 export function reprocessReplayClient(
   replayId: string,
   payload: { subtrActorGitSha: string; scaffoldJson: string },
@@ -1297,4 +1300,29 @@ function readReplayEventsCache(): Record<string, MechanicEventsResponse> {
   } catch {
     return {};
   }
+}
+
+// --- Processed mistake reviews ---------------------------------------------
+// Detection runs during canonical replay processing; these endpoints attach
+// user reviews to the materialized play_events and read back the signed-in
+// user's latest review per mistake.
+
+export function listMistakeReviews(replayId: string): Promise<MistakeReviewListResponse> {
+  return request<MistakeReviewListResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/mistakes/reviews`,
+  );
+}
+
+export function createMistakeReview(
+  replayId: string,
+  body: CreateMistakeReviewRequest,
+): Promise<MistakeReviewResponse> {
+  return request<MistakeReviewResponse>(
+    `/api/v1/replays/${encodeURIComponent(replayId)}/mistakes/reviews`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    },
+  );
 }

@@ -727,6 +727,7 @@ fn client_scaffold_json_matches_typed_analysis_outputs() {
     let output = replay_analysis_output_from_scaffold_json(
         &scaffold_json,
         serde_json::json!({ "source": "client_wasm" }),
+        None,
     )
     .expect("client scaffold should convert");
 
@@ -747,6 +748,44 @@ fn client_scaffold_json_matches_typed_analysis_outputs() {
         output.event_stream["replay_meta"],
         scaffold_json["replay_meta"]
     );
+}
+
+#[test]
+fn eager_mistake_index_span_contains_detector_anchor() {
+    let mistakes = serde_json::json!({
+        "detector_version": "mistakes-v1",
+        "model_count": 1,
+        "players": [{
+            "player_key": "Steam:123",
+            "team": 0,
+            "markers": [{
+                "kind": "bad_kickoff",
+                "time": 80.27,
+                "t_start": 80.32,
+                "t_end": 83.27,
+                "severity": 0.83,
+                "start_frame": 100,
+                "end_frame": 160,
+                "event_frame": 99
+            }]
+        }]
+    });
+
+    let events = build_eager_mistake_events_from_json(&mistakes, "fixture-sha")
+        .expect("mistake scaffold should index");
+    let event = events.first().expect("one mistake event");
+
+    assert_eq!(event.start_time, Some(80.27));
+    assert_eq!(event.end_time, Some(83.27));
+    assert_eq!(event.event_time, Some(80.27));
+    assert_eq!(event.duration_seconds, Some(3.0));
+    assert_eq!(event.start_frame, Some(99));
+    assert_eq!(event.end_frame, Some(160));
+    assert_eq!(event.event_frame, Some(99));
+
+    // Detector-native bounds remain unchanged for parity and review identity.
+    assert_eq!(event.payload["t_start"], serde_json::json!(80.32));
+    assert_eq!(event.payload["t_end"], serde_json::json!(83.27));
 }
 
 #[test]
@@ -2172,7 +2211,8 @@ fn client_scaffold_json_matches_typed_analysis() {
     let bytes = std::fs::read(replay_path).expect("read sample replay fixture");
 
     // Typed path (the existing server pipeline).
-    let typed = collect_replay_analysis(bytes.clone()).expect("typed analysis");
+    let typed = collect_replay_analysis(bytes.clone(), Some("fixture-sha"))
+        .expect("typed analysis with eager mistakes");
 
     // Reproduce the WASM upload: serialize the scaffold to JSON, then run the
     // JSON-reading twins over it.
@@ -2184,11 +2224,13 @@ fn client_scaffold_json_matches_typed_analysis() {
     let scaffold = StatsTimelineEventCollector::new()
         .get_replay_stats_timeline_scaffold(&replay)
         .expect("collect scaffold");
-    let scaffold_json = serde_json::to_value(&scaffold).expect("serialize scaffold");
+    let mut scaffold_json = serde_json::to_value(&scaffold).expect("serialize scaffold");
+    scaffold_json["mistakes"] = typed.event_stream["mistakes"].clone();
 
     let from_json = replay_analysis_output_from_scaffold_json(
         &scaffold_json,
         serde_json::json!({ "source": "client_wasm_test" }),
+        Some("fixture-sha"),
     )
     .expect("json analysis");
 
@@ -2212,6 +2254,10 @@ fn client_scaffold_json_matches_typed_analysis() {
     assert_eq!(
         typed.event_stream["replay_meta"], from_json.event_stream["replay_meta"],
         "event stream replay_meta mismatch",
+    );
+    assert_eq!(
+        typed.event_stream["mistakes"], from_json.event_stream["mistakes"],
+        "eager mistake stream mismatch",
     );
 
     // Sanity: the fixture actually exercised the twins.

@@ -1,4 +1,14 @@
-import initSubtrActor, { get_stats_timeline_json } from "@rlrml/subtr-actor";
+import initSubtrActor, {
+  get_replay_frames_data,
+  get_stats_timeline_json,
+} from "@rlrml/subtr-actor";
+import initMistakes, {
+  detect_mistakes_with_models,
+  list_focus_players,
+  MistakeModels,
+} from "@rocket-sense/mistakes";
+import mistakeModelsUrl from "@rocket-sense/mistakes/mistake_models.json.gz?url";
+import type { MistakeDetectResponse, MistakeMarker } from "../types";
 
 type WorkerRequest = {
   type: "compute";
@@ -25,6 +35,18 @@ const workerScope = globalThis as unknown as {
 };
 const decoder = new TextDecoder();
 
+interface FocusPlayer {
+  key: string;
+  name: string;
+  is_team_zero: boolean;
+}
+
+interface RawReplayData {
+  frame_data?: {
+    metadata_frames?: Array<{ time?: number }>;
+  };
+}
+
 function post(message: WorkerResponse) {
   workerScope.postMessage(message);
 }
@@ -35,6 +57,76 @@ function errorMessage(error: unknown): string {
 
 function replayFileUrl(replayId: string): string {
   return `/api/v1/replays/${encodeURIComponent(replayId)}/file`;
+}
+
+async function loadMistakeModels(): Promise<MistakeModels> {
+  const response = await fetch(mistakeModelsUrl);
+  if (!response.ok) {
+    throw new Error(`Fetching mistake models failed (${response.status})`);
+  }
+  const body = await response.arrayBuffer();
+  const bytes = new Uint8Array(body);
+  const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  const artifactJson = isGzip
+    ? await new Response(
+        new Blob([body]).stream().pipeThrough(new DecompressionStream("gzip")),
+      ).text()
+    : decoder.decode(body);
+  return new MistakeModels(artifactJson);
+}
+
+function frameIndexAtTime(raw: RawReplayData, replayTime: number): number | null {
+  const frames = raw.frame_data?.metadata_frames ?? [];
+  const offset = frames[0]?.time;
+  if (offset == null || !frames.length) return null;
+  const absoluteTime = offset + replayTime;
+  let lo = 0;
+  let hi = frames.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if ((frames[mid]?.time ?? Number.POSITIVE_INFINITY) <= absoluteTime) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo > 0 ? lo - 1 : null;
+}
+
+async function collectMistakes(raw: RawReplayData) {
+  await initMistakes();
+  const models = await loadMistakeModels();
+  const focusPlayers = list_focus_players(raw) as FocusPlayer[];
+  let detectorVersion = "mistakes-v1";
+  let featuresVersion = 1;
+  const players = focusPlayers.map((focus) => {
+    const detection = detect_mistakes_with_models(
+      raw,
+      focus.key,
+      undefined,
+      models,
+    ) as MistakeDetectResponse;
+    detectorVersion = detection.detector_version;
+    featuresVersion = detection.features_version;
+    const markers = detection.markers.map((marker: MistakeMarker) => ({
+      ...marker,
+      start_frame: frameIndexAtTime(raw, marker.t_start),
+      end_frame: frameIndexAtTime(raw, marker.t_end),
+      event_frame: frameIndexAtTime(raw, marker.time),
+    }));
+    return {
+      player_key: focus.key,
+      player_name: focus.name,
+      team: focus.is_team_zero ? 0 : 1,
+      markers,
+    };
+  });
+  return {
+    detector_version: detectorVersion,
+    features_version: featuresVersion,
+    model_count: models.model_count,
+    players,
+  };
 }
 
 async function readResponseBytes(response: Response): Promise<Uint8Array> {
@@ -124,10 +216,12 @@ async function computeScaffoldJson(replayId: string): Promise<string> {
   post({
     type: "progress",
     stage: "processing",
-    message: "Processing replay frames",
+    message: "Processing replay frames and mistakes",
     progress: null,
   });
   const scaffoldBytes = get_stats_timeline_json(bytes);
+  const rawReplayData = get_replay_frames_data(bytes) as RawReplayData;
+  const mistakes = await collectMistakes(rawReplayData);
 
   post({
     type: "progress",
@@ -135,7 +229,9 @@ async function computeScaffoldJson(replayId: string): Promise<string> {
     message: "Preparing upload",
     progress: null,
   });
-  return decoder.decode(scaffoldBytes);
+  const scaffold = JSON.parse(decoder.decode(scaffoldBytes)) as Record<string, unknown>;
+  scaffold.mistakes = mistakes;
+  return JSON.stringify(scaffold);
 }
 
 workerScope.onmessage = (event: MessageEvent<WorkerRequest>) => {
