@@ -11,6 +11,7 @@
 /web/.playwright-cli/
 result
 *.replay
+.DS_Store
 /data/
 /.kube/
 /infra/terraform/.terraform/
