@@ -231,7 +231,7 @@ export const statGroups: StatGroup[] = [
     // events are fetched — eventTypes stays empty on purpose. Replay scope
     // only: mistakes need the 3D clip player and a single focus player.
     id: "coaching",
-    label: "Coaching",
+    label: "Mistakes",
     icon: GraduationCap,
     description:
       "Detected gameplay mistakes for one player — positioning, decision-making, kickoffs, and recoveries — with clips you can confirm or reject.",
