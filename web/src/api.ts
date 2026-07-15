@@ -1,5 +1,7 @@
 import type {
   AccessTokenResponse,
+  AdminUserResponse,
+  AdminUsersResponse,
   AuthOptionsResponse,
   BoostPadControlResponse,
   BoostTracksResponse,
@@ -1039,6 +1041,18 @@ export function getAuthOptions(): Promise<AuthOptionsResponse> {
 
 export function getCurrentUser(): Promise<CurrentUserResponse> {
   return request<CurrentUserResponse>("/api/v1/me");
+}
+
+export function listAdminUsers(): Promise<AdminUsersResponse> {
+  return request<AdminUsersResponse>("/api/v1/admin/users");
+}
+
+export function setUserAdminStatus(userId: string, isAdmin: boolean): Promise<AdminUserResponse> {
+  return request<AdminUserResponse>(`/api/v1/admin/users/${encodeURIComponent(userId)}/admin`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ is_admin: isAdmin }),
+  });
 }
 
 export function listLinkedIdentities(): Promise<LinkedIdentitiesResponse> {

@@ -997,6 +997,19 @@ export interface CurrentUserResponse {
   default_group_visibility: Visibility;
 }
 
+export interface AdminUserResponse {
+  id: string;
+  primary_email: string | null;
+  display_name: string | null;
+  is_admin: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AdminUsersResponse {
+  users: AdminUserResponse[];
+}
+
 export interface LinkedIdentityResponse {
   provider_name: string;
   provider_subject: string;
