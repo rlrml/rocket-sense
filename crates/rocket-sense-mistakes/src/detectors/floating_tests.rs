@@ -3,6 +3,7 @@
 //! by running the Python oracle (`ml/mistakes.py predict_mistakes`) on the
 //! exact replay constructed here.
 
+use crate::model::ModelSet;
 use crate::pipeline::predict_mistakes;
 use crate::profile::DetectorProfile;
 use crate::view::{BallSegment, BoostTrack, CarTrack, PlayerView, ReplayView, Team};
@@ -68,7 +69,7 @@ fn synthetic_float_replay() -> ReplayView {
 #[test]
 fn detects_lazy_float_matching_python_oracle() {
     let view = synthetic_float_replay();
-    let markers = predict_mistakes(&view, 0, &DetectorProfile::default());
+    let markers = predict_mistakes(&view, 0, &DetectorProfile::default(), &ModelSet::default());
     let floats: Vec<_> = markers
         .iter()
         .filter(|m| m.kind == crate::kinds::FLOATING_WITH_BOOST)

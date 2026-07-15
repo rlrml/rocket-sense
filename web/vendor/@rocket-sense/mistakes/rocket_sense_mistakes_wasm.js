@@ -1,6 +1,52 @@
 /* @ts-self-types="./rocket_sense_mistakes_wasm.d.ts" */
 
 /**
+ * The loaded reranker models (`mistake_models.json`). Parse once, then pass
+ * to every [`detect_mistakes`] call — the artifact is several MB of JSON and
+ * re-parsing it per focus change would be wasted work.
+ */
+export class MistakeModels {
+    __destroy_into_raw() {
+        const ptr = this.__wbg_ptr;
+        this.__wbg_ptr = 0;
+        MistakeModelsFinalization.unregister(this);
+        return ptr;
+    }
+    free() {
+        const ptr = this.__destroy_into_raw();
+        wasm.__wbg_mistakemodels_free(ptr, 0);
+    }
+    /**
+     * Number of kinds with a loaded model.
+     * @returns {number}
+     */
+    get model_count() {
+        const ret = wasm.mistakemodels_model_count(this.__wbg_ptr);
+        return ret >>> 0;
+    }
+    /**
+     * Parse a `mistake_models.json` artifact document. Throws when the
+     * document is invalid or its `schema_version` doesn't match this
+     * detector build (a stale artifact must fail loudly, not score
+     * garbage); per-kind blobs that fail to parse are skipped like the
+     * Python loader.
+     * @param {string} artifact_json
+     */
+    constructor(artifact_json) {
+        const ptr0 = passStringToWasm0(artifact_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.mistakemodels_new(ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        this.__wbg_ptr = ret[0];
+        MistakeModelsFinalization.register(this, this.__wbg_ptr, this);
+        return this;
+    }
+}
+if (Symbol.dispose) MistakeModels.prototype[Symbol.dispose] = MistakeModels.prototype.free;
+
+/**
  * Run mistake detection over a parsed replay for one focus player.
  *
  * * `raw_replay_data` — the raw frames object returned by
@@ -11,11 +57,18 @@
  * * `profile_config` — optional detector-profile overrides (JSON object
  *   mirroring the Python `profile_config`), or undefined for defaults.
  *
+ * Runs the pure heuristic path (`score == severity`). To gate with the
+ * reranker, use [`detect_mistakes_with_models`] — one function per case
+ * because wasm-bindgen cannot express `Option<&MistakeModels>` for exported
+ * types, and taking `MistakeModels` by value would consume the caller's
+ * cached handle.
+ *
  * Returns `{ detector_version, features_version, focus_player_idx,
- * focus_player_key, focus_player_name, markers: [...] }` where each marker is
- * `{ kind, time, t_start, t_end, player_idx, player, with_player?, severity,
- * score, features, features_version, evidence? }` with times in the player
- * clock (seconds, first frame = 0).
+ * focus_player_key, focus_player_name, model_count, markers: [...] }` where
+ * each marker is `{ kind, time, t_start, t_end, player_idx, player,
+ * with_player?, severity, score, model_keep_threshold?, features,
+ * features_version, evidence? }` with times in the player clock (seconds,
+ * first frame = 0).
  * @param {any} raw_replay_data
  * @param {string} focus_player
  * @param {any} profile_config
@@ -25,6 +78,29 @@ export function detect_mistakes(raw_replay_data, focus_player, profile_config) {
     const ptr0 = passStringToWasm0(focus_player, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.detect_mistakes(raw_replay_data, ptr0, len0, profile_config);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * [`detect_mistakes`], with per-kind model scores gated by each model's
+ * `keep_threshold`. Kinds without a model in `models` fall back to the
+ * heuristic path; surviving model-gated markers carry
+ * `model_keep_threshold` and `score` is the model's predicted probability
+ * rather than the severity.
+ * @param {any} raw_replay_data
+ * @param {string} focus_player
+ * @param {any} profile_config
+ * @param {MistakeModels} models
+ * @returns {any}
+ */
+export function detect_mistakes_with_models(raw_replay_data, focus_player, profile_config, models) {
+    const ptr0 = passStringToWasm0(focus_player, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    _assertClass(models, MistakeModels);
+    const ret = wasm.detect_mistakes_with_models(raw_replay_data, ptr0, len0, profile_config, models.__wbg_ptr);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -311,10 +387,20 @@ function __wbg_get_imports() {
     };
 }
 
+const MistakeModelsFinalization = (typeof FinalizationRegistry === 'undefined')
+    ? { register: () => {}, unregister: () => {} }
+    : new FinalizationRegistry(ptr => wasm.__wbg_mistakemodels_free(ptr, 1));
+
 function addToExternrefTable0(obj) {
     const idx = wasm.__externref_table_alloc();
     wasm.__wbindgen_externrefs.set(idx, obj);
     return idx;
+}
+
+function _assertClass(instance, klass) {
+    if (!(instance instanceof klass)) {
+        throw new Error(`expected instance of ${klass.name}`);
+    }
 }
 
 function debugString(val) {

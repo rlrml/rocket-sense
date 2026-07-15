@@ -9,6 +9,7 @@
 //! mistakes. Run with `--nocapture` to see the full per-kind diff report.
 
 use flate2::read::GzDecoder;
+use rocket_sense_mistakes::model::ModelSet;
 use rocket_sense_mistakes::pipeline::predict_mistakes;
 use rocket_sense_mistakes::profile::DetectorProfile;
 use rocket_sense_mistakes::rlagent_json::replay_view_from_rlagent_text;
@@ -47,7 +48,12 @@ fn rlagent_view(parsed_gz: &str) -> ReplayView {
 
 fn kind_counts(view: &ReplayView, player_idx: usize) -> BTreeMap<&'static str, usize> {
     let mut counts = BTreeMap::new();
-    for marker in predict_mistakes(view, player_idx, &DetectorProfile::default()) {
+    for marker in predict_mistakes(
+        view,
+        player_idx,
+        &DetectorProfile::default(),
+        &ModelSet::default(),
+    ) {
         *counts.entry(marker.kind).or_insert(0) += 1;
     }
     counts

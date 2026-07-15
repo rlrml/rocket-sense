@@ -8,7 +8,8 @@
   "files": [
     "rocket_sense_mistakes_wasm_bg.wasm",
     "rocket_sense_mistakes_wasm.js",
-    "rocket_sense_mistakes_wasm.d.ts"
+    "rocket_sense_mistakes_wasm.d.ts",
+    "mistake_models.json.gz"
   ],
   "sideEffects": [
     "./snippets/*"

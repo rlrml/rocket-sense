@@ -6,6 +6,7 @@
 //! object — no re-download, no re-parse — and run the 15 heuristic detectors
 //! for one focus player.
 
+use rocket_sense_mistakes::model::ModelSet;
 use rocket_sense_mistakes::pipeline::{predict_mistakes, resolve_focus_idx};
 use rocket_sense_mistakes::profile::DetectorProfile;
 use rocket_sense_mistakes::subtr_adapter::{
@@ -26,7 +27,39 @@ struct DetectResponse<'a> {
     focus_player_idx: usize,
     focus_player_key: &'a str,
     focus_player_name: &'a str,
+    /// How many kinds were gated by a reranker model in this run (0 = pure
+    /// heuristic path).
+    model_count: usize,
     markers: Vec<rocket_sense_mistakes::Marker>,
+}
+
+/// The loaded reranker models (`mistake_models.json`). Parse once, then pass
+/// to every [`detect_mistakes`] call — the artifact is several MB of JSON and
+/// re-parsing it per focus change would be wasted work.
+#[wasm_bindgen]
+pub struct MistakeModels {
+    inner: ModelSet,
+}
+
+#[wasm_bindgen]
+impl MistakeModels {
+    /// Parse a `mistake_models.json` artifact document. Throws when the
+    /// document is invalid or its `schema_version` doesn't match this
+    /// detector build (a stale artifact must fail loudly, not score
+    /// garbage); per-kind blobs that fail to parse are skipped like the
+    /// Python loader.
+    #[wasm_bindgen(constructor)]
+    pub fn new(artifact_json: &str) -> Result<MistakeModels, JsValue> {
+        let inner = ModelSet::from_json_str(artifact_json)
+            .map_err(|e| JsValue::from_str(&format!("failed to load mistake models: {e}")))?;
+        Ok(MistakeModels { inner })
+    }
+
+    /// Number of kinds with a loaded model.
+    #[wasm_bindgen(getter)]
+    pub fn model_count(&self) -> usize {
+        self.inner.len()
+    }
 }
 
 /// Bump when detector behavior changes in a way that should re-identify
@@ -43,16 +76,52 @@ pub const DETECTOR_VERSION: &str = "mistakes-v1";
 /// * `profile_config` — optional detector-profile overrides (JSON object
 ///   mirroring the Python `profile_config`), or undefined for defaults.
 ///
+/// Runs the pure heuristic path (`score == severity`). To gate with the
+/// reranker, use [`detect_mistakes_with_models`] — one function per case
+/// because wasm-bindgen cannot express `Option<&MistakeModels>` for exported
+/// types, and taking `MistakeModels` by value would consume the caller's
+/// cached handle.
+///
 /// Returns `{ detector_version, features_version, focus_player_idx,
-/// focus_player_key, focus_player_name, markers: [...] }` where each marker is
-/// `{ kind, time, t_start, t_end, player_idx, player, with_player?, severity,
-/// score, features, features_version, evidence? }` with times in the player
-/// clock (seconds, first frame = 0).
+/// focus_player_key, focus_player_name, model_count, markers: [...] }` where
+/// each marker is `{ kind, time, t_start, t_end, player_idx, player,
+/// with_player?, severity, score, model_keep_threshold?, features,
+/// features_version, evidence? }` with times in the player clock (seconds,
+/// first frame = 0).
 #[wasm_bindgen]
 pub fn detect_mistakes(
     raw_replay_data: JsValue,
     focus_player: &str,
     profile_config: JsValue,
+) -> Result<JsValue, JsValue> {
+    detect_mistakes_impl(
+        raw_replay_data,
+        focus_player,
+        profile_config,
+        &ModelSet::default(),
+    )
+}
+
+/// [`detect_mistakes`], with per-kind model scores gated by each model's
+/// `keep_threshold`. Kinds without a model in `models` fall back to the
+/// heuristic path; surviving model-gated markers carry
+/// `model_keep_threshold` and `score` is the model's predicted probability
+/// rather than the severity.
+#[wasm_bindgen]
+pub fn detect_mistakes_with_models(
+    raw_replay_data: JsValue,
+    focus_player: &str,
+    profile_config: JsValue,
+    models: &MistakeModels,
+) -> Result<JsValue, JsValue> {
+    detect_mistakes_impl(raw_replay_data, focus_player, profile_config, &models.inner)
+}
+
+fn detect_mistakes_impl(
+    raw_replay_data: JsValue,
+    focus_player: &str,
+    profile_config: JsValue,
+    models: &ModelSet,
 ) -> Result<JsValue, JsValue> {
     let raw: RawReplayData = serde_wasm_bindgen::from_value(raw_replay_data)
         .map_err(|e| JsValue::from_str(&format!("failed to read replay frame data: {e}")))?;
@@ -78,11 +147,12 @@ pub fn detect_mistakes(
         .or_else(|| resolve_focus_idx(&view, focus_player))
         .ok_or_else(|| JsValue::from_str(&format!("focus player not found: {focus_player}")))?;
 
-    let markers = predict_mistakes(&view, focus_idx, &profile);
+    let markers = predict_mistakes(&view, focus_idx, &profile, models);
     let response = DetectResponse {
         detector_version: DETECTOR_VERSION,
         features_version: rocket_sense_mistakes::kinds::FEATURE_SCHEMA_VERSION,
         focus_player_idx: focus_idx,
+        model_count: models.len(),
         focus_player_key: track_keys
             .get(focus_idx)
             .map(String::as_str)

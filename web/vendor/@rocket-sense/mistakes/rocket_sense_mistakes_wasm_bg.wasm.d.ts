@@ -1,8 +1,12 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const __wbg_mistakemodels_free: (a: number, b: number) => void;
 export const detect_mistakes: (a: any, b: number, c: number, d: any) => [number, number, number];
+export const detect_mistakes_with_models: (a: any, b: number, c: number, d: any, e: number) => [number, number, number];
 export const list_focus_players: (a: any) => [number, number, number];
+export const mistakemodels_model_count: (a: number) => number;
+export const mistakemodels_new: (a: number, b: number) => [number, number, number];
 export const main: () => void;
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

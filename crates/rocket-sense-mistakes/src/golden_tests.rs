@@ -4,13 +4,22 @@
 //! - `<replay>.parsed.json.gz` — the RLVision parser output (the exact input
 //!   the Python system consumes),
 //! - `<replay>.golden.json.gz` — per-player `generate_mistake_candidates` +
-//!   `predict_mistakes` output produced by
-//!   `RLAgent/scripts/export_mistake_golden_fixtures.py`.
+//!   `predict_mistakes` output with NO models (the heuristic path),
+//! - `<replay>.golden_models.json.gz` — `predict_mistakes` output with the
+//!   shipped reranker models (the model keep-threshold path),
+//! - `mistake_models.json.gz` — the exact `mistake_models.json` artifact the
+//!   model-path markers were generated against (also the artifact vendored
+//!   for the web app).
+//!
+//! All are produced in one run of
+//! `RLAgent/scripts/export_mistake_golden_fixtures.py`, so models and
+//! expected markers cannot drift apart.
 //!
 //! Because the Rust port receives the identical input and mirrors every
 //! floating-point operation, parity is expected to be exact; the tolerance
 //! below only absorbs decimal-formatting differences.
 
+use crate::model::ModelSet;
 use crate::pipeline::{generate_mistake_candidates, predict_mistakes, resolve_focus_idx};
 use crate::profile::DetectorProfile;
 use crate::rlagent_json::replay_view_from_rlagent_text;
@@ -52,7 +61,14 @@ fn assert_value_close(context: &str, key: &str, ours: &Value, golden: &Value) {
 }
 
 fn check_marker(context: &str, ours: &Value, golden: &Value) {
-    for key in ["time", "t_start", "t_end", "severity", "score"] {
+    for key in [
+        "time",
+        "t_start",
+        "t_end",
+        "severity",
+        "score",
+        "model_keep_threshold",
+    ] {
         let a = ours.get(key).and_then(Value::as_f64);
         let b = golden.get(key).and_then(Value::as_f64);
         match (a, b) {
@@ -177,7 +193,7 @@ fn run_replay_parity(name: &str) {
         }
 
         // Marker-stage parity (predict_mistakes, heuristic path).
-        let markers = predict_mistakes(&view, focus_idx, &profile);
+        let markers = predict_mistakes(&view, focus_idx, &profile, &ModelSet::default());
         let golden_markers = player_doc["markers"].as_array().unwrap();
         assert_eq!(
             markers.len(),
@@ -195,6 +211,98 @@ fn run_replay_parity(name: &str) {
             );
         }
     }
+}
+
+/// The shipped reranker artifact, loaded exactly as the web app loads it.
+fn fixture_models() -> ModelSet {
+    let models = ModelSet::from_json_str(&read_gz("mistake_models.json.gz"))
+        .expect("fixture mistake_models.json.gz should load");
+    // Guard against a stale/truncated artifact making the parity vacuous:
+    // 14 of the 15 kinds ship a model; floating_with_boost stays heuristic.
+    assert_eq!(models.len(), 14, "expected 14 modeled kinds");
+    assert!(models.get("floating_with_boost").is_none());
+    models
+}
+
+/// Marker-stage parity for the model path (`predict_mistakes` with the
+/// shipped models) against the Python oracle.
+fn run_replay_model_parity(name: &str) {
+    let parsed_text = read_gz(&format!("{name}.parsed.json.gz"));
+    let golden: Value =
+        serde_json::from_str(&read_gz(&format!("{name}.golden_models.json.gz"))).unwrap();
+    let view = replay_view_from_rlagent_text(&parsed_text).unwrap();
+    let profile = DetectorProfile::default();
+    let models = fixture_models();
+
+    let total_golden_markers: usize = golden["players"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| p["markers"].as_array().unwrap().len())
+        .sum();
+    assert!(
+        total_golden_markers >= 5,
+        "{name}: suspiciously few golden model markers ({total_golden_markers})"
+    );
+
+    for player_doc in golden["players"].as_array().unwrap() {
+        let player_name = player_doc["player"].as_str().unwrap();
+        let focus_idx = resolve_focus_idx(&view, player_name)
+            .unwrap_or_else(|| panic!("{name}: focus player {player_name} not found"));
+
+        let markers = predict_mistakes(&view, focus_idx, &profile, &models);
+        let golden_markers = player_doc["markers"].as_array().unwrap();
+        assert_eq!(
+            markers.len(),
+            golden_markers.len(),
+            "{name}/{player_name}: model-path marker count ours={:?} golden={:?}",
+            markers
+                .iter()
+                .map(|m| format!("{}@{}", m.kind, m.time))
+                .collect::<Vec<_>>(),
+            golden_markers
+                .iter()
+                .map(|m| format!("{}@{}", m["kind"].as_str().unwrap(), m["time"]))
+                .collect::<Vec<_>>(),
+        );
+        for (i, (marker, gold)) in markers.iter().zip(golden_markers.iter()).enumerate() {
+            let ours = serde_json::to_value(marker).unwrap();
+            let context = format!("{name}/{player_name}/model_marker[{i}]");
+            check_marker(&context, &ours, gold);
+        }
+    }
+}
+
+/// The point of the reranker: the model gate must prune the heuristic flood.
+/// Across the fixture replays the Python oracle keeps 2 of 80
+/// `overcommitting_last_man` candidates; assert the Rust gate does the same
+/// kind of pruning rather than pinning exact totals.
+#[test]
+fn model_gate_prunes_overcommitting_last_man() {
+    let profile = DetectorProfile::default();
+    let models = fixture_models();
+    let mut heuristic_count = 0usize;
+    let mut model_count = 0usize;
+    for name in ["replay4", "replay7", "replay12", "replay13"] {
+        let view =
+            replay_view_from_rlagent_text(&read_gz(&format!("{name}.parsed.json.gz"))).unwrap();
+        for focus_idx in 0..view.players.len() {
+            for marker in predict_mistakes(&view, focus_idx, &profile, &ModelSet::default()) {
+                heuristic_count += usize::from(marker.kind == "overcommitting_last_man");
+            }
+            for marker in predict_mistakes(&view, focus_idx, &profile, &models) {
+                model_count += usize::from(marker.kind == "overcommitting_last_man");
+            }
+        }
+    }
+    assert!(
+        heuristic_count >= 50,
+        "heuristic path should flood ({heuristic_count})"
+    );
+    assert!(
+        model_count * 10 <= heuristic_count,
+        "model gate should prune at least 90%: {heuristic_count} -> {model_count}"
+    );
 }
 
 #[test]
@@ -215,4 +323,24 @@ fn golden_parity_replay12() {
 #[test]
 fn golden_parity_replay13() {
     run_replay_parity("replay13");
+}
+
+#[test]
+fn golden_model_parity_replay4() {
+    run_replay_model_parity("replay4");
+}
+
+#[test]
+fn golden_model_parity_replay7() {
+    run_replay_model_parity("replay7");
+}
+
+#[test]
+fn golden_model_parity_replay12() {
+    run_replay_model_parity("replay12");
+}
+
+#[test]
+fn golden_model_parity_replay13() {
+    run_replay_model_parity("replay13");
 }

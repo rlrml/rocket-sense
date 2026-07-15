@@ -4,11 +4,12 @@
 //! heuristic-detector pipeline (15 detector kinds), targeting subtr-actor
 //! frame data and WebAssembly execution in the Rocket Sense replay viewer.
 //!
-//! Out of scope by design (this migration pass): the per-kind
-//! logistic/tree-ensemble reranker, model store (`mistake_models.json`),
-//! training, and the manual-label feature-extraction path. The pipeline in
-//! [`pipeline::predict_mistakes`] is the extension seam where a reranker can
-//! be layered in later.
+//! The per-kind reranker's *inference* path is ported too ([`model`]): the
+//! three model families, the `mistake_models.json` loader, and the
+//! keep-threshold gate in [`pipeline::predict_mistakes`]. Out of scope by
+//! design: model training, saving, threshold calibration, the retrain
+//! endpoint, and the manual-label feature-extraction path — training stays
+//! offline in the Python system.
 //!
 //! See `docs/mistake-detection-port.md` in the repo root for the
 //! data-mapping notes (RLAgent parser ↔ subtr-actor divergences).
@@ -26,6 +27,7 @@ pub mod candidate;
 pub mod detectors;
 pub mod grid;
 pub mod kinds;
+pub mod model;
 pub mod pipeline;
 pub mod profile;
 pub mod rlagent_json;
@@ -34,6 +36,7 @@ pub mod touches;
 pub mod view;
 
 pub use candidate::{Candidate, Marker};
+pub use model::{MistakeModel, ModelLoadError, ModelSet};
 pub use pipeline::{generate_mistake_candidates, predict_mistakes, resolve_focus_idx};
 pub use profile::DetectorProfile;
 pub use view::ReplayView;

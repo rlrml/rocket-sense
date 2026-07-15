@@ -65,6 +65,10 @@ pub struct Marker {
     pub with_player: Option<String>,
     pub severity: f64,
     pub score: f64,
+    /// The model's keep threshold (rounded to 4dp) when a reranker model
+    /// gated this marker; absent on the heuristic path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model_keep_threshold: Option<f64>,
     pub features: Vec<f64>,
     pub features_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -1,4 +1,5 @@
 use super::*;
+use crate::model::ModelSet;
 use crate::view::{BoostTrack, PlayerView, ReplayView, Team};
 
 fn view_with_players(names: &[&str]) -> ReplayView {
@@ -35,8 +36,8 @@ fn focus_resolution_prefers_exact_then_substring() {
 fn empty_view_yields_no_markers() {
     let view = view_with_players(&["Alpha"]);
     let profile = DetectorProfile::default();
-    assert!(predict_mistakes(&view, 0, &profile).is_empty());
+    assert!(predict_mistakes(&view, 0, &profile, &ModelSet::default()).is_empty());
     assert!(generate_mistake_candidates(&view, 0, &profile, false).is_empty());
     // Out-of-range focus index is a no-op, not a panic.
-    assert!(predict_mistakes(&view, 5, &profile).is_empty());
+    assert!(predict_mistakes(&view, 5, &profile, &ModelSet::default()).is_empty());
 }

@@ -24,4 +24,13 @@ cargo build --release --target wasm32-unknown-unknown -p rocket-sense-mistakes-w
 wasm-bindgen --target web --out-dir "$out_dir" \
   target/wasm32-unknown-unknown/release/rocket_sense_mistakes_wasm.wasm
 
+# The reranker artifact ships alongside the wasm, pre-gzipped (the SPA
+# lazy-fetches it and inflates with DecompressionStream, so it is gzipped on
+# the wire no matter what serves it). The canonical committed copy lives with
+# the golden fixtures — the parity tests prove the wasm build scores it
+# exactly like the Python oracle — so sync from there rather than committing
+# two independently-updatable copies.
+cp crates/rocket-sense-mistakes/fixtures/mistake_models.json.gz "$out_dir/mistake_models.json.gz"
+
 echo "Vendored $(du -h "$out_dir/rocket_sense_mistakes_wasm_bg.wasm" | cut -f1) wasm into $out_dir"
+echo "Vendored $(du -h "$out_dir/mistake_models.json.gz" | cut -f1) reranker artifact into $out_dir"

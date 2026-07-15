@@ -1,12 +1,13 @@
 //! The public detection pipeline (mirrors `generate_mistake_candidates` and
-//! the no-model path of `predict_mistakes`).
+//! `predict_mistakes`).
 //!
-//! The reranker (LogReg / tree ensembles, `mistake_models.json`) is
-//! deliberately NOT ported in this pass. [`predict_mistakes`] is the seam
-//! where a per-kind model score + keep-threshold can be layered in later —
-//! today `score == severity` and the keep gate is `_HEURISTIC_KEEP` (all 0.0),
-//! so real gating lives in each detector's severity logic and the profile's
-//! `min_severity` floors, exactly like the Python system without models.
+//! [`predict_mistakes`] takes the loaded reranker models ([`ModelSet`]) as a
+//! parameter. For kinds with a model, `score` is the model's predicted
+//! probability gated by that model's `keep_threshold`; for kinds without one
+//! (and for an empty set — the caller's fallback when no artifact is
+//! available), `score == severity` and the keep gate is `_HEURISTIC_KEEP`
+//! (all 0.0), so gating falls to each detector's severity logic and the
+//! profile's `min_severity` floors, exactly like the Python system.
 
 use crate::candidate::{
     dedupe_mistake_candidates, suppress_stacked_candidates_near_teammate_bumps, Candidate, Marker,
@@ -14,6 +15,7 @@ use crate::candidate::{
 use crate::detectors::call_detector;
 use crate::grid::{non_play_windows, overlaps_non_play_window};
 use crate::kinds::{feature_names, FEATURE_SCHEMA_VERSION, KINDS};
+use crate::model::ModelSet;
 use crate::profile::DetectorProfile;
 use crate::view::{round_py, ReplayView};
 use serde_json::{Map, Value};
@@ -108,13 +110,14 @@ fn attach_candidate_evidence(cand: &mut Candidate) {
     cand.evidence = Some(merged);
 }
 
-/// The heuristic (no-model) path of `predict_mistakes`: apply the keep gate,
-/// attach named-feature evidence, and emit final markers with
-/// `score == severity`.
+/// `predict_mistakes`: apply the per-kind keep gate (model probability vs
+/// `keep_threshold` when a model exists, severity vs `_HEURISTIC_KEEP`
+/// otherwise), attach named-feature evidence, and emit final markers.
 pub fn predict_mistakes(
     replay: &ReplayView,
     focus_idx: usize,
     profile: &DetectorProfile,
+    models: &ModelSet,
 ) -> Vec<Marker> {
     let candidates = generate_mistake_candidates(replay, focus_idx, profile, false);
 
@@ -123,9 +126,20 @@ pub fn predict_mistakes(
         if cand.features.is_empty() {
             continue;
         }
-        let score = cand.severity;
-        if score < heuristic_keep(cand.kind) {
-            continue;
+        let score;
+        let mut model_keep_threshold = None;
+        if let Some(model) = models.get(cand.kind) {
+            score = model.predict_proba(&cand.features);
+            let keep_threshold = model.keep_threshold();
+            if score < keep_threshold {
+                continue;
+            }
+            model_keep_threshold = Some(round_py(keep_threshold, 4));
+        } else {
+            score = cand.severity;
+            if score < heuristic_keep(cand.kind) {
+                continue;
+            }
         }
         attach_candidate_evidence(&mut cand);
         out.push(Marker {
@@ -138,6 +152,7 @@ pub fn predict_mistakes(
             with_player: cand.with_player,
             severity: cand.severity,
             score: round_py(score, 4),
+            model_keep_threshold,
             features: cand.features,
             features_version: FEATURE_SCHEMA_VERSION,
             evidence: cand.evidence,

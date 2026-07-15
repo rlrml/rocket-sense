@@ -1,4 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import mistakeModelsUrl from "@rocket-sense/mistakes/mistake_models.json.gz?url";
 import { createMistakeReview, getCurrentUser, listMistakeReviews } from "../api";
 import type {
   CreateMistakeReviewRequest,
@@ -166,6 +167,7 @@ export function mistakeWhy(marker: MistakeMarker): string | null {
 // --- WASM module (lazy, shared across mounts) --------------------------------
 
 type MistakesWasm = typeof import("@rocket-sense/mistakes");
+type MistakeModels = InstanceType<MistakesWasm["MistakeModels"]>;
 
 let wasmModulePromise: Promise<MistakesWasm> | null = null;
 
@@ -181,6 +183,47 @@ function loadMistakesWasm(): Promise<MistakesWasm> {
     });
   }
   return wasmModulePromise;
+}
+
+// --- Reranker models (lazy, shared across mounts) -----------------------------
+//
+// The per-kind reranker artifact is vendored next to the wasm, pre-gzipped
+// (~0.5 MB on the wire vs 6.4 MB raw), and only fetched when Coaching is
+// actually opened — most page loads never need it. A load failure degrades to
+// the heuristic path (score == severity, every candidate shown) instead of
+// breaking the tab, and is retried on the next detection run.
+
+let modelsPromise: Promise<MistakeModels | null> | null = null;
+
+function loadMistakeModels(): Promise<MistakeModels | null> {
+  if (!modelsPromise) {
+    modelsPromise = (async () => {
+      const wasm = await loadMistakesWasm();
+      const response = await fetch(mistakeModelsUrl);
+      if (!response.ok) {
+        throw new Error(`fetching mistake models failed: HTTP ${response.status}`);
+      }
+      // Whether the body is still gzip depends on the server: the embedded
+      // prod server sends the raw .gz bytes, while Vite's dev server sets
+      // Content-Encoding: gzip so the browser has already inflated them.
+      // Sniff the gzip magic instead of trusting headers.
+      const body = await response.arrayBuffer();
+      const bytes = new Uint8Array(body);
+      const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+      const artifactJson = isGzip
+        ? await new Response(
+            new Blob([body]).stream().pipeThrough(new DecompressionStream("gzip")),
+          ).text()
+        : new TextDecoder().decode(body);
+      // Throws on a schema_version mismatch: a stale artifact must not score.
+      return new wasm.MistakeModels(artifactJson);
+    })().catch((err: unknown) => {
+      console.error("Coaching reranker models unavailable; falling back to heuristic gating", err);
+      modelsPromise = null;
+      return null;
+    });
+  }
+  return modelsPromise;
 }
 
 // --- Detection + review state -------------------------------------------------
@@ -287,13 +330,13 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([preloadReplay(replayId), loadMistakesWasm()])
-      .then(([loaded, wasm]) => {
+    Promise.all([preloadReplay(replayId), loadMistakesWasm(), loadMistakeModels()])
+      .then(([loaded, wasm, models]) => {
         if (cancelled) return;
-        const response = wasm.detect_mistakes(
-          loaded.raw,
-          activeFocusKey,
-          undefined,
+        const response = (
+          models
+            ? wasm.detect_mistakes_with_models(loaded.raw, activeFocusKey, undefined, models)
+            : wasm.detect_mistakes(loaded.raw, activeFocusKey, undefined)
         ) as MistakeDetectResponse;
         setDetection(response);
       })

@@ -1415,7 +1415,12 @@ export interface MistakeMarker {
   player: string;
   with_player?: string;
   severity: number;
+  /** The reranker model's keep probability when the kind has a model,
+   * otherwise equal to severity (the heuristic path). */
   score: number;
+  /** The model's keep threshold that gated this marker; absent on the
+   * heuristic path. */
+  model_keep_threshold?: number;
   features: number[];
   features_version: number;
   evidence?: Record<string, unknown>;
@@ -1427,6 +1432,8 @@ export interface MistakeDetectResponse {
   focus_player_idx: number;
   focus_player_key: string;
   focus_player_name: string;
+  /** Kinds gated by a reranker model in this run (0 = pure heuristics). */
+  model_count: number;
   markers: MistakeMarker[];
 }
 
