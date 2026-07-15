@@ -56,9 +56,19 @@ Replay identity is intentionally split:
   later by `subtr-actor` when available.
 
 Raw replay bytes and large artifacts live behind the object storage abstraction.
-The initial implementation is local disk under `ROCKET_SENSE_STORAGE_ROOT`,
-defaulting to `data/storage`. Raw replay objects are content-addressed by
-SHA-256 under keys like `replays/sha256/<file_sha256>.replay`.
+User uploads and derived analysis artifacts use local disk under
+`ROCKET_SENSE_STORAGE_ROOT`, defaulting to `data/storage`. Uploaded raw replay
+objects are content-addressed by SHA-256 under keys like
+`replays/sha256/<file_sha256>.replay`.
+
+Replays imported by a Ballchasing group mirror are storage-backed by
+Ballchasing itself: Rocket Sense records a SHA-256-pinned virtual object key and
+downloads the raw replay dynamically for initial processing, file downloads,
+and later reprocessing. The raw replay is not copied into
+`ROCKET_SENSE_STORAGE_ROOT`; derived statistics remain in Postgres and derived
+analysis artifacts remain in Rocket Sense object storage. Dynamic access needs
+`BALLCHASING_API_KEY`, and fails safely if Ballchasing returns bytes whose hash
+does not match the imported replay.
 
 Set `DATABASE_URL` to connect to Postgres. In development, migrations run on
 server startup by default; set `ROCKET_SENSE_RUN_MIGRATIONS=false` to disable

@@ -3035,7 +3035,7 @@ async fn stats_read_paths_decode_after_reprocess() {
         rank_benchmark_default_window: Arc::from(window_key),
         rank_benchmark_calc: crate::rank_benchmark::CalcStyle::PerAppearance,
         admin_emails: Arc::from(Vec::new()),
-        ballchasing_api_key: None,
+        ballchasing_client: None,
         egress: Arc::new(
             rocket_sense_egress::EgressPool::new(
                 rocket_sense_egress::PoolConfig::default(),

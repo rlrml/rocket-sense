@@ -3,6 +3,26 @@ use super::{accumulate_group_boost_tracks, boost_band_index, GroupBoostAccumulat
 use std::collections::HashMap as TestHashMap;
 
 #[test]
+fn ballchasing_storage_read_errors_have_upstream_statuses() {
+    let key = crate::ballchasing_storage::ballchasing_replay_key(
+        "abc-123",
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    )
+    .unwrap();
+    let unconfigured = storage_read_error(StorageError::Read {
+        key: key.clone(),
+        source: std::io::Error::new(std::io::ErrorKind::NotConnected, "missing key"),
+    });
+    assert_eq!(unconfigured.status, StatusCode::SERVICE_UNAVAILABLE);
+
+    let upstream_failure = storage_read_error(StorageError::Read {
+        key,
+        source: std::io::Error::other("upstream failed"),
+    });
+    assert_eq!(upstream_failure.status, StatusCode::BAD_GATEWAY);
+}
+
+#[test]
 fn subtr_actor_viewer_assets_are_embedded_with_browser_content_types() {
     assert_index_assets_are_embedded(SUBTR_ACTOR_VIEWER_INDEX, "assets/");
     assert!(subtr_actor_asset("assets/missing.js").is_none());

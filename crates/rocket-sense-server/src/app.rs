@@ -1,5 +1,8 @@
 use crate::{
-    api, processing,
+    api,
+    ballchasing::BallchasingClient,
+    ballchasing_storage::BallchasingBackedStorage,
+    processing,
     rank_benchmark::{BenchmarkWindow, CalcStyle},
     settings, telemetry,
 };
@@ -38,9 +41,8 @@ pub struct AppState {
     pub rank_benchmark_calc: CalcStyle,
     /// Email addresses that are auto-promoted to admin on authentication.
     pub admin_emails: Arc<[String]>,
-    /// Ballchasing.com API key for mirroring ballchasing groups. `None` disables
-    /// the ballchasing mirror endpoints.
-    pub ballchasing_api_key: Option<Arc<str>>,
+    /// Shared client for mirror sync and dynamically backed replay reads.
+    pub ballchasing_client: Option<Arc<BallchasingClient>>,
     /// Round-robin SOCKS5 egress pool for rate-limited upstreams (ballchasing
     /// replay-file proxying). A single direct exit unless proxies are configured.
     pub egress: Arc<EgressPool>,
@@ -65,9 +67,18 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
     )?);
     tracing::info!(exits = egress.len(), "egress pool initialized");
 
+    let ballchasing_client = settings
+        .ballchasing_api_key
+        .as_ref()
+        .map(|api_key| Arc::new(BallchasingClient::new(api_key.clone())));
+    let storage: Arc<dyn ObjectStorage> = Arc::new(BallchasingBackedStorage::new(
+        LocalStorage::new(settings.storage_root.clone()),
+        ballchasing_client.clone(),
+    ));
+
     let state = AppState {
         db,
-        storage: Arc::new(LocalStorage::new(settings.storage_root)),
+        storage,
         auth_mode: settings.auth_mode,
         app_jwt_secret: Arc::from(settings.app_jwt_secret),
         oauth_providers: Arc::from(settings.oauth_providers),
@@ -81,7 +92,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         rank_benchmark_default_window: Arc::from(settings.rank_benchmark_default_window),
         rank_benchmark_calc: settings.rank_benchmark_calc,
         admin_emails: Arc::from(settings.admin_emails),
-        ballchasing_api_key: settings.ballchasing_api_key.map(Arc::from),
+        ballchasing_client,
         egress,
     };
 
@@ -93,11 +104,10 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
                     state.storage.clone(),
                     settings.background_processing_concurrency,
                 );
-                if let Some(api_key) = &state.ballchasing_api_key {
+                if let Some(client) = &state.ballchasing_client {
                     crate::ballchasing_sync::start_ballchasing_group_sync_workers(
                         pool.clone(),
-                        state.storage.clone(),
-                        api_key.clone(),
+                        client.clone(),
                         state.process_replays_in_background,
                     );
                 }
@@ -142,17 +152,23 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
         processing::setup_replay_processing_queue(&pool).await?;
     }
 
-    let storage: Arc<dyn ObjectStorage> = Arc::new(LocalStorage::new(settings.storage_root));
+    let ballchasing_client = settings
+        .ballchasing_api_key
+        .as_ref()
+        .map(|api_key| Arc::new(BallchasingClient::new(api_key.clone())));
+    let storage: Arc<dyn ObjectStorage> = Arc::new(BallchasingBackedStorage::new(
+        LocalStorage::new(settings.storage_root),
+        ballchasing_client.clone(),
+    ));
     processing::start_replay_processing_workers(
         pool.clone(),
         storage.clone(),
         settings.background_processing_concurrency,
     );
-    if let Some(api_key) = &settings.ballchasing_api_key {
+    if let Some(client) = ballchasing_client {
         crate::ballchasing_sync::start_ballchasing_group_sync_workers(
             pool.clone(),
-            storage.clone(),
-            Arc::from(api_key.as_str()),
+            client,
             settings.process_replays_in_background,
         );
     }
