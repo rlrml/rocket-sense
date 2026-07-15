@@ -4232,6 +4232,7 @@ fn validate_review_status_filter(status: &str) -> Result<(), ApiError> {
             | "accepted"
             | "confirmed"
             | "rejected"
+            | "bad_candidate"
             | "corrected"
             | "uncertain"
             | "needs_second_review"
@@ -4260,12 +4261,12 @@ fn normalize_review_status_filter(status: &str) -> Result<Option<String>, ApiErr
 fn normalize_review_status(status: &str) -> Result<String, ApiError> {
     let Some(status) = normalize_review_status_filter(status)? else {
         return Err(ApiError::bad_request(
-            "review status must be one of confirmed, rejected, corrected, uncertain, needs_second_review",
+            "review status must be one of confirmed, rejected, bad_candidate, corrected, uncertain, needs_second_review",
         ));
     };
     if status == "all" || status == "unreviewed" {
         return Err(ApiError::bad_request(
-            "review status must be one of confirmed, rejected, corrected, uncertain, needs_second_review",
+            "review status must be one of confirmed, rejected, bad_candidate, corrected, uncertain, needs_second_review",
         ));
     }
     Ok(status)

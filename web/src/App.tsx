@@ -7592,6 +7592,7 @@ const reviewStatusOptions = [
   { value: "rejected", label: "Rejected" },
   { value: "corrected", label: "Corrected" },
   { value: "uncertain", label: "Uncertain" },
+  { value: "bad_candidate", label: "Bad candidate" },
   { value: "needs_second_review", label: "Needs second review" },
 ];
 
