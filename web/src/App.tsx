@@ -286,6 +286,7 @@ const UserProfilePage = lazyWithChunkLoadRecovery(() =>
 const CampaignsPage = lazyWithChunkLoadRecovery(() =>
   import("./CampaignsPage").then((module) => ({ default: module.CampaignsPage })),
 );
+const AdminUsersPage = lazyWithChunkLoadRecovery(() => import("./AdminUsersPage"));
 
 const navItems = [
   { to: "/replays", label: "Replays", icon: FileVideo, end: true },
@@ -295,6 +296,7 @@ const navItems = [
   { to: "/events/review", label: "Events", icon: Activity },
   { to: "/campaigns", label: "Campaigns", icon: ListOrdered },
   { to: "/admin/processing", label: "Admin", icon: ServerCog, adminOnly: true },
+  { to: "/admin/users", label: "Users", icon: Users, adminOnly: true },
   { to: "/admin/player-reports", label: "Reports", icon: AlertTriangle, adminOnly: true },
   { to: "/about", label: "About", icon: Info },
 ];
@@ -544,6 +546,14 @@ export function App() {
           <Route path="/mechanics/review" element={<EventsReviewPage />} />
           <Route path="/campaigns" element={<CampaignsPage />} />
           <Route path="/admin/processing" element={<AdminProcessingPage />} />
+          <Route
+            path="/admin/users"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <AdminUsersPage />
+              </Suspense>
+            }
+          />
           <Route path="/admin/player-reports" element={<AdminPlayerReportsPage />} />
           <Route path="/admin/recently-processed" element={<AdminRecentlyProcessedPage />} />
           <Route path="/admin/queue" element={<AdminQueuePage />} />

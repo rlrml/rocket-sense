@@ -6775,6 +6775,84 @@ tbody tr:last-child td {
   max-width: 1440px;
 }
 
+.admin-users-page {
+  max-width: 1180px;
+}
+
+.admin-user-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: var(--text-base);
+}
+
+.admin-user-count svg,
+.admin-user-count strong {
+  color: var(--blue);
+}
+
+.admin-user-search {
+  display: flex;
+  max-width: 520px;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 16px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--muted);
+}
+
+.admin-user-search:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgb(37 99 235 / 12%);
+}
+
+.admin-user-search input {
+  width: 100%;
+  min-height: 42px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+}
+
+.admin-users-table table {
+  min-width: 880px;
+}
+
+.admin-user-identity {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-user-identity code {
+  color: var(--muted);
+  font-size: var(--text-xs);
+}
+
+.admin-users-empty {
+  padding: 28px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.admin-users-empty svg {
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+.admin-users-table .status-neutral {
+  background: var(--surface-subtle);
+  color: var(--muted);
+}
+
 .admin-queue-views {
   margin-top: 4px;
 }
