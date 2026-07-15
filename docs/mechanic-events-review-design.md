@@ -122,9 +122,13 @@ event_reviews
 - created_at
 ```
 
-Initial statuses are `confirmed`, `rejected`, `corrected`, `uncertain`, and
-`needs_second_review`. The current review state is the latest review for an
-event unless a later supersession model requires a stricter projection.
+Initial statuses are `confirmed`, `rejected`, `bad_candidate`, `corrected`,
+`uncertain`, and `needs_second_review`. `rejected` means the review target is
+usable but the detected event is wrong; `bad_candidate` means the target itself
+cannot support a verdict (for example, the clip is mis-anchored, identifies the
+wrong player, or omits the moment under review). The current review state is the
+latest review for an event unless a later supersession model requires a stricter
+projection.
 
 `event_snapshot` denormalizes the generated event row, event type, detector
 identity, timing, subject, confidence, payload, attributes, and mechanic details
@@ -166,8 +170,10 @@ GET /api/v1/events/evaluation?event-type=double_tap&analysis-run-id=<candidate-r
 The endpoint treats latest `confirmed` and `corrected` review snapshots as
 positive labels, latest `rejected` snapshots as hard negatives, and compares them
 to either the replay's canonical analysis run or an explicitly supplied candidate
-`analysis_run_id`. Matching requires the same replay, event type, compatible
-subject, and either frame or time proximity within configurable tolerances.
+`analysis_run_id`. `bad_candidate`, `uncertain`, and `needs_second_review`
+snapshots are excluded from detector-quality metrics. Matching requires the same
+replay, event type, compatible subject, and either frame or time proximity within
+configurable tolerances.
 
 Unmatched candidates are reported as unlabeled rather than automatically false
 positive because the reviewed corpus is intentionally incomplete. They are useful

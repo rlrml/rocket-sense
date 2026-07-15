@@ -345,6 +345,20 @@ fn review_status_accepts_accepted_as_confirmed_alias() {
 }
 
 #[test]
+fn review_status_accepts_bad_candidate() {
+    assert_eq!(
+        normalize_review_status(" bad_candidate ").unwrap(),
+        "bad_candidate"
+    );
+    assert_eq!(
+        normalize_review_status_filter("BAD_CANDIDATE")
+            .unwrap()
+            .as_deref(),
+        Some("bad_candidate")
+    );
+}
+
+#[test]
 fn reviewed_mechanic_normalizes_to_event_type_key() {
     assert_eq!(
         normalize_reviewed_event_type_key("speed_flip").unwrap(),
