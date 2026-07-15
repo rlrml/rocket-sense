@@ -9,7 +9,7 @@ mod health;
 mod leaderboards;
 mod mechanics;
 mod meta;
-mod mistakes;
+pub(crate) mod mistakes;
 mod movement_stats;
 mod openapi;
 mod player_overview;

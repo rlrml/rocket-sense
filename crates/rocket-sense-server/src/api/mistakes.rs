@@ -1,12 +1,9 @@
-//! Review persistence for client-side mistake detection.
+//! Review persistence for eagerly processed mistake detection.
 //!
-//! Mistake detection runs deterministically in the browser (the
-//! `@rocket-sense/mistakes` WASM package over subtr-actor frames), so
-//! detections are **not** pre-materialized as `play_events` during
-//! processing. Instead, the first review of a surfaced mistake lazily
-//! upserts its `play_events` row (`source = 'mistakes'`, event type = the
-//! detector kind) and every review is an append-only `event_reviews`
-//! record, exactly as `docs/mechanic-events-review-design.md` prescribes.
+//! The canonical replay-processing run detects mistakes for every player and
+//! materializes each surviving reranked marker as a `play_events` row. Reviews
+//! attach to those existing rows and remain append-only, exactly as
+//! `docs/mechanic-events-review-design.md` prescribes.
 //!
 //! Stable identity: `source_event_id` is a SHA-256 fingerprint over the
 //! replay file hash, the `mistakes` source, the kind, the focus-player
@@ -256,38 +253,32 @@ pub async fn create_mistake_review(
         request.t_end,
     );
 
-    // Ensure the event type exists (kind is the event-type key, matching the
-    // mechanic-events convention of flat detector-kind keys).
-    let event_type_id: i32 = sqlx::query_scalar(
-        r#"
-        INSERT INTO event_types (key, display_name, category)
-        VALUES ($1, $2, 'mistake')
-        ON CONFLICT (key) DO UPDATE SET updated_at = now()
-        RETURNING id
-        "#,
-    )
-    .bind(&kind)
-    .bind(mistake_display_name(&kind))
-    .fetch_one(db)
-    .await
-    .map_err(ApiError::internal)?;
-
-    // Lazily materialize the play_events row for this detection. The
-    // fingerprint makes this idempotent across clients and sessions.
-    let existing_event: Option<Uuid> = sqlx::query_scalar(
+    // Processing eagerly materializes every mistake. Resolve the exact event
+    // in the current canonical run instead of accepting client-authored rows.
+    let event_id: Uuid = sqlx::query_scalar(
         r#"
         SELECT id FROM play_events
-        WHERE replay_id = $1 AND source = $2 AND source_event_id = $3
+        WHERE replay_id = $1
+          AND analysis_run_id = $2
+          AND source = $3
+          AND source_event_id = $4
         ORDER BY created_at
         LIMIT 1
         "#,
     )
     .bind(replay_id)
+    .bind(analysis_run_id)
     .bind(MISTAKES_SOURCE)
     .bind(&source_event_id)
     .fetch_optional(db)
     .await
-    .map_err(ApiError::internal)?;
+    .map_err(ApiError::internal)?
+    .ok_or_else(|| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "mistake is not part of the canonical processing run — reprocess the replay",
+        )
+    })?;
 
     let payload = json!({
         "detector_version": request.detector_version,
@@ -300,83 +291,6 @@ pub async fn create_mistake_review(
         "t_start": request.t_start,
         "t_end": request.t_end,
     });
-
-    let event_id = match existing_event {
-        Some(id) => id,
-        None => {
-            let id = Uuid::now_v7();
-            sqlx::query(
-                r#"
-                INSERT INTO play_events (
-                    id, analysis_run_id, replay_id, event_type_id,
-                    source, source_stream, source_index, source_event_id,
-                    primary_subject_kind, primary_subject_id,
-                    start_frame, end_frame, event_frame,
-                    start_time, end_time, event_time,
-                    duration_seconds, confidence
-                )
-                VALUES (
-                    $1, $2, $3, $4,
-                    $5, $5, 0, $6,
-                    'player', $7,
-                    $8, $9, $10,
-                    $11, $12, $13,
-                    $14, $15
-                )
-                ON CONFLICT DO NOTHING
-                "#,
-            )
-            .bind(id)
-            .bind(analysis_run_id)
-            .bind(replay_id)
-            .bind(event_type_id)
-            .bind(MISTAKES_SOURCE)
-            .bind(&source_event_id)
-            .bind(&player_key)
-            .bind(request.start_frame)
-            .bind(request.end_frame)
-            .bind(request.event_frame)
-            .bind(request.t_start)
-            .bind(request.t_end)
-            .bind(request.time)
-            .bind(f64::max(0.0, request.t_end - request.t_start))
-            .bind(request.severity)
-            .execute(db)
-            .await
-            .map_err(ApiError::internal)?;
-            // A concurrent reviewer may have won the insert race; resolve to
-            // whichever row now holds the fingerprint.
-            let resolved: Uuid = sqlx::query_scalar(
-                r#"
-                SELECT id FROM play_events
-                WHERE replay_id = $1 AND source = $2 AND source_event_id = $3
-                ORDER BY created_at
-                LIMIT 1
-                "#,
-            )
-            .bind(replay_id)
-            .bind(MISTAKES_SOURCE)
-            .bind(&source_event_id)
-            .fetch_one(db)
-            .await
-            .map_err(ApiError::internal)?;
-            if resolved == id {
-                sqlx::query(
-                    r#"
-                    INSERT INTO play_event_payloads (event_id, payload)
-                    VALUES ($1, $2)
-                    ON CONFLICT (event_id) DO NOTHING
-                    "#,
-                )
-                .bind(id)
-                .bind(&payload)
-                .execute(db)
-                .await
-                .map_err(ApiError::internal)?;
-            }
-            resolved
-        }
-    };
 
     // Append-only review with a denormalized snapshot (the durable record —
     // survives cleanup of regenerated analysis output).

@@ -1,10 +1,9 @@
 //! WebAssembly bindings for the mistake-detection pipeline.
 //!
-//! The web app already parses replays with `@rlrml/subtr-actor`
-//! (`get_replay_frames_data`) and caches the result per replay
-//! (`web/src/stats/replayModel.ts`). These bindings consume that same parsed
-//! object — no re-download, no re-parse — and run the 15 heuristic detectors
-//! for one focus player.
+//! The browser reprocess worker parses replays with `@rlrml/subtr-actor`
+//! (`get_replay_frames_data`). These bindings consume that parsed object and
+//! run the 15 heuristic detectors for one focus player before the completed
+//! analysis scaffold is uploaded.
 
 use rocket_sense_mistakes::model::ModelSet;
 use rocket_sense_mistakes::pipeline::{predict_mistakes, resolve_focus_idx};
@@ -61,10 +60,6 @@ impl MistakeModels {
         self.inner.len()
     }
 }
-
-/// Bump when detector behavior changes in a way that should re-identify
-/// events (mirrors the role of subtr-actor's git sha for mechanics).
-pub const DETECTOR_VERSION: &str = "mistakes-v1";
 
 /// Run mistake detection over a parsed replay for one focus player.
 ///
@@ -149,7 +144,7 @@ fn detect_mistakes_impl(
 
     let markers = predict_mistakes(&view, focus_idx, &profile, models);
     let response = DetectResponse {
-        detector_version: DETECTOR_VERSION,
+        detector_version: rocket_sense_mistakes::DETECTOR_VERSION,
         features_version: rocket_sense_mistakes::kinds::FEATURE_SCHEMA_VERSION,
         focus_player_idx: focus_idx,
         model_count: models.len(),

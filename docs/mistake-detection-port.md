@@ -1,8 +1,11 @@
 # Mistake detection (RLVision port)
 
-Rocket Sense runs RLVision's heuristic mistake detection **client-side in
-WASM**, inside the replay viewer, over the same subtr-actor frame data the
-viewer already parses. This document records what was ported, how the
+Rocket Sense runs RLVision's heuristic mistake detection **eagerly during
+canonical replay processing** for every identified player. The surviving
+reranked markers are persisted as indexed `play_events`, so opening the
+Mistakes view only reads processed results. The browser WASM path remains for
+client-side reprocessing, where it adds the same mistake output to the
+submitted analysis scaffold. This document records what was ported, how the
 subtr-actor data maps onto the detectors' input model, and where the two
 systems intentionally diverge.
 
@@ -42,18 +45,17 @@ corpus; nothing here consumes them.
 `RLAgent/ml/artifacts/mistake_models.json` (schema_version 1, 14 modeled
 kinds) is the canonical artifact. It is committed **gzipped** in two synced
 copies: `crates/rocket-sense-mistakes/fixtures/mistake_models.json.gz` (the
-copy the golden parity tests score against) and
+copy the server processing path embeds and the golden parity tests score against) and
 `web/vendor/@rocket-sense/mistakes/mistake_models.json.gz` (the copy the SPA
 serves), which `scripts/build-mistakes-vendor` copies from the fixtures so
-they cannot drift. The SPA fetches it lazily on first Coaching render —
-gzipped on the wire (~0.5 MB vs 6.4 MB raw) and inflated client-side with
-`DecompressionStream`, so no server compression support is assumed. A fetch
-or parse failure (including a stale `schema_version`, which the loader
-rejects loudly) logs and degrades to the heuristic path rather than breaking
-the tab. Detection stays deterministic: models are pure functions of the
-feature vector, and gating only *filters* the heuristic marker set, so marker
-identities (kind + time span) are unchanged and existing reviews still
-attach — `DETECTOR_VERSION` did not need a bump.
+they cannot drift. Normal server processing decompresses and parses the
+embedded artifact once per process. Client-side reprocessing fetches the
+gzipped web copy and runs the same model-gated detector before uploading the
+scaffold. An invalid or stale artifact fails processing rather than silently
+publishing a differently gated canonical run. Detection stays deterministic:
+models are pure functions of the feature vector, and gating only _filters_ the
+heuristic marker set, so marker identities (kind + time span) are unchanged
+and existing reviews still attach — `DETECTOR_VERSION` did not need a bump.
 
 ## Architecture
 
@@ -71,18 +73,25 @@ crates/rocket-sense-mistakes        pure detection logic (no subtr-actor dep)
   src/subtr_adapter.rs              subtr-actor ReplayData JSON → ReplayView (production)
 crates/rocket-sense-mistakes-wasm   wasm-bindgen wrapper (detect_mistakes,
                                     detect_mistakes_with_models, MistakeModels)
+crates/rocket-sense-server          runs ReplayData + stats collectors in one
+                                    processing pass, detects every player, and
+                                    indexes the resulting mistake events
 web/vendor/@rocket-sense/mistakes   vendored wasm package + gzipped reranker
-                                    artifact (built/synced by
+                                    artifact used by client reprocessing
+                                    (built/synced by
                                     scripts/build-mistakes-vendor)
 ```
 
-The WASM entry point `detect_mistakes(rawReplayData, focusPlayer, profile?)`
-consumes the **already-parsed** frames object cached by
-`web/src/stats/replayModel.ts` (`loadReplay(...).raw` — the output of
-`@rlrml/subtr-actor`'s `get_replay_frames_data`), so surfacing mistakes never
-re-downloads or re-parses the replay. Detection is deterministic and pure:
-the same replay + focus player + detector version always produces identical
-markers, which is what lets reviews attach to a stable event identity.
+The server runs `ReplayDataCollector` and `StatsTimelineEventCollector`
+together through one `ReplayProcessor`, adapts the resulting `ReplayData`, and
+detects mistakes for every player before the analysis run becomes canonical.
+Each marker is stored under `source = source_stream = 'mistakes'`, with its
+kind as the event type and the focus-player identity as the primary subject.
+The browser reprocess worker uses the WASM entry point over its parsed frame
+data and places an equivalent `mistakes` block in the uploaded scaffold.
+Detection is deterministic and pure: the same replay + focus player + detector
+version always produces identical markers, which lets reviews attach to a
+stable event identity.
 
 ## Parity with the Python system
 
@@ -92,7 +101,7 @@ subtr-actor feed the detectors equivalent data":
 1. **Golden parity tests** (`src/golden_tests.rs`, fixtures under
    `fixtures/*.gz`). The RLAgent parser output for four sample replays is fed
    to both the Python oracle (`scripts/export_mistake_golden_fixtures.py` in
-   the RLAgent repo) and the Rust port. Candidates *and* markers — kinds,
+   the RLAgent repo) and the Rust port. Candidates _and_ markers — kinds,
    times, spans, severities, scores, full feature vectors, evidence — must
    match within 1e-9. These pass exactly for every player of every fixture
    (≈290 markers, 14 kinds). `floating_with_boost` never fires on the
@@ -111,6 +120,7 @@ subtr-actor feed the detectors equivalent data":
    fixture set. Tree inference branches on `value <= threshold` (a cliff, not
    a slope); no boundary divergence has shown up on the fixtures — if one
    does, document it rather than widening the tolerance.
+
 2. **Adapter cross-validation** (`tests/adapter_parity.rs`). A real `.replay`
    is parsed through the vendored subtr-actor, adapted to a `ReplayView`, and
    detection output is compared per player/kind with the RLAgent-parser path.
@@ -124,20 +134,20 @@ bodies (x ±4096 sideline, y ±5120 goal axis with blue defending −y, z 0–20
 No distance/threshold constant needed rescaling. The intentional divergences
 (also documented on `src/subtr_adapter.rs`):
 
-| Aspect | RLAgent parser (Python input) | subtr-actor adapter | Impact |
-|---|---|---|---|
-| Clock | pause-compressed, rounded to 2dp | raw frame clock rebased to first frame (identical to `@rlrml/player`'s player clock) | marker times are directly seekable in the viewer; windows/durations unaffected |
-| Precision | positions rounded to ints, quats to 2dp | full float | sub-uu differences only |
-| Ball segments | end at scoreboard increment | end at goal explosion; next segment when ball respawns at center | celebration frames are non-play-filtered in both systems |
-| Boost | stepped integer percent from replication bytes (`raw*100/255`) | continuous drain model (`raw*100/255` as float) | <1 boost unit at replication points; one threshold-straddling `pick_up_small_pads` marker differs on the harness fixture |
-| Demo state | demolition attribute at event time | `demolish_infos` + Empty player frames splitting car tracks | equivalent |
-| Boost pads | only pads resolved via an observed pickup | full layout, filtered to pads with ≥1 pickup to mirror Python | equivalent pad set |
-| Score times | scoreboard-increment times | goal-event times | only feeds goal-moment fallback where tick marks dominate |
-| Player order | (team, header score desc) | team 0 then team 1 in `meta` order | affects only nearest-teammate tie-breaks |
+| Aspect        | RLAgent parser (Python input)                                  | subtr-actor adapter                                                                  | Impact                                                                                                                   |
+| ------------- | -------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| Clock         | pause-compressed, rounded to 2dp                               | raw frame clock rebased to first frame (identical to `@rlrml/player`'s player clock) | marker times are directly seekable in the viewer; windows/durations unaffected                                           |
+| Precision     | positions rounded to ints, quats to 2dp                        | full float                                                                           | sub-uu differences only                                                                                                  |
+| Ball segments | end at scoreboard increment                                    | end at goal explosion; next segment when ball respawns at center                     | celebration frames are non-play-filtered in both systems                                                                 |
+| Boost         | stepped integer percent from replication bytes (`raw*100/255`) | continuous drain model (`raw*100/255` as float)                                      | <1 boost unit at replication points; one threshold-straddling `pick_up_small_pads` marker differs on the harness fixture |
+| Demo state    | demolition attribute at event time                             | `demolish_infos` + Empty player frames splitting car tracks                          | equivalent                                                                                                               |
+| Boost pads    | only pads resolved via an observed pickup                      | full layout, filtered to pads with ≥1 pickup to mirror Python                        | equivalent pad set                                                                                                       |
+| Score times   | scoreboard-increment times                                     | goal-event times                                                                     | only feeds goal-moment fallback where tick marks dominate                                                                |
+| Player order  | (team, header score desc)                                      | team 0 then team 1 in `meta` order                                                   | affects only nearest-teammate tie-breaks                                                                                 |
 
 ## Surfacing & review
 
-- The viewer shows mistakes as a stat section ("Coaching") with timeline-style
+- The viewer shows mistakes as a stat section ("Mistakes") with timeline-style
   event rows and `EventClipPlayer` clips spanning `t_start → t_end`, camera
   following the focus player.
 - **Admin gating parity**: `bad_defensive_touch` and `bad_fifty` (the
@@ -145,15 +155,14 @@ No distance/threshold constant needed rescaling. The intentional divergences
   shown to admins. The gate lives in one place,
   `web/src/stats/mistakes.tsx` (`ADMIN_ONLY_MISTAKE_KINDS`).
 - Reviews reuse the generic `play_events` + `event_reviews` model
-  (`docs/mechanic-events-review-design.md`). Because detection is client-side
-  and deterministic, mistakes are **not** pre-materialized as `play_events`;
-  the row is upserted lazily on first review via
-  `POST /api/v1/replays/{id}/mistakes/reviews` with `source = 'mistakes'`,
-  event type = the kind, subject = the focus player identity, frame span from
-  the marker, `confidence` = severity, and payload = features/evidence. The
-  event's `source_event_id` is a deterministic fingerprint
-  (detector version + kind + player key + rounded time span), so the same
-  mistake reproduces the same identity on every client.
+  (`docs/mechanic-events-review-design.md`). Mistakes are pre-materialized
+  during replay processing with event type = kind, subject = focus-player
+  identity, frame/time span from the marker, `confidence` = severity, and a
+  payload containing scores, features, and evidence. The review endpoint only
+  attaches to an existing mistake in the canonical analysis run; it no longer
+  creates a play event lazily. The event's `source_event_id` is a deterministic
+  fingerprint (file hash + kind + player key + rounded time span), so the same
+  mistake reproduces the same identity across reprocessing.
 - **Reject hides the marker but keeps the label** (parity with
   `_merge_mistakes_with_labels`): the viewer fetches the current user's
   latest review per mistake fingerprint and drops rejected ones from the

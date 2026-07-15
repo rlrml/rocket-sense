@@ -41,6 +41,10 @@ pub use pipeline::{generate_mistake_candidates, predict_mistakes, resolve_focus_
 pub use profile::DetectorProfile;
 pub use view::ReplayView;
 
+/// Bump when detector behavior changes in a way that should re-identify
+/// eagerly materialized mistake events.
+pub const DETECTOR_VERSION: &str = "mistakes-v1";
+
 #[cfg(test)]
 #[path = "golden_tests.rs"]
 mod golden_tests;

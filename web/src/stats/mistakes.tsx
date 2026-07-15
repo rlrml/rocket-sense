@@ -1,9 +1,8 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import mistakeModelsUrl from "@rocket-sense/mistakes/mistake_models.json.gz?url";
 import { createMistakeReview, getCurrentUser, listMistakeReviews } from "../api";
 import type {
   CreateMistakeReviewRequest,
-  MistakeDetectResponse,
+  MechanicEventResponse,
   MistakeMarker,
   MistakeReviewListItem,
   MistakeReviewStatus,
@@ -12,14 +11,29 @@ import type {
 import type { EventClip } from "./EventClipPlayer";
 import { useEventPreviewSelection } from "./eventPreview";
 import { subtrActorPlayerUrl } from "../playerLink";
-import { preloadReplay } from "./replayModel";
 import type { StatDetailProps } from "./registry";
 
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
 );
 
-export const mistakeEventTypes: readonly string[] = [];
+export const mistakeEventTypes: readonly string[] = [
+  "too_far_from_play",
+  "stacked_too_close",
+  "bumping_teammate",
+  "overcommitting_last_man",
+  "bang_with_time",
+  "hesitating_on_50",
+  "waiting_to_challenge",
+  "double_committing",
+  "creeping_up_too_far",
+  "poor_landing",
+  "pick_up_small_pads",
+  "bad_kickoff",
+  "bad_fifty",
+  "floating_with_boost",
+  "bad_defensive_touch",
+];
 
 // Mistake kinds that are still being tuned and should only surface for
 // admins. Mirrors RLVision's ADMIN_ONLY_MISTAKE_KINDS gate — keep the two in
@@ -164,69 +178,7 @@ export function mistakeWhy(marker: MistakeMarker): string | null {
   }
 }
 
-// --- WASM module (lazy, shared across mounts) --------------------------------
-
-type MistakesWasm = typeof import("@rocket-sense/mistakes");
-type MistakeModels = InstanceType<MistakesWasm["MistakeModels"]>;
-
-let wasmModulePromise: Promise<MistakesWasm> | null = null;
-
-function loadMistakesWasm(): Promise<MistakesWasm> {
-  if (!wasmModulePromise) {
-    wasmModulePromise = (async () => {
-      const module = await import("@rocket-sense/mistakes");
-      await module.default();
-      return module;
-    })();
-    wasmModulePromise.catch(() => {
-      wasmModulePromise = null;
-    });
-  }
-  return wasmModulePromise;
-}
-
-// --- Reranker models (lazy, shared across mounts) -----------------------------
-//
-// The per-kind reranker artifact is vendored next to the wasm, pre-gzipped
-// (~0.5 MB on the wire vs 6.4 MB raw), and only fetched when Coaching is
-// actually opened — most page loads never need it. A load failure degrades to
-// the heuristic path (score == severity, every candidate shown) instead of
-// breaking the tab, and is retried on the next detection run.
-
-let modelsPromise: Promise<MistakeModels | null> | null = null;
-
-function loadMistakeModels(): Promise<MistakeModels | null> {
-  if (!modelsPromise) {
-    modelsPromise = (async () => {
-      const wasm = await loadMistakesWasm();
-      const response = await fetch(mistakeModelsUrl);
-      if (!response.ok) {
-        throw new Error(`fetching mistake models failed: HTTP ${response.status}`);
-      }
-      // Whether the body is still gzip depends on the server: the embedded
-      // prod server sends the raw .gz bytes, while Vite's dev server sets
-      // Content-Encoding: gzip so the browser has already inflated them.
-      // Sniff the gzip magic instead of trusting headers.
-      const body = await response.arrayBuffer();
-      const bytes = new Uint8Array(body);
-      const isGzip = bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
-      const artifactJson = isGzip
-        ? await new Response(
-            new Blob([body]).stream().pipeThrough(new DecompressionStream("gzip")),
-          ).text()
-        : new TextDecoder().decode(body);
-      // Throws on a schema_version mismatch: a stale artifact must not score.
-      return new wasm.MistakeModels(artifactJson);
-    })().catch((err: unknown) => {
-      console.error("Coaching reranker models unavailable; falling back to heuristic gating", err);
-      modelsPromise = null;
-      return null;
-    });
-  }
-  return modelsPromise;
-}
-
-// --- Detection + review state -------------------------------------------------
+// --- Processed event + review state -------------------------------------------
 
 interface FocusOption {
   key: string;
@@ -260,21 +212,6 @@ function reviewForMarker(
   return null;
 }
 
-function frameIndexAtTime(frames: { time: number }[], time: number): number | null {
-  if (!frames.length) return null;
-  let lo = 0;
-  let hi = frames.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (frames[mid].time <= time) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return lo;
-}
-
 function severityBand(severity: number): string {
   if (severity >= 0.75) return "is-high";
   if (severity >= 0.5) return "is-medium";
@@ -289,18 +226,56 @@ function formatClock(seconds: number): string {
 }
 
 interface MarkerRow {
+  event: MechanicEventResponse;
   marker: MistakeMarker;
+  detectorVersion: string | null;
   review: MistakeReviewListItem | null;
 }
 
-export function MistakesDetail({ players, replayId }: StatDetailProps) {
+function markerFromEvent(event: MechanicEventResponse): MistakeMarker | null {
+  const payload = event.payload;
+  const numberValue = (key: string, fallback: number | null): number | null =>
+    typeof payload[key] === "number" ? payload[key] : fallback;
+  const time = numberValue("time", event.event_time);
+  const tStart = numberValue("t_start", event.start_time);
+  const tEnd = numberValue("t_end", event.end_time);
+  if (time == null || tStart == null || tEnd == null) return null;
+  const features = Array.isArray(payload.features)
+    ? payload.features.filter((value): value is number => typeof value === "number")
+    : [];
+  const evidence =
+    payload.evidence != null &&
+    typeof payload.evidence === "object" &&
+    !Array.isArray(payload.evidence)
+      ? (payload.evidence as Record<string, unknown>)
+      : undefined;
+  return {
+    kind: event.event_type,
+    time,
+    t_start: tStart,
+    t_end: tEnd,
+    player_idx: numberValue("player_idx", 0) ?? 0,
+    player:
+      (typeof payload.player === "string" ? payload.player : null) ??
+      event.player_name ??
+      "Unknown player",
+    with_player: typeof payload.with_player === "string" ? payload.with_player : undefined,
+    severity: numberValue("severity", event.confidence) ?? 0,
+    score: numberValue("score", event.confidence) ?? 0,
+    model_keep_threshold:
+      typeof payload.model_keep_threshold === "number" ? payload.model_keep_threshold : undefined,
+    features,
+    features_version: numberValue("features_version", 1) ?? 1,
+    evidence,
+  };
+}
+
+export function MistakesDetail({ events, players, replayId }: StatDetailProps) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const focusOptions = useMemo(() => focusOptionsFromPlayers(players), [players]);
   const [focusKey, setFocusKey] = useState<string | null>(null);
-  const [detection, setDetection] = useState<MistakeDetectResponse | null>(null);
   const [reviews, setReviews] = useState<MistakeReviewListItem[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState<string | null>(null);
 
@@ -324,33 +299,6 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
     };
   }, []);
 
-  // Run detection over the cached parsed replay whenever the focus changes.
-  useEffect(() => {
-    if (!replayId || !activeFocusKey) return;
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    Promise.all([preloadReplay(replayId), loadMistakesWasm(), loadMistakeModels()])
-      .then(([loaded, wasm, models]) => {
-        if (cancelled) return;
-        const response = (
-          models
-            ? wasm.detect_mistakes_with_models(loaded.raw, activeFocusKey, undefined, models)
-            : wasm.detect_mistakes(loaded.raw, activeFocusKey, undefined)
-        ) as MistakeDetectResponse;
-        setDetection(response);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [replayId, activeFocusKey]);
-
   useEffect(() => {
     if (!replayId || !signedIn) return;
     let cancelled = false;
@@ -367,21 +315,32 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
   }, [replayId, signedIn]);
 
   const rows = useMemo<MarkerRow[]>(() => {
-    if (!detection || !activeFocusKey) return [];
+    if (!activeFocusKey) return [];
     return (
-      detection.markers
-        .filter((marker) => isAdmin || !ADMIN_ONLY_MISTAKE_KINDS.has(marker.kind))
-        .map((marker) => ({
+      events
+        .filter((event) => event.player_id === activeFocusKey)
+        .map((event) => ({ event, marker: markerFromEvent(event) }))
+        .filter(
+          (row): row is { event: MechanicEventResponse; marker: MistakeMarker } =>
+            row.marker != null,
+        )
+        .filter(({ marker }) => isAdmin || !ADMIN_ONLY_MISTAKE_KINDS.has(marker.kind))
+        .map(({ event, marker }) => ({
+          event,
           marker,
+          detectorVersion:
+            typeof event.payload.detector_version === "string"
+              ? event.payload.detector_version
+              : null,
           review: reviewForMarker(marker, activeFocusKey, reviews),
         }))
         // Reject hides the marker but keeps the label (review record persists).
         .filter((row) => row.review?.status !== "rejected")
     );
-  }, [detection, activeFocusKey, reviews, isAdmin]);
+  }, [events, activeFocusKey, reviews, isAdmin]);
 
-  const focusName = detection?.focus_player_name ?? null;
-  const rowKey = useCallback((row: MarkerRow) => `${row.marker.kind}:${row.marker.time}`, []);
+  const focusName = focusOptions.find((option) => option.key === activeFocusKey)?.name ?? null;
+  const rowKey = useCallback((row: MarkerRow) => row.event.id, []);
   const buildClip = useCallback(
     (row: MarkerRow, replayNonce: number): EventClip | null => {
       const { marker } = row;
@@ -414,13 +373,11 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
 
   const submitReview = useCallback(
     async (row: MarkerRow, status: MistakeReviewStatus, correctedKind?: string) => {
-      if (!replayId || !activeFocusKey || !detection) return;
-      const { marker } = row;
+      if (!replayId || !activeFocusKey) return;
+      const { event, marker } = row;
       const key = rowKey(row);
       setPendingReview(key);
       try {
-        const loaded = await preloadReplay(replayId);
-        const frames = loaded.replay.frames;
         const body: CreateMistakeReviewRequest = {
           kind: marker.kind,
           player_key: activeFocusKey,
@@ -428,14 +385,14 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
           time: marker.time,
           t_start: marker.t_start,
           t_end: marker.t_end,
-          event_frame: frameIndexAtTime(frames, marker.time),
-          start_frame: frameIndexAtTime(frames, marker.t_start),
-          end_frame: frameIndexAtTime(frames, marker.t_end),
+          event_frame: event.event_frame,
+          start_frame: event.start_frame,
+          end_frame: event.end_frame,
           severity: marker.severity,
           features: marker.features,
           features_version: marker.features_version,
           evidence: marker.evidence,
-          detector_version: detection.detector_version,
+          detector_version: row.detectorVersion ?? undefined,
           status,
           corrected_kind: correctedKind,
         };
@@ -462,11 +419,13 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
         setPendingReview(null);
       }
     },
-    [replayId, activeFocusKey, detection, rowKey],
+    [replayId, activeFocusKey, rowKey],
   );
 
   if (!replayId) {
-    return <div className="stat-empty">Coaching runs per replay — open a specific game.</div>;
+    return (
+      <div className="stat-empty">Mistakes are processed per replay — open a specific game.</div>
+    );
   }
   if (!focusOptions.length) {
     return (
@@ -493,17 +452,14 @@ export function MistakesDetail({ players, replayId }: StatDetailProps) {
             ))}
           </select>
         </label>
-        {detection ? (
-          <span className="mistakes-summary">
-            {rows.length} mistake{rows.length === 1 ? "" : "s"} detected in your browser
-          </span>
-        ) : null}
+        <span className="mistakes-summary">
+          {rows.length} mistake{rows.length === 1 ? "" : "s"} found during replay processing
+        </span>
       </div>
 
-      {error ? <div className="stat-empty">Mistake detection failed: {error}</div> : null}
-      {loading ? <div className="stat-empty">Analyzing replay locally…</div> : null}
+      {error ? <div className="stat-empty">Mistake review failed: {error}</div> : null}
 
-      {!loading && detection && !rows.length ? (
+      {!rows.length ? (
         <div className="stat-empty">
           No mistakes surfaced for this player — clean game, or everything detected was already
           rejected.

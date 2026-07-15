@@ -1403,9 +1403,9 @@ export interface CreateReviewCampaignResponse {
   skipped: ReviewCampaignImportSkip[];
 }
 
-// --- Client-side mistake detection (see docs/mistake-detection-port.md) -----
+// --- Mistake detection (native processing + client reprocess WASM) ----------
 
-/** One detected mistake marker from the @rocket-sense/mistakes WASM module. */
+/** One detected mistake marker persisted by processing or returned by WASM. */
 export interface MistakeMarker {
   kind: string;
   time: number;

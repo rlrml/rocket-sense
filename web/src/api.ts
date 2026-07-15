@@ -1130,10 +1130,10 @@ export interface ReprocessReplayClientResponse {
   status: string;
 }
 
-// Upload a browser-computed stats-timeline scaffold for the server to persist as
-// a new canonical analysis run (no server-side subtr-actor re-run). `scaffoldJson`
-// is the raw JSON text from `computeStatsTimelineScaffoldJson`; it is spliced into
-// the body directly rather than re-stringified, since it can be many megabytes.
+// Upload a browser-computed stats-timeline + mistake scaffold for the server to
+// persist as a new canonical analysis run (no server-side subtr-actor re-run).
+// `scaffoldJson` is spliced into the body directly rather than re-stringified,
+// since it can be many megabytes.
 export function reprocessReplayClient(
   replayId: string,
   payload: { subtrActorGitSha: string; scaffoldJson: string },
@@ -1302,11 +1302,10 @@ function readReplayEventsCache(): Record<string, MechanicEventsResponse> {
   }
 }
 
-// --- Client-side mistake detection reviews ---------------------------------
-// Detection runs in the browser (see docs/mistake-detection-port.md); these
-// endpoints persist user reviews of surfaced mistakes onto play_events +
-// event_reviews and read back the signed-in user's latest review per mistake
-// (rejected mistakes are hidden from the viewer but their reviews persist).
+// --- Processed mistake reviews ---------------------------------------------
+// Detection runs during canonical replay processing; these endpoints attach
+// user reviews to the materialized play_events and read back the signed-in
+// user's latest review per mistake.
 
 export function listMistakeReviews(replayId: string): Promise<MistakeReviewListResponse> {
   return request<MistakeReviewListResponse>(

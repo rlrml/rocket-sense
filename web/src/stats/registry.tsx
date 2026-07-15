@@ -227,9 +227,8 @@ export const statGroups: StatGroup[] = [
     Detail: MechanicsDetail,
   },
   {
-    // Client-side mistake detection over the parsed replay (WASM); no server
-    // events are fetched — eventTypes stays empty on purpose. Replay scope
-    // only: mistakes need the 3D clip player and a single focus player.
+    // Mistakes are eagerly materialized as events during replay processing.
+    // Replay scope only: the view needs the 3D clip player and one focus player.
     id: "coaching",
     label: "Mistakes",
     icon: GraduationCap,

@@ -50,4 +50,5 @@ zstd = "0.13"
 
 rocket-sense-db = { path = "crates/rocket-sense-db" }
 rocket-sense-egress = { path = "crates/rocket-sense-egress" }
+rocket-sense-mistakes = { path = "crates/rocket-sense-mistakes" }
 rocket-sense-storage = { path = "crates/rocket-sense-storage" }

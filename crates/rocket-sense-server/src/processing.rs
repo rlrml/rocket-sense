@@ -9,17 +9,25 @@ use apalis_postgres::{
 use boxcars::{HeaderProp, RemoteId};
 use bytes::Bytes;
 use chrono::{DateTime, NaiveDateTime, Utc};
+use flate2::read::GzDecoder;
+use rocket_sense_mistakes::{
+    model::ModelSet,
+    pipeline::predict_mistakes,
+    profile::DetectorProfile,
+    subtr_adapter::{player_track_keys, replay_view_from_raw, RawReplayData},
+};
 use rocket_sense_storage::{sha256_hex, ObjectStorage, StorageEncoding};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
-    sync::Arc,
+    io::Read,
+    sync::{Arc, OnceLock},
 };
 use subtr_actor::{
-    EventCategory, PlayerInfo, ReplayMeta, ReplayProcessor, ReplayStatsTimelineScaffold,
-    StatsTimelineEventCollector,
+    Collector, EventCategory, PlayerInfo, ReplayDataCollector, ReplayMeta, ReplayProcessor,
+    ReplayStatsTimelineScaffold, StatsTimelineEventCollector,
 };
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
@@ -1345,7 +1353,10 @@ const INSERT_TOUCH_COUNT_FACTS_SQL: &str = r#"
 // goal tags through late saves. Bumping marks prior analyses stale so
 // reprocessing emits the new `beaten_to_ball` stream for confirm/reject
 // labeling and re-tags the affected mechanic goals.
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v14";
+// Bumped v14 -> v15 to eagerly run the RLVision mistake detector and persist
+// every surviving per-player marker as an indexed play event during the
+// canonical replay-processing run.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v15";
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
 const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
@@ -2258,7 +2269,7 @@ async fn backfill_profile_timing_events(
         .await
         .with_context(|| format!("failed to read replay object `{}`", target.storage_key))?;
     let output =
-        tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
+        tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec(), None))
             .await
             .context("profile timing backfill analysis task panicked")??;
     let mut indexed_events = output
@@ -2443,10 +2454,12 @@ async fn process_replay(
             .get(&storage_key)
             .await
             .with_context(|| format!("failed to read replay object `{storage_key}`"))?;
-        let output =
-            tokio::task::spawn_blocking(move || collect_replay_analysis(replay_bytes.to_vec()))
-                .await
-                .context("replay analysis task panicked")??;
+        let mistake_file_sha256 = file_sha256.clone();
+        let output = tokio::task::spawn_blocking(move || {
+            collect_replay_analysis(replay_bytes.to_vec(), Some(&mistake_file_sha256))
+        })
+        .await
+        .context("replay analysis task panicked")??;
         persist_analysis_output(
             &pool,
             &storage,
@@ -2657,7 +2670,8 @@ pub(crate) async fn process_client_scaffold(
     });
 
     let result = async {
-        let output = replay_analysis_output_from_scaffold_json(&scaffold, source_block)?;
+        let output =
+            replay_analysis_output_from_scaffold_json(&scaffold, source_block, Some(file_sha256))?;
         persist_analysis_output(
             pool,
             storage,
@@ -6088,19 +6102,52 @@ async fn carry_forward_event_reviews(
     Ok(reviews.len())
 }
 
-fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput> {
+fn collect_replay_analysis(
+    replay_bytes: Vec<u8>,
+    mistake_file_sha256: Option<&str>,
+) -> Result<ReplayAnalysisOutput> {
     let replay = boxcars::ParserBuilder::new(&replay_bytes)
         .must_parse_network_data()
         .on_error_check_crc()
         .parse()
         .context("failed to parse replay")?;
-    let timeline = StatsTimelineEventCollector::new()
-        .get_replay_stats_timeline_scaffold(&replay)
-        .map_err(|error| anyhow!("failed to collect replay event timeline: {error:?}"))?;
+
+    // The canonical processing path needs both the compact stats timeline and
+    // the full ReplayData frame view used by mistake detection. Run both
+    // collectors through one ReplayProcessor pass so eager mistakes do not
+    // parse or walk the replay a second time. Narrow profile-timing backfills
+    // pass `None` and retain the cheaper stats-only path.
+    let (timeline, raw_replay_data) = if mistake_file_sha256.is_some() {
+        let mut processor = ReplayProcessor::new(&replay)
+            .map_err(|error| anyhow!("failed to initialize replay processor: {error:?}"))?;
+        let mut timeline_collector = StatsTimelineEventCollector::new();
+        let mut replay_data_collector = ReplayDataCollector::new();
+        let mut collectors: Vec<&mut dyn Collector> =
+            vec![&mut timeline_collector, &mut replay_data_collector];
+        processor
+            .process_all(&mut collectors)
+            .map_err(|error| anyhow!("failed to process replay collectors: {error:?}"))?;
+        let timeline = timeline_collector
+            .into_replay_stats_timeline_scaffold()
+            .map_err(|error| anyhow!("failed to assemble replay event timeline: {error:?}"))?;
+        let replay_data = replay_data_collector
+            .into_replay_data(processor)
+            .map_err(|error| anyhow!("failed to assemble replay frame data: {error:?}"))?;
+        let serialized = serde_json::to_value(replay_data)
+            .context("failed to serialize replay frame data for mistake detection")?;
+        let raw = serde_json::from_value(serialized)
+            .context("failed to adapt replay frame data for mistake detection")?;
+        (timeline, Some(raw))
+    } else {
+        let timeline = StatsTimelineEventCollector::new()
+            .get_replay_stats_timeline_scaffold(&replay)
+            .map_err(|error| anyhow!("failed to collect replay event timeline: {error:?}"))?;
+        (timeline, None)
+    };
     let metadata = replay_search_metadata(&timeline);
     let timeline_events_value = serde_json::to_value(&timeline.events)
         .context("failed to serialize replay timeline events")?;
-    let event_stream = serde_json::json!({
+    let mut event_stream = serde_json::json!({
         "schema_version": EVENT_STREAM_SCHEMA_VERSION,
         "source": {
             "extractor_name": DEFAULT_EXTRACTOR_NAME,
@@ -6112,7 +6159,12 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         "replay_meta": timeline.replay_meta.clone(),
         "timeline_events": timeline_events_value
     });
-    let indexed_events = build_indexed_events(&timeline)?;
+    let mut indexed_events = build_indexed_events(&timeline)?;
+    if let (Some(file_sha256), Some(raw)) = (mistake_file_sha256, raw_replay_data.as_ref()) {
+        let (mistake_events, mistake_stream) = build_eager_mistake_events(raw, file_sha256)?;
+        indexed_events.extend(mistake_events);
+        event_stream["mistakes"] = mistake_stream;
+    }
     let boost_tracks = collect_boost_accumulation_tracks(&timeline);
 
     Ok(ReplayAnalysisOutput {
@@ -6121,6 +6173,143 @@ fn collect_replay_analysis(replay_bytes: Vec<u8>) -> Result<ReplayAnalysisOutput
         metadata,
         boost_tracks,
     })
+}
+
+fn eager_mistake_models() -> Result<&'static ModelSet> {
+    static MODELS: OnceLock<Result<ModelSet, String>> = OnceLock::new();
+    match MODELS.get_or_init(|| {
+        let compressed =
+            include_bytes!("../../rocket-sense-mistakes/fixtures/mistake_models.json.gz");
+        let mut decoder = GzDecoder::new(compressed.as_slice());
+        let mut artifact = String::new();
+        decoder
+            .read_to_string(&mut artifact)
+            .map_err(|error| format!("failed to decompress bundled mistake models: {error}"))?;
+        ModelSet::from_json_str(&artifact)
+            .map_err(|error| format!("failed to load bundled mistake models: {error}"))
+    }) {
+        Ok(models) => Ok(models),
+        Err(message) => Err(anyhow!(message.clone())),
+    }
+}
+
+fn build_eager_mistake_events(
+    raw: &RawReplayData,
+    file_sha256: &str,
+) -> Result<(Vec<IndexedEvent>, Value)> {
+    let view = replay_view_from_raw(raw);
+    let track_keys = player_track_keys(raw);
+    let profile = DetectorProfile::resolve(None);
+    let models = eager_mistake_models()?;
+    let mut indexed_events = Vec::new();
+    let mut player_results = Vec::new();
+
+    for focus_idx in 0..view.players.len() {
+        let player_key = track_keys.get(focus_idx).cloned().unwrap_or_default();
+        if player_key.is_empty() {
+            continue;
+        }
+        let focus_player = &view.players[focus_idx];
+        let team = match focus_player.team {
+            rocket_sense_mistakes::view::Team::Blue => Some(0),
+            rocket_sense_mistakes::view::Team::Orange => Some(1),
+        };
+        let markers = predict_mistakes(&view, focus_idx, &profile, models);
+        let mut serialized_markers = Vec::with_capacity(markers.len());
+
+        for marker in markers {
+            let start_frame = mistake_frame_index(raw, marker.t_start);
+            let end_frame = mistake_frame_index(raw, marker.t_end);
+            let event_frame = mistake_frame_index(raw, marker.time);
+            let mut payload = serde_json::to_value(&marker)
+                .context("failed to serialize eager mistake marker")?;
+            let payload_object = payload
+                .as_object_mut()
+                .ok_or_else(|| anyhow!("serialized mistake marker was not an object"))?;
+            payload_object.insert(
+                "detector_version".to_owned(),
+                Value::from(rocket_sense_mistakes::DETECTOR_VERSION),
+            );
+            payload_object.insert(
+                "focus_player_key".to_owned(),
+                Value::from(player_key.clone()),
+            );
+            payload_object.insert("model_count".to_owned(), Value::from(models.len()));
+            payload_object.insert("start_frame".to_owned(), serde_json::json!(start_frame));
+            payload_object.insert("end_frame".to_owned(), serde_json::json!(end_frame));
+            payload_object.insert("event_frame".to_owned(), serde_json::json!(event_frame));
+            serialized_markers.push(payload.clone());
+
+            let primary_subject = EventSubject {
+                kind: "player".to_owned(),
+                id: player_key.clone(),
+                role: "player".to_owned(),
+            };
+            let source_index = indexed_events.len();
+            indexed_events.push(IndexedEvent {
+                event_type_key: marker.kind.to_owned(),
+                display_name: crate::api::mistakes::mistake_display_name(marker.kind).to_owned(),
+                category: "mistake".to_owned(),
+                source: "mistakes".to_owned(),
+                source_stream: "mistakes".to_owned(),
+                source_index,
+                source_event_id: crate::api::mistakes::mistake_fingerprint(
+                    file_sha256,
+                    marker.kind,
+                    &player_key,
+                    marker.time,
+                    marker.t_start,
+                    marker.t_end,
+                ),
+                primary_subject: Some(primary_subject.clone()),
+                subjects: vec![primary_subject],
+                team,
+                start_frame,
+                end_frame,
+                event_frame,
+                start_time: Some(marker.t_start),
+                end_time: Some(marker.t_end),
+                event_time: Some(marker.time),
+                duration_seconds: Some((marker.t_end - marker.t_start).max(0.0)),
+                confidence: Some(marker.severity),
+                attributes: serde_json::json!({
+                    "detector_version": rocket_sense_mistakes::DETECTOR_VERSION,
+                    "features_version": marker.features_version,
+                    "model_keep_threshold": marker.model_keep_threshold,
+                    "score": marker.score,
+                    "severity": marker.severity,
+                }),
+                payload,
+            });
+        }
+
+        player_results.push(serde_json::json!({
+            "player_key": player_key,
+            "player_name": focus_player.name,
+            "team": team,
+            "markers": serialized_markers,
+        }));
+    }
+
+    Ok((
+        indexed_events,
+        serde_json::json!({
+            "detector_version": rocket_sense_mistakes::DETECTOR_VERSION,
+            "features_version": rocket_sense_mistakes::kinds::FEATURE_SCHEMA_VERSION,
+            "model_count": models.len(),
+            "players": player_results,
+        }),
+    ))
+}
+
+fn mistake_frame_index(raw: &RawReplayData, replay_time: f64) -> Option<i32> {
+    let frames = &raw.frame_data.metadata_frames;
+    let time_offset = frames.first()?.time;
+    let absolute_time = time_offset + replay_time;
+    frames
+        .partition_point(|frame| frame.time <= absolute_time)
+        .checked_sub(1)
+        .and_then(|index| i32::try_from(index).ok())
 }
 
 /// Resolve subtr-actor's per-player boost [`AccumulationTrack`]s into a
@@ -6170,21 +6359,29 @@ fn collect_boost_accumulation_tracks(timeline: &ReplayStatsTimelineScaffold) -> 
 /// Build a [`ReplayAnalysisOutput`] from a client-submitted stats-timeline
 /// scaffold JSON. The scaffold has top-level keys `config`, `replay_meta`,
 /// `events` (`{"events":[...]}`), `frames`, `positioning_summary`,
-/// `accumulation_tracks`. `source_block` is the provenance object stored under
-/// `event_stream.source`.
+/// `accumulation_tracks`, and (for canonical client reprocessing) `mistakes`.
+/// `source_block` is the provenance object stored under `event_stream.source`.
 fn replay_analysis_output_from_scaffold_json(
     scaffold: &Value,
     source_block: Value,
+    mistake_file_sha256: Option<&str>,
 ) -> Result<ReplayAnalysisOutput> {
     let empty_events = serde_json::json!({ "events": [] });
     let events_value = scaffold.get("events").cloned().unwrap_or(empty_events);
-    let event_stream = serde_json::json!({
+    let mut event_stream = serde_json::json!({
         "schema_version": EVENT_STREAM_SCHEMA_VERSION,
         "source": source_block,
         "replay_meta": scaffold.get("replay_meta").cloned().unwrap_or(Value::Null),
         "timeline_events": events_value.clone(),
     });
-    let indexed_events = build_indexed_events_from_scaffold_json(scaffold, &events_value)?;
+    let mut indexed_events = build_indexed_events_from_scaffold_json(scaffold, &events_value)?;
+    if let Some(file_sha256) = mistake_file_sha256 {
+        let mistakes = scaffold
+            .get("mistakes")
+            .ok_or_else(|| anyhow!("client analysis scaffold is missing eager mistake results"))?;
+        indexed_events.extend(build_eager_mistake_events_from_json(mistakes, file_sha256)?);
+        event_stream["mistakes"] = mistakes.clone();
+    }
     let metadata = replay_search_metadata_from_scaffold_json(scaffold);
     let boost_tracks = collect_boost_accumulation_tracks_from_json(scaffold);
 
@@ -6194,6 +6391,116 @@ fn replay_analysis_output_from_scaffold_json(
         metadata,
         boost_tracks,
     })
+}
+
+fn build_eager_mistake_events_from_json(
+    mistakes: &Value,
+    file_sha256: &str,
+) -> Result<Vec<IndexedEvent>> {
+    let detector_version = mistakes
+        .get("detector_version")
+        .and_then(Value::as_str)
+        .unwrap_or(rocket_sense_mistakes::DETECTOR_VERSION);
+    let model_count = mistakes
+        .get("model_count")
+        .and_then(Value::as_u64)
+        .unwrap_or_default();
+    let Some(players) = mistakes.get("players").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let mut events = Vec::new();
+
+    for player in players {
+        let Some(player_key) = player.get("player_key").and_then(Value::as_str) else {
+            continue;
+        };
+        let player_key = player_key.trim().to_lowercase();
+        if player_key.is_empty() {
+            continue;
+        }
+        let team = player
+            .get("team")
+            .and_then(Value::as_i64)
+            .and_then(|team| i32::try_from(team).ok());
+        let Some(markers) = player.get("markers").and_then(Value::as_array) else {
+            continue;
+        };
+        for marker in markers {
+            let Some(kind) = marker.get("kind").and_then(Value::as_str) else {
+                continue;
+            };
+            if !crate::api::mistakes::MISTAKE_KINDS.contains(&kind) {
+                continue;
+            }
+            let Some(time) = marker.get("time").and_then(Value::as_f64) else {
+                continue;
+            };
+            let Some(t_start) = marker.get("t_start").and_then(Value::as_f64) else {
+                continue;
+            };
+            let Some(t_end) = marker.get("t_end").and_then(Value::as_f64) else {
+                continue;
+            };
+            let severity = marker
+                .get("severity")
+                .and_then(Value::as_f64)
+                .unwrap_or_default();
+            let mut payload = ensure_object_payload(marker);
+            if let Some(payload) = payload.as_object_mut() {
+                payload
+                    .entry("detector_version")
+                    .or_insert_with(|| Value::from(detector_version));
+                payload
+                    .entry("focus_player_key")
+                    .or_insert_with(|| Value::from(player_key.clone()));
+                payload
+                    .entry("model_count")
+                    .or_insert_with(|| Value::from(model_count));
+            }
+            let primary_subject = EventSubject {
+                kind: "player".to_owned(),
+                id: player_key.clone(),
+                role: "player".to_owned(),
+            };
+            let source_index = events.len();
+            events.push(IndexedEvent {
+                event_type_key: kind.to_owned(),
+                display_name: crate::api::mistakes::mistake_display_name(kind).to_owned(),
+                category: "mistake".to_owned(),
+                source: "mistakes".to_owned(),
+                source_stream: "mistakes".to_owned(),
+                source_index,
+                source_event_id: crate::api::mistakes::mistake_fingerprint(
+                    file_sha256,
+                    kind,
+                    &player_key,
+                    time,
+                    t_start,
+                    t_end,
+                ),
+                primary_subject: Some(primary_subject.clone()),
+                subjects: vec![primary_subject],
+                team,
+                start_frame: int_value(marker, &["start_frame"]),
+                end_frame: int_value(marker, &["end_frame"]),
+                event_frame: int_value(marker, &["event_frame"]),
+                start_time: Some(t_start),
+                end_time: Some(t_end),
+                event_time: Some(time),
+                duration_seconds: Some((t_end - t_start).max(0.0)),
+                confidence: Some(severity),
+                attributes: serde_json::json!({
+                    "detector_version": detector_version,
+                    "features_version": marker.get("features_version"),
+                    "model_keep_threshold": marker.get("model_keep_threshold"),
+                    "score": marker.get("score"),
+                    "severity": severity,
+                }),
+                payload,
+            });
+        }
+    }
+    Ok(events)
 }
 
 fn build_indexed_events_from_scaffold_json(
@@ -10490,6 +10797,11 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "subtr-actor promotes beaten-to-ball to its own event stream (was a whiff \
          subtype) and preserves mechanic goal tags through late saves; reprocess \
          to surface beaten_to_ball candidates for review labeling.",
+    ),
+    (
+        "rocket-sense-event-stream:v15",
+        "RLVision mistake detection now runs eagerly for every replay player during \
+         canonical processing and persists the surviving reranked markers as play events.",
     ),
 ];
 
