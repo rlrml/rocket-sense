@@ -6221,6 +6221,10 @@ fn build_eager_mistake_events(
             let start_frame = mistake_frame_index(raw, marker.t_start);
             let end_frame = mistake_frame_index(raw, marker.t_end);
             let event_frame = mistake_frame_index(raw, marker.time);
+            let (indexed_start_frame, indexed_end_frame) =
+                indexed_mistake_frame_span(start_frame, end_frame, event_frame);
+            let (indexed_start_time, indexed_end_time) =
+                indexed_mistake_time_span(marker.t_start, marker.t_end, marker.time);
             let mut payload = serde_json::to_value(&marker)
                 .context("failed to serialize eager mistake marker")?;
             let payload_object = payload
@@ -6264,13 +6268,13 @@ fn build_eager_mistake_events(
                 primary_subject: Some(primary_subject.clone()),
                 subjects: vec![primary_subject],
                 team,
-                start_frame,
-                end_frame,
+                start_frame: indexed_start_frame,
+                end_frame: indexed_end_frame,
                 event_frame,
-                start_time: Some(marker.t_start),
-                end_time: Some(marker.t_end),
+                start_time: Some(indexed_start_time),
+                end_time: Some(indexed_end_time),
                 event_time: Some(marker.time),
-                duration_seconds: Some((marker.t_end - marker.t_start).max(0.0)),
+                duration_seconds: Some(indexed_end_time - indexed_start_time),
                 confidence: Some(marker.severity),
                 attributes: serde_json::json!({
                     "detector_version": rocket_sense_mistakes::DETECTOR_VERSION,
@@ -6310,6 +6314,33 @@ fn mistake_frame_index(raw: &RawReplayData, replay_time: f64) -> Option<i32> {
         .partition_point(|frame| frame.time <= absolute_time)
         .checked_sub(1)
         .and_then(|index| i32::try_from(index).ok())
+}
+
+/// Relational play-event spans must contain their anchor. Some detectors keep
+/// a narrower evidence window whose start is slightly after the marker time
+/// (notably `bad_kickoff`). Preserve those detector-native values in the
+/// payload/fingerprint while widening only the indexed span.
+fn indexed_mistake_time_span(t_start: f64, t_end: f64, time: f64) -> (f64, f64) {
+    (t_start.min(t_end).min(time), t_start.max(t_end).max(time))
+}
+
+fn indexed_mistake_frame_span(
+    start_frame: Option<i32>,
+    end_frame: Option<i32>,
+    event_frame: Option<i32>,
+) -> (Option<i32>, Option<i32>) {
+    let minimum = [start_frame, end_frame, event_frame]
+        .into_iter()
+        .flatten()
+        .min();
+    let maximum = [start_frame, end_frame, event_frame]
+        .into_iter()
+        .flatten()
+        .max();
+    (
+        start_frame.map(|_| minimum.expect("start frame participates in minimum")),
+        end_frame.map(|_| maximum.expect("end frame participates in maximum")),
+    )
 }
 
 /// Resolve subtr-actor's per-player boost [`AccumulationTrack`]s into a
@@ -6445,6 +6476,13 @@ fn build_eager_mistake_events_from_json(
                 .get("severity")
                 .and_then(Value::as_f64)
                 .unwrap_or_default();
+            let start_frame = int_value(marker, &["start_frame"]);
+            let end_frame = int_value(marker, &["end_frame"]);
+            let event_frame = int_value(marker, &["event_frame"]);
+            let (indexed_start_frame, indexed_end_frame) =
+                indexed_mistake_frame_span(start_frame, end_frame, event_frame);
+            let (indexed_start_time, indexed_end_time) =
+                indexed_mistake_time_span(t_start, t_end, time);
             let mut payload = ensure_object_payload(marker);
             if let Some(payload) = payload.as_object_mut() {
                 payload
@@ -6481,13 +6519,13 @@ fn build_eager_mistake_events_from_json(
                 primary_subject: Some(primary_subject.clone()),
                 subjects: vec![primary_subject],
                 team,
-                start_frame: int_value(marker, &["start_frame"]),
-                end_frame: int_value(marker, &["end_frame"]),
-                event_frame: int_value(marker, &["event_frame"]),
-                start_time: Some(t_start),
-                end_time: Some(t_end),
+                start_frame: indexed_start_frame,
+                end_frame: indexed_end_frame,
+                event_frame,
+                start_time: Some(indexed_start_time),
+                end_time: Some(indexed_end_time),
                 event_time: Some(time),
-                duration_seconds: Some((t_end - t_start).max(0.0)),
+                duration_seconds: Some(indexed_end_time - indexed_start_time),
                 confidence: Some(severity),
                 attributes: serde_json::json!({
                     "detector_version": detector_version,

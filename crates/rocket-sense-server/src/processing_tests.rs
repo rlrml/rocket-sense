@@ -751,6 +751,44 @@ fn client_scaffold_json_matches_typed_analysis_outputs() {
 }
 
 #[test]
+fn eager_mistake_index_span_contains_detector_anchor() {
+    let mistakes = serde_json::json!({
+        "detector_version": "mistakes-v1",
+        "model_count": 1,
+        "players": [{
+            "player_key": "Steam:123",
+            "team": 0,
+            "markers": [{
+                "kind": "bad_kickoff",
+                "time": 80.27,
+                "t_start": 80.32,
+                "t_end": 83.27,
+                "severity": 0.83,
+                "start_frame": 100,
+                "end_frame": 160,
+                "event_frame": 99
+            }]
+        }]
+    });
+
+    let events = build_eager_mistake_events_from_json(&mistakes, "fixture-sha")
+        .expect("mistake scaffold should index");
+    let event = events.first().expect("one mistake event");
+
+    assert_eq!(event.start_time, Some(80.27));
+    assert_eq!(event.end_time, Some(83.27));
+    assert_eq!(event.event_time, Some(80.27));
+    assert_eq!(event.duration_seconds, Some(3.0));
+    assert_eq!(event.start_frame, Some(99));
+    assert_eq!(event.end_frame, Some(160));
+    assert_eq!(event.event_frame, Some(99));
+
+    // Detector-native bounds remain unchanged for parity and review identity.
+    assert_eq!(event.payload["t_start"], serde_json::json!(80.32));
+    assert_eq!(event.payload["t_end"], serde_json::json!(83.27));
+}
+
+#[test]
 fn indexed_goal_context_does_not_synthesize_goal_tag_events() {
     let event = subtr_actor::GoalContextEvent {
         time: 123.5,
