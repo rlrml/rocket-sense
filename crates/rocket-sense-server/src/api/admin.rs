@@ -2,9 +2,9 @@ use crate::{
     app::AppState,
     auth::AuthUser,
     processing::{
-        enqueue_profile_timing_backfill, enqueue_replay_reprocessing,
-        enqueue_replay_reprocessing_job, gc_superseded_event_streams,
-        ReplayProfileTimingBackfillOptions, ReplayReprocessOptions,
+        enqueue_profile_timing_backfill, gc_superseded_event_streams, request_replay_reprocessing,
+        request_replay_reprocessing_batch, ReplayProfileTimingBackfillOptions,
+        ReplayReprocessOptions,
     },
 };
 use axum::{
@@ -748,7 +748,7 @@ pub async fn reprocess_failed_queue_jobs(
     let failed_replays = failed_replay_ids.len() as u64;
     let mut enqueued_replays = 0u64;
     for replay_id in failed_replay_ids {
-        if enqueue_replay_reprocessing_job(pool, replay_id)
+        if request_replay_reprocessing(pool, replay_id)
             .await
             .map_err(ApiError::internal)?
         {
@@ -785,10 +785,8 @@ pub async fn reprocess_replays(
 ) -> Result<Json<ReprocessReplaysResponse>, ApiError> {
     let pool = require_db(&state)?;
     require_admin(&state, &auth_user).await?;
-    let summary = enqueue_replay_reprocessing(
+    let summary = request_replay_reprocessing_batch(
         pool.clone(),
-        state.storage.clone(),
-        state.background_processing_permits.clone(),
         ReplayReprocessOptions {
             replay_ids: request.replay_ids,
             force: request.force,
