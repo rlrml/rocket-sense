@@ -37,3 +37,6 @@ uuid.workspace = true
 # DB-backed integration tests fire real HTTP requests at the router via
 # `ServiceExt::oneshot`; `tower` is only needed for that test path.
 tower = { version = "0.5", features = ["util"] }
+
+[build-dependencies]
+sha2.workspace = true

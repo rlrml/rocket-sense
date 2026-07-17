@@ -1,3 +1,4 @@
+use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
     env,
@@ -280,7 +281,7 @@ fn write_deduped_asset_function(output: &mut File, name: &str, asset_dir: &Path)
     // Bucket candidate duplicates by (len, hash), then confirm with a byte
     // compare so a hash collision can never alias two distinct files together.
     let upper = name.to_uppercase();
-    let mut blobs: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+    let mut blobs: Vec<(PathBuf, Vec<u8>, String)> = Vec::new();
     let mut buckets: HashMap<(u64, u64), Vec<usize>> = HashMap::new();
     let mut routes: Vec<(String, usize, &'static str)> = Vec::new();
 
@@ -301,14 +302,15 @@ fn write_deduped_asset_function(output: &mut File, name: &str, asset_dir: &Path)
                     .get_mut(&key)
                     .expect("bucket inserted above")
                     .push(i);
-                blobs.push((asset_path.clone(), bytes));
+                let etag = strong_etag(&bytes);
+                blobs.push((asset_path.clone(), bytes, etag));
                 i
             }
         };
         routes.push((route_path.clone(), blob_index, content_type(asset_path)));
     }
 
-    for (i, (path, _)) in blobs.iter().enumerate() {
+    for (i, (path, _, _)) in blobs.iter().enumerate() {
         writeln!(
             output,
             "static {upper}_BLOB_{i}: &[u8] = include_bytes!({:?});",
@@ -321,9 +323,10 @@ fn write_deduped_asset_function(output: &mut File, name: &str, asset_dir: &Path)
         "fn {name}(path: &str) -> Option<StaticAsset> {{\n    match path {{"
     )?;
     for (route_path, blob_index, content_type) in &routes {
+        let etag = &blobs[*blob_index].2;
         writeln!(
             output,
-            "        {route_path:?} => Some(StaticAsset {{ content_type: {content_type:?}, bytes: {upper}_BLOB_{blob_index} }}),",
+            "        {route_path:?} => Some(StaticAsset {{ content_type: {content_type:?}, etag: {etag:?}, bytes: {upper}_BLOB_{blob_index} }}),",
         )?;
     }
     writeln!(output, "        _ => None,\n    }}\n}}\n")?;
@@ -336,6 +339,10 @@ fn content_hash(bytes: &[u8]) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
     hasher.finish()
+}
+
+fn strong_etag(bytes: &[u8]) -> String {
+    format!("\"{:x}\"", Sha256::digest(bytes))
 }
 
 fn collect_assets(

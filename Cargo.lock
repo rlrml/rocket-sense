@@ -1864,6 +1864,7 @@ dependencies = [
  "rocket-sense-storage",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "subtr-actor",
  "tokio",

@@ -11,8 +11,8 @@ use crate::{
 use axum::{
     extract::{Multipart, Path, Query, RawQuery, State},
     http::{
-        header::{CONTENT_DISPOSITION, CONTENT_TYPE},
-        StatusCode,
+        header::{CACHE_CONTROL, CONTENT_DISPOSITION, CONTENT_TYPE, ETAG, IF_NONE_MATCH},
+        HeaderMap, StatusCode,
     },
     response::{Html, IntoResponse, Redirect, Response},
     routing::{delete, get, patch, post},
@@ -2254,16 +2254,28 @@ pub async fn get_replay_group_boost_totals(
     }))
 }
 
-async fn subtr_actor_viewer() -> Html<&'static str> {
-    Html(SUBTR_ACTOR_VIEWER_INDEX)
+// Vite fingerprints every file under each app's `assets/` directory, so a new
+// build gets a new URL and the old response can remain immutable indefinitely.
+const IMMUTABLE_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+// Models and the other public runtime files keep stable names across builds.
+// Store them locally, but require their build-time content ETag to be checked
+// before reuse so a deployment can never mix new code with stale models.
+const REVALIDATED_ASSET_CACHE_CONTROL: &str = "public, max-age=0, must-revalidate";
+
+async fn subtr_actor_viewer() -> Response {
+    subtr_actor_index_response(SUBTR_ACTOR_VIEWER_INDEX)
 }
 
-async fn subtr_actor_stats() -> Html<&'static str> {
-    Html(SUBTR_ACTOR_STATS_INDEX)
+async fn subtr_actor_stats() -> Response {
+    subtr_actor_index_response(SUBTR_ACTOR_STATS_INDEX)
 }
 
-async fn subtr_actor_review() -> Html<&'static str> {
-    Html(SUBTR_ACTOR_REVIEW_INDEX)
+async fn subtr_actor_review() -> Response {
+    subtr_actor_index_response(SUBTR_ACTOR_REVIEW_INDEX)
+}
+
+fn subtr_actor_index_response(index: &'static str) -> Response {
+    ([(CACHE_CONTROL, "no-cache")], Html(index)).into_response()
 }
 
 async fn subtr_actor_review_redirect(RawQuery(raw_query): RawQuery) -> Redirect {
@@ -2282,29 +2294,76 @@ fn subtr_actor_review_trailing_slash_url(raw_query: Option<&str>) -> String {
 /// `stats/skyboxes/PlanetaryEarth4k.hdr`).
 async fn subtr_actor_app_asset(
     Path(asset_path): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
-    serve_subtr_actor_asset(&asset_path)
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    serve_subtr_actor_asset(&asset_path, &headers)
 }
 
 /// `/models/...` alias for the embedded `EventClipPlayer` (`assetBase: "/"`),
 /// mapping onto the shared `models/` assets in the embedded tree.
 async fn subtr_actor_root_model_asset(
     Path(asset_path): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
-    serve_subtr_actor_asset(&format!("models/{asset_path}"))
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    serve_subtr_actor_asset(&format!("models/{asset_path}"), &headers)
 }
 
 /// `/draco/...` alias for the embedded `EventClipPlayer` (`assetBase: "/"`).
 async fn subtr_actor_root_draco_asset(
     Path(asset_path): Path<String>,
-) -> Result<impl IntoResponse, StatusCode> {
-    serve_subtr_actor_asset(&format!("draco/{asset_path}"))
+    headers: HeaderMap,
+) -> Result<Response, StatusCode> {
+    serve_subtr_actor_asset(&format!("draco/{asset_path}"), &headers)
 }
 
-fn serve_subtr_actor_asset(path: &str) -> Result<impl IntoResponse, StatusCode> {
+fn serve_subtr_actor_asset(
+    path: &str,
+    request_headers: &HeaderMap,
+) -> Result<Response, StatusCode> {
     let asset = subtr_actor_asset(path).ok_or(StatusCode::NOT_FOUND)?;
+    let cache_control = subtr_actor_asset_cache_control(path);
 
-    Ok(([(CONTENT_TYPE, asset.content_type)], asset.bytes))
+    if if_none_match_matches(request_headers, asset.etag) {
+        return Ok((
+            StatusCode::NOT_MODIFIED,
+            [(CACHE_CONTROL, cache_control), (ETAG, asset.etag)],
+        )
+            .into_response());
+    }
+
+    Ok((
+        [
+            (CONTENT_TYPE, asset.content_type),
+            (CACHE_CONTROL, cache_control),
+            (ETAG, asset.etag),
+        ],
+        asset.bytes,
+    )
+        .into_response())
+}
+
+fn subtr_actor_asset_cache_control(path: &str) -> &'static str {
+    let app_relative_path = path
+        .strip_prefix("stats/")
+        .or_else(|| path.strip_prefix("review/"))
+        .unwrap_or(path);
+    if app_relative_path.starts_with("assets/") {
+        IMMUTABLE_ASSET_CACHE_CONTROL
+    } else {
+        REVALIDATED_ASSET_CACHE_CONTROL
+    }
+}
+
+fn if_none_match_matches(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get_all(IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .any(|candidate| {
+            candidate == "*" || candidate.strip_prefix("W/").unwrap_or(candidate) == etag
+        })
 }
 
 #[derive(Debug)]
@@ -2731,6 +2790,7 @@ fn strip_encoding_extension(name: &str, encoding: StorageEncoding) -> &str {
 
 struct StaticAsset {
     content_type: &'static str,
+    etag: &'static str,
     bytes: &'static [u8],
 }
 
