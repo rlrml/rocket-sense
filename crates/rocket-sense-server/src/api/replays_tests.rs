@@ -1,6 +1,11 @@
 use super::*;
 use super::{accumulate_group_boost_tracks, boost_band_index, GroupBoostAccumulator};
+use axum::{
+    body::{to_bytes, Body},
+    http::{header::ETAG, Request},
+};
 use std::collections::HashMap as TestHashMap;
+use tower::ServiceExt;
 
 #[test]
 fn ballchasing_storage_read_errors_have_upstream_statuses() {
@@ -83,6 +88,151 @@ fn public_router_builds_without_route_conflicts() {
     // SPA index routes and the root `/models` + `/draco` aliases. Building the
     // router asserts none of these conflict (axum panics on conflict).
     let _ = public_router();
+}
+
+fn subtr_actor_cache_test_router() -> Router {
+    Router::new()
+        .route("/subtr-actor/", get(subtr_actor_viewer))
+        .route("/subtr-actor/stats/", get(subtr_actor_stats))
+        .route("/subtr-actor/review/", get(subtr_actor_review))
+        .route("/subtr-actor/{*asset_path}", get(subtr_actor_app_asset))
+        .route("/models/{*asset_path}", get(subtr_actor_root_model_asset))
+        .route("/draco/{*asset_path}", get(subtr_actor_root_draco_asset))
+}
+
+#[tokio::test]
+async fn subtr_actor_indexes_are_revalidated_on_every_visit() {
+    for path in [
+        "/subtr-actor/",
+        "/subtr-actor/stats/",
+        "/subtr-actor/review/",
+    ] {
+        let response = subtr_actor_cache_test_router()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(response.headers()[CACHE_CONTROL], "no-cache", "{path}");
+        assert_eq!(
+            response.headers()[CONTENT_TYPE],
+            "text/html; charset=utf-8",
+            "{path}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn subtr_actor_hashed_bundles_are_immutable() {
+    for (index, prefix) in [
+        (SUBTR_ACTOR_VIEWER_INDEX, ""),
+        (SUBTR_ACTOR_STATS_INDEX, "stats/"),
+        (SUBTR_ACTOR_REVIEW_INDEX, "review/"),
+    ] {
+        let asset_path = asset_paths(index)
+            .into_iter()
+            .next()
+            .expect("viewer index should reference a hashed asset");
+        let path = format!("/subtr-actor/{prefix}assets/{asset_path}");
+        let response = subtr_actor_cache_test_router()
+            .oneshot(Request::get(&path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response.headers()[CACHE_CONTROL],
+            IMMUTABLE_ASSET_CACHE_CONTROL,
+            "{path}"
+        );
+        assert_strong_sha256_etag(response.headers().get(ETAG).unwrap().to_str().unwrap());
+    }
+}
+
+#[tokio::test]
+async fn subtr_actor_stable_assets_use_etag_revalidation() {
+    for path in [
+        "/subtr-actor/models/stadium/stadium.glb",
+        "/subtr-actor/stats/models/stadium/stadium.glb",
+        "/subtr-actor/review/models/stadium/stadium.glb",
+        "/subtr-actor/skyboxes/PlanetaryEarth4k.hdr",
+        "/subtr-actor/draco/draco_decoder.js",
+        "/models/stadium/stadium.glb",
+        "/draco/draco_decoder.js",
+    ] {
+        let response = subtr_actor_cache_test_router()
+            .oneshot(Request::get(path).body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response.headers()[CACHE_CONTROL],
+            REVALIDATED_ASSET_CACHE_CONTROL,
+            "{path}"
+        );
+        assert_strong_sha256_etag(response.headers().get(ETAG).unwrap().to_str().unwrap());
+    }
+}
+
+#[tokio::test]
+async fn subtr_actor_matching_etag_returns_empty_not_modified_response() {
+    let path = "/models/stadium/stadium.glb";
+    let initial = subtr_actor_cache_test_router()
+        .oneshot(Request::get(path).body(Body::empty()).unwrap())
+        .await
+        .unwrap();
+    let etag = initial.headers()[ETAG].clone();
+
+    let response = subtr_actor_cache_test_router()
+        .oneshot(
+            Request::get(path)
+                .header(IF_NONE_MATCH, etag.clone())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::NOT_MODIFIED);
+    assert_eq!(
+        response.headers()[CACHE_CONTROL],
+        REVALIDATED_ASSET_CACHE_CONTROL
+    );
+    assert_eq!(response.headers()[ETAG], etag);
+    assert!(to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn subtr_actor_mismatched_etag_returns_current_asset() {
+    let path = "/models/stadium/stadium.glb";
+    let response = subtr_actor_cache_test_router()
+        .oneshot(
+            Request::get(path)
+                .header(IF_NONE_MATCH, "\"stale\"")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert!(!to_bytes(response.into_body(), usize::MAX)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+fn assert_strong_sha256_etag(etag: &str) {
+    assert_eq!(etag.len(), 66, "expected a quoted SHA-256 ETag: {etag}");
+    assert!(etag.starts_with('"') && etag.ends_with('"'), "{etag}");
+    assert!(
+        etag[1..65].bytes().all(|byte| byte.is_ascii_hexdigit()),
+        "{etag}"
+    );
 }
 
 #[test]
