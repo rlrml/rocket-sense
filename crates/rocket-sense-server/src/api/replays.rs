@@ -2498,7 +2498,11 @@ impl ReplayFilters {
 }
 
 struct PlayerIdFilter {
-    platform: String,
+    /// Every stored platform value the requested platform can appear as. Rocket
+    /// League writes the same account under more than one name (an Epic account
+    /// is `epic` or `psynet` depending on the replay), so a filter has to match
+    /// the whole alias set rather than the spelling the caller happened to use.
+    platforms: Vec<String>,
     player_id: String,
 }
 
@@ -2672,9 +2676,21 @@ fn parse_player_id_filter(value: &str) -> Result<PlayerIdFilter, ApiError> {
     }
 
     Ok(PlayerIdFilter {
-        platform,
+        platforms: platform_aliases(&platform),
         player_id,
     })
+}
+
+/// Stored `replay_players.platform` spellings that mean the same platform.
+/// Unknown platforms match themselves so callers can filter on values this
+/// list hasn't caught up with yet.
+fn platform_aliases(platform: &str) -> Vec<String> {
+    let aliases: &[&str] = match platform {
+        "epic" | "psynet" => &["epic", "psynet"],
+        "playstation" | "psn" | "ps4" | "ps5" => &["playstation", "psn", "ps4", "ps5"],
+        _ => return vec![platform.to_owned()],
+    };
+    aliases.iter().map(|alias| (*alias).to_owned()).collect()
 }
 
 fn normalize_terms(terms: Vec<String>) -> Vec<String> {
@@ -4293,9 +4309,9 @@ fn append_replay_filters<'args>(
 
     for player_id in &filters.player_ids {
         builder
-            .push(" AND EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = r.id AND replay_players.platform = ")
-            .push_bind(&player_id.platform)
-            .push(" AND replay_players.platform_player_id = ")
+            .push(" AND EXISTS (SELECT 1 FROM replay_players WHERE replay_players.replay_id = r.id AND replay_players.platform = ANY(")
+            .push_bind(&player_id.platforms)
+            .push(") AND replay_players.platform_player_id = ")
             .push_bind(&player_id.player_id)
             .push(")");
     }
@@ -4322,6 +4338,15 @@ fn append_replay_filters<'args>(
     }
 
     if filters.min_rank_tier.is_some() || filters.max_rank_tier.is_some() {
+        // A rank range means "every player in the replay sits inside the
+        // window", not "at least one does". Two clauses together express that:
+        //   1. EXISTS a ranked player inside the window — keeps replays with no
+        //      submitted ranks excluded (as before) and guarantees the replay
+        //      has real rank evidence rather than matching vacuously.
+        //   2. NOT EXISTS a ranked player outside the window.
+        // Fallback ranks stay display-only (see find_replays_query); this matches
+        // the directly submitted `rank_tier`, so a player with no submitted rank
+        // on this replay neither satisfies nor breaks the range.
         builder.push(
             " AND EXISTS (SELECT 1 FROM replay_players rank_player WHERE rank_player.replay_id = r.id AND rank_player.rank_tier IS NOT NULL",
         );
@@ -4336,6 +4361,23 @@ fn append_replay_filters<'args>(
                 .push_bind(max_rank_tier);
         }
         builder.push(")");
+
+        // FALSE anchors the OR chain so it reads correctly whether one bound or
+        // both are present (the outer `if` guarantees at least one).
+        builder.push(
+            " AND NOT EXISTS (SELECT 1 FROM replay_players rank_player WHERE rank_player.replay_id = r.id AND rank_player.rank_tier IS NOT NULL AND (FALSE",
+        );
+        if let Some(min_rank_tier) = filters.min_rank_tier {
+            builder
+                .push(" OR rank_player.rank_tier < ")
+                .push_bind(min_rank_tier);
+        }
+        if let Some(max_rank_tier) = filters.max_rank_tier {
+            builder
+                .push(" OR rank_player.rank_tier > ")
+                .push_bind(max_rank_tier);
+        }
+        builder.push("))");
     }
 
     if let Some(pro) = filters.pro {

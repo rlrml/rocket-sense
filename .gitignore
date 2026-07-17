@@ -4,11 +4,13 @@
 /web/*.tsbuildinfo
 /web/vite.config.d.ts
 /web/vite.config.js
+/.vite/
 /.direnv/
 /.envrc.local
 /.pre-commit-config.yaml
 /.playwright-cli/
 /web/.playwright-cli/
+.claude/
 result
 *.replay
 .DS_Store

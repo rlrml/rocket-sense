@@ -142,7 +142,7 @@ import { LocalReprocessProgressBar } from "./reprocessProgress";
 import { RankTrendsPage } from "./rankTrends";
 import {
   buildSeasonOptions,
-  formatSeasonCode,
+  compareSeasonCodes,
   formatSeasonLabel,
   FREE_TO_PLAY_SEASON_COUNT,
 } from "./seasons";
@@ -176,7 +176,13 @@ import { completedStatGroups, eventTypesForGroup, statGroupById } from "./stats/
 import type { StatGroup } from "./stats/registry";
 import { StalenessChip } from "./staleness";
 import { FavoritesSidebar, LogoFavoritesMenu, PlayerFavoriteButton } from "./favorites";
-import { ballchasingPlayerUrl, PlatformIcon, rlTrackerPlayerUrl } from "./platform";
+import {
+  ballchasingPlayerUrl,
+  normalizePlatform,
+  PlatformIcon,
+  platformLabel,
+  rlTrackerPlayerUrl,
+} from "./platform";
 import { ProviderLoginIcon, providerLabel } from "./providerIcons";
 import { Chip } from "./chip";
 import type { ChipTone } from "./chip";
@@ -568,7 +574,7 @@ export function App() {
 }
 
 function PreviewPlayerWarmupIndicator({ status }: { status: PreviewPlayerWarmupStatus }) {
-  const Icon =
+  const StateIcon =
     status === "ready"
       ? Check
       : status === "warming-runtime" || status === "warming-player" || status === "scheduled"
@@ -605,22 +611,23 @@ function PreviewPlayerWarmupIndicator({ status }: { status: PreviewPlayerWarmupS
                 ? "Preview player warmup failed; opening a preview will retry the normal load path."
                 : "Preview player warmup has not started yet.";
 
+  const spinning = status === "warming-runtime" || status === "warming-player";
+
   return (
     <div
       className={`preview-player-warmup preview-player-warmup-${status}`}
       title={title}
+      role="status"
       aria-label={label}
       aria-live="polite"
     >
-      <Play size={17} className="preview-player-warmup-kind" aria-hidden="true" />
-      <span className="preview-player-warmup-state" aria-hidden="true">
-        <Icon
-          size={10}
-          className={
-            status === "warming-runtime" || status === "warming-player" ? "spin" : undefined
-          }
-        />
+      <span className="preview-player-warmup-glyph" aria-hidden="true">
+        <Play size={16} className="preview-player-warmup-kind" />
+        <span className="preview-player-warmup-state">
+          <StateIcon size={9} className={spinning ? "spin" : undefined} />
+        </span>
       </span>
+      <span className="preview-player-warmup-label">{label}</span>
     </div>
   );
 }
@@ -685,13 +692,42 @@ function ReplayListPage() {
   const location = useLocation();
   const navigate = useNavigate();
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  // The list always pages by `replayPageSize`, so an old link's `offset` can be
+  // off a page boundary (e.g. `count=25&offset=25`). Snap it down to the nearest
+  // multiple of the page size: the request, the page number, and the range all
+  // read from this one value, so they can't drift apart, and the rows the reader
+  // was looking at stay on the now-larger page.
+  const offset = useMemo(() => {
+    const raw = positiveIntegerParam(searchParams, "offset", 0);
+    return raw - (raw % replayPageSize);
+  }, [searchParams]);
+  // The list always pages by `replayPageSize`, so the request pins `count` to it
+  // rather than trusting a stale one left in the URL by an older link.
+  const listParams = useMemo(() => {
+    const params = new URLSearchParams(searchParams);
+    params.set("count", String(replayPageSize));
+    if (offset > 0) {
+      params.set("offset", String(offset));
+    } else {
+      params.delete("offset");
+    }
+    return params;
+  }, [searchParams, offset]);
   const activeFilters = useMemo(() => replayFiltersFromParams(searchParams), [searchParams]);
   const [filters, setFilters] = useState(activeFilters);
+  const [searchScope, setSearchScope] = useState<SearchScopeId>("all");
+  const [searchDraft, setSearchDraft] = useState("");
   const [replays, setReplays] = useState<ReplayResponse[]>([]);
   const [total, setTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(
+    null,
+  );
+  // Kept apart from `error`: reloading the list clears `error`, and a partial
+  // upload failure has to outlive the refresh it triggers.
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [reloadNonce, setReloadNonce] = useState(0);
   const filterOptions = useReplayFilterOptions();
   const currentUser = useCurrentUser();
   const { groups, refresh: refreshGroups } = useReplayGroups(currentUser != null);
@@ -750,7 +786,7 @@ function ReplayListPage() {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    listReplays(searchParams)
+    listReplays(listParams)
       .then((response) => {
         if (!cancelled) {
           setReplays(response.replays);
@@ -766,23 +802,34 @@ function ReplayListPage() {
     return () => {
       cancelled = true;
     };
-  }, [searchParams]);
+  }, [listParams, reloadNonce]);
 
+  function applyFilters(next: ReplayFilterForm) {
+    setFilters(next);
+    navigateWithReplayParams(navigate, location.search, replayFiltersToParams(next));
+  }
+
+  /* Submitting commits whatever is in the box as a new term, so a term never
+     sits pending in the chip row while the list shows something else. An empty
+     box just re-runs the filters already set. */
   function submitSearch(event: FormEvent) {
     event.preventDefault();
-    navigateWithReplayParams(navigate, location.search, replayFiltersToParams(filters));
+    const term = searchTermForScope(searchScope, searchDraft.trim());
+    setSearchDraft("");
+    applyFilters({ ...filters, terms: addSearchTerm(filters.terms, term) });
+  }
+
+  function removeSearchTerm(term: SearchTerm) {
+    applyFilters({
+      ...filters,
+      terms: filters.terms.filter((existing) => !sameSearchTerm(existing, term)),
+    });
   }
 
   function clearFilters() {
     setFilters(defaultReplayFilters());
+    setSearchDraft("");
     navigateWithReplayParams(navigate, location.search, new URLSearchParams());
-  }
-
-  function updatePageSize(count: string) {
-    const params = new URLSearchParams(location.search);
-    params.set("count", count);
-    params.delete("offset");
-    navigate(`/replays?${params.toString()}`);
   }
 
   function goToOffset(offset: number) {
@@ -793,6 +840,15 @@ function ReplayListPage() {
       params.delete("offset");
     }
     navigate(`/replays?${params.toString()}`);
+  }
+
+  // Paging from the copy of the controls below the list would otherwise leave
+  // the reader at the foot of a list that is now a different one. Jump rather
+  // than smooth-scroll: the list is thousands of pixels tall, and animating the
+  // whole way just makes the wait visible.
+  function goToOffsetFromListFoot(offset: number) {
+    goToOffset(offset);
+    window.scrollTo({ top: 0 });
   }
 
   function updateReplayOrder(order: ReplayOrder) {
@@ -812,60 +868,133 @@ function ReplayListPage() {
     navigate(`/replays?${params.toString()}`);
   }
 
-  async function onUpload(file: File | undefined) {
-    if (!file) return;
-    setUploading(true);
-    setError(null);
-    try {
-      const replay = await uploadReplay(file);
-      navigate(`/replays/${replay.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Upload failed");
-    } finally {
-      setUploading(false);
+  async function onUpload(files: File[]) {
+    if (files.length === 0) return;
+    setUploadError(null);
+    const uploaded: ReplayResponse[] = [];
+    const failures: string[] = [];
+    let authFailures = 0;
+    for (const [index, file] of files.entries()) {
+      setUploadProgress({ current: index + 1, total: files.length });
+      try {
+        uploaded.push(await uploadReplay(file));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "upload failed";
+        if (message.includes("missing bearer token")) {
+          authFailures += 1;
+        }
+        failures.push(`${file.name}: ${message}`);
+      }
+    }
+    setUploadProgress(null);
+    if (authFailures > 0 && authFailures === failures.length) {
+      setUploadError("Log in to upload replays");
+    } else if (failures.length === 1) {
+      setUploadError(failures[0]);
+    } else if (failures.length > 1) {
+      const shown = failures.slice(0, 3).join("; ");
+      setUploadError(
+        `${failures.length} of ${files.length} uploads failed — ${shown}` +
+          (failures.length > 3 ? "; …" : ""),
+      );
+    }
+    if (files.length === 1 && uploaded.length === 1) {
+      navigate(`/replays/${uploaded[0].id}`);
+    } else if (uploaded.length > 0) {
+      setReloadNonce((nonce) => nonce + 1);
     }
   }
 
-  const offset = positiveIntegerParam(searchParams, "offset", 0);
-  const pageSize = replayPageSize(searchParams);
-  const start = total === 0 || replays.length === 0 ? 0 : offset + 1;
-  const end = offset + replays.length;
-  const currentPage = Math.floor(offset / pageSize) + 1;
-  const totalPages = total != null && total > 0 ? Math.ceil(total / pageSize) : 1;
-  const previousOffset = Math.max(0, offset - pageSize);
-  const nextOffset = offset + pageSize;
+  // The whole replay card is a click target for opening the replay, but any
+  // nested interactive element (player-name links, the select checkbox, the
+  // uploader pill, platform icons, status controls) keeps its own behaviour.
+  function onCardClick(event: ReactMouseEvent<HTMLElement>, replayId: string) {
+    if (
+      event.defaultPrevented ||
+      event.button !== 0 ||
+      event.metaKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.shiftKey
+    ) {
+      return;
+    }
+    if (
+      (event.target as HTMLElement).closest(
+        "a, button, input, label, select, textarea, [role='button'], [role='link']," +
+          // Modals (e.g. the staleness detail dialog) render inside the card, so
+          // clicks there must not fall through to opening the replay.
+          " [role='dialog'], .modal-backdrop",
+      )
+    ) {
+      return;
+    }
+    // A click that ended a text selection shouldn't navigate.
+    if (window.getSelection()?.toString()) {
+      return;
+    }
+    event.preventDefault();
+    void warmPreviewPlayerForReplay(replayId).catch((error: unknown) => {
+      console.debug("Replay player pre-navigation warmup failed:", error);
+    });
+    navigate(`/replays/${encodeURIComponent(replayId)}`);
+  }
+
+  const uploading = uploadProgress != null;
+  const uploadLabel = !uploadProgress
+    ? "Upload"
+    : uploadProgress.total > 1
+      ? `Uploading ${uploadProgress.current}/${uploadProgress.total}`
+      : "Uploading";
+
+  // Derive the range from the offset and page size, not the rows on screen:
+  // while a page loads the previous page's rows are still in `replays`, and
+  // counting them would flash a stale span (e.g. "1-50" when paging back from a
+  // short last page to a full first page). Once the total is known the page end
+  // is `offset + pageSize`, clamped to the total for the final, partial page.
+  const start = total === 0 ? 0 : offset + 1;
+  const end = total == null ? offset + replays.length : Math.min(offset + replayPageSize, total);
+  const currentPage = Math.floor(offset / replayPageSize) + 1;
+  const totalPages = total != null && total > 0 ? Math.ceil(total / replayPageSize) : 1;
+  const previousOffset = Math.max(0, offset - replayPageSize);
+  const nextOffset = offset + replayPageSize;
   const canPageBackward = offset > 0;
-  const canPageForward = total == null ? replays.length === pageSize : nextOffset < total;
+  const canPageForward = total == null ? replays.length === replayPageSize : nextOffset < total;
+  // Paging keeps the prior page and total on screen until the next response
+  // lands, so the readout and page count can stay put; only the very first load,
+  // when there's nothing to show yet, falls back to the spinner.
+  const showLoadingState = loading && replays.length === 0;
+  // Shared by the copies of the controls above and below the list; the top one
+  // adds the sort control on top of these.
+  const listControlsProps = {
+    readout: showLoadingState
+      ? "Loading replays"
+      : total == null
+        ? `${replays.length.toLocaleString()} replays`
+        : `${start.toLocaleString()}-${end.toLocaleString()} of ${total.toLocaleString()} replays`,
+    showLoadingState,
+    loading,
+    currentPage,
+    totalPages,
+    canPageBackward,
+    canPageForward,
+    previousOffset,
+    nextOffset,
+    onGoToOffset: goToOffset,
+  };
   const activeFilterChips = replayFilterChips(searchParams);
-  const visiblePageSizeOptions = pageSizeOptions.includes(pageSize)
-    ? pageSizeOptions
-    : [...pageSizeOptions, pageSize].sort((a, b) => a - b);
-  const mapOptions = replayOptionChoices(filters.map, [
+  const mapOptions = mapOptionChoices(filters.map, [
     ...filterOptions.maps,
     ...mapOptionsFromReplays(replays),
   ]);
-  const seasonOptions = replayOptionChoices(
-    filters.season,
-    [...filterOptions.seasons, ...seasonOptionsFromReplays(replays)],
-    formatSeasonLabel,
-  );
+  const seasonOptions = seasonOptionChoices(filters.season, [
+    ...filterOptions.seasons,
+    ...seasonOptionsFromReplays(replays),
+  ]);
   const replayOrder = replayOrderFromParams(searchParams);
   const activeGroupId = searchParams.get("group");
-  const replayFilterFields: FilterFieldConfig[] = [
-    {
-      id: "player-names",
-      label: "Player names",
-      value: filters.playerNames,
-      placeholder: "comma separated",
-      onChange: (value) => setFilters({ ...filters, playerNames: value }),
-    },
-    {
-      id: "player-ids",
-      label: "Player ids",
-      value: filters.playerIds,
-      placeholder: "platform:id",
-      onChange: (value) => setFilters({ ...filters, playerIds: value }),
-    },
+  const activeScope = searchScopes.find((scope) => scope.id === searchScope) ?? searchScopes[0];
+  const replayFilterFields: FilterGridField[] = [
     {
       id: "playlist",
       label: "Playlist",
@@ -879,10 +1008,7 @@ function ReplayListPage() {
       value: filters.map,
       options: [
         { value: "", label: "Any" },
-        ...mapOptions.map((option) => ({
-          value: option.value,
-          label: optionLabel({ ...option, label: mapDisplayName(option.value) }),
-        })),
+        ...mapOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
       ],
       onChange: (value) => setFilters({ ...filters, map: value }),
     },
@@ -892,7 +1018,10 @@ function ReplayListPage() {
       value: filters.season,
       options: [
         { value: "", label: "Any" },
-        ...seasonOptions.map((option) => ({ value: option.value, label: optionLabel(option) })),
+        ...seasonOptions.map((option) => ({
+          value: option.value,
+          label: seasonOptionLabel(option),
+        })),
       ],
       onChange: (value) => setFilters({ ...filters, season: value }),
     },
@@ -911,46 +1040,44 @@ function ReplayListPage() {
       onChange: (value) => setFilters({ ...filters, pro: value as ReplayProFilter }),
     },
     {
-      id: "min-rank",
-      label: "Min rank",
-      value: filters.minRank,
+      id: "rank",
       options: rankFilterOptions,
-      onChange: (value) => setFilters({ ...filters, minRank: value }),
+      from: {
+        label: "Min rank",
+        value: filters.minRank,
+        onChange: (value) => setFilters({ ...filters, minRank: value }),
+      },
+      to: {
+        label: "Max rank",
+        value: filters.maxRank,
+        onChange: (value) => setFilters({ ...filters, maxRank: value }),
+      },
     },
     {
-      id: "max-rank",
-      label: "Max rank",
-      value: filters.maxRank,
-      options: rankFilterOptions,
-      onChange: (value) => setFilters({ ...filters, maxRank: value }),
+      id: "played",
+      from: {
+        label: "Played after",
+        value: filters.replayDateAfter,
+        onChange: (value) => setFilters({ ...filters, replayDateAfter: value }),
+      },
+      to: {
+        label: "Played before",
+        value: filters.replayDateBefore,
+        onChange: (value) => setFilters({ ...filters, replayDateBefore: value }),
+      },
     },
     {
-      id: "played-after",
-      label: "Played after",
-      value: filters.replayDateAfter,
-      type: "date",
-      onChange: (value) => setFilters({ ...filters, replayDateAfter: value }),
-    },
-    {
-      id: "played-before",
-      label: "Played before",
-      value: filters.replayDateBefore,
-      type: "date",
-      onChange: (value) => setFilters({ ...filters, replayDateBefore: value }),
-    },
-    {
-      id: "uploaded-after",
-      label: "Uploaded after",
-      value: filters.createdAfter,
-      type: "date",
-      onChange: (value) => setFilters({ ...filters, createdAfter: value }),
-    },
-    {
-      id: "uploaded-before",
-      label: "Uploaded before",
-      value: filters.createdBefore,
-      type: "date",
-      onChange: (value) => setFilters({ ...filters, createdBefore: value }),
+      id: "uploaded",
+      from: {
+        label: "Uploaded after",
+        value: filters.createdAfter,
+        onChange: (value) => setFilters({ ...filters, createdAfter: value }),
+      },
+      to: {
+        label: "Uploaded before",
+        value: filters.createdBefore,
+        onChange: (value) => setFilters({ ...filters, createdBefore: value }),
+      },
     },
   ];
 
@@ -965,12 +1092,19 @@ function ReplayListPage() {
           </div>
           <label className="upload-button">
             <Upload size={17} />
-            <span>{uploading ? "Uploading" : "Upload"}</span>
+            <span>{uploadLabel}</span>
             <input
               type="file"
               accept=".replay"
+              multiple
               disabled={uploading}
-              onChange={(event) => void onUpload(event.currentTarget.files?.[0])}
+              onChange={(event) => {
+                const input = event.currentTarget;
+                const files = Array.from(input.files ?? []);
+                // Let the same files be picked again after the run finishes.
+                input.value = "";
+                void onUpload(files);
+              }}
             />
           </label>
           {activeGroupId ? (
@@ -985,89 +1119,71 @@ function ReplayListPage() {
         </header>
 
         <form className="search-filter-panel replay-search-panel" onSubmit={submitSearch}>
-          <div className="replay-search-row">
-            <label className="search-box">
-              <Search size={17} />
-              <input
-                value={filters.q}
-                onChange={(event) => setFilters({ ...filters, q: event.currentTarget.value })}
-                placeholder="Search filename, player, map, match GUID, SHA"
-              />
-            </label>
-            <button type="submit">
-              <Search size={16} />
-              Search
-            </button>
-            <button type="button" className="secondary-button" onClick={clearFilters}>
-              <RotateCcw size={16} />
-              Reset
-            </button>
+          {/* Search and its active terms share a shaded zone, so the filters
+              below read as a separate step rather than more of the same form. */}
+          <div className="search-zone">
+            <div className="replay-search-row">
+              <div className="scoped-search">
+                <select
+                  className="search-scope"
+                  value={activeScope.id}
+                  aria-label="Search by"
+                  onChange={(event) => setSearchScope(event.currentTarget.value as SearchScopeId)}
+                >
+                  {searchScopes.map((scope) => (
+                    <option key={scope.id} value={scope.id}>
+                      {scope.label}
+                    </option>
+                  ))}
+                </select>
+                <label className="search-box">
+                  <Search size={17} />
+                  <input
+                    value={searchDraft}
+                    aria-label={`Search by ${activeScope.label.toLowerCase()}`}
+                    onChange={(event) => setSearchDraft(event.currentTarget.value)}
+                    placeholder={activeScope.placeholder}
+                  />
+                </label>
+              </div>
+              <button type="submit">
+                <Search size={16} />
+                Search
+              </button>
+              <button type="button" className="secondary-button" onClick={clearFilters}>
+                <RotateCcw size={16} />
+                Clear all
+              </button>
+            </div>
+
+            {filters.terms.length > 0 ? (
+              <div className="search-terms" aria-label="Active search terms">
+                {filters.terms.map((term) => (
+                  <span className="chip search-term" key={searchTermKey(term)}>
+                    <span className="search-term-scope">{searchTermLabel(term)}</span>
+                    <span className="search-term-value">{term.value}</span>
+                    <button
+                      type="button"
+                      className="search-term-remove"
+                      aria-label={`Remove ${searchTermLabel(term).toLowerCase()} ${term.value}`}
+                      onClick={() => removeSearchTerm(term)}
+                    >
+                      <X size={13} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <FilterGrid fields={replayFilterFields} />
         </form>
 
-        <div className="replay-list-controls">
-          <div className="results-readout">
-            <SlidersHorizontal size={16} />
-            <span>
-              {loading
-                ? "Loading replays"
-                : total == null
-                  ? `${replays.length.toLocaleString()} replays`
-                  : `${start.toLocaleString()}-${end.toLocaleString()} of ${total.toLocaleString()} replays`}
-            </span>
-          </div>
-          <div className="pagination-controls">
-            <label>
-              Order
-              <select
-                value={replayOrder}
-                onChange={(event) => updateReplayOrder(event.currentTarget.value as ReplayOrder)}
-              >
-                {replayOrderOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              Page size
-              <select
-                value={String(pageSize)}
-                onChange={(event) => updatePageSize(event.currentTarget.value)}
-              >
-                {visiblePageSizeOptions.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="icon-button"
-              title="Previous page"
-              disabled={!canPageBackward || loading}
-              onClick={() => goToOffset(previousOffset)}
-            >
-              <ChevronLeft size={17} />
-            </button>
-            <span className="page-count">
-              {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
-            </span>
-            <button
-              type="button"
-              className="icon-button"
-              title="Next page"
-              disabled={!canPageForward || loading}
-              onClick={() => goToOffset(nextOffset)}
-            >
-              <ChevronRight size={17} />
-            </button>
-          </div>
-        </div>
+        <ReplayListControls
+          {...listControlsProps}
+          order={replayOrder}
+          onOrderChange={updateReplayOrder}
+        />
 
         {activeFilterChips.length > 0 ? (
           <div className="filter-chips" aria-label="Active filters">
@@ -1075,6 +1191,10 @@ function ReplayListPage() {
               <span key={chip}>{chip}</span>
             ))}
           </div>
+        ) : null}
+
+        {uploadError ? (
+          <ErrorToast message={uploadError} onDismiss={() => setUploadError(null)} />
         ) : null}
 
         <StatusLine loading={false} error={error} />
@@ -1097,8 +1217,9 @@ function ReplayListPage() {
         <div className="replay-card-list">
           {replays.map((replay) => (
             <article
-              className={`replay-card${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
+              className={`replay-card replay-card-clickable${selectedIds.has(replay.id) ? " replay-card-selected" : ""}`}
               key={replay.id}
+              onClick={(event) => onCardClick(event, replay.id)}
             >
               <header className="replay-card-header">
                 <div className="replay-card-heading">
@@ -1123,7 +1244,7 @@ function ReplayListPage() {
                   <GameTypeBadges metadata={replay.playlist_metadata} fallback={replay.playlist} />
                   {replay.summary.season ? (
                     <Chip tone="slate" title="Rocket League season">
-                      {formatSeasonCode(replay.summary.season)}
+                      {formatSeasonLabel(replay.summary.season)}
                     </Chip>
                   ) : null}
                   <Chip>{formatDate(replay.replay_date || replay.created_at)}</Chip>
@@ -1134,13 +1255,121 @@ function ReplayListPage() {
               <ReplayTeams replay={replay} />
             </article>
           ))}
+          {loading && replays.length === 0 ? (
+            <div className="replay-list-loading" role="status">
+              <RefreshCw size={24} className="spin" />
+              <span>Loading replays</span>
+            </div>
+          ) : null}
           {!loading && replays.length === 0 ? (
             <div className="status-line">No replays found.</div>
           ) : null}
         </div>
+
+        {replays.length > 0 ? (
+          <ReplayListControls {...listControlsProps} onGoToOffset={goToOffsetFromListFoot} />
+        ) : null}
       </section>
     </div>
   );
+}
+
+// The readout and pager, repeated under the list so a reader who has scrolled
+// to the bottom can page on without scrolling back up. Only the top copy takes
+// a sort control: it belongs with the filters it sits among, and the list it
+// reorders is below it.
+function ReplayListControls({
+  readout,
+  showLoadingState,
+  loading,
+  currentPage,
+  totalPages,
+  canPageBackward,
+  canPageForward,
+  previousOffset,
+  nextOffset,
+  onGoToOffset,
+  order,
+  onOrderChange,
+}: ReplayListControlsProps) {
+  return (
+    <div className="replay-list-controls">
+      <div className="results-readout">
+        {showLoadingState ? (
+          <RefreshCw size={16} className="spin" role="status" aria-label={readout} />
+        ) : (
+          <>
+            <SlidersHorizontal size={16} />
+            <span>{readout}</span>
+          </>
+        )}
+      </div>
+      <div className="pagination-controls">
+        {order && onOrderChange ? (
+          <label>
+            Sort by
+            <select
+              value={order}
+              onChange={(event) => onOrderChange(event.currentTarget.value as ReplayOrder)}
+            >
+              {replayOrderOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <span className="pagination-label">Page</span>
+        <button
+          type="button"
+          className="icon-button"
+          title="Previous page"
+          disabled={!canPageBackward || loading}
+          onClick={() => onGoToOffset(previousOffset)}
+        >
+          <ChevronLeft size={17} />
+        </button>
+        {showLoadingState ? (
+          <span
+            className="page-count page-count-loading"
+            role="status"
+            aria-label="Loading replays"
+          >
+            <RefreshCw size={15} className="spin" />
+          </span>
+        ) : (
+          <span className="page-count" aria-label={`Page ${currentPage} of ${totalPages}`}>
+            {currentPage.toLocaleString()} / {totalPages.toLocaleString()}
+          </span>
+        )}
+        <button
+          type="button"
+          className="icon-button"
+          title="Next page"
+          disabled={!canPageForward || loading}
+          onClick={() => onGoToOffset(nextOffset)}
+        >
+          <ChevronRight size={17} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+interface ReplayListControlsProps {
+  readout: string;
+  showLoadingState: boolean;
+  loading: boolean;
+  currentPage: number;
+  totalPages: number;
+  canPageBackward: boolean;
+  canPageForward: boolean;
+  previousOffset: number;
+  nextOffset: number;
+  onGoToOffset: (offset: number) => void;
+  order?: ReplayOrder;
+  onOrderChange?: (order: ReplayOrder) => void;
 }
 
 type ReplayProFilter = "" | "true" | "false";
@@ -1151,10 +1380,71 @@ interface ReplayListFilterOptions {
   seasons: ReplayFilterOption[];
 }
 
+/* One "search by X for Y" clause. Terms stack, and the API ANDs them: two
+   player terms mean replays containing both players, not either. */
+type SearchTerm =
+  | { kind: "all"; value: string }
+  | { kind: "player-name"; value: string }
+  | { kind: "player-id"; platform: string; value: string };
+
+/* The dropdown only offers free-text fields. Everything enumerable (map,
+   playlist, season, rank, …) is a filter-grid select instead, where the choices
+   and their counts can be shown rather than guessed at. */
+type SearchScopeId = "all" | "player-name" | KnownIdPlatform;
+type KnownIdPlatform = "steam" | "epic" | "playstation" | "xbox" | "switch";
+
+const searchScopes: Array<{ id: SearchScopeId; label: string; placeholder: string }> = [
+  { id: "all", label: "All fields", placeholder: "Filename, player, map, match GUID, SHA" },
+  { id: "player-name", label: "Player name", placeholder: "Display name, e.g. Squishy" },
+  { id: "steam", label: "Steam ID", placeholder: "SteamID64, e.g. 76561198…" },
+  { id: "epic", label: "Epic Games ID", placeholder: "Epic account id" },
+  { id: "playstation", label: "PlayStation ID", placeholder: "PSN online id" },
+  { id: "xbox", label: "Xbox ID", placeholder: "Xbox user id" },
+  { id: "switch", label: "Switch ID", placeholder: "Switch online id" },
+];
+
+function searchTermForScope(scope: SearchScopeId, value: string): SearchTerm {
+  if (scope === "all") return { kind: "all", value };
+  if (scope === "player-name") return { kind: "player-name", value };
+  return { kind: "player-id", platform: scope, value };
+}
+
+/* A chip has to name the same scope the dropdown does, and a URL can spell a
+   platform a way the dropdown doesn't (`psynet` for Epic, `ps4` for
+   PlayStation), so normalize before matching. Platforms with no scope fall back
+   to their own label. */
+function searchTermLabel(term: SearchTerm): string {
+  if (term.kind === "all") return "All fields";
+  if (term.kind === "player-name") return "Player name";
+  const scope = searchScopes.find((candidate) => candidate.id === normalizePlatform(term.platform));
+  return scope ? scope.label : `${platformLabel(term.platform)} ID`;
+}
+
+function searchTermKey(term: SearchTerm): string {
+  return term.kind === "player-id"
+    ? `${term.kind}:${term.platform}:${term.value}`
+    : `${term.kind}:${term.value}`;
+}
+
+function sameSearchTerm(left: SearchTerm, right: SearchTerm): boolean {
+  if (left.kind !== right.kind) return false;
+  if (left.kind === "player-id" && right.kind === "player-id") {
+    return left.platform === right.platform && left.value === right.value;
+  }
+  return left.value === right.value;
+}
+
+/* `q` is single-valued server-side, so a new All-fields term replaces the old
+   one rather than stacking into a clause that could never match. */
+function addSearchTerm(terms: SearchTerm[], term: SearchTerm): SearchTerm[] {
+  if (!term.value) return terms;
+  if (terms.some((existing) => sameSearchTerm(existing, term))) return terms;
+  const kept = term.kind === "all" ? terms.filter((existing) => existing.kind !== "all") : terms;
+  return [...kept, term];
+}
+
 interface ReplayFilterForm {
-  q: string;
-  playerNames: string;
-  playerIds: string;
+  terms: SearchTerm[];
   playlist: string;
   map: string;
   season: string;
@@ -1168,7 +1458,7 @@ interface ReplayFilterForm {
   createdBefore: string;
 }
 
-const pageSizeOptions = [25, 50, 100, 200];
+const replayPageSize = 100;
 
 const replayOrderOptions: Array<{ value: ReplayOrder; label: string }> = [
   { value: "replay-date:desc", label: "Newest played" },
@@ -1249,18 +1539,104 @@ interface FilterFieldConfig {
   step?: string;
 }
 
-function FilterGrid({
-  fields,
-  className = "",
-}: {
-  fields: FilterFieldConfig[];
-  className?: string;
-}) {
+interface FilterRangeBound {
+  // Names this bound on its own ("Min rank", "Uploaded after") rather than
+  // leaning on a shared heading, so it reads the same here as it does on the
+  // active-filter chips. Keep in step with filterKeyLabel.
+  label: string;
+  value: string;
+  name?: string;
+  onChange: (value: string) => void;
+}
+
+interface FilterRangeConfig {
+  id: string;
+  from: FilterRangeBound;
+  to: FilterRangeBound;
+  // Ordered low-to-high choices. When set the bounds are selects rather than
+  // dates, and position in this list is what "from <= to" is measured against.
+  options?: FilterOptionConfig[];
+}
+
+type FilterGridField = FilterFieldConfig | FilterRangeConfig;
+
+function FilterGrid({ fields, className = "" }: { fields: FilterGridField[]; className?: string }) {
   return (
     <div className={`filter-grid ${className}`.trim()}>
-      {fields.map((field) => (
-        <FilterField key={field.id} field={field} />
-      ))}
+      {fields.map((field) =>
+        "from" in field ? (
+          <FilterRangeField key={field.id} field={field} />
+        ) : (
+          <FilterField key={field.id} field={field} />
+        ),
+      )}
+    </div>
+  );
+}
+
+/* The select equivalent of min/max on a date input: on an ordered scale a bound
+   can't cross its partner, so choices past it are disabled rather than left to
+   silently match nothing. The "" (Any) sentinel means unbounded either way, so
+   it never constrains and is never disabled. */
+function rangeOptionDisabled(
+  options: FilterOptionConfig[],
+  optionValue: string,
+  partnerValue: string,
+  side: "from" | "to",
+): boolean {
+  if (optionValue === "" || partnerValue === "") return false;
+  const index = options.findIndex((option) => option.value === optionValue);
+  const partnerIndex = options.findIndex((option) => option.value === partnerValue);
+  if (index < 0 || partnerIndex < 0) return false;
+  return side === "from" ? index > partnerIndex : index < partnerIndex;
+}
+
+/* Each bound wears its own label, so the pair needs no shared heading and no "–"
+   to explain itself — it is two ordinary filter fields that happen to constrain
+   each other. The wrapper only keeps them side by side, and keeps them together
+   when the grid reflows to fewer columns. */
+function FilterRangeField({ field }: { field: FilterRangeConfig }) {
+  const options = field.options;
+
+  const renderBound = (side: "from" | "to") => {
+    const bound = field[side];
+    const partner = field[side === "from" ? "to" : "from"].value;
+    const onChange = (event: { currentTarget: { value: string } }) =>
+      bound.onChange(event.currentTarget.value);
+
+    return (
+      <label key={side}>
+        {bound.label}
+        {options ? (
+          <select value={bound.value} name={bound.name} onChange={onChange}>
+            {options.map((option) => (
+              <option
+                key={option.value}
+                value={option.value}
+                disabled={rangeOptionDisabled(options, option.value, partner, side)}
+              >
+                {option.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <input
+            type="date"
+            value={bound.value}
+            name={bound.name}
+            max={side === "from" ? partner || undefined : undefined}
+            min={side === "to" ? partner || undefined : undefined}
+            onChange={onChange}
+          />
+        )}
+      </label>
+    );
+  };
+
+  return (
+    <div className="filter-range">
+      {renderBound("from")}
+      {renderBound("to")}
     </div>
   );
 }
@@ -1703,9 +2079,7 @@ function replayGroupScopeFromParam(
 
 function defaultReplayFilters(): ReplayFilterForm {
   return {
-    q: "",
-    playerNames: "",
-    playerIds: "",
+    terms: [],
     playlist: "",
     map: "",
     season: "",
@@ -1722,9 +2096,7 @@ function defaultReplayFilters(): ReplayFilterForm {
 
 function replayFiltersFromParams(params: URLSearchParams): ReplayFilterForm {
   return {
-    q: params.get("q") ?? "",
-    playerNames: params.getAll("player-name").join(", "),
-    playerIds: params.getAll("player-id").join(", "),
+    terms: searchTermsFromParams(params),
     playlist: params.get("playlist") ?? "",
     map: params.get("map") ?? "",
     season: params.get("season") ?? "",
@@ -1739,11 +2111,39 @@ function replayFiltersFromParams(params: URLSearchParams): ReplayFilterForm {
   };
 }
 
+function searchTermsFromParams(params: URLSearchParams): SearchTerm[] {
+  const terms: SearchTerm[] = [];
+  const q = params.get("q")?.trim();
+  if (q) terms.push({ kind: "all", value: q });
+  for (const name of params.getAll("player-name")) {
+    const value = name.trim();
+    if (value) terms.push({ kind: "player-name", value });
+  }
+  for (const raw of params.getAll("player-id")) {
+    const term = playerIdSearchTerm(raw);
+    if (term) terms.push(term);
+  }
+  return terms;
+}
+
+function playerIdSearchTerm(raw: string): SearchTerm | null {
+  const separator = raw.indexOf(":");
+  if (separator < 0) return null;
+  const platform = raw.slice(0, separator).trim().toLowerCase();
+  const value = raw.slice(separator + 1).trim();
+  if (!platform || !value) return null;
+  return { kind: "player-id", platform, value };
+}
+
+function searchTermToParam(params: URLSearchParams, term: SearchTerm) {
+  if (term.kind === "all") params.set("q", term.value);
+  else if (term.kind === "player-name") params.append("player-name", term.value);
+  else params.append("player-id", `${term.platform}:${term.value}`);
+}
+
 function replayFiltersToParams(filters: ReplayFilterForm): URLSearchParams {
   const params = new URLSearchParams();
-  setTrimmedParam(params, "q", filters.q);
-  appendListParams(params, "player-name", filters.playerNames);
-  appendListParams(params, "player-id", filters.playerIds);
+  for (const term of filters.terms) searchTermToParam(params, term);
   setTrimmedParam(params, "playlist", filters.playlist);
   setTrimmedParam(params, "map", filters.map);
   setTrimmedParam(params, "season", filters.season);
@@ -1764,7 +2164,7 @@ function navigateWithReplayParams(
   params: URLSearchParams,
 ) {
   const existing = new URLSearchParams(currentSearch);
-  for (const key of ["count", "group", "project", "uploader", "sort-by", "sort-dir"]) {
+  for (const key of ["group", "project", "uploader", "sort-by", "sort-dir"]) {
     const value = existing.get(key);
     if (value && !params.has(key)) params.set(key, value);
   }
@@ -1776,15 +2176,6 @@ function navigateWithReplayParams(
 function setTrimmedParam(params: URLSearchParams, key: string, value: string) {
   const trimmed = value.trim();
   if (trimmed) params.set(key, trimmed);
-}
-
-function appendListParams(params: URLSearchParams, key: string, value: string) {
-  for (const item of value
-    .split(",")
-    .map((part) => part.trim())
-    .filter(Boolean)) {
-    params.append(key, item);
-  }
 }
 
 function setDateParam(params: URLSearchParams, key: string, value: string, edge: "start" | "end") {
@@ -1804,11 +2195,6 @@ function dateInputFromParam(value: string | null): string {
   return date.toISOString().slice(0, 10);
 }
 
-function replayPageSize(params: URLSearchParams): number {
-  const count = positiveIntegerParam(params, "count", 50);
-  return Math.min(Math.max(count, 1), 200);
-}
-
 function positiveIntegerParam(params: URLSearchParams, key: string, fallback: number): number {
   const parsed = Number.parseInt(params.get(key) ?? "", 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
@@ -1823,7 +2209,6 @@ function replayOrderFromParams(params: URLSearchParams): ReplayOrder {
 function replayOptionChoices(
   currentValue: string,
   options: ReplayFilterOption[],
-  labelForValue: (value: string) => string = (value) => value,
 ): ReplayFilterOption[] {
   const byValue = new Map<string, ReplayFilterOption>();
   for (const option of options) {
@@ -1831,16 +2216,62 @@ function replayOptionChoices(
     byValue.set(option.value, option);
   }
   if (currentValue && !byValue.has(currentValue)) {
-    byValue.set(currentValue, {
-      value: currentValue,
-      label: labelForValue(currentValue),
-      count: 0,
-    });
+    byValue.set(currentValue, { value: currentValue, label: currentValue, count: 0 });
   }
   return [...byValue.values()].sort((left, right) => {
     if (left.count !== right.count) return right.count - left.count;
     return left.label.localeCompare(right.label);
   });
+}
+
+// Maps are listed alphabetically by the name actually rendered: the display name
+// is derived from the map code, so sorting on the code (or on the server's label)
+// would leave the visible list looking unsorted.
+function mapOptionChoices(
+  currentValue: string,
+  options: ReplayFilterOption[],
+): ReplayFilterOption[] {
+  const byValue = new Map<string, ReplayFilterOption>();
+  for (const option of options) {
+    if (!option.value.trim()) continue;
+    byValue.set(option.value, option);
+  }
+  if (currentValue && !byValue.has(currentValue)) {
+    byValue.set(currentValue, { value: currentValue, label: currentValue, count: 0 });
+  }
+  return [...byValue.values()]
+    .map((option) => ({ ...option, label: mapDisplayName(option.value) }))
+    .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+// Seasons are a timeline, not a ranking: every season is listed newest-first
+// whether or not the library holds replays from it, so the list stays put as
+// counts change and an empty season reads as "(0)" rather than going missing.
+function seasonOptionChoices(
+  currentValue: string,
+  options: ReplayFilterOption[],
+): ReplayFilterOption[] {
+  const byValue = new Map<string, ReplayFilterOption>();
+  for (const { value, label } of buildSeasonOptions("")) {
+    if (value) byValue.set(value, { value, label, count: 0 });
+  }
+  for (const option of options) {
+    if (!option.value.trim()) continue;
+    // Counts arrive from two sources: the whole-library facets and the replays on
+    // the current page. Keeping the larger one stops a 50-row page from restating
+    // a 4,444-replay season as "(50)" once that season is the active filter.
+    const known = byValue.get(option.value);
+    if (known && known.count > option.count) continue;
+    byValue.set(option.value, option);
+  }
+  if (currentValue && !byValue.has(currentValue)) {
+    byValue.set(currentValue, {
+      value: currentValue,
+      label: formatSeasonLabel(currentValue),
+      count: 0,
+    });
+  }
+  return [...byValue.values()].sort((left, right) => compareSeasonCodes(right.value, left.value));
 }
 
 function mapOptionsFromReplays(replays: ReplayResponse[]): ReplayFilterOption[] {
@@ -1874,11 +2305,28 @@ function optionLabel(option: ReplayFilterOption): string {
   return option.count > 0 ? `${option.label} (${option.count.toLocaleString()})` : option.label;
 }
 
+// Unlike the other filters, a zero here is information — the season exists, the
+// library just has nothing from it — so the count is always spelled out.
+function seasonOptionLabel(option: ReplayFilterOption): string {
+  return `${option.label} (${option.count.toLocaleString()})`;
+}
+
+// Search terms are omitted: they get their own removable chips under the search
+// box, so repeating them here would show every one of them twice.
+const chipExcludedParams = new Set([
+  "offset",
+  "count",
+  "sort-by",
+  "sort-dir",
+  "q",
+  "player-name",
+  "player-id",
+]);
+
 function replayFilterChips(params: URLSearchParams): string[] {
   const chips: string[] = [];
   for (const [key, value] of params.entries()) {
-    if (!value || key === "offset" || key === "count" || key === "sort-by" || key === "sort-dir")
-      continue;
+    if (!value || chipExcludedParams.has(key)) continue;
     chips.push(`${filterLabel(key)}: ${filterValueLabel(key, value)}`);
   }
   return chips;
@@ -1971,7 +2419,8 @@ function GameTypeBadges({
   if (context) {
     const tone: ChipTone =
       context === "ranked" ? "green" : context === "casual" ? "blue" : "purple";
-    badges.push({ key: "context", label: titleCase(context), tone });
+    const label = context === "private" ? "Private match" : titleCase(context);
+    badges.push({ key: "context", label, tone });
   }
   if (metadata?.ruleset) {
     badges.push({ key: "ruleset", label: titleCase(metadata.ruleset), tone: "neutral" });
@@ -2015,23 +2464,30 @@ function ReplayTeams({ replay }: { replay: ReplayResponse }) {
 
   return (
     <div className="teams-cell">
-      <TeamBlock
-        label="Blue"
-        players={blue}
-        tone="blue"
-        score={replay.summary.team_scores.blue}
-        mvp={mvp}
+      <TeamBlock label="Blue" players={blue} tone="blue" mvp={mvp} />
+      <TeamScoreline
+        blue={replay.summary.team_scores.blue}
+        orange={replay.summary.team_scores.orange}
       />
-      <TeamBlock
-        label="Orange"
-        players={orange}
-        tone="orange"
-        score={replay.summary.team_scores.orange}
-        mvp={mvp}
-      />
+      <TeamBlock label="Orange" players={orange} tone="orange" mvp={mvp} mirrored />
       {unknown.length > 0 ? (
         <TeamBlock label="Other" players={unknown} tone="neutral" mvp={mvp} />
       ) : null}
+    </div>
+  );
+}
+
+// The match score is the headline of the card, so it sits between the two
+// rosters at display size rather than tucked into each team's heading.
+function TeamScoreline({ blue, orange }: { blue?: number | null; orange?: number | null }) {
+  const describe = (score: number | null | undefined) => (score == null ? "unknown" : `${score}`);
+  return (
+    <div className="team-scoreline" title={`Blue ${describe(blue)} – Orange ${describe(orange)}`}>
+      <span className="team-scoreline-value team-scoreline-blue">{blue ?? "–"}</span>
+      <span className="team-scoreline-dash" aria-hidden="true">
+        –
+      </span>
+      <span className="team-scoreline-value team-scoreline-orange">{orange ?? "–"}</span>
     </div>
   );
 }
@@ -2055,21 +2511,23 @@ function TeamBlock({
   label,
   players,
   tone,
-  score,
   mvp,
+  mirrored = false,
 }: {
   label: string;
   players: ReplayPlayer[];
   tone: "blue" | "orange" | "neutral";
-  score?: number | null;
   mvp?: ReplayPlayer | null;
+  // Renders the roster right-to-left so both teams' names hug the outer edges
+  // of the card and the scoreline owns the middle.
+  mirrored?: boolean;
 }) {
+  const classes = ["team-block", `replay-team-${tone}`, mirrored ? "team-block-mirrored" : ""]
+    .filter(Boolean)
+    .join(" ");
   return (
-    <div className={`team-block replay-team-${tone}`}>
-      <div className="team-heading">
-        <span>{label}</span>
-        {score != null ? <strong>{score}</strong> : null}
-      </div>
+    <div className={classes}>
+      <div className="team-heading">{label}</div>
       <div className="player-stack">
         {players.length > 0 ? (
           players.map((player, index) => (
@@ -2100,11 +2558,6 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
         approximate={player.rank_is_fallback}
         approximateAsOf={player.rank_fallback_replay_date}
       />
-      {isMvp ? (
-        <Chip tone="mvp" title="MVP: highest score on the winning team">
-          MVP
-        </Chip>
-      ) : null}
       {hasStats ? (
         <span className="player-statline" title="Goals / Assists / Saves / Shots · Score">
           <span className="stat-cell">
@@ -2123,7 +2576,19 @@ function PlayerLine({ player, isMvp }: { player: ReplayPlayer; isMvp?: boolean }
             {player.shots ?? 0}
             <small>SH</small>
           </span>
-          <span className="stat-cell stat-score">{player.score ?? 0}</span>
+          <span className="stat-cell stat-score">
+            {player.score ?? 0}
+            <small>Score</small>
+          </span>
+          {isMvp ? (
+            <Chip
+              tone="mvp"
+              className="stat-mvp-pill"
+              title="MVP: highest score on the winning team"
+            >
+              MVP
+            </Chip>
+          ) : null}
         </span>
       ) : null}
     </>
@@ -3028,8 +3493,8 @@ function ReplayStatsPage() {
             </button>
           ) : null}
           <a className="secondary-button" href={subtrActorPlayerUrl(replayId)}>
-            <Zap size={16} />
-            Player
+            <Play size={16} />
+            Watch replay
           </a>
           {canDelete ? (
             <button
@@ -9764,6 +10229,43 @@ function NotFoundPage() {
         Go to replays
       </Link>
     </section>
+  );
+}
+
+// Floating error banner pinned under the top bar. Dismisses itself so a stale
+// failure never outlives the upload the user has already moved on from.
+function ErrorToast({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+  const [exiting, setExiting] = useState(false);
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  useEffect(() => {
+    setExiting(false);
+    const timer = window.setTimeout(() => setExiting(true), 6000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
+
+  return (
+    <div
+      className={exiting ? "error-toast exiting" : "error-toast"}
+      role="alert"
+      // Both the timer and the close button only start the fade; the end of that
+      // animation is what actually clears the message.
+      onAnimationEnd={() => {
+        if (exiting) dismissRef.current();
+      }}
+    >
+      <AlertTriangle size={16} />
+      <span>{message}</span>
+      <button
+        type="button"
+        className="error-toast-close"
+        title="Dismiss"
+        onClick={() => setExiting(true)}
+      >
+        <X size={14} />
+      </button>
+    </div>
   );
 }
 
