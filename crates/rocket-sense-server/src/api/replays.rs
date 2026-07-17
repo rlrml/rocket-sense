@@ -2,7 +2,7 @@ use crate::{
     app::AppState,
     auth::{AuthUser, OptionalAuthUser},
     processing::{
-        enqueue_replay_processing_job, enqueue_replay_reprocessing, process_client_scaffold,
+        process_client_scaffold, request_replay_processing, request_replay_reprocessing_batch,
         upsert_replay_preflight_metadata, ReplayReprocessOptions,
     },
     ranks::{ingest_rank_submissions, RankSubmission},
@@ -2888,10 +2888,8 @@ pub async fn reprocess_replay(
         }
     }
 
-    let summary = enqueue_replay_reprocessing(
-        db.clone(),
-        state.storage.clone(),
-        state.background_processing_permits.clone(),
+    let summary = request_replay_reprocessing_batch(
+        db,
         ReplayReprocessOptions {
             replay_ids: vec![replay_id],
             force: query.force,
@@ -3317,7 +3315,7 @@ async fn maybe_enqueue_replay_processing_with(
     if process_in_background
         && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
     {
-        enqueue_replay_processing_job(db, replay.id)
+        request_replay_processing(db, replay.id)
             .await
             .map_err(ApiError::internal)?;
     }
@@ -4094,7 +4092,7 @@ async fn maybe_enqueue_replay_processing(
     if state.process_replays_in_background
         && matches!(&replay.status, ReplayStatus::Pending | ReplayStatus::Failed)
     {
-        enqueue_replay_processing_job(db, replay.id)
+        request_replay_processing(db, replay.id)
             .await
             .map_err(ApiError::internal)?;
     }

@@ -6,16 +6,38 @@ use crate::{
     rank_benchmark::{BenchmarkWindow, CalcStyle},
     settings, telemetry,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::{extract::DefaultBodyLimit, Router};
 use rocket_sense_egress::EgressPool;
 use rocket_sense_storage::{LocalStorage, ObjectStorage};
 use sqlx::PgPool;
 use std::sync::Arc;
+use tokio::net::TcpListener;
 use tokio::sync::Semaphore;
 use tower_http::cors::CorsLayer;
 
 pub(crate) const MAX_REPLAY_UPLOAD_BYTES: usize = 64 * 1024 * 1024;
+
+/// Run the configured service mode. This is the executable's single entry
+/// point after settings and telemetry have been initialized.
+pub async fn run(settings: settings::Settings) -> Result<()> {
+    match settings.service_mode {
+        settings::ServiceMode::Server => run_server(settings).await,
+        settings::ServiceMode::Worker => run_worker(settings).await,
+    }
+}
+
+async fn run_server(settings: settings::Settings) -> Result<()> {
+    let bind_addr = settings.bind_addr;
+    let router = build(settings).await?;
+    let listener = TcpListener::bind(bind_addr)
+        .await
+        .with_context(|| format!("failed to bind {bind_addr}"))?;
+
+    tracing::info!(addr = %bind_addr, "listening");
+    axum::serve(listener, router).await?;
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -53,7 +75,7 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         let pool = rocket_sense_db::connect(database_url).await?;
         if settings.run_migrations {
             rocket_sense_db::run_migrations(&pool).await?;
-            processing::setup_replay_processing_queue(&pool).await?;
+            processing::initialize(&pool).await?;
         }
         Some(pool)
     } else {
@@ -75,6 +97,17 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         LocalStorage::new(settings.storage_root.clone()),
         ballchasing_client.clone(),
     ));
+    if settings.process_replays_in_background && settings.run_replay_processing_workers {
+        if let Some(pool) = &db {
+            processing::start(
+                pool.clone(),
+                storage.clone(),
+                ballchasing_client.clone(),
+                &settings,
+            )
+            .await;
+        }
+    }
 
     let state = AppState {
         db,
@@ -96,45 +129,6 @@ pub async fn build(settings: settings::Settings) -> Result<Router> {
         egress,
     };
 
-    if state.process_replays_in_background {
-        if let Some(pool) = &state.db {
-            if settings.run_replay_processing_workers {
-                processing::start_replay_processing_workers(
-                    pool.clone(),
-                    state.storage.clone(),
-                    settings.background_processing_concurrency,
-                );
-                if let Some(client) = &state.ballchasing_client {
-                    crate::ballchasing_sync::start_ballchasing_group_sync_workers(
-                        pool.clone(),
-                        client.clone(),
-                        state.process_replays_in_background,
-                    );
-                }
-                processing::start_event_stream_gc_sweeper(pool.clone(), state.storage.clone());
-                if state.rank_benchmark_enabled {
-                    processing::start_rank_benchmark_refresh_job(
-                        pool.clone(),
-                        state.rank_benchmark_windows.to_vec(),
-                        state.rank_benchmark_calc,
-                    );
-                }
-                match processing::enqueue_unfinished_replay_processing(pool).await {
-                    Ok(count) if count > 0 => {
-                        tracing::info!(count, "enqueued unfinished replay processing on startup");
-                    }
-                    Ok(_) => {}
-                    Err(error) => {
-                        tracing::error!(
-                            error = %error,
-                            "failed to enqueue unfinished replay processing on startup"
-                        );
-                    }
-                }
-            }
-        }
-    }
-
     let router = api::router(state)
         .layer(DefaultBodyLimit::max(MAX_REPLAY_UPLOAD_BYTES))
         .layer(CorsLayer::permissive());
@@ -149,7 +143,7 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
     let pool = rocket_sense_db::connect(database_url).await?;
     if settings.run_migrations {
         rocket_sense_db::run_migrations(&pool).await?;
-        processing::setup_replay_processing_queue(&pool).await?;
+        processing::initialize(&pool).await?;
     }
 
     let ballchasing_client = settings
@@ -157,45 +151,10 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
         .as_ref()
         .map(|api_key| Arc::new(BallchasingClient::new(api_key.clone())));
     let storage: Arc<dyn ObjectStorage> = Arc::new(BallchasingBackedStorage::new(
-        LocalStorage::new(settings.storage_root),
+        LocalStorage::new(settings.storage_root.clone()),
         ballchasing_client.clone(),
     ));
-    processing::start_replay_processing_workers(
-        pool.clone(),
-        storage.clone(),
-        settings.background_processing_concurrency,
-    );
-    if let Some(client) = ballchasing_client {
-        crate::ballchasing_sync::start_ballchasing_group_sync_workers(
-            pool.clone(),
-            client,
-            settings.process_replays_in_background,
-        );
-    }
-    processing::start_event_stream_gc_sweeper(pool.clone(), storage);
-    if settings.rank_benchmark_enabled {
-        processing::start_rank_benchmark_refresh_job(
-            pool.clone(),
-            settings.rank_benchmark_windows.clone(),
-            settings.rank_benchmark_calc,
-        );
-    }
-
-    match processing::enqueue_unfinished_replay_processing(&pool).await {
-        Ok(count) if count > 0 => {
-            tracing::info!(
-                count,
-                "enqueued unfinished replay processing on worker startup"
-            );
-        }
-        Ok(_) => {}
-        Err(error) => {
-            tracing::error!(
-                error = %error,
-                "failed to enqueue unfinished replay processing on worker startup"
-            );
-        }
-    }
+    processing::start(pool.clone(), storage.clone(), ballchasing_client, &settings).await;
 
     tracing::info!(
         concurrency = settings.background_processing_concurrency,
