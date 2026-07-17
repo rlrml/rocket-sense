@@ -71,24 +71,33 @@ export function RankBadge({
   const label = rankLabel(tier, division);
   const rounded = mmr != null ? Math.round(mmr) : null;
   const ranked = rounded != null ? `${label} · ${rounded} MMR` : (label ?? "");
-  const title = approximate
-    ? `~${ranked} — no rank was submitted with this replay. This is the player's nearest known rank` +
-      (approximateAsOf
-        ? `, from a match on ${new Date(approximateAsOf).toLocaleDateString()}.`
-        : ".") +
-      " Their actual rank at the time of this match may have differed."
-    : ranked || undefined;
+  // Approximate badges carry the full explanation on the warning icon's custom
+  // tooltip, so the badge itself stays untitled to avoid a duplicate popup.
+  const badgeTitle = approximate ? undefined : ranked || undefined;
+  const warningTitle =
+    `This is the player's nearest known rank` +
+    (approximateAsOf
+      ? `, from a match on ${new Date(approximateAsOf).toLocaleDateString()}.`
+      : ".") +
+    " Their actual rank at the time of this match may have differed.";
   const icon = rankIconUrl(tier);
   return (
     <span
       className={approximate ? "rank-badge rank-badge-approx" : "rank-badge"}
-      title={title}
-      aria-label={title}
+      title={badgeTitle}
+      aria-label={badgeTitle}
     >
       {icon ? <img src={icon} alt={label ?? ""} width="20" height="20" /> : null}
       {rounded != null ? <span className="rank-mmr">{rounded}</span> : null}
       {approximate ? (
-        <AlertTriangle className="rank-approx-mark" size={11} aria-hidden="true" />
+        <span
+          className="rank-approx-mark-wrap"
+          data-tooltip={warningTitle}
+          aria-label={warningTitle}
+          tabIndex={0}
+        >
+          <AlertTriangle className="rank-approx-mark" size={11} aria-hidden="true" />
+        </span>
       ) : null}
     </span>
   );

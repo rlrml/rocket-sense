@@ -5,7 +5,6 @@ type SeasonEra = "legacy" | "free-to-play";
 
 interface ParsedSeasonCode {
   era: SeasonEra;
-  prefix: "s" | "f";
   number: number;
 }
 
@@ -21,22 +20,18 @@ function parseSeasonCode(value: string): ParsedSeasonCode | null {
 
   return {
     era: prefix === "s" ? "legacy" : "free-to-play",
-    prefix,
     number,
   };
 }
 
-export function formatSeasonCode(value: string): string {
-  const parsed = parseSeasonCode(value);
-  return parsed ? `${parsed.prefix.toUpperCase()}${parsed.number}` : value;
-}
-
+// The season counter reset when the game went free-to-play, so each era has its
+// own season 1. Spelling out the legacy era ("Season 1") and abbreviating the
+// free-to-play era ("S1") is what keeps the two numbering schemes apart.
 export function formatSeasonLabel(value: string): string {
   const parsed = parseSeasonCode(value);
   if (!parsed) return value;
 
-  const prefix = parsed.era === "legacy" ? "Legacy" : "Free-to-play";
-  return `${prefix} S${parsed.number}`;
+  return parsed.era === "legacy" ? `Season ${parsed.number}` : `S${parsed.number}`;
 }
 
 /** Chronological comparison across the legacy and free-to-play numbering eras. */

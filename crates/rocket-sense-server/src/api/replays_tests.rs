@@ -83,6 +83,37 @@ fn subtr_actor_shared_3d_assets_resolve_under_every_app_prefix() {
 }
 
 #[test]
+fn player_id_filter_matches_every_alias_of_a_platform() {
+    // Processing writes an Epic account as `epic` or `psynet` depending on the
+    // replay, so filtering by either spelling has to find both.
+    for value in ["epic:abc123", "psynet:abc123"] {
+        let filter = parse_player_id_filter(value).expect("filter should parse");
+        assert_eq!(filter.player_id, "abc123");
+        assert_eq!(filter.platforms, vec!["epic", "psynet"]);
+    }
+
+    let filter = parse_player_id_filter("PS5:online-id").expect("filter should parse");
+    assert_eq!(filter.platforms, vec!["playstation", "psn", "ps4", "ps5"]);
+
+    // Platforms without aliases, and ones this list hasn't caught up with, match
+    // only themselves.
+    let filter = parse_player_id_filter("steam:76561198000000000").expect("filter should parse");
+    assert_eq!(filter.platforms, vec!["steam"]);
+    let filter = parse_player_id_filter("newplatform:1").expect("filter should parse");
+    assert_eq!(filter.platforms, vec!["newplatform"]);
+}
+
+#[test]
+fn player_id_filter_rejects_ids_without_a_platform() {
+    for value in ["76561198000000000", "steam:", ":abc", " : "] {
+        assert!(
+            parse_player_id_filter(value).is_err(),
+            "{value} should be rejected"
+        );
+    }
+}
+
+#[test]
 fn public_router_builds_without_route_conflicts() {
     // The single `/subtr-actor/{*asset_path}` wildcard coexists with the static
     // SPA index routes and the root `/models` + `/draco` aliases. Building the
@@ -772,6 +803,40 @@ fn replay_list_query_searches_players_and_rank_ranges() {
     assert!(sql.contains("r.season = ANY("));
     assert!(sql.contains("rank_player.rank_tier >="));
     assert!(sql.contains("rank_player.rank_tier <="));
+    // Every player must sit inside the window, so a NOT EXISTS excludes replays
+    // with any player outside it.
+    assert!(sql.contains("NOT EXISTS"));
+    assert!(sql.contains("OR rank_player.rank_tier < "));
+    assert!(sql.contains("OR rank_player.rank_tier > "));
+}
+
+#[test]
+fn replay_list_query_rank_range_excludes_out_of_range_players() {
+    use sqlx::Execute;
+
+    // Reproduces the reported bug: Platinum I–III must not surface replays that
+    // contain a Diamond (out-of-range) player, so the whole lobby has to satisfy
+    // both bounds.
+    let filters = ReplayFilters::from_query(
+        ListReplaysQuery {
+            min_rank: Some("platinum-1".to_owned()),
+            max_rank: Some("platinum-3".to_owned()),
+            ..ListReplaysQuery::default()
+        },
+        None,
+    )
+    .expect("filters should parse");
+    let mut query_builder = find_replays_query(&filters);
+    let query = query_builder.build();
+    let sql = query.sql();
+
+    // Guard clause: at least one submitted rank inside the window keeps
+    // rank-less replays out and prevents an all-NULL replay matching vacuously.
+    assert!(sql.contains("EXISTS (SELECT 1 FROM replay_players rank_player"));
+    // Exclusion clause: any player outside [min, max] disqualifies the replay.
+    assert!(sql.contains("AND NOT EXISTS (SELECT 1 FROM replay_players rank_player"));
+    assert!(sql.contains("OR rank_player.rank_tier < "));
+    assert!(sql.contains("OR rank_player.rank_tier > "));
 }
 
 #[test]

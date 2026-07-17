@@ -27,7 +27,7 @@ export function platformLabel(value: string | null | undefined): string {
   }
 }
 
-function normalizePlatform(value: string | null | undefined): KnownPlatform | null {
+export function normalizePlatform(value: string | null | undefined): KnownPlatform | null {
   switch (value?.toLowerCase()) {
     case "steam":
       return "steam";

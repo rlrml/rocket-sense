@@ -10,3 +10,6 @@ vite.config.d.ts
 # Vendored build output synced from the subtr-actor submodule by
 # scripts/sync-subtr-actor (see web/vendor/.gitignore).
 vendor/
+
+# Local-only Claude Code files (gitignored; not part of the repo).
+.claude/

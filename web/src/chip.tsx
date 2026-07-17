@@ -13,7 +13,7 @@ export type ChipTone =
 
 /**
  * The single pill/badge primitive used across the app: game-type badges,
- * date/duration, processing status, MVP, the platform fallback, and so on.
+ * date/duration, processing status, the platform fallback, and so on.
  * Every chip renders through this so they share one box style (`.chip`) and
  * stay exactly the same height — `tone` only swaps colors. The clickable stale
  * status chip reuses the same `.chip` / `.chip-button` classes directly because

@@ -24,6 +24,30 @@ a {
   color: inherit;
 }
 
+/* One focus ring for everything that doesn't draw its own, gated on how focus
+   arrived. Chromium matches :focus-visible on a <select> or a date input from a
+   plain mouse click — arrow keys drive them, so it rings them the moment they
+   are clicked and the ring then sits there until focus moves on. A control that
+   has focus restored to it when a dialog closes rings for the same reason. Both
+   read as a highlight that got stuck rather than as focus.
+
+   So: pointerdown marks the document pointer-driven and Tab marks it
+   keyboard-driven (see main.tsx), and a pointer-driven focus draws no ring.
+   Escape is deliberately not a keyboard signal — dismissing the login modal
+   with it would otherwise ring the button underneath, which is the exact
+   stuck-looking artifact this is here to prevent. Anything reached by Tab still
+   rings, so no keyboard indicator is lost. */
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Outranks the per-component :focus-visible rings below, so they are gated too
+   rather than each needing to opt in. */
+:root[data-modality="pointer"] :focus-visible {
+  outline: none;
+}
+
 .app-shell {
   display: grid;
   grid-template-rows: auto 1fr;
@@ -115,88 +139,69 @@ a {
 }
 
 .preview-player-warmup {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-right: 10px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--nav-muted);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+}
+
+.preview-player-warmup-label {
+  color: inherit;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+.preview-player-warmup-glyph {
   position: relative;
-  display: flex;
+  flex: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  width: 40px;
-  min-height: 40px;
-  padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.045);
-  color: var(--nav-muted);
-  font-size: var(--text-sm);
-  font-weight: var(--fw-semibold);
-  line-height: 1;
 }
 
 .preview-player-warmup-kind {
-  color: #fff;
+  color: var(--nav-muted);
 }
 
 .preview-player-warmup-state {
   position: absolute;
-  right: 5px;
-  bottom: 5px;
+  right: -4px;
+  bottom: -3px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  width: 13px;
+  height: 13px;
   border-radius: 999px;
   background: var(--nav);
   color: currentColor;
 }
 
-.preview-player-warmup-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 999px;
-  background: #94a3b8;
-  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.14);
-}
-
 .preview-player-warmup-ready {
-  color: #dcfce7;
+  color: #4ade80;
 }
 
 .preview-player-warmup-runtime-ready {
-  color: #bfdbfe;
-}
-
-.preview-player-warmup-runtime-ready .preview-player-warmup-dot {
-  background: #38bdf8;
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16);
-}
-
-.preview-player-warmup-ready .preview-player-warmup-dot {
-  background: #22c55e;
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.16);
+  color: #38bdf8;
 }
 
 .preview-player-warmup-scheduled,
 .preview-player-warmup-warming-runtime,
 .preview-player-warmup-warming-player {
-  color: #dbeafe;
-}
-
-.preview-player-warmup-scheduled .preview-player-warmup-dot,
-.preview-player-warmup-warming-runtime .preview-player-warmup-dot,
-.preview-player-warmup-warming-player .preview-player-warmup-dot {
-  background: #60a5fa;
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.16);
+  color: #60a5fa;
 }
 
 .preview-player-warmup-error {
-  color: #fecaca;
-}
-
-.preview-player-warmup-error .preview-player-warmup-dot {
-  background: #f87171;
-  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.16);
+  color: #f87171;
 }
 
 .top-bar-user,
@@ -293,7 +298,10 @@ a {
 }
 
 /* Replay browser with a pinned-profiles sidebar. Stacks on narrow screens
-   (sidebar above the list); becomes a fixed-width left rail once there is room. */
+   (sidebar above the list); becomes a fixed-width left rail once there is room.
+   The sidebar is absent for signed-out visitors, so the rail column is only
+   added when it actually rendered — otherwise the list would be stranded in an
+   empty 240px track. */
 .page-with-favorites {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -309,7 +317,7 @@ a {
 }
 
 @media (min-width: 1100px) {
-  .page-with-favorites {
+  .page-with-favorites:has(> .favorites-sidebar) {
     grid-template-columns: 240px minmax(0, 1fr);
     align-items: start;
   }
@@ -575,16 +583,71 @@ a {
   min-width: 0;
 }
 
+/* Search and filters read as two stacked bands: the search (with its active
+   terms) on a light shade, the filters on a deeper one. The panel drops its own
+   padding and gap so each band can pad itself and fill edge to edge, and clips
+   the bands' square corners to its radius. */
+.replay-search-panel:has(.search-zone) {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.search-zone {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface-subtle);
+}
+
+.search-zone + .filter-grid {
+  padding: 14px;
+  background: var(--surface-sunken);
+}
+
+/* Scope select and input read as one control: they sit flush, and only the
+   outer corners are rounded. */
+.scoped-search {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+
+.search-scope {
+  min-height: 40px;
+  padding: 0 8px 0 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px 0 0 6px;
+  border-right: 0;
+  background: var(--panel-muted, #f8fafc);
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+}
+
 .search-box {
   display: flex;
   align-items: center;
   gap: 8px;
   flex: 1;
+  min-width: 0;
   min-height: 40px;
   padding: 0 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
+}
+
+.scoped-search .search-box {
+  border-radius: 0 6px 6px 0;
+}
+
+/* The input is borderless and the wrapper draws the pill, so the focus ring has
+   to live on the wrapper — on the input it would enclose the text but not the
+   leading icon. Mirrors the ring the filter-grid fields get from the UA. */
+.search-box:focus-within {
+  outline: 2px solid var(--focus-ring, #2563eb);
+  outline-offset: 1px;
 }
 
 .search-box input {
@@ -593,9 +656,12 @@ a {
   outline: 0;
 }
 
+/* Six tracks so the three two-track ranges share one row. The 120px floor is
+   what a date input needs to show mm/dd/yyyy plus its picker button, and keeps
+   all six tracks inside the list panel once the favorites rail is showing. */
 .filter-grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(140px, 1fr));
+  grid-template-columns: repeat(6, minmax(120px, 1fr));
   gap: 10px;
 }
 
@@ -610,19 +676,78 @@ a {
   text-transform: uppercase;
 }
 
+/* A range is two self-labelled fields held together, so it takes two tracks and
+   splits them back into one each — matching the outer gap keeps every field in
+   the grid on the same rhythm, range or not. */
+.filter-grid .filter-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+  min-width: 0;
+  grid-column: span 2;
+}
+
 .filter-grid input,
 .filter-grid select,
 .pagination-controls select {
   width: 100%;
   min-width: 0;
   min-height: 38px;
-  padding: 0 10px;
+  padding: 0 14px 0 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: #fff;
   color: var(--text);
   font-size: var(--text-md);
   text-transform: none;
+  transition: filter 0.12s ease;
+}
+
+/* The native <select> arrow hugs the right border and ignores padding, so these
+   use the same custom chevron as the leaderboard selects — that lets the caret
+   sit in from the edge instead of crowding it. */
+.filter-grid select,
+.pagination-controls select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 32px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235d6b80' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+}
+
+/* Picking from these is a press, so they take the buttons' cursor and the
+   buttons' feedback. Text inputs get neither: they're typed into, so they keep
+   the I-beam, and a drag on one is a text selection rather than a press — the
+   shade would read as a stuck button.
+
+   Shading is by filter for the same reason the buttons do it: it composes with
+   whatever background a field is already carrying instead of overwriting it.
+   The press shade is inert on a <select> in Chrome, which opens its popup on
+   mousedown and never matches :active — there the popup is the feedback. The
+   rule is kept for the browsers that do apply it. */
+.filter-grid select,
+.filter-grid input[type="date"],
+.pagination-controls select {
+  cursor: pointer;
+}
+
+/* The native calendar icon renders its own pseudo-element that doesn't inherit
+   the field's cursor, so it stays an arrow without this. */
+.filter-grid input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+}
+
+.filter-grid select:hover:not(:disabled),
+.filter-grid input[type="date"]:hover:not(:disabled),
+.pagination-controls select:hover:not(:disabled) {
+  filter: brightness(0.96);
+}
+
+.filter-grid select:active:not(:disabled),
+.filter-grid input[type="date"]:active:not(:disabled),
+.pagination-controls select:active:not(:disabled) {
+  filter: brightness(0.92);
 }
 
 .replay-list-controls {
@@ -658,12 +783,28 @@ a {
   text-transform: none;
 }
 
+/* Names the pager that follows it. A <span>, not a <label>: the page indicator
+   is a readout rather than a form control, so the count carries its own
+   aria-label and this text is left to the eye. */
+.pagination-label {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+}
+
 .page-count {
   min-width: 72px;
   color: var(--muted);
   font-size: var(--text-base);
   font-weight: var(--fw-semibold);
   text-align: center;
+}
+
+/* Keeps the 72px slot so swapping the count for the spinner leaves the pager put. */
+.page-count-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .filter-chips span {
@@ -677,6 +818,64 @@ a {
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: var(--fw-semibold);
+}
+
+.search-terms {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-term {
+  gap: 6px;
+  padding-right: 4px;
+  /* Override .chip's flex:none so a long value can't push the chip (and its
+     remove button) past the panel edge on a narrow viewport. Cap at the
+     container width and let the value child shrink inside it. */
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* The scope reads as the chip's label, so it stays quiet next to the value. */
+.search-term-scope {
+  color: var(--muted);
+  font-weight: var(--fw-semibold);
+  /* The label is short; never let it be the thing that gets truncated. */
+  flex: none;
+}
+
+/* The value is the only part that can be arbitrarily long (filename, SHA,
+   player id), so it's the shrinkable/ellipsized child. */
+.search-term-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-term-scope::after {
+  content: ":";
+}
+
+.search-term-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Stays fixed and visible even when the value truncates. */
+  flex: none;
+  padding: 2px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.search-term-remove:hover {
+  background: var(--panel-muted, #f1f5f9);
+  color: var(--text, #0f172a);
 }
 
 button,
@@ -694,6 +893,35 @@ button,
   color: #17202a;
   text-decoration: none;
   cursor: pointer;
+  transition: filter 0.12s ease;
+}
+
+/* Hover/press feedback for every button. Variants below override the base
+   background (tabs go transparent, active states go solid blue/teal, the nav
+   button goes dark), so this shades with filter rather than a literal
+   background: it composes with whatever palette a variant set, and cannot
+   be clobbered by — or clobber — a more specific rule. */
+button:hover:not(:disabled),
+.secondary-button:hover,
+.upload-button:hover {
+  filter: brightness(0.96);
+}
+
+button:active:not(:disabled),
+.secondary-button:active,
+.upload-button:active {
+  filter: brightness(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button,
+  .secondary-button,
+  .upload-button,
+  .filter-grid input,
+  .filter-grid select,
+  .pagination-controls select {
+    transition: none;
+  }
 }
 
 button:disabled {
@@ -768,6 +996,17 @@ tbody tr:last-child td {
   gap: 10px;
 }
 
+.replay-list-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 64px 0;
+  color: var(--muted);
+  font-size: var(--text-base);
+}
+
 .replay-card {
   display: grid;
   gap: 10px;
@@ -775,6 +1014,35 @@ tbody tr:last-child td {
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 12px;
+}
+
+/* The card itself opens the replay; nested links/controls keep their own
+   behaviour (see onCardClick). */
+.replay-card-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+/* Hover darkens the card to the neutral pill fill (#eef2f7, see .chip) so the
+   gray pills sit flush with the surface for a consistent look — the rings below
+   keep them legible. */
+.replay-card-clickable:hover {
+  background: #eef2f7;
+}
+
+/* On hover, ring every pill so its outline stays crisp against the darkened
+   card — the gray pills now share the surface's fill and would otherwise vanish.
+   The ring is tinted from each pill's own text color (currentColor) so it
+   harmonizes with the pill's hue; an inset box-shadow keeps the pill height
+   unchanged. */
+.replay-card-clickable:hover .chip {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 25%, transparent);
+}
+
+/* The whole card is the click target, so the title no longer needs a
+   hover underline to signal it opens the replay. */
+.replay-card-clickable .primary-link:hover {
+  text-decoration: none;
 }
 
 .replay-card-header {
@@ -1239,22 +1507,21 @@ tbody tr:last-child td {
   color: var(--text-muted, #777);
 }
 
+/* Rosters bracket a centered scoreline: blue reads left-to-right on the left,
+   orange mirrors on the right, and the match score sits between them. */
 .teams-cell {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  gap: 8px 22px;
-}
-
-@media (max-width: 860px) {
-  .teams-cell {
-    grid-template-columns: minmax(0, 1fr);
-  }
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  /* Column gap has to clearly beat the scoreline's internal gap, or the
+     per-player scores flanking it read as part of the match score. */
+  gap: 8px 30px;
 }
 
 .team-block {
   display: grid;
   gap: 6px;
+  min-width: 0;
   padding-left: 8px;
   border-left: 2px solid #cbd5e1;
 }
@@ -1263,47 +1530,303 @@ tbody tr:last-child td {
   border-left-color: #93c5fd;
 }
 
-.replay-team-orange {
-  border-left-color: #fdba74;
+.replay-team-neutral {
+  grid-column: 1 / -1;
+}
+
+/* Rows stay full-bleed (no justify-items: end) so the identity keeps free space
+   to absorb — that is what holds the names in against the scoreline and the
+   stat columns out on the card's edge. */
+.team-block-mirrored {
+  padding-right: 8px;
+  padding-left: 0;
+  border-right: 2px solid #cbd5e1;
+  border-left: 0;
+}
+
+.team-block-mirrored .team-heading,
+.team-block-mirrored .subtle {
+  text-align: right;
+}
+
+.replay-team-orange.team-block-mirrored {
+  border-right-color: #fdba74;
+}
+
+/* Both rosters read name → rank → stats outward from the scoreline. Every row
+   shares one set of column tracks, so the pieces line up down the roster no
+   matter how long a name is — .player-stack owns the tracks and each row borrows
+   them through a subgrid chain (.player-line → .player-identity-main). The name
+   track is sized by the longest name in the block rather than a guessed width.
+
+   Placement is explicit per column: nothing here is conditional now, but the
+   mirrored roster runs its columns against DOM order, and auto-placement opens a
+   new row each time a column steps backwards. Mirroring stays purely visual —
+   DOM order is still platform → name → rank → stats, so screen readers and the
+   keyboard are unaffected. All of this is scoped to .player-line:
+   PlayerIdentity is shared, and only the replay card has a statline to build
+   tracks around.
+
+   The 1fr expander sits between the rank and the stats, not between the name and
+   the rank: that binds the rank to the name as one unit hugging the scoreline
+   (with the rank on the name's outer side) and lets the stats drift out to the
+   card's edge. */
+.player-stack {
+  grid-template-columns: auto 1fr auto minmax(0, auto);
+}
+
+.team-block-mirrored .player-stack {
+  grid-template-columns: minmax(0, auto) auto 1fr auto;
+}
+
+/* The "No players" fallback is not a roster row and has no tracks to sit in. */
+.player-stack > .subtle {
+  grid-column: 1 / -1;
+}
+
+.player-line,
+.player-line .player-identity-main {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+
+/* Every piece is pinned to the row's single line. Column placement runs against
+   DOM order (blue reads out to 4, 2, 1), and auto-placement opens a new row each
+   time a column steps backwards, which breaks each player across three lines.
+   Only the columns are subgridded, so rows are this grid's own. */
+.player-line .player-identity-main > * {
+  grid-row: 1;
+}
+
+.player-line .player-statline {
+  grid-column: 1;
+}
+
+.player-line .rank-badge {
+  grid-column: 3;
+}
+
+/* Icon and name share one track: on a track of its own the icon held the
+   column's edge while shorter names slid off toward the scoreline, stranding it
+   mid-row. As one box it travels with the name, and the box — not the text —
+   hugs the track's inner edge, so the track's slack falls outside. Reversing the
+   box keeps the icon on the name's inner side in both rosters: the icons then
+   form a column against the scoreline, and since every glyph is the same width
+   the names stay aligned behind them. DOM order is icon → name everywhere
+   PlayerIdentity is used, so both rosters reverse against it here. */
+.player-line .player-name-with-platform {
+  grid-column: 4;
+  flex-direction: row-reverse;
+  justify-self: end;
+}
+
+.team-block-mirrored .player-line .player-name-with-platform {
+  grid-column: 1;
+  flex-direction: row;
+  justify-self: start;
+}
+
+.team-block-mirrored .player-line .rank-badge {
+  grid-column: 2;
+}
+
+/* Right-pack the mirrored statline so the score and breakdown anchor to the
+   outer (border) edge. The column is sized to the widest row — the MVP row —
+   and its award pill sits on the inner side; anchoring the other stats outward
+   keeps every score in one column instead of letting the pill shove the
+   winner's out of line. Blue left-packs for the same reason, its pill trailing
+   into the slack on the inner side. */
+.team-block-mirrored .player-line .player-statline {
+  grid-column: 4;
+  justify-content: flex-end;
+}
+
+/* The score (and the MVP pill pinned beside it) mirrors across the divider, so
+   it stays the stat nearest the name in both rosters. Reversing the whole line
+   would carry the breakdown with it and flip its reading order; moving just
+   these two cells leaves G → SH intact. The pill hugs the score's inner (name)
+   side in both rosters: blue reads "score, pill", so the mirror leads with the
+   pill — "pill, score" — keeping the award between the score and the name. */
+.team-block-mirrored .stat-mvp-pill {
+  order: -2;
+}
+
+.team-block-mirrored .stat-score {
+  order: -1;
 }
 
 .team-heading {
-  display: flex;
-  align-items: baseline;
-  justify-content: flex-start;
-  gap: 8px;
   color: var(--muted);
   font-size: var(--text-sm);
   font-weight: var(--fw-bold);
   text-transform: uppercase;
 }
 
-.team-heading strong {
-  color: #17202a;
-  font-size: var(--text-lg);
+.team-scoreline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* The flanking blocks stack a heading (15px line box) + 6px gap above their
+     roster, so centring on the block lands the score above the roster's centre
+     line. Carrying the same leading here pushes it back onto the players.
+     Revisit if .team-heading's font-size or .team-block's row-gap change. */
+  padding-top: 21px;
+  font-size: var(--text-4xl);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
 }
 
+.team-scoreline-value {
+  min-width: 1ch;
+  text-align: center;
+}
+
+.team-scoreline-blue {
+  color: var(--blue);
+}
+
+.team-scoreline-orange {
+  color: var(--orange);
+}
+
+/* Separates the two scores without competing with them: at the scoreline's own
+   size and weight the dash reads as a third glyph, so it steps down one rung of
+   the scale, drops to the lightest weight, and takes a tone near the divider it
+   replaced. Its own line-height keeps the tall digits, not the dash's shorter
+   line box, setting the row's height. */
+.team-scoreline-dash {
+  color: #cbd5e1;
+  font-size: var(--text-3xl);
+  font-weight: var(--fw-medium);
+  line-height: 1;
+}
+
+/* Too narrow to bracket a centered scoreline, so the three tracks stack: blue
+   roster, score, orange roster. Orange un-mirrors — right-aligned names under
+   left-aligned ones just reads as a mistake in a single column. */
+@media (max-width: 860px) {
+  .teams-cell {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .team-block-mirrored {
+    padding-right: 0;
+    padding-left: 8px;
+    border-right: 0;
+    border-left: 2px solid #cbd5e1;
+  }
+
+  .team-block-mirrored .team-heading,
+  .team-block-mirrored .subtle {
+    text-align: left;
+  }
+
+  .replay-team-orange.team-block-mirrored {
+    border-left-color: #fdba74;
+  }
+
+  /* Un-mirrored: orange takes blue's track order and placement so both rosters
+     read the same way down the single column. */
+  .team-block-mirrored .player-stack {
+    grid-template-columns: auto 1fr auto minmax(0, auto);
+  }
+
+  /* No divider left to mirror the score across — it and its pill return to the
+     line's end in DOM order. */
+  .team-block-mirrored .stat-score,
+  .team-block-mirrored .stat-mvp-pill {
+    order: 0;
+  }
+
+  .team-block-mirrored .player-line .player-statline {
+    grid-column: 1;
+    /* Un-mirrored, it reads like blue: left-packed with the pill trailing. */
+    justify-content: flex-start;
+  }
+
+  .team-block-mirrored .player-line .rank-badge {
+    grid-column: 3;
+  }
+
+  .team-block-mirrored .player-line .player-name-with-platform {
+    grid-column: 4;
+    flex-direction: row-reverse;
+    justify-self: end;
+  }
+
+  /* Stacked, the scoreline is its own row between the rosters — there is no
+     heading beside it to compensate for. */
+  .team-scoreline {
+    justify-content: center;
+    padding-top: 0;
+  }
+}
+
+/* Five stat columns are ~190px on their own, so below roughly this width there
+   is no room to keep them on the name's line, let alone six aligned tracks.
+   The roster leaves the shared grid and each row wraps instead: platform → name,
+   then rank → stats underneath. The subgrid chain has to be undone at every
+   link — a row left as a subgrid of a one-track parent stacks each piece
+   vertically. */
+@media (max-width: 560px) {
+  .player-stack,
+  .team-block-mirrored .player-stack {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .player-identity.player-line {
+    width: 100%;
+  }
+
+  .player-identity.player-line,
+  .player-line .player-identity-main {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: 2px;
+  }
+
+  /* Owns its own line, so the name-and-icon box no longer hugs a track edge —
+     justify-self drops out with the grid. The box still reads name → icon, but
+     it is now wider than the pair, and a reversed box packs its content against
+     the right edge; flex-end is that box's far end, which brings the pair back
+     to the row's start. */
+  .player-line .player-name-with-platform {
+    flex: 1 0 100%;
+    justify-content: flex-end;
+  }
+}
+
+/* Column gap doubles as the spacing between the identity pieces, so it matches
+   the flex gap the rows used to carry. The subgrids below inherit both gutters
+   from here. */
 .player-stack {
   display: grid;
-  gap: 4px;
+  gap: 4px 7px;
   min-width: 0;
 }
 
+/* display and align-items come from the subgrid rule above — repeating flex
+   here would win on source order and undo it. */
 .player-line {
-  display: flex;
-  align-items: center;
-  gap: 7px;
   min-width: 0;
   color: #17202a;
   text-decoration: none;
 }
 
-.player-line:hover .player-name {
-  color: var(--blue);
-  text-decoration: underline;
-}
+/* Name hover lives on the profile link itself (see .player-identity-profile-link
+   below), not on :hover of the row. The row spans the card's full width, so a
+   row-scoped hover lit the name up from anywhere in that empty space even though
+   only the name is clickable. */
 
+/* display: block is load-bearing — overflow/text-overflow are ignored on an
+   inline box, so as a span the ellipsis never fired and a long name ran out
+   over the rank badge and statline instead of clipping. */
 .player-name {
+  display: block;
   overflow: hidden;
   font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
@@ -1464,8 +1987,10 @@ tbody tr:last-child td {
   text-decoration: none;
 }
 
-.player-identity-profile-link:hover .player-name,
-.player-identity:hover .player-identity-profile-link .player-name {
+/* Scoped to the link, not the surrounding .player-identity: the identity box
+   (name + rank + statline) is far wider than the name, so a container hover made
+   the name highlight as if it were clickable when hovering the rank/stats/gaps. */
+.player-identity-profile-link:hover .player-name {
   color: var(--blue);
   text-decoration: underline;
 }
@@ -1512,6 +2037,8 @@ tbody tr:last-child td {
   color: #991b1b;
 }
 
+/* MVP crown pill: solid green so it reads as an award, not a status. Sits
+   inside the statline just before the winner's score. */
 .chip-mvp {
   background: #10b981;
   color: #ffffff;
@@ -1554,9 +2081,61 @@ tbody tr:last-child td {
   opacity: 0.55;
 }
 
+/* Wraps the warning triangle so the "approximate rank" explanation shows on
+   hover of the icon itself, not the whole badge. Uses a custom tooltip instead
+   of the native title attribute so it appears immediately, without the browser's
+   ~1s title delay. */
+.rank-approx-mark-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: -2px;
+  cursor: help;
+}
+
+.rank-approx-mark-wrap::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-2px);
+  z-index: 40;
+  width: max-content;
+  max-width: 280px;
+  padding: 8px 11px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface-subtle);
+  color: var(--text);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: var(--shadow-tooltip);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition:
+    opacity 90ms ease-out,
+    transform 90ms ease-out,
+    visibility 0s linear 90ms;
+}
+
+.rank-approx-mark-wrap:hover::after,
+.rank-approx-mark-wrap:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+  transition:
+    opacity 90ms ease-out,
+    transform 90ms ease-out,
+    visibility 0s;
+}
+
 .rank-approx-mark {
   flex: none;
-  margin-left: -2px;
   /* Same tone as the stale badge so "approximate" reads consistently. */
   color: #92400e;
 }
@@ -1568,11 +2147,15 @@ tbody tr:last-child td {
   font-variant-numeric: tabular-nums;
 }
 
+/* The breakdown cells never mirror, even though the rosters around them do:
+   G → A → SV → SH reads the same in both, so a column can be scanned down the
+   card without re-learning the order halfway. The score is the one exception —
+   see .team-block-mirrored .stat-score. */
 .player-statline {
   display: inline-flex;
   flex: none;
+  align-items: baseline;
   gap: 8px;
-  margin-left: auto;
   color: var(--text);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
@@ -1593,6 +2176,8 @@ tbody tr:last-child td {
   font-weight: var(--fw-semibold);
 }
 
+/* The score is the cell the rosters are sorted by, so it outweighs the
+   breakdown; its label is spelled out rather than abbreviated. */
 .stat-score {
   min-width: 34px;
   color: var(--text-strong);
@@ -1630,6 +2215,83 @@ tbody tr:last-child td {
 
 .status-line.error {
   color: #b91c1c;
+}
+
+/* Sits above .top-bar (z-index 20) so it clears the sticky nav it tucks under. */
+.error-toast {
+  position: fixed;
+  top: calc(var(--top-bar-height) + 12px);
+  left: 50%;
+  transform: translate(-50%, 0);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--danger);
+  color: #fff;
+  font-size: var(--text-md);
+  font-weight: var(--fw-medium);
+  box-shadow: var(--shadow-tooltip);
+  animation: error-toast-in 160ms ease-out;
+}
+
+.error-toast.exiting {
+  animation: error-toast-out 220ms ease-in forwards;
+}
+
+.error-toast-close {
+  display: flex;
+  align-items: center;
+  /* Opt out of the global 40px button min-height; it would pad the toast out. */
+  min-height: 0;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  opacity: 0.8;
+  cursor: pointer;
+}
+
+.error-toast-close:hover {
+  background: rgba(255, 255, 255, 0.18);
+  opacity: 1;
+}
+
+@keyframes error-toast-in {
+  from {
+    transform: translate(-50%, -8px);
+    opacity: 0;
+  }
+  to {
+    transform: translate(-50%, 0);
+    opacity: 1;
+  }
+}
+
+/* Opacity only, so the base centering transform holds for the whole fade. */
+@keyframes error-toast-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .error-toast {
+    animation: none;
+  }
+
+  /* The entrance travel goes, but the exit fade stays: it carries no motion,
+     and its animationend is what unmounts the toast. */
+  .error-toast.exiting {
+    animation: error-toast-out 220ms ease-in forwards;
+  }
 }
 
 .spin {
@@ -7623,7 +8285,11 @@ tbody tr:last-child td {
      per-player statline (flex: none) plus a long name set a large min-content
      floor, so the whole card refused to shrink and spilled past the viewport
      (clipped, since body hides x-overflow). Force every track to minmax(0,1fr)
-     and let the name ellipsis so the card always fits the column. */
+     and let the name ellipsis so the card always fits the column.
+
+     The roster's own tracks stop here: .player-stack keeps its shared columns
+     down to 560px (its name track is minmax(0, auto), so it can still shrink),
+     and the 560px block drops the grid entirely. */
   .replay-card-list {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -7650,21 +8316,6 @@ tbody tr:last-child td {
   .team-block {
     grid-template-columns: 1fr;
     min-width: 0;
-  }
-
-  .player-stack {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .player-identity.player-line {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    width: 100%;
-  }
-
-  .player-identity.player-line .player-identity-main {
-    min-width: 0;
-    overflow: hidden;
   }
 
   .pickup-map-grid {
@@ -7807,6 +8458,11 @@ tbody tr:last-child td {
 
   .filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  /* Spanning 2 would add an implicit column to a single-column grid. */
+  .filter-grid .filter-range {
+    grid-column: auto;
   }
 
   .event-type-grid,
@@ -9648,7 +10304,14 @@ tbody tr:last-child td {
   border-color: #9fb4d9;
 }
 
-.leaderboard-playlist-filter select:focus,
+/* These draw their own ring rather than taking the global one, so the pointer
+   gate in the focus policy — which only lifts an outline — can't reach them and
+   the modality is matched here instead. The select is gated for the reason
+   given there: clicking one is a press, and the ring left behind reads as
+   stuck. The text input isn't, because there the ring marks where typing lands.
+   Selecting on :not() rather than unsetting afterwards keeps a moused select's
+   :hover border intact instead of overwriting it. */
+:root:not([data-modality="pointer"]) .leaderboard-playlist-filter select:focus,
 .leaderboard-playlist-filter input:focus {
   outline: none;
   border-color: #2563eb;

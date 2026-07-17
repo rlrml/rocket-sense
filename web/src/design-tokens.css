@@ -30,6 +30,7 @@
   --text-xl: 18px;
   --text-2xl: 22px;
   --text-3xl: 28px;
+  --text-4xl: 34px;
 
   --fw-medium: 600;
   --fw-semibold: 700;
@@ -48,12 +49,14 @@
   --text-strong: #243142;
   --surface: #ffffff;
   --surface-subtle: #edf1f5;
+  --surface-sunken: #dde3ea;
   --border: #d8dee6;
   --border-strong: #cbd5e1;
   --muted: #617181;
   --panel: var(--surface);
   --nav: #111827;
   --nav-muted: #9ca3af;
+  --focus-ring: #2563eb;
 
   --team-blue: #2563eb;
   --team-orange: #ea580c;
