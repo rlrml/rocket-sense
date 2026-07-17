@@ -2889,7 +2889,7 @@ pub async fn reprocess_replay(
     }
 
     let summary = request_replay_reprocessing_batch(
-        db.clone(),
+        db,
         ReplayReprocessOptions {
             replay_ids: vec![replay_id],
             force: query.force,

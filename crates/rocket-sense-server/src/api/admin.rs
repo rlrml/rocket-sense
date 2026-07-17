@@ -786,7 +786,7 @@ pub async fn reprocess_replays(
     let pool = require_db(&state)?;
     require_admin(&state, &auth_user).await?;
     let summary = request_replay_reprocessing_batch(
-        pool.clone(),
+        pool,
         ReplayReprocessOptions {
             replay_ids: request.replay_ids,
             force: request.force,

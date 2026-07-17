@@ -1,4 +1,65 @@
-use super::{DEFAULT_EXTRACTOR_NAME, EVENT_STREAM_SCHEMA_VERSION};
+use super::DEFAULT_EXTRACTOR_NAME;
+
+// Bumped v2 -> v3 when goal ball speed (`ball_speed_at_goal`) was corrected:
+// previously every goal recorded 0 because the explosion frame carries no ball
+// velocity. Bumping marks prior analyses stale so reprocessing re-emits the
+// event stream with real speeds.
+// Bumped v3 -> v4 for the subtr-actor boost-model rewrite: the `boost_ledger`
+// and `boost_state` timeline streams were removed in favor of consolidated
+// `boost_pickups`/`boost_respawn` events plus per-frame accumulation tracks.
+// Bumping marks prior analyses stale so reprocessing re-keys pickups and
+// persists the new boost accumulation tracks.
+// Bumped v4 -> v5 for the kickoff win-strength redesign: `win_strength` is now
+// the velocity-projected ball depth as a fraction of the half-field length
+// (0..=1) instead of a ratio over the minimal-win threshold, and the
+// narrow/clear/strong bands were recalibrated (previously ~82% of decided
+// kickoffs landed in "strong"). Bumping marks prior analyses stale so
+// reprocessing re-emits kickoff events on the new scale.
+// Bumped v5 -> v6 for the subtr-actor PlayerStateSpan unification and kickoff
+// advantage: the positioning/rotation streams (`positioning*`,
+// `rotation_player`, `rotation_role_span`, `rotation_depth_span`,
+// `rotation_first_man_stint`) were replaced by per-facet span streams
+// (`player_activity`, `field_third`, `field_half`, `ball_depth`, `depth_role`,
+// `ball_proximity`, `rotation_role`, `first_man_change`), and kickoff events
+// gained the advantage verdict. Bumping marks prior analyses stale so
+// reprocessing emits the new streams and kickoff advantage fields.
+// Bumped v6 -> v7 for career possession stats: subtr-actor now emits the
+// enriched `player_possession` span stream (indexed into
+// `play_event_player_possession_details`) and touch details gained the
+// intention/first-touch/contested/ball-movement facets. Bumping marks prior
+// analyses stale so reprocessing persists the new spans and touch columns.
+// Bumped v7 -> v8 to index per-player positioning distance summaries into the
+// stats event stream. Bumping marks prior analyses stale so reprocessing fills
+// the positioning page's average ball/team distance rows.
+// Bumped v8 -> v9 for the loosened subtr-actor whiff detector: the
+// whiff/beaten-to-ball candidate detector was retuned for recall to feed the
+// event review loop, so reprocessing re-emits the now-looser whiff candidates
+// for confirm/reject labeling.
+// Bumped v9 -> v10 for subtr-actor's tag-based touch classification: touch
+// events no longer carry fixed intention/first-touch/contested fields, so
+// reprocessing derives those indexed detail columns from classification tags.
+// Bumped v10 -> v11 to backfill replay-player scoreboard metadata from
+// `core_player_scoreboard` deltas when the replay header lacks `PlayerStats`.
+// Reprocessing fills score/goals/assists/saves/shots for replay cards, group
+// participants, and Core stats.
+// Bumped v11 -> v12 for subtr-actor's multi-frame dodge-contact flip reset
+// detector: reprocessing classifies resets where contact begins before the
+// dodge byte is sampled but the dodge still carries through the ball.
+// Bumped v12 -> v13 for subtr-actor's dodge-touch rate-limit bypass: the soft
+// first contact of a carry no longer swallows the dodge-powered launch touch,
+// so reprocessing recovers flip-reset conversions, air-dribble touch runs, and
+// flick launch measurements that the touch rate limit had dropped.
+// Bumped v13 -> v14 for subtr-actor's dedicated beaten-to-ball detector: what
+// was previously only a WhiffEvent subtype is now its own `beaten_to_ball`
+// event stream (retrospective, touch-anchored, tuned toward recall to feed the
+// event-review labeling campaigns). The submodule bump also preserves mechanic
+// goal tags through late saves. Bumping marks prior analyses stale so
+// reprocessing emits the new `beaten_to_ball` stream for confirm/reject
+// labeling and re-tags the affected mechanic goals.
+// Bumped v14 -> v15 to eagerly run the RLVision mistake detector and persist
+// every surviving per-player marker as an indexed play event during the
+// canonical replay-processing run.
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v15";
 
 pub(crate) fn subtr_actor_version() -> &'static str {
     option_env!("SUBTR_ACTOR_VERSION").unwrap_or("unknown")

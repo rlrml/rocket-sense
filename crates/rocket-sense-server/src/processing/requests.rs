@@ -23,8 +23,8 @@ pub async fn request_replay_reprocessing(pool: &PgPool, replay_id: Uuid) -> Resu
 }
 
 pub async fn request_replay_reprocessing_batch(
-    pool: PgPool,
+    pool: &PgPool,
     options: jobs::ReplayReprocessOptions,
 ) -> Result<jobs::ReplayReprocessSummary> {
-    jobs::enqueue_replay_reprocessing(pool, options).await
+    jobs::enqueue_replay_reprocessing(pool.clone(), options).await
 }
