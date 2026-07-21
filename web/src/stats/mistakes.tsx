@@ -9,6 +9,9 @@ import type {
   ReplayPlayer,
 } from "../types";
 import type { EventClip } from "./EventClipPlayer";
+import type { CinematicMistake } from "./cinematics/constants";
+import { lazyMistakeCinematic } from "./cinematics/lazy";
+import { cinematicClipWindow } from "./cinematics/phases";
 import { useEventPreviewSelection } from "./eventPreview";
 import { subtrActorPlayerUrl } from "../playerLink";
 import type { StatDetailProps } from "./registry";
@@ -344,9 +347,21 @@ export function MistakesDetail({ events, players, replayId }: StatDetailProps) {
   const buildClip = useCallback(
     (row: MarkerRow, replayNonce: number): EventClip | null => {
       const { marker } = row;
+      const cinematicMistake: CinematicMistake = {
+        kind: marker.kind,
+        time: marker.time,
+        t_start: marker.t_start,
+        t_end: marker.t_end,
+        player: marker.player,
+        with_player: marker.with_player,
+      };
+      // The loop window must contain the whole cinematic — including the
+      // rewind's furthest reach before t_start — or the loop enforcers would
+      // fight the rewound playhead the moment the director hands back.
+      const window = cinematicClipWindow(cinematicMistake);
       return {
-        start: Math.max(0, marker.t_start),
-        end: marker.t_end,
+        start: Math.max(0, window.start),
+        end: window.end,
         camera: (cam) => {
           if (
             !cam.followPlayer({
@@ -358,6 +373,10 @@ export function MistakesDetail({ events, players, replayId }: StatDetailProps) {
             cam.freeCamera("side");
           }
         },
+        cinematic: lazyMistakeCinematic(cinematicMistake, {
+          playerKey: activeFocusKey,
+          playerName: focusName ?? marker.player,
+        }),
         key: `${marker.kind}:${marker.time}:${activeFocusKey ?? ""}:${replayNonce}`,
       };
     },
