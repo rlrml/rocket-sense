@@ -185,13 +185,7 @@ interface FilmRoomPlayerProps {
   focusName: string | null;
 }
 
-function FilmRoomPlayer({
-  replayId,
-  mistakes,
-  markers,
-  focusKey,
-  focusName,
-}: FilmRoomPlayerProps) {
+function FilmRoomPlayer({ replayId, mistakes, markers, focusKey, focusName }: FilmRoomPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<ReplayPlayerInstance | null>(null);
   const replayModelRef = useRef<ReplayModel | null>(null);
