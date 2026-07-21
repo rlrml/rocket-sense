@@ -160,13 +160,86 @@ coordinates.
   clickable during playback; a reject removes the row, which switches the
   clip and tears the director down through the normal abort path.
 
+## The mistakes tour (film room)
+
+The single-clip port deliberately narrowed viewer.js's whole-replay
+`_findActiveMistake` scan down to a one-window membership test. The film room
+(`/replays/:replayId/film`, `web/src/stats/filmRoom.tsx`) restores it: the
+full replay plays start to finish, and each detected mistake's cinematic
+takes over the clock + camera in place when the playhead enters its window —
+the analog of viewer.js's `"analysis-walkthrough"` camera mode, with the
+mistakes rendered as per-kind-colored markers on the scrubber.
+
+- `web/src/stats/cinematics/tourScan.ts` — the pure scan state machine
+  (unit-tested in `__tests__/tour.test.ts`): which mistake owns a director
+  this frame, per-mistake consumed guards, and the timeline marker math.
+- `web/src/stats/cinematics/tour.ts` — the orchestrator plugin that applies
+  the scan's actions: it instantiates `createMistakeCinematicDirector` (the
+  unchanged per-mistake director) on window entry and tears it down on
+  completion or window exit.
+- `web/src/stats/mistakeList.ts` — the marker-building, admin gating, review
+  filtering, and focus resolution factored out of the Coaching stat, so the
+  film room and Coaching consume the same sorted, gated list.
+
+Where the tour diverges from viewer.js:
+
+- **Per-mistake consumed guards instead of one key.** viewer.js tracked a
+  single `consumedMistakeKey`/`consumedMistakeEnd` (the last-finished
+  mistake). The tour keeps a guard per mistake, so each fires exactly once
+  per pass, and a completed cinematic can chain straight into an overlapping
+  next window (viewer.js would wait for the first window to exit). The
+  re-arm rule is the same: a guard lifts only once the playhead moves
+  forward past the window end — never on a backward exit, because a
+  cinematic rewind legitimately parks the playhead before the window and
+  time then walks forward back into it.
+- **Scan suspension is explicit.** viewer.js kept a sticky
+  `_aw.activeMistake` through the cinematic. Here, while the attached
+  director reports `isEngaged()`, the tour does not scan at all — which is
+  what makes a rewind through an earlier mistake's window unable to
+  re-trigger it (asserted in `tour.test.ts`).
+- **Scan order is time order.** viewer.js scanned `_mistakes` in list order;
+  the tour sorts by `m.time`, so overlapping windows resolve
+  first-by-time.
+- **Pause aborts instead of freezing.** viewer.js's phase machine simply
+  stopped advancing while `!state.isPlaying`. The ported directors own
+  play/pause themselves (freezes are `pause()`), so a *user* pause instead
+  aborts any in-flight cinematic through the director's
+  `notifyExternalSeek()` path — keeping consumed guards, so resuming does
+  not replay mistakes the pass already toured. A scrub or marker jump uses
+  the same abort but re-arms everything, matching viewer.js's
+  "scrub back in to replay" semantics.
+- **Directors attach on a microtask.** The vendored `addPlugin` re-renders
+  synchronously; attaching from inside the tour plugin's own `beforeRender`
+  would re-enter the render loop, so the attach is deferred one microtask
+  (still before the next frame). Ordering stays camera plugin → tour →
+  director, so cinematic camera writes win the frame as in the clip player.
+- **Free-look is shared.** The director's click-drag orbit moved to
+  `cinematics/look.ts`; the director and the tour each drive an instance
+  (the tour's only between mistakes), so free-look works across the whole
+  replay, not just inside a clip window.
+- **Timeline markers are new UI.** Position is `m.time / duration`, colored
+  via `MISTAKE_COLORS`, admin-gated by the shared list; clicking seeks to
+  `windowStart − 1.5s` and (via the external-seek path) arms the mistake so
+  its cinematic fires on the way through. A marker toggle and the
+  camera-mode toggle ("Mistakes tour" on/off) live on the panel header;
+  with the tour off, markers stay clickable as plain jumps.
+
+There is no clip loop in the film room, so the loop-enforcer suspension from
+`EventClipPlayer` does not apply; the only transport automation (end-of-replay
+detection) checks `isEngaged()` before treating a paused player as finished.
+
 ## Verifying
 
 - `cd web && npm test` — phase machine, windows, teammate resolution, path
-  routing, control-point conditioning, copy branches.
+  routing, control-point conditioning, copy branches, tour scan +
+  timeline-marker math.
 - Open a replay's Coaching stat and watch each family end-to-end
   (`/replays/<id>/stats/coaching`). Kind → family: `bang_with_time` → freeze
   + sideview + cone; `too_far_from_play` / `pick_up_small_pads` → rewind +
   bird's-eye + chevrons/strobe; `waiting_to_challenge` / `double_committing`
   → teammate-POV pan (the latter with rewind + freeze beat); everything else
   → 0.25× slow-mo with the callout.
+- Open the film room (`/replays/<id>/film`, linked from the Coaching
+  toolbar) with tour mode on and let the replay run: each marker's cinematic
+  fires in place in timeline order and hands back to follow-cam between
+  mistakes; clicking a marker jumps just ahead of its window and replays it.

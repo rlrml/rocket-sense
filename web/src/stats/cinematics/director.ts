@@ -48,6 +48,7 @@ import {
   type CinematicMistake,
 } from "./constants";
 import { resolveCalloutText } from "./copy";
+import { createFreeLookControl } from "./look";
 import { smoothstep01, smootherstep01, uuToScene } from "./math";
 import { BangConeOverlay, ChevronPathOverlay, FocusRingOverlay } from "./overlays";
 import {
@@ -90,9 +91,6 @@ export interface CinematicDirectorContext {
   basePlaybackRate: number;
 }
 
-const LOOK_SENSITIVITY = 1.4;
-const AW_USER_LOOK_DECAY = 0.82;
-
 export function createMistakeCinematicDirector(
   m: CinematicMistake,
   ctx: CinematicDirectorContext,
@@ -119,14 +117,11 @@ export function createMistakeCinematicDirector(
   const tmpProj = new THREE.Vector3();
   const worldUp = new THREE.Vector3(0, 1, 0);
 
-  const userLook = {
-    active: false,
-    snapping: false,
-    yaw: 0,
-    pitch: 0,
-    lastX: 0,
-    lastY: 0,
-  };
+  const freeLook = createFreeLookControl({
+    player,
+    container,
+    canLook: () => !cinematicOwnsCamera(aw.phase),
+  });
 
   let removePlugin: (() => void) | null = null;
   let callout: CalloutOverlay | null = null;
@@ -424,41 +419,13 @@ export function createMistakeCinematicDirector(
   }
 
   /**
-   * Click-drag free-look on top of the follow cam during phases the cinematic
-   * doesn't own: orbit the camera around the followed car by the accumulated
-   * yaw/pitch offsets; on release they decay back so the camera eases home.
+   * Click-drag free-look (shared control) during phases the cinematic doesn't
+   * own, orbiting whichever car the camera currently follows.
    */
   function applyUserLook(render: PlayerRenderContext) {
-    if (!userLook.active && !userLook.snapping) return;
-    if (userLook.snapping) {
-      userLook.yaw *= AW_USER_LOOK_DECAY;
-      userLook.pitch *= AW_USER_LOOK_DECAY;
-      if (Math.abs(userLook.yaw) < 0.003 && Math.abs(userLook.pitch) < 0.003) {
-        userLook.snapping = false;
-        userLook.yaw = 0;
-        userLook.pitch = 0;
-        return;
-      }
-    }
     const followIdx = attachedTeammate ? resolveTeammateIdx() : focusIdx;
-    const car = carById(render, followIdx >= 0 ? followIdx : focusIdx);
-    const obj = car?.object3d;
-    if (!obj || !car.visible) return;
-    const camera = render.camera;
-    const carPos = obj.position;
-    tmpPos.subVectors(camera.position, carPos);
-    const dist = tmpPos.length();
-    if (dist < 0.1) return;
-    const theta = Math.atan2(tmpPos.x, tmpPos.z) + userLook.yaw;
-    let phi = Math.acos(Math.max(-1, Math.min(1, tmpPos.y / dist))) + userLook.pitch;
-    phi = Math.max(0.05, Math.min(Math.PI - 0.05, phi));
-    const sinPhi = Math.sin(phi);
-    camera.position.set(
-      carPos.x + dist * sinPhi * Math.sin(theta),
-      carPos.y + dist * Math.cos(phi),
-      carPos.z + dist * sinPhi * Math.cos(theta),
-    );
-    camera.lookAt(carPos);
+    const track = replay.players[followIdx >= 0 ? followIdx : focusIdx];
+    freeLook.apply(render, track?.id ?? null);
   }
 
   // ---- Callout ---------------------------------------------------------------
@@ -712,12 +679,7 @@ export function createMistakeCinematicDirector(
 
     const owned = applyCinematicCamera(render);
     if (owned) {
-      if (userLook.active || userLook.snapping) {
-        userLook.active = false;
-        userLook.snapping = false;
-        userLook.yaw = 0;
-        userLook.pitch = 0;
-      }
+      freeLook.cancel();
       render.camera.updateMatrixWorld();
     } else {
       applyUserLook(render);
@@ -725,40 +687,6 @@ export function createMistakeCinematicDirector(
 
     updateBangCone(render);
     updateCallout(render);
-  }
-
-  // ---- User free-look pointer handling ---------------------------------------
-
-  function canUserLook(): boolean {
-    return !cinematicOwnsCamera(aw.phase);
-  }
-
-  function onPointerDown(e: PointerEvent) {
-    if (e.button !== 0 || !canUserLook()) return;
-    userLook.active = true;
-    userLook.snapping = false;
-    userLook.lastX = e.clientX;
-    userLook.lastY = e.clientY;
-    (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
-  }
-
-  function onPointerMove(e: PointerEvent) {
-    if (!userLook.active) return;
-    const dx = e.clientX - userLook.lastX;
-    const dy = e.clientY - userLook.lastY;
-    userLook.lastX = e.clientX;
-    userLook.lastY = e.clientY;
-    const camera = player.sceneState.camera;
-    const height = Math.max(1, container.clientHeight);
-    const sens = ((LOOK_SENSITIVITY * 2 * Math.tan((camera.fov * Math.PI) / 360)) / height) * 1.6;
-    userLook.yaw -= dx * sens;
-    userLook.pitch -= dy * sens;
-  }
-
-  function endUserLook() {
-    if (!userLook.active) return;
-    userLook.active = false;
-    userLook.snapping = true;
   }
 
   const plugin: PlayerPlugin = {
@@ -774,10 +702,7 @@ export function createMistakeCinematicDirector(
       chevrons = new ChevronPathOverlay(root);
       bangCone = new BangConeOverlay(root);
       focusRing = new FocusRingOverlay(root);
-      container.addEventListener("pointerdown", onPointerDown);
-      container.addEventListener("pointermove", onPointerMove);
-      container.addEventListener("pointerup", endUserLook);
-      container.addEventListener("pointercancel", endUserLook);
+      freeLook.attach();
       lastNow = null;
       removePlugin = player.addPlugin(plugin);
     },
@@ -785,10 +710,8 @@ export function createMistakeCinematicDirector(
       if (!removePlugin) return;
       removePlugin();
       removePlugin = null;
-      container.removeEventListener("pointerdown", onPointerDown);
-      container.removeEventListener("pointermove", onPointerMove);
-      container.removeEventListener("pointerup", endUserLook);
-      container.removeEventListener("pointercancel", endUserLook);
+      freeLook.detach();
+      freeLook.cancel();
       callout?.dispose();
       callout = null;
       chevrons?.dispose();

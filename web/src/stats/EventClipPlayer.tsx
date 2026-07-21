@@ -562,7 +562,7 @@ export function EventClipPlayer({
   );
 }
 
-function normalizePlayerKey(value: string): string {
+export function normalizePlayerKey(value: string): string {
   const separator = value.indexOf(":");
   if (separator < 0) {
     return value.trim().toLowerCase();
