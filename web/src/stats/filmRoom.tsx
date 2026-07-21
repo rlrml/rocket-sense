@@ -88,8 +88,6 @@ export function ReplayFilmRoomPage() {
   }, [replayId]);
 
   const source = useMistakeMarkers(replayId, events, players);
-  const [tourEnabled, setTourEnabled] = useState(true);
-  const [showMarkers, setShowMarkers] = useState(true);
 
   const markers = useMemo<FilmRoomMarker[]>(
     () =>
@@ -163,27 +161,6 @@ export function ReplayFilmRoomPage() {
                 {markers.length} mistake{markers.length === 1 ? "" : "s"} on the timeline
               </span>
             </div>
-            <div className="film-room-toggles">
-              <label
-                className="film-room-toggle"
-                title="Let each mistake's cinematic take over the camera as the replay reaches it"
-              >
-                <input
-                  type="checkbox"
-                  checked={tourEnabled}
-                  onChange={(event) => setTourEnabled(event.currentTarget.checked)}
-                />
-                Mistakes tour
-              </label>
-              <label className="film-room-toggle" title="Show mistake markers on the timeline">
-                <input
-                  type="checkbox"
-                  checked={showMarkers}
-                  onChange={(event) => setShowMarkers(event.currentTarget.checked)}
-                />
-                Markers
-              </label>
-            </div>
           </div>
           <FilmRoomPlayer
             replayId={replayId}
@@ -191,8 +168,6 @@ export function ReplayFilmRoomPage() {
             markers={markers}
             focusKey={source.activeFocusKey}
             focusName={source.focusName}
-            tourEnabled={tourEnabled}
-            showMarkers={showMarkers}
           />
         </section>
       )}
@@ -208,8 +183,6 @@ interface FilmRoomPlayerProps {
   markers: FilmRoomMarker[];
   focusKey: string | null;
   focusName: string | null;
-  tourEnabled: boolean;
-  showMarkers: boolean;
 }
 
 function FilmRoomPlayer({
@@ -218,8 +191,6 @@ function FilmRoomPlayer({
   markers,
   focusKey,
   focusName,
-  tourEnabled,
-  showMarkers,
 }: FilmRoomPlayerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<ReplayPlayerInstance | null>(null);
@@ -234,8 +205,6 @@ function FilmRoomPlayer({
   const [userPlaying, setUserPlaying] = useState(false);
   const userPlayingRef = useRef(userPlaying);
   userPlayingRef.current = userPlaying;
-  const tourEnabledRef = useRef(tourEnabled);
-  tourEnabledRef.current = tourEnabled;
 
   // Build the player once per replay — same construction as EventClipPlayer.
   useEffect(() => {
@@ -365,7 +334,7 @@ function FilmRoomPlayer({
       basePlaybackRate: 1,
     });
     tour.attach();
-    tour.setEnabled(tourEnabledRef.current);
+    tour.setEnabled(true);
     tourRef.current = tour;
     // A previous tour torn down mid-freeze leaves the transport paused —
     // restore the user's play intent for the fresh tour.
@@ -379,10 +348,6 @@ function FilmRoomPlayer({
       if (tourRef.current === tour) tourRef.current = null;
     };
   }, [status, mistakes, focusKey, focusName]);
-
-  useEffect(() => {
-    tourRef.current?.setEnabled(tourEnabled);
-  }, [tourEnabled]);
 
   const togglePlay = useCallback(() => {
     const player = playerRef.current;
@@ -456,7 +421,6 @@ function FilmRoomPlayer({
           duration={duration}
           currentTime={currentTime}
           markers={markers}
-          showMarkers={showMarkers}
           onSeek={seekTo}
           onMarkerJump={jumpToMarker}
         />
@@ -469,14 +433,12 @@ function FilmRoomTimeline({
   duration,
   currentTime,
   markers,
-  showMarkers,
   onSeek,
   onMarkerJump,
 }: {
   duration: number;
   currentTime: number;
   markers: FilmRoomMarker[];
-  showMarkers: boolean;
   onSeek: (time: number) => void;
   onMarkerJump: (marker: FilmRoomMarker) => void;
 }) {
@@ -542,31 +504,29 @@ function FilmRoomTimeline({
       >
         <div className="film-room-timeline-fill" style={{ width: `${progress * 100}%` }} />
         <div className="film-room-playhead" style={{ left: `${progress * 100}%` }} />
-        {showMarkers
-          ? markers.map((marker) => (
-              <button
-                key={marker.key}
-                type="button"
-                className="film-room-marker"
-                style={{
-                  left: `${markerFraction(marker.mistake, duration) * 100}%`,
-                  backgroundColor: marker.color,
-                }}
-                aria-label={`${marker.kindLabel} at ${formatClock(marker.mistake.time)}`}
-                data-tour-key={marker.tourKey}
-                onPointerDown={(event) => {
-                  // A marker click is a jump, not a bar scrub.
-                  event.stopPropagation();
-                }}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onMarkerJump(marker);
-                }}
-                onMouseEnter={() => setHoveredKey(marker.key)}
-                onMouseLeave={() => setHoveredKey((key) => (key === marker.key ? null : key))}
-              />
-            ))
-          : null}
+        {markers.map((marker) => (
+          <button
+            key={marker.key}
+            type="button"
+            className="film-room-marker"
+            style={{
+              left: `${markerFraction(marker.mistake, duration) * 100}%`,
+              backgroundColor: marker.color,
+            }}
+            aria-label={`${marker.kindLabel} at ${formatClock(marker.mistake.time)}`}
+            data-tour-key={marker.tourKey}
+            onPointerDown={(event) => {
+              // A marker click is a jump, not a bar scrub.
+              event.stopPropagation();
+            }}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMarkerJump(marker);
+            }}
+            onMouseEnter={() => setHoveredKey(marker.key)}
+            onMouseLeave={() => setHoveredKey((key) => (key === marker.key ? null : key))}
+          />
+        ))}
       </div>
     </div>
   );

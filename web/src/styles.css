@@ -12015,24 +12015,6 @@ tbody tr:last-child td {
   flex-wrap: wrap;
 }
 
-.film-room-toggles {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-shrink: 0;
-}
-
-.film-room-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--text-base);
-  font-weight: var(--fw-semibold);
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-}
-
 .film-room-player {
   display: grid;
   gap: 10px;
