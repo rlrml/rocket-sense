@@ -67,6 +67,12 @@ jobs:
         working-directory: web
         run: npm run typecheck
 
+      # State-machine unit tests for the cinematics/analysis-walkthrough logic.
+      # Pure logic, no browser, so run before the slower web build to fail fast.
+      - name: Test web (Vitest)
+        working-directory: web
+        run: npm test
+
       # The server crate embeds web/dist via build.rs, so the web build must
       # precede any cargo build/clippy/test (mirrors the justfile dependencies).
       - name: Build web
