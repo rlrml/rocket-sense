@@ -147,7 +147,15 @@ export function useMistakeMarkers(
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const [reviews, setReviews] = useState<MistakeReviewListItem[]>([]);
 
-  const activeFocusKey = focusKey ?? focusOptions[0]?.key ?? null;
+  // Validate the stored key against the current options: the hook stays mounted
+  // across replay navigation, so a focusKey chosen for the previous replay can
+  // outlive its focusOptions. Falling back to the first option when the stored
+  // key is absent keeps the select populated (and the tour attached) instead of
+  // pointing at a missing option and rendering an empty list.
+  const activeFocusKey =
+    (focusKey != null && focusOptions.some((option) => option.key === focusKey)
+      ? focusKey
+      : focusOptions[0]?.key) ?? null;
 
   useEffect(() => {
     let cancelled = false;
