@@ -176,6 +176,11 @@ export function useMistakeMarkers(
   }, []);
 
   useEffect(() => {
+    // Drop the previous replay's reviews immediately: the hook stays mounted
+    // across replay navigation, and a stale review whose kind/player/time
+    // happens to match a marker in the new replay would silently hide it —
+    // forever, if the new fetch fails or the user is signed out.
+    setReviews([]);
     if (!replayId || !signedIn) return;
     let cancelled = false;
     listMistakeReviews(replayId)
