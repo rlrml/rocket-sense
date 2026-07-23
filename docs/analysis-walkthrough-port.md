@@ -220,9 +220,11 @@ Where the tour diverges from viewer.js:
 - **Timeline markers are new UI.** Position is `m.time / duration`, colored
   via `MISTAKE_COLORS`, admin-gated by the shared list; clicking seeks to
   `windowStart − 1.5s` and (via the external-seek path) arms the mistake so
-  its cinematic fires on the way through. A marker toggle and the
-  camera-mode toggle ("Mistakes tour" on/off) live on the panel header;
-  with the tour off, markers stay clickable as plain jumps.
+  its cinematic fires on the way through. Markers are always shown and the
+  tour is always on (`tour.setEnabled(true)` unconditionally) — the marker
+  and camera-mode toggles that RLVision's viewer offered were dropped from
+  the film room; `setEnabled` survives on the controller API for tests and
+  future UI.
 
 There is no clip loop in the film room, so the loop-enforcer suspension from
 `EventClipPlayer` does not apply; the only transport automation (end-of-replay
