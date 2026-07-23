@@ -337,17 +337,28 @@ export function EventClipPlayer({
         setContactOverheadCamera(player, capture.ballPosition);
       },
     };
-    target.camera(cameraControls);
-    player.setPlaybackRate(target.playbackRate ?? 1);
-    player.setMotionInterpolation(target.motionInterpolation ?? "hermite");
-    if (appliedClipKeyRef.current !== target.key) {
-      player.seek(start);
-    }
     // Cinematic lifecycle: keep a running director across same-key re-applies;
-    // switching clips (or dropping the cinematic) tears the old one down.
+    // switching clips (or dropping the cinematic) tears the old one down. The
+    // teardown must precede the camera/rate application below — detach()
+    // restores the *old* clip's attachment and base rate, which would
+    // otherwise override the new clip's setup.
     if (directorRef.current && directorRef.current.key !== target.key) {
       directorRef.current.director.detach();
       directorRef.current = null;
+    }
+    // A same-key re-apply while the cinematic is engaged (e.g. `rows` identity
+    // refreshes when the reviews/auth fetches resolve, or an admin reviews a
+    // row mid-playback) must not stomp the director: it owns the camera, the
+    // playback rate (which it caches — an external reset here would stick
+    // until the next computed-speed change), and the freeze/play state.
+    const cinematicEngaged = directorRef.current?.director.isEngaged() ?? false;
+    if (!cinematicEngaged) {
+      target.camera(cameraControls);
+      player.setPlaybackRate(target.playbackRate ?? 1);
+    }
+    player.setMotionInterpolation(target.motionInterpolation ?? "hermite");
+    if (appliedClipKeyRef.current !== target.key) {
+      player.seek(start);
     }
     if (target.cinematic && !directorRef.current && containerRef.current) {
       const director = target.cinematic({
@@ -373,7 +384,12 @@ export function EventClipPlayer({
       }
     }
     appliedClipKeyRef.current = target.key;
-    player.play();
+    // An engaged cinematic may be holding a deliberate freeze (bang_wait);
+    // play() would unfreeze it for a frame. The director restores the play
+    // state itself when it hands the transport back.
+    if (!cinematicEngaged) {
+      player.play();
+    }
   }, []);
 
   // Load the replay and create the player once per replay id.
