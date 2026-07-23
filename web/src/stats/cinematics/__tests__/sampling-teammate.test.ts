@@ -77,6 +77,41 @@ describe("teammate resolution", () => {
     // Closest same-team player regardless of side (Ahead at 2000 vs Behind at ~2061).
     expect(findDoubleCommitTeammateIdx(replay, unnamed, 0)).toBe(2);
   });
+  it("double_committing rejects a with_player that is not a teammate", () => {
+    // An opponent name must not win — the "teammate" camera would pan to the
+    // other team's car. Falls back to the closest same-team player.
+    const opponent: CinematicMistake = { ...base, kind: "double_committing", with_player: "Opp" };
+    expect(findDoubleCommitTeammateIdx(replay, opponent, 0)).toBe(2);
+    // Naming the focus player themself is equally invalid.
+    const self: CinematicMistake = { ...base, kind: "double_committing", with_player: "Focus" };
+    expect(findDoubleCommitTeammateIdx(replay, self, 0)).toBe(2);
+    // An unknown name also falls through to the fallback.
+    const unknown: CinematicMistake = { ...base, kind: "double_committing", with_player: "Ghost" };
+    expect(findDoubleCommitTeammateIdx(replay, unknown, 0)).toBe(2);
+  });
+  it("waiting_to_challenge returns -1 when every teammate is ahead of the play", () => {
+    const allAhead = makeReplay({
+      durationSeconds: 10,
+      tracks: [
+        { id: "focus", name: "Focus", isTeamZero: true, positionAt: () => ({ x: 0, y: 0 }) },
+        { id: "ahead", name: "Ahead", isTeamZero: true, positionAt: () => ({ x: 0, y: 2000 }) },
+        { id: "opp", name: "Opp", isTeamZero: false, positionAt: () => ({ x: 100, y: -500 }) },
+      ],
+    });
+    expect(findBehindTeammateIdx(allAhead, base, 0)).toBe(-1);
+  });
+  it("returns -1 in a 1v1 with no teammate at all", () => {
+    const oneVOne = makeReplay({
+      durationSeconds: 10,
+      tracks: [
+        { id: "focus", name: "Focus", isTeamZero: true, positionAt: () => ({ x: 0, y: 0 }) },
+        { id: "opp", name: "Opp", isTeamZero: false, positionAt: () => ({ x: 100, y: -500 }) },
+      ],
+    });
+    expect(findBehindTeammateIdx(oneVOne, base, 0)).toBe(-1);
+    const dc: CinematicMistake = { ...base, kind: "double_committing", with_player: "Opp" };
+    expect(findDoubleCommitTeammateIdx(oneVOne, dc, 0)).toBe(-1);
+  });
 });
 
 describe("double_committing switch copy", () => {

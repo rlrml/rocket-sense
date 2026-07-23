@@ -64,7 +64,12 @@ export function findDoubleCommitTeammateIdx(
   const focus = replay.players[fi];
   if (m.with_player) {
     const named = trackIndexByName(replay, m.with_player);
-    if (named >= 0) return named;
+    // Enforce the same invariants as the fallback below: the named track must
+    // be a real teammate, not the focus player and not an opponent — a bad
+    // `with_player` would otherwise pan the "teammate" camera to the wrong car.
+    if (named >= 0 && named !== fi && replay.players[named].isTeamZero === focus.isTeamZero) {
+      return named;
+    }
   }
   const peakT = m.time;
   const focusXY = samplePlayerXY(replay, focus, peakT);
