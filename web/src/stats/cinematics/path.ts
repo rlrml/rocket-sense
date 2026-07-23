@@ -340,6 +340,11 @@ export function computeTooFarPath(
       let bestSeg = -1;
       let bestT = 0;
       for (let s = 0; s < poly.length - 1; s++) {
+        // Skip the start→leadIn stretch: waypoint indices can't express "before
+        // leadIn", so a pad matched here would be spliced after leadIn — a
+        // doubleback the turn filter then silently drops. The segment is at
+        // most a lead-in long (≤600 UU), so nothing meaningful is lost.
+        if (leadIn && s === 0) continue;
         const a = poly[s].p;
         const b = poly[s + 1].p;
         const abx = b[0] - a[0];
@@ -426,7 +431,11 @@ export function computeSmallPadsPath(
   for (let i = 0; i < replay.boostPads.length; i++) {
     const pad = replay.boostPads[i];
     if (pad.size === "big") continue;
+    // Mirror computeTooFarPath's availability rule: on the field when the
+    // route is revealed AND not taken by anyone across the swept window —
+    // strobing a pad that visibly vanishes mid-playback is bad advice.
     if (!isPadActiveAt(pad, tAnchor)) continue;
+    if (padCollectedBetween(pad, tAnchor, tEnd)) continue;
     let bestDist = Infinity;
     let bestIdx = -1;
     for (let j = 0; j < traj.length; j++) {
