@@ -105,7 +105,24 @@ export function ReplayFilmRoomPage() {
       }),
     [source.rows],
   );
-  const mistakes = useMemo(() => markers.map((marker) => marker.mistake), [markers]);
+  // Keep the mistakes array identity stable across content-identical
+  // recomputes: `source.rows` (and thus `markers`) is a fresh array whenever
+  // the auth or reviews fetches resolve, which typically lands after playback
+  // has already started. The tour effect keys on `mistakes`, and a rebuild
+  // aborts any in-flight cinematic and resets every consumed guard — so only
+  // hand it a new array when the list actually changed. Event ids uniquely
+  // identify a marker's content (events are fetched once per replay).
+  const mistakesCacheRef = useRef<{ fingerprint: string; list: CinematicMistake[] } | null>(null);
+  const mistakes = useMemo(() => {
+    const fingerprint = markers.map((marker) => marker.key).join("|");
+    const cached = mistakesCacheRef.current;
+    if (cached && cached.fingerprint === fingerprint) {
+      return cached.list;
+    }
+    const list = markers.map((marker) => marker.mistake);
+    mistakesCacheRef.current = { fingerprint, list };
+    return list;
+  }, [markers]);
 
   return (
     <section className="page film-room-page">
