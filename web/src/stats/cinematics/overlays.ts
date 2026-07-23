@@ -101,6 +101,27 @@ export class ChevronPathOverlay {
   private readonly tmpPos = new THREE.Vector3();
   private readonly tmpTan = new THREE.Vector3();
   private readonly tmpWorld = new THREE.Vector3();
+  // Geometry cache: `control` is memoized once per director, but update() runs
+  // every rendered frame — rebuilding the Catmull-Rom curve (and its ~200-entry
+  // arc-length table) plus hundreds of Vector3 control points per frame is
+  // pure GC churn on the hottest path. Everything derived solely from
+  // `control` is computed once here; the per-frame pass only animates the
+  // pulse colors/opacities and camera-distance sprite scale.
+  private cachedControl: ChevronPathInput["control"] | null = null;
+  private cachedN = 0;
+  // Per-chevron on-path visibility (pads punch holes in the trail). Re-applied
+  // every frame because hide() blanks mesh visibility and a rewound cinematic
+  // can re-enter the window with the geometry cache still warm.
+  private cachedChevronVisible: boolean[] = [];
+  private cachedPadAnims: {
+    padIdx: number;
+    big: boolean;
+    x: number;
+    y: number;
+    bestI: number;
+    spriteX: number;
+    spriteY: number;
+  }[] = [];
 
   constructor(private readonly root: THREE.Object3D) {
     this.group.visible = false;
@@ -160,22 +181,25 @@ export class ChevronPathOverlay {
     return entry;
   }
 
-  update(input: ChevronPathInput): void {
-    const { control, colorHex } = input;
+  /** Build everything derivable from `control` alone: curve sampling, chevron
+   * placement/visibility, and per-pad flare anchors. Runs once per control
+   * identity; returns false for a degenerate path (which stays cached so a
+   * hidden overlay doesn't re-derive its curve every frame). */
+  private rebuildGeometry(input: ChevronPathInput): boolean {
+    const { control } = input;
+    this.cachedControl = control;
+    this.cachedN = 0;
+    this.cachedChevronVisible = [];
+    this.cachedPadAnims = [];
     const pts = control.points.map(([x, y]) => new THREE.Vector3(x, y, 0));
     if (pts.length < 2) {
-      this.hide();
-      return;
+      return false;
     }
     const curve = new THREE.CatmullRomCurve3(pts, false, "centripetal", 0.5);
     const length = curve.getLength();
     if (!isFinite(length) || length < 100) {
-      this.hide();
-      return;
+      return false;
     }
-    const tr = ((colorHex >> 16) & 0xff) / 255;
-    const tg = ((colorHex >> 8) & 0xff) / 255;
-    const tb = (colorHex & 0xff) / 255;
 
     // Tight spacing so individual chevrons can be skipped over pads while the
     // trail still reads continuous.
@@ -190,16 +214,6 @@ export class ChevronPathOverlay {
     for (const w of control.survivingWaypoints) padClearXY.push(w.x, w.y);
     const PAD_CLEAR_SQ = 250 * 250;
 
-    // Traveling pulse: one bright crest sweeps start→end, then loops.
-    const WAVE_PERIOD_MS = 1700;
-    const WAVE_WIDTH = 2.0;
-    const TRAIL_GAP = WAVE_WIDTH;
-    const wavePhase = (performance.now() % WAVE_PERIOD_MS) / WAVE_PERIOD_MS;
-    const pulsePos = wavePhase * (n - 1 + TRAIL_GAP) - TRAIL_GAP * 0.5;
-    const DIM_COLOR = 0.9;
-    const DIM_OPACITY = 0.85;
-    const PEAK_OPACITY = 1.0;
-
     const chevronXY: number[] = [];
     for (let i = 0; i < n; i++) {
       const t = T_START + (T_END - T_START) * (i / (n - 1));
@@ -208,19 +222,6 @@ export class ChevronPathOverlay {
       const mesh = this.ensureChevron(i);
       mesh.position.set(this.tmpPos.x, this.tmpPos.y, PATH_Z_OFFSET_UU);
       mesh.rotation.set(0, 0, Math.atan2(this.tmpTan.y, this.tmpTan.x));
-      const baseS = 2.85 + 1.2 * (i / Math.max(1, n - 1));
-      const d = Math.abs(i - pulsePos);
-      const k = Math.max(0, 1 - d / WAVE_WIDTH);
-      const cMul = DIM_COLOR + (1 - DIM_COLOR) * k;
-      const lift = Math.max(0, (k - 0.5) * 2);
-      mesh.material.color.setRGB(
-        tr * cMul + (1 - tr * cMul) * lift,
-        tg * cMul + (1 - tg * cMul) * lift,
-        tb * cMul + (1 - tb * cMul) * lift,
-      );
-      mesh.material.opacity = DIM_OPACITY + (PEAK_OPACITY - DIM_OPACITY) * k;
-      const s = baseS * (1 + 0.3 * k);
-      mesh.scale.set(s, s, 1);
       // Hide chevrons that land on a pad; keep the slot in chevronXY so the
       // pulse math is unaffected.
       let onPad = false;
@@ -233,12 +234,13 @@ export class ChevronPathOverlay {
         }
       }
       mesh.visible = !onPad;
+      this.cachedChevronVisible.push(!onPad);
       chevronXY.push(this.tmpPos.x, this.tmpPos.y);
     }
     for (let i = n; i < this.chevrons.length; i++) this.chevrons[i].visible = false;
 
-    // Pad flare + floater synced to the pulse sweeping the nearest chevron.
-    const seenPads = new Set<number>();
+    // Per-pad flare anchors: nearest chevron and the fixed floater position
+    // (perpendicular offset along the nearest chevron tangent).
     const chevCount = chevronXY.length / 2;
     if (chevCount > 0) {
       for (const w of control.survivingWaypoints) {
@@ -257,29 +259,6 @@ export class ChevronPathOverlay {
           }
         }
         if (bestI < 0) continue;
-        const dist = Math.abs(bestI - pulsePos);
-        const kk = Math.max(0, 1 - dist / WAVE_WIDTH);
-        const entry = this.ensureFlare(padIdx, pad.size === "big");
-        seenPads.add(padIdx);
-        if (kk <= 0) {
-          entry.disc.visible = false;
-          entry.sprite.visible = false;
-          continue;
-        }
-        const PAD_EXPAND_PEAK = 3.0;
-        const grow = 1 + kk * PAD_EXPAND_PEAK;
-        entry.disc.position.set(w.x, w.y, PATH_Z_OFFSET_UU - 4);
-        entry.disc.scale.set(grow, grow, 1);
-        entry.disc.material.opacity = 0.55 * kk;
-        entry.disc.material.color.setRGB(
-          strobeFlashR,
-          strobeFlashG * (0.7 + 0.3 * kk),
-          strobeFlashB,
-        );
-        entry.disc.visible = true;
-        // Floater beside the trail: offset along the perpendicular of the
-        // nearest chevron tangent, distance-scaled like nameplate sprites so
-        // it reads at bird's-eye altitude.
         let tdx = 0;
         let tdy = 0;
         if (bestI > 0) {
@@ -291,18 +270,91 @@ export class ChevronPathOverlay {
         }
         const tlen = Math.hypot(tdx, tdy) || 1;
         const PERP_OFFSET = 700;
-        entry.sprite.position.set(
-          w.x + (-tdy / tlen) * PERP_OFFSET,
-          w.y + (tdx / tlen) * PERP_OFFSET,
-          PATH_Z_OFFSET_UU + 140,
-        );
-        entry.sprite.getWorldPosition(this.tmpWorld);
-        const camDist = input.cameraWorldPos.distanceTo(this.tmpWorld);
-        const s = camDist * 0.03;
-        entry.sprite.scale.set(s * entry.spriteAspect, s, 1);
-        (entry.sprite.material as THREE.SpriteMaterial).opacity = kk;
-        entry.sprite.visible = true;
+        this.cachedPadAnims.push({
+          padIdx,
+          big: pad.size === "big",
+          x: w.x,
+          y: w.y,
+          bestI,
+          spriteX: w.x + (-tdy / tlen) * PERP_OFFSET,
+          spriteY: w.y + (tdx / tlen) * PERP_OFFSET,
+        });
       }
+    }
+    this.cachedN = n;
+    return true;
+  }
+
+  update(input: ChevronPathInput): void {
+    const { control, colorHex } = input;
+    if (control !== this.cachedControl) {
+      this.rebuildGeometry(input);
+    }
+    const n = this.cachedN;
+    if (n === 0) {
+      this.hide();
+      return;
+    }
+    const tr = ((colorHex >> 16) & 0xff) / 255;
+    const tg = ((colorHex >> 8) & 0xff) / 255;
+    const tb = (colorHex & 0xff) / 255;
+
+    // Traveling pulse: one bright crest sweeps start→end, then loops.
+    const WAVE_PERIOD_MS = 1700;
+    const WAVE_WIDTH = 2.0;
+    const TRAIL_GAP = WAVE_WIDTH;
+    const wavePhase = (performance.now() % WAVE_PERIOD_MS) / WAVE_PERIOD_MS;
+    const pulsePos = wavePhase * (n - 1 + TRAIL_GAP) - TRAIL_GAP * 0.5;
+    const DIM_COLOR = 0.9;
+    const DIM_OPACITY = 0.85;
+    const PEAK_OPACITY = 1.0;
+
+    for (let i = 0; i < n; i++) {
+      const mesh = this.chevrons[i];
+      mesh.visible = this.cachedChevronVisible[i];
+      const baseS = 2.85 + 1.2 * (i / Math.max(1, n - 1));
+      const d = Math.abs(i - pulsePos);
+      const k = Math.max(0, 1 - d / WAVE_WIDTH);
+      const cMul = DIM_COLOR + (1 - DIM_COLOR) * k;
+      const lift = Math.max(0, (k - 0.5) * 2);
+      mesh.material.color.setRGB(
+        tr * cMul + (1 - tr * cMul) * lift,
+        tg * cMul + (1 - tg * cMul) * lift,
+        tb * cMul + (1 - tb * cMul) * lift,
+      );
+      mesh.material.opacity = DIM_OPACITY + (PEAK_OPACITY - DIM_OPACITY) * k;
+      const s = baseS * (1 + 0.3 * k);
+      mesh.scale.set(s, s, 1);
+    }
+
+    // Pad flare + floater synced to the pulse sweeping the nearest chevron.
+    const seenPads = new Set<number>();
+    for (const anim of this.cachedPadAnims) {
+      const dist = Math.abs(anim.bestI - pulsePos);
+      const kk = Math.max(0, 1 - dist / WAVE_WIDTH);
+      const entry = this.ensureFlare(anim.padIdx, anim.big);
+      seenPads.add(anim.padIdx);
+      if (kk <= 0) {
+        entry.disc.visible = false;
+        entry.sprite.visible = false;
+        continue;
+      }
+      const PAD_EXPAND_PEAK = 3.0;
+      const grow = 1 + kk * PAD_EXPAND_PEAK;
+      entry.disc.position.set(anim.x, anim.y, PATH_Z_OFFSET_UU - 4);
+      entry.disc.scale.set(grow, grow, 1);
+      entry.disc.material.opacity = 0.55 * kk;
+      entry.disc.material.color.setRGB(strobeFlashR, strobeFlashG * (0.7 + 0.3 * kk), strobeFlashB);
+      entry.disc.visible = true;
+      // Floater beside the trail, distance-scaled like nameplate sprites so
+      // it reads at bird's-eye altitude.
+      entry.sprite.position.set(anim.spriteX, anim.spriteY, PATH_Z_OFFSET_UU + 140);
+      entry.sprite.getWorldPosition(this.tmpWorld);
+      const camDist = input.cameraWorldPos.distanceTo(this.tmpWorld);
+      const s = camDist * 0.03;
+      entry.sprite.scale.set(s * entry.spriteAspect, s, 1);
+      (entry.sprite.material as THREE.SpriteMaterial).opacity = kk;
+      entry.sprite.visible = true;
     }
     for (const [padIdx, entry] of this.flares) {
       if (!seenPads.has(padIdx)) {
