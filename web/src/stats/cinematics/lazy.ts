@@ -20,19 +20,26 @@ export function lazyMistakeCinematic(
     let inner: EventClipCinematicDirector | null = null;
     let attached = false;
     let detached = false;
-    void import("./director").then(({ createMistakeCinematicDirector }) => {
-      if (detached) return;
-      const focusTrackId = context.resolveTrackId(focus);
-      if (focusTrackId == null) return;
-      inner = createMistakeCinematicDirector(m, {
-        player: context.player,
-        replay: context.replay,
-        container: context.container,
-        focusTrackId,
-        basePlaybackRate: context.playbackRate,
+    import("./director")
+      .then(({ createMistakeCinematicDirector }) => {
+        if (detached) return;
+        const focusTrackId = context.resolveTrackId(focus);
+        if (focusTrackId == null) return;
+        inner = createMistakeCinematicDirector(m, {
+          player: context.player,
+          replay: context.replay,
+          container: context.container,
+          focusTrackId,
+          basePlaybackRate: context.playbackRate,
+        });
+        if (attached) inner.attach();
+      })
+      .catch((err: unknown) => {
+        // A failed chunk fetch (deploy rotation, flaky network) is survivable:
+        // the clip just plays as a plain follow-cam loop. Log rather than let
+        // it surface as an unhandled rejection.
+        console.error("cinematic director chunk failed to load", err);
       });
-      if (attached) inner.attach();
-    });
     return {
       attach() {
         attached = true;
