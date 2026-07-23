@@ -12,9 +12,11 @@ import {
 } from "../constants";
 import { smootherstep01 } from "../math";
 import {
+  abortAwState,
   advancePhase,
   calloutPhaseView,
   cinematicClipWindow,
+  cinematicOwnsCamera,
   createAwState,
   effectiveSpeed,
   inMistakeWindow,
@@ -377,5 +379,57 @@ describe("cinematicClipWindow", () => {
     // time + after (2.1) exceeds t_end.
     expect(cinematicClipWindow(dc).end).toBeCloseTo(22.1, 10);
     expect(cinematicClipWindow(dc).start).toBeCloseTo(18.25, 10);
+  });
+});
+
+describe("abortAwState", () => {
+  const m: CinematicMistake = {
+    kind: "bang_with_time",
+    time: 10,
+    t_start: 9.4,
+    t_end: 11,
+    player: "P",
+  };
+  it("cancels a mid-flight cinematic, clears the consumed guard, and reports it", () => {
+    // 2 sim-seconds from 9.0 leaves the machine mid-flight (past `slow`,
+    // before the sideview arc completes).
+    const result = simulate(m, { startTime: 9.0, seconds: 2 });
+    expect(result.aw.phase).not.toBe("idle");
+    expect(result.aw.phase).not.toBe("done");
+    expect(abortAwState(result.aw)).toBe(true);
+    expect(result.aw.phase).toBe("done");
+    expect(result.aw.phaseElapsed).toBe(0);
+    expect(result.aw.consumed).toBe(false);
+    expect(result.aw.consumedEnd).toBe(0);
+  });
+  it("is a no-op report on an idle machine but still re-arms the guards", () => {
+    const aw = createAwState();
+    aw.consumed = true;
+    aw.consumedEnd = 12;
+    expect(abortAwState(aw)).toBe(false);
+    expect(aw.phase).toBe("idle");
+    expect(aw.consumed).toBe(false);
+    expect(aw.consumedEnd).toBe(0);
+  });
+});
+
+describe("cinematicOwnsCamera", () => {
+  it("claims the camera exactly for the self-driven phases", () => {
+    const owning: AwPhase[] = [
+      "wtc_pan",
+      "wtc_unpan",
+      "birds",
+      "zoom_out",
+      "zoom_in",
+      "bang_wait",
+      "bang_pan_in",
+      "bang_hold",
+      "bang_pan_out",
+    ];
+    for (const phase of owning) expect(cinematicOwnsCamera(phase)).toBe(true);
+    // Follow-cam phases: the player's camera plugin keeps driving.
+    for (const phase of ["idle", "done", "slow", "rewind", "wtc_teammate"] as AwPhase[]) {
+      expect(cinematicOwnsCamera(phase)).toBe(false);
+    }
   });
 });

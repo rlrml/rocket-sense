@@ -4,7 +4,7 @@
 // director's engaged flag — and the director lifecycle actions are asserted.
 
 import { describe, expect, it } from "vitest";
-import { mistakeCinematicAfter, type CinematicMistake } from "../constants";
+import { type CinematicMistake } from "../constants";
 import {
   abortTour,
   advanceTour,
@@ -219,7 +219,9 @@ describe("timeline marker math", () => {
   });
 
   it("window helpers mirror the per-kind cinematic window", () => {
+    // Hardcoded from constants.ts (bang_with_time: before 0.4, after 0.75) so
+    // a regression in either helper or the tables actually fails the test.
     expect(tourWindowStart(bang)).toBeCloseTo(9.6, 10);
-    expect(tourWindowEnd(bang)).toBeCloseTo(10 + mistakeCinematicAfter(bang), 10);
+    expect(tourWindowEnd(bang)).toBeCloseTo(10.75, 10);
   });
 });
