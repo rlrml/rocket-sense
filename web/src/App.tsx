@@ -280,6 +280,9 @@ const PlayerGoalPlaylistPage = lazyWithChunkLoadRecovery(() =>
 const ReplayAerialPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/aerialPlaylist").then((module) => ({ default: module.ReplayAerialPlaylistPage })),
 );
+const ReplayFilmRoomPage = lazyWithChunkLoadRecovery(() =>
+  import("./stats/filmRoom").then((module) => ({ default: module.ReplayFilmRoomPage })),
+);
 const PlayerAerialPlaylistPage = lazyWithChunkLoadRecovery(() =>
   import("./stats/aerialPlaylist").then((module) => ({ default: module.PlayerAerialPlaylistPage })),
 );
@@ -450,6 +453,14 @@ export function App() {
           <Route
             path="/replay-groups/:groupId/stats/:statGroup"
             element={<ReplayGroupStatsPage />}
+          />
+          <Route
+            path="/replays/:replayId/film"
+            element={
+              <Suspense fallback={<StatusLine loading error={null} />}>
+                <ReplayFilmRoomPage />
+              </Suspense>
+            }
           />
           <Route
             path="/replays/:replayId/goals"

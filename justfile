@@ -36,6 +36,10 @@ web-build: vendor brand-assets
 web-typecheck: vendor
     cd web && npm run typecheck
 
+# Run the web (Vitest) unit tests -- the cinematics state-machine suite (matches CI)
+web-test: vendor
+    cd web && npm test
+
 # Lint + Prettier check the web sources (matches CI)
 web-style:
     cd web && npm run check:style
@@ -66,7 +70,7 @@ deploy-railbird-sf: push-image
 sync-subtr-actor rev='':
     ./scripts/sync-subtr-actor {{rev}}
 
-test: web-build
+test: web-build web-test
     {{nix_develop}} cargo test --workspace
 
 dev: web-build
@@ -91,11 +95,12 @@ check-migrations:
 # ---------------------------------------------------------------------------
 # CI preflight gate
 #
-# `just check` mirrors the blocking lint/compile checks CI runs on every PR, so
-# you can verify cleanliness before committing without the slow jobs. Run it
-# clean before every commit. It deliberately omits `cargo test --workspace` and
-# the release/image build -- run those targeted (e.g. `cargo test module_name`)
-# or via `just test` when the change warrants it.
+# `just check` mirrors the fast blocking checks CI runs on every PR -- web
+# style/typecheck plus the Vitest suite, and Rust fmt/clippy -- so you can verify
+# cleanliness before committing without the slow jobs. Run it clean before every
+# commit. It deliberately omits `cargo test --workspace` (slow) and the
+# release/image build -- run those targeted (e.g. `cargo test module_name`) or
+# via `just test` when the change warrants it.
 #
 # NOTE: clippy uses CI's exact flags (`--workspace -- -D warnings`), so a warning
 # in a test or any crate fails CI even though a plain `cargo build` passes.
@@ -103,5 +108,5 @@ check-migrations:
 # server crate embeds web/dist via build.rs, so clippy depends on `web-build`.
 # ---------------------------------------------------------------------------
 
-# Fast quality gate: migrations + web style/typecheck + Rust fmt/clippy. Run clean before every commit.
-check: check-migrations web-style web-typecheck fmt-check clippy
+# Fast quality gate: migrations + web style/typecheck/test + Rust fmt/clippy. Run clean before every commit.
+check: check-migrations web-style web-typecheck web-test fmt-check clippy

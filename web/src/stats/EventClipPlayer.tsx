@@ -72,6 +72,41 @@ export type EventClipStartResolver = (replay: ReplayModel, nominalStart: number)
  */
 export type EventClipEndResolver = (replay: ReplayModel, nominalEnd: number) => number | null;
 
+/**
+ * A running cinematic attached to a clip. While `isEngaged()` the director owns
+ * the playback clock and camera: the loop enforcers must neither reseek nor
+ * auto-resume (a cinematic legitimately rewinds before the window, freezes
+ * playback, and overruns the nominal end). When an enforcer does act (loop
+ * wrap after the cinematic hands back, or an external scrub), it reports the
+ * seek via `notifyExternalSeek()` so the director aborts/re-arms cleanly.
+ */
+export interface EventClipCinematicDirector {
+  attach(): void;
+  detach(): void;
+  isEngaged(): boolean;
+  notifyExternalSeek(): void;
+}
+
+/** Everything a cinematic factory needs from the live player. */
+export interface EventClipCinematicContext {
+  player: ReplayPlayer;
+  replay: ReplayModel;
+  /** The clip canvas container — DOM overlays mount inside it. */
+  container: HTMLElement;
+  /** Resolve a player track id the same way the clip camera targets do. */
+  resolveTrackId(target: { playerKey?: string | null; playerName?: string | null }): string | null;
+  /** The clip's own playback rate (the cinematic's "normal speed"). */
+  playbackRate: number;
+}
+
+/**
+ * Caller-defined cinematic setup, invoked when the clip is applied to the live
+ * player. Returning null leaves the clip on the plain looping behavior.
+ */
+export type EventClipCinematic = (
+  context: EventClipCinematicContext,
+) => EventClipCinematicDirector | null;
+
 export interface EventClip {
   start: number;
   end: number;
@@ -94,6 +129,12 @@ export interface EventClip {
   /** Context after anchorFrame; ignored when endFrame or end is used. */
   postrollSeconds?: number;
   camera: EventClipCamera;
+  /**
+   * Optional cinematic director for this clip (analysis-walkthrough camera
+   * choreography). While its director is engaged it owns clock + camera and
+   * the clip's loop enforcement is suspended.
+   */
+  cinematic?: EventClipCinematic;
   /** Changes whenever a different event should be shown. */
   key: string;
 }
@@ -171,6 +212,9 @@ export function EventClipPlayer({
   // Key of the clip most recently applied to the live player. Consumers include
   // camera/perspective state in this key when switching views should restart.
   const appliedClipKeyRef = useRef<string | null>(null);
+  // The active clip's cinematic director (if the clip carries one), keyed by
+  // the clip key so re-applying the same clip keeps the running cinematic.
+  const directorRef = useRef<{ key: string; director: EventClipCinematicDirector } | null>(null);
   const renderStatsRef = useRef({ count: 0, frameIndex: -1, time: -1 });
   // Lower-cased player remote id -> player track id, for event-focused camera targets.
   const trackByPlayerKeyRef = useRef<Map<string, string>>(new Map());
@@ -293,14 +337,59 @@ export function EventClipPlayer({
         setContactOverheadCamera(player, capture.ballPosition);
       },
     };
-    target.camera(cameraControls);
-    player.setPlaybackRate(target.playbackRate ?? 1);
+    // Cinematic lifecycle: keep a running director across same-key re-applies;
+    // switching clips (or dropping the cinematic) tears the old one down. The
+    // teardown must precede the camera/rate application below — detach()
+    // restores the *old* clip's attachment and base rate, which would
+    // otherwise override the new clip's setup.
+    if (directorRef.current && directorRef.current.key !== target.key) {
+      directorRef.current.director.detach();
+      directorRef.current = null;
+    }
+    // A same-key re-apply while the cinematic is engaged (e.g. `rows` identity
+    // refreshes when the reviews/auth fetches resolve, or an admin reviews a
+    // row mid-playback) must not stomp the director: it owns the camera, the
+    // playback rate (which it caches — an external reset here would stick
+    // until the next computed-speed change), and the freeze/play state.
+    const cinematicEngaged = directorRef.current?.director.isEngaged() ?? false;
+    if (!cinematicEngaged) {
+      target.camera(cameraControls);
+      player.setPlaybackRate(target.playbackRate ?? 1);
+    }
     player.setMotionInterpolation(target.motionInterpolation ?? "hermite");
     if (appliedClipKeyRef.current !== target.key) {
       player.seek(start);
     }
+    if (target.cinematic && !directorRef.current && containerRef.current) {
+      const director = target.cinematic({
+        player,
+        replay,
+        container: containerRef.current,
+        resolveTrackId({ playerKey, playerName }) {
+          return (
+            (playerKey
+              ? trackByPlayerKeyRef.current.get(normalizePlayerKey(playerKey))
+              : undefined) ??
+            (playerName
+              ? trackByNameRef.current.get(playerName.trim().toLowerCase())
+              : undefined) ??
+            null
+          );
+        },
+        playbackRate: target.playbackRate ?? 1,
+      });
+      if (director) {
+        director.attach();
+        directorRef.current = { key: target.key, director };
+      }
+    }
     appliedClipKeyRef.current = target.key;
-    player.play();
+    // An engaged cinematic may be holding a deliberate freeze (bang_wait);
+    // play() would unfreeze it for a frame. The director restores the play
+    // state itself when it hands the transport back.
+    if (!cinematicEngaged) {
+      player.play();
+    }
   }, []);
 
   // Load the replay and create the player once per replay id.
@@ -317,12 +406,18 @@ export function EventClipPlayer({
       if (!active || !loop) {
         return;
       }
+      // A running cinematic owns the clock (rewinds before the window,
+      // freezes, overruns the end) — stand down until it hands back.
+      if (directorRef.current?.director.isEngaged()) {
+        return;
+      }
       const time = active.getState().currentTime;
       if (time >= loop.end || time < loop.start - 0.05) {
         if (time >= loop.end && appliedClipKeyRef.current != null) {
           onClipEndRef.current?.(appliedClipKeyRef.current);
         }
         active.seek(loop.start);
+        directorRef.current?.director.notifyExternalSeek();
       }
       if (!active.getState().playing) {
         active.play();
@@ -413,12 +508,17 @@ export function EventClipPlayer({
           if (!loop || !active) {
             return;
           }
+          // See the watchdog: an engaged cinematic director owns the clock.
+          if (directorRef.current?.director.isEngaged()) {
+            return;
+          }
           const time = active.getState().currentTime;
           if (time >= loop.end || time < loop.start - 0.05) {
             if (time >= loop.end && appliedClipKeyRef.current != null) {
               onClipEndRef.current?.(appliedClipKeyRef.current);
             }
             active.seek(loop.start);
+            directorRef.current?.director.notifyExternalSeek();
           }
           if (!active.getState().playing) {
             active.play();
@@ -447,6 +547,8 @@ export function EventClipPlayer({
       window.clearInterval(watchdog);
       unsubscribeBeforeRender?.();
       unsubscribe?.();
+      directorRef.current?.director.detach();
+      directorRef.current = null;
       player?.destroy();
       playerRef.current = null;
       loopRef.current = null;
@@ -476,7 +578,7 @@ export function EventClipPlayer({
   );
 }
 
-function normalizePlayerKey(value: string): string {
+export function normalizePlayerKey(value: string): string {
   const separator = value.indexOf(":");
   if (separator < 0) {
     return value.trim().toLowerCase();

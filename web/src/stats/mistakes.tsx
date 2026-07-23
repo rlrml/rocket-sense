@@ -1,17 +1,26 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
-import { createMistakeReview, getCurrentUser, listMistakeReviews } from "../api";
-import type {
-  CreateMistakeReviewRequest,
-  MechanicEventResponse,
-  MistakeMarker,
-  MistakeReviewListItem,
-  MistakeReviewStatus,
-  ReplayPlayer,
-} from "../types";
+import { Clapperboard } from "lucide-react";
+import { lazy, Suspense, useCallback, useState } from "react";
+import { Link } from "react-router-dom";
+import { createMistakeReview } from "../api";
+import type { CreateMistakeReviewRequest, MistakeMarker, MistakeReviewStatus } from "../types";
 import type { EventClip } from "./EventClipPlayer";
+import { lazyMistakeCinematic } from "./cinematics/lazy";
+import { cinematicClipWindow } from "./cinematics/phases";
 import { useEventPreviewSelection } from "./eventPreview";
+import {
+  ADMIN_ONLY_MISTAKE_KINDS,
+  cinematicMistakeOf,
+  formatClock,
+  reviewForMarker,
+  useMistakeMarkers,
+  type MarkerRow,
+} from "./mistakeList";
 import { subtrActorPlayerUrl } from "../playerLink";
 import type { StatDetailProps } from "./registry";
+
+// Re-exported for existing importers; the shared list logic lives in
+// mistakeList.ts so the film room consumes the same gate.
+export { ADMIN_ONLY_MISTAKE_KINDS };
 
 const EventClipPreview = lazy(() =>
   import("./EventClipPlayer").then((module) => ({ default: module.EventClipPreview })),
@@ -34,14 +43,6 @@ export const mistakeEventTypes: readonly string[] = [
   "floating_with_boost",
   "bad_defensive_touch",
 ];
-
-// Mistake kinds that are still being tuned and should only surface for
-// admins. Mirrors RLVision's ADMIN_ONLY_MISTAKE_KINDS gate — keep the two in
-// sync until these kinds graduate.
-export const ADMIN_ONLY_MISTAKE_KINDS: ReadonlySet<string> = new Set([
-  "bad_defensive_touch",
-  "bad_fifty",
-]);
 
 interface MistakeKindCopy {
   label: string;
@@ -178,175 +179,38 @@ export function mistakeWhy(marker: MistakeMarker): string | null {
   }
 }
 
-// --- Processed event + review state -------------------------------------------
-
-interface FocusOption {
-  key: string;
-  name: string;
-  team: number | null;
-}
-
-function focusOptionsFromPlayers(players: ReplayPlayer[]): FocusOption[] {
-  return players
-    .filter((player) => player.platform && player.platform_player_id)
-    .map((player) => ({
-      key: `${(player.platform as string).toLowerCase()}:${player.platform_player_id as string}`,
-      name: player.name ?? "Unknown player",
-      team: player.team,
-    }));
-}
-
-/** Latest review per marker, matched like the Python `_merge_mistakes_with_labels`:
- * same kind + focus player, marker time within ±0.5s. */
-function reviewForMarker(
-  marker: MistakeMarker,
-  focusKey: string,
-  reviews: MistakeReviewListItem[],
-): MistakeReviewListItem | null {
-  for (const review of reviews) {
-    if (review.kind !== marker.kind) continue;
-    if (review.player_key && review.player_key !== focusKey) continue;
-    if (review.time == null || Math.abs(review.time - marker.time) > 0.5) continue;
-    return review;
-  }
-  return null;
-}
-
 function severityBand(severity: number): string {
   if (severity >= 0.75) return "is-high";
   if (severity >= 0.5) return "is-medium";
   return "is-low";
 }
 
-function formatClock(seconds: number): string {
-  const total = Math.max(0, Math.floor(seconds));
-  const minutes = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${minutes}:${secs.toString().padStart(2, "0")}`;
-}
-
-interface MarkerRow {
-  event: MechanicEventResponse;
-  marker: MistakeMarker;
-  detectorVersion: string | null;
-  review: MistakeReviewListItem | null;
-}
-
-function markerFromEvent(event: MechanicEventResponse): MistakeMarker | null {
-  const payload = event.payload;
-  const numberValue = (key: string, fallback: number | null): number | null =>
-    typeof payload[key] === "number" ? payload[key] : fallback;
-  const time = numberValue("time", event.event_time);
-  const tStart = numberValue("t_start", event.start_time);
-  const tEnd = numberValue("t_end", event.end_time);
-  if (time == null || tStart == null || tEnd == null) return null;
-  const features = Array.isArray(payload.features)
-    ? payload.features.filter((value): value is number => typeof value === "number")
-    : [];
-  const evidence =
-    payload.evidence != null &&
-    typeof payload.evidence === "object" &&
-    !Array.isArray(payload.evidence)
-      ? (payload.evidence as Record<string, unknown>)
-      : undefined;
-  return {
-    kind: event.event_type,
-    time,
-    t_start: tStart,
-    t_end: tEnd,
-    player_idx: numberValue("player_idx", 0) ?? 0,
-    player:
-      (typeof payload.player === "string" ? payload.player : null) ??
-      event.player_name ??
-      "Unknown player",
-    with_player: typeof payload.with_player === "string" ? payload.with_player : undefined,
-    severity: numberValue("severity", event.confidence) ?? 0,
-    score: numberValue("score", event.confidence) ?? 0,
-    model_keep_threshold:
-      typeof payload.model_keep_threshold === "number" ? payload.model_keep_threshold : undefined,
-    features,
-    features_version: numberValue("features_version", 1) ?? 1,
-    evidence,
-  };
-}
-
 export function MistakesDetail({ events, players, replayId }: StatDetailProps) {
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [signedIn, setSignedIn] = useState(false);
-  const focusOptions = useMemo(() => focusOptionsFromPlayers(players), [players]);
-  const [focusKey, setFocusKey] = useState<string | null>(null);
-  const [reviews, setReviews] = useState<MistakeReviewListItem[]>([]);
+  const {
+    focusOptions,
+    activeFocusKey,
+    setFocusKey,
+    focusName,
+    rows,
+    isAdmin,
+    signedIn,
+    setReviews,
+  } = useMistakeMarkers(replayId, events, players);
   const [error, setError] = useState<string | null>(null);
   const [pendingReview, setPendingReview] = useState<string | null>(null);
 
-  const activeFocusKey = focusKey ?? focusOptions[0]?.key ?? null;
-
-  useEffect(() => {
-    let cancelled = false;
-    getCurrentUser()
-      .then((user) => {
-        if (cancelled) return;
-        setSignedIn(true);
-        setIsAdmin(user.is_admin);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setSignedIn(false);
-        setIsAdmin(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!replayId || !signedIn) return;
-    let cancelled = false;
-    listMistakeReviews(replayId)
-      .then((response) => {
-        if (!cancelled) setReviews(response.reviews);
-      })
-      .catch(() => {
-        // Review state is an enhancement; detection still renders without it.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [replayId, signedIn]);
-
-  const rows = useMemo<MarkerRow[]>(() => {
-    if (!activeFocusKey) return [];
-    return (
-      events
-        .filter((event) => event.player_id === activeFocusKey)
-        .map((event) => ({ event, marker: markerFromEvent(event) }))
-        .filter(
-          (row): row is { event: MechanicEventResponse; marker: MistakeMarker } =>
-            row.marker != null,
-        )
-        .filter(({ marker }) => isAdmin || !ADMIN_ONLY_MISTAKE_KINDS.has(marker.kind))
-        .map(({ event, marker }) => ({
-          event,
-          marker,
-          detectorVersion:
-            typeof event.payload.detector_version === "string"
-              ? event.payload.detector_version
-              : null,
-          review: reviewForMarker(marker, activeFocusKey, reviews),
-        }))
-        // Reject hides the marker but keeps the label (review record persists).
-        .filter((row) => row.review?.status !== "rejected")
-    );
-  }, [events, activeFocusKey, reviews, isAdmin]);
-
-  const focusName = focusOptions.find((option) => option.key === activeFocusKey)?.name ?? null;
   const rowKey = useCallback((row: MarkerRow) => row.event.id, []);
   const buildClip = useCallback(
     (row: MarkerRow, replayNonce: number): EventClip | null => {
       const { marker } = row;
+      const cinematicMistake = cinematicMistakeOf(marker);
+      // The loop window must contain the whole cinematic — including the
+      // rewind's furthest reach before t_start — or the loop enforcers would
+      // fight the rewound playhead the moment the director hands back.
+      const window = cinematicClipWindow(cinematicMistake);
       return {
-        start: Math.max(0, marker.t_start),
-        end: marker.t_end,
+        start: Math.max(0, window.start),
+        end: window.end,
         camera: (cam) => {
           if (
             !cam.followPlayer({
@@ -358,6 +222,10 @@ export function MistakesDetail({ events, players, replayId }: StatDetailProps) {
             cam.freeCamera("side");
           }
         },
+        cinematic: lazyMistakeCinematic(cinematicMistake, {
+          playerKey: activeFocusKey,
+          playerName: focusName ?? marker.player,
+        }),
         key: `${marker.kind}:${marker.time}:${activeFocusKey ?? ""}:${replayNonce}`,
       };
     },
@@ -455,6 +323,14 @@ export function MistakesDetail({ events, players, replayId }: StatDetailProps) {
         <span className="mistakes-summary">
           {rows.length} mistake{rows.length === 1 ? "" : "s"} found during replay processing
         </span>
+        <Link
+          className="secondary-button mistakes-film-link"
+          to={`/replays/${encodeURIComponent(replayId)}/film`}
+          title="Watch the whole replay with each mistake's cinematic firing in place"
+        >
+          <Clapperboard size={15} />
+          Film room
+        </Link>
       </div>
 
       {error ? <div className="stat-empty">Mistake review failed: {error}</div> : null}
