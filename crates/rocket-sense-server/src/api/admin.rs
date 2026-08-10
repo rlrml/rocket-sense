@@ -20,6 +20,8 @@ use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
+pub(crate) mod annotation_snapshots;
+
 const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const DEFAULT_DIAGNOSTIC_COUNT: u32 = 100;
 const MAX_DIAGNOSTIC_COUNT: u32 = 500;
@@ -28,6 +30,7 @@ const MAX_QUEUE_COUNT: u32 = 1000;
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .merge(annotation_snapshots::router())
         .route(
             "/admin/replays/processing-diagnostics",
             get(list_replay_processing_diagnostics),
