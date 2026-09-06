@@ -5,9 +5,6 @@ use super::{
     insert_play_events_with_options, insert_player_replay_positioning_from_events,
     player_lookup_key, process_replay, upsert_replay_search_metadata, PlayEventInsertOptions,
     EVENT_STREAM_SCHEMA_VERSION, MATERIALIZED_DENSE_SOURCE_STREAMS,
-    POSITIONING_PROFILE_TIMING_STREAMS, REPLAY_PROCESSING_QUEUE_NAME,
-    RETIRED_POSITIONING_PROFILE_TIMING_STREAMS, RETIRED_ROTATION_PROFILE_TIMING_STREAMS,
-    ROTATION_PROFILE_TIMING_STREAMS,
 };
 use anyhow::{anyhow, Context, Result};
 use apalis::prelude::*;
@@ -21,6 +18,31 @@ use sqlx::{PgPool, Row};
 use std::{collections::HashMap, sync::Arc};
 use tokio::{sync::Semaphore, task::JoinSet};
 use uuid::Uuid;
+
+#[cfg(test)]
+#[path = "jobs_tests.rs"]
+mod tests;
+
+pub(crate) const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
+const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
+    ["rotation_role", "ball_depth", "first_man_change"];
+const POSITIONING_PROFILE_TIMING_STREAMS: [&str; 6] = [
+    "player_activity",
+    "field_third",
+    "field_half",
+    "depth_role",
+    "ball_proximity",
+    "positioning_distance",
+];
+// Retired stream names that earlier analysis runs may still have indexed;
+// backfills delete these alongside the live streams so re-running against a
+// pre-PlayerStateSpan analysis run cannot leave duplicate coverage behind.
+const RETIRED_ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] = [
+    "rotation_role_span",
+    "rotation_depth_span",
+    "rotation_first_man_stint",
+];
+const RETIRED_POSITIONING_PROFILE_TIMING_STREAMS: [&str; 1] = ["positioning"];
 
 #[derive(Debug, Clone)]
 pub struct ReplayReprocessOptions {
@@ -109,7 +131,7 @@ struct ReplayProfileTimingBackfillTarget {
     needs_rotation_spans: bool,
 }
 
-pub(super) async fn setup_replay_processing_queue(pool: &PgPool) -> Result<()> {
+pub async fn setup_replay_processing_queue(pool: &PgPool) -> Result<()> {
     let row = sqlx::query("SELECT to_regclass('apalis.jobs')::text AS jobs_table")
         .fetch_one(pool)
         .await
@@ -182,7 +204,7 @@ pub(super) fn start_replay_processing_workers(
 /// Enqueue processing for a freshly uploaded replay. Runs at the top priority
 /// tier so a live upload (its owner is waiting) jumps ahead of the startup
 /// resume backlog and any reprocess flood.
-pub(super) async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
+pub async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid) -> Result<()> {
     enqueue_replay_processing_job_inner(pool, replay_id, false, NEW_UPLOAD_JOB_PRIORITY)
         .await
         .map(|_| ())
@@ -193,10 +215,7 @@ pub(super) async fn enqueue_replay_processing_job(pool: &PgPool, replay_id: Uuid
 /// progress survives restarts and can be drained by the worker fleet. Runs at
 /// the lowest priority tier so it never delays new uploads. Returns whether a
 /// new job was enqueued (false if one was already outstanding).
-pub(super) async fn enqueue_replay_reprocessing_job(
-    pool: &PgPool,
-    replay_id: Uuid,
-) -> Result<bool> {
+pub async fn enqueue_replay_reprocessing_job(pool: &PgPool, replay_id: Uuid) -> Result<bool> {
     enqueue_replay_processing_job_inner(pool, replay_id, true, REPROCESS_JOB_PRIORITY).await
 }
 
@@ -297,13 +316,23 @@ async fn process_replay_job(
 }
 
 pub(super) async fn enqueue_unfinished_replay_processing(pool: &PgPool) -> Result<usize> {
-    let targets = unfinished_replay_processing_targets(pool).await?;
-    let enqueued_replays = targets.len();
-    for target in targets {
+    let replay_ids = sqlx::query_scalar::<_, Uuid>(
+        r#"
+        SELECT id
+        FROM replays
+        WHERE canonical_analysis_run_id IS NULL
+          AND processing_status IN ('pending', 'processing')
+        ORDER BY created_at, id
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("failed to list unfinished replay processing targets")?;
+    let enqueued_replays = replay_ids.len();
+    for replay_id in replay_ids {
         // Resume backlog: below live uploads (no one is waiting on the original
         // request) but above reprocess.
-        enqueue_replay_processing_job_inner(pool, target.replay_id, false, RESUME_JOB_PRIORITY)
-            .await?;
+        enqueue_replay_processing_job_inner(pool, replay_id, false, RESUME_JOB_PRIORITY).await?;
     }
 
     Ok(enqueued_replays)
@@ -324,19 +353,19 @@ pub async fn upsert_replay_preflight_metadata(
     Ok(())
 }
 
-pub(super) async fn enqueue_replay_reprocessing(
-    pool: PgPool,
+pub async fn enqueue_replay_reprocessing(
+    pool: &PgPool,
     options: ReplayReprocessOptions,
 ) -> Result<ReplayReprocessSummary> {
     let concurrency = options.concurrency.clamp(1, 4);
-    let targets = reprocess_targets(&pool, &options).await?;
-    let matched_replays = targets.len();
+    let replay_ids = reprocess_replay_ids(pool, &options).await?;
+    let matched_replays = replay_ids.len();
     // Enqueue durable force-reprocess jobs onto the apalis queue rather than
     // running an in-process batch: progress is persisted in postgres, survives
     // server restarts, and is drained by the worker fleet (scale to parallelize).
     let mut enqueued_replays = 0usize;
-    for target in &targets {
-        if enqueue_replay_reprocessing_job(&pool, target.replay_id).await? {
+    for replay_id in replay_ids {
+        if enqueue_replay_reprocessing_job(pool, replay_id).await? {
             enqueued_replays += 1;
         }
     }
@@ -478,32 +507,6 @@ fn spawn_profile_timing_backfill_worker(
     });
 }
 
-async fn unfinished_replay_processing_targets(
-    pool: &PgPool,
-) -> Result<Vec<ReplayProcessingTarget>> {
-    sqlx::query(
-        r#"
-        SELECT id, file_sha256, storage_key
-        FROM replays
-        WHERE canonical_analysis_run_id IS NULL
-          AND processing_status IN ('pending', 'processing')
-        ORDER BY created_at, id
-        "#,
-    )
-    .fetch_all(pool)
-    .await
-    .context("failed to list unfinished replay processing targets")?
-    .into_iter()
-    .map(|row| {
-        Ok(ReplayProcessingTarget {
-            replay_id: row.try_get("id")?,
-            file_sha256: row.try_get("file_sha256")?,
-            storage_key: row.try_get("storage_key")?,
-        })
-    })
-    .collect()
-}
-
 async fn replay_processing_job_target(
     pool: &PgPool,
     replay_id: Uuid,
@@ -539,37 +542,28 @@ async fn replay_processing_job_target(
     }))
 }
 
-async fn reprocess_targets(
+async fn reprocess_replay_ids(
     pool: &PgPool,
     options: &ReplayReprocessOptions,
-) -> Result<Vec<ReplayProcessingTarget>> {
+) -> Result<Vec<Uuid>> {
     let mut query = sqlx::QueryBuilder::new(
         r#"
-        SELECT
-            r.id,
-            r.file_sha256,
-            r.storage_key
+        SELECT r.id
         FROM replays r
+        WHERE TRUE
         "#,
     );
-    let mut has_where = false;
 
     if !options.replay_ids.is_empty() {
-        query.push(" WHERE r.id = ANY(");
+        query.push(" AND r.id = ANY(");
         query.push_bind(&options.replay_ids);
         query.push(")");
-        has_where = true;
     }
 
     if !options.force {
-        if has_where {
-            query.push(" AND ");
-        } else {
-            query.push(" WHERE ");
-        }
         query.push(
             r#"
-            (
+            AND (
                 r.canonical_analysis_run_id IS NULL
                 OR NOT EXISTS (
                     SELECT 1
@@ -597,19 +591,10 @@ async fn reprocess_targets(
     query.push(" ORDER BY r.created_at, r.id");
 
     query
-        .build()
+        .build_query_scalar()
         .fetch_all(pool)
         .await
-        .context("failed to list replays for reprocessing")?
-        .into_iter()
-        .map(|row| {
-            Ok(ReplayProcessingTarget {
-                replay_id: row.try_get("id")?,
-                file_sha256: row.try_get("file_sha256")?,
-                storage_key: row.try_get("storage_key")?,
-            })
-        })
-        .collect()
+        .context("failed to list replays for reprocessing")
 }
 
 async fn profile_timing_backfill_targets(
@@ -618,8 +603,10 @@ async fn profile_timing_backfill_targets(
 ) -> Result<Vec<ReplayProfileTimingBackfillTarget>> {
     let mut query = sqlx::QueryBuilder::new(
         r#"
+        WITH candidates AS (
         SELECT
             r.id,
+            r.created_at,
             r.storage_key,
             r.canonical_analysis_run_id,
             (
@@ -661,40 +648,11 @@ async fn profile_timing_backfill_targets(
         query.push(")");
     }
 
+    query.push(") SELECT * FROM candidates");
     if !options.force {
-        query.push(
-            r#"
-            AND (
-                NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'player_activity'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'positioning_distance'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'rotation_role'
-                )
-                OR NOT EXISTS (
-                    SELECT 1
-                    FROM play_events event
-                    WHERE event.analysis_run_id = r.canonical_analysis_run_id
-                      AND event.source_stream = 'ball_depth'
-                )
-            )
-            "#,
-        );
+        query.push(" WHERE needs_positioning OR needs_rotation_spans");
     }
-
-    query.push(" ORDER BY r.created_at, r.id");
+    query.push(" ORDER BY created_at, id");
 
     query
         .build()
@@ -731,9 +689,10 @@ async fn backfill_profile_timing_events(
         .indexed_events
         .into_iter()
         .filter(|event| {
-            (target.needs_rotation_spans && is_rotation_profile_timing_stream(&event.source_stream))
+            (target.needs_rotation_spans
+                && ROTATION_PROFILE_TIMING_STREAMS.contains(&event.source_stream.as_str()))
                 || (target.needs_positioning
-                    && is_positioning_profile_timing_stream(&event.source_stream))
+                    && POSITIONING_PROFILE_TIMING_STREAMS.contains(&event.source_stream.as_str()))
         })
         .collect::<Vec<_>>();
     if indexed_events.is_empty() {
@@ -802,10 +761,6 @@ async fn delete_profile_timing_streams(
     analysis_run_id: Uuid,
     source_streams: &[&str],
 ) -> Result<()> {
-    let source_streams = source_streams
-        .iter()
-        .map(|stream| (*stream).to_owned())
-        .collect::<Vec<_>>();
     sqlx::query(
         r#"
         DELETE FROM play_events
@@ -814,29 +769,21 @@ async fn delete_profile_timing_streams(
         "#,
     )
     .bind(analysis_run_id)
-    .bind(&source_streams)
+    .bind(source_streams)
     .execute(pool)
     .await
     .context("failed to delete stale profile timing events")?;
     Ok(())
 }
 
-/// Delete the dense per-frame telemetry rows for one analysis run after its
-/// summary tables have been materialized. The materializers
-/// (`insert_player_replay_*`) read these rows from `play_events` first, so this
-/// must run only once all of them have completed for the run. The delete
-/// cascades to `play_event_payloads` / `_attributes` / `_subjects` and the
-/// detail tables (all `ON DELETE CASCADE`), clearing the bulk of the per-replay
-/// row fan-out. Returns the number of `play_events` rows removed.
+/// Remove dense telemetry left by older versions or profile-timing backfills
+/// after materialization. Dependent payload, attribute, subject, and detail
+/// rows are removed by cascading deletes.
 pub(super) async fn delete_materialized_dense_stream_events(
     pool: &PgPool,
     analysis_run_id: Uuid,
     replay_id: Uuid,
 ) -> Result<u64> {
-    let source_streams = MATERIALIZED_DENSE_SOURCE_STREAMS
-        .iter()
-        .map(|stream| (*stream).to_owned())
-        .collect::<Vec<_>>();
     let result = sqlx::query(
         r#"
         DELETE FROM play_events
@@ -847,19 +794,11 @@ pub(super) async fn delete_materialized_dense_stream_events(
     )
     .bind(analysis_run_id)
     .bind(replay_id)
-    .bind(&source_streams)
+    .bind(MATERIALIZED_DENSE_SOURCE_STREAMS)
     .execute(pool)
     .await
     .context("failed to delete materialized dense-stream play events")?;
     Ok(result.rows_affected())
-}
-
-fn is_rotation_profile_timing_stream(source_stream: &str) -> bool {
-    ROTATION_PROFILE_TIMING_STREAMS.contains(&source_stream)
-}
-
-fn is_positioning_profile_timing_stream(source_stream: &str) -> bool {
-    POSITIONING_PROFILE_TIMING_STREAMS.contains(&source_stream)
 }
 
 async fn load_replay_player_lookup(

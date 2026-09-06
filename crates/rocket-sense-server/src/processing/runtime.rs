@@ -3,8 +3,9 @@
 //! The HTTP server and the dedicated worker use the same runtime so queue
 //! recovery, maintenance jobs, and optional sync workers cannot drift apart.
 
+use super::event_stream_gc::start_event_stream_gc_sweeper;
 use super::jobs::{enqueue_unfinished_replay_processing, start_replay_processing_workers};
-use super::{start_event_stream_gc_sweeper, start_rank_benchmark_refresh_job};
+use super::rank_benchmark_refresh::start_rank_benchmark_refresh_job;
 use crate::ballchasing::BallchasingClient;
 use crate::settings::Settings;
 use rocket_sense_storage::ObjectStorage;

@@ -1,8 +1,8 @@
 //! Replay processing facade and core persistence pipeline.
 //!
 //! Long-lived startup lives in [`runtime`], durable queue operations in
-//! [`jobs`], application requests in [`requests`], maintenance tasks in
-//! [`event_stream_gc`] and [`rank_benchmark_refresh`], and pipeline versioning
+//! [`jobs`], maintenance tasks in [`event_stream_gc`] and
+//! [`rank_benchmark_refresh`], and pipeline versioning
 //! in [`version`]. The remaining code turns replay/scaffold input into indexed
 //! events and persists the materializations defined in [`materialization_sql`].
 
@@ -35,15 +35,18 @@ mod event_stream_gc;
 mod jobs;
 mod materialization_sql;
 mod rank_benchmark_refresh;
-mod requests;
 mod runtime;
 mod version;
 
 use event_stream_gc::delete_superseded_run_event_streams;
-pub use event_stream_gc::{gc_superseded_event_streams, start_event_stream_gc_sweeper};
+pub use event_stream_gc::gc_superseded_event_streams;
 use jobs::delete_materialized_dense_stream_events;
+pub(crate) use jobs::REPLAY_PROCESSING_QUEUE_NAME;
 pub use jobs::{
-    enqueue_profile_timing_backfill, upsert_replay_preflight_metadata,
+    enqueue_profile_timing_backfill, enqueue_replay_processing_job as request_replay_processing,
+    enqueue_replay_reprocessing as request_replay_reprocessing_batch,
+    enqueue_replay_reprocessing_job as request_replay_reprocessing,
+    setup_replay_processing_queue as initialize, upsert_replay_preflight_metadata,
     ReplayProfileTimingBackfillOptions, ReplayReprocessOptions,
 };
 pub(crate) use materialization_sql::PLAYER_REPLAY_BOOST_EVENT_FIELDS_SQL;
@@ -54,12 +57,8 @@ use materialization_sql::{
     INSERT_PLAYER_REPLAY_POSSESSION_SQL, INSERT_PLAYER_REPLAY_TOUCH_BREAKDOWNS_SQL,
     INSERT_REPLAY_TEAM_CONTROL_SQL, INSERT_TOUCH_COUNT_FACTS_SQL,
 };
+pub use rank_benchmark_refresh::refresh_rank_benchmark;
 pub(crate) use rank_benchmark_refresh::resolve_current_season;
-pub use rank_benchmark_refresh::{refresh_rank_benchmark, start_rank_benchmark_refresh_job};
-pub use requests::{
-    initialize, request_replay_processing, request_replay_reprocessing,
-    request_replay_reprocessing_batch,
-};
 pub use runtime::start;
 pub use version::{current_processing_version, replay_staleness};
 pub(crate) use version::{
@@ -77,27 +76,7 @@ mod tests;
 
 pub(crate) const DEFAULT_EXTRACTOR_NAME: &str = "rocket-sense:event-stream";
 
-const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const STATS_TIMELINE_SOURCE: &str = "subtr-actor:stats-timeline";
-const ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] =
-    ["rotation_role", "ball_depth", "first_man_change"];
-const POSITIONING_PROFILE_TIMING_STREAMS: [&str; 6] = [
-    "player_activity",
-    "field_third",
-    "field_half",
-    "depth_role",
-    "ball_proximity",
-    "positioning_distance",
-];
-// Retired stream names that earlier analysis runs may still have indexed;
-// backfills delete these alongside the live streams so re-running against a
-// pre-PlayerStateSpan analysis run cannot leave duplicate coverage behind.
-const RETIRED_ROTATION_PROFILE_TIMING_STREAMS: [&str; 3] = [
-    "rotation_role_span",
-    "rotation_depth_span",
-    "rotation_first_man_stint",
-];
-const RETIRED_POSITIONING_PROFILE_TIMING_STREAMS: [&str; 1] = ["positioning"];
 const PLAY_EVENT_INSERT_CHUNK_SIZE: usize = 500;
 const PLAY_EVENT_JSON_INSERT_CHUNK_SIZE: usize = 1_000;
 const PLAY_EVENT_SUBJECT_INSERT_CHUNK_SIZE: usize = 1_000;
@@ -130,7 +109,7 @@ const NON_PERSISTED_PLAY_EVENT_STREAMS: &[&str] = &["depth_role"];
 // as a guard that reclaims rows written by earlier versions (or by the
 // profile-timing backfill, which persists some of these streams row-by-row for
 // legacy replays). `boost_state` / `boost_ledger` were retired by the
-// subtr-actor boost-model rewrite (see the v3 -> v4 note below) and are listed
+// subtr-actor boost-model rewrite and are listed
 // here only so any lingering rows from old runs are reclaimed too. Streams
 // that are still counted or read live (`depth_role`, `player_activity`,
 // `positioning_distance`, `possession`, `touch`, `boost_pickup`, ...) are
