@@ -28,7 +28,7 @@ struct ResolvedBenchmarkWindow {
 /// mirrors [`start_event_stream_gc_sweeper`] rather than using the apalis queue.
 /// Started only when `ROCKET_SENSE_RANK_BENCHMARK` is set, so exactly one
 /// service instance runs it.
-pub fn start_rank_benchmark_refresh_job(
+pub(super) fn start_rank_benchmark_refresh_job(
     pool: PgPool,
     windows: Vec<BenchmarkWindow>,
     calc: CalcStyle,

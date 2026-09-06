@@ -4,7 +4,7 @@ use crate::{
     processing::{
         enqueue_profile_timing_backfill, gc_superseded_event_streams, request_replay_reprocessing,
         request_replay_reprocessing_batch, ReplayProfileTimingBackfillOptions,
-        ReplayReprocessOptions,
+        ReplayReprocessOptions, REPLAY_PROCESSING_QUEUE_NAME,
     },
 };
 use axum::{
@@ -21,8 +21,6 @@ use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 pub(crate) mod annotation_snapshots;
-
-const REPLAY_PROCESSING_QUEUE_NAME: &str = "rocket-sense:replay-processing";
 const DEFAULT_DIAGNOSTIC_COUNT: u32 = 100;
 const MAX_DIAGNOSTIC_COUNT: u32 = 500;
 const DEFAULT_QUEUE_COUNT: u32 = 200;

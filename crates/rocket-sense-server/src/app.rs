@@ -154,7 +154,7 @@ pub async fn run_worker(settings: settings::Settings) -> Result<()> {
         LocalStorage::new(settings.storage_root.clone()),
         ballchasing_client.clone(),
     ));
-    processing::start(pool.clone(), storage.clone(), ballchasing_client, &settings).await;
+    processing::start(pool, storage, ballchasing_client, &settings).await;
 
     tracing::info!(
         concurrency = settings.background_processing_concurrency,

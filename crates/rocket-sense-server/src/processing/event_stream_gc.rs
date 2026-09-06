@@ -179,7 +179,7 @@ const EVENT_STREAM_GC_SWEEP_INTERVAL: std::time::Duration =
 /// before inline GC existed (or whose inline GC failed) are reclaimed without
 /// operator intervention. Started alongside the replay processing workers, so
 /// exactly one service instance runs it.
-pub fn start_event_stream_gc_sweeper(pool: PgPool, storage: Arc<dyn ObjectStorage>) {
+pub(super) fn start_event_stream_gc_sweeper(pool: PgPool, storage: Arc<dyn ObjectStorage>) {
     tokio::spawn(async move {
         tokio::time::sleep(EVENT_STREAM_GC_SWEEP_INITIAL_DELAY).await;
         loop {
