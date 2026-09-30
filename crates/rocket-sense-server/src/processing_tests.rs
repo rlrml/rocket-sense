@@ -549,6 +549,7 @@ fn replay_search_metadata_backfills_missing_scoreboard_stats_from_core_events() 
         frames: vec![],
         activity_summary: default_activity_summary(),
         positioning_summary: vec![],
+        expected_goals_tracks: Default::default(),
         accumulation_tracks: vec![],
     };
 
@@ -1757,6 +1758,7 @@ fn stats_timeline_with_events(
         frames: vec![],
         activity_summary: default_activity_summary(),
         positioning_summary: vec![],
+        expected_goals_tracks: Default::default(),
         accumulation_tracks: vec![],
     }
 }
@@ -1967,6 +1969,7 @@ fn stats_timeline_fixture_for_client_json(
         }],
         activity_summary: default_activity_summary(),
         positioning_summary: vec![],
+        expected_goals_tracks: Default::default(),
         accumulation_tracks: vec![subtr_actor::AccumulationTrack {
             player_id: ps4_player,
             is_team_0: false,
@@ -2194,6 +2197,31 @@ fn staleness_is_not_flagged_for_unparsed_replay() {
     assert!(!info.is_stale);
     assert!(!info.schema_outdated);
     assert!(!info.subtr_actor_outdated);
+}
+
+#[test]
+fn season_24_honor_duel_produces_server_analysis() {
+    let bytes = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../vendor/subtr-actor/assets/replay-format-2026-09-18-v868-34-net12-season24-honor-duel.replay"
+    ))
+    .expect("read Season 24 Honor Duel fixture");
+    let analysis = collect_replay_analysis(bytes, Some("season-24-honor-duel-fixture"))
+        .expect("analyze Season 24 Honor Duel with eager mistakes");
+
+    assert_eq!(analysis.metadata.players.len(), 4);
+    assert!(!analysis.indexed_events.is_empty());
+    assert!(!analysis.boost_tracks["tracks"]
+        .as_array()
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        analysis.event_stream["mistakes"]["players"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
 }
 
 /// End-to-end equivalence check for the client-side reprocess path: a real
