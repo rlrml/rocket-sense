@@ -3993,6 +3993,7 @@ fn remote_id_parts(remote_id: &RemoteId) -> (Option<String>, Option<String>) {
         RemoteId::Xbox(id) => (Some("xbox".to_owned()), Some(id.to_string())),
         RemoteId::QQ(id) => (Some("qq".to_owned()), Some(id.to_string())),
         RemoteId::Epic(id) => (Some("epic".to_owned()), Some(id.clone())),
+        _ => (None, None),
     }
 }
 

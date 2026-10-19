@@ -1,6 +1,6 @@
 use super::DEFAULT_EXTRACTOR_NAME;
 
-pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v15";
+pub(crate) const EVENT_STREAM_SCHEMA_VERSION: &str = "rocket-sense-event-stream:v16";
 
 pub(crate) fn subtr_actor_version() -> &'static str {
     option_env!("SUBTR_ACTOR_VERSION").unwrap_or("unknown")
@@ -77,6 +77,12 @@ pub(crate) const EVENT_STREAM_SCHEMA_CHANGELOG: &[(&str, &str)] = &[
         "rocket-sense-event-stream:v15",
         "RLVision mistake detection now runs eagerly for every replay player during \
          canonical processing and persists the surviving reranked markers as play events.",
+    ),
+    (
+        "rocket-sense-event-stream:v16",
+        "subtr-actor 1.5.0 replaces the heuristic whiff detector with a learned \
+         classifier that emits clean whiffs and disrupted attempts separately; \
+         reprocess to replace whiff events and counts.",
     ),
 ];
 
